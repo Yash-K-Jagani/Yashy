@@ -1,0 +1,7 @@
+# The golden token streams pin byte offsets, so the bytes of the inputs and of
+# the expected files have to be the same on every machine. This repository is
+# checked out with CRLF on Windows, which would move every span on every line
+# after the first and make the comparison fail for a reason that has nothing to
+# do with the lexer.
+tests/golden/*.ot text eol=lf
+tests/golden/*.expected text eol=lf

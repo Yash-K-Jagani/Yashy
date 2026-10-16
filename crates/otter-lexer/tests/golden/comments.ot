@@ -1,0 +1,4 @@
+// leading line comment
+/* block /* nested */ still comment */ 1
+/* multi
+   line */ 2
