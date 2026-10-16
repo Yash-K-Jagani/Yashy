@@ -1,0 +1,17 @@
+# Superpowers scratch (SDD ledgers, briefs, review packages)
+.superpowers/
+
+# Build output
+target/
+# Generated IR is build output, but golden expectations are tracked.
+*.ll
+!*.expected.ll
+*.o
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.lib
+
+# Test artifacts
+tests/programs/**/out
