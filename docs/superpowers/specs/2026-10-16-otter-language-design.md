@@ -14,8 +14,9 @@ compiles to native binaries through an LLVM backend, is written in Rust, and is
 intended first for its creator and then for wider use.
 
 Otter has **no null**, **no exceptions**, and **no garbage collector**. Memory is
-manual for buffers and arrays, refcounted for strings. Concurrency uses OS
-threads and channels. C is reachable through `extern` blocks.
+manual for buffers and arrays, refcounted for strings. Runtime faults `panic`
+and unwind, running every pending `defer`. Concurrency uses OS threads and
+channels. C is reachable through `unsafe`-marked `extern` blocks.
 
 ### Goals
 
@@ -50,7 +51,8 @@ threads and channels. C is reachable through `extern` blocks.
 | Type system | Static, local inference, no null | Safety without ceremony |
 | Memory | Manual + escape analysis | Core request |
 | Concurrency | OS threads + channels, no async runtime | Smallest correct runtime |
-| Interop | `extern` C FFI | Bootstrap path for the stdlib |
+| Interop | `extern` C FFI, `unsafe`-marked, copying | Bootstrap path for the stdlib |
+| Runtime faults | `panic` with unwinding; checked arithmetic | No exceptions, so faults need one defined path |
 | Platforms | Windows x86-64 and Linux x86-64 | Author's machine, plus server targets |
 
 ---
@@ -121,10 +123,10 @@ fn main() {
 - `const x = expr;` — immutable binding. `var x = expr;` — mutable.
 - `let` is **not** a keyword: a third synonym for `const` is one more thing to
   learn.
-- `:=` is the one open spelling question (§11.1). If accepted, it is sugar for
+- `:=` is the one open spelling question (§12.1). If accepted, it is sugar for
   `const`, never the canonical spelling.
 - Parameters, return types, and struct fields are always annotated.
-- `fn main()` has no return type and returns nothing.
+- `fn main()` may return nothing or return `i32` (§6.3).
 
 ### 3.3 Control flow
 
@@ -243,9 +245,84 @@ language about lifetimes instead of about problems.
 
 **The rule:** arrays and buffers are manual, strings are refcounted.
 
+### 5.5 `defer`, `move`, and arenas together
+
+These three interact, so the rules are stated explicitly.
+
+- **`defer` captures at registration time.** A `defer` expression is evaluated
+  when the `defer` statement executes, not at scope exit. `defer dealloc(buf)`
+  therefore captures the pointer *now*.
+- **You cannot `move` a pointer captured by a live `defer`.** The compiler
+  rejects it: the `defer` would free memory the new owner is using. The fix is to
+  register the `defer` after any `move`, or to transfer the `defer` too.
+- **Arena allocations are not linear.** Moving an arena-owned value transfers no
+  ownership obligation; the arena keeps it alive. `move` on an arena pointer is a
+  no-op for lifetime purposes and is allowed freely.
+- **`defer` runs during panic unwinding** (§6), so cleanup is not skipped on a
+  fault. A `defer` that panics during unwinding aborts the process.
+
+### 5.6 Strings and threads
+
+Strings are **UTF-8** byte sequences with an explicit length. A `char` is a
+Unicode scalar value, not a byte.
+
+Refcounts are **atomic** when a string may be shared across threads, which is the
+default for values reachable from more than one thread. The compiler tracks this
+statically per binding: a `string` that never escapes to another thread gets a
+non-atomic refcount and pays nothing for it. This is decided at M7 and is a
+performance optimization, not a correctness requirement — before it lands,
+refcounts are atomic everywhere.
+
+A `string` shared between threads therefore requires no annotation; there is no
+`Arc`/`Rc` split in Otter, because refcounted strings are already the common case
+and adding two string types would be a worse trade than a few extra atomics.
+
 ---
 
-## 6. Concurrency
+## 6. Runtime faults and unwinding
+
+There are no exceptions, so runtime faults need one defined mechanism.
+
+**Every runtime fault panics.** Division by zero, integer overflow, `unwrap()`
+on a `None`, a failed `assert`, and an internal compiler-invariant violation all
+take the same path:
+
+1. Print `file:line:col`, the panic message, and a caret under the offending
+   expression in a source span.
+2. Unwind: run every pending `defer` on the stack, innermost first.
+3. Exit with a non-zero status.
+
+A fault never becomes a segfault, an abort with no message, or silent
+undefined behaviour. This costs real codegen work — landing pads and unwind
+tables — but without it, "no exceptions" and "no null" would leave programs
+dying in ways nobody can debug.
+
+**Unwinding is bounded, not a coroutine.** Otter supports panic-unwinding
+across `fn` frames, not `catch`/`throw`. Once a panic starts, the only choice
+the language offers is whether `defer` cleanup runs first.
+
+### 6.1 Checked arithmetic
+
+Integer arithmetic is **checked by default**: `i32` overflow panics rather than
+wrapping or invoking UB. Silent overflow is worse than a loud fault, and a
+language without exceptions has nowhere else to put the error.
+
+Wrapping and non-panicking forms are explicit opt-ins:
+`wrapping_add`, `checked_add` (returns `Option`), `saturating_add`.
+
+### 6.2 `assert`
+
+`assert(cond);` and `assert_eq(a, b);` panic with source spans on failure and
+compile away under `--release` when the assertion is marked `debug_assert`.
+
+### 6.3 Exit codes
+
+`fn main()` may return nothing or return `i32`, which becomes the process exit
+status. `os.exit(code)` is available anywhere.
+
+---
+
+## 7. Concurrency
 
 OS threads (`pthreads` / Win32) with message-passing channels and mutexes. No
 async runtime, no scheduler, no task stack management. v1 provides no automatic
@@ -254,12 +331,27 @@ correctness is the programmer's.
 
 ---
 
-## 7. Interop and standard library
+## 8. Interop and standard library
 
-`extern "C"` blocks link against any C library or compiled object, letting the
-stdlib bootstrap on libc and giving Otter immediate real-world reach. The cost is
-that C's ABI and pointer semantics are visible at the boundary, which is
-acceptable at v1.
+### 8.1 The FFI trust boundary
+
+Every `extern` declaration requires the `unsafe` marker:
+
+```c
+extern "C" unsafe fn puts(s: *const u8) -> i32;
+```
+
+Rules:
+
+- **Strings are UTF-8**, and `*const u8` is a NUL-terminated C string.
+- **Crossing the boundary copies.** `string` and `[]T` arguments are copied in
+  and out of C, so no aliased Otter memory ever escapes. Passing raw pointers is
+  possible but requires explicit `unsafe` at the call site.
+- The compiler's linearity invariants hold only over memory it can see. C code
+  can free an Otter buffer; that is precisely what `unsafe` marks as the
+  programmer's responsibility.
+
+### 8.2 Standard library
 
 v1 stdlib scope: `io` (stdout/stderr/files), `string`, `array`/`slice`, `math`,
 `os` (args, exit, env), `sync` (mutex, channel), and `alloc`.
@@ -270,7 +362,7 @@ never sees this difference.
 
 ---
 
-## 8. Compiler architecture
+## 9. Compiler architecture
 
 Rust workspace, one crate per pipeline stage.
 
@@ -294,7 +386,7 @@ Rust workspace, one crate per pipeline stage.
                                     └─▶ diagnostics (spans → colored carets)
 ```
 
-### 8.1 Backend strategy
+### 9.1 Backend strategy
 
 Hand-written textual LLVM IR emission; the compiler shells out to `llc`/`clang`.
 No LLVM build dependency at compile time, so `cargo build` works on any machine.
@@ -308,7 +400,7 @@ to Otter's own SSA IR a single-crate swap.
 Rejected alternative: `inkwell`/Rust LLVM bindings (version lockstep, multi-minute
 builds, LLVM install pain, binding churn).
 
-### 8.2 Diagnostics
+### 9.2 Diagnostics
 
 Every token and AST node carries a byte span. Errors render as `file:line:col`
 with a caret under the offending token. This ships in v1: a language people
@@ -316,7 +408,15 @@ cannot debug will not become one.
 
 ---
 
-## 9. Milestones and timeline
+### 9.3 Unwinding support
+
+Codegen emits landing pads and unwind tables for every call site that can panic,
+and `otter-runtime` provides the personality routine and phase-1/phase-2 landing
+pad helpers. The Rust compiler's `libunwind` is the reference implementation.
+
+---
+
+## 10. Milestones and timeline
 
 Estimates assume one developer at roughly 25–30 effective hours per week.
 At part-time, calendar time scales accordingly.
@@ -326,54 +426,65 @@ At part-time, calendar time scales accordingly.
 | M0 | Lexer, parser, CLI, `fn main` → `.ll` | `hello world` native binary | 2–3 weeks |
 | M1 | `const`/`var`, arithmetic, `if`/`for`, `fn`, primitive types | Fibonacci, loops | 3–4 weeks |
 | M2 | `struct`, `enum`, pattern matching, `Option`, `Result`, `?` | Value tree + pretty-printer | 3–5 weeks |
-| M3 | `alloc`/`dealloc`/`defer`, moves, arena, refcounted strings | String builder, dynamic array | 6–10 weeks |
-| M4 | `extern` C FFI + `otter-runtime`, both platforms | Calls libc; SHA-256 via a C library | 3–4 weeks |
-| M5 | Slices, maps, modules, multi-file builds | Small file/HTTP tool | 4–6 weeks |
-| M6 | Threads, channels, mutexes | Parallel task pool | 4–6 weeks |
-| M7 | Escape analysis (removes explicit `alloc`) | Benchmark vs. M3 allocations | 6–12 weeks |
-| M8 | Self-hosting bootstrap | Otter compiles its own stdlib | 6–12 weeks |
+| M3 | `alloc`/`dealloc`/`defer`, moves, arena, refcounted strings | String builder, dynamic array | 7–11 weeks |
+| M4 | Panic/unwinding, checked arithmetic, `assert`, exit codes | Deep recursion unwinds cleanly | 4–6 weeks |
+| M5 | `extern` C FFI + `otter-runtime`, both platforms | Calls libc; SHA-256 via a C library | 3–4 weeks |
+| M6 | Slices, maps, modules, multi-file builds | Small file/HTTP tool | 4–6 weeks |
+| M7 | Threads, channels, mutexes | Parallel task pool | 4–6 weeks |
+| M8 | `otter fmt`, tutorial book, LSP + syntax highlighting | A stranger writes a program from the tutorial | 4–6 weeks |
+| M9 | Escape analysis (removes explicit `alloc`) | Benchmark vs. M3 allocations | 6–12 weeks |
+| M10 | Self-hosting bootstrap | Otter compiles its own stdlib | 6–12 weeks |
 
-**Cumulative, honest:**
+### 10.1 Cumulative, honest
 
 - **M0–M2** (usable little language): **8–12 weeks**
-- **M0–M5** (general purpose): **21–32 weeks**, i.e. **5–8 months**
-- **M0–M8** (complete, self-hosting): **33–62 weeks**, i.e. **8–15 months**
+- **M0–M6** (general purpose): **26–39 weeks**, i.e. **6–10 months**
+- **M0–M10** (complete, self-hosting, teachable): **46–75 weeks**, i.e. **11–18 months**
 
-### 9.1 Where this is most likely to be wrong
+### 10.2 Where this is most likely to be wrong
 
 - **M3 is the first slip.** Manual memory plus moves plus refcounting is three
   interacting systems. There is a material chance M3 takes 50% longer than
   estimated, or forces a simplification of the string strategy.
-- **M7 is the largest single item** and is genuinely research-grade. It is also
+- **M4 (unwinding) is new relative to the original estimate** and adds roughly a
+  month. It is non-negotiable if "no exceptions" is to be usable.
+- **M9 is the largest single item** and is genuinely research-grade. It is also
   optional: without it the language is still correct, just allocating more.
-- **M8 compounds everything.** Self-hosting surfaces every missing feature in the
-  compiler, all at once. Do not start it before M5 is genuinely solid.
-- **M6 is smaller than it looks** only if "no data-race guarantees" is accepted
+- **M10 compounds everything.** Self-hosting surfaces every missing feature in
+  the compiler, all at once. Do not start it before M6 is genuinely solid.
+- **M7 is smaller than it looks** only if "no data-race guarantees" is accepted
   in v1. Adding deterministic data-race detection later is a significant project.
+- **M8 is not optional for the stated goal.** A language with no tutorial, no
+  formatter, and no editor support does not become one that "other people" use,
+  no matter how good the compiler is.
 
 ---
 
-## 10. Testing strategy
+## 11. Testing strategy
 
 - **Golden files**: source → expected AST and expected IR, so front-end changes
   are diffable and regressions are visible.
-- **Unit tests** for inference, move checking, and escape analysis in isolation,
-  without LLVM in the loop.
+- **Unit tests** for inference, move checking, panic propagation, and escape
+  analysis in isolation, without LLVM in the loop.
 - **End-to-end suite** of real programs asserting correct output, run on
-  **both Windows and Linux** in CI from M4 onward.
+  **both Windows and Linux** in CI from M5 onward.
 - **Type-error and runtime-failure tests** asserting not just that a program
   fails, but that the diagnostic names the right span.
+- **Robustness: the compiler never panics on malformed input.** This is an
+  explicit M0 acceptance criterion. The lexer, parser, and sema are fuzzed from
+  M0 with `cargo-fuzz`; any input produces a diagnostic and a non-zero exit, never
+  a Rust backtrace.
 
-### 10.1 Scope of the first implementation plan
+### 11.1 Scope of the first implementation plan
 
 This spec covers the whole language, which is too large for one implementation
 plan. The first plan written from it will cover **M0–M2 only** — a working
-lexer, parser, sema, codegen, and `hello world` through a typed value tree.
-M3 onward each get their own spec → plan → implementation cycle.
+lexer, parser, sema, and codegen that takes `hello world` through a typed value
+tree. M3 onward each get their own spec → plan → implementation cycle.
 
 ---
 
-## 11. Open questions for later milestones
+## 12. Open questions for later milestones
 
 Not blocking v1; decide when the milestone is reached.
 
@@ -381,5 +492,7 @@ Not blocking v1; decide when the milestone is reached.
 2. Module system shape: flat namespace with prefixes, or per-file scoping?
 3. Closures and higher-order functions — needed, and in what form?
 4. Package manager: is a registry ever needed, or is git+manifest enough?
-5. Generics after M5: type parameters, inference, and monomorphization vs. dictionaries.
-6. Whether to add data-race detection to M6 or defer it indefinitely.
+5. Generics after M6: type parameters, inference, and monomorphization vs. dictionaries.
+6. Whether to add data-race detection to M7 or defer it indefinitely.
+7. Whether `struct` values inside slices may be self-referential (a linked list in
+   an array). If so, how are elements pinned?
