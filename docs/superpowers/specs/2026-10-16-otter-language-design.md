@@ -261,6 +261,10 @@ These three interact, so the rules are stated explicitly.
 - **`defer` runs during panic unwinding** (§6), so cleanup is not skipped on a
   fault. A `defer` that panics during unwinding aborts the process.
 
+At M0–M2 there are no panics (§10, M4), so `defer` lowers statically: each
+scope's deferred expressions are emitted in reverse order before every exit path
+out of that scope — `return`, `break`, `continue`, and normal fallthrough.
+
 ### 5.6 Strings and threads
 
 Strings are **UTF-8** byte sequences with an explicit length. A `char` is a
@@ -368,13 +372,14 @@ Rust workspace, one crate per pipeline stage.
 
 | Crate | Job | Depends on |
 |---|---|---|
-| `otter-lexer` | bytes → tokens, with byte spans | — |
-| `otter-parser` | tokens → AST | lexer |
-| `otter-sema` | scopes, inference, `Option`/`Result` checks, move checking, exhaustiveness | parser |
-| `otter-codegen` | typed AST → LLVM IR **text** | sema |
-| `otter-driver` | CLI, orchestration, diagnostics rendering | all |
+| `otter-common` | `Span`, `SourceMap`, `Diagnostic`, rendering | — |
+| `otter-lexer` | bytes → tokens, with byte spans | common |
+| `otter-parser` | tokens → AST | lexer, common |
+| `otter-sema` | scopes, inference, `Option`/`Result` checks, move checking, exhaustiveness | parser, common |
+| `otter-codegen` | typed AST → LLVM IR **text** | sema, common |
+| `otter-driver` | CLI, orchestration, toolchain detection, diagnostics rendering | all |
 | `otter-stdlib` | the standard library, in Otter | built compiler |
-| `otter-runtime` | C shim: malloc, threads, dynamic loading | — |
+| `otter-runtime` | C shim: malloc, threads, dynamic loading, print helpers | — |
 
 ```
   otter build main.ot
@@ -441,7 +446,35 @@ At part-time, calendar time scales accordingly.
 - **M0–M6** (general purpose): **26–39 weeks**, i.e. **6–10 months**
 - **M0–M10** (complete, self-hosting, teachable): **46–75 weeks**, i.e. **11–18 months**
 
-### 10.2 Where this is most likely to be wrong
+### 10.2 Language surface available in M0–M2
+
+Deliberately narrow, so the front-end and codegen stay small and fully tested
+before memory and containers arrive.
+
+Available: `i64`, `f64`, `bool`, `string`, `()`, `struct`, `enum`, `Option<T>`,
+`Result<T,E>`. Declarations `fn`, `const`, `var`, `import`. Statements:
+expression, `const`/`var` binding, `return`, `if`/`else`, `for` (range and
+three-clause), `switch`, `break`, `continue`, `defer`. Expressions: literals,
+identifiers, binary and unary operators, calls, struct literals, field access,
+`as` casts, `?`, `switch` as an expression.
+
+Not yet available — each arrives in a later milestone:
+
+| Feature | Milestone |
+|---|---|
+| String and `char` operations, interpolation | M3 |
+| `alloc`/`dealloc`, `move`, arenas, refcounted string drop | M3 |
+| Slices `[]T`, arrays, maps `map[K]V`, indexing | M6 |
+| `extern` C FFI | M5 |
+| `switch` as an expression, exhaustiveness with bindings | M2 |
+| Checks for missing `main`, zero division, overflow | M4 |
+
+At M0–M2 `i64` division by zero and integer overflow are **not** trapped: `sdiv`
+by zero is undefined behaviour in LLVM. Both become defined, panicking
+operations in M4. The M0–M2 codegen tests pin the interim wrapping behaviour so
+the transition to checked arithmetic is a deliberate, tested change.
+
+### 10.4 Where this is most likely to be wrong
 
 - **M3 is the first slip.** Manual memory plus moves plus refcounting is three
   interacting systems. There is a material chance M3 takes 50% longer than
@@ -522,7 +555,7 @@ A useful early signal is whether M0–M2 lands ahead of or behind the stated
 
 ---
 
-## 14. Open questions for later milestones
+## 12. Open questions for later milestones
 
 Not blocking v1; decide when the milestone is reached.
 
