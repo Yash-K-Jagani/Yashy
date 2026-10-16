@@ -251,6 +251,13 @@ weaken these.
 - **Golden files are the contract.** Any change to emitted IR must be a
   deliberate, reviewed diff of a `.expected.ll` file. The implementer reads
   each regenerated golden file; an unread regeneration is an incomplete task.
+- **Mutation testing must not leave stale build artifacts.** `otter-runtime`'s
+  `build.rs` uses `cargo:rerun-if-changed`, which is mtime-based. Restoring a C
+  source with a tool that preserves the old mtime leaves a stale static library
+  and a test that passes against old code or fails against new code for no real
+  reason. This actually happened: a stale `libotter_runtime.a` made
+  `otter_print_str` appear to append a CRLF. After any mutation-testing session
+  touching a C file, run `cargo clean -p <crate>` before trusting results.
 - **No premature features.** Generics, closures, operator overloading, Wasm
   output, C++ interop, package-manager version resolution, and any form of GC
   remain out of scope for M0–M10 per spec §1. The bootstrap in M10 uses only

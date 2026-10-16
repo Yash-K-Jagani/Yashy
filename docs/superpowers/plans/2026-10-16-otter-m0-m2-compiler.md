@@ -218,7 +218,7 @@ fn renders_caret_under_the_offending_column() {
         label: None,
     };
     let out = sm.render(&d);
-    assert!(out.contains("main.ot:2:5"), "got: {out}");
+    assert!(out.contains("main.ot:2:7"), "got: {out}");
     assert!(out.contains("error: cannot find value `y` in this scope"), "got: {out}");
     assert!(out.contains("^"), "caret line missing: {out}");
 }
@@ -243,6 +243,13 @@ Expected: FAIL — `SourceMap` and `Diagnostic` do not exist.
 - [ ] **Step 3: Implement `SourceMap` and `Diagnostic`**
 
 `add_file` stores text and an index of newline positions. `locate` binary-searches the newline index for `span.start`, then counts characters from the line start for the column. Rendering writes, in order: `path:line:col`, the severity and message, the source line with tabs preserved, and a caret line. Clamp every offset into the file so no input can panic.
+
+**Column arithmetic, pinned:** for the fixture above, byte 18 is the `t` of `let`. Line 2
+starts at byte 12 and the indent occupies bytes 12–15, so the caret column is **7**, and
+the rendered location is `main.ot:2:7`. An earlier draft of this plan asserted `2:5`,
+which is arithmetically wrong for a four-space indent. Columns count characters from 1,
+tabs count as one column, and a `\r` before a `\n` is part of the line ending and is not
+rendered.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
