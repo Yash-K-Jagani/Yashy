@@ -15,15 +15,32 @@ use crate::span::Span;
 ///
 /// This is an index into a [`SourceMap`], not a path: a source map is built up
 /// as the driver opens files, and the index is all a span needs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// # A `FileId` is only meaningful with the map that issued it
+///
+/// Each map numbers its own files from zero, so an id taken from one map and
+/// handed to another **resolves to whichever file that index happens to name
+/// there -- silently, and almost certainly the wrong one.** That produces a
+/// caret under an unrelated source line, which is worse than a clean "unknown
+/// source": the reader is shown confident, wrong information. Only an index no
+/// map has degrades to "no source available".
+///
+/// So a `FileId` must never outlive, or be mixed between, its [`SourceMap`]. If
+/// that ever comes up -- ids cached across a reload, or a diagnostic deferred
+/// past the map that produced it -- the fix belongs here, by adding a generation
+/// counter to the id or a `debug_assert` that catches the mix-up, not at the
+/// call sites. `tests/render.rs::a_file_can_be_read_back_by_id` pins the current
+/// aliasing behaviour on purpose, so that such a change is a deliberate,
+/// visible diff rather than a silent one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileId(u32);
 
 impl FileId {
     /// Builds a `FileId` from a raw index.
     ///
-    /// Only the indices handed out by [`SourceMap::add_file`] name a real file.
-    /// A `FileId` built any other way is not an error: it simply does not
-    /// resolve, and every lookup on it degrades to "no source available"
+    /// Only the indices handed out by [`SourceMap::add_file`] name a real file,
+    /// and only in the map that handed them out. An index no map has is not an
+    /// error either: every lookup on it degrades to "no source available"
     /// instead of panicking.
     pub fn from_index(index: u32) -> FileId {
         FileId(index)
@@ -40,7 +57,7 @@ impl FileId {
 /// Columns count characters, not bytes, so a multi-byte character advances the
 /// column by one and a tab is one column as well (see [`SourceMap::render`] for
 /// why the rendered caret keeps the tab).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Location {
     /// The one-based line number.
     pub line: u32,
@@ -92,14 +109,25 @@ impl SourceFile {
             Err(insert_at) => insert_at.saturating_sub(1),
         };
         let line_start = self.line_starts.get(line_index).copied().unwrap_or(0);
-        let preceding = self.text.get(line_start..offset).map(|s| s.chars().count()).unwrap_or(0);
+        // A `\r` is part of the line ending, not of the line, so an offset
+        // pointing at it -- or at the `\n` after it -- is reported as one
+        // column past the last *visible* character. Counting it instead would
+        // put the caret padding one column beyond the source line `render`
+        // prints, which is exactly the line the reader is looking at.
+        let visible_end = match self.line_bounds(line_index) {
+            Some((_, end)) => offset.min(end),
+            None => offset,
+        };
+        let preceding = self.text.get(line_start..visible_end).map(|s| s.chars().count()).unwrap_or(0);
         Location { line: saturating_u32(line_index.saturating_add(1)), col: saturating_u32(preceding.saturating_add(1)) }
     }
 
     /// The text of a one-based line, without its line terminator.
     ///
-    /// A `\r` at the end is a terminator on every platform that uses CRLF, not
-    /// part of the line, so it is dropped rather than printed.
+    /// Every `\r` at the end is a terminator, not content -- on every platform
+    /// that uses CRLF, and also in the `\r\r\n` a file picks up from a tool that
+    /// has already doubled them -- so all of them are dropped rather than
+    /// printed.
     fn line_text(&self, line: u32) -> &str {
         // `line_starts` is indexed from zero while locations are one-based, so
         // the line number is shifted down here. A location of zero -- which no
@@ -128,7 +156,11 @@ impl SourceFile {
             Some(next) => next.checked_sub(1)?,
             None => self.text.len(),
         };
-        if end > start && self.text.as_bytes().get(end - 1) == Some(&b'\r') {
+        // Then step back over every `\r` before it. One is the ordinary CRLF;
+        // more than one happens when a tool has already doubled them, and they
+        // are just as much terminator as the first. `end > start` keeps the
+        // subtraction in bounds on an empty line.
+        while end > start && self.text.as_bytes().get(end - 1) == Some(&b'\r') {
             end -= 1;
         }
         Some((start, end))
@@ -153,16 +185,6 @@ impl SourceMap {
         };
         self.files.push(SourceFile::new(path.into(), text));
         FileId(index)
-    }
-
-    /// How many files have been added.
-    pub fn len(&self) -> usize {
-        self.files.len()
-    }
-
-    /// True when no file has been added.
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
     }
 
     /// The text of a file, or `""` if the id names no file in this map.
@@ -198,14 +220,14 @@ impl SourceMap {
     pub fn render(&self, d: &Diagnostic) -> String {
         let file = match self.get(d.file) {
             Some(file) => file,
-            // A `FileId` from another source map, or one built by hand. Report
-            // the message anyway: losing the diagnostic would hide the very
-            // problem that produced the bogus id.
+            // An id no file in this map has -- see the warning on [`FileId`]
+            // about ids from another map. Report the message anyway: losing the
+            // diagnostic would hide the very problem that produced the bad id.
             None => {
                 return format!(
                     "{}:1:1\n{}: {}\n<source line unavailable>\n",
                     self.path(d.file),
-                    d.severity,
+                    d.severity.as_str(),
                     d.message
                 )
             }
@@ -227,7 +249,7 @@ impl SourceMap {
             located.line,
             located.col
         ));
-        out.push_str(&format!("{}: {}\n", d.severity, d.message));
+        out.push_str(&format!("{}: {}\n", d.severity.as_str(), d.message));
         out.push_str(line_text);
         out.push('\n');
         out.push_str(&padding);
@@ -259,6 +281,11 @@ fn caret_count(file: &SourceFile, line_text: &str, at: Location, span: Span) -> 
     );
     let spanned = file.text.get(start..end).map(|s| s.chars().count()).unwrap_or(0);
     let already_past = usize::try_from(at.col.saturating_sub(1)).unwrap_or(usize::MAX);
+    // The `.max(1)` is load-bearing: a span pointing at the end of the file
+    // leaves `at.col` one past the last character, so the subtraction yields 0,
+    // and `clamp(1, 0)` below *panics* when min exceeds max. Do not drop the
+    // `.max(1)` or move it below the `clamp` without a proof that `available`
+    // can never be zero.
     let available = line_text.chars().count().saturating_sub(already_past).max(1);
     spanned.clamp(1, available)
 }

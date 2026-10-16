@@ -16,15 +16,16 @@ pub const EXIT_COMPILE_ERROR: i32 = 1;
 
 /// How serious a diagnostic is.
 ///
-/// The variants are declared in increasing order of severity, so the derived
-/// `Ord` puts errors above warnings: the bag can then report "is the worst
-/// thing here an error?" with a plain comparison.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// There is deliberately no `Ord`: nothing in the compiler orders severities.
+/// What the pipeline needs is "does this bag contain an error", which
+/// [`Diagnostic::is_error`] answers directly, so an ordering would be a second
+/// way to say the same thing and a place for the two to disagree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Severity {
-    /// Compilation is fine, but something is worth saying.
-    Warning,
     /// Compilation cannot produce a correct program.
     Error,
+    /// Compilation is fine, but something is worth saying.
+    Warning,
 }
 
 impl Severity {
@@ -34,12 +35,6 @@ impl Severity {
             Severity::Error => "error",
             Severity::Warning => "warning",
         }
-    }
-}
-
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -129,19 +124,10 @@ impl DiagnosticBag {
     }
 }
 
-impl<'a> IntoIterator for &'a DiagnosticBag {
-    type Item = &'a Diagnostic;
-    type IntoIter = std::slice::Iter<'a, Diagnostic>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.diags.iter()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Diagnostic, DiagnosticBag, Severity};
-    use crate::source::{FileId, SourceMap};
+    use crate::source::FileId;
     use crate::span::Span;
 
     fn a_diagnostic(severity: Severity) -> Diagnostic {
@@ -152,7 +138,6 @@ mod tests {
     fn severity_renders_as_a_lowercase_word() {
         assert_eq!(Severity::Error.as_str(), "error");
         assert_eq!(Severity::Warning.as_str(), "warning");
-        assert_eq!(Severity::Error.to_string(), "error");
     }
 
     #[test]
@@ -163,9 +148,9 @@ mod tests {
     }
 
     #[test]
-    fn errors_sort_above_warnings() {
-        assert!(Severity::Error > Severity::Warning);
-        assert!(Severity::Warning < Severity::Error);
+    fn only_an_error_counts_as_an_error() {
+        assert!(a_diagnostic(Severity::Error).is_error());
+        assert!(!a_diagnostic(Severity::Warning).is_error());
     }
 
     #[test]
@@ -190,16 +175,5 @@ mod tests {
         assert_eq!(bag.error_count(), 1);
         assert_eq!(bag.iter().collect::<Vec<_>>(), vec![&warning, &error]);
         assert_eq!(bag.into_vec(), vec![warning, error]);
-    }
-
-    #[test]
-    fn iterating_a_bag_by_reference_yields_the_diagnostics() {
-        let mut sm = SourceMap::new();
-        let file = sm.add_file("main.ot", "fn main() {}\n".to_string());
-        let mut bag = DiagnosticBag::new();
-        bag.push(Diagnostic::new(Severity::Warning, file, Span::new(3, 7), "unused"));
-
-        let seen: Vec<&str> = (&bag).into_iter().map(|d| d.message.as_str()).collect();
-        assert_eq!(seen, vec!["unused"]);
     }
 }
