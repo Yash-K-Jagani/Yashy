@@ -224,6 +224,18 @@ weaken these.
 - **No LLVM build dependency.** The crate tree never links LLVM. LLVM is a
   subprocess only. The reason: a contributor can `cargo build` with no LLVM
   development environment.
+- **`llc` does not exist on Windows.** The Windows LLVM distribution ships
+  `clang.exe` and `clang-cl.exe` but no `llc.exe`. `otter-driver::toolchain`
+  records which candidate won in `Toolchain.found`, and the pipeline branches on
+  it. Only Linux has a real `llc` path; Windows always goes through
+  `clang -x ir`.
+- **Assume no MSVC.** A machine may have no Visual Studio and no MSVC CRT.
+  Windows linking goes through `clang`, never a hand-written `link.exe` command
+  line, so the same code works with or without MSVC present.
+- **The Rust toolchain target is not pinned to MSVC.** On a machine with no MSVC,
+  a `rustup` directory override to a `-gnu` toolchain is required. That is
+  machine state, not repository state; the repository must not hard-code a
+  target that only works on the author's machine.
 - **LLVM 17+ opaque pointers.** All pointers are `i8*`; typed pointer syntax
   (`i64*`) is never emitted. `target datalayout` and `target triple` come from
   the M0–M2 module header and are not restated by later tasks.

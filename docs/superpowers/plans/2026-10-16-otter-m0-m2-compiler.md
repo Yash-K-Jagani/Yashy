@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Platform targets:** Windows x86-64 and Linux x86-64, from the first task. No platform-conditional language features.
-- **Prerequisite — LLVM is not installed.** `llc` and `clang` are both absent on this machine. Install before Task 1 with `winget install LLVM.LLVM`, then confirm `llc --version` succeeds. Task 0 verifies this and fails loudly rather than working around it.
+- **Prerequisite — LLVM.** `llc` and `clang` are both absent on a fresh machine. Install with `winget install LLVM.LLVM`, then confirm a tool is reachable: `clang --version` on Windows — the Windows distribution ships **no `llc.exe`**, so `clang` is the expected result there and is the primary Windows path — or `llc --version` on Linux. Task 0 verifies this and fails loudly rather than working around it.
 - **No LLVM build dependency.** The compiler crate tree must not link LLVM. LLVM is invoked only as a subprocess.
 - **Diagnostics are v1, not v2** (spec §9.2). Every error carries a byte span and renders with a caret. No `panic!`, `unwrap()`, or `expect()` on user input anywhere in the pipeline — a malformed program produces a diagnostic and exit code 1.
 - **Checked arithmetic does not land until M4** (spec §6.1, §10.2). At M0–M2 `i64` arithmetic emits LLVM wrapping ops and `sdiv`; division by zero is UB. Task 11 pins this interim behaviour with tests so the M4 change is deliberate.
@@ -953,10 +953,14 @@ target triple = "x86_64-pc-windows-msvc"
 
 %otter_str = type { i32, i32, i8* }
 
-declare i32 @otter_print_str(i8*)
+declare void @otter_print_str(i8*)
 declare void @otter_print_i64(i64)
 declare void @otter_print_f64(double)
 ```
+
+**All three print functions return `void`.** An earlier draft of this plan declared
+`i32 @otter_print_str(i8*)`; the master plan's ledger L1 is authoritative and says
+`void`. Codegen must emit `void`.
 
 `target triple` is `"x86_64-pc-windows-msvc"` on Windows and `"x86_64-unknown-linux-gnu"` otherwise, chosen from `cfg!(target_os)`.
 
@@ -1357,7 +1361,21 @@ Expected: FAIL — `compile_to_binary` does not exist.
 
 - [ ] **Step 4: Implement `pipeline::compile_to_binary`**
 
-In order: lex, parse, check, emit. Any `Err` returns the diagnostic vector immediately — nothing downstream runs on a broken program. On success write the `.ll` next to the output as `out.ll`, then invoke `llc -filetype=obj -o out.o out.ll`, then link. On Windows link with `link.exe /nologo /out:<out> out.o otter_runtime.lib /entry:mainCRTStartup /subsystem:console`; on Linux link with `cc -o <out> out.o -lpthread -ldl -lm`. If `llc` is unavailable but `clang` is, use `clang -x ir out.ll -c -o out.o`.
+In order: lex, parse, check, emit. Any `Err` returns the diagnostic vector immediately — nothing downstream runs on a broken program. On success write the `.ll` next to the output as `out.ll`, then assemble and link.
+
+**Backend selection follows the master plan's ledger, and `llc` is NOT available on
+Windows.** The Windows LLVM distribution ships `clang.exe` and `clang-cl.exe` but no
+`llc.exe`. So:
+
+- If `Toolchain.found == "llc"`: `llc -filetype=obj -o out.o out.ll`.
+- If `Toolchain.found == "clang"`: `clang -x ir out.ll -c -o out.o`.
+- Link: `clang out.o -o <out> -lpthread -ldl -lm` on Linux. On Windows, link the same
+  way and let clang pick its default target — **do not assume MSVC**. This
+  development machine has no Visual Studio and no MSVC CRT, so `link.exe` is
+  unavailable and MSVC-style `link.exe /entry:mainCRTStartup` linking cannot work.
+  If MSVC *is* present, `clang` drives `link.exe` automatically with no extra flags.
+- On any linker failure, report a diagnostic naming the missing library or the
+  missing CRT rather than dumping raw linker output.
 
 - [ ] **Step 5: Implement the CLI**
 
