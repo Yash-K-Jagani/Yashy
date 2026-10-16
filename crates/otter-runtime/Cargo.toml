@@ -8,3 +8,9 @@ build = "build.rs"
 
 [build-dependencies]
 cc = "1"
+
+# The print tests re-run this binary as a child process to capture stdout, so
+# they need to own `main`.
+[[test]]
+name = "print"
+harness = false
