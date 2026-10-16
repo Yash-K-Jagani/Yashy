@@ -508,12 +508,23 @@ the transition to checked arithmetic is a deliberate, tested change.
   M0 with `cargo-fuzz`; any input produces a diagnostic and a non-zero exit, never
   a Rust backtrace.
 
-### 11.1 Scope of the first implementation plan
+### 11.1 Scope of the implementation plans
 
-This spec covers the whole language, which is too large for one implementation
-plan. The first plan written from it will cover **M0–M2 only** — a working
-lexer, parser, sema, and codegen that takes `hello world` through a typed value
-tree. M3 onward each get their own spec → plan → implementation cycle.
+This spec covers the whole language. It is planned up front, in full, as five
+documents that execute in order:
+
+| Plan | Covers |
+|---|---|
+| `plans/2026-10-16-otter-m0-m2-compiler.md` | M0–M2: lexer, parser, sema, codegen, driver |
+| `plans/2026-10-16-otter-m3-m4-memory-and-faults.md` | M3–M4: memory model, panic and unwinding |
+| `plans/2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6: C FFI, slices, maps, modules, stdlib |
+| `plans/2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8: threads, formatter, LSP, tutorial |
+| `plans/2026-10-16-otter-m9-m10-optimization-and-bootstrap.md` | M9–M10: escape analysis, self-hosting |
+
+`plans/2026-10-16-otter-master-plan.md` holds the cross-plan interface ledger and
+the ordering and dependencies between milestones. Execution still proceeds one
+milestone at a time; a later plan's task never starts before the earlier plan's
+milestone is complete and reviewed.
 
 ---
 
