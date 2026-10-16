@@ -484,7 +484,45 @@ tree. M3 onward each get their own spec → plan → implementation cycle.
 
 ---
 
-## 12. Open questions for later milestones
+## 13. Development approach
+
+Otter will be written with heavy AI assistance: an AI agent writes most of the
+code, guided by specs, milestone plans, and tests written by the author.
+
+### 13.1 What AI assistance changes
+
+- **Interface design matters more, not less.** Agents work within a context
+  window. The crate boundaries in §9 exist partly so each is small enough to be
+  reasoned about correctly in isolation.
+- **Tests are the specification.** Golden files, unit tests, and the
+  end-to-end suite are the primary channel through which the author verifies
+  agent output, since the author will not read every line.
+- **Slice size matters.** Milestones must be split into slices small enough to
+  complete and verify in one sitting, each ending in working, tested code.
+- **Diagnostics as a first-class feature (§9.2) become more important, not
+  less**, because a failing agent-written test needs a good error to debug from.
+
+### 13.2 What it does not change
+
+The timeline in §10 assumes one author making design decisions, reviewing
+generated code, and debugging compiler bugs. AI assistance helps unevenly:
+
+- **Faster:** boilerplate-heavy code (lexer rules, parser combinators, AST
+  definitions, repetitive codegen, test fixtures, stdlib wrappers).
+- **Not faster:** deciding what the type system should do, diagnosing a wrong
+  diagnostic, chasing a miscompile, and reviewing for correctness the compiler
+  itself cannot catch. Escape analysis (M9) and self-hosting (M10) are the
+  milestones where AI assistance helps least, because the difficulty is in the
+  design, not the typing.
+
+The estimates in §10 are therefore left unchanged. They are already conservative
+for the code-authoring portion and realistic for the design-and-debug portion.
+A useful early signal is whether M0–M2 lands ahead of or behind the stated
+8–12 weeks; that single data point should calibrate the rest of the schedule.
+
+---
+
+## 14. Open questions for later milestones
 
 Not blocking v1; decide when the milestone is reached.
 
