@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/otter-common",
+    "crates/otter-lexer",
+    "crates/otter-parser",
+    "crates/otter-sema",
+    "crates/otter-codegen",
+    "crates/otter-driver",
+    "crates/otter-runtime",
+]
+
+# `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"

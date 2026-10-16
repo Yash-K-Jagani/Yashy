@@ -1,0 +1,10 @@
+[package]
+name = "otter-driver"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+otter-common = { path = "../otter-common" }
+otter-codegen = { path = "../otter-codegen" }
+otter-sema = { path = "../otter-sema" }
+otter-runtime = { path = "../otter-runtime" }

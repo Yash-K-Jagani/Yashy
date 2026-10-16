@@ -1,0 +1,8 @@
+[package]
+name = "otter-codegen"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+otter-common = { path = "../otter-common" }
+otter-sema = { path = "../otter-sema" }

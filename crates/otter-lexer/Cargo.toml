@@ -1,0 +1,7 @@
+[package]
+name = "otter-lexer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+otter-common = { path = "../otter-common" }

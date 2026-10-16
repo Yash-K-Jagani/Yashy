@@ -1,0 +1,10 @@
+[package]
+name = "otter-runtime"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]
+cc = "1"
