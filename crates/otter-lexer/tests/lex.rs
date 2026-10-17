@@ -12,8 +12,18 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use otter_common::{Diagnostic, Span};
+use otter_common::{Diagnostic, FileId, Span};
 use otter_lexer::{literal_as_i64, Lexer, StringLit, Token, TokenKind};
+
+/// The file id these tests report against.
+///
+/// `otter_common::FileId` is an index into a `SourceMap`, and these tests have
+/// no map: they lex a literal string. File zero is therefore the only honest
+/// choice here, and passing it explicitly is the point -- `literal_as_i64` has
+/// no default for it.
+fn file() -> FileId {
+    FileId::from_index(0)
+}
 
 /// Every token as `(kind, span)`, on success.
 fn lex(src: &str) -> Result<Vec<(TokenKind, Span)>, Vec<Diagnostic>> {
@@ -98,30 +108,46 @@ fn a_number_too_large_for_an_i64_is_a_diagnostic_not_a_panic() {
     // `literal_as_i64` is the only supported way to turn an `I64` token's text
     // into a value. A caller that reached for `str::parse::<i64>().unwrap()`
     // instead would panic here, on the one input a user can type by accident.
+    //
+    // There is one function and it takes the `FileId`: a two-argument form that
+    // defaulted to file zero would put the caret in an unrelated source file
+    // for anyone reading from a `SourceMap`, and the wrong caret is worse than
+    // no diagnostic.
     let big = "9".repeat(40);
-    let d = match literal_as_i64(&big, Span::new(0, 40)) {
+    let d = match literal_as_i64(&big, Span::new(0, 40), file()) {
         Ok(value) => panic!("40 digits cannot be an i64, got {value}"),
         Err(d) => d,
     };
     assert!(d.is_error());
     assert_eq!(d.span, Span::new(0, 40), "the caret covers the whole literal");
+    assert_eq!(d.file, file(), "the diagnostic names the file it was given");
     assert!(d.message.contains("i64"), "got {:?}", d.message);
 
     // The boundaries, so an off-by-one in the range check shows up. Note that
     // `i64::MIN` is not here: the lexer makes the `-` a separate token, so the
     // largest literal an `I64` token can stand for is `i64::MAX`, and folding a
     // sign into it is the parser's business.
-    assert_eq!(literal_as_i64("9223372036854775807", Span::new(0, 19)), Ok(i64::MAX));
-    assert!(literal_as_i64("9223372036854775808", Span::new(0, 19)).is_err());
-    assert!(literal_as_i64("99999999999999999999", Span::new(0, 20)).is_err());
+    assert_eq!(literal_as_i64("9223372036854775807", Span::new(0, 19), file()), Ok(i64::MAX));
+    assert!(literal_as_i64("9223372036854775808", Span::new(0, 19), file()).is_err());
+    assert!(literal_as_i64("99999999999999999999", Span::new(0, 20), file()).is_err());
 
     // A span that names an empty or unsliceable range is a diagnostic, not a
     // panic, and neither is text that is not digits -- including a sign, which
     // is never part of an `I64` token's own span.
-    assert!(literal_as_i64("42", Span::new(0, 99)).is_err());
-    assert!(literal_as_i64("x", Span::new(0, 1)).is_err());
-    assert!(literal_as_i64("", Span::new(0, 0)).is_err());
-    assert!(literal_as_i64("-42", Span::new(0, 3)).is_err());
+    assert!(literal_as_i64("42", Span::new(0, 99), file()).is_err());
+    assert!(literal_as_i64("x", Span::new(0, 1), file()).is_err());
+    assert!(literal_as_i64("", Span::new(0, 0), file()).is_err());
+    assert!(literal_as_i64("-42", Span::new(0, 3), file()).is_err());
+
+    // The file id is not ignored: the same text under a different id reports
+    // under that id. A diagnostic that always said file zero would be the bug
+    // this argument exists to prevent.
+    let other = FileId::from_index(7);
+    let d = match literal_as_i64("99999999999999999999", Span::new(0, 20), other) {
+        Ok(value) => panic!("20 digits cannot be an i64, got {value}"),
+        Err(d) => d,
+    };
+    assert_eq!(d.file, other, "the diagnostic must not be pinned to file zero");
 }
 
 #[test]
@@ -167,10 +193,14 @@ fn a_byte_order_mark_is_skipped_at_the_start_of_a_file() {
 
     // Only a *leading* BOM is skipped. One in the middle of a file is a
     // character nobody typed on purpose, and swallowing it would hide a real
-    // mistake.
+    // mistake -- but the diagnostic naming it has to be readable, or skipping
+    // the mark at the start just moves the invisible-character complaint to
+    // the mark in the middle.
     let diags = errors("1 \u{feff}2");
     assert_eq!(diags.len(), 1);
     assert_eq!(diags[0].span, Span::new(2, 5));
+    assert_eq!(diags[0].message, "unexpected character `\\u{feff}`");
+    assert!(!diags[0].message.contains('\u{feff}'), "the mark must be spelled out, not printed");
 
     // The same in a file that *does* open with a mark, where the second one is
     // at bytes 5..8. This is the case that says the skip happens once, at the
@@ -711,24 +741,95 @@ fn golden_inputs() -> Vec<PathBuf> {
     inputs
 }
 
+/// A private scratch directory under the system temporary directory, removed
+/// again by [`TempDir`]'s `Drop`.
+///
+/// The tests below need real files on disk -- that is the whole point of them,
+/// a helper that normalised line endings could be a string function -- and the
+/// obvious place to put them is beside the golden files. That is wrong twice
+/// over: a panic between the write and the delete leaves junk in the source
+/// tree, and a read-only checkout cannot run the suite at all.
+///
+/// `std::env::temp_dir` is the standard library's answer and this crate has no
+/// dependencies. The name mixes the process id and an atomic counter so two
+/// tests -- or two `cargo test` runs side by side -- cannot collide, and
+/// `create_dir_all` rather than `create_dir` so a leftover from a killed run is
+/// reused instead of failing.
+fn temp_dir(label: &str) -> TempDir {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "otter-lexer-test-{}-{}-{unique}",
+        std::process::id(),
+        label
+    ));
+    fs::create_dir_all(&dir)
+        .unwrap_or_else(|e| panic!("cannot create scratch directory {}: {e}", dir.display()));
+    TempDir(dir)
+}
+
+/// Removes its directory on drop, including after a panic.
+///
+/// `Drop` is the point: the cleanup cannot be skipped by an assertion failing
+/// halfway through a test, which is the leak that motivated moving here. A
+/// failure to remove is ignored rather than panicked, because a `Drop` that
+/// panics during an unwinding panic aborts the test binary.
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn reading_a_golden_file_normalises_carriage_returns() {
     // Written to files rather than checked inline, because the point is what
-    // the helper does with what is on disk.
-    let dir = golden_dir();
-    let crlf_path = dir.join("crlf-probe.txt");
-    let lf_path = dir.join("lf-probe.txt");
+    // the helper does with what is on disk -- and written to a scratch
+    // directory, so the suite never touches the repository.
+    let dir = temp_dir("crlf-probe");
+    let crlf_path = dir.0.join("crlf-probe.txt");
+    let lf_path = dir.0.join("lf-probe.txt");
     fs::write(&crlf_path, "I64@0..2\r\nI64@3..4\r\n").expect("the probe file can be written");
     fs::write(&lf_path, "I64@0..2\nI64@3..4\n").expect("the probe file can be written");
 
     let from_crlf = read_lf_only(&crlf_path);
     let from_lf = read_lf_only(&lf_path);
-    let _ = fs::remove_file(&crlf_path);
-    let _ = fs::remove_file(&lf_path);
 
     assert!(!from_crlf.contains('\r'), "a carriage return must not survive: {from_crlf:?}");
     assert_eq!(from_crlf, from_lf, "CRLF and LF must read back as the same golden text");
     assert_eq!(from_lf, "I64@0..2\nI64@3..4\n");
+}
+
+#[test]
+fn a_scratch_directory_lives_outside_the_repository_and_is_removed_on_drop() {
+    // The two properties that keep the probe tests from dirtying a checkout,
+    // stated as tests rather than as an intention. A panic between the write and
+    // the delete is exactly what leaks a file into `tests/golden/`, so the
+    // cleanup has to be something that cannot be skipped -- which means `Drop`,
+    // and this is the test that says so.
+    let path = {
+        let dir = temp_dir("location-probe");
+        assert!(
+            !dir.0.starts_with(golden_dir()),
+            "a probe must not be written into the golden directory: {}",
+            dir.0.display()
+        );
+        assert!(
+            !dir.0.starts_with(Path::new(env!("CARGO_MANIFEST_DIR"))),
+            "a probe must not be written into the crate at all: {}",
+            dir.0.display()
+        );
+        assert!(dir.0.is_dir(), "the scratch directory must exist while it is in use");
+        fs::write(dir.0.join("probe.txt"), "x").expect("the probe file can be written");
+        dir.0.clone()
+        // `dir` is dropped here, at the end of the block, on the happy path and
+        // on a panic alike.
+    };
+
+    assert!(!path.exists(), "{} was left behind after the guard went out of scope", path.display());
 }
 
 #[test]
@@ -788,11 +889,13 @@ fn a_crlf_copy_of_a_golden_input_still_matches_its_expected_file() {
     };
     assert_ne!(render_golden(&raw_tokens), expected, "a CRLF file read raw must differ, or this test proves nothing");
 
-    // Normalised: identical to the committed expectation.
-    let copy = golden_dir().join("numbers-crlf-probe.tmp");
+    // Normalised: identical to the committed expectation. The CRLF copy lives
+    // in a scratch directory, so a panic here cannot leave it in the source
+    // tree for the next run to trip over.
+    let dir = temp_dir("numbers-crlf-probe");
+    let copy = dir.0.join("numbers.ot");
     fs::write(&copy, &as_crlf).expect("the probe copy can be written");
     let normalised = read_lf_only(&copy);
-    let _ = fs::remove_file(&copy);
 
     let tokens = match Lexer::new(&normalised).tokenize() {
         Ok(tokens) => tokens,

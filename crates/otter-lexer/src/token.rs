@@ -21,9 +21,9 @@ use crate::error::{self, LitError};
 
 /// The `i64` an `I64` token stands for.
 ///
-/// `src` is the whole source text the token's span indexes into, and `span` is
-/// the token's own span -- `token.span`, sliced out of the same string the
-/// lexer was given.
+/// `src` is the whole source text the token's span indexes into, `span` is the
+/// token's own span -- `token.span`, sliced out of the same string the lexer
+/// was given -- and `file` is the [`FileId`] of that text.
 ///
 /// This exists because a [`Token`] carries no value. Without it, every reader
 /// of an `I64` token writes `src[span].parse::<i64>().unwrap()`, and that
@@ -32,23 +32,26 @@ use crate::error::{self, LitError};
 /// returns a `Result`; this turns it into a [`Diagnostic`] so the failure is
 /// reportable rather than fatal.
 ///
+/// # Why `file` is not optional
+///
+/// There is deliberately no two-argument form. A [`FileId`] is an index into one
+/// particular [`otter_common::SourceMap`] and means nothing without it, so a
+/// default of file zero is right only when the source really is file zero --
+/// which a caller reading from a map cannot know. A default that is silently
+/// wrong puts the caret in an unrelated file and sends the reader hunting
+/// through source that has nothing to do with the mistake.
+///
+/// This is the same hazard [`Lexer::new`] versus [`Lexer::with_file`] already
+/// has, and it is handled the same way: one name, the argument required, and the
+/// doc saying so. A second, differently-named way to spell the same call is how
+/// the footgun comes back.
+///
 /// # Errors
 ///
-/// A diagnostic when the span does not name digits, or names digits too large
-/// for an `i64`. The span is the one that was passed in, so the caret covers
-/// the literal the user wrote.
-pub fn literal_as_i64(src: &str, span: Span) -> Result<i64, Diagnostic> {
-    literal_as_i64_in_file(src, span, FileId::from_index(0))
-}
-
-/// [`literal_as_i64`], attributing the diagnostic to `file`.
-///
-/// The two-argument form names file zero, which is right only when the source
-/// really is file zero -- see the warning on
-/// [`otter_common::FileId`](otter_common::FileId) about ids that mean nothing
-/// without their map. Anything reading from a [`otter_common::SourceMap`] must
-/// use this one.
-pub fn literal_as_i64_in_file(src: &str, span: Span, file: FileId) -> Result<i64, Diagnostic> {
+/// A diagnostic against `file` when the span does not name digits, or names
+/// digits too large for an `i64`. The span is the one that was passed in, so
+/// the caret covers the literal the user wrote.
+pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagnostic> {
     // `usize::try_from` cannot fail for a `u32` on any platform this runs on,
     // and a saturated `usize::MAX` is out of range for `str::get` anyway, so
     // an impossible offset degrades to a diagnostic.

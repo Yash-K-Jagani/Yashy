@@ -103,15 +103,46 @@ fn error(file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
 
 /// Prints a character the way it would have to be typed to get it.
 ///
-/// A control byte is shown as its escape (``\t``, ``\u{0}``) rather than as the
-/// invisible character itself, because a caret under an invisible character and
-/// a message naming it are no help at all.
+/// Two classes of character are escaped rather than printed, because a message
+/// naming one of them literally is no message at all:
+///
+/// * control characters -- ``\t``, ``\u{0}`` -- which take up no width and
+///   cannot be found by eye in the source line;
+/// * invisible formatting characters, which are the same problem wearing a
+///   different hat. `U+FEFF` is category `Cf`, not a control character, so
+///   `char::is_control` says `false` and the raw one would be printed between
+///   the backticks of `unexpected character `` -- precisely the complaint the
+///   byte order mark finding was filed about, relocated to the diagnostic that
+///   reports a mark found in the middle of a file.
+///
+/// So the test is not "is this a control character" but "would a reader be able
+/// to see this and type it back". Anything invisible fails that, so
+/// [`escape_default`] decides, and the set below is the characters a user can
+/// actually paste into a file that this rule misses.
 fn escape_char(ch: char) -> String {
-    if ch.is_control() {
+    if ch.is_control() || is_invisible_format(ch) {
         ch.escape_default().to_string()
     } else {
         ch.to_string()
     }
+}
+
+/// Whether `ch` is one of the format characters that render as nothing.
+///
+/// The list is closed and small on purpose. A blanket "escape every `Cf`
+/// character" would turn an ordinary bidi marker inside a string into `\u{200e}`
+/// in a diagnostic, which is noise; these three are the ones that show up in
+/// real files, from real tools, and that a reader cannot see at all:
+///
+/// * `U+FEFF` -- the byte order mark, written by plenty of Windows tooling and
+///   reachable here because a mark in the middle of a file is a diagnostic;
+/// * `U+200B` -- zero width space, a common invisible-character typo;
+/// * `U+00AD` -- soft hyphen, which some editors insert when a word is wrapped.
+///
+/// A `char` that is not one of these and not a control character is printed
+/// as itself.
+fn is_invisible_format(ch: char) -> bool {
+    matches!(ch, '\u{feff}' | '\u{200b}' | '\u{ad}')
 }
 
 #[cfg(test)]
@@ -141,6 +172,46 @@ mod tests {
     fn a_multi_byte_character_is_printed_as_itself() {
         let d = unexpected_character(file(), Span::new(0, 4), Some('\u{20ac}'));
         assert_eq!(d.message, "unexpected character `\u{20ac}`");
+    }
+
+    #[test]
+    fn an_invisible_format_character_is_shown_as_an_escape_rather_than_invisibly() {
+        // The complaint the byte order mark finding was filed about, relocated:
+        // `U+FEFF` is category `Cf`, so `char::is_control` says `false` and the
+        // raw character used to be printed between the backticks -- a message
+        // containing, and naming, nothing a reader could see or type back.
+        for (ch, escaped) in [
+            ('\u{feff}', "\\u{feff}"), // byte order mark
+            ('\u{200b}', "\\u{200b}"), // zero width space
+            ('\u{ad}', "\\u{ad}"),     // soft hyphen
+        ] {
+            let d = unexpected_character(file(), Span::new(0, 1), Some(ch));
+            assert_eq!(
+                d.message,
+                format!("unexpected character `{escaped}`"),
+                "u+{:04x} must be spelled out",
+                ch as u32
+            );
+            assert!(
+                !d.message.contains(ch),
+                "u+{:04x} must not appear literally in {:?}",
+                ch as u32,
+                d.message
+            );
+            assert!(escaped.contains(&ch.escape_default().to_string()));
+        }
+    }
+
+    #[test]
+    fn an_ordinary_character_next_to_an_invisible_one_is_not_escaped() {
+        // The rule is "would a reader see it", not "is it `Cf`": a printable
+        // format character is still shown as itself, and a nearby ordinary
+        // character must not be dragged into escaping with it.
+        assert_eq!(
+            unexpected_character(file(), Span::new(0, 1), Some('\u{20ac}')).message,
+            "unexpected character `\u{20ac}`",
+            "a printable non-control character stays as itself"
+        );
     }
 
     #[test]
