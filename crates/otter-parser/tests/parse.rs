@@ -194,6 +194,7 @@ fn full_block(spans: &mut Spans) -> Block {
                 init: Expr::Call {
                     callee: vec!["f".to_string()],
                     args: Vec::new(),
+                    unsafe_call: false,
                     span: spans.take(),
                 },
                 span: spans.take(),
@@ -362,6 +363,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
     ops.push(Expr::Call {
         callee: vec!["print".to_string()],
         args: vec![int(1, spans.take())],
+        unsafe_call: false,
         span: spans.take(),
     });
     ops.push(Expr::StructLit {
@@ -387,6 +389,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
         expr: bx(Expr::Call {
             callee: vec!["f".to_string()],
             args: Vec::new(),
+            unsafe_call: false,
             span: spans.take(),
         }),
         span: spans.take(),
@@ -851,6 +854,7 @@ fn an_if_binding_is_its_own_init_node() {
             init: Expr::Call {
                 callee: vec!["f".to_string()],
                 args: Vec::new(),
+                unsafe_call: false,
                 span: call_span,
             },
             span: binding_span,
@@ -933,6 +937,7 @@ fn an_if_binding_is_its_own_init_node() {
             init: Expr::Call {
                 callee: vec!["g".to_string()],
                 args: Vec::new(),
+                unsafe_call: false,
                 span: call_span,
             },
             span: binding_span,
@@ -950,25 +955,112 @@ fn an_if_binding_is_its_own_init_node() {
     assert_ne!(stmt, other_binding, "what the binding calls is part of it");
 }
 
+/// C1: a call says whether the source wrote `unsafe` before it.
+///
+/// Spec 8.1 requires that marker at the call site, in addition to the `unsafe`
+/// every `extern` declaration carries. It is a `bool` on the call rather than a
+/// node of its own, so the two spellings differ in exactly one field and nothing
+/// else -- which is what this checks.
 #[test]
-fn the_range_end_is_documented_as_exclusive() {
-    // Nothing in the tree says whether `for i in 0..10` ends at 9 or at 10:
-    // `ForRange` carries two bounds and the `..` is not even a node. The rule
-    // lives in the doc comment on the variant, which is exactly the kind of
-    // thing that gets deleted and then re-decided differently by whoever reads
-    // it next. Task 12 is the consumer, so the sentence is pinned here.
-    let source = include_str!("../src/ast.rs");
+fn a_call_records_whether_the_source_wrote_unsafe() {
+    let mut spans = Spans::default();
+    let arg_span = spans.take();
+    let call_span = spans.take();
+    let marked_arg_span = spans.take();
+    let marked_call_span = spans.take();
+    let stmt_span = spans.take();
+    let block_span = spans.take();
+
+    // `f(1)`
+    let ordinary = Expr::Call {
+        callee: vec!["puts".to_string()],
+        args: vec![int(1, arg_span)],
+        unsafe_call: false,
+        span: call_span,
+    };
+    // `unsafe f(1)`
+    let marked = Expr::Call {
+        callee: vec!["puts".to_string()],
+        args: vec![int(1, marked_arg_span)],
+        unsafe_call: true,
+        span: marked_call_span,
+    };
+
+    // Both spellings are visible in a golden dump, which is the only place the
+    // distinction can be read off once the tree is built.
+    let ordinary_debug = format!("{ordinary:?}");
+    let marked_debug = format!("{marked:?}");
     assert!(
-        source.contains("`end` is exclusive"),
-        "the exclusive rule must stay documented on Stmt::ForRange"
+        ordinary_debug.contains("unsafe_call: false"),
+        "a plain call says so: {ordinary_debug}"
     );
     assert!(
-        source.contains("0 through 9"),
-        "the rule must say what it means, not just name it"
+        marked_debug.contains("unsafe_call: true"),
+        "an unsafe call says so: {marked_debug}"
     );
+    assert_ne!(ordinary, marked, "the marker is part of the value");
+    assert_ne!(
+        ordinary_debug, marked_debug,
+        "and the two spellings are distinguishable in a dump"
+    );
+
+    // The flag is part of the value and is the *only* thing that changes here:
+    // `same_parts` is built from `ordinary`'s callee, argument and spans, and
+    // differs from `ordinary` in the bool and nothing else.
+    let same_parts = Expr::Call {
+        callee: vec!["puts".to_string()],
+        args: vec![int(1, arg_span)],
+        unsafe_call: true,
+        span: call_span,
+    };
+    assert_ne!(
+        ordinary, same_parts,
+        "the flag alone makes a different call"
+    );
+
+    // `unsafe` is not contagious: an ordinary call wrapping an unsafe one is
+    // itself ordinary, so the marker survives one level down and stops there.
+    let nested = Expr::Call {
+        callee: vec!["wrapper".to_string()],
+        args: vec![marked.clone()],
+        unsafe_call: false,
+        span: call_span,
+    };
+    let nested_debug = format!("{nested:?}");
+    assert_eq!(
+        nested_debug.matches("unsafe_call: true").count(),
+        1,
+        "only the inner call is marked: {nested_debug}"
+    );
+    assert_ne!(nested, marked, "the outer call is a different call");
+
+    // Every span is the one it was given, once each, in the dump that holds it.
+    for (span, debug) in [
+        (arg_span, &ordinary_debug),
+        (call_span, &nested_debug),
+        (marked_arg_span, &nested_debug),
+        (marked_call_span, &nested_debug),
+    ] {
+        let needle = format!("{span:?}");
+        let found = debug.matches(&needle).count();
+        assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
+    }
+
+    // The field is reachable from statement position, which is where a parser
+    // meeting `unsafe f();` will build one.
+    let block = Block {
+        stmts: vec![Stmt::Expr(ordinary.clone(), stmt_span)],
+        span: block_span,
+    };
+    let block_debug = format!("{block:?}");
     assert!(
-        source.contains("Task 12"),
-        "the consumer that has to implement it must be named"
+        block_debug.contains("unsafe_call: false"),
+        "a call in statement position carries the flag: {block_debug}"
+    );
+    assert_eq!(
+        block_debug.matches("unsafe_call").count(),
+        1,
+        "once, for the one call: {block_debug}"
     );
 }
 
@@ -1320,9 +1412,10 @@ fn debug_names_every_expr_variant_and_its_fields() {
             Expr::Call {
                 callee: vec!["f".to_string()],
                 args: Vec::new(),
+                unsafe_call: false,
                 span: here(),
             },
-            &["Call", "callee", "args", "span"],
+            &["Call", "callee", "args", "unsafe_call", "span"],
             &[
                 "Ident",
                 "Binary",

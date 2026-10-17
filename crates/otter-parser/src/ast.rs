@@ -151,9 +151,9 @@ pub struct Param {
 /// mandatory on every `extern` declaration, so a declaration that reached this
 /// type was already checked and there is nothing left to store: a flag that is
 /// always `true` is not information, and one that defaults to `false` is a
-/// lie. M5 must not add one. (The *call site* still needs marking -- see the
-/// note on [`Expr::Call`] -- which is a different question from what the
-/// declaration itself says.)
+/// lie. M5 must not add one. The marker that *is* stored is the other one: an
+/// [`Expr::Call`] carries `unsafe_call`, because at the call site the same
+/// keyword is optional and its absence means something.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternDecl {
     pub name: String,
@@ -348,17 +348,25 @@ pub enum Expr {
         operand: Box<Expr>,
         span: Span,
     },
-    /// `f(1, 2)` -- a call by path.
+    /// `f(1, 2)` or `unsafe f(1, 2)` -- a call by path.
     ///
-    /// There is **no `unsafe` marker** here either, for a different reason
-    /// than [`ExternDecl`] has none: calling an `extern` function is what
-    /// spec 3.1 makes `unsafe` mark, and whether this call needs the marker
-    /// depends on what `callee` resolves to -- a fact only the type checker
-    /// knows. M5 will have to add a way to say it; that is a variant change,
-    /// and this is the note saying so in advance.
+    /// `unsafe_call` is true when the source wrote `unsafe` at the call site.
+    /// Spec 8.1 requires that marker there, in addition to the `unsafe` that
+    /// every [`ExternDecl`] carries, because handing a raw pointer across the C
+    /// boundary is the dangerous act and it is the *call* that does it, not the
+    /// declaration.
+    ///
+    /// It is a `bool` on the call rather than a wrapper node because the tree
+    /// underneath is identical either way: the same callee, the same arguments,
+    /// the same span. A node of its own would add a variant that every later
+    /// stage -- parser, type checker, code generation -- has to match through to
+    /// reach the arguments, and would give a call that differs from an ordinary
+    /// call in one keyword an extra level of tree to walk.
     Call {
         callee: Vec<String>,
         args: Vec<Expr>,
+        /// True only when the source wrote `unsafe` before this call.
+        unsafe_call: bool,
         span: Span,
     },
     /// `P { x: 1.0, y: 2.0 }` -- one triple per field of name, value and the
