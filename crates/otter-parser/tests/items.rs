@@ -13,7 +13,7 @@
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
-use otter_parser::ast::{FieldDef, Item, Program, TypeExpr};
+use otter_parser::ast::{FieldDef, Item, Program, TypeExpr, VariantField};
 use otter_parser::Parser;
 
 // -- helpers ---------------------------------------------------------------
@@ -547,22 +547,32 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
         !variants[0].fields.is_empty(),
         "Circle carries a payload: {variants:?}"
     );
-    match &variants[0].fields[0].ty {
-        TypeExpr::Name(name, span) => {
-            assert_eq!(name, "f64");
-            assert_eq!(
-                *span,
-                span_of(src, "f64"),
-                "the field carries the type's own text"
-            );
-        }
-        other => panic!("expected `f64`, got {other:?}"),
+    match &variants[0].fields[0] {
+        VariantField::Positional { ty, span } => match ty {
+            TypeExpr::Name(name, _) => {
+                assert_eq!(name, "f64");
+                assert_eq!(
+                    *span,
+                    span_of(src, "f64"),
+                    "the field carries the type's own text"
+                );
+            }
+            other => panic!("expected `f64`, got {other:?}"),
+        },
+        other => panic!("`Circle(f64)` is a positional payload, got {other:?}"),
     }
 
     // A struct variant's fields are named, and the names are the ones written.
-    let names: Vec<&str> = variants[1].fields.iter().map(|f| f.name.as_str()).collect();
+    let names: Vec<&str> = variants[1]
+        .fields
+        .iter()
+        .map(|field| match field {
+            VariantField::Named { name, .. } => name.as_str(),
+            other => panic!("`Rect {{ .. }}` is a named payload, got {other:?}"),
+        })
+        .collect();
     assert_eq!(names, vec!["w", "h"], "a struct variant names its fields");
-    assert_eq!(variants[1].fields[1].span, span_of(src, "h: f64"));
+    assert_eq!(variants[1].fields[1].span(), span_of(src, "h: f64"));
 
     assert!(
         variants[2].fields.is_empty(),
@@ -571,6 +581,59 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
     assert_eq!(variants[0].span, span_of(src, "Circle(f64)"));
     assert_eq!(variants[1].span, span_of(src, "Rect { w: f64, h: f64 }"));
     assert_eq!(variants[2].span, span_of(src, "Empty"));
+}
+
+/// The two payload shapes are two variants, and neither can be mistaken for the
+/// other -- a sentinel cannot creep back in without this failing.
+#[test]
+fn a_positional_payload_is_not_a_named_field_with_no_name() {
+    let src = "enum Shape { Circle(f64), Rect { w: f64 } }";
+    let variants = match &parse_ok(src).items[0] {
+        Item::Enum { variants, .. } => variants.clone(),
+        other => panic!("expected an enum, got {other:?}"),
+    };
+
+    // A parenthesised payload is `Positional`, and `Positional` has no `name`
+    // field at all -- so there is nothing in it that could be empty, and no
+    // downstream `name.is_empty()` check to forget.
+    match &variants[0].fields[0] {
+        VariantField::Positional { ty, span } => {
+            assert_eq!(span, &span_of(src, "f64"));
+            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "f64"));
+        }
+        other => panic!("`Circle(f64)` must be Positional, got {other:?}"),
+    }
+    let positional = format!("{:?}", variants[0].fields[0]);
+    assert!(
+        !positional.contains("name"),
+        "a positional field has no name to render: {positional}"
+    );
+
+    // A braced payload is `Named`, with the name the source wrote.
+    match &variants[1].fields[0] {
+        VariantField::Named { name, ty, span } => {
+            assert_eq!(name, "w");
+            assert_eq!(span, &span_of(src, "w: f64"));
+            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "f64"));
+        }
+        other => panic!("`Rect {{ w: f64 }}` must be Named, got {other:?}"),
+    }
+
+    // The two are different values, and they are different *types*: a pattern
+    // that reads the wrong one does not compile.
+    assert_ne!(variants[0].fields[0], variants[1].fields[0]);
+
+    // `FieldDef` -- a struct's field -- still has a plain `name`, and is not the
+    // type a variant payload uses.
+    let struct_fields = match &parse_ok("struct P { x: f64 }").items[0] {
+        Item::Struct { fields, .. } => fields.clone(),
+        other => panic!("expected a struct, got {other:?}"),
+    };
+    assert_eq!(struct_fields[0].name, "x");
+    assert!(
+        !struct_fields[0].name.is_empty(),
+        "a struct field's name comes from an identifier, never from a sentinel"
+    );
 }
 
 // -- function heads --------------------------------------------------------
@@ -604,6 +667,104 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
     // the boundaries (spec 3.2), and the message names the missing `:`.
     assert!(all_messages(&parse_err("fn f(a) { }")).contains("`:`"));
     assert!(all_messages(&parse_err("fn f(a: i64 { }")).contains("`)`"));
+}
+
+/// A comma in a parameter list is either the separator or a trailing mark, and
+/// which one it is has to be decided rather than stumbled into.
+#[test]
+fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
+    // The baseline: two parameters, one comma between them.
+    match &parse_ok("fn f(a: i64, b: i64) { }").items[0] {
+        Item::Fn { params, .. } => {
+            let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+            assert_eq!(names, vec!["a", "b"]);
+        }
+        other => panic!("expected a function, got {other:?}"),
+    }
+
+    // A trailing comma is accepted, and it does not invent a parameter: the
+    // comma before `)` ends the list rather than introducing an empty one.
+    match &parse_ok("fn f(a: i64,) { }").items[0] {
+        Item::Fn { params, .. } => assert_eq!(
+            params.len(),
+            1,
+            "a trailing comma is not a parameter: {params:?}"
+        ),
+        other => panic!("expected a function, got {other:?}"),
+    }
+    // And the same in a struct's field list, for the same reason.
+    match &parse_ok("struct S { x: f64, }").items[0] {
+        Item::Struct { fields, .. } => assert_eq!(fields.len(), 1, "{fields:?}"),
+        other => panic!("expected a struct, got {other:?}"),
+    }
+
+    // Everything else is one diagnostic. Not a loop, not a cascade, and never a
+    // parameter built out of nothing.
+    for src in [
+        "fn f(a: i64,, b: i64) { }",
+        "fn f(,) { }",
+        "fn f(, a: i64) { }",
+        "fn f(a: i64 b: i64) { }",
+        "fn f(a:) { }",
+        "fn f(a: i64,,, ) { }",
+    ] {
+        let diags = parse_err(src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "{src:?} is one mistake, one diagnostic: {}",
+            all_messages(&diags)
+        );
+        assert!(diags[0].is_error(), "{src:?}: {}", diags[0].message);
+    }
+}
+
+/// An empty `struct` or `enum` is rejected on purpose -- the ruling, not an
+/// accident of the loop -- and a stray comma inside one is rejected too.
+#[test]
+fn an_empty_declaration_body_is_rejected_deliberately() {
+    // The ruling, stated once: a declaration with nothing in it names itself.
+    for (src, name, what) in [
+        ("struct S { }", 'S', "field"),
+        ("enum E { }", 'E', "variant"),
+    ] {
+        let diags = parse_err(src);
+        assert_eq!(diags.len(), 1, "{src:?}: {}", all_messages(&diags));
+        assert!(
+            diags[0].message.contains(name),
+            "{src:?} must name the declaration it is about: {}",
+            diags[0].message
+        );
+        assert!(
+            diags[0].message.contains(what),
+            "{src:?} must say what is missing: {}",
+            diags[0].message
+        );
+    }
+
+    // A stray comma is not an empty declaration, it is a missing field or
+    // variant -- and either way it is a diagnostic rather than a loop or a
+    // panic, which is what this is here to hold.
+    for src in [
+        "struct S { , }",
+        "enum E { , }",
+        "struct S { , x: f64 }",
+        "enum E { Red, , }",
+    ] {
+        let diags = parse_err(src);
+        assert_eq!(
+            diags.len(),
+            1,
+            "{src:?} is one mistake, one diagnostic: {}",
+            all_messages(&diags)
+        );
+    }
+
+    // And the bodies that are *not* empty parse, so the rejection above is a
+    // decision about emptiness and not about braces.
+    assert_eq!(parse_ok("enum E { Red }").items.len(), 1);
+    assert_eq!(parse_ok("struct S { x: f64 }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { Red, Green }").items.len(), 1);
 }
 
 #[test]
@@ -669,11 +830,20 @@ fn the_block_seam_consumes_the_body_and_reports_its_span() {
     // Task 5 replaces this body with the real `parse_stmt` loop. When it does,
     // this test fails on `stmts.is_empty()` -- which is the point: the
     // placeholder cannot be forgotten.
+    //
+    // **TASK 5: this assertion is a hand-off marker and it is expected to fail
+    // on the day you implement `parse_stmt`.** Delete it, and replace it with
+    // the statements `fn f() { return 0.0; }` should actually produce -- one
+    // `Stmt::Return` carrying the literal `0.0`. Everything else in this test
+    // (the span, and the fact that the body does not swallow the next item)
+    // still applies and should be left alone.
     match &parse_ok("fn f() { return 0.0; }").items[0] {
         Item::Fn { body, .. } => {
             assert!(
                 body.stmts.is_empty(),
-                "statements arrive in Task 5: {body:?}"
+                "TASK 5: statements are implemented now, so this hand-off marker \
+                 must be replaced with a real assertion about the parsed \
+                 statements: {body:?}"
             );
             assert_eq!(
                 body.span,
@@ -718,10 +888,12 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "struct S",
         "struct S {",
         "struct S { }",
+        "struct S { , }",
         "struct S { x }",
         "struct S { x: }",
         "struct S { x: : i64 }",
         "struct S { x: i64,, y: i64 }",
+        "struct S { x: i64,,, }",
         "struct S { 5 }",
         "struct S { x: Option[ }",
         "struct S { x: Option[i64",
@@ -730,12 +902,20 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "enum E",
         "enum E {",
         "enum E { }",
+        "enum E { , }",
         "enum E { A( }",
         "enum E { A { } }",
         "enum E { A, }",
         "fn",
         "fn f",
         "fn f(",
+        "fn f(,)",
+        "fn f(, a: i64)",
+        "fn f(a: i64,)",
+        "fn f(a: i64,)",
+        "fn f(a: i64,, b: i64)",
+        "fn f(a: i64,,, )",
+        "fn f(a: i64 b: i64)",
         "fn f()",
         "fn f() -",
         "fn f() ->",

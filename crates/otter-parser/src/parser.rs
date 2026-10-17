@@ -98,12 +98,40 @@ impl<'src> Parser<'src> {
     /// A parser over `tokens`, reading names out of `source` and reporting
     /// against `file`.
     ///
+    /// # Why `source` is borrowed
+    ///
+    /// A [`Token`] carries no value -- an `Ident` is a kind and a span, not a
+    /// name -- so the parser reads every name back out of the source text by
+    /// span. That text therefore has to stay reachable for as long as the parser
+    /// is, which a borrow expresses and an owned [`SourceMap`] does not.
+    ///
+    /// The plan's signature took `SourceMap` by value. That would cost the
+    /// caller the map it needs for [`SourceMap::render`] -- the driver has to
+    /// keep rendering diagnostics after the parse is over, and a map moved into
+    /// a parser is a map the driver no longer has. Borrow it.
+    ///
     /// `tokens` is expected to be the output of
     /// [`Lexer::tokenize`](otter_lexer::Lexer::tokenize) over `source`'s text
     /// for `file`. Nothing checks that, and nothing has to: the two properties
     /// that would break -- a span that does not index the text, or a file that
     /// is not the one the tokens came from -- both degrade to a diagnostic
     /// rather than to a wrong answer read out of unrelated memory.
+    ///
+    /// ```
+    /// use otter_common::SourceMap;
+    /// use otter_lexer::Lexer;
+    /// use otter_parser::Parser;
+    ///
+    /// let src = "import std.io;";
+    /// let mut map = SourceMap::new();
+    /// let file = map.add_file("main.ot", src.to_string());
+    /// let tokens = Lexer::with_file(src, file).tokenize().expect("valid source");
+    ///
+    /// // The map is still ours afterwards, which is the point of the borrow:
+    /// // the driver renders diagnostics with it once the parse is done.
+    /// let program = Parser::new(tokens, &map, file).parse_program();
+    /// assert_eq!(map.path(file), "main.ot");
+    /// ```
     pub fn new(tokens: Vec<Token>, source: &'src SourceMap, file: FileId) -> Parser<'src> {
         Parser {
             tokens,

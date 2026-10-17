@@ -11,7 +11,7 @@ use std::fmt::Debug;
 use otter_common::Span;
 use otter_parser::ast::{
     BinOp, Block, Expr, ExternDecl, FieldDef, Item, Literal, Param, Pattern, Program, Stmt,
-    StringLit, SwitchArm, TypeExpr, UnOp, VariantDef,
+    StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
 };
 
 // -- helpers ---------------------------------------------------------------
@@ -89,7 +89,8 @@ fn full_program(spans: &mut Spans) -> Program {
             }],
             span: spans.take(),
         },
-        // Item::Enum, with a bare VariantDef and one carrying a FieldDef.
+        // Item::Enum, with a bare VariantDef, one carrying a positional field
+        // and one carrying a named one -- the two shapes of payload.
         Item::Enum {
             name: "C".to_string(),
             variants: vec![
@@ -100,11 +101,17 @@ fn full_program(spans: &mut Spans) -> Program {
                 },
                 VariantDef {
                     name: "Green".to_string(),
-                    fields: vec![FieldDef {
-                        name: "y".to_string(),
-                        ty: TypeExpr::Unit(spans.take()),
-                        span: spans.take(),
-                    }],
+                    fields: vec![
+                        VariantField::Positional {
+                            ty: TypeExpr::Unit(spans.take()),
+                            span: spans.take(),
+                        },
+                        VariantField::Named {
+                            name: "y".to_string(),
+                            ty: TypeExpr::Unit(spans.take()),
+                            span: spans.take(),
+                        },
+                    ],
                     span: spans.take(),
                 },
             ],
@@ -580,7 +587,13 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             // mandatory on every declaration, so there is nothing to store and
             // M5 must not add a flag that is always true. If someone does add
             // one, this is the assertion that says no.
-            &["Extern {", "FieldDef", "VariantDef", "unsafe"],
+            &[
+                "Extern {",
+                "FieldDef",
+                "VariantDef",
+                "VariantField",
+                "unsafe",
+            ],
         ),
         case(
             "FieldDef",
@@ -601,6 +614,28 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             },
             &["VariantDef", "name", "fields", "span"],
             &["FieldDef", "Param"],
+        ),
+        // The two payload shapes. Each is named for itself and must not contain
+        // the other's name: a `Named` field that rendered a `Positional` key, or
+        // the reverse, is a sentinel creeping back in.
+        case(
+            "VariantField::Positional",
+            VariantField::Positional {
+                ty: TypeExpr::Unit(here()),
+                span: here(),
+            },
+            &["Positional", "ty", "span"],
+            &["Named", "name:"],
+        ),
+        case(
+            "VariantField::Named",
+            VariantField::Named {
+                name: "w".to_string(),
+                ty: TypeExpr::Unit(here()),
+                span: here(),
+            },
+            &["Named", "name", "ty", "span"],
+            &["Positional"],
         ),
         case(
             "Param",

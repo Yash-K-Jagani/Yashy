@@ -19,19 +19,25 @@
 //! (see [`crate::ast`]), and it is why no span in this file is
 //! [`Span::SYNTHETIC`] except where there is genuinely no source.
 //!
-//! # The tuple variant's fields have no names
+//! # A positional payload is not a field with no name
 //!
-//! `Circle(f64)` is a variant with a payload, and [`VariantDef::fields`] is a
-//! `Vec<FieldDef>`, and `FieldDef` has a `name: String`. A positional payload
-//! has no name to record, and the AST is frozen, so those fields are built with
-//! an **empty name**: a name that cannot be written in Otter source, rather than
-//! a plausible-looking one that would be wrong. `String::is_empty` therefore
-//! means "this field is positional" throughout the rest of the compiler.
+//! `Circle(f64)` and `Rect { w: f64 }` are written differently, mean different
+//! things, and are matched differently -- [`Pattern::TupleVariant`] against
+//! [`Pattern::StructVariant`]. They are therefore two variants of
+//! [`VariantField`], not one shape with an optional name: `Positional` and
+//! `Named`. Nothing in the parser can build a named field without a name, and
+//! nothing can turn something the user wrote a name for into a positional
+//! field, because the two are different types rather than the same type with a
+//! sentinel inside it.
 //!
-//! This is a reading of an under-specified contract, not a decision the
-//! language made, and it is the one place in this file where a later task may
-//! reasonably want a different answer. It is called out here because it is the
-//! kind of thing that is invisible until a golden dump shows `name: ""`.
+//! The alternative was a `FieldDef` whose `name` is the empty string for a
+//! positional field. That encodes "this has no name" as a *value*, which makes
+//! it a convention every later stage has to remember: one forgotten
+//! `name.is_empty()` in the type checker is a program that type checks against a
+//! field that does not exist. A variant is checked by the compiler.
+//!
+//! [`FieldDef`] is still the field of a **struct**, where a name is always
+//! written and always present.
 //!
 //! # `extern` is rejected, not ignored
 //!
@@ -45,7 +51,7 @@
 use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::{FieldDef, Item, Param, VariantDef};
+use crate::ast::{FieldDef, Item, Param, VariantDef, VariantField};
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
 
@@ -180,10 +186,13 @@ impl<'src> Parser<'src> {
 
     /// One enum variant: `Red`, `Circle(f64)`, or `Rect { w: f64, h: f64 }`.
     ///
-    /// The three shapes are the three ways the language writes a variant, and all
-    /// three are held in [`VariantDef`]: no payload is an empty `fields`, a
-    /// positional payload is a tuple of types, and a named payload is a list of
-    /// [`FieldDef`]s.
+    /// The three spellings map onto three shapes and stay that way: no payload
+    /// is an empty `fields`, a parenthesised payload is a list of
+    /// [`VariantField::Positional`], and a braced payload is a list of
+    /// [`VariantField::Named`]. The parser never has to *decide* which kind of
+    /// field it is holding, because the two are different types -- there is no
+    /// path through this function that can build a named field with no name, or
+    /// a positional field for something the user wrote a name for.
     fn parse_variant_def(&mut self) -> Result<VariantDef, ParseError> {
         let (name, name_span) = self.identifier()?;
 
@@ -212,20 +221,20 @@ impl<'src> Parser<'src> {
 
     /// `(T, U)` -- the payload of a variant written with parentheses.
     ///
-    /// The fields have no names, because the source gave none; see the module
-    /// documentation for why that is an empty string rather than a guess.
-    fn parse_positional_payload(&mut self) -> Result<(Vec<FieldDef>, Span), ParseError> {
+    /// Every field here is [`VariantField::Positional`], because the source
+    /// gave no names. That is a property of the shape rather than a value
+    /// inside it: there is no name to be empty, so nothing downstream has to
+    /// check whether a name is missing.
+    fn parse_positional_payload(&mut self) -> Result<(Vec<VariantField>, Span), ParseError> {
         let open = self.expect(TokenKind::LParen)?;
         let _ = self.push_open(TokenKind::LParen, open.span)?;
 
         let mut fields = Vec::new();
         while !self.check(TokenKind::RParen) {
             let ty = self.parse_type_expr()?;
-            let span = ty_span(&ty);
-            fields.push(FieldDef {
-                name: String::new(),
+            fields.push(VariantField::Positional {
+                span: ty_span(&ty),
                 ty,
-                span,
             });
             if !self.eat(TokenKind::Comma) || self.check(TokenKind::RParen) {
                 break;
@@ -237,13 +246,25 @@ impl<'src> Parser<'src> {
     }
 
     /// `{ w: f64, h: f64 }` -- the payload of a variant written with braces.
-    fn parse_named_payload(&mut self) -> Result<(Vec<FieldDef>, Span), ParseError> {
+    ///
+    /// Every field here is [`VariantField::Named`], and every name came from an
+    /// identifier the source wrote, so a named field cannot have an empty name:
+    /// [`parse_field_def`] reads one with [`Parser::identifier`], which refuses
+    /// a span that reads as no text at all.
+    fn parse_named_payload(&mut self) -> Result<(Vec<VariantField>, Span), ParseError> {
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
         let mut fields = Vec::new();
         while !self.check(TokenKind::RBrace) {
-            fields.push(self.parse_field_def()?);
+            let (name, name_span) = self.identifier()?;
+            self.expect(TokenKind::Colon)?;
+            let ty = self.parse_type_expr()?;
+            fields.push(VariantField::Named {
+                name,
+                span: cover(name_span, ty_span(&ty)),
+                ty,
+            });
             if !self.eat(TokenKind::Comma) || self.check(TokenKind::RBrace) {
                 break;
             }
@@ -273,8 +294,8 @@ impl<'src> Parser<'src> {
                 break;
             }
         }
-        // The `)` is consumed and the stack unwound, but the item's span runs
-        // to the body's closing `}` rather than to here.
+        // The `)` is consumed and the stack unwound, but the item's span runs to
+        // the body's closing `}` rather than to here.
         self.expect(TokenKind::RParen)?;
         self.close_open(TokenKind::RParen);
 

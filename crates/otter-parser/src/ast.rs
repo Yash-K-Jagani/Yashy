@@ -117,7 +117,8 @@ pub enum Item {
     },
 }
 
-/// One field of a `struct`, or one field of an enum variant that has payload.
+/// One field of a `struct`. Always named: a struct's fields are named in the
+/// source, and there is no positional form to confuse them with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldDef {
     pub name: String,
@@ -125,11 +126,58 @@ pub struct FieldDef {
     pub span: Span,
 }
 
+/// One field of an `enum` variant that has a payload.
+///
+/// **The two shapes are different variants, not one shape with an optional
+/// name.** `Circle(f64)` and `Rect { w: f64 }` are written differently, mean
+/// different things, and are matched differently: `Pattern::TupleVariant`
+/// against `Pattern::StructVariant`. A single `FieldDef` with an empty `String`
+/// standing for "positional" would make that distinction a *convention* -- one
+/// `name.is_empty()` check in the type checker and one missed check is a
+/// silently wrong program rather than a compile error. Two variants cannot be
+/// confused, because reading the wrong one is a type error in Rust itself.
+///
+/// Both carry a span covering the whole field -- the type for a positional one,
+/// `name: type` for a named one -- so a diagnostic about one field of a variant
+/// does not point at its neighbour.
+#[derive(Clone, Debug, PartialEq)]
+pub enum VariantField {
+    /// `Circle(f64)` -- a payload with no name, matched by position.
+    Positional { ty: TypeExpr, span: Span },
+    /// `Rect { w: f64, h: f64 }` -- a named payload, matched by name.
+    Named {
+        name: String,
+        ty: TypeExpr,
+        span: Span,
+    },
+}
+
+impl VariantField {
+    /// The type this field carries, whichever shape it is.
+    ///
+    /// For a `Named` field this is the field's declared type, which is what a
+    /// binding in a `Pattern::StructVariant` arm is checked against.
+    pub fn ty(&self) -> &TypeExpr {
+        match self {
+            VariantField::Positional { ty, .. } | VariantField::Named { ty, .. } => ty,
+        }
+    }
+
+    /// The span of the field as it was written.
+    pub fn span(&self) -> Span {
+        match self {
+            VariantField::Positional { span, .. } | VariantField::Named { span, .. } => *span,
+        }
+    }
+}
+
 /// One variant of an `enum`. An empty `fields` is a variant with no payload.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VariantDef {
     pub name: String,
-    pub fields: Vec<FieldDef>,
+    /// The variant's payload, in source order. Empty for a unit variant such
+    /// as `Red`.
+    pub fields: Vec<VariantField>,
     pub span: Span,
 }
 
