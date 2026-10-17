@@ -81,10 +81,6 @@ impl<'src> Parser<'src> {
             // redundant in the other five comma loops; here there is no guard
             // (`loop {}`), so this clause is the only thing stopping `(i64,)`
             // from reading a second (missing) element.
-            // The loop guard is what makes the trailing `|| check(RParen)` clause
-            // redundant in the other five comma loops; here there is no guard
-            // (`loop {}`), so this clause is the only thing stopping `(i64,)`
-            // from reading a second (missing) element.
             if !self.eat(TokenKind::Comma) || self.check(TokenKind::RParen) {
                 break;
             }
