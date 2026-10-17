@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use otter_common::{Diagnostic, Span};
-use otter_lexer::{Lexer, StringLit, Token, TokenKind};
+use otter_lexer::{literal_as_i64, Lexer, StringLit, Token, TokenKind};
 
 /// Every token as `(kind, span)`, on success.
 fn lex(src: &str) -> Result<Vec<(TokenKind, Span)>, Vec<Diagnostic>> {
@@ -87,8 +87,98 @@ fn a_number_keeps_its_span_even_when_it_does_not_fit_in_an_i64() {
     // The token carries no value: the parser reads the bytes back out of the
     // span. So a literal too big for `i64` must still lex cleanly, and must be
     // a *parser* error later rather than a lexer crash or a rejected token.
+    // `literal_as_i64` is how that becomes an error, and it returns a
+    // diagnostic rather than panicking.
     let big = "9".repeat(40);
     assert_eq!(tokens(&big), vec![(TokenKind::I64, Span::new(0, 40)), (TokenKind::Eof, Span::new(40, 40))]);
+}
+
+#[test]
+fn a_number_too_large_for_an_i64_is_a_diagnostic_not_a_panic() {
+    // `literal_as_i64` is the only supported way to turn an `I64` token's text
+    // into a value. A caller that reached for `str::parse::<i64>().unwrap()`
+    // instead would panic here, on the one input a user can type by accident.
+    let big = "9".repeat(40);
+    let d = match literal_as_i64(&big, Span::new(0, 40)) {
+        Ok(value) => panic!("40 digits cannot be an i64, got {value}"),
+        Err(d) => d,
+    };
+    assert!(d.is_error());
+    assert_eq!(d.span, Span::new(0, 40), "the caret covers the whole literal");
+    assert!(d.message.contains("i64"), "got {:?}", d.message);
+
+    // The boundaries, so an off-by-one in the range check shows up. Note that
+    // `i64::MIN` is not here: the lexer makes the `-` a separate token, so the
+    // largest literal an `I64` token can stand for is `i64::MAX`, and folding a
+    // sign into it is the parser's business.
+    assert_eq!(literal_as_i64("9223372036854775807", Span::new(0, 19)), Ok(i64::MAX));
+    assert!(literal_as_i64("9223372036854775808", Span::new(0, 19)).is_err());
+    assert!(literal_as_i64("99999999999999999999", Span::new(0, 20)).is_err());
+
+    // A span that names an empty or unsliceable range is a diagnostic, not a
+    // panic, and neither is text that is not digits -- including a sign, which
+    // is never part of an `I64` token's own span.
+    assert!(literal_as_i64("42", Span::new(0, 99)).is_err());
+    assert!(literal_as_i64("x", Span::new(0, 1)).is_err());
+    assert!(literal_as_i64("", Span::new(0, 0)).is_err());
+    assert!(literal_as_i64("-42", Span::new(0, 3)).is_err());
+}
+
+#[test]
+fn a_malformed_number_is_diagnosed_rather_than_split_into_two_tokens() {
+    // `123abc` used to lex as `I64` `Ident`, and `0x1F` as `I64` `Ident`. Both
+    // are silent successes that leave the parser to report something
+    // bewildering about a name the user never wrote.
+    for (src, span) in [
+        ("123abc", Span::new(0, 3)),
+        ("0x1F", Span::new(0, 1)),
+        ("1e10", Span::new(0, 1)),
+        ("1_000", Span::new(0, 1)),
+        ("1.2.3", Span::new(0, 3)),
+    ] {
+        let diags = errors(src);
+        assert_eq!(diags.len(), 1, "{src:?}: {:?}", messages(&diags));
+        assert!(diags[0].message.contains("invalid numeric literal"), "{src:?}: {:?}", diags[0].message);
+        assert_eq!(diags[0].span, span, "{src:?}");
+    }
+
+    // A number followed by an operator is still two tokens.
+    assert_eq!(
+        tokens("1+2"),
+        vec![
+            (TokenKind::I64, Span::new(0, 1)),
+            (TokenKind::Plus, Span::new(1, 2)),
+            (TokenKind::I64, Span::new(2, 3)),
+            (TokenKind::Eof, Span::new(3, 3)),
+        ]
+    );
+}
+
+#[test]
+fn a_byte_order_mark_is_skipped_at_the_start_of_a_file() {
+    // Plenty of Windows tooling writes a UTF-8 BOM. Without this such a file
+    // does not compile at all, with a diagnostic about an invisible character.
+    let src = "\u{feff}1";
+    assert_eq!(src.len(), 4, "fixture assumption: the BOM is three bytes");
+    assert_eq!(tokens(src), vec![(TokenKind::I64, Span::new(3, 4)), (TokenKind::Eof, Span::new(4, 4))]);
+
+    // A file that is nothing but a BOM is empty, not an error.
+    assert_eq!(tokens("\u{feff}"), vec![(TokenKind::Eof, Span::new(3, 3))]);
+
+    // Only a *leading* BOM is skipped. One in the middle of a file is a
+    // character nobody typed on purpose, and swallowing it would hide a real
+    // mistake.
+    let diags = errors("1 \u{feff}2");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].span, Span::new(2, 5));
+
+    // The same in a file that *does* open with a mark, where the second one is
+    // at bytes 5..8. This is the case that says the skip happens once, at the
+    // start: a skipper that ran on every trivia boundary would reset the scan
+    // to byte 3 here and lex `1` twice.
+    let diags = errors("\u{feff}1 \u{feff}2");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].span, Span::new(5, 8));
 }
 
 // --- keywords and identifiers -----------------------------------------------
@@ -133,6 +223,10 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("switch", TokenKind::Switch),
     ("case", TokenKind::Case),
     ("default", TokenKind::Default),
+    // Spec §3.1 lists these two among the keywords, and Task 6 parses casts:
+    // without them `x as f64` is three identifiers and `move buf` is a name.
+    ("as", TokenKind::As),
+    ("move", TokenKind::Move),
     ("true", TokenKind::True),
     ("false", TokenKind::False),
 ];
@@ -156,26 +250,46 @@ fn every_keyword_is_lexed_as_itself_and_the_table_is_complete() {
     // would still make every other test pass.
     assert!(TokenKind::True.is_keyword());
     assert!(TokenKind::False.is_keyword());
+    assert!(TokenKind::As.is_keyword());
+    assert!(TokenKind::Move.is_keyword());
     assert!(!TokenKind::Ident.is_keyword());
     assert!(!TokenKind::Eof.is_keyword());
+
+    // A cast and a transfer use them, so they are exercised in the shape Task 6
+    // will parse: `x as f64`.
+    assert_eq!(
+        tokens("x as f64"),
+        vec![
+            (TokenKind::Ident, Span::new(0, 1)),
+            (TokenKind::As, Span::new(2, 4)),
+            (TokenKind::Ident, Span::new(5, 8)),
+            (TokenKind::Eof, Span::new(8, 8)),
+        ]
+    );
 }
 
 #[test]
 fn identifiers_may_contain_digits_and_underscores_after_the_first_character() {
-    // `_a9 _ 9a`
-    //  bytes 0..3, 4..6, 7..9 respectively.
+    // `_a9 _`
+    //  bytes 0..3 and 4..5 respectively. The second is an identifier that is
+    //  nothing but an underscore, which is worth pinning: the rule is about
+    //  what may *follow* the first character, not that a name must have a
+    //  letter in it.
     assert_eq!(
-        tokens("_a9 _ 9a"),
+        tokens("_a9 _"),
         vec![
             (TokenKind::Ident, Span::new(0, 3)),
             (TokenKind::Ident, Span::new(4, 5)),
-            // A leading digit is a number, not an identifier: `9a` is the
-            // number `9` followed by the identifier `a`.
-            (TokenKind::I64, Span::new(6, 7)),
-            (TokenKind::Ident, Span::new(7, 8)),
-            (TokenKind::Eof, Span::new(8, 8)),
+            (TokenKind::Eof, Span::new(5, 5)),
         ]
     );
+
+    // A digit may not *start* one: `9a` is a number that ran into a name, not an
+    // identifier, and it is diagnosed rather than silently split into two.
+    let diags = errors("9a");
+    assert_eq!(diags.len(), 1);
+    assert!(diags[0].message.contains("invalid numeric literal"), "got {:?}", diags[0].message);
+    assert_eq!(diags[0].span, Span::new(0, 1));
 }
 
 #[test]
@@ -551,11 +665,24 @@ fn render_golden(tokens: &[Token]) -> String {
     out
 }
 
-/// The `.expected` files are read back with any `\r` stripped, because git
-/// checks text files out with CRLF on this platform and a stray carriage
-/// return would fail a comparison for a reason that has nothing to do with the
-/// lexer.
-fn read_expected(path: &Path) -> String {
+/// Reads a golden file with its line endings normalised to `\n`.
+///
+/// *Both* halves of a golden comparison go through this. Normalising only the
+/// `.expected` side is a trap: an editor that writes CRLF leaves the `.ot` input
+/// CRLF as well, so `UPDATE_GOLDEN=1` would regenerate every span one byte
+/// further along on every line after the first, pass locally, and fail
+/// everywhere else. A fresh checkout does the same thing through
+/// `core.autocrlf`.
+///
+/// Stripping `\r` is safe because `\r` is whitespace to the lexer: the token
+/// stream of a CRLF file is its LF twin's with the `\r` offsets shifted. The
+/// golden files are LF, so normalising the input reproduces exactly the bytes
+/// the `.expected` file describes.
+///
+/// The root `.gitattributes` forces LF for `**/tests/golden/*` as the first
+/// line of defence. This is the second, and it is the one that still holds if
+/// that attribute is ever dropped.
+fn read_lf_only(path: &Path) -> String {
     let raw = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("cannot read golden file {}: {e}", path.display()));
     let body = raw.strip_suffix('\n').unwrap_or(raw.as_str());
@@ -567,8 +694,8 @@ fn read_expected(path: &Path) -> String {
     out
 }
 
-#[test]
-fn golden_token_streams_match_their_expected_files() {
+/// Every `.ot` input in the golden directory, sorted.
+fn golden_inputs() -> Vec<PathBuf> {
     let dir = golden_dir();
     let mut inputs: Vec<PathBuf> = fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()))
@@ -581,14 +708,108 @@ fn golden_token_streams_match_their_expected_files() {
         "no .ot inputs found in {}, so this test would compare nothing and pass",
         dir.display()
     );
+    inputs
+}
 
+#[test]
+fn reading_a_golden_file_normalises_carriage_returns() {
+    // Written to files rather than checked inline, because the point is what
+    // the helper does with what is on disk.
+    let dir = golden_dir();
+    let crlf_path = dir.join("crlf-probe.txt");
+    let lf_path = dir.join("lf-probe.txt");
+    fs::write(&crlf_path, "I64@0..2\r\nI64@3..4\r\n").expect("the probe file can be written");
+    fs::write(&lf_path, "I64@0..2\nI64@3..4\n").expect("the probe file can be written");
+
+    let from_crlf = read_lf_only(&crlf_path);
+    let from_lf = read_lf_only(&lf_path);
+    let _ = fs::remove_file(&crlf_path);
+    let _ = fs::remove_file(&lf_path);
+
+    assert!(!from_crlf.contains('\r'), "a carriage return must not survive: {from_crlf:?}");
+    assert_eq!(from_crlf, from_lf, "CRLF and LF must read back as the same golden text");
+    assert_eq!(from_lf, "I64@0..2\nI64@3..4\n");
+}
+
+#[test]
+fn a_crlf_input_lexes_to_the_golden_stream_of_its_lf_twin() {
+    // The property that makes normalising the input safe, stated directly on
+    // real source: strip the carriage returns and the result must be the exact
+    // bytes the `.expected` file was generated from. If this ever stops
+    // holding, normalising the input would be changing what the goldens mean
+    // rather than repairing how they are read.
+    //
+    // `1\r\n3.5\r\n`
+    //  byte 0 is `1`, byte 1 the `\r`, byte 2 the `\n`, bytes 3..6 `3.5`.
+    //  After normalising: `1\n3.5\n`, so `3.5` is at 2..5 and the file is 6
+    //  bytes long.
+    let crlf = "1\r\n3.5\r\n";
+    let normalised: String = crlf
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(normalised, "1\n3.5\n");
+
+    let tokens = match Lexer::new(&normalised).tokenize() {
+        Ok(tokens) => tokens,
+        Err(diags) => panic!("must lex, got {:?}", messages(&diags)),
+    };
+    assert_eq!(render_golden(&tokens), "I64@0..1\nF64@2..5\nEof@6..6\n");
+
+    // And the unnormalised twin really does differ, or normalising would be
+    // hiding something rather than repairing it.
+    let crlf_tokens = match Lexer::new(crlf).tokenize() {
+        Ok(tokens) => tokens,
+        Err(diags) => panic!("must lex, got {:?}", messages(&diags)),
+    };
+    assert_eq!(render_golden(&crlf_tokens), "I64@0..1\nF64@3..6\nEof@8..8\n");
+}
+
+#[test]
+fn a_crlf_copy_of_a_golden_input_still_matches_its_expected_file() {
+    // The hazard itself, end to end. A CRLF copy of `numbers.ot` reads back to
+    // the same tokens as the LF original -- so the `.expected` file still
+    // matches -- but *only* because the input goes through `read_lf_only`. Read
+    // raw, every span after the first line is one byte further along, and an
+    // `UPDATE_GOLDEN=1` run on a machine with a CRLF editor would rewrite the
+    // whole file that way, commit it, and break every other checkout.
+    let input = golden_dir().join("numbers.ot");
+    let expected_path = input.with_extension("expected");
+    let expected = read_lf_only(&expected_path);
+
+    let as_crlf = read_lf_only(&input).replace('\n', "\r\n");
+    assert!(as_crlf.contains("\r\n"), "the fixture must really be CRLF now");
+
+    // The file as it would be read without normalising it: different, and wrong.
+    let raw_tokens = match Lexer::new(&as_crlf).tokenize() {
+        Ok(tokens) => tokens,
+        Err(d) => panic!("must lex, got {:?}", messages(&d)),
+    };
+    assert_ne!(render_golden(&raw_tokens), expected, "a CRLF file read raw must differ, or this test proves nothing");
+
+    // Normalised: identical to the committed expectation.
+    let copy = golden_dir().join("numbers-crlf-probe.tmp");
+    fs::write(&copy, &as_crlf).expect("the probe copy can be written");
+    let normalised = read_lf_only(&copy);
+    let _ = fs::remove_file(&copy);
+
+    let tokens = match Lexer::new(&normalised).tokenize() {
+        Ok(tokens) => tokens,
+        Err(d) => panic!("must lex, got {:?}", messages(&d)),
+    };
+    assert_eq!(render_golden(&tokens), expected);
+}
+
+#[test]
+fn golden_token_streams_match_their_expected_files() {
     let updating = updating_goldens();
-    for input in inputs {
+    for input in golden_inputs() {
         let name = input
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let src = fs::read_to_string(&input).unwrap_or_else(|e| panic!("cannot read {}: {e}", input.display()));
+        let src = read_lf_only(&input);
         let tokens = match Lexer::new(&src).tokenize() {
             Ok(tokens) => tokens,
             Err(diags) => panic!("golden input {name} must lex cleanly, got {:?}", messages(&diags)),
@@ -602,7 +823,7 @@ fn golden_token_streams_match_their_expected_files() {
             continue;
         }
 
-        let expected = read_expected(&expected_path);
+        let expected = read_lf_only(&expected_path);
         assert!(
             expected == actual,
             "token stream for {name} does not match {}\n--- expected ---\n{}\n--- actual ---\n{}",

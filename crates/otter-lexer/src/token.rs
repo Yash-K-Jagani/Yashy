@@ -15,9 +15,63 @@
 //! the string it was given, and the parser is given the same string, so that is
 //! true by construction rather than by convention.
 
-use otter_common::Span;
+use otter_common::{Diagnostic, FileId, Span};
 
-use crate::error::LitError;
+use crate::error::{self, LitError};
+
+/// The `i64` an `I64` token stands for.
+///
+/// `src` is the whole source text the token's span indexes into, and `span` is
+/// the token's own span -- `token.span`, sliced out of the same string the
+/// lexer was given.
+///
+/// This exists because a [`Token`] carries no value. Without it, every reader
+/// of an `I64` token writes `src[span].parse::<i64>().unwrap()`, and that
+/// panics on `99999999999999999999999` -- a number a user can type by accident,
+/// and the one input this whole crate exists not to crash on. `parse` already
+/// returns a `Result`; this turns it into a [`Diagnostic`] so the failure is
+/// reportable rather than fatal.
+///
+/// # Errors
+///
+/// A diagnostic when the span does not name digits, or names digits too large
+/// for an `i64`. The span is the one that was passed in, so the caret covers
+/// the literal the user wrote.
+pub fn literal_as_i64(src: &str, span: Span) -> Result<i64, Diagnostic> {
+    literal_as_i64_in_file(src, span, FileId::from_index(0))
+}
+
+/// [`literal_as_i64`], attributing the diagnostic to `file`.
+///
+/// The two-argument form names file zero, which is right only when the source
+/// really is file zero -- see the warning on
+/// [`otter_common::FileId`](otter_common::FileId) about ids that mean nothing
+/// without their map. Anything reading from a [`otter_common::SourceMap`] must
+/// use this one.
+pub fn literal_as_i64_in_file(src: &str, span: Span, file: FileId) -> Result<i64, Diagnostic> {
+    // `usize::try_from` cannot fail for a `u32` on any platform this runs on,
+    // and a saturated `usize::MAX` is out of range for `str::get` anyway, so
+    // an impossible offset degrades to a diagnostic.
+    let start = usize::try_from(span.start).unwrap_or(usize::MAX);
+    let end = usize::try_from(span.end).unwrap_or(usize::MAX);
+    let text = match src.get(start..end) {
+        // An empty span names no text at all, and `parse` would say the same
+        // thing about it -- but "expected an integer literal" is the useful
+        // half of that answer.
+        Some(text) if !text.is_empty() => text,
+        _ => return Err(error::invalid_integer_literal(file, span)),
+    };
+    if !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        // The lexer never emits a span covering anything but digits, so this is
+        // a caller that sliced the wrong range -- a diagnostic is still better
+        // than handing back a number read out of the middle of a string.
+        return Err(error::invalid_integer_literal(file, span));
+    }
+    match text.parse::<i64>() {
+        Ok(value) => Ok(value),
+        Err(_) => Err(error::integer_literal_out_of_range(file, span)),
+    }
+}
 
 /// A string literal with its escape sequences decoded.
 ///
@@ -172,6 +226,17 @@ pub enum TokenKind {
     Switch,
     Case,
     Default,
+    /// `as`, for a cast: `x as f64`.
+    ///
+    /// Spec §3.1 lists it among the keywords and Task 6 parses casts, so
+    /// without it `x as f64` lexes as three identifiers.
+    As,
+    /// `move`, for an ownership transfer: `move buf`.
+    ///
+    /// Spec §3.1 lists it too. The memory model it belongs to arrives in M3,
+    /// but a keyword added later is a breaking change to every file that uses
+    /// `move` as a name, so it is a keyword now.
+    Move,
     True,
     False,
 
@@ -256,6 +321,8 @@ impl TokenKind {
             "switch" => TokenKind::Switch,
             "case" => TokenKind::Case,
             "default" => TokenKind::Default,
+            "as" => TokenKind::As,
+            "move" => TokenKind::Move,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             _ => return None,
@@ -285,6 +352,8 @@ impl TokenKind {
                 | TokenKind::Switch
                 | TokenKind::Case
                 | TokenKind::Default
+                | TokenKind::As
+                | TokenKind::Move
                 | TokenKind::True
                 | TokenKind::False
         )
@@ -295,6 +364,85 @@ impl TokenKind {
         matches!(self, TokenKind::Eof)
     }
 
+    /// How a kind is written, when there is no single spelling to write.
+    ///
+    /// [`TokenKind::spelling`] and [`TokenKind::describe`] are both views of
+    /// one exhaustive table. Keeping them separate meant each had to assume
+    /// what the other did -- one carried a fallback for a kind "that cannot
+    /// happen", which is an assumption the compiler cannot check and a reader
+    /// has to verify by eye. Here there is no assumption: every kind is written
+    /// down once, and adding one to the enum is a compile error until it is.
+    fn naming(&self) -> Naming {
+        match self {
+            TokenKind::Fn => Naming::Fixed("fn"),
+            TokenKind::Struct => Naming::Fixed("struct"),
+            TokenKind::Enum => Naming::Fixed("enum"),
+            TokenKind::Const => Naming::Fixed("const"),
+            TokenKind::Var => Naming::Fixed("var"),
+            TokenKind::Import => Naming::Fixed("import"),
+            TokenKind::Extern => Naming::Fixed("extern"),
+            TokenKind::Unsafe => Naming::Fixed("unsafe"),
+            TokenKind::Defer => Naming::Fixed("defer"),
+            TokenKind::Return => Naming::Fixed("return"),
+            TokenKind::Break => Naming::Fixed("break"),
+            TokenKind::Continue => Naming::Fixed("continue"),
+            TokenKind::If => Naming::Fixed("if"),
+            TokenKind::Else => Naming::Fixed("else"),
+            TokenKind::For => Naming::Fixed("for"),
+            TokenKind::In => Naming::Fixed("in"),
+            TokenKind::Switch => Naming::Fixed("switch"),
+            TokenKind::Case => Naming::Fixed("case"),
+            TokenKind::Default => Naming::Fixed("default"),
+            TokenKind::As => Naming::Fixed("as"),
+            TokenKind::Move => Naming::Fixed("move"),
+            TokenKind::True => Naming::Fixed("true"),
+            TokenKind::False => Naming::Fixed("false"),
+            TokenKind::LParen => Naming::Fixed("("),
+            TokenKind::RParen => Naming::Fixed(")"),
+            TokenKind::LBrace => Naming::Fixed("{"),
+            TokenKind::RBrace => Naming::Fixed("}"),
+            TokenKind::LBracket => Naming::Fixed("["),
+            TokenKind::RBracket => Naming::Fixed("]"),
+            TokenKind::Comma => Naming::Fixed(","),
+            TokenKind::Semi => Naming::Fixed(";"),
+            TokenKind::Colon => Naming::Fixed(":"),
+            TokenKind::ColonEq => Naming::Fixed(":="),
+            TokenKind::Dot => Naming::Fixed("."),
+            TokenKind::DotDot => Naming::Fixed(".."),
+            TokenKind::Arrow => Naming::Fixed("->"),
+            TokenKind::At => Naming::Fixed("@"),
+            TokenKind::Question => Naming::Fixed("?"),
+            TokenKind::Plus => Naming::Fixed("+"),
+            TokenKind::Minus => Naming::Fixed("-"),
+            TokenKind::Star => Naming::Fixed("*"),
+            TokenKind::Slash => Naming::Fixed("/"),
+            TokenKind::Percent => Naming::Fixed("%"),
+            TokenKind::Eq => Naming::Fixed("="),
+            TokenKind::EqEq => Naming::Fixed("=="),
+            TokenKind::Bang => Naming::Fixed("!"),
+            TokenKind::BangEq => Naming::Fixed("!="),
+            TokenKind::Lt => Naming::Fixed("<"),
+            TokenKind::LtEq => Naming::Fixed("<="),
+            TokenKind::Gt => Naming::Fixed(">"),
+            TokenKind::GtEq => Naming::Fixed(">="),
+            TokenKind::PlusEq => Naming::Fixed("+="),
+            TokenKind::MinusEq => Naming::Fixed("-="),
+            TokenKind::StarEq => Naming::Fixed("*="),
+            TokenKind::SlashEq => Naming::Fixed("/="),
+            TokenKind::PercentEq => Naming::Fixed("%="),
+            TokenKind::AndAnd => Naming::Fixed("&&"),
+            TokenKind::OrOr => Naming::Fixed("||"),
+
+            // The five kinds whose text is their value have no spelling: there
+            // is no one way to write `an identifier`, only many.
+            TokenKind::Ident => Naming::Class("an identifier"),
+            TokenKind::I64 => Naming::Class("an integer literal"),
+            TokenKind::F64 => Naming::Class("a float literal"),
+            TokenKind::Str => Naming::Class("a string literal"),
+            TokenKind::Eof => Naming::Class("end of file"),
+        }
+    }
+
     /// The source text of a fixed token, or `None` for a kind that stands for
     /// a class of text rather than one spelling.
     ///
@@ -302,67 +450,10 @@ impl TokenKind {
     /// to say `expected (`, got }` uses this; one that wants a finished
     /// sentence uses [`TokenKind::describe`].
     pub fn spelling(&self) -> Option<&'static str> {
-        Some(match self {
-            TokenKind::Fn => "fn",
-            TokenKind::Struct => "struct",
-            TokenKind::Enum => "enum",
-            TokenKind::Const => "const",
-            TokenKind::Var => "var",
-            TokenKind::Import => "import",
-            TokenKind::Extern => "extern",
-            TokenKind::Unsafe => "unsafe",
-            TokenKind::Defer => "defer",
-            TokenKind::Return => "return",
-            TokenKind::Break => "break",
-            TokenKind::Continue => "continue",
-            TokenKind::If => "if",
-            TokenKind::Else => "else",
-            TokenKind::For => "for",
-            TokenKind::In => "in",
-            TokenKind::Switch => "switch",
-            TokenKind::Case => "case",
-            TokenKind::Default => "default",
-            TokenKind::True => "true",
-            TokenKind::False => "false",
-            TokenKind::LParen => "(",
-            TokenKind::RParen => ")",
-            TokenKind::LBrace => "{",
-            TokenKind::RBrace => "}",
-            TokenKind::LBracket => "[",
-            TokenKind::RBracket => "]",
-            TokenKind::Comma => ",",
-            TokenKind::Semi => ";",
-            TokenKind::Colon => ":",
-            TokenKind::ColonEq => ":=",
-            TokenKind::Dot => ".",
-            TokenKind::DotDot => "..",
-            TokenKind::Arrow => "->",
-            TokenKind::At => "@",
-            TokenKind::Question => "?",
-            TokenKind::Plus => "+",
-            TokenKind::Minus => "-",
-            TokenKind::Star => "*",
-            TokenKind::Slash => "/",
-            TokenKind::Percent => "%",
-            TokenKind::Eq => "=",
-            TokenKind::EqEq => "==",
-            TokenKind::Bang => "!",
-            TokenKind::BangEq => "!=",
-            TokenKind::Lt => "<",
-            TokenKind::LtEq => "<=",
-            TokenKind::Gt => ">",
-            TokenKind::GtEq => ">=",
-            TokenKind::PlusEq => "+=",
-            TokenKind::MinusEq => "-=",
-            TokenKind::StarEq => "*=",
-            TokenKind::SlashEq => "/=",
-            TokenKind::PercentEq => "%=",
-            TokenKind::AndAnd => "&&",
-            TokenKind::OrOr => "||",
-            TokenKind::Ident | TokenKind::I64 | TokenKind::F64 | TokenKind::Str | TokenKind::Eof => {
-                return None
-            }
-        })
+        match self.naming() {
+            Naming::Fixed(spelling) => Some(spelling),
+            Naming::Class(_) => None,
+        }
     }
 
     /// How to name this token in a diagnostic.
@@ -371,19 +462,21 @@ impl TokenKind {
     /// by a noun phrase, so that both halves of `expected {}, found {}` read
     /// as a sentence: `expected `(`, found an identifier`.
     pub fn describe(&self) -> String {
-        match self.spelling() {
-            Some(spelling) => format!("`{spelling}`"),
-            None => match self {
-                TokenKind::Ident => "an identifier".to_string(),
-                TokenKind::I64 => "an integer literal".to_string(),
-                TokenKind::F64 => "a float literal".to_string(),
-                TokenKind::Str => "a string literal".to_string(),
-                // Every other kind is fixed, and handled above.
-                TokenKind::Eof => "end of file".to_string(),
-                _ => "a token".to_string(),
-            },
+        match self.naming() {
+            Naming::Fixed(spelling) => format!("`{spelling}`"),
+            Naming::Class(phrase) => phrase.to_string(),
         }
     }
+}
+
+/// What a kind is called in a diagnostic: one spelling, or a class of text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Naming {
+    /// Written exactly like this in source: the keyword, or the operator.
+    Fixed(&'static str),
+    /// A class of source text, named by a noun phrase. No spelling exists,
+    /// because the text is whatever the user wrote.
+    Class(&'static str),
 }
 
 #[cfg(test)]
@@ -393,7 +486,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 21] = [
+    const KEYWORDS: [(&str, TokenKind); 23] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -413,6 +506,8 @@ mod tests {
         ("switch", TokenKind::Switch),
         ("case", TokenKind::Case),
         ("default", TokenKind::Default),
+        ("as", TokenKind::As),
+        ("move", TokenKind::Move),
         ("true", TokenKind::True),
         ("false", TokenKind::False),
     ];
@@ -448,16 +543,69 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_is_either_spelled_or_one_of_the_five_value_kinds() {
-        // A kind that is neither has no spelling and falls back to "a token",
-        // which would be the sign of one added to the enum without being
-        // described.
-        let kinds = [
+    fn every_kind_is_named_exactly_once_and_no_other_way() {
+        // All sixty-three kinds, not a sample of them. `naming` is a match with
+        // no catch-all, so a new variant is a compile error until it is named
+        // there -- and this test then checks the naming is *sensible*: a fixed
+        // spelling must be backticked, and the five value kinds must be named
+        // by what they are rather than by a spelling that does not exist.
+        let every_kind = [
+            TokenKind::Fn,
+            TokenKind::Struct,
+            TokenKind::Enum,
+            TokenKind::Const,
+            TokenKind::Var,
+            TokenKind::Import,
+            TokenKind::Extern,
+            TokenKind::Unsafe,
+            TokenKind::Defer,
+            TokenKind::Return,
+            TokenKind::Break,
+            TokenKind::Continue,
+            TokenKind::If,
+            TokenKind::Else,
+            TokenKind::For,
+            TokenKind::In,
+            TokenKind::Switch,
+            TokenKind::Case,
+            TokenKind::Default,
+            TokenKind::As,
+            TokenKind::Move,
+            TokenKind::True,
+            TokenKind::False,
             TokenKind::LParen,
-            TokenKind::Question,
+            TokenKind::RParen,
+            TokenKind::LBrace,
+            TokenKind::RBrace,
+            TokenKind::LBracket,
+            TokenKind::RBracket,
+            TokenKind::Comma,
+            TokenKind::Semi,
+            TokenKind::Colon,
+            TokenKind::ColonEq,
+            TokenKind::Dot,
             TokenKind::DotDot,
             TokenKind::Arrow,
+            TokenKind::At,
+            TokenKind::Question,
+            TokenKind::Plus,
+            TokenKind::Minus,
+            TokenKind::Star,
+            TokenKind::Slash,
+            TokenKind::Percent,
+            TokenKind::Eq,
+            TokenKind::EqEq,
             TokenKind::Bang,
+            TokenKind::BangEq,
+            TokenKind::Lt,
+            TokenKind::LtEq,
+            TokenKind::Gt,
+            TokenKind::GtEq,
+            TokenKind::PlusEq,
+            TokenKind::MinusEq,
+            TokenKind::StarEq,
+            TokenKind::SlashEq,
+            TokenKind::PercentEq,
             TokenKind::AndAnd,
             TokenKind::OrOr,
             TokenKind::Ident,
@@ -466,16 +614,22 @@ mod tests {
             TokenKind::Str,
             TokenKind::Eof,
         ];
-        for kind in kinds {
+
+        for kind in every_kind {
             let described = kind.describe();
-            assert!(!described.is_empty());
-            if kind.spelling().is_none() {
-                assert!(
-                    matches!(described.as_str(), "an identifier" | "an integer literal" | "a float literal" | "a string literal" | "end of file"),
-                    "{kind:?} has no spelling, so it must be described by kind: {described}"
-                );
-            } else {
-                assert!(described.starts_with('`'), "{kind:?} must be described by spelling: {described}");
+            assert!(!described.is_empty(), "{kind:?} has no description");
+            match kind.spelling() {
+                Some(spelling) => {
+                    assert_eq!(described, format!("`{spelling}`"), "{kind:?} must be named by its spelling");
+                    assert!(!spelling.is_empty(), "{kind:?} has an empty spelling");
+                }
+                None => assert!(
+                    matches!(
+                        described.as_str(),
+                        "an identifier" | "an integer literal" | "a float literal" | "a string literal" | "end of file"
+                    ),
+                    "{kind:?} has no spelling, so it must be named by what it is: {described}"
+                ),
             }
         }
     }

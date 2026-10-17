@@ -118,6 +118,7 @@ impl<'src> Lexer<'src> {
     /// Skips whitespace and comments, leaving `pos` on the first byte of the
     /// next token.
     fn skip_trivia(&mut self) -> Result<(), Failed> {
+        self.skip_byte_order_mark();
         loop {
             let bytes = self.src.as_bytes();
             let first = match peek(bytes, self.pos) {
@@ -130,6 +131,29 @@ impl<'src> Lexer<'src> {
                 b'/' if peek_at(bytes, self.pos, 1) == Some(b'*') => self.skip_block_comment()?,
                 _ => return Ok(()),
             }
+        }
+    }
+
+    /// Skips a UTF-8 byte order mark at the very start of the file.
+    ///
+    /// Plenty of Windows tooling writes one, and without this every file it
+    /// touches fails to compile with a diagnostic about a character the user
+    /// cannot see in their editor. Only a *leading* mark: one further into the
+    /// file is not an encoding marker but a character nobody meant to type, and
+    /// swallowing that would hide a real mistake. The token after the mark keeps
+    /// the span it would have had in a file saved without one, because the mark
+    /// is three bytes that were really there.
+    ///
+    /// Once per file, not once per trivia boundary: `skip_trivia` runs before
+    /// every token, so a skipper that re-armed on each call would drag the scan
+    /// back to byte 3 in the middle of a file that opened with a mark, and lex
+    /// the first token twice. The `pos == 0` guard is what makes it once.
+    fn skip_byte_order_mark(&mut self) {
+        const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+        let at_start_of_file = self.pos == 0;
+        let bytes = self.src.as_bytes();
+        if at_start_of_file && bytes.get(..BOM.len()) == Some(BOM.as_slice()) {
+            self.pos = BOM.len();
         }
     }
 
@@ -197,7 +221,7 @@ impl<'src> Lexer<'src> {
                 self.scan_string()?;
                 Ok(Some(TokenKind::Str))
             }
-            b'0'..=b'9' => Ok(Some(self.scan_number())),
+            b'0'..=b'9' => self.scan_number().map(Some),
             byte if is_ident_start(byte) => Ok(Some(self.scan_identifier())),
             byte => self.scan_punctuation(byte),
         }
@@ -225,8 +249,14 @@ impl<'src> Lexer<'src> {
     /// what keeps `0..10` two tokens and a `DotDot` rather than a float and a
     /// stray `10`. A float with no digits before the dot (`.5`) is not in the
     /// language, so it is a `Dot` followed by a number.
-    fn scan_number(&mut self) -> TokenKind {
+    ///
+    /// A number may not run straight into a name or a second dot. Splitting
+    /// `0x1F` into `0` and `x1F` looks like success and leaves the parser to
+    /// complain about an identifier the user never wrote, so those are
+    /// diagnosed here, where the mistake is visible.
+    fn scan_number(&mut self) -> Result<TokenKind, Failed> {
         let bytes = self.src.as_bytes();
+        let start = self.pos;
         self.skip_digits();
         let after_int = self.pos;
 
@@ -235,9 +265,23 @@ impl<'src> Lexer<'src> {
         if is_float {
             self.pos = self.pos.saturating_add(1);
             self.skip_digits();
-            return TokenKind::F64;
         }
-        TokenKind::I64
+
+        let malformed = match peek(bytes, self.pos) {
+            // `123abc`, `1_000`, `1e10`: a letter or an underscore where the
+            // number should have ended.
+            Some(byte) if is_ident_continue(byte) => true,
+            // `1.2.3`: a second dot after a float. A dot after an *integer* is
+            // `DotDot` or a bare `Dot`, which are both real tokens.
+            Some(b'.') if is_float => true,
+            _ => false,
+        };
+        if malformed {
+            let span = self.span_of(start, self.pos);
+            return self.report(error::invalid_numeric_literal(self.file, span));
+        }
+
+        Ok(if is_float { TokenKind::F64 } else { TokenKind::I64 })
     }
 
     fn skip_digits(&mut self) {
@@ -607,9 +651,24 @@ mod tests {
     #[test]
     fn a_slash_star_inside_a_string_does_not_open_a_comment() {
         // If the trivia skipper ran inside the string this would unbalance the
-        // nesting count and eat the rest of the file.
-        assert_eq!(lex("\"/*\"").len(), 2);
-        assert_eq!(lex("\"/*\" 1").len(), 3);
+        // nesting count and eat the rest of the file. Asserting the whole
+        // stream, not just its length: a lexer that emitted a `Slash` and a
+        // `Star` from inside the quotes would have the right number of tokens
+        // here and be completely wrong.
+        //
+        // `"/*"`
+        //  byte 0 is the opening quote, bytes 1..3 are `/*` -- string content,
+        //  not the start of a comment -- and byte 3 is the closing quote.
+        assert_eq!(lex("\"/*\""), vec![
+            Token { kind: TokenKind::Str, span: Span::new(0, 4) },
+            Token { kind: TokenKind::Eof, span: Span::new(4, 4) },
+        ]);
+        // And the file after it is still lexed: the `1` is at byte 5.
+        assert_eq!(lex("\"/*\" 1"), vec![
+            Token { kind: TokenKind::Str, span: Span::new(0, 4) },
+            Token { kind: TokenKind::I64, span: Span::new(5, 6) },
+            Token { kind: TokenKind::Eof, span: Span::new(6, 6) },
+        ]);
     }
 
     #[test]
@@ -696,6 +755,45 @@ mod tests {
         let text = format!("{:?}", Lexer::new("secret"));
         assert!(!text.contains("secret"), "a Debug for a lexer must not print the program: {text}");
         assert!(text.contains("Lexer"), "{text}");
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_skipped_once_at_the_start_of_a_file() {
+        // The mark is three bytes that are really there, so the token after it
+        // keeps the offset it has in a file saved without one.
+        assert_eq!(lex("\u{feff}1"), vec![
+            Token { kind: TokenKind::I64, span: Span::new(3, 4) },
+            Token { kind: TokenKind::Eof, span: Span::new(4, 4) },
+        ]);
+
+        // A file that is nothing but a mark is an empty file, not an error.
+        assert_eq!(lex("\u{feff}"), vec![Token { kind: TokenKind::Eof, span: Span::new(3, 3) }]);
+
+        // Trivia immediately after the mark is trivia, not a stray token. A
+        // skipper that read the byte at the old offset *before* advancing over
+        // the mark would report the space as `unexpected character` here.
+        assert_eq!(lex("\u{feff} 1"), vec![
+            Token { kind: TokenKind::I64, span: Span::new(4, 5) },
+            Token { kind: TokenKind::Eof, span: Span::new(5, 5) },
+        ]);
+        assert_eq!(lex("\u{feff}/* c */1"), vec![
+            Token { kind: TokenKind::I64, span: Span::new(10, 11) },
+            Token { kind: TokenKind::Eof, span: Span::new(11, 11) },
+        ]);
+
+        // Once, not per trivia boundary: `skip_trivia` runs before every token,
+        // so a skipper that re-armed would drag the scan back to byte 3 after
+        // the first token and lex `1` twice.
+        assert_eq!(lex("\u{feff}1 2"), vec![
+            Token { kind: TokenKind::I64, span: Span::new(3, 4) },
+            Token { kind: TokenKind::I64, span: Span::new(5, 6) },
+            Token { kind: TokenKind::Eof, span: Span::new(6, 6) },
+        ]);
+
+        // Only a *leading* mark is skipped. One further in is a character
+        // nobody typed on purpose, and swallowing it would hide a mistake.
+        let d = first_error("\u{feff}1 \u{feff}2");
+        assert_eq!(d.span, Span::new(5, 8), "the second mark, not a re-lex of the first token");
     }
 
     #[test]

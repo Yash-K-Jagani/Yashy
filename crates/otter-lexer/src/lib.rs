@@ -41,10 +41,18 @@
 //! assert_eq!(eof.span.end, 12);
 //! ```
 
-pub mod error;
 pub mod lexer;
 pub mod token;
 
+/// How the lexer words its own diagnostics.
+///
+/// Not part of the public API: a downstream crate that can call
+/// [`error::unexpected_character`](error) can mint a lexer diagnostic with any
+/// message it likes, and the wording then depends on which crate happened to
+/// build it. The type it produces, [`LitError`], is public because
+/// [`StringLit::decode`] returns one.
+pub(crate) mod error;
+
 pub use error::LitError;
 pub use lexer::Lexer;
-pub use token::{StringLit, Token, TokenKind};
+pub use token::{literal_as_i64, literal_as_i64_in_file, StringLit, Token, TokenKind};

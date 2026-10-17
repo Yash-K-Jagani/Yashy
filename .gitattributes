@@ -1,0 +1,12 @@
+# Golden token streams and golden test data pin byte offsets, so the bytes of a
+# golden input and of its `.expected` file have to be identical on every
+# machine. This repository is checked out with CRLF on Windows, which would move
+# every span on every line after the first and make the comparison fail for a
+# reason that has nothing to do with the code under test.
+#
+# These patterns are repo-wide rather than per-crate on purpose: every crate in
+# the workspace grows its own `tests/golden/` directory as its tests do, and a
+# pattern that only covered the first crate would leave the next one to fail on
+# a fresh clone.
+**/tests/golden/*.ot        text eol=lf
+**/tests/golden/*.expected text eol=lf

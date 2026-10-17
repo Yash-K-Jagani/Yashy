@@ -75,6 +75,28 @@ pub fn unterminated_block_comment(file: FileId, span: Span) -> Diagnostic {
     error(file, span, "unterminated block comment: no `*/` closes it")
 }
 
+/// A span whose text is not an integer literal at all: empty, unreadable, or
+/// holding something other than digits.
+pub(crate) fn invalid_integer_literal(file: FileId, span: Span) -> Diagnostic {
+    error(file, span, "expected an integer literal")
+}
+
+/// An integer literal whose value does not fit an `i64`.
+pub(crate) fn integer_literal_out_of_range(file: FileId, span: Span) -> Diagnostic {
+    error(file, span, "integer literal does not fit an i64")
+}
+
+/// A number that runs straight into something that cannot be part of one, such
+/// as the `x` in `0x1F` or a second dot in `1.2.3`.
+///
+/// The label matters here more than the message: the mistake is always the same
+/// one -- writing a literal Otter does not have -- and saying so is the
+/// difference between a user who fixes it and a user who tries `0b1010` next.
+pub(crate) fn invalid_numeric_literal(file: FileId, span: Span) -> Diagnostic {
+    error(file, span, "invalid numeric literal")
+        .with_label("Otter has no hex, binary, exponent or digit-separating literals")
+}
+
 fn error(file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(Severity::Error, file, span, message)
 }
@@ -134,12 +156,30 @@ mod tests {
             invalid_escape(file(), Span::new(1, 2), "unknown escape `\\q`"),
             unterminated_string(file(), Span::new(0, 4), "the file ends before the closing quote"),
             unterminated_block_comment(file(), Span::new(0, 2)),
+            invalid_integer_literal(file(), Span::new(0, 3)),
+            integer_literal_out_of_range(file(), Span::new(0, 40)),
+            invalid_numeric_literal(file(), Span::new(0, 3)),
         ];
         for d in diags {
             assert!(d.is_error(), "{}", d.message);
             assert!(!d.span.is_synthetic(), "{}", d.message);
             assert!(!d.message.ends_with('.'), "the renderer supplies the punctuation: {}", d.message);
-            assert!(d.label.is_none(), "{}", d.message);
         }
+    }
+
+    #[test]
+    fn the_numeric_messages_say_which_literal_is_wrong() {
+        assert_eq!(invalid_integer_literal(file(), Span::new(0, 1)).message, "expected an integer literal");
+        let out_of_range = integer_literal_out_of_range(file(), Span::new(0, 40));
+        assert_eq!(out_of_range.message, "integer literal does not fit an i64");
+
+        // A label is what turns "invalid numeric literal" into something the
+        // user can act on, so its presence is pinned rather than incidental.
+        let numeric = invalid_numeric_literal(file(), Span::new(0, 3));
+        assert_eq!(numeric.message, "invalid numeric literal");
+        assert_eq!(
+            numeric.label.as_deref(),
+            Some("Otter has no hex, binary, exponent or digit-separating literals")
+        );
     }
 }
