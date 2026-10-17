@@ -287,7 +287,7 @@ git commit -m "feat(common): source map and caret diagnostic rendering"
   - `Lexer::tokenize(&mut self) -> Result<Vec<Token>, Vec<Diagnostic>>`
   - `TokenKind::describe(&self) -> String` — the spelling used in diagnostics
   - `StringLit { pub value: String, pub bytes: Vec<u8> }`
-  - `pub fn literal_as_i64(src: &str, span: Span) -> Result<i64, Diagnostic>` — the **only** supported way to turn an `I64` token's text into a value, producing a diagnostic for a literal that does not fit. `TokenKind::I64` carries no value, so without this helper a downstream stage is one `parse::<i64>().unwrap()` away from panicking on a 40-digit literal. Task 4 must use it and must not parse integer literals by any other route.
+  - `pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagnostic>` — the **only** supported way to turn an `I64` token's text into a value, producing a diagnostic for a literal that does not fit. The `FileId` is **required, not optional**: a two-argument form silently attributes the diagnostic to file zero, which puts the caret in an unrelated source file — worse than no diagnostic. `TokenKind::I64` carries no value, so without this helper a downstream stage is one `parse::<i64>().unwrap()` away from panicking on a 40-digit literal. Task 4 must use it and must not parse integer literals by any other route.
 
 - [ ] **Step 1: Write the failing unit tests**
 
