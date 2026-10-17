@@ -505,6 +505,65 @@ fn struct_field_types_cover_the_whole_type_grammar() {
     }
 }
 
+/// A trailing comma inside a tuple type is accepted, and it does not add an
+/// element.
+///
+/// This is the one comma loop in the crate where the "stop at the closer"
+/// clause is load-bearing rather than redundant, and this test is what keeps it
+/// that way: `parse_paren_type` is a bare `loop {}` with no `while !check(RParen)`
+/// guard above it, so `self.check(TokenKind::RParen)` is the only thing standing
+/// between `(i64,)` and "expected a type, found `)`". Deleting the clause turns
+/// both of these red.
+#[test]
+fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
+    // `(i64,)` -- one element, and the comma before `)` is not a separator.
+    let src = "struct S { e: (i64,) }";
+    match &parse_ok(src).items[0] {
+        Item::Struct { fields, .. } => match &fields[0].ty {
+            TypeExpr::Tuple(elements, _) => assert_eq!(
+                elements.len(),
+                1,
+                "a trailing comma is not an element: {elements:?}"
+            ),
+            other => panic!("`(i64,)` is a tuple type, got {other:?}"),
+        },
+        other => panic!("expected a struct, got {other:?}"),
+    }
+
+    // The same trailing comma inside a variant's positional payload: one field,
+    // not two, and the comma loop there agrees with the struct case.
+    let src = "enum E { A(i64,) }";
+    match &parse_ok(src).items[0] {
+        Item::Enum { variants, .. } => assert_eq!(
+            variants[0].fields.len(),
+            1,
+            "a trailing comma is not a field: {:?}",
+            variants[0].fields
+        ),
+        other => panic!("expected an enum, got {other:?}"),
+    }
+
+    // The two-element form still works, so the trailing comma is not what is
+    // making a one-element tuple parse.
+    match &parse_ok("struct S { e: (i64, f64) }").items[0] {
+        Item::Struct { fields, .. } => match &fields[0].ty {
+            TypeExpr::Tuple(elements, _) => assert_eq!(elements.len(), 2, "{elements:?}"),
+            other => panic!("expected a tuple, got {other:?}"),
+        },
+        other => panic!("expected a struct, got {other:?}"),
+    }
+
+    // And a doubled comma inside a tuple type is still a diagnostic, not a
+    // silently dropped element.
+    let message = all_messages(&parse_err("struct S { e: (i64,, f64) }"));
+    assert!(message.contains("type"), "{message}");
+    assert_eq!(
+        parse_err("struct S { e: (i64,, f64) }").len(),
+        1,
+        "one mistake, one diagnostic: {message}"
+    );
+}
+
 #[test]
 fn a_type_the_parser_cannot_read_is_a_diagnostic() {
     // Otter has no generics, so `[` after any other name is a mistake worth
@@ -700,10 +759,14 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
 
     // Everything else is one diagnostic. Not a loop, not a cascade, and never a
     // parameter built out of nothing.
+    //
+    // `f(1,)` / `f(,)` / `f(1,,2)` are call *expressions*, which Task 6 owns;
+    // their parameter-list equivalents are here, and they are the same comma
+    // loop over the same delimiter, so what is pinned is the same rule.
     for src in [
-        "fn f(a: i64,, b: i64) { }",
-        "fn f(,) { }",
-        "fn f(, a: i64) { }",
+        "fn f(a: i64,, b: i64) { }", // f(1,,2)
+        "fn f(,) { }",               // f(,)
+        "fn f(, a: i64) { }",        // f(,1)
         "fn f(a: i64 b: i64) { }",
         "fn f(a:) { }",
         "fn f(a: i64,,, ) { }",
@@ -716,6 +779,27 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
             all_messages(&diags)
         );
         assert!(diags[0].is_error(), "{src:?}: {}", diags[0].message);
+    }
+
+    // `struct S { a: i64, }` is asserted above: a trailing comma there is one
+    // field, not two. The named-variant payload and the positional one are the
+    // remaining two comma loops, and they agree.
+    match &parse_ok("enum E { A { w: f64, } }").items[0] {
+        Item::Enum { variants, .. } => assert_eq!(
+            variants[0].fields.len(),
+            1,
+            "a trailing comma is not a field: {:?}",
+            variants[0].fields
+        ),
+        other => panic!("expected an enum, got {other:?}"),
+    }
+    match &parse_ok("enum E { A, B, }").items[0] {
+        Item::Enum { variants, .. } => assert_eq!(
+            variants.len(),
+            2,
+            "a trailing comma is not a variant: {variants:?}"
+        ),
+        other => panic!("expected an enum, got {other:?}"),
     }
 }
 
@@ -765,6 +849,44 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
     assert_eq!(parse_ok("enum E { Red }").items.len(), 1);
     assert_eq!(parse_ok("struct S { x: f64 }").items.len(), 1);
     assert_eq!(parse_ok("enum E { Red, Green }").items.len(), 1);
+
+    // The ruling reaches inside the enum too: a variant with an *empty* payload
+    // is the same mistake as an empty enum, one level down. A variant with no
+    // fields is spelled `A` -- `A()` and `A {}` are rejected, so that `fields`
+    // being empty has exactly one spelling behind it and a reader never has to
+    // wonder which of the two produced it.
+    for (src, variant) in [("enum E { A() }", 'A'), ("enum E { A {} }", 'A')] {
+        let diags = parse_err(src);
+        assert_eq!(diags.len(), 1, "{src:?}: {}", all_messages(&diags));
+        let first = match diags.first() {
+            Some(d) => d,
+            None => panic!("there must be a diagnostic"),
+        };
+        assert!(
+            first.message.contains(variant),
+            "{src:?} must name the variant it is about: {}",
+            first.message
+        );
+        assert!(
+            first.message.contains("field"),
+            "{src:?} must say what is missing: {}",
+            first.message
+        );
+        // The same message shape as an empty struct body: `X` must have at
+        // least one `Y`.
+        let struct_message = parse_err("struct S { }")[0].message.clone();
+        let variant_message = first.message.replace(&format!("variant `{variant}` of enum `E`"), "struct `S`");
+        assert_eq!(
+            variant_message, struct_message,
+            "{src:?}: a variant's emptiness is reported like a struct's"
+        );
+    }
+
+    // A variant with a real payload in the same spelling still parses, so the
+    // rejection is about emptiness and not about parentheses or braces.
+    assert_eq!(parse_ok("enum E { A(i64) }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { A { w: f64 } }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { A, B(f64), C { w: f64 } }").items.len(), 1);
 }
 
 #[test]

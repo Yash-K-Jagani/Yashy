@@ -121,7 +121,7 @@ impl<'src> Parser<'src> {
         let mut fields = Vec::new();
         while !self.check(TokenKind::RBrace) {
             fields.push(self.parse_field_def()?);
-            if !self.eat(TokenKind::Comma) || self.check(TokenKind::RBrace) {
+            if !self.eat(TokenKind::Comma) {
                 break;
             }
         }
@@ -163,8 +163,8 @@ impl<'src> Parser<'src> {
 
         let mut variants = Vec::new();
         while !self.check(TokenKind::RBrace) {
-            variants.push(self.parse_variant_def()?);
-            if !self.eat(TokenKind::Comma) || self.check(TokenKind::RBrace) {
+            variants.push(self.parse_variant_def(&name)?);
+            if !self.eat(TokenKind::Comma) {
                 break;
             }
         }
@@ -193,11 +193,18 @@ impl<'src> Parser<'src> {
     /// field it is holding, because the two are different types -- there is no
     /// path through this function that can build a named field with no name, or
     /// a positional field for something the user wrote a name for.
-    fn parse_variant_def(&mut self) -> Result<VariantDef, ParseError> {
+    fn parse_variant_def(&mut self, enum_name: &str) -> Result<VariantDef, ParseError> {
         let (name, name_span) = self.identifier()?;
 
         if self.check(TokenKind::LParen) {
             let (fields, close) = self.parse_positional_payload()?;
+            if fields.is_empty() {
+                return Err(error::variant_needs_a_field(
+                    cover(name_span, close),
+                    enum_name,
+                    &name,
+                ));
+            }
             return Ok(VariantDef {
                 name,
                 fields,
@@ -206,6 +213,13 @@ impl<'src> Parser<'src> {
         }
         if self.check(TokenKind::LBrace) {
             let (fields, close) = self.parse_named_payload()?;
+            if fields.is_empty() {
+                return Err(error::variant_needs_a_field(
+                    cover(name_span, close),
+                    enum_name,
+                    &name,
+                ));
+            }
             return Ok(VariantDef {
                 name,
                 fields,
@@ -236,7 +250,7 @@ impl<'src> Parser<'src> {
                 span: ty_span(&ty),
                 ty,
             });
-            if !self.eat(TokenKind::Comma) || self.check(TokenKind::RParen) {
+            if !self.eat(TokenKind::Comma) {
                 break;
             }
         }
@@ -249,7 +263,7 @@ impl<'src> Parser<'src> {
     ///
     /// Every field here is [`VariantField::Named`], and every name came from an
     /// identifier the source wrote, so a named field cannot have an empty name:
-    /// [`parse_field_def`] reads one with [`Parser::identifier`], which refuses
+    /// each name comes from [`Parser::identifier`], which refuses
     /// a span that reads as no text at all.
     fn parse_named_payload(&mut self) -> Result<(Vec<VariantField>, Span), ParseError> {
         let open = self.expect(TokenKind::LBrace)?;
@@ -265,7 +279,7 @@ impl<'src> Parser<'src> {
                 span: cover(name_span, ty_span(&ty)),
                 ty,
             });
-            if !self.eat(TokenKind::Comma) || self.check(TokenKind::RBrace) {
+            if !self.eat(TokenKind::Comma) {
                 break;
             }
         }
@@ -290,7 +304,7 @@ impl<'src> Parser<'src> {
         let mut params = Vec::new();
         while !self.check(TokenKind::RParen) {
             params.push(self.parse_param()?);
-            if !self.eat(TokenKind::Comma) || self.check(TokenKind::RParen) {
+            if !self.eat(TokenKind::Comma) {
                 break;
             }
         }

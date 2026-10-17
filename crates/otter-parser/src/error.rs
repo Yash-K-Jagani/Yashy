@@ -126,6 +126,17 @@ pub fn enum_needs_a_variant(span: Span, name: &str) -> ParseError {
     )
 }
 
+/// A variant written with an empty payload: `A()` or `A {}`.
+///
+/// A variant with no fields is spelled `A`, so an empty pair of delimiters
+/// is the same mistake as an empty struct body, one level down.
+pub fn variant_needs_a_field(span: Span, enum_name: &str, variant_name: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("variant `{variant_name}` of enum `{enum_name}` must have at least one named field"),
+    )
+}
+
 /// An `extern` block, which is a real keyword in M0-M2 and not yet a feature.
 ///
 /// The variant exists in the AST so that M5 adds a case rather than changing a
@@ -142,7 +153,8 @@ pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(
         span,
         format!(
-            "expected an item: `import`, `struct`, `enum`, `fn` or `extern`, found {}",
+            "expected an item: `import`, `struct`, `enum`, or `fn`, found {}",
+
             found.describe()
         ),
     )
@@ -236,6 +248,7 @@ mod tests {
             import_needs_a_path(span),
             struct_needs_a_field(span, "S"),
             enum_needs_a_variant(span, "E"),
+            variant_needs_a_field(span, "E", "A"),
             extern_arrives_in_m5(span),
             item_expected(TokenKind::At, span),
             nested_too_deep(span),
