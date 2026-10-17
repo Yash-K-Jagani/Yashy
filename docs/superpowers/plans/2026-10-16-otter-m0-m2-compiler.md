@@ -374,8 +374,12 @@ git commit -m "feat(lexer): tokens with byte spans, golden span tests"
     - `Extern` is declared now, in M0–M2, even though Task 4 **rejects** `extern` blocks with a diagnostic ("extern blocks arrive in M5"). Task 2 already lexes the `extern` and `unsafe` keywords, so without the variant M5 would have to change a frozen AST that four tasks code against.
     - `abi` and `link` are separate fields because M5's syntax is `extern "C" link "m" { ... }` — an ABI name and a link directive on the same block. An earlier ruling used a single `link` field for both, which cannot hold them; they were separated while the contract was still soft, which is the only moment it is cheap.
   - `ExternDecl { pub name: String, pub params: Vec<Param>, pub ret: Option<TypeExpr>, pub span: Span }`
+- `Param { pub name: String, pub ty: TypeExpr, pub span: Span }`
   - **Recursive `Expr` variants are boxed.** `Binary.lhs`, `Binary.rhs`, `Unary.operand`, `FieldAccess.base`, `Cast.expr`, `Try.expr`, and `TypeExpr`'s nested types are `Box<Expr>` / `Box<TypeExpr>`. Without boxing the enum is infinitely sized and will not compile. Every later task writes `Box::new` at construction and derefs with `*` in sema and codegen.
-  - `FieldDef { pub name: String, pub ty: TypeExpr, pub span: Span }`, `VariantDef { pub name: String, pub fields: Vec<FieldDef>, pub span: Span }`, `Param { pub name: String, pub ty: TypeExpr, pub span: Span }`
+  - `FieldDef { pub name: String, pub ty: TypeExpr, pub span: Span }` — struct fields are always named.
+  - `VariantDef { pub name: String, pub fields: Vec<VariantField>, pub span: Span }`
+  - `VariantField` — `Positional { pub ty: TypeExpr, pub span: Span }` for `Circle(f64)`, `Named { pub name: String, pub ty: TypeExpr, pub span: Span }` for `Rect { w: f64, h: f64 }`. A unit variant like `Red` has none.
+    - **No sentinel encodes positional-ness.** An earlier contract reused `FieldDef` and left `name` empty for tuple variants, which makes `String::is_empty` mean "positional" for the whole compiler — a convention that turns a missing field name into a silently wrong type check in Tasks 8 and 9. A two-variant enum makes the distinction unrepresentable-as-a-mistake.
   - `TypeExpr` — `Name(String, Span)`, `Option(Box<TypeExpr>, Span)`, `Result(Box<TypeExpr>, Box<TypeExpr>, Span)`, `Tuple(Vec<TypeExpr>, Span)`, `Unit(Span)`
     - `()` must parse to exactly one node, and it is **`Unit`**. `Tuple` is never produced empty. Two spellings of one type would make `PartialEq` and the AST golden dumps drift, and every later task would have to special-case one of them.
   - `Block { pub stmts: Vec<Stmt>, pub span: Span }`
