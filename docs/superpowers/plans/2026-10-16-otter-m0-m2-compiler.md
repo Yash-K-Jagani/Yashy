@@ -278,13 +278,16 @@ git commit -m "feat(common): source map and caret diagnostic rendering"
 **Interfaces:**
 - Consumes: `Span`, `Diagnostic`, `DiagnosticBag`, `Severity` from Tasks 0–1
 - Produces:
-  - `TokenKind` — unit variants for keywords `Fn Struct Enum Const Var Import Extern Unsafe Defer Return Break Continue If Else For In Switch Case Default True False`; punctuation `LParen RParen LBrace RBrace LBracket RBracket Comma Semi Colon Dot Arrow At Plus Minus Star Slash Percent Eq EqEq BangEq Lt LtEq Gt GtEq PlusEq MinusEq StarEq SlashEq PercentEq`; `Ident`, `I64`, `F64`, `Str`, `Eof`
+  - `TokenKind` — unit variants for keywords `Fn Struct Enum Const Var Import Extern Unsafe Defer Return Break Continue If Else For In Switch Case Default As Move True False`; punctuation `LParen RParen LBrace RBrace LBracket RBracket Comma Semi Colon Dot Arrow At Plus Minus Star Slash Percent Eq EqEq BangEq Lt LtEq Gt GtEq PlusEq MinusEq StarEq SlashEq PercentEq`; `Ident`, `I64`, `F64`, `Str`, `Eof`
+  - `As` and `Move` are keywords because spec §3.1 lists them and Task 6 parses `as` casts. An earlier draft of this plan's list omitted them, which would have made `x as f64` and `move buf` lex as plain identifiers. The list above is authoritative.
+  - `@` lexes as `TokenKind::At` rather than an error. No Otter construct in M0–M8 produces it; it is kept because the interface list names it, and it will remain an unmatchable variant until an attribute syntax is designed.
   - `Token { pub kind: TokenKind, pub span: Span }`
   - `TokenKind::is_keyword(&self) -> bool`, `is_eof(&self) -> bool`
   - `Lexer::new(src: &str) -> Lexer`
   - `Lexer::tokenize(&mut self) -> Result<Vec<Token>, Vec<Diagnostic>>`
   - `TokenKind::describe(&self) -> String` — the spelling used in diagnostics
   - `StringLit { pub value: String, pub bytes: Vec<u8> }`
+  - `pub fn literal_as_i64(src: &str, span: Span) -> Result<i64, Diagnostic>` — the **only** supported way to turn an `I64` token's text into a value, producing a diagnostic for a literal that does not fit. `TokenKind::I64` carries no value, so without this helper a downstream stage is one `parse::<i64>().unwrap()` away from panicking on a 40-digit literal. Task 4 must use it and must not parse integer literals by any other route.
 
 - [ ] **Step 1: Write the failing unit tests**
 
