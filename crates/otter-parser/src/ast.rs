@@ -443,6 +443,7 @@ pub enum Expr {
     },
     /// `switch x { .. }` in value position, which yields the arm's expression.
     SwitchExpr {
+        subject: Box<Expr>,
         arms: Vec<SwitchArm>,
         span: Span,
     },

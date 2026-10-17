@@ -402,6 +402,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
         span: spans.take(),
     });
     ops.push(Expr::SwitchExpr {
+        subject: bx(Expr::Ident(vec!["x".to_string()], spans.take())),
         arms: vec![SwitchArm {
             pattern: Pattern::Wildcard(spans.take()),
             body: int(0, spans.take()),
@@ -1540,10 +1541,11 @@ fn debug_names_every_expr_variant_and_its_fields() {
         case(
             "Expr::SwitchExpr",
             Expr::SwitchExpr {
+                subject: bx(int(1, here())),
                 arms: Vec::new(),
                 span: here(),
             },
-            &["SwitchExpr", "arms", "span"],
+            &["SwitchExpr", "subject", "arms", "span"],
             &[
                 "Ident",
                 "Binary",

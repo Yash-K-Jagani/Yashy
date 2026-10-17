@@ -279,10 +279,9 @@ impl<'src> Parser<'src> {
                 // switch expression
                 let kw = self.advance();
                 let subject = self.parse_expr()?;
-                let _ = subject;
                 let (arms, close_span) = self.parse_switch_arms_for_expr()?;
                 let span = cover(kw.span, close_span);
-                Ok(Expr::SwitchExpr { arms, span })
+                Ok(Expr::SwitchExpr { subject: Box::new(subject), arms, span })
             }
             TokenKind::LParen => {
                 let open = self.expect(TokenKind::LParen)?;
@@ -309,8 +308,15 @@ impl<'src> Parser<'src> {
                         end = sspan;
                     } else { break; }
                 }
-                // struct literal?
-                if self.check(TokenKind::LBrace) {
+                // struct literal? Only treat `{ ... }` as a struct literal when it
+                // actually looks like one (`{}` or `{ ident: ... }`); otherwise a
+                // `{` belongs to whatever surrounds this expression (e.g. the arms
+                // of a `switch` whose subject is a bare identifier).
+                let looks_like_struct_lit = self.check(TokenKind::LBrace)
+                    && (self.peek_second() == TokenKind::RBrace
+                        || (self.peek_second() == TokenKind::Ident
+                            && self.peek_third() == TokenKind::Colon));
+                if looks_like_struct_lit {
                     let open = self.expect(TokenKind::LBrace)?;
                     let _ = self.push_open(TokenKind::LBrace, open.span)?;
                     let mut fields = Vec::new();

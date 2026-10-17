@@ -191,6 +191,14 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// The kind of the token three positions ahead.
+    pub fn peek_third(&self) -> TokenKind {
+        match self.tokens.get(self.pos.saturating_add(2)) {
+            Some(t) => t.kind,
+            None => TokenKind::Eof,
+        }
+    }
+
     /// True when the next token is `Eof` or the stream has run out.
     pub fn at_eof(&self) -> bool {
         self.peek().is_eof()

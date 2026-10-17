@@ -1152,3 +1152,38 @@ fn field_and_variant_order_is_source_order() {
         "declaration order is the match order"
     );
 }
+
+#[test]
+fn switch_expression_retains_subject() {
+    let src = "fn f() { const c = switch x { default { 0 } }; }";
+    let program = parse_ok(src);
+    match &program.items[0] {
+        Item::Fn { body, .. } => match &body.stmts[0] {
+            Stmt::Const { init, .. } => match init {
+                Expr::SwitchExpr { subject, .. } => match subject.as_ref() {
+                    Expr::Ident(path, _) => assert_eq!(path, &vec!["x".to_string()]),
+                    other => panic!("expected ident subject, got {other:?}"),
+                },
+                other => panic!("expected switch expr, got {other:?}"),
+            },
+            other => panic!("expected const stmt, got {other:?}"),
+        },
+        other => panic!("expected fn, got {other:?}"),
+    }
+
+    let src = "fn f() { const c = switch a.b { default { 0 } }; }";
+    let program = parse_ok(src);
+    match &program.items[0] {
+        Item::Fn { body, .. } => match &body.stmts[0] {
+            Stmt::Const { init, .. } => match init {
+                Expr::SwitchExpr { subject, .. } => match subject.as_ref() {
+                    Expr::Ident(path, _) => assert_eq!(path, &vec!["a".to_string(), "b".to_string()]),
+                    other => panic!("expected ident subject, got {other:?}"),
+                },
+                other => panic!("expected switch expr, got {other:?}"),
+            },
+            other => panic!("expected const stmt, got {other:?}"),
+        },
+        other => panic!("expected fn, got {other:?}"),
+    }
+}
