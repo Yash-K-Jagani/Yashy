@@ -91,7 +91,7 @@ git commit -m "feat(ffi): C type spellings in the type grammar"
 
 **Interfaces:**
 - Consumes: Task 1
-- Produces: `Item::Extern { link: Option<String>, decls: Vec<ExternDecl>, span }`; `ExternDecl { name, params, ret, span }`; `pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) -> ()` emitting `declare`; `unsafe` is **required** on every declaration — an `extern fn` without it is a diagnostic, per spec §8.1
+- Produces: `Item::Extern { abi: Option<String>, link: Option<String>, decls: Vec<ExternDecl>, span }` — `abi` is `"C"`, `link` is the library such as `"m"`; `ExternDecl { name, params, ret, span }`; `pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) -> ()` emitting `declare`. `unsafe` is **required** on every declaration — an `extern fn` without it is a diagnostic, per spec §8.1 — and because it is mandatory, `ExternDecl` carries no `unsafe` flag: there is nothing to store.
 
 - [ ] **Step 1: Write the failing tests**
 

@@ -370,8 +370,9 @@ git commit -m "feat(lexer): tokens with byte spans, golden span tests"
 - Consumes: `Span` from Task 0
 - Produces: the AST used by every later task.
   - `Program { pub items: Vec<Item> }`
-  - `Item` — `Import { path: Vec<String>, span }`, `Struct { name, fields: Vec<FieldDef>, span }`, `Enum { name, variants: Vec<VariantDef>, span }`, `Fn { name, params: Vec<Param>, ret: Option<TypeExpr>, body: Block, span }`, `Extern { link: Option<String>, decls: Vec<ExternDecl>, span }`
+  - `Item` — `Import { path: Vec<String>, span }`, `Struct { name, fields: Vec<FieldDef>, span }`, `Enum { name, variants: Vec<VariantDef>, span }`, `Fn { name, params: Vec<Param>, ret: Option<TypeExpr>, body: Block, span }`, `Extern { abi: Option<String>, link: Option<String>, decls: Vec<ExternDecl>, span }`
     - `Extern` is declared now, in M0–M2, even though Task 4 **rejects** `extern` blocks with a diagnostic ("extern blocks arrive in M5"). Task 2 already lexes the `extern` and `unsafe` keywords, so without the variant M5 would have to change a frozen AST that four tasks code against.
+    - `abi` and `link` are separate fields because M5's syntax is `extern "C" link "m" { ... }` — an ABI name and a link directive on the same block. An earlier ruling used a single `link` field for both, which cannot hold them; they were separated while the contract was still soft, which is the only moment it is cheap.
   - `ExternDecl { pub name: String, pub params: Vec<Param>, pub ret: Option<TypeExpr>, pub span: Span }`
   - **Recursive `Expr` variants are boxed.** `Binary.lhs`, `Binary.rhs`, `Unary.operand`, `FieldAccess.base`, `Cast.expr`, `Try.expr`, and `TypeExpr`'s nested types are `Box<Expr>` / `Box<TypeExpr>`. Without boxing the enum is infinitely sized and will not compile. Every later task writes `Box::new` at construction and derefs with `*` in sema and codegen.
   - `FieldDef { pub name: String, pub ty: TypeExpr, pub span: Span }`, `VariantDef { pub name: String, pub fields: Vec<FieldDef>, pub span: Span }`, `Param { pub name: String, pub ty: TypeExpr, pub span: Span }`
@@ -384,7 +385,8 @@ git commit -m "feat(lexer): tokens with byte spans, golden span tests"
   - `SwitchArm { pub pattern: Pattern, pub body: Expr, pub is_default: bool, pub span: Span }`
   - `Pattern` — `Wildcard(Span)`, `UnitVariant { path: Vec<String>, span }`, `TupleVariant { path: Vec<String>, args: Vec<Pattern>, span }`, `StructVariant { path: Vec<String>, fields: Vec<(String, Pattern, Span)>, span }`, `Binding { name: String, span }`, `Literal(Literal, Span)`
   - `Literal` — `I64(i64)`, `F64(f64)`, `Bool(bool)`, `Str(StringLit)`
-  - `Expr` — `Literal(Literal, Span)`, `Ident(Vec<String>, Span)`, `Binary { op: BinOp, lhs, rhs, span }`, `Unary { op: UnOp, operand, span }`, `Call { callee: Vec<String>, args: Vec<Expr>, span }`, `StructLit { path: Vec<String>, fields: Vec<(String, Expr, Span)>, span }`, `FieldAccess { base, field: String, span }`, `Cast { expr, ty: TypeExpr, span }`, `Try { expr, span }`, `SwitchExpr { arms: Vec<SwitchArm>, span }`
+  - `Expr` — `Literal(Literal, Span)`, `Ident(Vec<String>, Span)`, `Binary { op: BinOp, lhs, rhs, span }`, `Unary { op: UnOp, operand, span }`, `Call { callee: Vec<String>, args: Vec<Expr>, unsafe_call: bool, span }`, `StructLit { path: Vec<String>, fields: Vec<(String, Expr, Span)>, span }`, `FieldAccess { base, field: String, span }`, `Cast { expr, ty: TypeExpr, span }`, `Try { expr, span }`, `SwitchExpr { arms: Vec<SwitchArm>, span }`
+    - `Call.unsafe_call` exists because spec §8.1 requires explicit `unsafe` **at the call site** to hand a raw pointer to C, in addition to the `unsafe` every declaration carries. Booleans named `unsafe*` rather than a separate node type, because the call tree is otherwise identical and a wrapper node would add a variant every later task must match through.
   - `BinOp` — `Add Sub Mul Div Rem Eq Ne Lt Le Gt Ge And Or`, with `BinOp::symbol(&self) -> &'static str`
   - `UnOp` — `Neg Not`, with `UnOp::symbol(&self) -> &'static str`
   - Every node type derives `Clone`, `Debug`, `PartialEq`
@@ -522,7 +524,9 @@ fn parses_const_and_var_with_optional_type() {
 #[test]
 fn parses_if_else_and_if_with_binding() {
     // "if d := f(); d > 5.0 { } else { }" -> If whose cond is Binary whose
-    // lhs is Stmt::Const. Assert the binding name is "d".
+    // -> If whose `init` is Some(Box<Stmt::Const { name: "d", .. })) and whose
+    // `cond` is a Binary whose lhs is an Expr::Ident reading "d".
+    // Assert the binding name is "d".
 }
 
 #[test]
