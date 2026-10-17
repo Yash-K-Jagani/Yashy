@@ -61,10 +61,6 @@ fn variant_segment(pattern: &Pattern) -> Option<String> {
 }
 
 /// True when no variant is missing.
-pub fn is_exhaustive(
-    variants: &[VariantDef],
-    arms: &[Pattern],
-    has_default: bool,
-) -> bool {
+pub fn is_exhaustive(variants: &[VariantDef], arms: &[Pattern], has_default: bool) -> bool {
     missing_cases("", variants, arms, has_default).is_empty()
 }

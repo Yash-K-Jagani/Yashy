@@ -13,7 +13,11 @@ fn span() -> Span {
 }
 
 fn unit(name: &str) -> VariantDef {
-    VariantDef { name: name.to_string(), fields: Vec::new(), span: span() }
+    VariantDef {
+        name: name.to_string(),
+        fields: Vec::new(),
+        span: span(),
+    }
 }
 
 fn positional(name: &str) -> VariantDef {
@@ -32,15 +36,25 @@ fn wildcard() -> Pattern {
 }
 
 fn binding(name: &str) -> Pattern {
-    Pattern::Binding { name: name.to_string(), span: span() }
+    Pattern::Binding {
+        name: name.to_string(),
+        span: span(),
+    }
 }
 
 fn unit_variant(path: &str) -> Pattern {
-    Pattern::UnitVariant { path: vec![path.to_string()], span: span() }
+    Pattern::UnitVariant {
+        path: vec![path.to_string()],
+        span: span(),
+    }
 }
 
 fn tuple_variant(path: &str) -> Pattern {
-    Pattern::TupleVariant { path: vec![path.to_string()], args: Vec::new(), span: span() }
+    Pattern::TupleVariant {
+        path: vec![path.to_string()],
+        args: Vec::new(),
+        span: span(),
+    }
 }
 
 fn struct_variant(path: &str) -> Pattern {
