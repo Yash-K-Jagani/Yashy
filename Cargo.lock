@@ -23,6 +23,8 @@ name = "otter-codegen"
 version = "0.1.0"
 dependencies = [
  "otter-common",
+ "otter-lexer",
+ "otter-parser",
  "otter-sema",
 ]
 
