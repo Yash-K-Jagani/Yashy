@@ -527,9 +527,9 @@ fn parses_const_and_var_with_optional_type() {
 
 #[test]
 fn parses_if_else_and_if_with_binding() {
-    // "if d := f(); d > 5.0 { } else { }" -> If whose cond is Binary whose
-    // -> If whose `init` is Some(Box<Stmt::Const { name: "d", .. })) and whose
-    // `cond` is a Binary whose lhs is an Expr::Ident reading "d".
+    // "if d := f(); d > 5.0 { } else { }" -> If whose `init` is
+    // Some(Box<Stmt::Const { name: "d", .. })) and whose `cond` is a
+    // Binary whose lhs is an Expr::Ident reading "d".
     // Assert the binding name is "d".
 }
 
