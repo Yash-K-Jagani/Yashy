@@ -28,7 +28,7 @@ Failure modes the spec implies but which no milestone explicitly names. Each alr
 
 1. **Division by zero at M0–M2.** `a / b` with `b == 0` emits `sdiv`, which LLVM treats as undefined; it can crash, or silently produce garbage under optimization. Task 11 pins interim wrapping semantics with a test that documents the hazard for M4.
 2. **A program with no `fn main`.** Must produce a diagnostic naming the file, not an LLVM link failure 400 lines later. Task 10.
-3. **Unterminated block — `fn f() {` with no closing brace.** Must produce an "unclosed brace" diagnostic with a caret at end of file, never a lexer or parser panic. Task 4, reinforced by fuzzing in Task 14.
+3. **Unterminated block — `fn f() {` with no closing brace.** Must produce an "unclosed brace" diagnostic whose caret points at **the opening brace**, with a message saying the file ended before the matching `}`, and never a lexer or parser panic. (An earlier draft said "a caret at end of file"; pointing at the opener is the more useful diagnostic and is what Task 4 implements — Task 14's fuzzing verifies it.)
 4. **Duplicate definitions — two `fn main`, or a `const x` twice in one scope.** Must be a diagnostic, not last-one-wins. Task 8.
 5. **Integer overflow at M0–M2.** `i64` add/mul emit wrapping LLVM ops. Under later optimization passes this must not silently become UB; Task 11's golden test asserts the exact opcode emitted.
 
@@ -389,7 +389,7 @@ git commit -m "feat(lexer): tokens with byte spans, golden span tests"
   - `SwitchArm { pub pattern: Pattern, pub body: Expr, pub is_default: bool, pub span: Span }`
   - `Pattern` — `Wildcard(Span)`, `UnitVariant { path: Vec<String>, span }`, `TupleVariant { path: Vec<String>, args: Vec<Pattern>, span }`, `StructVariant { path: Vec<String>, fields: Vec<(String, Pattern, Span)>, span }`, `Binding { name: String, span }`, `Literal(Literal, Span)`
   - `Literal` — `I64(i64)`, `F64(f64)`, `Bool(bool)`, `Str(StringLit)`
-  - `Expr` — `Literal(Literal, Span)`, `Ident(Vec<String>, Span)`, `Binary { op: BinOp, lhs, rhs, span }`, `Unary { op: UnOp, operand, span }`, `Call { callee: Vec<String>, args: Vec<Expr>, unsafe_call: bool, span }`, `StructLit { path: Vec<String>, fields: Vec<(String, Expr, Span)>, span }`, `FieldAccess { base, field: String, span }`, `Cast { expr, ty: TypeExpr, span }`, `Try { expr, span }`, `SwitchExpr { arms: Vec<SwitchArm>, span }`
+  - `Expr` — `Literal(Literal, Span)`, `Ident(Vec<String>, Span)`, `Binary { op: BinOp, lhs, rhs, span }`, `Unary { op: UnOp, operand, span }`, `Call { callee: Vec<String>, args: Vec<Expr>, unsafe_call: bool, span }`, `StructLit { path: Vec<String>, fields: Vec<(String, Expr, Span)>, span }`, `FieldAccess { base, field: String, span }`, `Cast { expr, ty: TypeExpr, span }`, `Try { expr, span }`, `SwitchExpr { subject: Expr, arms: Vec<SwitchArm>, span }`
     - `Call.unsafe_call` exists because spec §8.1 requires explicit `unsafe` **at the call site** to hand a raw pointer to C, in addition to the `unsafe` every declaration carries. Booleans named `unsafe*` rather than a separate node type, because the call tree is otherwise identical and a wrapper node would add a variant every later task must match through.
   - `BinOp` — `Add Sub Mul Div Rem Eq Ne Lt Le Gt Ge And Or`, with `BinOp::symbol(&self) -> &'static str`
   - `UnOp` — `Neg Not`, with `UnOp::symbol(&self) -> &'static str`
@@ -442,7 +442,7 @@ git commit -m "feat(parser): AST node types with spans"
 **Interfaces:**
 - Consumes: `Token`/`TokenKind` from Task 2, AST from Task 3
 - Produces:
-  - `Parser::new(tokens: Vec<Token>, source: SourceMap, file: FileId) -> Parser`
+  - `Parser::new(tokens: Vec<Token>, source: &SourceMap, file: FileId) -> Parser` — the map is **borrowed**, not taken, because the caller needs it to render the diagnostics the parser produces
   - `Parser::parse_program(&mut self) -> Result<Program, Vec<Diagnostic>>`
   - `Parser::peek(&self) -> TokenKind`, `Parser::check(&self, k: TokenKind) -> bool`, `Parser::eat(&mut self, k: TokenKind) -> bool`, `Parser::expect(&mut self, k: TokenKind) -> Result<Token, ParseError>`, `Parser::error(&self, span: Span, msg: String) -> ParseError`
   - `ParseError { pub span: Span, pub message: String }`
@@ -555,7 +555,7 @@ fn parses_defer_block() { /* "defer { f(); }" -> Defer */ }
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test -p otter-parser`
-Expected: FAIL — `parse_block` does not exist.
+Expected: FAIL — `parse_stmt` does not exist. (Task 4 already provides `parse_block`, so the original red-state gate "`parse_block` does not exist" can no longer fire. Task 4 also left `the_block_seam_consumes_the_body_and_reports_its_span` asserting an empty `stmts`, which this task must replace with real statement assertions.)
 
 - [ ] **Step 3: Implement statement parsing**
 
@@ -583,7 +583,7 @@ git commit -m "feat(parser): statement parsing"
 
 **Interfaces:**
 - Consumes: `Parser` primitives from Task 4, AST from Task 3
-- Produces: `Parser::parse_expr(&mut self) -> Result<Expr, ParseError>`, `Parser::parse_type_expr(&mut self) -> Result<TypeExpr, ParseError>`
+- Produces: `Parser::parse_expr(&mut self) -> Result<Expr, ParseError>`. `parse_type_expr` is **already implemented by Task 4** — item parsing needs it to read a struct field or parameter type — so this task inherits it rather than writing a second one; read it first and do not duplicate it.
 - Precedence, lowest to highest: `Or` → `And` → equality (`Eq Ne`) → comparison (`Lt Le Gt Ge`) → additive (`Add Sub`) → multiplicative (`Mul Div Rem`) → unary (`Neg Not`) → postfix (call, field access, `?`) → primary (literal, ident, struct literal, parens, `switch` expression)
 
 **Note:** `&&` and `||` are lexed as single tokens in Task 2; map them to `BinOp::And` / `BinOp::Or`.
