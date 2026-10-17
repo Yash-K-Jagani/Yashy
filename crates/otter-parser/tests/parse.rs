@@ -10,8 +10,8 @@ use std::fmt::Debug;
 
 use otter_common::Span;
 use otter_parser::ast::{
-    BinOp, Block, Expr, FieldDef, Item, Literal, Param, Pattern, Program, Stmt, StringLit,
-    SwitchArm, TypeExpr, UnOp, VariantDef,
+    BinOp, Block, Expr, ExternDecl, FieldDef, Item, Literal, Param, Pattern, Program, Stmt,
+    StringLit, SwitchArm, TypeExpr, UnOp, VariantDef,
 };
 
 // -- helpers ---------------------------------------------------------------
@@ -118,7 +118,10 @@ fn full_program(spans: &mut Spans) -> Program {
                 name: "a".to_string(),
                 ty: TypeExpr::Result(
                     Box::new(TypeExpr::Name("i64".to_string(), spans.take())),
-                    Box::new(TypeExpr::Tuple(Vec::new(), spans.take())),
+                    Box::new(TypeExpr::Tuple(
+                        vec![TypeExpr::Unit(spans.take())],
+                        spans.take(),
+                    )),
                     spans.take(),
                 ),
                 span: spans.take(),
@@ -128,6 +131,30 @@ fn full_program(spans: &mut Spans) -> Program {
                 spans.take(),
             )),
             body: full_block(spans),
+            span: spans.take(),
+        },
+        // Item::Extern, with two declarations: one with a parameter and a
+        // return type, one bare.
+        Item::Extern {
+            link: Some("C".to_string()),
+            decls: vec![
+                ExternDecl {
+                    name: "puts".to_string(),
+                    params: vec![Param {
+                        name: "s".to_string(),
+                        ty: TypeExpr::Name("string".to_string(), spans.take()),
+                        span: spans.take(),
+                    }],
+                    ret: Some(TypeExpr::Name("i64".to_string(), spans.take())),
+                    span: spans.take(),
+                },
+                ExternDecl {
+                    name: "now".to_string(),
+                    params: Vec::new(),
+                    ret: None,
+                    span: spans.take(),
+                },
+            ],
             span: spans.take(),
         },
     ];
@@ -158,8 +185,18 @@ fn full_block(spans: &mut Spans) -> Block {
         },
         // Stmt::Return, with a value
         Stmt::Return(Some(int(0, spans.take())), spans.take()),
-        // Stmt::If, with an else branch
+        // Stmt::If, with a condition binding and an else branch
         Stmt::If {
+            init: Some(Box::new(Stmt::Const {
+                name: "d".to_string(),
+                ty: None,
+                init: Expr::Call {
+                    callee: vec!["f".to_string()],
+                    args: Vec::new(),
+                    span: spans.take(),
+                },
+                span: spans.take(),
+            })),
             cond: Expr::Binary {
                 op: BinOp::And,
                 lhs: bx(Expr::Ident(vec!["p".to_string()], spans.take())),
@@ -434,7 +471,7 @@ fn ast_nodes_round_trip_through_debug() {
     let debug = format!("{program:?}");
 
     // One of every Item variant.
-    for name in ["Import", "Struct", "Enum", "Fn"] {
+    for name in ["Import", "Struct", "Enum", "Fn", "Extern", "ExternDecl"] {
         assert!(
             debug.contains(name),
             "the tree must contain a {name}: {debug}"
@@ -466,8 +503,8 @@ fn ast_nodes_round_trip_through_debug() {
         assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
     }
 
-    // Nothing was invented: four items, one of each.
-    assert_eq!(program.items.len(), 4);
+    // Nothing was invented: five items, one of each.
+    assert_eq!(program.items.len(), 5);
 }
 
 #[test]
@@ -480,7 +517,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 span: here(),
             },
             &["Import", "path", "span", "start", "end"],
-            &["Struct", "Enum", "Fn"],
+            &["Struct", "Enum", "Fn", "Extern"],
         ),
         case(
             "Item::Struct",
@@ -490,7 +527,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 span: here(),
             },
             &["Struct", "name", "fields", "span"],
-            &["Import", "Enum", "Fn"],
+            &["Import", "Enum", "Fn", "Extern"],
         ),
         case(
             "Item::Enum",
@@ -500,7 +537,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 span: here(),
             },
             &["Enum", "name", "variants", "span"],
-            &["Import", "Struct", "Fn"],
+            &["Import", "Struct", "Fn", "Extern"],
         ),
         case(
             "Item::Fn",
@@ -512,7 +549,28 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 span: here(),
             },
             &["Fn", "name", "params", "ret", "body", "span"],
-            &["Import", "Struct", "Enum"],
+            &["Import", "Struct", "Enum", "Extern"],
+        ),
+        case(
+            "Item::Extern",
+            Item::Extern {
+                link: None,
+                decls: Vec::new(),
+                span: here(),
+            },
+            &["Extern", "link", "decls", "span"],
+            &["Import", "Struct", "Enum", "Fn"],
+        ),
+        case(
+            "ExternDecl",
+            ExternDecl {
+                name: "puts".to_string(),
+                params: Vec::new(),
+                ret: None,
+                span: here(),
+            },
+            &["ExternDecl", "name", "params", "ret", "span"],
+            &["Extern {", "FieldDef", "VariantDef"],
         ),
         case(
             "FieldDef",
@@ -580,7 +638,9 @@ fn debug_names_every_type_expr_variant() {
         ),
         case(
             "TypeExpr::Tuple",
-            TypeExpr::Tuple(Vec::new(), here()),
+            // Never empty: `()` is `Unit`. A tuple is built with at least one
+            // element, which is the shape the parser produces.
+            TypeExpr::Tuple(vec![TypeExpr::Unit(here())], here()),
             &["Tuple"],
             &["Option", "Result"],
         ),
@@ -591,6 +651,250 @@ fn debug_names_every_type_expr_variant() {
             &["Name", "Option", "Result", "Tuple"],
         ),
     ]);
+}
+
+/// R4: `()` is [`TypeExpr::Unit`] and never an empty [`TypeExpr::Tuple`].
+///
+/// Two spellings of one type would make `PartialEq` call two identical types
+/// different and would make the AST golden dumps drift, so the distinction is
+/// pinned here rather than left to whoever writes the parser.
+#[test]
+fn unit_is_not_an_empty_tuple_and_a_tuple_is_never_empty() {
+    let span = here();
+
+    assert_ne!(
+        TypeExpr::Unit(span),
+        TypeExpr::Tuple(Vec::new(), span),
+        "`()` is Unit, never an empty Tuple"
+    );
+    assert_ne!(
+        TypeExpr::Tuple(Vec::new(), span),
+        TypeExpr::Unit(span),
+        "and the comparison is symmetric"
+    );
+
+    // Their `Debug` output differs too, so a golden dump shows which one a
+    // parser actually built rather than hiding the difference behind `()`.
+    assert_ne!(
+        format!("{:?}", TypeExpr::Unit(span)),
+        format!("{:?}", TypeExpr::Tuple(Vec::new(), span))
+    );
+
+    // A one-element tuple is a different type again, so the two cannot be
+    // confused by a parser that gets the parens wrong.
+    let one = TypeExpr::Tuple(vec![TypeExpr::Unit(span)], span);
+    assert_ne!(one, TypeExpr::Unit(span));
+    assert_ne!(one, TypeExpr::Tuple(Vec::new(), span));
+
+    // Element order is part of the type.
+    let a = TypeExpr::Tuple(vec![TypeExpr::Name("i64".to_string(), span)], span);
+    let b = TypeExpr::Tuple(vec![TypeExpr::Name("f64".to_string(), span)], span);
+    assert_ne!(a, b);
+    assert_eq!(a.clone(), a);
+}
+
+/// R2: an `extern` block keeps its link name and every declaration under it.
+///
+/// `Task 4` rejects `extern` with a diagnostic -- the blocks arrive in M5 -- so
+/// nothing constructs this variant yet. It is declared now so that M5 does not
+/// have to change a contract four tasks code against, and it is built here so
+/// that adding it did not add something that cannot even be built.
+#[test]
+fn extern_block_keeps_its_link_name_and_declarations() {
+    let mut spans = Spans::default();
+    // No span is taken for the link name: `link` is a bare `String` in the
+    // frozen shape, so a diagnostic about an unknown ABI points at the block.
+    let ty_span = spans.take();
+    let param_span = spans.take();
+    let ret_span = spans.take();
+    let decl_span = spans.take();
+    let bare_span = spans.take();
+    let block_span = spans.take();
+
+    let item = Item::Extern {
+        link: Some("C".to_string()),
+        decls: vec![
+            ExternDecl {
+                name: "puts".to_string(),
+                params: vec![Param {
+                    name: "s".to_string(),
+                    ty: TypeExpr::Name("string".to_string(), ty_span),
+                    span: param_span,
+                }],
+                ret: Some(TypeExpr::Name("i64".to_string(), ret_span)),
+                span: decl_span,
+            },
+            ExternDecl {
+                name: "now".to_string(),
+                params: Vec::new(),
+                ret: None,
+                span: bare_span,
+            },
+        ],
+        span: block_span,
+    };
+
+    let debug = format!("{item:?}");
+    // Every span in the block is the span it was given, so a diagnostic about
+    // one declaration does not point at another.
+    for span in [
+        ty_span, param_span, ret_span, decl_span, bare_span, block_span,
+    ] {
+        let needle = format!("{span:?}");
+        let found = debug.matches(&needle).count();
+        assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
+    }
+
+    // The link name is kept as written, and an absent one is not an empty
+    // string: `extern "C"` and `extern fn` are different blocks.
+    assert!(
+        debug.contains("link: Some(\"C\")"),
+        "the link name must be kept: {debug}"
+    );
+    let unlinked = Item::Extern {
+        link: None,
+        decls: Vec::new(),
+        span: block_span,
+    };
+    assert_ne!(
+        item, unlinked,
+        "a block without a link name is a different block"
+    );
+
+    // The declarations are ordered and distinct; two blocks that differ in one
+    // declaration are different blocks.
+    let mut other = item.clone();
+    if let Item::Extern { decls, .. } = &mut other {
+        decls.push(ExternDecl {
+            name: "extra".to_string(),
+            params: Vec::new(),
+            ret: None,
+            span: Span::SYNTHETIC,
+        });
+    }
+    assert_ne!(item, other, "an extra declaration is a different block");
+}
+
+/// R3: `if d := f(); d > 5.0` keeps the binding as its own `init` node.
+///
+/// The binding is not smuggled into the comparison's left operand, because a
+/// type checker and a code generator both need to find it, and a shape that
+/// hides it has to be rediscovered by each of them.
+#[test]
+fn an_if_binding_is_its_own_init_node() {
+    let mut spans = Spans::default();
+    let call_span = spans.take();
+    let binding_span = spans.take();
+    let lhs_span = spans.take();
+    let rhs_span = spans.take();
+    let cond_span = spans.take();
+    let then_span = spans.take();
+    let if_span = spans.take();
+
+    let stmt = Stmt::If {
+        init: Some(Box::new(Stmt::Const {
+            name: "d".to_string(),
+            ty: None,
+            init: Expr::Call {
+                callee: vec!["f".to_string()],
+                args: Vec::new(),
+                span: call_span,
+            },
+            span: binding_span,
+        })),
+        cond: Expr::Binary {
+            op: BinOp::Gt,
+            lhs: bx(Expr::Ident(vec!["d".to_string()], lhs_span)),
+            rhs: bx(Expr::Literal(Literal::F64(5.0), rhs_span)),
+            span: cond_span,
+        },
+        then_block: empty_block(then_span),
+        else_block: None,
+        span: if_span,
+    };
+
+    let debug = format!("{stmt:?}");
+
+    // The binding is a node of its own, with the name the source wrote.
+    assert!(
+        debug.contains("init: Some(Const { name: \"d\""),
+        "the binding must be a distinct init node: {debug}"
+    );
+    assert!(
+        debug.contains("callee: [\"f\"]"),
+        "the binding initialises from the call the source wrote: {debug}"
+    );
+    // The condition is an ordinary comparison that reads the bound name.
+    assert!(
+        debug.contains("cond: Binary { op: Gt, lhs: Ident([\"d\"],"),
+        "the condition must be an ordinary comparison: {debug}"
+    );
+    assert!(
+        debug.contains("rhs: Literal(F64(5.0)"),
+        "against the literal the source wrote: {debug}"
+    );
+    // The binding is not repeated inside the condition: the name appears in
+    // the init node and in the condition's operand, and nowhere else.
+    assert_eq!(
+        debug.matches("name: \"d\"").count(),
+        1,
+        "the name is declared once, in init: {debug}"
+    );
+
+    // Every span survives to the tree, once each.
+    for span in [
+        call_span,
+        binding_span,
+        lhs_span,
+        rhs_span,
+        cond_span,
+        then_span,
+        if_span,
+    ] {
+        let needle = format!("{span:?}");
+        let found = debug.matches(&needle).count();
+        assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
+    }
+
+    // An `if` that binds is not an `if` that does not, and an `if` whose
+    // binding initialises from something else is not this one.
+    let unbound = Stmt::If {
+        init: None,
+        cond: Expr::Binary {
+            op: BinOp::Gt,
+            lhs: bx(Expr::Ident(vec!["d".to_string()], lhs_span)),
+            rhs: bx(Expr::Literal(Literal::F64(5.0), rhs_span)),
+            span: cond_span,
+        },
+        then_block: empty_block(then_span),
+        else_block: None,
+        span: if_span,
+    };
+    assert_ne!(stmt, unbound, "a binding is part of the statement's value");
+    assert_eq!(unbound.clone(), unbound);
+
+    let other_binding = Stmt::If {
+        init: Some(Box::new(Stmt::Const {
+            name: "d".to_string(),
+            ty: None,
+            init: Expr::Call {
+                callee: vec!["g".to_string()],
+                args: Vec::new(),
+                span: call_span,
+            },
+            span: binding_span,
+        })),
+        cond: Expr::Binary {
+            op: BinOp::Gt,
+            lhs: bx(Expr::Ident(vec!["d".to_string()], lhs_span)),
+            rhs: bx(Expr::Literal(Literal::F64(5.0), rhs_span)),
+            span: cond_span,
+        },
+        then_block: empty_block(then_span),
+        else_block: None,
+        span: if_span,
+    };
+    assert_ne!(stmt, other_binding, "what the binding calls is part of it");
 }
 
 #[test]
@@ -670,12 +974,13 @@ fn debug_names_every_stmt_variant_and_its_fields() {
         case(
             "Stmt::If",
             Stmt::If {
+                init: None,
                 cond: Expr::Literal(Literal::Bool(true), here()),
                 then_block: empty_block(here()),
                 else_block: None,
                 span: here(),
             },
-            &["If", "cond", "then_block", "else_block", "span"],
+            &["If", "init", "cond", "then_block", "else_block", "span"],
             &[
                 "Const", "Var", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Binary", "Call",
@@ -1247,12 +1552,12 @@ fn clone_is_deep_so_editing_a_clone_leaves_the_original_alone() {
 
     assert_eq!(
         program.items.len(),
-        4,
+        5,
         "editing a clone must not add to the original"
     );
     assert_eq!(
         copy.items.len(),
-        4,
+        5,
         "editing a clone must not add to its source"
     );
     assert_ne!(program, edited);
@@ -1266,8 +1571,8 @@ fn clone_is_deep_so_editing_a_clone_leaves_the_original_alone() {
     });
     assert_eq!(
         copy.items.len(),
-        4,
+        5,
         "editing the original must not add to a clone taken earlier"
     );
-    assert_eq!(edited.items.len(), 5);
+    assert_eq!(edited.items.len(), 6);
 }

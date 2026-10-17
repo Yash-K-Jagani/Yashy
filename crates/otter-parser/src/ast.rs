@@ -90,6 +90,21 @@ pub enum Item {
         body: Block,
         span: Span,
     },
+    /// `extern "C" unsafe fn puts(s: string) -> i64;` and friends.
+    ///
+    /// `link` is the ABI name as written -- `Some("C")` for `extern "C"` -- and
+    /// `None` for a block that names no ABI. Each declaration under it is an
+    /// [`ExternDecl`].
+    ///
+    /// This variant is **declared but never constructed yet**: `parse_program`
+    /// rejects an `extern` block with a diagnostic saying the feature arrives
+    /// in M5. It is here so that M5 adds a variant rather than changing this
+    /// one, which four later stages code against.
+    Extern {
+        link: Option<String>,
+        decls: Vec<ExternDecl>,
+        span: Span,
+    },
 }
 
 /// One field of a `struct`, or one field of an enum variant that has payload.
@@ -116,6 +131,19 @@ pub struct Param {
     pub span: Span,
 }
 
+/// One function declared inside an [`Item::Extern`] block.
+///
+/// An `extern` declaration has no body: the implementation is elsewhere, which
+/// is the whole point of the block. It is otherwise a [`Param`] list and a
+/// return type, exactly like the head of an [`Item::Fn`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExternDecl {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub ret: Option<TypeExpr>,
+    pub span: Span,
+}
+
 /// A type as the source wrote it.
 ///
 /// These five forms are the whole type grammar. There is no pointer, slice or
@@ -129,10 +157,15 @@ pub enum TypeExpr {
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`
     Result(Box<TypeExpr>, Box<TypeExpr>, Span),
-    /// A parenthesised list, so `(i64, f64)` and `()` are distinct from any
-    /// named type. An empty list is the unit type.
+    /// A parenthesised list of types, as in `(i64, f64)`.
+    ///
+    /// **Never empty.** `()` is [`TypeExpr::Unit`], always, and a parser that
+    /// produced an empty `Tuple` would be describing the same type two ways:
+    /// `PartialEq` would then call two identical types different, and every
+    /// AST golden dump would depend on which spelling the parser happened to
+    /// choose.
     Tuple(Vec<TypeExpr>, Span),
-    /// The unit type written bare, as in `-> ()` shorthand.
+    /// The unit type, written `()`.
     Unit(Span),
 }
 
@@ -164,14 +197,21 @@ pub enum Stmt {
     },
     /// `return;` or `return expr;`.
     Return(Option<Expr>, Span),
-    /// `if cond { .. } else { .. }`.
+    /// `if cond { .. } else { .. }`, or with a condition binding:
+    /// `if d := f(); d > 5.0 { .. }`.
     ///
-    /// A condition that binds -- `if d := f(); d > 5.0 { .. }` -- puts the
-    /// binding in `cond` as the left operand of the comparison, which is a
-    /// [`Stmt::Const`] wrapped in an [`Expr::Ident`]: the AST records what the
-    /// source said, and deciding whether that is a legal binding is the type
-    /// checker's business.
+    /// The binding is `init`, a node in its own right, and `cond` is then the
+    /// ordinary condition that reads it: an [`Expr::Ident`] naming the bound
+    /// variable on the left of a comparison. The binding is not folded into
+    /// the condition's operand, because the type checker and code generation
+    /// both have to find it, and a tree that hides it makes each of them
+    /// rediscover the same rule.
+    ///
+    /// `init` is `None` for an `if` that binds nothing. Whatever it is, the
+    /// binding is scoped to this statement's own blocks -- it is not visible
+    /// after the `if`.
     If {
+        init: Option<Box<Stmt>>,
         cond: Expr,
         then_block: Block,
         else_block: Option<Block>,
