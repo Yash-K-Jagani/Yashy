@@ -157,8 +157,38 @@ impl<'src> Parser<'src> {
         Ok(base)
     }
 
+    fn parse_move(&mut self) -> Result<Expr, ParseError> {
+        if self.check(TokenKind::Move) {
+            let move_span = self.peek_span();
+            self.advance();
+            let mut operand = self.parse_postfix()?;
+            // A dotted name consumed as a single `Ident` is rewritten into a
+            // `FieldAccess` chain here so that `move` (which is looser than
+            // postfix `.`) wraps the field access rather than the whole dotted
+            // path collapsing into one identifier.
+            if let Expr::Ident(path, span) = operand {
+                if path.len() > 1 {
+                    let mut base = Expr::Ident(vec![path[0].clone()], span);
+                    for seg in path.iter().skip(1) {
+                        base = Expr::FieldAccess {
+                            base: Box::new(base),
+                            field: seg.clone(),
+                            span,
+                        };
+                    }
+                    operand = base;
+                } else {
+                    operand = Expr::Ident(path, span);
+                }
+            }
+            let span = cover(move_span, expr_span(&operand));
+            return Ok(Expr::Move(Box::new(operand), span));
+        }
+        self.parse_postfix()
+    }
+
     fn parse_cast(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_postfix()?;
+        let mut expr = self.parse_move()?;
         while self.eat(TokenKind::As) {
             let ty = self.parse_type_expr()?;
             let span = cover(expr_span(&expr), ty_span(&ty));
@@ -393,6 +423,7 @@ pub(crate) fn expr_span(expr: &Expr) -> Span {
         Expr::Ident(_, s) => *s,
         Expr::Binary { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
+        Expr::Move(_, span) => *span,
         Expr::Call { span, .. } => *span,
         Expr::StructLit { span, .. } => *span,
         Expr::FieldAccess { span, .. } => *span,

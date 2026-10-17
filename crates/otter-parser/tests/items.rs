@@ -13,7 +13,7 @@
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
-use otter_parser::ast::{Expr, FieldDef, Item, Literal, Program, Stmt, TypeExpr, VariantField};
+use otter_parser::ast::{Expr, FieldDef, Item, Literal, Program, Stmt, TypeExpr, UnOp, VariantField};
 use otter_parser::Parser;
 
 // -- helpers ---------------------------------------------------------------
@@ -1151,6 +1151,26 @@ fn field_and_variant_order_is_source_order() {
         vec!["C", "A", "B"],
         "declaration order is the match order"
     );
+}
+
+#[test]
+fn move_expr_parses_to_move_variant() {
+    let src = "fn f() { const c = move x; }";
+    let prog = parse_ok(src);
+    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
+    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
+    assert!(matches!(init, Expr::Move(bx, _) if matches!(bx.as_ref(), Expr::Ident(path, _) if path == &vec!["x".to_string()])));
+}
+
+#[test]
+fn move_binds_looser_than_postfix_tighter_than_binary() {
+    let src = "fn f() { const c = move a.b; const d = -move x; }";
+    let prog = parse_ok(src);
+    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
+    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
+    assert!(matches!(init, Expr::Move(bx, _) if matches!(bx.as_ref(), Expr::FieldAccess { .. })));
+    let Stmt::Const { init, .. } = &body.stmts[1] else { panic!("expected const") };
+    assert!(matches!(init, Expr::Unary { op: UnOp::Neg, operand, .. } if matches!(operand.as_ref(), Expr::Move(_, _))));
 }
 
 #[test]

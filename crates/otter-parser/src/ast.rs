@@ -396,6 +396,12 @@ pub enum Expr {
         operand: Box<Expr>,
         span: Span,
     },
+    /// `move expr` -- a linear-ownership transfer, not a value transformation.
+    ///
+    /// M3's linearity checker and codegen treat this as transferring ownership
+    /// rather than applying an operator, so it is a distinct variant rather than
+    /// an [`UnOp`].
+    Move(Box<Expr>, Span),
     /// `f(1, 2)` or `unsafe f(1, 2)` -- a call by path.
     ///
     /// `unsafe_call` is true when the source wrote `unsafe` at the call site.
