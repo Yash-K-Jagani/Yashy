@@ -158,11 +158,11 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_cast(&mut self) -> Result<Expr, ParseError> {
-        let expr = self.parse_postfix()?;
-        if self.eat(TokenKind::As) {
+        let mut expr = self.parse_postfix()?;
+        while self.eat(TokenKind::As) {
             let ty = self.parse_type_expr()?;
             let span = cover(expr_span(&expr), ty_span(&ty));
-            return Ok(Expr::Cast { expr: Box::new(expr), ty, span });
+            expr = Expr::Cast { expr: Box::new(expr), ty, span };
         }
         Ok(expr)
     }
@@ -238,11 +238,11 @@ impl<'src> Parser<'src> {
         Ok(expr)
     }
 
-    fn parse_cast_rest(&mut self, expr: Expr) -> Result<Expr, ParseError> {
-        if self.eat(TokenKind::As) {
+    fn parse_cast_rest(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
+        while self.eat(TokenKind::As) {
             let ty = self.parse_type_expr()?;
             let span = cover(expr_span(&expr), ty_span(&ty));
-            return Ok(Expr::Cast { expr: Box::new(expr), ty, span });
+            expr = Expr::Cast { expr: Box::new(expr), ty, span };
         }
         Ok(expr)
     }
