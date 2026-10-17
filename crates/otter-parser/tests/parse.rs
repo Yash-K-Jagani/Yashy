@@ -1127,6 +1127,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1238,6 +1239,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 "Continue",
                 "Defer",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1386,6 +1388,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1402,6 +1405,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1422,6 +1426,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1441,6 +1446,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1461,6 +1467,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1480,6 +1487,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1499,6 +1507,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "Cast",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1518,6 +1527,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "FieldAccess",
                 "Try",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1536,6 +1546,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "FieldAccess",
                 "Cast",
                 "SwitchExpr",
+                "Move",
             ],
         ),
         case(
@@ -1555,6 +1566,23 @@ fn debug_names_every_expr_variant_and_its_fields() {
                 "FieldAccess",
                 "Cast",
                 "Try",
+                "Move",
+            ],
+        ),
+        case(
+            "Expr::Move",
+            Expr::Move(bx(int(1, here())), here()),
+            &["Move", "start", "end"],
+            &[
+                "Ident",
+                "Binary",
+                "Unary",
+                "Call",
+                "StructLit",
+                "FieldAccess",
+                "Cast",
+                "Try",
+                "SwitchExpr",
             ],
         ),
     ]);
