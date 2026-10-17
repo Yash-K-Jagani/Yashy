@@ -90,17 +90,27 @@ pub enum Item {
         body: Block,
         span: Span,
     },
-    /// `extern "C" unsafe fn puts(s: string) -> i64;` and friends.
+    /// `extern "C" link "m" { unsafe fn puts(s: string) -> i64; }` and friends.
     ///
-    /// `link` is the ABI name as written -- `Some("C")` for `extern "C"` -- and
-    /// `None` for a block that names no ABI. Each declaration under it is an
-    /// [`ExternDecl`].
+    /// Two names, two jobs, two fields:
+    ///
+    /// - `abi` is the **ABI** -- `Some("C")` for `extern "C"`. It says how to
+    ///   call the declarations, not what to link against.
+    /// - `link` is the **library to link** -- `Some("m")` for
+    ///   `link "m"`. It says what the linker must resolve the names against.
+    ///
+    /// Each is `None` when the source does not write it, and neither is ever
+    /// the empty string: a block that names no ABI is not a block whose ABI is
+    /// `""`. Conflating them into one field would lose the library entirely,
+    /// because a block may name an ABI and no library, a library and no ABI, or
+    /// both. Each declaration under the block is an [`ExternDecl`].
     ///
     /// This variant is **declared but never constructed yet**: `parse_program`
     /// rejects an `extern` block with a diagnostic saying the feature arrives
     /// in M5. It is here so that M5 adds a variant rather than changing this
     /// one, which four later stages code against.
     Extern {
+        abi: Option<String>,
         link: Option<String>,
         decls: Vec<ExternDecl>,
         span: Span,
@@ -136,6 +146,14 @@ pub struct Param {
 /// An `extern` declaration has no body: the implementation is elsewhere, which
 /// is the whole point of the block. It is otherwise a [`Param`] list and a
 /// return type, exactly like the head of an [`Item::Fn`].
+///
+/// **There is deliberately no `unsafe` flag here.** Spec 8.1 makes `unsafe`
+/// mandatory on every `extern` declaration, so a declaration that reached this
+/// type was already checked and there is nothing left to store: a flag that is
+/// always `true` is not information, and one that defaults to `false` is a
+/// lie. M5 must not add one. (The *call site* still needs marking -- see the
+/// note on [`Expr::Call`] -- which is a different question from what the
+/// declaration itself says.)
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternDecl {
     pub name: String,
@@ -221,6 +239,13 @@ pub enum Stmt {
     ///
     /// Both bounds are expressions; the `..` itself is not a node, because
     /// nothing else in the language can produce one.
+    ///
+    /// **`end` is exclusive**: `for i in 0..10` runs with `i` taking 0 through 9,
+    /// ten times. The rule is the half-open reading of `..` used everywhere
+    /// else in the language, and the alternative -- inclusive -- would make
+    /// `start..=end` and `start..end` differ by a character that is not in the
+    /// grammar at all. Code generation (Task 12) lowers this by comparing
+    /// against `end` before the body, not after.
     ForRange {
         name: String,
         start: Expr,
@@ -324,6 +349,13 @@ pub enum Expr {
         span: Span,
     },
     /// `f(1, 2)` -- a call by path.
+    ///
+    /// There is **no `unsafe` marker** here either, for a different reason
+    /// than [`ExternDecl`] has none: calling an `extern` function is what
+    /// spec 3.1 makes `unsafe` mark, and whether this call needs the marker
+    /// depends on what `callee` resolves to -- a fact only the type checker
+    /// knows. M5 will have to add a way to say it; that is a variant change,
+    /// and this is the note saying so in advance.
     Call {
         callee: Vec<String>,
         args: Vec<Expr>,

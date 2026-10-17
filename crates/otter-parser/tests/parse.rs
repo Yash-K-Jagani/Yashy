@@ -133,10 +133,11 @@ fn full_program(spans: &mut Spans) -> Program {
             body: full_block(spans),
             span: spans.take(),
         },
-        // Item::Extern, with two declarations: one with a parameter and a
-        // return type, one bare.
+        // Item::Extern, with both an ABI and a library to link, and two
+        // declarations: one with a parameter and a return type, one bare.
         Item::Extern {
-            link: Some("C".to_string()),
+            abi: Some("C".to_string()),
+            link: Some("m".to_string()),
             decls: vec![
                 ExternDecl {
                     name: "puts".to_string(),
@@ -470,8 +471,9 @@ fn ast_nodes_round_trip_through_debug() {
     let program = full_program(&mut spans);
     let debug = format!("{program:?}");
 
-    // One of every Item variant.
-    for name in ["Import", "Struct", "Enum", "Fn", "Extern", "ExternDecl"] {
+    // One of every Item variant. `"Extern {"` rather than `"Extern"`, which
+    // would match `ExternDecl` and prove nothing.
+    for name in ["Import", "Struct", "Enum", "Fn", "Extern {", "ExternDecl"] {
         assert!(
             debug.contains(name),
             "the tree must contain a {name}: {debug}"
@@ -554,11 +556,12 @@ fn debug_names_every_item_type_variant_and_its_fields() {
         case(
             "Item::Extern",
             Item::Extern {
+                abi: None,
                 link: None,
                 decls: Vec::new(),
                 span: here(),
             },
-            &["Extern", "link", "decls", "span"],
+            &["Extern", "abi", "link", "decls", "span"],
             &["Import", "Struct", "Enum", "Fn"],
         ),
         case(
@@ -570,7 +573,11 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 span: here(),
             },
             &["ExternDecl", "name", "params", "ret", "span"],
-            &["Extern {", "FieldDef", "VariantDef"],
+            // `unsafe` is forbidden as well as absent: spec 8.1 makes it
+            // mandatory on every declaration, so there is nothing to store and
+            // M5 must not add a flag that is always true. If someone does add
+            // one, this is the assertion that says no.
+            &["Extern {", "FieldDef", "VariantDef", "unsafe"],
         ),
         case(
             "FieldDef",
@@ -693,17 +700,23 @@ fn unit_is_not_an_empty_tuple_and_a_tuple_is_never_empty() {
     assert_eq!(a.clone(), a);
 }
 
-/// R2: an `extern` block keeps its link name and every declaration under it.
+/// R2: an `extern` block keeps its ABI, its library to link, and every
+/// declaration under it.
+///
+/// The block carries **both** names, `abi: Some("C")` and `link: Some("m")`,
+/// because those are two different strings doing two different jobs and the
+/// conflated single field could only hold one of them.
 ///
 /// `Task 4` rejects `extern` with a diagnostic -- the blocks arrive in M5 -- so
 /// nothing constructs this variant yet. It is declared now so that M5 does not
 /// have to change a contract four tasks code against, and it is built here so
 /// that adding it did not add something that cannot even be built.
 #[test]
-fn extern_block_keeps_its_link_name_and_declarations() {
+fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
     let mut spans = Spans::default();
-    // No span is taken for the link name: `link` is a bare `String` in the
-    // frozen shape, so a diagnostic about an unknown ABI points at the block.
+    // No span is taken for either name: `abi` and `link` are bare `String`s in
+    // the frozen shape, so a diagnostic about a bad ABI or a missing library
+    // points at the block rather than at the name.
     let ty_span = spans.take();
     let param_span = spans.take();
     let ret_span = spans.take();
@@ -712,7 +725,8 @@ fn extern_block_keeps_its_link_name_and_declarations() {
     let block_span = spans.take();
 
     let item = Item::Extern {
-        link: Some("C".to_string()),
+        abi: Some("C".to_string()),
+        link: Some("m".to_string()),
         decls: vec![
             ExternDecl {
                 name: "puts".to_string(),
@@ -745,21 +759,60 @@ fn extern_block_keeps_its_link_name_and_declarations() {
         assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
     }
 
-    // The link name is kept as written, and an absent one is not an empty
-    // string: `extern "C"` and `extern fn` are different blocks.
+    // Each name is kept as written, in its own field.
     assert!(
-        debug.contains("link: Some(\"C\")"),
-        "the link name must be kept: {debug}"
+        debug.contains("abi: Some(\"C\")"),
+        "the ABI must be kept: {debug}"
     );
+    assert!(
+        debug.contains("link: Some(\"m\")"),
+        "the library to link must be kept: {debug}"
+    );
+
+    // The two fields are not interchangeable: swapping them is a different
+    // block, which is exactly the conflation the split exists to prevent.
+    let swapped = Item::Extern {
+        abi: Some("m".to_string()),
+        link: Some("C".to_string()),
+        decls: Vec::new(),
+        span: block_span,
+    };
+    assert_ne!(
+        item, swapped,
+        "the ABI and the library are different fields, not one field read twice"
+    );
+
+    // An absent name is `None`, never an empty string, and dropping either one
+    // changes the block.
     let unlinked = Item::Extern {
+        abi: Some("C".to_string()),
         link: None,
         decls: Vec::new(),
         span: block_span,
     };
     assert_ne!(
         item, unlinked,
-        "a block without a link name is a different block"
+        "a block that names no library is a different block"
     );
+    let no_abi = Item::Extern {
+        abi: None,
+        link: Some("m".to_string()),
+        decls: Vec::new(),
+        span: block_span,
+    };
+    assert_ne!(
+        item, no_abi,
+        "a block that names no ABI is a different block"
+    );
+    let neither = Item::Extern {
+        abi: None,
+        link: None,
+        decls: Vec::new(),
+        span: block_span,
+    };
+    assert_ne!(unlinked, no_abi, "one is missing the library, one the ABI");
+    assert_ne!(no_abi, neither);
+    assert_ne!(unlinked, neither);
 
     // The declarations are ordered and distinct; two blocks that differ in one
     // declaration are different blocks.
@@ -895,6 +948,28 @@ fn an_if_binding_is_its_own_init_node() {
         span: if_span,
     };
     assert_ne!(stmt, other_binding, "what the binding calls is part of it");
+}
+
+#[test]
+fn the_range_end_is_documented_as_exclusive() {
+    // Nothing in the tree says whether `for i in 0..10` ends at 9 or at 10:
+    // `ForRange` carries two bounds and the `..` is not even a node. The rule
+    // lives in the doc comment on the variant, which is exactly the kind of
+    // thing that gets deleted and then re-decided differently by whoever reads
+    // it next. Task 12 is the consumer, so the sentence is pinned here.
+    let source = include_str!("../src/ast.rs");
+    assert!(
+        source.contains("`end` is exclusive"),
+        "the exclusive rule must stay documented on Stmt::ForRange"
+    );
+    assert!(
+        source.contains("0 through 9"),
+        "the rule must say what it means, not just name it"
+    );
+    assert!(
+        source.contains("Task 12"),
+        "the consumer that has to implement it must be named"
+    );
 }
 
 #[test]
@@ -1363,9 +1438,9 @@ fn struct_variant_field_names_are_reachable_and_checked() {
     let mut spans = Spans::default();
     let binding_span = spans.take();
     let field_span = spans.take();
-    let path = vec!["RGB".to_string()];
+    let variant_span = spans.take();
     let pattern = Pattern::StructVariant {
-        path: path.clone(),
+        path: vec!["RGB".to_string()],
         fields: vec![(
             "red".to_string(),
             Pattern::Binding {
@@ -1374,13 +1449,43 @@ fn struct_variant_field_names_are_reachable_and_checked() {
             },
             field_span,
         )],
-        span: spans.take(),
+        span: variant_span,
     };
 
-    assert_eq!(format!("{pattern:?}"), format!(
-        "StructVariant {{ path: [\"RGB\"], fields: [(\"red\", Binding {{ name: \"r\", span: {binding_span:?} }}, {field_span:?})], span: {:?} }}",
-        spans.used.last().copied().unwrap_or(Span::SYNTHETIC)
-    ));
+    assert_eq!(
+        format!("{pattern:?}"),
+        format!(
+            "StructVariant {{ path: [\"RGB\"], fields: [(\"red\", Binding {{ name: \"r\", span: {binding_span:?} }}, {field_span:?})], span: {variant_span:?} }}"
+        )
+    );
+}
+
+/// The same triple the `Pattern::StructVariant` test above pins, for the other
+/// struct-literal form. Two `Vec<(String, _, Span)>` fields with the same shape
+/// are pinned the same way, so a reordering or a renamed element in one is a
+/// failing test rather than a surprise in a golden dump.
+#[test]
+fn struct_literal_field_names_are_reachable_and_checked() {
+    let mut spans = Spans::default();
+    let value_span = spans.take();
+    let field_span = spans.take();
+    let literal_span = spans.take();
+    let expr = Expr::StructLit {
+        path: vec!["P".to_string()],
+        fields: vec![(
+            "x".to_string(),
+            Expr::Literal(Literal::F64(1.5), value_span),
+            field_span,
+        )],
+        span: literal_span,
+    };
+
+    assert_eq!(
+        format!("{expr:?}"),
+        format!(
+            "StructLit {{ path: [\"P\"], fields: [(\"x\", Literal(F64(1.5), {value_span:?}), {field_span:?})], span: {literal_span:?} }}"
+        )
+    );
 }
 
 // -- operators -------------------------------------------------------------
