@@ -171,3 +171,69 @@ fn builtin_calls_resolve() {
     result.expect("print_i64(1) should type-check");
     assert_error("fn f() { print_str(1); }", "expected `string`, found `i64`");
 }
+
+#[test]
+fn matches_some_and_binds_the_payload() {
+    // Switch-expression arm bodies are bare expressions: `case None { 0 }`,
+    // not `case None { 0; }`. The `;` belongs to the enclosing `return`.
+    let (result, _, _) = check_source(
+        "fn f(o: Option[i64]) -> i64 { return switch o { case None { 0 } case Some(x) { x } }; }",
+    );
+    result.expect("Some(x) should bind the i64 payload");
+}
+
+#[test]
+fn matching_none_against_some_payload_is_an_error() {
+    assert_error(
+        "fn f(o: Option[i64]) -> i64 { return switch o { case Some(x) { x + true } default { 0 } }; }",
+        "cannot apply",
+    );
+}
+
+#[test]
+fn result_ok_and_err_bind_different_payload_types() {
+    let (result, _, _) = check_source(
+        "fn f(r: Result[i64, string]) -> i64 { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
+    );
+    result.expect("Ok(v) binds i64 and Err(e) binds string");
+}
+
+#[test]
+fn try_on_a_result_returns_the_ok_value() {
+    let (result, _, _) = check_source(
+        "fn g() -> Result[i64, string] { return Ok(7); } fn f() -> Result[i64, string] { const v = g()?; return Ok(v); }",
+    );
+    result.expect("`?` on Result[i64, string] yields i64");
+}
+
+#[test]
+fn try_on_a_non_result_is_an_error() {
+    assert_error(
+        "fn f() -> i64 { const v = 1?; return v; }",
+        "`?` can only be used on a `Result`",
+    );
+}
+
+#[test]
+fn non_exhaustive_switch_on_enum_is_an_error_listing_missing_cases() {
+    assert_error(
+        "enum C { Red, Green, Blue } fn f(c: C) -> i64 { return switch c { case Red { 0 } }; }",
+        "not exhaustive",
+    );
+}
+
+#[test]
+fn all_arms_must_yield_the_same_type() {
+    assert_error(
+        "enum C { Red, Green } fn f(c: C) -> i64 { return switch c { case Red { 0 } case Green { 1.0 } }; }",
+        "expected `i64`, found `f64`",
+    );
+}
+
+#[test]
+fn switch_on_a_non_enum_without_default_is_an_error() {
+    assert_error(
+        "fn f(x: i64) -> i64 { return switch x { case 1 { 0 } }; }",
+        "add a `default` arm",
+    );
+}

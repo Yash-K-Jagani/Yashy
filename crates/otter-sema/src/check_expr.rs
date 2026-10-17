@@ -30,7 +30,9 @@ use otter_parser::ast::{
     VariantField,
 };
 
+use crate::check_pat::check_pattern;
 use crate::error::TypeError;
+use crate::exhaustive::missing_cases;
 use crate::hir::*;
 use crate::scope::{Binding, Scope};
 use crate::ty::{Mutability, Type, TypeKind};
@@ -41,11 +43,10 @@ struct StructSig {
     fields: Vec<(String, Type)>,
 }
 
-/// A declared enum: its variant names.
+/// A declared enum: its variants in declaration order, with payload types.
 #[derive(Clone, Debug)]
 struct EnumSig {
-    #[allow(dead_code)]
-    variants: Vec<String>,
+    variants: Vec<VariantDef>,
 }
 
 /// A function signature collected in pass 1.
@@ -208,10 +209,7 @@ impl Checker {
                     self.enums.insert(
                         name.clone(),
                         EnumSig {
-                            variants: variants
-                                .iter()
-                                .map(|VariantDef { name, .. }| name.clone())
-                                .collect(),
+                            variants: variants.clone(),
                         },
                     );
                 }
@@ -474,7 +472,7 @@ impl Checker {
             }
             Stmt::Return(expr, span) => match expr {
                 Some(e) => {
-                    let checked = self.check_expr(e)?;
+                    let checked = self.check_expr_with_expected(e, ret)?;
                     if !ret.eq_ignoring_span(&expr_ty(&checked)) {
                         self.error(
                             expr_span(&checked),
@@ -592,31 +590,7 @@ impl Checker {
                 subject,
                 arms,
                 span,
-            } => {
-                let subject_expr = self.check_expr(subject)?;
-                let mut hir_arms = Vec::new();
-                let mut arm_ty: Option<Type> = None;
-                for arm in arms {
-                    let checked = self.check_switch_arm(arm)?;
-                    let body_ty = expr_ty(&checked.body);
-                    match &arm_ty {
-                        None => arm_ty = Some(body_ty),
-                        Some(expected) if expected.eq_ignoring_span(&body_ty) => {}
-                        Some(expected) => {
-                            self.error(
-                                checked.span,
-                                format!("expected `{expected}`, found `{body_ty}`"),
-                            );
-                        }
-                    }
-                    hir_arms.push(checked);
-                }
-                Some(HirStmt::Switch {
-                    subject: subject_expr,
-                    arms: hir_arms,
-                    span: *span,
-                })
-            }
+            } => self.check_switch_stmt(subject, arms, *span),
             Stmt::Break(span) => Some(HirStmt::Break(*span)),
             Stmt::Continue(span) => Some(HirStmt::Continue(*span)),
             Stmt::Defer { body, span } => {
@@ -626,52 +600,346 @@ impl Checker {
         }
     }
 
-    fn check_switch_arm(&mut self, arm: &SwitchArm) -> Option<HirSwitchArm> {
+    /// Check a statement-level `switch`: subject, then each arm's pattern
+    /// against it (bindings scoped to the arm), then exhaustiveness.
+    fn check_switch_stmt(
+        &mut self,
+        subject: &Expr,
+        arms: &[SwitchArm],
+        span: Span,
+    ) -> Option<HirStmt> {
+        let subject_expr = self.check_expr(subject)?;
+        let subject_ty = expr_ty(&subject_expr);
+        let mut hir_arms = Vec::with_capacity(arms.len());
+        let mut arm_ty: Option<Type> = None;
+        for arm in arms {
+            let checked = self.check_arm_against(&subject_ty, arm)?;
+            let body_ty = expr_ty(&checked.body);
+            match &arm_ty {
+                None => arm_ty = Some(body_ty),
+                Some(expected) if expected.eq_ignoring_span(&body_ty) => {}
+                Some(expected) => {
+                    self.error(
+                        checked.span,
+                        format!("expected `{expected}`, found `{body_ty}`"),
+                    );
+                }
+            }
+            hir_arms.push(checked);
+        }
+        self.check_arms_exhaustive(&subject_ty, arms, span)?;
+        Some(HirStmt::Switch {
+            subject: subject_expr,
+            arms: hir_arms,
+            span,
+        })
+    }
+
+    /// Check one arm against the subject type: pattern bindings are declared
+    /// in a scope pushed for the arm and popped after the body, so two arms
+    /// can bind the same name.
+    fn check_arm_against(&mut self, subject_ty: &Type, arm: &SwitchArm) -> Option<HirSwitchArm> {
+        self.scope.push();
+        let pattern = match self.check_arm_pattern(&arm.pattern, subject_ty) {
+            Ok(pattern) => pattern,
+            Err(error) => {
+                self.error(error.span, error.message);
+                self.scope.pop();
+                return None;
+            }
+        };
         let body = self.check_expr(&arm.body)?;
+        self.scope.pop();
         Some(HirSwitchArm {
-            pattern: self.convert_pattern(&arm.pattern)?,
+            pattern,
             body,
             is_default: arm.is_default,
             span: arm.span,
         })
     }
 
-    /// Convert an AST pattern to its HIR form. `Binding` records the type of
-    /// what it binds, which Task 9 needs to check payload types.
-    fn convert_pattern(&mut self, pattern: &Pattern) -> Option<HirPattern> {
-        match pattern {
-            Pattern::Wildcard(span) => Some(HirPattern::Wildcard(*span)),
-            Pattern::UnitVariant { path, span } => Some(HirPattern::UnitVariant {
-                path: path.clone(),
-                span: *span,
-            }),
-            Pattern::TupleVariant { path, args, span } => Some(HirPattern::TupleVariant {
-                path: path.clone(),
-                args: args
-                    .iter()
-                    .map(|p| self.convert_pattern(p))
-                    .collect::<Option<Vec<_>>>()?,
-                span: *span,
-            }),
-            Pattern::StructVariant { path, fields, span } => Some(HirPattern::StructVariant {
-                path: path.clone(),
-                fields: fields
-                    .iter()
-                    .map(|(name, sub, span)| {
-                        self.convert_pattern(sub)
-                            .map(|checked| (name.clone(), checked, *span))
-                    })
-                    .collect::<Option<Vec<_>>>()?,
-                span: *span,
-            }),
-            Pattern::Binding { name, span } => Some(HirPattern::Binding {
-                name: name.clone(),
-                ty: never(*span),
-                mutability: Mutability::Const,
-                span: *span,
-            }),
-            Pattern::Literal(lit, span) => Some(HirPattern::Literal(lit.clone(), *span)),
+    /// Run `check_pattern` with the checker's enum table and type resolver,
+    /// declaring each binding in the current (arm) scope.
+    fn check_arm_pattern(
+        &mut self,
+        pattern: &Pattern,
+        subject_ty: &Type,
+    ) -> Result<HirPattern, TypeError> {
+        let mut bindings = Vec::new();
+        let variants = |name: &str| self.enums.get(name).map(|sig| sig.variants.clone());
+        // `resolve_type` borrows `self` immutably; wrap it so the closure
+        // does not capture the whole checker mutably.
+        let checked = {
+            let this = &*self;
+            check_pattern(pattern, subject_ty, &mut bindings, &variants, &|ty| {
+                this.resolve_type(ty)
+            })?
+        };
+        for (name, ty, mutability, span) in bindings {
+            self.scope.declare(
+                name,
+                Binding {
+                    ty,
+                    mutability,
+                    span,
+                },
+            )?;
         }
+        Ok(checked)
+    }
+
+    /// Enforce exhaustiveness: enums must cover every variant, non-enums need
+    /// a `default`. Returns `None` (failing the arm list) on error.
+    fn check_arms_exhaustive(
+        &mut self,
+        subject_ty: &Type,
+        arms: &[SwitchArm],
+        span: Span,
+    ) -> Option<()> {
+        let has_default = arms.iter().any(|arm| arm.is_default);
+        if has_default {
+            return Some(());
+        }
+        match &subject_ty.kind {
+            TypeKind::Enum(enum_name) => match self.enums.get(enum_name) {
+                Some(sig) => {
+                    let sig = sig.clone();
+                    self.check_missing(enum_name, &sig.variants, arms, span)?;
+                    Some(())
+                }
+                None => {
+                    self.error(span, format!("cannot find type `{enum_name}`"));
+                    None
+                }
+            },
+            // `Option[T]` and `Result[T, E]` are enums the user never
+            // declares. Synthesize their variant lists so the same
+            // declaration-order `missing_cases` applies.
+            TypeKind::Option(_) => {
+                let variants = [
+                    otter_parser::ast::VariantDef {
+                        name: "None".to_string(),
+                        fields: Vec::new(),
+                        span: Span::new(0, 0),
+                    },
+                    otter_parser::ast::VariantDef {
+                        name: "Some".to_string(),
+                        fields: vec![otter_parser::ast::VariantField::Positional {
+                            ty: option_inner(subject_ty),
+                            span: Span::new(0, 0),
+                        }],
+                        span: Span::new(0, 0),
+                    },
+                ];
+                self.check_missing("Option", &variants, arms, span)?;
+                Some(())
+            }
+            TypeKind::Result(_, _) => {
+                let (ok_ty, err_ty) = result_inners(subject_ty);
+                let variants = [
+                    otter_parser::ast::VariantDef {
+                        name: "Ok".to_string(),
+                        fields: vec![otter_parser::ast::VariantField::Positional {
+                            ty: ok_ty,
+                            span: Span::new(0, 0),
+                        }],
+                        span: Span::new(0, 0),
+                    },
+                    otter_parser::ast::VariantDef {
+                        name: "Err".to_string(),
+                        fields: vec![otter_parser::ast::VariantField::Positional {
+                            ty: err_ty,
+                            span: Span::new(0, 0),
+                        }],
+                        span: Span::new(0, 0),
+                    },
+                ];
+                self.check_missing("Result", &variants, arms, span)?;
+                Some(())
+            }
+            _ => {
+                self.error(
+                    span,
+                    "switch over a non-enum type is not exhaustive: add a `default` arm"
+                        .to_string(),
+                );
+                None
+            }
+        }
+    }
+
+    /// Run `missing_cases` over one variant list and report the missing names.
+    fn check_missing(
+        &mut self,
+        enum_name: &str,
+        variants: &[VariantDef],
+        arms: &[SwitchArm],
+        span: Span,
+    ) -> Option<()> {
+        let has_default = arms.iter().any(|arm| arm.is_default);
+        let patterns: Vec<Pattern> = arms.iter().map(|arm| arm.pattern.clone()).collect();
+        let missing = missing_cases(enum_name, variants, &patterns, has_default);
+        if missing.is_empty() {
+            Some(())
+        } else {
+            self.error(
+                span,
+                format!(
+                    "switch is not exhaustive: missing case{} {}",
+                    if missing.len() == 1 { "" } else { "s" },
+                    missing
+                        .iter()
+                        .map(|m| format!("`{m}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
+            None
+        }
+    }
+
+    /// Check an `Option`/`Result` constructor call.
+    ///
+    /// Returns `None` when `name` is not a constructor, so the caller falls
+    /// through to ordinary call resolution. Otherwise checks the arity and
+    /// builds the matching type, reporting failures through the error
+    /// channel. `expected` is the context's demanded type.
+    fn check_constructor(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Option<Option<HirExpr>> {
+        let arity = match name {
+            "None" => Some(0),
+            "Some" | "Ok" | "Err" => Some(1),
+            _ => None,
+        };
+        let Some(want) = arity else {
+            return Some(None);
+        };
+        if args.len() != want {
+            self.error(
+                span,
+                format!(
+                    "expected {want} argument{}, found {}",
+                    if want == 1 { "" } else { "s" },
+                    args.len()
+                ),
+            );
+            return Some(None);
+        }
+        Some(self.build_constructor(name, args, span, expected))
+    }
+
+    /// Build the HIR for a constructor whose arity already checked.
+    fn build_constructor(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Option<HirExpr> {
+        let mk_call = |args: Vec<HirExpr>, ty: Type| HirExpr::Call {
+            callee: vec![name.to_string()],
+            args,
+            unsafe_call: false,
+            span,
+            ty,
+        };
+        match name {
+            "None" => {
+                let inner = match expected {
+                    Some(ty) => match &ty.kind {
+                        TypeKind::Option(inner) => (**inner).clone(),
+                        _ => {
+                            self.error(span, format!("expected `{ty}`, found `Option[?]`"));
+                            return None;
+                        }
+                    },
+                    None => {
+                        self.error(span, "cannot infer the payload type of `None`".to_string());
+                        return None;
+                    }
+                };
+                Some(mk_call(
+                    Vec::new(),
+                    Type {
+                        kind: TypeKind::Option(Box::new(inner)),
+                        span,
+                    },
+                ))
+            }
+            "Some" => {
+                let payload = self.check_expr(&args[0])?;
+                let payload_ty = expr_ty(&payload);
+                Some(mk_call(
+                    vec![payload],
+                    Type {
+                        kind: TypeKind::Option(Box::new(payload_ty)),
+                        span,
+                    },
+                ))
+            }
+            "Ok" | "Err" => {
+                let payload = self.check_expr(&args[0])?;
+                let payload_ty = expr_ty(&payload);
+                let Some(ty) = expected else {
+                    self.error(span, format!("cannot infer the full type of `{name}(..)`"));
+                    return None;
+                };
+                let (ok_ty, err_ty) = match &ty.kind {
+                    TypeKind::Result(ok, err) => ((**ok).clone(), (**err).clone()),
+                    _ => {
+                        self.error(span, format!("expected `{ty}`, found `Result[?, ?]`"));
+                        return None;
+                    }
+                };
+                let (mine, _) = if name == "Ok" {
+                    (ok_ty.clone(), err_ty.clone())
+                } else {
+                    (err_ty.clone(), ok_ty.clone())
+                };
+                if !mine.eq_ignoring_span(&payload_ty) {
+                    self.error(
+                        expr_span(&payload),
+                        format!("expected `{mine}`, found `{payload_ty}`"),
+                    );
+                    return None;
+                }
+                Some(mk_call(
+                    vec![payload],
+                    Type {
+                        kind: TypeKind::Result(Box::new(ok_ty), Box::new(err_ty)),
+                        span,
+                    },
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Like [`check_expr`], but the context's expected type is known: the
+    /// `return` type of the enclosing function (or a `const` annotation).
+    ///
+    /// This is what lets `return Ok(7)` infer `Result[?, string]` — `Ok`
+    /// alone knows only its own half. A direct constructor call is checked
+    /// with the expectation; every other expression falls through unchanged,
+    /// because a wrong type there is already reported by `check_expr`.
+    fn check_expr_with_expected(&mut self, expr: &Expr, expected: &Type) -> Option<HirExpr> {
+        if let Expr::Call {
+            callee, args, span, ..
+        } = expr
+        {
+            if callee.len() == 1 {
+                let name = callee.last().cloned().unwrap_or_default();
+                if matches!(name.as_str(), "None" | "Some" | "Ok" | "Err") {
+                    return self.check_constructor(&name, args, *span, Some(expected))?;
+                }
+            }
+        }
+        self.check_expr(expr)
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Option<HirExpr> {
@@ -761,6 +1029,15 @@ impl Checker {
                 span,
             } => {
                 let name = callee.last().cloned().unwrap_or_default();
+                // `None`, `Some(x)`, `Ok(v)` and `Err(e)` are value
+                // constructors, not calls. They resolve by name and arity,
+                // not by scope lookup — `None` takes no arguments and the
+                // others take exactly one.
+                if callee.len() == 1 {
+                    if let Some(constructed) = self.check_constructor(&name, args, *span, None)? {
+                        return Some(constructed);
+                    }
+                }
                 let arg_exprs = args
                     .iter()
                     .map(|a| self.check_expr(a))
@@ -939,10 +1216,11 @@ impl Checker {
                 span,
             } => {
                 let subject = self.check_expr(subject)?;
+                let subject_ty = expr_ty(&subject);
                 let mut hir_arms = Vec::new();
                 let mut arm_ty: Option<Type> = None;
                 for arm in arms {
-                    let checked = self.check_switch_arm(arm)?;
+                    let checked = self.check_arm_against(&subject_ty, arm)?;
                     let body_ty = expr_ty(&checked.body);
                     match &arm_ty {
                         None => arm_ty = Some(body_ty),
@@ -956,6 +1234,7 @@ impl Checker {
                     }
                     hir_arms.push(checked);
                 }
+                self.check_arms_exhaustive(&subject_ty, arms, *span)?;
                 Some(HirExpr::SwitchExpr {
                     subject: Box::new(subject),
                     arms: hir_arms,
@@ -990,6 +1269,51 @@ fn never(span: Span) -> Type {
     Type {
         kind: TypeKind::Never,
         span,
+    }
+}
+
+/// The `T` of an `Option[T]`, as a [`TypeExpr`] for synthesized variant defs.
+/// Falls back to `()` when the subject is not an `Option` (which cannot
+/// happen: callers only call this under a `TypeKind::Option` match).
+fn option_inner(subject_ty: &Type) -> TypeExpr {
+    match &subject_ty.kind {
+        TypeKind::Option(inner) => type_to_expr(inner),
+        _ => TypeExpr::Unit(Span::new(0, 0)),
+    }
+}
+
+/// The `(T, E)` of a `Result[T, E]`, as [`TypeExpr`]s. Same fallback rule as
+/// [`option_inner`].
+fn result_inners(subject_ty: &Type) -> (TypeExpr, TypeExpr) {
+    match &subject_ty.kind {
+        TypeKind::Result(ok, err) => (type_to_expr(ok), type_to_expr(err)),
+        _ => (
+            TypeExpr::Unit(Span::new(0, 0)),
+            TypeExpr::Unit(Span::new(0, 0)),
+        ),
+    }
+}
+
+/// Render a checked [`Type`] back as syntax. Only primitives round-trip
+/// exactly; compound types fall back to their names, which is enough for
+/// synthesized `Option`/`Result` variant defs (whose payload types are never
+/// re-resolved — they exist only so `missing_cases` sees the right arity).
+fn type_to_expr(ty: &Type) -> TypeExpr {
+    let span = Span::new(0, 0);
+    match &ty.kind {
+        TypeKind::I64 => TypeExpr::Name("i64".to_string(), span),
+        TypeKind::F64 => TypeExpr::Name("f64".to_string(), span),
+        TypeKind::Bool => TypeExpr::Name("bool".to_string(), span),
+        TypeKind::Str => TypeExpr::Name("string".to_string(), span),
+        TypeKind::Unit => TypeExpr::Unit(span),
+        TypeKind::Struct(name) | TypeKind::Enum(name) => TypeExpr::Name(name.clone(), span),
+        TypeKind::Option(inner) => TypeExpr::Option(Box::new(type_to_expr(inner)), span),
+        TypeKind::Result(ok, err) => TypeExpr::Result(
+            Box::new(type_to_expr(ok)),
+            Box::new(type_to_expr(err)),
+            span,
+        ),
+        TypeKind::Func(_, _) | TypeKind::Never => TypeExpr::Unit(span),
     }
 }
 

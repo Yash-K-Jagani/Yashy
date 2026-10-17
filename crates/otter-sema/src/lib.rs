@@ -5,6 +5,7 @@
 //! every diagnostic it found, not just the first.
 
 pub mod check_expr;
+pub mod check_pat;
 pub mod error;
 pub mod exhaustive;
 pub mod hir;
@@ -12,6 +13,7 @@ pub mod scope;
 pub mod ty;
 
 pub use check_expr::check_program;
+pub use check_pat::check_pattern;
 pub use error::TypeError;
 pub use exhaustive::{is_exhaustive, missing_cases};
 pub use hir::*;
