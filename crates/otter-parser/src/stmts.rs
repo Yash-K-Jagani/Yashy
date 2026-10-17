@@ -280,8 +280,16 @@ impl<'src> Parser<'src> {
                     span: cover(span, close.span),
                 });
             }
-            // Struct variant
-            if self.check(TokenKind::LBrace) {
+            // Struct variant: only when the brace actually opens a field list.
+            // A unit variant followed by an arm body (`case None { 0 }`) also
+            // sees `{` next, but its brace holds an expression, not
+            // `field: pattern` pairs. Requiring `ident :` or `..` after the
+            // `{` keeps the two apart without changing the AST.
+            if self.check(TokenKind::LBrace)
+                && (self.peek_second() == TokenKind::DotDot
+                    || (self.peek_second() == TokenKind::Ident
+                        && self.peek_third() == TokenKind::Colon))
+            {
                 let open = self.expect(TokenKind::LBrace)?;
                 let _ = self.push_open(TokenKind::LBrace, open.span)?;
                 let mut fields = Vec::new();

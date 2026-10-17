@@ -13,7 +13,9 @@
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
-use otter_parser::ast::{Expr, FieldDef, Item, Literal, Program, Stmt, TypeExpr, UnOp, VariantField};
+use otter_parser::ast::{
+    Expr, FieldDef, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp, VariantField,
+};
 use otter_parser::Parser;
 
 // -- helpers ---------------------------------------------------------------
@@ -1206,4 +1208,57 @@ fn switch_expression_retains_subject() {
         },
         other => panic!("expected fn, got {other:?}"),
     }
+}
+
+#[test]
+fn unit_variant_pattern_is_not_a_struct_pattern_when_a_brace_follows() {
+    // `case None { 0 }` is a unit variant plus an arm body. The pattern
+    // parser must not read `{ 0 }` as a struct-variant field list just
+    // because a brace follows the name: only `{ ident: .. }` or `{ .. }`
+    // opens a struct pattern.
+    let src = "fn f() { return switch o { case None { 0 } }; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Return(Some(Expr::SwitchExpr { arms, .. }), _) = &body.stmts[0] else {
+        panic!("expected switch expression")
+    };
+    assert_eq!(arms.len(), 1);
+    assert!(
+        matches!(
+            &arms[0].pattern,
+            Pattern::UnitVariant { path, .. } if path == &vec!["None".to_string()]
+        ),
+        "expected a None unit pattern, got {:?}",
+        arms[0].pattern
+    );
+    assert!(
+        matches!(&arms[0].body, Expr::Literal(Literal::I64(0), _)),
+        "expected the 0 arm body, got {:?}",
+        arms[0].body
+    );
+}
+
+#[test]
+fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
+    // The unit-variant fix must not swallow the real struct-variant form:
+    // `case RGB { red: r }` still opens a struct pattern.
+    let src = "fn f() { return switch s { case RGB { red: r } { r } }; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Return(Some(Expr::SwitchExpr { arms, .. }), _) = &body.stmts[0] else {
+        panic!("expected switch expression")
+    };
+    assert!(
+        matches!(&arms[0].pattern, Pattern::StructVariant { path, fields, .. }
+            if path == &vec!["RGB".to_string()]
+                && fields.len() == 1
+                && fields[0].0 == "red"
+                && matches!(&fields[0].1, Pattern::Binding { name, .. } if name == "r")),
+        "expected RGB struct pattern, got {:?}",
+        arms[0].pattern
+    );
 }
