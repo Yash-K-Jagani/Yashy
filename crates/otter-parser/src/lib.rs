@@ -54,8 +54,10 @@
 
 pub mod ast;
 pub mod error;
+pub mod exprs;
 pub mod items;
 pub mod parser;
+pub mod stmts;
 pub mod types;
 
 pub use ast::*;

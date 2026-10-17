@@ -1,0 +1,390 @@
+//! Statements: `const`, `var`, `return`, `if`, `for`, `switch`, `break`,
+//! `continue`, `defer`, and expression statements.
+//!
+//! `parse_block` lives here too, because a block is a list of statements and
+//! the seam Task 4 left for it is closed by this module.
+
+use otter_common::Span;
+use otter_lexer::TokenKind;
+
+use crate::ast::{Block, Expr, Literal, Pattern, Stmt, SwitchArm};
+use crate::error::ParseError;
+use crate::parser::{cover, Parser};
+
+impl<'src> Parser<'src> {
+    pub fn parse_block(&mut self) -> Result<Block, ParseError> {
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+
+        let mut stmts = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            if self.eat(TokenKind::Semi) {
+                continue;
+            }
+            stmts.push(self.parse_stmt()?);
+        }
+
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+        Ok(Block {
+            stmts,
+            span: cover(open.span, close.span),
+        })
+    }
+
+    pub fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        match self.peek() {
+            TokenKind::Const => self.parse_const(),
+            TokenKind::Var => self.parse_var(),
+            TokenKind::Return => self.parse_return(),
+            TokenKind::If => self.parse_if(),
+            TokenKind::For => self.parse_for(),
+            TokenKind::Switch => self.parse_switch_stmt(),
+            TokenKind::Break => self.parse_break(),
+            TokenKind::Continue => self.parse_continue(),
+            TokenKind::Defer => self.parse_defer(),
+            TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => self.parse_binding_stmt(),
+            _ => self.parse_expr_stmt(),
+        }
+    }
+
+    fn parse_const(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Const)?;
+        let (name, _) = self.identifier()?;
+        let ty = if self.eat(TokenKind::Colon) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        self.expect(TokenKind::Eq)?;
+        let init = self.parse_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Const {
+            name,
+            ty,
+            init,
+            span: cover(kw.span, semi.span),
+        })
+    }
+
+    fn parse_var(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Var)?;
+        let (name, _) = self.identifier()?;
+        let ty = if self.eat(TokenKind::Colon) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        self.expect(TokenKind::Eq)?;
+        let init = self.parse_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Var {
+            name,
+            ty,
+            init,
+            span: cover(kw.span, semi.span),
+        })
+    }
+
+    fn parse_binding_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let (name, name_span) = self.identifier()?;
+        self.expect(TokenKind::ColonEq)?;
+        let init = self.parse_expr()?;
+        let span = cover(name_span, crate::exprs::expr_span(&init));
+        // Consumed as part of a statement context that provides the semicolon,
+        // e.g. for-loop init or if-binding. Standalone `x := y;` also works.
+        // If a semicolon follows, consume it.
+        if self.eat(TokenKind::Semi) {
+            // span already; fine
+        }
+        Ok(Stmt::Const {
+            name,
+            ty: None,
+            init,
+            span,
+        })
+    }
+
+    fn parse_return(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Return)?;
+        if self.check(TokenKind::Semi) {
+            let semi = self.expect(TokenKind::Semi)?;
+            return Ok(Stmt::Return(None, cover(kw.span, semi.span)));
+        }
+        let expr = self.parse_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Return(Some(expr), cover(kw.span, semi.span)))
+    }
+
+    fn parse_if(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::If)?;
+        let init = if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::ColonEq {
+            Some(Box::new(self.parse_binding_stmt()?))
+        } else {
+            None
+        };
+        let cond = self.parse_expr()?;
+        let then_block = self.parse_block()?;
+        let else_block = if self.eat(TokenKind::Else) {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        let end_span = match &else_block {
+            Some(b) => b.span,
+            None => then_block.span,
+        };
+        Ok(Stmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            span: cover(kw.span, end_span),
+        })
+    }
+
+    fn parse_for(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::For)?;
+        // Range form: for <ident> in <expr> .. <expr> { }
+        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::In {
+            let (name, _) = self.identifier()?;
+            self.expect(TokenKind::In)?;
+            let start = self.parse_expr()?;
+            self.expect(TokenKind::DotDot)?;
+            let end = self.parse_expr()?;
+            let body = self.parse_block()?;
+            let body_span = body.span;
+            return Ok(Stmt::ForRange {
+                name,
+                start,
+                end,
+                body,
+                span: cover(kw.span, body_span),
+            });
+        }
+        // C form
+        let (init, semi_consumed) = if self.check(TokenKind::Semi) {
+            (None, false)
+        } else if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::ColonEq {
+            (Some(Box::new(self.parse_binding_stmt()?)), true)
+        } else {
+            let e = self.parse_expr()?;
+            let es = crate::exprs::expr_span(&e);
+            (Some(Box::new(Stmt::Expr(e, es))), false)
+        };
+        if !semi_consumed {
+            self.expect(TokenKind::Semi)?;
+        }
+        let cond = if self.check(TokenKind::Semi) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        self.expect(TokenKind::Semi)?;
+        let update = if self.check(TokenKind::LBrace) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        let body = self.parse_block()?;
+        let body_span = body.span;
+        Ok(Stmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            span: cover(kw.span, body_span),
+        })
+    }
+
+    fn parse_switch_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Switch)?;
+        let subject = self.parse_expr()?;
+        let (arms, close_span) = self.parse_switch_arms()?;
+        Ok(Stmt::Switch {
+            subject,
+            arms,
+            span: cover(kw.span, close_span),
+        })
+    }
+
+    fn parse_switch_arms(&mut self) -> Result<(Vec<SwitchArm>, Span), ParseError> {
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+        let mut arms = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            let arm_start = self.peek_span();
+            let is_default = if self.eat(TokenKind::Default) {
+                true
+            } else {
+                self.expect(TokenKind::Case)?;
+                false
+            };
+            let pattern = if is_default {
+                Pattern::Wildcard(arm_start)
+            } else {
+                self.parse_pattern()?
+            };
+            let body = self.parse_switch_arm_body()?;
+            let arm_span = cover(crate::exprs::pattern_span(&pattern), crate::exprs::expr_span(&body));
+            // extend to braces? body already includes. fine.
+            let _ = arm_start;
+            arms.push(SwitchArm {
+                pattern,
+                body,
+                is_default,
+                span: arm_span,
+            });
+        }
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+        Ok((arms, close.span))
+    }
+
+    fn parse_switch_arm_body(&mut self) -> Result<Expr, ParseError> {
+        if self.check(TokenKind::LBrace) {
+            let open = self.expect(TokenKind::LBrace)?;
+            let _ = self.push_open(TokenKind::LBrace, open.span)?;
+            let expr = self.parse_expr()?;
+            self.expect(TokenKind::RBrace)?;
+            self.close_open(TokenKind::RBrace);
+            Ok(expr)
+        } else {
+            self.parse_expr()
+        }
+    }
+
+    pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        // Wildcard
+        if self.check(TokenKind::Ident) {
+            let (name, span) = self.identifier()?;
+            if name == "_" {
+                return Ok(Pattern::Wildcard(span));
+            }
+            // Tuple variant
+            if self.check(TokenKind::LParen) {
+                let open = self.expect(TokenKind::LParen)?;
+                let _ = self.push_open(TokenKind::LParen, open.span)?;
+                let mut args = Vec::new();
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    args.push(self.parse_pattern()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let close = self.expect(TokenKind::RParen)?;
+                self.close_open(TokenKind::RParen);
+                return Ok(Pattern::TupleVariant {
+                    path: vec![name],
+                    args,
+                    span: cover(span, close.span),
+                });
+            }
+            // Struct variant
+            if self.check(TokenKind::LBrace) {
+                let open = self.expect(TokenKind::LBrace)?;
+                let _ = self.push_open(TokenKind::LBrace, open.span)?;
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                    if self.eat(TokenKind::DotDot) {
+                        // rest pattern; ignore
+                        break;
+                    }
+                    let (fname, fspan) = self.identifier()?;
+                    self.expect(TokenKind::Colon)?;
+                    let sub = self.parse_pattern()?;
+                    fields.push((fname, sub, fspan));
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let close = self.expect(TokenKind::RBrace)?;
+                self.close_open(TokenKind::RBrace);
+                return Ok(Pattern::StructVariant {
+                    path: vec![name],
+                    fields,
+                    span: cover(span, close.span),
+                });
+            }
+            // Unit variant vs binding: uppercase -> variant
+            let is_variant = name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+            if is_variant {
+                // dotted path support
+                let mut path = vec![name];
+                while self.eat(TokenKind::Dot) {
+                    if self.check(TokenKind::Ident) {
+                        let (seg, _) = self.identifier()?;
+                        path.push(seg);
+                    } else {
+                        break;
+                    }
+                }
+                return Ok(Pattern::UnitVariant { path, span });
+            }
+            return Ok(Pattern::Binding { name, span });
+        }
+        // Literal patterns
+        if self.check(TokenKind::I64) {
+            let tok = self.advance();
+            let text = self.text(tok.span).unwrap_or_default();
+            let val = text.parse::<i64>().unwrap_or(0);
+            return Ok(Pattern::Literal(Literal::I64(val), tok.span));
+        }
+        if self.check(TokenKind::F64) {
+            let tok = self.advance();
+            let text = self.text(tok.span).unwrap_or_default();
+            let val = text.parse::<f64>().unwrap_or(0.0);
+            return Ok(Pattern::Literal(Literal::F64(val), tok.span));
+        }
+        if self.check(TokenKind::True) {
+            let tok = self.advance();
+            return Ok(Pattern::Literal(Literal::Bool(true), tok.span));
+        }
+        if self.check(TokenKind::False) {
+            let tok = self.advance();
+            return Ok(Pattern::Literal(Literal::Bool(false), tok.span));
+        }
+        if self.check(TokenKind::Str) {
+            let tok = self.advance();
+            let raw = self.text(tok.span).unwrap_or_default();
+            let lit = otter_lexer::StringLit::decode(&raw).unwrap_or(otter_lexer::StringLit { value: String::new(), bytes: Vec::new() });
+            return Ok(Pattern::Literal(Literal::Str(lit), tok.span));
+        }
+        Err(self.expected_error(TokenKind::Ident))
+    }
+
+    fn parse_break(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Break)?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Break(cover(kw.span, semi.span)))
+    }
+
+    fn parse_continue(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Continue)?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Continue(cover(kw.span, semi.span)))
+    }
+
+    fn parse_defer(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Defer)?;
+        let body = self.parse_block()?;
+        let body_span = body.span;
+        Ok(Stmt::Defer {
+            body,
+            span: cover(kw.span, body_span),
+        })
+    }
+
+    fn parse_expr_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let expr = self.parse_expr()?;
+        let span = crate::exprs::expr_span(&expr);
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Expr(expr, cover(span, semi.span)))
+    }
+
+    // Shared switch parsing used by both statement and expression forms.
+    // Returns (subject, arms, span) for expression? We'll implement separately.
+}
+
+
+

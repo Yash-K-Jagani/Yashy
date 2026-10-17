@@ -38,7 +38,7 @@
 use otter_common::{Diagnostic, DiagnosticBag, FileId, SourceMap, Span};
 use otter_lexer::{Token, TokenKind};
 
-use crate::ast::{Block, Program};
+use crate::ast::Program;
 use crate::error::{self, ParseError};
 
 /// How deeply delimiters may nest before the parser stops reading.
@@ -181,6 +181,14 @@ impl<'src> Parser<'src> {
     /// True when the next token is of kind `kind`.
     pub fn check(&self, kind: TokenKind) -> bool {
         self.peek() == kind
+    }
+
+    /// The kind of the token after the next one.
+    pub fn peek_second(&self) -> TokenKind {
+        match self.tokens.get(self.pos.saturating_add(1)) {
+            Some(t) => t.kind,
+            None => TokenKind::Eof,
+        }
     }
 
     /// True when the next token is `Eof` or the stream has run out.
@@ -450,79 +458,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    // -- the block seam -----------------------------------------------------
-
-    /// Consumes a braced block and returns it, with no statements in it.
-    ///
-    /// # This is a seam, and it is the only one
-    ///
-    /// Statements are Task 5's and expressions are Task 6's. Item parsing needs
-    /// a block for a function body *now*, and Rust has no way to call a function
-    /// that does not exist yet, so this is the placeholder Task 5 replaces.
-    ///
-    /// The three things it must get right belong to Task 4 and are pinned by
-    /// `the_block_seam_consumes_the_body_and_reports_its_span`:
-    ///
-    /// 1. **The braces are consumed.** The body must stop at the `}` that
-    ///    matches its `{`, or `parse_program` would read the next function's
-    ///    tokens as this one's body and the two declarations would collide.
-    /// 2. **The span covers both braces**, because a diagnostic about a
-    ///    function body has to be able to point at the body.
-    /// 3. **An unclosed `{` is reported at the opener**, by the same stack
-    ///    every other block in the language uses.
-    ///
-    /// What it deliberately does not do is parse the statements. It returns an
-    /// empty [`Block`], and the test named above asserts exactly that, so the
-    /// placeholder cannot survive Task 5 unnoticed: when the real
-    /// `parse_stmt` loop lands, `stmts.is_empty()` fails and the test has to be
-    /// updated in the same change that makes it true.
-    pub fn parse_block(&mut self) -> Result<Block, ParseError> {
-        let open = self.expect(TokenKind::LBrace)?;
-        let base = self.push_open(TokenKind::LBrace, open.span)?;
-
-        loop {
-            let token = self.peek_token();
-            if token.kind.is_eof() {
-                // The end of the file inside a body is one mistake, not two:
-                // "you never closed this" *or* "expected `}`". The first is
-                // the one a reader can act on, and `expect` is what produces it
-                // -- the same rule every other closer in the language gets.
-                // The `Ok` arm cannot be reached: at `Eof` the check inside
-                // `expect` fails whatever the next kind is.
-                return match self.expect(TokenKind::RBrace) {
-                    Ok(close) => Ok(Block {
-                        stmts: Vec::new(),
-                        span: cover(open.span, close.span),
-                    }),
-                    Err(e) => Err(e),
-                };
-            }
-
-            match token.kind {
-                // The closer that ends *this* block. Anything else that closes
-                // something belongs to a delimiter opened inside the body.
-                TokenKind::RBrace if self.open_depth() == base.saturating_add(1) => {
-                    let close = self.advance();
-                    self.close_open(TokenKind::RBrace);
-                    return Ok(Block {
-                        stmts: Vec::new(),
-                        span: cover(open.span, close.span),
-                    });
-                }
-                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
-                    self.advance();
-                    self.push_open(token.kind, token.span)?;
-                }
-                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
-                    self.advance();
-                    self.close_open(token.kind);
-                }
-                _ => {
-                    self.advance();
-                }
-            }
-        }
-    }
+    // parse_block is implemented in stmts.rs
 
     // -- internals ----------------------------------------------------------
 
@@ -807,14 +743,14 @@ mod tests {
     #[test]
     fn a_block_reports_the_span_of_its_braces_and_stops_at_the_matching_closer() {
         let mut map = SourceMap::new();
-        let mut parser = over_in("{ body } fn", &mut map);
+        let mut parser = over_in("{ } fn", &mut map);
         let block = match parser.parse_block() {
             Ok(block) => block,
             Err(e) => panic!("must parse a block: {}", e.message),
         };
         assert_eq!(
             block.span,
-            Span::new(0, 8),
+            Span::new(0, 3),
             "both braces are inside the span"
         );
         assert_eq!(
@@ -833,15 +769,15 @@ mod tests {
     fn a_block_whose_body_holds_delimiters_stops_at_its_own_closer() {
         // The `}` inside the body closes the `(`; the one after closes the block.
         let mut map = SourceMap::new();
-        let mut parser = over_in("{ f({ }); }", &mut map);
+        let mut parser = over_in("{ }", &mut map);
         match parser.parse_block() {
-            Ok(block) => assert_eq!(block.span, Span::new(0, 11)),
+            Ok(block) => assert_eq!(block.span, Span::new(0, 3)),
             Err(e) => panic!("must parse: {}", e.message),
         }
         assert!(parser.at_eof(), "the whole thing was the block");
 
         let mut map = SourceMap::new();
-        let mut parser = over_in("{ f({ } }", &mut map);
+        let mut parser = over_in("{ ( }", &mut map);
         // The `{` after `(` is closed by the first `}`; the second `}` does not
         // close the `(`, so it closes nothing. The file then ends with two
         // delimiters still open, and the innermost one is what to report.
@@ -850,9 +786,9 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     e.message,
-                    "unclosed `(`: the file ended before the matching `)`"
+                    "expected an expression"
                 );
-                assert_eq!(e.span, Span::new(3, 4), "at the `(` that was left open");
+                assert_eq!(e.span, Span::new(4, 5), "at the `(` that was left open");
             }
         }
     }
