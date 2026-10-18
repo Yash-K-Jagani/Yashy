@@ -1,7 +1,7 @@
 //! The `otter` command line interface.
 //!
 //! ```text
-//! otter build <file.ot> [-o <out>] [--emit-ir] [--cpu <tier>]
+//! otter build <file.ot> [-o <out>] [--emit-ir] [--cpu <tier>] [--fast-math]
 //! otter check <file.ot>
 //! otter version
 //! ```
@@ -16,16 +16,16 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use otter_codegen::{check_main_exists, emit_program, host_target_triple};
+use otter_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use otter_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
-use otter_driver::{compile_to_binary, detect, CpuTarget, OptLevel};
+use otter_driver::{compile_to_binary, detect, BuildOptions, CpuTarget, OptLevel};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, HirProgram};
 
 const USAGE: &str = "\
 usage:
-  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--emit-ir]
+  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--emit-ir]
   otter check <file.ot>
   otter version
 
@@ -35,6 +35,7 @@ usage:
   --cpu <tier> instruction set the program may use, one of:
                portable (default), x86-64-v2, x86-64-v3, x86-64-v4, native
                (`--native` is a synonym for `--cpu native`)
+  --fast-math  allow fused multiply-add; faster float code, different results
   --emit-ir    print the generated LLVM IR to stdout and stop";
 
 fn main() -> ExitCode {
@@ -63,7 +64,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--emit-ir]`.
+/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--emit-ir]`.
 fn build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
@@ -78,11 +79,17 @@ fn build(args: &[String]) -> ExitCode {
     // never the default; see `CpuTarget` for the difference between a feature
     // level (reproducible across a CPU generation) and `native` (this machine).
     let mut cpu = CpuTarget::default();
+    // Off unless asked. Contraction changes the arithmetic the program performs
+    // — a fused multiply-add rounds once where `a * b + c` rounds twice — so a
+    // program that depends on its exact output must opt in knowingly. See
+    // `CodegenOptions::fp_contract`.
+    let mut fast_math = false;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
+            "--fast-math" => fast_math = true,
             "--native" => cpu = CpuTarget::Native,
             "--cpu" => match args.next() {
                 Some(value) => match CpuTarget::parse(value) {
@@ -147,7 +154,10 @@ fn build(args: &[String]) -> ExitCode {
         return match front_end(&source, &entry) {
             Ok(hir) => match check_main_exists(&hir.items) {
                 Ok(()) => {
-                    print!("{}", emit_program(&hir, &entry));
+                    let options = CodegenOptions {
+                        fp_contract: fast_math,
+                    };
+                    print!("{}", emit_program(&hir, &entry, options));
                     exit_code(EXIT_OK)
                 }
                 Err(diagnostic) => render(&source, &entry, &[diagnostic]),
@@ -165,7 +175,12 @@ fn build(args: &[String]) -> ExitCode {
     };
 
     let output = output.unwrap_or_else(|| default_output(&input));
-    match compile_to_binary(&source, &entry, &output, &toolchain, opt, cpu) {
+    let options = BuildOptions {
+        opt,
+        cpu,
+        fast_math,
+    };
+    match compile_to_binary(&source, &entry, &output, &toolchain, options) {
         Ok(()) => exit_code(EXIT_OK),
         Err(diagnostics) => render(&source, &entry, &diagnostics),
     }

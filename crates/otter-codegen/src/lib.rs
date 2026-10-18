@@ -20,27 +20,59 @@ pub mod stmt_gen;
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use fn_gen::{fn_return_repr, gen_fn};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
-pub use module::Module;
 pub use module::host_target_triple;
+pub use module::Module;
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_defers, Flow};
 
 use otter_common::{Diagnostic, FileId, Severity, Span};
 use otter_sema::{HirFn, HirItem, HirProgram, TypeKind};
 
+/// The choices a caller may make about code generation itself, as opposed to
+/// about how the result is compiled.
+///
+/// The default is deliberately the semantics-preserving one: the IR does not
+/// depend on which machine the program is built for, and every floating-point
+/// operation rounds exactly as the source spells it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CodegenOptions {
+    /// Allow floating-point contraction.
+    ///
+    /// This is small in the IR — the `contract` fast-math flag on a floating
+    /// multiply and an add or subtract — and the backend acts on it only when
+    /// the target has a fused multiply-add, so on the portable baseline it does
+    /// nothing. What it buys when the target has one is large: on the `float`
+    /// benchmark it is worth 1.7x, which is the whole difference between
+    /// Otter and `clang -march=native` on that row.
+    ///
+    /// It is off by default because it changes what a program prints. A fused
+    /// multiply-add rounds once where `a * b + c` rounds twice, so the result is
+    /// *more* accurate but not the same number — and through a long dependency
+    /// chain, such as the benchmark's hundred million iterations, the
+    /// difference grows from one ulp into a visible decimal. A program that
+    /// cares about its exact output must not be given this without being told,
+    /// which is why it is a flag and not a default.
+    pub fp_contract: bool,
+}
+
 /// Emit a whole checked program as one LLVM IR module.
 ///
 /// `entry` is the path the module reports as its `source_filename`, so an IR
 /// dump names the file the user compiled rather than a placeholder.
+///
+/// `options` are the code-generation choices; [`CodegenOptions::default`] is the
+/// semantics-preserving set, and a caller that has no reason to change them
+/// should pass it.
 ///
 /// Every function item is emitted; struct and enum *definitions* contribute
 /// only the `%struct.Name` lines a literal forces, and a program with no `fn
 /// main` still produces a module — the driver calls [`check_main_exists`]
 /// first and reports the missing entry point as a diagnostic, which is the
 /// only place with a file to point at.
-pub fn emit_program(hir: &HirProgram, entry: &str) -> String {
+pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> String {
     let mut module = Module::new();
     module.set_source_filename(entry);
+    module.set_fp_contract(options.fp_contract);
     for item in &hir.items {
         if let HirItem::Fn(f) = item {
             gen_fn(&mut module, f);

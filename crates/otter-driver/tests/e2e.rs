@@ -428,7 +428,11 @@ fn a_cpu_tier_is_a_backend_choice_not_an_ir_change() {
 
     let dump = |extra: &[&str]| {
         let mut command = Command::new(otter());
-        command.arg("build").arg(&source).arg("--emit-ir").args(extra);
+        command
+            .arg("build")
+            .arg(&source)
+            .arg("--emit-ir")
+            .args(extra);
         let output = command.output().expect("run the otter CLI");
         assert!(
             output.status.success(),
@@ -479,6 +483,70 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .expect("run the otter CLI");
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr_of(&output).contains("needs a value"));
+}
+
+#[test]
+fn fast_math_reaches_codegen_and_leaves_a_non_fusing_program_alone() {
+    let source = programs_dir().join("floats.ot");
+
+    // 1. The flag has to reach codegen, and codegen has to mark the arithmetic.
+    //    `--emit-ir` shows that deterministically, without depending on which
+    //    instructions the machine running the test can execute.
+    let dump = |extra: &[&str]| {
+        let mut command = Command::new(otter());
+        command
+            .arg("build")
+            .arg(&source)
+            .arg("--emit-ir")
+            .args(extra);
+        let output = command.output().expect("run the otter CLI");
+        assert!(
+            output.status.success(),
+            "--emit-ir {extra:?} failed:\n{}",
+            stderr_of(&output)
+        );
+        stdout_of(&output)
+    };
+    let exact = dump(&[]);
+    assert!(
+        !exact.contains("contract"),
+        "contraction must be off unless it is asked for:\n{exact}"
+    );
+    let fast = dump(&["--fast-math"]);
+    assert!(
+        fast.contains("fmul contract double"),
+        "`--fast-math` must mark the multiply:\n{fast}"
+    );
+    assert!(
+        fast.contains("fadd contract double"),
+        "`--fast-math` must mark the add:\n{fast}"
+    );
+
+    // 2. And the whole pipeline still works with the flag on, on the *native*
+    //    target so the backend really has a fused multiply-add to use.
+    //
+    //    `floats.ot` has a multiply and an add but never a multiply feeding an
+    //    add, so contraction has nothing to fuse here and the output must be
+    //    exactly the same as without the flag. That is what makes this program
+    //    the right one to assert an exact output on under a flag whose entire
+    //    purpose is that it can change one.
+    let dir = work_dir("fast-math");
+    let exe = dir.join(format!("floats{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .arg("--native")
+        .arg("--fast-math")
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "building with `--fast-math` failed:\n{}",
+        stderr_of(&compile)
+    );
+    assert_eq!(stdout_of(&run(&exe)), "3\n2\n12\n3\n1\n-2\n0\n");
 }
 
 #[test]

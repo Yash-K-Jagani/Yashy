@@ -30,7 +30,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use otter_codegen::{check_main_exists, emit_program, host_target_triple};
+use otter_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use otter_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
@@ -325,18 +325,36 @@ fn cached_runtime_object(
     Some(object)
 }
 
+/// Everything a caller chooses about a build, apart from the source and the
+/// output path.
+///
+/// Grouped rather than passed as separate positional arguments because all three
+/// are optional choices with sensible defaults, and a call site that names them
+/// reads better than one passing `OptLevel::default()` and `CpuTarget::default()`
+/// positionally. [`BuildOptions::default`] is a portable, `-O2`,
+/// exact-semantics build.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BuildOptions {
+    /// The `clang` optimization level for the generated code. See [`OptLevel`].
+    pub opt: OptLevel,
+    /// The instruction set the generated code may use. See [`CpuTarget`].
+    pub cpu: CpuTarget,
+    /// Allow floating-point multiply-add contraction in the generated code; see
+    /// [`CodegenOptions::fp_contract`]. It is only useful together with a
+    /// target that has a fused multiply-add, which the portable baseline does
+    /// not.
+    pub fast_math: bool,
+}
+
 /// Compile `source` to a native executable at `out`.
 ///
 /// `entry_name` is the path reported in diagnostics and in the IR's
 /// `source_filename`; it is what the user typed, not a canonicalised path.
 ///
-/// `opt` is the `clang` optimization level for the generated code; see
-/// [`OptLevel`] for why the caller, not codegen, chooses it.
-///
-/// `cpu` is the instruction set the generated code may use; see [`CpuTarget`]
-/// for why the default is the portable baseline rather than a newer one. It
-/// applies to the IR and to nothing else — see the link step for why the
-/// runtime deliberately stays portable.
+/// `options` carries the three choices a caller makes about the result — the
+/// optimization level, the instruction set, and whether floating-point
+/// contraction is allowed. See [`BuildOptions`] for what each one means and why
+/// all three default to the conservative, portable, exact-semantics setting.
 ///
 /// Every diagnostic refers to file id **zero** of a fresh [`SourceMap`], which
 /// is `entry_name`'s text. A caller that wants to render them builds its own
@@ -349,8 +367,7 @@ pub fn compile_to_binary(
     entry_name: &str,
     out: &Path,
     toolchain: &Toolchain,
-    opt: OptLevel,
-    cpu: CpuTarget,
+    options: BuildOptions,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
     let file = sources.add_file(entry_name, source.to_string());
@@ -364,7 +381,13 @@ pub fn compile_to_binary(
         return Err(vec![diagnostic]);
     }
 
-    let ir_text = emit_program(&hir, entry_name);
+    let ir_text = emit_program(
+        &hir,
+        entry_name,
+        CodegenOptions {
+            fp_contract: options.fast_math,
+        },
+    );
 
     // The IR next to the output is a debugging aid, not a temporary: when a
     // program misbehaves, "what did we actually hand to LLVM?" is the first
@@ -422,16 +445,13 @@ pub fn compile_to_binary(
             &runtime_source,
             &runtime_dir,
             target,
-            opt,
+            options.opt,
             toolchain,
         )
     });
 
-    let mut args: Vec<String> = vec![
-        opt.flag().to_string(),
-        format!("--target={target}"),
-    ];
-    args.extend(cpu.flags().iter().map(|flag| flag.to_string()));
+    let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
+    args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
     args.push(display(&ir_path));
     match &runtime_object {
         Some(object) => args.push(display(object)),
@@ -625,7 +645,15 @@ mod tests {
     fn an_unrecognised_cpu_target_is_rejected_rather_than_guessed() {
         // `--native` is a CLI alias, not a tier name, so the enum's parser must
         // not accept it: the mapping belongs with the other argument parsing.
-        for bad in ["", "v3", "x86-64", "x86-64-v5", "arm64", "NATIVE", "--native"] {
+        for bad in [
+            "",
+            "v3",
+            "x86-64",
+            "x86-64-v5",
+            "arm64",
+            "NATIVE",
+            "--native",
+        ] {
             assert_eq!(CpuTarget::parse(bad), None, "`{bad}` should not parse");
         }
     }

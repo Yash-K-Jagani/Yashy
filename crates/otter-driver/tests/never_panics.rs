@@ -23,7 +23,7 @@
 //! "no panic". Without the parser's depth limit they abort the process, which
 //! no test can survive and no `catch_unwind` can report.
 
-use otter_codegen::emit_program;
+use otter_codegen::{emit_program, CodegenOptions};
 use otter_common::SourceMap;
 use otter_lexer::Lexer;
 use otter_parser::Parser;
@@ -47,7 +47,7 @@ fn run_pipeline(src: &str) -> bool {
     let Ok(hir) = check_program(&program, &sources, file) else {
         return false;
     };
-    let _ = emit_program(&hir, "fuzz.ot");
+    let _ = emit_program(&hir, "fuzz.ot", CodegenOptions::default());
     true
 }
 

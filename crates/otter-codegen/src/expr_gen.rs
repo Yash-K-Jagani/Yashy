@@ -348,6 +348,9 @@ fn llvm_float(v: f64) -> String {
 /// division: `add`/`sub`/`mul` accept only integer operands, so a malformed
 /// `add double` is a parse error from LLVM rather than something that silently
 /// works. The `is_float` test is therefore applied uniformly below.
+///
+/// Floating-point arithmetic also carries the `contract` fast-math flag when the
+/// module allows contraction; see [`crate::CodegenOptions::fp_contract`].
 fn gen_binary(
     ctx: &mut FnCtx<'_>,
     op: BinOp,
@@ -380,8 +383,20 @@ fn gen_binary(
     };
     let op_ty = repr_type(&ty);
     let tmp = ctx.tmp();
+    // A multiply and an add or subtract are the one pair LLVM's `contract` flag
+    // can fuse, and only when the caller has allowed it. `contract` is a valid
+    // flag on `fdiv` and `frem` too, but neither can fuse with anything, so
+    // adding it there would be noise in the IR rather than a decision.
+    let contract = if is_float
+        && ctx.module.fp_contract()
+        && matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul)
+    {
+        " contract"
+    } else {
+        ""
+    };
     ctx.push(format!(
-        "{tmp} = {mnemonic} {op_ty} {}, {}",
+        "{tmp} = {mnemonic}{contract} {op_ty} {}, {}",
         l.value, r.value
     ));
     GenValue {

@@ -21,6 +21,9 @@ pub struct Module {
     named_types: Vec<(String, Vec<String>)>,
     /// The `source_filename` the driver wants reported in the header.
     source_filename: String,
+    /// Whether floating-point multiply-add contraction is allowed; see
+    /// [`Module::set_fp_contract`].
+    fp_contract: bool,
     /// The index the next `%tN` temporary will use.
     next_value: u32,
 }
@@ -33,8 +36,27 @@ impl Module {
             strings: Vec::new(),
             named_types: Vec::new(),
             source_filename: "main.ot".to_string(),
+            fp_contract: false,
             next_value: 0,
         }
+    }
+
+    /// Allow floating-point contraction in this module.
+    ///
+    /// When this is on, a floating-point multiply and add/subtract are emitted
+    /// with LLVM's `contract` fast-math flag, which lets the backend fuse them
+    /// into one multiply-add. It is off by default because a fused multiply-add
+    /// rounds once where `a * b + c` rounds twice — that is where the speed
+    /// comes from, and why it changes what a program prints. The decision and
+    /// its reasoning live in [`crate::CodegenOptions`]; this is only the carrier
+    /// the per-instruction emitter reads.
+    pub fn set_fp_contract(&mut self, allowed: bool) {
+        self.fp_contract = allowed;
+    }
+
+    /// Whether contraction is allowed; read by the binary-operation emitter.
+    pub fn fp_contract(&self) -> bool {
+        self.fp_contract
     }
 
     /// Set the `source_filename` reported in the module header.

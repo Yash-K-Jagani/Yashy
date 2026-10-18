@@ -12,10 +12,15 @@ use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::check_program;
 
-use otter_codegen::emit_program;
+use otter_codegen::{emit_program, CodegenOptions};
 
-/// Lex, parse, check and emit `src` as one module.
+/// Lex, parse, check and emit `src` as one module, with default options.
 fn ir_of(src: &str) -> String {
+    ir_of_with(src, CodegenOptions::default())
+}
+
+/// Lex, parse, check and emit `src` as one module with the given options.
+fn ir_of_with(src: &str, options: CodegenOptions) -> String {
     let mut sm = SourceMap::new();
     let file = sm.add_file("main.ot", src.to_string());
     let tokens = Lexer::new(src)
@@ -26,7 +31,7 @@ fn ir_of(src: &str) -> String {
         .parse_program()
         .expect("these test sources must parse");
     let hir = check_program(&ast, &sm, file).expect("these test sources must type-check");
-    let ir_text = emit_program(&hir, "main.ot");
+    let ir_text = emit_program(&hir, "main.ot", options);
     // Every test doubles as a structural check: an appended-after-terminator
     // instruction would still look plausible but be invalid LLVM.
     assert_one_terminator_per_block(&ir_text);
@@ -275,6 +280,84 @@ fn assigning_other_reprs_stores_their_width() {
         floats.matches("store double").count(),
         2,
         "an f64 binding is a double slot:\n{floats}"
+    );
+}
+
+// --- floating-point contraction ----------------------------------------------
+
+/// `a * b + 1.0` with `a` and `b` behind bindings, so the checker cannot fold
+/// the arithmetic and the backend really sees a multiply feeding an add.
+const FMA_SOURCE: &str = "fn main() -> f64 { var a = 2.0; var b = 3.0; return a * b + 1.0; }";
+
+#[test]
+fn floating_point_contraction_is_off_until_it_is_asked_for() {
+    // The default has to be the exact-semantics one. A compiler that quietly
+    // fused the multiply and the add would change the number its programs
+    // print, and it would do so per machine, depending on which CPU had a
+    // fused multiply-add.
+    let exact = ir_of(FMA_SOURCE);
+    assert!(
+        !exact.contains("contract"),
+        "the default must emit no fast-math flag:\n{exact}"
+    );
+    assert!(
+        exact.contains("fmul double"),
+        "expected a plain fmul:\n{exact}"
+    );
+    assert!(
+        exact.contains("fadd double"),
+        "expected a plain fadd:\n{exact}"
+    );
+}
+
+#[test]
+fn floating_point_contraction_marks_the_multiply_and_the_add() {
+    let contracted = ir_of_with(FMA_SOURCE, CodegenOptions { fp_contract: true });
+    assert!(
+        contracted.contains("fmul contract double"),
+        "the multiply must carry the flag:\n{contracted}"
+    );
+    assert!(
+        contracted.contains("fadd contract double"),
+        "the add must carry the flag:\n{contracted}"
+    );
+}
+
+#[test]
+fn contraction_covers_subtraction_and_not_division() {
+    // `a * b - c` is a fused multiply-subtract, so `fsub` is in scope. `fdiv`
+    // can fuse with nothing, and a flag that cannot change the code is noise in
+    // the IR, so it must not appear there.
+    let difference = ir_of_with(
+        "fn main() -> f64 { var a = 2.0; var b = 3.0; return a * b - 1.0; }",
+        CodegenOptions { fp_contract: true },
+    );
+    assert!(
+        difference.contains("fsub contract double"),
+        "a multiply feeding a subtract can fuse:\n{difference}"
+    );
+
+    let quotient = ir_of_with(
+        "fn main() -> f64 { var a = 2.0; var b = 3.0; return a / b; }",
+        CodegenOptions { fp_contract: true },
+    );
+    assert!(
+        !quotient.contains("contract"),
+        "division can fuse with nothing, so it takes no flag:\n{quotient}"
+    );
+}
+
+#[test]
+fn contraction_leaves_integer_arithmetic_alone() {
+    // `contract` is a floating-point flag; on `add`/`sub`/`mul`/`sdiv` it would
+    // be an LLVM parse error, so enabling contraction must not reach them.
+    let integers = ir_of_with(
+        "fn main() -> i64 { var a = 2; var b = 3; return a * b + 1; }",
+        CodegenOptions { fp_contract: true },
+    );
+    assert!(
+        !integers.contains("contract"),
+        "integer arithmetic takes no fast-math flag:\n{integers}"
     );
 }
 
