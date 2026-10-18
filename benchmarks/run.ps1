@@ -123,6 +123,13 @@ function Build-All {
         Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-v3$exe", '--cpu=x86-64-v3') "otter build $name --cpu=x86-64-v3"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=x86-64-v3', "$bench\$name.c", '-o', "$build\$name-clang-v3$exe")) "clang $name -march=x86-64-v3"
 
+        # The `v3` pair above is *not* a like-for-like comparison on its own.
+        # Clang contracts floating-point by default (C's `-ffp-contract=on`), so
+        # its `v3` row already has a fused multiply-add, while Otter has to be
+        # asked for one. This row is Otter asking, and it is the one to read
+        # beside `C (clang -O2, -march=x86-64-v3)`.
+        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-v3-fast$exe", '--cpu=x86-64-v3', '--fast-math') "otter build $name --cpu=x86-64-v3 --fast-math"
+
         # Two C compilers, so the Otter numbers are not graded against one
         # backend's quirks. clang gets the same target Otter passes.
         Invoke-Tool 'clang' ($clangTarget + @('-O2', "$bench\$name.c", '-o', "$build\$name-clang$exe")) "clang $name"
@@ -173,6 +180,7 @@ function Invoke-Runtime {
             @{ Lang = 'Otter (-O2, --cpu=x86-64-v3)'; Path = "$build\$name-otter-v3$exe" },
             @{ Lang = 'C (clang -O2)';     Path = "$build\$name-clang$exe" },
             @{ Lang = 'C (clang -O2, -march=native)'; Path = "$build\$name-clang-native$exe" },
+            @{ Lang = 'Otter (-O2, --cpu=x86-64-v3 --fast-math)'; Path = "$build\$name-otter-v3-fast$exe" },
             @{ Lang = 'C (clang -O2, -march=x86-64-v3)'; Path = "$build\$name-clang-v3$exe" },
             @{ Lang = 'C (gcc -O2)';       Path = "$build\$name-gcc$exe" },
             @{ Lang = 'Rust (rustc -O)';   Path = "$build\$name-rust$exe" },
