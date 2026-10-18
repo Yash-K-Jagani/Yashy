@@ -16,3 +16,9 @@
 # checkout that rewrote their line endings would still compile, but the pinned
 # expected stdout in `e2e.rs` would no longer describe the same program.
 **/tests/programs/*.ot      text eol=lf
+
+# A fuzz corpus entry is an arbitrary blob of input bytes, not a text file. Git
+# rewrites the line endings of anything it treats as text, which would quietly
+# change the inputs the corpus exists to preserve -- and a corpus entry that no
+# longer reproduces its crash is worse than no corpus entry.
+fuzz/corpus/**             -text
