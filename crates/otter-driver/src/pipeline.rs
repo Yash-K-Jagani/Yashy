@@ -13,12 +13,19 @@
 //!
 //! # Where the runtime comes from
 //!
-//! The last `clang` invocation compiles the *runtime C source* alongside the
-//! generated object, rather than linking a prebuilt archive. [`RUNTIME_C_SOURCE`]
-//! is embedded in the compiler binary, so there is no library search path to
-//! configure, no archive to go stale, and the runtime is always the one this
-//! compiler was built and tested with.
+//! The runtime is the *runtime C source*, [`RUNTIME_C_SOURCE`], embedded in the
+//! compiler binary: there is no library search path to configure and the
+//! runtime is always the one this compiler was built and tested with.
+//!
+//! At link time the driver needs that source as an object file. Compiling it
+//! costs about 135 ms of a 400 ms build, and its bytes never change between
+//! builds, so the object is cached — see `cached_runtime_object`. The cache
+//! is keyed on the exact bytes it was built from, so it cannot go stale: a
+//! changed runtime is a different key and a different object. When the cache
+//! cannot be used for any reason, the driver falls back to compiling the source
+//! as part of the link, which is what it did before there was a cache.
 
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -89,6 +96,137 @@ impl OptLevel {
     }
 }
 
+/// Where compiled runtime objects are reused between builds.
+///
+/// `OTTER_CACHE_DIR` overrides the location, which is what a build system or a
+/// test that wants a private cache sets. Otherwise it follows the platform's
+/// convention: `%LOCALAPPDATA%` on Windows, `XDG_CACHE_HOME` or `~/.cache`
+/// elsewhere. The temp directory is the last resort, because a cache that
+/// cannot be written is only a lost optimization and not a failure — see
+/// [`cached_runtime_object`].
+fn runtime_cache_dir() -> Option<PathBuf> {
+    if let Some(dir) = env::var_os("OTTER_CACHE_DIR") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    if let Some(local) = env::var_os("LOCALAPPDATA") {
+        return Some(PathBuf::from(local).join("otter").join("cache"));
+    }
+    if let Some(xdg) = env::var_os("XDG_CACHE_HOME") {
+        return Some(PathBuf::from(xdg).join("otter"));
+    }
+    if let Some(home) = env::var_os("HOME") {
+        return Some(PathBuf::from(home).join(".cache").join("otter"));
+    }
+    Some(env::temp_dir().join("otter-cache"))
+}
+
+/// FNV-1a's offset basis and prime, applied by [`fnv1a`].
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+/// Fold `bytes` into a running FNV-1a hash.
+///
+/// FNV-1a rather than [`std::collections::hash_map::DefaultHasher`] because the
+/// cache key is written to the filesystem and read back by a *later* invocation
+/// of the compiler: the hash has to mean the same thing across processes,
+/// across Rust versions, and across machines sharing a cache directory.
+/// `DefaultHasher`'s output is not promised to be stable, and a silent change
+/// to it would orphan every cached object.
+fn fnv1a(state: &mut u64, bytes: &[u8]) {
+    for &byte in bytes {
+        *state ^= u64::from(byte);
+        *state = state.wrapping_mul(FNV_PRIME);
+    }
+}
+
+/// The cache key for one runtime object: a hash of everything the object
+/// depends on.
+///
+/// The runtime bytes are what actually make two objects differ, so they are the
+/// core of the key and a changed runtime can never reuse an old object. The
+/// triple and the optimization level change the code the toolchain would
+/// produce. The tool's own path and modification time catch the one case the
+/// source cannot: the same runtime compiled by a *different* `clang` is a
+/// different object, and an in-place toolchain upgrade should not silently
+/// reuse what the previous one emitted.
+fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
+    let mut state = FNV_OFFSET_BASIS;
+    fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
+    fnv1a(&mut state, RUNTIME_HEADER.as_bytes());
+    fnv1a(&mut state, triple.as_bytes());
+    fnv1a(&mut state, opt.flag().as_bytes());
+    fnv1a(&mut state, tool.to_string_lossy().as_bytes());
+    if let Ok(modified) = fs::metadata(tool).and_then(|meta| meta.modified()) {
+        if let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) {
+            fnv1a(&mut state, &since_epoch.as_secs().to_le_bytes());
+            fnv1a(&mut state, &since_epoch.subsec_nanos().to_le_bytes());
+        }
+    }
+    state
+}
+
+/// The runtime, compiled to an object file that can be reused across builds.
+///
+/// Returns the object's path, leaving it in `cache_dir` for the next build to
+/// find, or `None` when the cache cannot be used — an unwritable directory, a
+/// toolchain that refuses to compile the runtime on its own. `None` is not an
+/// error: the caller compiles the runtime source as part of the link, which is
+/// slower and exactly as correct. A cache is only ever an optimization, so
+/// nothing about it is allowed to fail a build.
+///
+/// The object is written to a staged name and renamed into place, so a build
+/// interrupted mid-compile cannot leave a truncated object that the next build
+/// would link as if it were complete. Two compilers racing to fill the same
+/// entry both produce the same bytes; whichever renames second finds the
+/// destination already there and keeps it.
+fn cached_runtime_object(
+    cache_dir: &Path,
+    runtime_source: &Path,
+    runtime_dir: &Path,
+    target: &str,
+    opt: OptLevel,
+    toolchain: &Toolchain,
+) -> Option<PathBuf> {
+    let key = runtime_cache_key(&toolchain.llc, target, opt);
+    let object = cache_dir.join(format!("otter-runtime-{key:016x}.o"));
+    if object.is_file() {
+        return Some(object);
+    }
+    fs::create_dir_all(cache_dir).ok()?;
+
+    let staged = cache_dir.join(format!("otter-runtime-{key:016x}.{}.tmp", std::process::id()));
+    let status = Command::new(&toolchain.llc)
+        .args([
+            "-c".to_string(),
+            display(runtime_source),
+            "-o".to_string(),
+            display(&staged),
+            format!("-I{}", display(runtime_dir)),
+            format!("--target={target}"),
+            opt.flag().to_string(),
+        ])
+        .output();
+    match status {
+        Ok(output) if output.status.success() => {}
+        _ => {
+            let _ = fs::remove_file(&staged);
+            return None;
+        }
+    }
+
+    if fs::rename(&staged, &object).is_err() {
+        let _ = fs::remove_file(&staged);
+        // Losing the rename means someone else filled the entry first, which
+        // is just as good; only a genuinely absent object is a miss.
+        if !object.is_file() {
+            return None;
+        }
+    }
+    Some(object)
+}
+
 /// Compile `source` to a native executable at `out`.
 ///
 /// `entry_name` is the path reported in diagnostics and in the IR's
@@ -151,10 +289,10 @@ pub fn compile_to_binary(
 
     // 1. IR text -> object file.
     //
-    // The optimization flag goes here, and again at link time below because the
-    // runtime C source is compiled by that second invocation. Without it the
-    // runtime would stay at `-O0` while the program it is linked into was
-    // optimized, which is the kind of asymmetry that shows up later as a
+    // The optimization flag goes here, and again wherever the runtime C source
+    // is compiled, so the program and its runtime are optimized alike. Without
+    // it the runtime would stay at `-O0` while the program it is linked into
+    // was optimized, which is the kind of asymmetry that shows up later as a
     // mystery in a profile.
     run_tool(
         toolchain,
@@ -171,15 +309,33 @@ pub fn compile_to_binary(
     )?;
 
     // 2. object + runtime -> executable.
-    let mut link_args = vec![
-        display(&object_path),
-        display(&runtime_source),
-        format!("-I{}", display(&runtime_dir)),
-        "-o".to_string(),
-        display(out),
-        format!("--target={target}"),
-        opt.flag().to_string(),
-    ];
+    //
+    // Reusing a cached runtime object removes the second compile of `runtime.c`
+    // from the build entirely; the fallback hands the source to this same
+    // invocation, which is why the optimization flag and include path appear in
+    // only one of the two argument lists.
+    let runtime_object = runtime_cache_dir().and_then(|cache_dir| {
+        cached_runtime_object(
+            &cache_dir,
+            &runtime_source,
+            &runtime_dir,
+            target,
+            opt,
+            toolchain,
+        )
+    });
+    let mut link_args = vec![display(&object_path)];
+    match &runtime_object {
+        Some(object) => link_args.push(display(object)),
+        None => {
+            link_args.push(display(&runtime_source));
+            link_args.push(format!("-I{}", display(&runtime_dir)));
+            link_args.push(opt.flag().to_string());
+        }
+    }
+    link_args.push("-o".to_string());
+    link_args.push(display(out));
+    link_args.push(format!("--target={target}"));
     if !cfg!(windows) {
         // The runtime only needs stdio, but a Linux link of a freestanding
         // object may still pull in libm and the thread runtime.
@@ -299,7 +455,20 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 
 #[cfg(test)]
 mod tests {
-    use super::OptLevel;
+    use super::{
+        cached_runtime_object, fnv1a, runtime_cache_dir, runtime_cache_key, OptLevel,
+        FNV_OFFSET_BASIS,
+    };
+    use crate::toolchain::Toolchain;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn fake_toolchain(tool: &Path) -> Toolchain {
+        Toolchain {
+            llc: tool.to_path_buf(),
+            found: "test",
+        }
+    }
 
     #[test]
     fn the_default_level_optimizes() {
@@ -324,5 +493,85 @@ mod tests {
         for bad in ["-O9", "-O", "--optimize", "-", "-o2", "O2"] {
             assert_eq!(OptLevel::parse(bad), None, "`{bad}` should not parse");
         }
+    }
+
+    #[test]
+    fn the_hash_notices_a_changed_byte_or_a_changed_order() {
+        // The whole value of the content-addressed cache rests on this: a
+        // runtime edited by one byte must not address the object built from its
+        // predecessor, or the compiler would link a runtime it no longer has.
+        let mut a = FNV_OFFSET_BASIS;
+        fnv1a(&mut a, b"runtime");
+        let mut same = FNV_OFFSET_BASIS;
+        fnv1a(&mut same, b"runtime");
+        let mut edited = FNV_OFFSET_BASIS;
+        fnv1a(&mut edited, b"runtimf");
+        let mut reordered = FNV_OFFSET_BASIS;
+        fnv1a(&mut reordered, b"emittur");
+        assert_eq!(a, same);
+        assert_ne!(a, edited);
+        assert_ne!(a, reordered);
+    }
+
+    #[test]
+    fn the_cache_key_covers_everything_the_object_depends_on() {
+        let tool = PathBuf::from("/toolchain/clang");
+        let key = runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full);
+
+        assert_eq!(
+            key,
+            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::Full),
+            "the same inputs must address the same object"
+        );
+        assert_ne!(
+            key,
+            runtime_cache_key(&tool, "x86_64-pc-windows-gnu", OptLevel::None),
+            "a different optimization level is a different object"
+        );
+        assert_ne!(
+            key,
+            runtime_cache_key(&tool, "x86_64-unknown-linux-gnu", OptLevel::Full),
+            "a different target is a different object"
+        );
+        assert_ne!(
+            key,
+            runtime_cache_key(
+                &PathBuf::from("/other/clang"),
+                "x86_64-pc-windows-gnu",
+                OptLevel::Full
+            ),
+            "a different toolchain is a different object"
+        );
+    }
+
+    #[test]
+    fn there_is_always_somewhere_to_cache() {
+        // Every branch of the lookup ends in a path, including the temp-dir
+        // last resort, so "no cache directory" is never a reason a build skips
+        // the cache.
+        let dir = runtime_cache_dir().expect("a cache directory is always available");
+        assert!(!dir.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn an_unusable_cache_directory_falls_back_instead_of_failing() {
+        // A cache is an optimization: a directory that cannot be written must
+        // produce `None` (compile the runtime at link time) and never an error.
+        // A path that is an existing *file* cannot become a directory.
+        let in_the_way = std::env::temp_dir().join("otter-cache-not-a-directory");
+        let _ = fs::remove_dir_all(&in_the_way);
+        fs::write(&in_the_way, b"in the way").expect("the test must be able to write a temp file");
+
+        let object = cached_runtime_object(
+            &in_the_way,
+            &in_the_way.join("runtime.c"),
+            &in_the_way,
+            "x86_64-pc-windows-gnu",
+            OptLevel::Full,
+            &fake_toolchain(&in_the_way.join("clang")),
+        );
+        assert_eq!(object, None);
+
+        let _ = fs::remove_file(&in_the_way);
     }
 }
