@@ -3,7 +3,7 @@
 //! The stages run in one order and stop at the first failure:
 //!
 //! ```text
-//! lex -> parse -> check -> emit IR -> clang -c (object) -> clang (link)
+//! lex -> parse -> check -> emit IR -> clang (compile + link)
 //! ```
 //!
 //! Nothing downstream of a failing stage runs, so a program with a syntax
@@ -324,10 +324,17 @@ pub fn compile_to_binary(
         entry_name,
     )?;
 
-    let object_path = with_extension(out, "o");
     let target = host_target_triple();
 
-    // 1. IR text -> object file.
+    // IR text + runtime -> executable, in **one** `clang` invocation.
+    //
+    // The obvious shape is two — `clang -c` the IR to an object, then link that
+    // object with the runtime — and that is what this used to do. Two
+    // invocations pay `clang`'s process start-up twice and write an intermediate
+    // object that nothing reads, and the merged form is measurably faster for
+    // byte-identical output: on the `fib` program, 15 interleaved runs put the
+    // two-invocation shape at a 267 ms minimum and a 292 ms median, and the
+    // merged one at 252 ms and 266 ms. See `docs/performance-improvements.md`.
     //
     // The optimization flag goes here, and again wherever the runtime C source
     // is compiled, so the program and its runtime are optimized alike. Without
@@ -335,35 +342,16 @@ pub fn compile_to_binary(
     // was optimized, which is the kind of asymmetry that shows up later as a
     // mystery in a profile.
     //
-    // The *machine* flag is the opposite case: it goes here and nowhere else.
-    // The runtime is a handful of `printf` wrappers called once at the end of a
-    // program, so what `-march=native` buys it is unmeasurable, while keeping it
-    // on the baseline is worth something real — one runtime object serves both
-    // portable and native builds, so enabling `--native` does not throw away the
-    // cache, and a cache shared between machines never hands one machine another
-    // machine's instructions.
-    let mut object_args: Vec<String> = vec![
-        "-c".to_string(),
-        display(&ir_path),
-        "-o".to_string(),
-        display(&object_path),
-        format!("--target={target}"),
-        opt.flag().to_string(),
-    ];
-    object_args.extend(cpu.flags().iter().map(|flag| flag.to_string()));
-    run_tool(
-        toolchain,
-        &object_args,
-        entry_name,
-        "assembling the generated IR",
-    )?;
-
-    // 2. object + runtime -> executable.
-    //
-    // Reusing a cached runtime object removes the second compile of `runtime.c`
-    // from the build entirely; the fallback hands the source to this same
-    // invocation, which is why the optimization flag and include path appear in
-    // only one of the two argument lists.
+    // The *machine* flag is deliberately not applied to the runtime. The runtime
+    // is a handful of `printf` wrappers called once at the end of a program, so
+    // what `-march=native` buys it is unmeasurable, while keeping it on the
+    // baseline is worth something real: one cached runtime object serves both
+    // portable and native builds, so enabling `--native` does not throw the
+    // cache away, and a cache shared between machines never hands one machine
+    // another machine's instructions. That is why the machine flag reaches the
+    // compiler only when a cached object is available; on the fallback path,
+    // where there is no cache to keep portable, the runtime is compiled by this
+    // same invocation and takes the flag with it.
     let runtime_object = runtime_cache_dir().and_then(|cache_dir| {
         cached_runtime_object(
             &cache_dir,
@@ -374,31 +362,30 @@ pub fn compile_to_binary(
             toolchain,
         )
     });
-    let mut link_args = vec![display(&object_path)];
+
+    let mut args: Vec<String> = vec![
+        opt.flag().to_string(),
+        format!("--target={target}"),
+    ];
+    args.extend(cpu.flags().iter().map(|flag| flag.to_string()));
+    args.push(display(&ir_path));
     match &runtime_object {
-        Some(object) => link_args.push(display(object)),
+        Some(object) => args.push(display(object)),
         None => {
-            link_args.push(display(&runtime_source));
-            link_args.push(format!("-I{}", display(&runtime_dir)));
-            link_args.push(opt.flag().to_string());
+            args.push(display(&runtime_source));
+            args.push(format!("-I{}", display(&runtime_dir)));
         }
     }
-    link_args.push("-o".to_string());
-    link_args.push(display(out));
-    link_args.push(format!("--target={target}"));
+    args.push("-o".to_string());
+    args.push(display(out));
     if !cfg!(windows) {
         // The runtime only needs stdio, but a Linux link of a freestanding
         // object may still pull in libm and the thread runtime.
-        link_args.push("-lpthread".to_string());
-        link_args.push("-ldl".to_string());
-        link_args.push("-lm".to_string());
+        args.push("-lpthread".to_string());
+        args.push("-ldl".to_string());
+        args.push("-lm".to_string());
     }
-    run_tool(
-        toolchain,
-        &link_args,
-        entry_name,
-        "linking the executable",
-    )?;
+    run_tool(toolchain, &args, entry_name, "compiling the program")?;
 
     Ok(())
 }

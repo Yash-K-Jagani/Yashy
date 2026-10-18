@@ -183,6 +183,43 @@ fn the_default_output_path_sits_beside_the_source() {
 }
 
 #[test]
+fn building_leaves_no_intermediate_object_file() {
+    // The generated IR and the runtime are compiled and linked by a *single*
+    // `clang` invocation, so no per-build object file is written next to the
+    // output. That is a deliberate shape, not an accident of the arguments:
+    // splitting it back into "assemble, then link" measured 6-9% slower for a
+    // byte-identical executable. Pinning it here means a change that
+    // reintroduces a separate assemble step has to say so out loud.
+    let dir = work_dir("no-object");
+    let source = programs_dir().join("hello.ot");
+    let exe = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "compiling hello.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let object = exe.with_extension("o");
+    assert!(
+        !object.exists(),
+        "an intermediate object was left at {}",
+        object.display()
+    );
+    // The IR itself is *not* temporary: it is the documented debugging aid, so
+    // it must still be beside the output.
+    assert!(
+        exe.with_extension("ll").is_file(),
+        "the generated IR should be kept beside the executable"
+    );
+}
+
+#[test]
 fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
     let dir = work_dir("type-error");
     let source = dir.join("bad.ot");
