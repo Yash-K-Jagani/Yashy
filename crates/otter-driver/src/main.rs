@@ -1,7 +1,7 @@
 //! The `otter` command line interface.
 //!
 //! ```text
-//! otter build <file.ot> [-o <out>] [--emit-ir] [--native]
+//! otter build <file.ot> [-o <out>] [--emit-ir] [--cpu <tier>]
 //! otter check <file.ot>
 //! otter version
 //! ```
@@ -16,7 +16,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use otter_codegen::{check_main_exists, emit_program};
+use otter_codegen::{check_main_exists, emit_program, host_target_triple};
 use otter_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
 use otter_driver::{compile_to_binary, detect, CpuTarget, OptLevel};
 use otter_lexer::Lexer;
@@ -25,15 +25,17 @@ use otter_sema::{check_program, HirProgram};
 
 const USAGE: &str = "\
 usage:
-  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--native] [--emit-ir]
+  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--emit-ir]
   otter check <file.ot>
   otter version
 
   build   compile a program to a native executable
   check   lex, parse and type-check without emitting anything
-  -O<n>       LLVM optimization level for the generated code (default -O2)
-  --native    optimize for this machine; the binary may not run on an older CPU
-  --emit-ir   print the generated LLVM IR to stdout and stop";
+  -O<n>        LLVM optimization level for the generated code (default -O2)
+  --cpu <tier> instruction set the program may use, one of:
+               portable (default), x86-64-v2, x86-64-v3, x86-64-v4, native
+               (`--native` is a synonym for `--cpu native`)
+  --emit-ir    print the generated LLVM IR to stdout and stop";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -61,7 +63,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--native] [--emit-ir]`.
+/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--emit-ir]`.
 fn build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
@@ -71,9 +73,10 @@ fn build(args: &[String]) -> ExitCode {
     // LLVM. A build that passes no level gets `-O0` and a binary an order of
     // magnitude slower than the same source deserves.
     let mut opt = OptLevel::default();
-    // Portable unless asked otherwise: `-march=native` produces a binary that
-    // can die with an illegal instruction on a machine older than this one, so
-    // it is never the default.
+    // Portable unless asked otherwise. A higher instruction set produces a
+    // binary that can die with an illegal instruction on an older CPU, so it is
+    // never the default; see `CpuTarget` for the difference between a feature
+    // level (reproducible across a CPU generation) and `native` (this machine).
     let mut cpu = CpuTarget::default();
 
     let mut args = args.iter();
@@ -81,12 +84,24 @@ fn build(args: &[String]) -> ExitCode {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
             "--native" => cpu = CpuTarget::Native,
+            "--cpu" => match args.next() {
+                Some(value) => match CpuTarget::parse(value) {
+                    Some(target) => cpu = target,
+                    None => return usage_error(&unknown_cpu(value)),
+                },
+                None => return usage_error("`--cpu` needs a value"),
+            },
             "-o" | "--output" => match args.next() {
                 Some(value) => output = Some(PathBuf::from(value)),
                 None => return usage_error("`-o` needs a path"),
             },
             other => {
-                if let Some(level) = OptLevel::parse(other) {
+                if let Some(value) = other.strip_prefix("--cpu=") {
+                    match CpuTarget::parse(value) {
+                        Some(target) => cpu = target,
+                        None => return usage_error(&unknown_cpu(value)),
+                    }
+                } else if let Some(level) = OptLevel::parse(other) {
                     opt = level;
                 } else if other.starts_with("-O") {
                     return usage_error(&format!(
@@ -102,6 +117,18 @@ fn build(args: &[String]) -> ExitCode {
                 }
             }
         }
+    }
+
+    // A feature level is an x86-64 name and nothing else. On any other target it
+    // is not a conservative choice, it is a flag `clang` rejects, so the
+    // mismatch is refused here where it can name the two architectures rather
+    // than left for `clang` to report against a build far from the cause.
+    if cpu.requires_x86_64() && !host_target_triple().starts_with("x86_64") {
+        return usage_error(&format!(
+            "`{}` is an x86-64 feature level, but this compiler targets `{}`",
+            cpu.name(),
+            host_target_triple()
+        ));
     }
 
     let Some(input) = input else {
@@ -209,6 +236,16 @@ fn default_output(input: &Path) -> PathBuf {
     } else {
         output
     }
+}
+
+/// The usage error for a `--cpu` value that names no target, listing every name
+/// that would have worked.
+fn unknown_cpu(value: &str) -> String {
+    let names: Vec<&str> = CpuTarget::ALL.iter().map(|target| target.name()).collect();
+    format!(
+        "`{value}` is not a CPU target; use one of: {}",
+        names.join(", ")
+    )
 }
 
 fn usage_error(message: &str) -> ExitCode {

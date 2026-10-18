@@ -105,19 +105,46 @@ impl OptLevel {
 /// instructions for the *build* machine, produces a binary that dies with an
 /// illegal instruction on an older CPU.
 ///
-/// This is therefore opt-in, and [`CpuTarget::Portable`] is the default. Asking
-/// for [`CpuTarget::Native`] is the user saying "this program is for this
-/// machine", which is what makes it safe to un-conserve the target.
+/// There are two different ways to spend portability for speed here, and they
+/// are not the same trade:
+///
+/// * a **feature level** (`x86-64-v2`, `v3`, `v4`) is a generation of the
+///   architecture, defined by Intel and AMD and implemented by `clang`. A `v3`
+///   binary needs an AVX2-era CPU — anything from 2013 on — but it is *the same
+///   binary* on every such machine, so a build is reproducible and a `v3`
+///   artifact can be shipped to someone else.
+/// * [`CpuTarget::Native`] is this exact CPU. It is the fastest and the least
+///   portable: the binary may name instructions no other machine has, and two
+///   builds of one source can differ. It is for a program that will be built
+///   and run on one machine.
+///
+/// Every one of them is opt-in. [`CpuTarget::Portable`] is the default because
+/// the default has to run on a machine this compiler has never seen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CpuTarget {
     /// The triple's baseline: any CPU of that architecture can run the result.
     #[default]
     Portable,
+    /// `-march=x86-64-v2`: SSE4.2 and friends, roughly 2009-era CPUs.
+    X86_64V2,
+    /// `-march=x86-64-v3`: AVX2, roughly 2013-era CPUs and later.
+    X86_64V3,
+    /// `-march=x86-64-v4`: AVX-512.
+    X86_64V4,
     /// `-march=native`: the CPU this compiler is running on.
     Native,
 }
 
 impl CpuTarget {
+    /// Every target, in the order a usage message should list them.
+    pub const ALL: [CpuTarget; 5] = [
+        CpuTarget::Portable,
+        CpuTarget::X86_64V2,
+        CpuTarget::X86_64V3,
+        CpuTarget::X86_64V4,
+        CpuTarget::Native,
+    ];
+
     /// The extra `clang` arguments that select this target.
     ///
     /// Empty for the baseline, so a portable build passes nothing and behaves
@@ -125,8 +152,45 @@ impl CpuTarget {
     pub fn flags(self) -> &'static [&'static str] {
         match self {
             CpuTarget::Portable => &[],
+            CpuTarget::X86_64V2 => &["-march=x86-64-v2"],
+            CpuTarget::X86_64V3 => &["-march=x86-64-v3"],
+            CpuTarget::X86_64V4 => &["-march=x86-64-v4"],
             CpuTarget::Native => &["-march=native"],
         }
+    }
+
+    /// The spelling a user types, and the one a usage message lists.
+    pub fn name(self) -> &'static str {
+        match self {
+            CpuTarget::Portable => "portable",
+            CpuTarget::X86_64V2 => "x86-64-v2",
+            CpuTarget::X86_64V3 => "x86-64-v3",
+            CpuTarget::X86_64V4 => "x86-64-v4",
+            CpuTarget::Native => "native",
+        }
+    }
+
+    /// Parse a `--cpu` value. `None` for anything else, so the caller reports a
+    /// usage error rather than guessing which tier was meant.
+    pub fn parse(value: &str) -> Option<Self> {
+        CpuTarget::ALL
+            .into_iter()
+            .find(|target| target.name() == value)
+    }
+
+    /// Whether this target names an x86-64 feature level.
+    ///
+    /// `x86-64-v2`/`v3`/`v4` are defined for x86-64 alone, so handing
+    /// `-march=x86-64-v3` to a compiler that targets another architecture is not
+    /// a conservative choice — it is a flag `clang` rejects. The CLI refuses the
+    /// combination before a build starts. `Portable` and `Native` mean whatever
+    /// the host architecture's baseline and current CPU are, and are always
+    /// allowed.
+    pub fn requires_x86_64(self) -> bool {
+        matches!(
+            self,
+            CpuTarget::X86_64V2 | CpuTarget::X86_64V3 | CpuTarget::X86_64V4
+        )
     }
 }
 
@@ -270,7 +334,7 @@ fn cached_runtime_object(
 /// [`OptLevel`] for why the caller, not codegen, chooses it.
 ///
 /// `cpu` is the instruction set the generated code may use; see [`CpuTarget`]
-/// for why the default is the portable baseline rather than this machine. It
+/// for why the default is the portable baseline rather than a newer one. It
 /// applies to the IR and to nothing else — see the link step for why the
 /// runtime deliberately stays portable.
 ///
@@ -342,16 +406,16 @@ pub fn compile_to_binary(
     // was optimized, which is the kind of asymmetry that shows up later as a
     // mystery in a profile.
     //
-    // The *machine* flag is deliberately not applied to the runtime. The runtime
+    // The machine flag is deliberately not applied to the runtime. The runtime
     // is a handful of `printf` wrappers called once at the end of a program, so
-    // what `-march=native` buys it is unmeasurable, while keeping it on the
-    // baseline is worth something real: one cached runtime object serves both
-    // portable and native builds, so enabling `--native` does not throw the
-    // cache away, and a cache shared between machines never hands one machine
-    // another machine's instructions. That is why the machine flag reaches the
-    // compiler only when a cached object is available; on the fallback path,
-    // where there is no cache to keep portable, the runtime is compiled by this
-    // same invocation and takes the flag with it.
+    // what `-march=native` or `-march=x86-64-v3` buys it is unmeasurable, while
+    // keeping it on the baseline is worth something real: one cached runtime
+    // object serves both portable and un-conserved builds, so choosing a target
+    // does not throw the cache away, and a cache shared between machines never
+    // hands one machine another machine's instructions. That is why the machine
+    // flag reaches the compiler only when a cached object is available; on the
+    // fallback path, where there is no cache to keep portable, the runtime is
+    // compiled by this same invocation and takes the flag with it.
     let runtime_object = runtime_cache_dir().and_then(|cache_dir| {
         cached_runtime_object(
             &cache_dir,
@@ -535,8 +599,49 @@ mod tests {
     }
 
     #[test]
-    fn only_the_native_target_un_conserves_the_instruction_set() {
-        assert_eq!(CpuTarget::Native.flags(), ["-march=native"]);
+    fn every_target_round_trips_through_its_name() {
+        for target in CpuTarget::ALL {
+            assert_eq!(CpuTarget::parse(target.name()), Some(target));
+        }
+    }
+
+    #[test]
+    fn every_non_portable_target_names_exactly_one_march_flag() {
+        // The name a user types and the flag `clang` receives are the same
+        // string, so a tier cannot be added to `ALL` and forgotten in `flags`.
+        for target in CpuTarget::ALL {
+            let flags = target.flags();
+            if target == CpuTarget::Portable {
+                assert!(flags.is_empty(), "the baseline passes no flag");
+                continue;
+            }
+            assert_eq!(flags.len(), 1, "{target:?} should pass one flag");
+            let expected = format!("-march={}", target.name());
+            assert_eq!(flags[0], expected, "{target:?} must pass `{expected}`");
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_cpu_target_is_rejected_rather_than_guessed() {
+        // `--native` is a CLI alias, not a tier name, so the enum's parser must
+        // not accept it: the mapping belongs with the other argument parsing.
+        for bad in ["", "v3", "x86-64", "x86-64-v5", "arm64", "NATIVE", "--native"] {
+            assert_eq!(CpuTarget::parse(bad), None, "`{bad}` should not parse");
+        }
+    }
+
+    #[test]
+    fn only_the_feature_levels_are_marked_x86_only() {
+        // `-march=x86-64-v3` is not a conservative flag on a non-x86 target, it
+        // is one `clang` rejects, so the CLI has to know which targets it may
+        // only offer on an x86-64 host.
+        for target in CpuTarget::ALL {
+            let expected = matches!(
+                target,
+                CpuTarget::X86_64V2 | CpuTarget::X86_64V3 | CpuTarget::X86_64V4
+            );
+            assert_eq!(target.requires_x86_64(), expected, "{target:?}");
+        }
     }
 
     #[test]

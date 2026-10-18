@@ -368,6 +368,120 @@ fn every_optimization_level_builds_a_working_binary() {
 }
 
 #[test]
+fn every_cpu_tier_builds() {
+    // Building needs no particular CPU — only *running* a higher-tier binary
+    // does — so this covers every tier, including `x86-64-v4`, without asking
+    // the machine to execute instructions it may not have. `--native` is the
+    // tier guaranteed to run here, and the test that runs a tiered binary
+    // unsafely is not one this suite should contain.
+    let dir = work_dir("cpu-tiers");
+    let source = programs_dir().join("hello.ot");
+
+    // Both spellings are covered: `--cpu=<tier>` and `--cpu <tier>`.
+    let invocations: [&[&str]; 5] = [
+        &["--cpu=portable"],
+        &["--cpu", "x86-64-v2"],
+        &["--cpu=x86-64-v3"],
+        &["--cpu", "x86-64-v4"],
+        &["--cpu=native"],
+    ];
+    for (index, extra) in invocations.iter().enumerate() {
+        let exe = dir.join(format!("hello-{index}{}", std::env::consts::EXE_SUFFIX));
+        let mut command = Command::new(otter());
+        command.arg("build").arg(&source).arg("-o").arg(&exe);
+        command.args(*extra);
+        let compile = command.output().expect("run the otter CLI");
+        assert!(
+            compile.status.success(),
+            "building with {extra:?} failed:\n{}",
+            stderr_of(&compile)
+        );
+        assert!(exe.is_file(), "no executable for {extra:?}");
+    }
+
+    // `--native` is a synonym for `--cpu native`, so it must still work.
+    let exe = dir.join(format!("hello-alias{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .arg("--native")
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "the `--native` alias failed:\n{}",
+        stderr_of(&compile)
+    );
+    assert_eq!(stdout_of(&run(&exe)), "Hello, Otter!\n");
+}
+
+#[test]
+fn a_cpu_tier_is_a_backend_choice_not_an_ir_change() {
+    // A tier is an argument to `clang`, not something `otter-codegen` knows
+    // about: `-march=x86-64-v3` changes the instructions the backend is allowed
+    // to pick, not the IR it is handed. If the two dumps differed, the tier
+    // would have leaked into codegen and the language's output would depend on
+    // the machine it was built on.
+    let source = programs_dir().join("floats.ot");
+
+    let dump = |extra: &[&str]| {
+        let mut command = Command::new(otter());
+        command.arg("build").arg(&source).arg("--emit-ir").args(extra);
+        let output = command.output().expect("run the otter CLI");
+        assert!(
+            output.status.success(),
+            "--emit-ir {extra:?} failed:\n{}",
+            stderr_of(&output)
+        );
+        stdout_of(&output)
+    };
+
+    let portable = dump(&[]);
+    assert_eq!(
+        portable,
+        dump(&["--cpu=x86-64-v3"]),
+        "the feature level must not change the emitted IR"
+    );
+}
+
+#[test]
+fn an_unrecognised_cpu_target_is_a_usage_error() {
+    // The tier is validated by the CLI, not clamped and not passed through to
+    // `clang`, so a typo is a usage error naming the valid tiers.
+    let dir = work_dir("bad-cpu");
+    let source = dir.join("hello.ot");
+    fs::copy(programs_dir().join("hello.ot"), &source).expect("copy hello.ot");
+
+    let output = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("--cpu=x86-64-v9")
+        .output()
+        .expect("run the otter CLI");
+    assert_eq!(output.status.code(), Some(1), "a bad tier must not build");
+    let stderr = stderr_of(&output);
+    for tier in ["portable", "x86-64-v2", "x86-64-v3", "x86-64-v4", "native"] {
+        assert!(
+            stderr.contains(tier),
+            "the message should list `{tier}`:\n{stderr}"
+        );
+    }
+
+    // A bare `--cpu` with nothing after it is a usage error too, not a panic
+    // and not a silent default.
+    let output = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("--cpu")
+        .output()
+        .expect("run the otter CLI");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr_of(&output).contains("needs a value"));
+}
+
+#[test]
 fn native_optimization_does_not_change_what_the_program_prints() {
     // `--native` lets the backend use this CPU's instruction set, which on a
     // machine with AVX2 is a large speed-up on a vectorisable loop. What it

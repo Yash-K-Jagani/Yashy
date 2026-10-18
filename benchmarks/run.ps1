@@ -17,11 +17,13 @@
   Otter is additionally built at -O0, so the table shows what enabling
   optimization actually buys rather than just asserting that it helps.
 
-  Two rows carry `--native` / `-march=native`: the same program built for the
-  CPU of the machine running the benchmark instead of for the architecture's
-  baseline. They are always listed in pairs, one Otter and one clang, because
-  the gain comes from the instruction set rather than from the compiler, and
-  neither is comparable with the portable rows above it.
+  Four rows carry a machine flag, in two pairs: `--native` / `-march=native`,
+  which build for the CPU of the machine running the benchmark, and
+  `--cpu=x86-64-v3` / `-march=x86-64-v3`, which build for an AVX2-era CPU
+  instead of the architecture's baseline. Each pair is always listed together,
+  one Otter and one clang, because the gain comes from the instruction set
+  rather than from the compiler, and none of them is comparable with the
+  portable rows above it.
 
   Timing is the minimum of N runs: for a short-lived process the minimum is the
   run that was least disturbed by the rest of the machine, and it is far more
@@ -114,6 +116,13 @@ function Build-All {
         Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-native$exe", '--native') "otter build $name --native"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=native', "$bench\$name.c", '-o', "$build\$name-clang-native$exe")) "clang $name -march=native"
 
+        # `x86-64-v3` is the same idea with the portability spent more carefully:
+        # an AVX2-era CPU rather than this exact one, so the binary is the same
+        # on every machine of that generation. It is the tier to compare when
+        # `--native`'s numbers look unrepeatable across two machines.
+        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-v3$exe", '--cpu=x86-64-v3') "otter build $name --cpu=x86-64-v3"
+        Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=x86-64-v3', "$bench\$name.c", '-o', "$build\$name-clang-v3$exe")) "clang $name -march=x86-64-v3"
+
         # Two C compilers, so the Otter numbers are not graded against one
         # backend's quirks. clang gets the same target Otter passes.
         Invoke-Tool 'clang' ($clangTarget + @('-O2', "$bench\$name.c", '-o', "$build\$name-clang$exe")) "clang $name"
@@ -161,8 +170,10 @@ function Invoke-Runtime {
             @{ Lang = 'Otter (clang -O0)'; Path = "$build\$name-otter-O0$exe" },
             @{ Lang = 'Otter (clang -O2)'; Path = "$build\$name-otter-O2$exe" },
             @{ Lang = 'Otter (-O2, --native)'; Path = "$build\$name-otter-native$exe" },
+            @{ Lang = 'Otter (-O2, --cpu=x86-64-v3)'; Path = "$build\$name-otter-v3$exe" },
             @{ Lang = 'C (clang -O2)';     Path = "$build\$name-clang$exe" },
             @{ Lang = 'C (clang -O2, -march=native)'; Path = "$build\$name-clang-native$exe" },
+            @{ Lang = 'C (clang -O2, -march=x86-64-v3)'; Path = "$build\$name-clang-v3$exe" },
             @{ Lang = 'C (gcc -O2)';       Path = "$build\$name-gcc$exe" },
             @{ Lang = 'Rust (rustc -O)';   Path = "$build\$name-rust$exe" },
             @{ Lang = 'Go (go build)';     Path = "$build\$name-go$exe" },
