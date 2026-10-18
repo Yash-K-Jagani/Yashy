@@ -4,5 +4,5 @@
 pub mod pipeline;
 pub mod toolchain;
 
-pub use pipeline::compile_to_binary;
+pub use pipeline::{compile_to_binary, OptLevel};
 pub use toolchain::{detect, detect_with, Toolchain};

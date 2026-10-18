@@ -260,9 +260,13 @@ fn gen_literal(ctx: &mut FnCtx<'_>, lit: &Literal, ty: &TypeKind) -> GenValue {
 
 /// Format an `f64` as an LLVM float literal.
 ///
-/// Rust's `Debug` output is nearly right but omits the decimal point for
-/// whole numbers and spells the non-finite values as words LLVM cannot parse,
-/// so those three cases are handled explicitly.
+/// Rust's `Debug` output is nearly right, but LLVM's float grammar requires a
+/// decimal point in the mantissa, and `Debug` omits it in two cases: whole
+/// numbers (`2` -> needs `2.0`) and exponent notation (`1e-7` -> needs
+/// `1.0e-7`). A literal like `1e-7` is not merely unconventional, it is
+/// rejected: LLVM lexes the leading `1` as an integer constant and then
+/// reports "integer/byte constant must have integer/byte type". Non-finite
+/// values are spelled as bit patterns, since LLVM has no `inf`/`NaN` words.
 fn llvm_float(v: f64) -> String {
     if v.is_nan() {
         return "0x7FF8000000000000".to_string();
@@ -275,16 +279,25 @@ fn llvm_float(v: f64) -> String {
         };
     }
     let text = format!("{v:?}");
-    if text.contains('.') || text.contains('e') || text.contains('E') {
+    let (mantissa, exponent) = match text.find(['e', 'E']) {
+        Some(at) => text.split_at(at),
+        None => (text.as_str(), ""),
+    };
+    if mantissa.contains('.') {
         text
     } else {
-        format!("{text}.0")
+        format!("{mantissa}.0{exponent}")
     }
 }
 
 /// Lower a binary operation. Arithmetic is wrapping (no `nsw`/`nuw`),
 /// integer division is a bare `sdiv`, comparisons pick `icmp`/`fcmp` with
 /// the signed/ordered predicates, and `&&`/`||` are `and`/`or` on `i1`.
+///
+/// Floating point needs its own mnemonics for *every* operator, not just
+/// division: `add`/`sub`/`mul` accept only integer operands, so a malformed
+/// `add double` is a parse error from LLVM rather than something that silently
+/// works. The `is_float` test is therefore applied uniformly below.
 fn gen_binary(
     ctx: &mut FnCtx<'_>,
     op: BinOp,
@@ -297,9 +310,9 @@ fn gen_binary(
     let is_float = matches!(l.ty, TypeKind::F64);
     let ty = l.ty.clone();
     let (mnemonic, result_ty) = match op {
-        BinOp::Add => ("add", ty.clone()),
-        BinOp::Sub => ("sub", ty.clone()),
-        BinOp::Mul => ("mul", ty.clone()),
+        BinOp::Add => (if is_float { "fadd" } else { "add" }, ty.clone()),
+        BinOp::Sub => (if is_float { "fsub" } else { "sub" }, ty.clone()),
+        BinOp::Mul => (if is_float { "fmul" } else { "mul" }, ty.clone()),
         BinOp::Div => (if is_float { "fdiv" } else { "sdiv" }, ty.clone()),
         BinOp::Rem => (if is_float { "frem" } else { "srem" }, ty.clone()),
         BinOp::And => ("and", TypeKind::Bool),
@@ -393,6 +406,20 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             GenValue {
                 value: String::new(),
                 ty: TypeKind::Unit,
+            }
+        }
+        "None" => {
+            // `None` has no payload to insert, so only the tag is written; the
+            // payload field stays `undef` and is never read, because every
+            // match tests the tag first. Emitting the insertvalue regardless
+            // (rather than skipping straight to `undef`) is what makes the
+            // value a well-formed `{ i8, T }`.
+            let repr = repr_type(ty);
+            let tmp = ctx.tmp();
+            ctx.push(format!("{tmp} = insertvalue {repr} undef, i8 0, 0"));
+            GenValue {
+                value: tmp,
+                ty: ty.clone(),
             }
         }
         "Some" | "Ok" | "Err" => {

@@ -24,13 +24,13 @@ store i64 %t3, ptr %slot3
 %t4 = srem i64 7, 3
 %slot4 = alloca i64
 store i64 %t4, ptr %slot4
-%t5 = add double 1.0, 2.0
+%t5 = fadd double 1.0, 2.0
 %slot5 = alloca double
 store double %t5, ptr %slot5
-%t6 = sub double 5.0, 3.0
+%t6 = fsub double 5.0, 3.0
 %slot6 = alloca double
 store double %t6, ptr %slot6
-%t7 = mul double 3.0, 4.0
+%t7 = fmul double 3.0, 4.0
 %slot7 = alloca double
 store double %t7, ptr %slot7
 %t8 = fdiv double 6.0, 2.0

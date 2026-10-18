@@ -425,8 +425,17 @@ impl Checker {
                 init,
                 span,
             } => {
-                let init_expr = self.check_expr(init)?;
+                // The annotation is resolved *before* the initializer, because
+                // it is the expected type the initializer is checked against.
+                // Comparing types after the fact works for concrete values but
+                // leaves a constructor with nothing to infer from — `const x:
+                // Option[i64] = None;` was reported as an ambiguous `None`
+                // rather than typed by its own annotation.
                 let declared = ty.as_ref().and_then(|t| self.resolve_type(t).ok());
+                let init_expr = match &declared {
+                    Some(declared) => self.check_expr_with_expected(init, declared)?,
+                    None => self.check_expr(init)?,
+                };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
                         self.error(
@@ -459,8 +468,13 @@ impl Checker {
                 init,
                 span,
             } => {
-                let init_expr = self.check_expr(init)?;
+                // Same ordering as `Stmt::Const` above: the annotation is the
+                // initializer's expected type.
                 let declared = ty.as_ref().and_then(|t| self.resolve_type(t).ok());
+                let init_expr = match &declared {
+                    Some(declared) => self.check_expr_with_expected(init, declared)?,
+                    None => self.check_expr(init)?,
+                };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
                         self.error(
@@ -1000,6 +1014,11 @@ impl Checker {
     /// alone knows only its own half. A direct constructor call is checked
     /// with the expectation; every other expression falls through unchanged,
     /// because a wrong type there is already reported by `check_expr`.
+    ///
+    /// A bare `None` is handled here for the same reason as a `None()` call:
+    /// it is the one constructor with no payload to infer from, so it can only
+    /// be typed from context. This is what makes `f(None)` work when `f`'s
+    /// parameter is an `Option`.
     fn check_expr_with_expected(&mut self, expr: &Expr, expected: &Type) -> Option<HirExpr> {
         if let Expr::Call {
             callee, args, span, ..
@@ -1010,6 +1029,11 @@ impl Checker {
                 if matches!(name.as_str(), "None" | "Some" | "Ok" | "Err") {
                     return self.check_constructor(&name, args, *span, Some(expected))?;
                 }
+            }
+        }
+        if let Expr::Ident(path, span) = expr {
+            if path.len() == 1 && path.first().map(String::as_str) == Some("None") {
+                return self.check_constructor("None", &[], *span, Some(expected))?;
             }
         }
         self.check_expr(expr)
@@ -1038,6 +1062,15 @@ impl Checker {
                 prim(TypeKind::Str),
             )),
             Expr::Ident(path, span) => {
+                // `None` is a value constructor, not a variable. It has no
+                // payload to infer from on its own, so `check_constructor`
+                // reports "cannot infer the payload type of `None`" — which is
+                // the useful message. Resolving it as an ordinary name instead
+                // produced "cannot find value `None` in this scope", which
+                // names a spelling problem where the real problem is context.
+                if path.len() == 1 && path.first().map(String::as_str) == Some("None") {
+                    return self.check_constructor("None", &[], *span, None)?;
+                }
                 let name = path.last().cloned().unwrap_or_default();
                 match self.scope.resolve(&name) {
                     Some(binding) => Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone())),
@@ -1111,32 +1144,37 @@ impl Checker {
                         return Some(constructed);
                     }
                 }
-                let arg_exprs = args
-                    .iter()
-                    .map(|a| self.check_expr(a))
-                    .collect::<Option<Vec<_>>>()?;
+                // The callee is resolved *before* the arguments are checked,
+                // because each argument is checked against its parameter's
+                // declared type. Checking arguments first and comparing
+                // afterwards works for concrete arguments but cannot type a
+                // constructor that has nothing to infer from: `f(None)` needs
+                // `f`'s parameter type to know what `None` is an `Option` of.
                 let resolved = self.scope.resolve(&name).map(|b| b.ty.clone());
                 match resolved {
                     Some(ty) => match ty.kind {
                         TypeKind::Func(params, ret) => {
-                            if params.len() != arg_exprs.len() {
+                            if params.len() != args.len() {
                                 self.error(
                                     *span,
                                     format!(
                                         "expected {} arguments, found {}",
                                         params.len(),
-                                        arg_exprs.len()
+                                        args.len()
                                     ),
                                 );
                                 return None;
                             }
-                            for (p, a) in params.iter().zip(arg_exprs.iter()) {
-                                if !p.eq_ignoring_span(&expr_ty(a)) {
+                            let mut arg_exprs = Vec::with_capacity(args.len());
+                            for (arg, param) in args.iter().zip(params.iter()) {
+                                let checked = self.check_expr_with_expected(arg, param)?;
+                                if !param.eq_ignoring_span(&expr_ty(&checked)) {
                                     self.error(
-                                        expr_span(a),
-                                        format!("expected `{p}`, found `{}`", expr_ty(a)),
+                                        expr_span(&checked),
+                                        format!("expected `{param}`, found `{}`", expr_ty(&checked)),
                                     );
                                 }
+                                arg_exprs.push(checked);
                             }
                             Some(HirExpr::Call {
                                 callee: callee.clone(),

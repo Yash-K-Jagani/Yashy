@@ -32,10 +32,70 @@ use otter_sema::check_program;
 
 use crate::toolchain::Toolchain;
 
+/// The `clang` optimization level applied to the generated IR.
+///
+/// The compiler emits unoptimized IR on purpose: the textual IR is a debugging
+/// aid and staying close to the source is what makes it readable. All the
+/// optimizing happens in LLVM, so "how fast is an Otter binary" is decided here
+/// rather than in `otter-codegen`. The default is therefore `-O2`; a build that
+/// never passes a level hands `clang` `-O0`, which is roughly an order of
+/// magnitude of runtime performance left on the table for no benefit.
+///
+/// A closed set rather than a `u8`, so an out-of-range level is unrepresentable
+/// once the CLI has parsed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OptLevel {
+    /// `-O0`. Fastest to compile; the level to use when reading the IR next to
+    /// its machine code.
+    None,
+    /// `-O1`.
+    Less,
+    /// `-O2`. The default.
+    #[default]
+    Full,
+    /// `-O3`.
+    Aggressive,
+}
+
+impl OptLevel {
+    /// The four levels `clang` accepts, `-O0` through `-O3`.
+    pub const ALL: [OptLevel; 4] = [
+        OptLevel::None,
+        OptLevel::Less,
+        OptLevel::Full,
+        OptLevel::Aggressive,
+    ];
+
+    /// Parse a `-O<n>` argument. `None` for anything else, so the caller reports
+    /// a usage error rather than guessing.
+    pub fn parse(argument: &str) -> Option<Self> {
+        match argument {
+            "-O0" => Some(OptLevel::None),
+            "-O1" => Some(OptLevel::Less),
+            "-O2" => Some(OptLevel::Full),
+            "-O3" => Some(OptLevel::Aggressive),
+            _ => None,
+        }
+    }
+
+    /// The spelling handed to `clang`.
+    pub fn flag(self) -> &'static str {
+        match self {
+            OptLevel::None => "-O0",
+            OptLevel::Less => "-O1",
+            OptLevel::Full => "-O2",
+            OptLevel::Aggressive => "-O3",
+        }
+    }
+}
+
 /// Compile `source` to a native executable at `out`.
 ///
 /// `entry_name` is the path reported in diagnostics and in the IR's
 /// `source_filename`; it is what the user typed, not a canonicalised path.
+///
+/// `opt` is the `clang` optimization level for the generated code; see
+/// [`OptLevel`] for why the caller, not codegen, chooses it.
 ///
 /// Every diagnostic refers to file id **zero** of a fresh [`SourceMap`], which
 /// is `entry_name`'s text. A caller that wants to render them builds its own
@@ -48,6 +108,7 @@ pub fn compile_to_binary(
     entry_name: &str,
     out: &Path,
     toolchain: &Toolchain,
+    opt: OptLevel,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
     let file = sources.add_file(entry_name, source.to_string());
@@ -89,6 +150,12 @@ pub fn compile_to_binary(
     let target = host_target_triple();
 
     // 1. IR text -> object file.
+    //
+    // The optimization flag goes here, and again at link time below because the
+    // runtime C source is compiled by that second invocation. Without it the
+    // runtime would stay at `-O0` while the program it is linked into was
+    // optimized, which is the kind of asymmetry that shows up later as a
+    // mystery in a profile.
     run_tool(
         toolchain,
         &[
@@ -97,6 +164,7 @@ pub fn compile_to_binary(
             "-o".to_string(),
             display(&object_path),
             format!("--target={target}"),
+            opt.flag().to_string(),
         ],
         entry_name,
         "assembling the generated IR",
@@ -110,6 +178,7 @@ pub fn compile_to_binary(
         "-o".to_string(),
         display(out),
         format!("--target={target}"),
+        opt.flag().to_string(),
     ];
     if !cfg!(windows) {
         // The runtime only needs stdio, but a Linux link of a freestanding
@@ -226,4 +295,34 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
             format!("could not write {}: {error}", path.display()),
         )]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OptLevel;
+
+    #[test]
+    fn the_default_level_optimizes() {
+        // The default is a deliberate choice, not an accident of the derive:
+        // passing no optimization level to `clang` means `-O0`.
+        assert_eq!(OptLevel::default(), OptLevel::Full);
+        assert_eq!(OptLevel::default().flag(), "-O2");
+    }
+
+    #[test]
+    fn every_level_round_trips_through_its_flag() {
+        for level in OptLevel::ALL {
+            assert_eq!(OptLevel::parse(level.flag()), Some(level));
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_level_is_rejected_rather_than_clamped() {
+        // `-O9`, `-O`, `--optimize` and a bare `-` are all usage errors; the
+        // CLI turns `None` into a message rather than picking a level for the
+        // user.
+        for bad in ["-O9", "-O", "--optimize", "-", "-o2", "O2"] {
+            assert_eq!(OptLevel::parse(bad), None, "`{bad}` should not parse");
+        }
+    }
 }

@@ -1,0 +1,38 @@
+// Constructing an empty `Option`, and matching on it.
+//
+// This program exists because `None` was unusable end to end, while `Option<T>`
+// is advertised in the design spec (§4.4: "`None` / `Some(x)`"). Three separate
+// gaps lined up:
+//
+//   1. sema did not treat a bare `None` as a value constructor, so it was
+//      resolved as a variable and reported "cannot find value `None`";
+//   2. call arguments were checked *before* the callee was resolved, so they
+//      were never checked against a parameter's type — which left `None` with
+//      nothing to infer its payload from;
+//   3. codegen had no lowering for `None` and emitted a call to a function
+//      named `None` that does not exist.
+//
+// Nothing in the suite noticed because every existing program only ever
+// *matched* on `None`; none of them built one. All three lines below are
+// ways of building one, and each exercises a different piece of the fix.
+fn unwrap_or_zero(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 }
+    };
+}
+
+fn main() {
+    // Inferred from the payload.
+    const present = Some(42);
+    // Typed by the annotation, because there is no payload to infer from.
+    const absent: Option[i64] = None;
+
+    print_i64(unwrap_or_zero(present));
+    print_str("\n");
+    print_i64(unwrap_or_zero(absent));
+    print_str("\n");
+    // Typed by the parameter it is passed to.
+    print_i64(unwrap_or_zero(None));
+    print_str("\n");
+}

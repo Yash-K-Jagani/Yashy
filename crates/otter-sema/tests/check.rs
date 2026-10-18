@@ -191,6 +191,49 @@ fn matching_none_against_some_payload_is_an_error() {
 }
 
 #[test]
+fn none_is_typed_by_the_annotation_on_its_binding() {
+    // `None` is the one constructor with no payload to infer from, so it can
+    // only be typed from context. An annotated binding is such a context, and
+    // the annotation has to be resolved *before* the initializer is checked for
+    // that to work.
+    let (result, _, _) = check_source("fn f() { const empty: Option[i64] = None; }");
+    result.expect("the annotation should type `None`");
+}
+
+#[test]
+fn none_is_typed_by_the_parameter_it_is_passed_to() {
+    // Call arguments are checked against the parameter's declared type, which is
+    // what gives `None` a payload type here. Checking the arguments first and
+    // comparing afterwards works for every other expression but cannot type a
+    // constructor that has nothing of its own to infer from.
+    let (result, _, _) = check_source(
+        "fn unwrap_or(o: Option[i64]) -> i64 { return switch o { case Some(x) { x } case None { 0 } }; } \
+         fn f() -> i64 { return unwrap_or(None); }",
+    );
+    result.expect("the parameter type should type `None`");
+}
+
+#[test]
+fn none_without_any_context_says_what_is_missing() {
+    // With no annotation and no parameter there is nothing to infer from, and
+    // the diagnostic should say that rather than reporting a spelling problem.
+    // "cannot find value `None` in this scope" would send the reader looking for
+    // a typo instead of for a type.
+    assert_error(
+        "fn f() { const x = None; }",
+        "cannot infer the payload type of `None`",
+    );
+}
+
+#[test]
+fn a_bare_none_is_a_constructor_not_a_variable() {
+    // With the wrong expected type the complaint is a type error naming the
+    // expected type, which is only possible if `None` was resolved as the
+    // constructor it is.
+    assert_error("fn f() { const x: i64 = None; }", "expected `i64`, found `Option[?]`");
+}
+
+#[test]
 fn result_ok_and_err_bind_different_payload_types() {
     let (result, _, _) = check_source(
         "fn f(r: Result[i64, string]) -> i64 { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",

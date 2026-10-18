@@ -115,6 +115,27 @@ fn recursion_composes_in_hanoi() {
 }
 
 #[test]
+fn float_arithmetic_survives_the_whole_pipeline() {
+    // Regression guard for a defect the unit tests structurally could not see:
+    // `1.0 + 2.0` lowered to `add double` and `3.0 * 4.0` to `mul double`, and
+    // the golden file recorded that invalid IR as the expected contract, so the
+    // only thing that could reject it was `clang` itself. This test puts every
+    // f64 operator, and an exponent-form literal, through the real backend.
+    let output = build_and_run("floats");
+    assert_eq!(stdout_of(&output), "3\n2\n12\n3\n1\n-2\n0\n");
+}
+
+#[test]
+fn an_empty_option_can_be_constructed_and_matched() {
+    // `None` was unusable: not treated as a constructor by sema, unable to infer
+    // its payload because call arguments were checked before the callee was
+    // resolved, and missing a codegen lowering. Every existing program only
+    // *matched* on `None`, so the suite never built one.
+    let output = build_and_run("none");
+    assert_eq!(stdout_of(&output), "42\n0\n0\n");
+}
+
+#[test]
 fn the_default_output_path_sits_beside_the_source() {
     let dir = work_dir("default-output");
     let source = dir.join("hello.ot");
@@ -232,6 +253,60 @@ fn version_prints_a_version_and_exits_zero() {
     assert!(output.status.success());
     let stdout = stdout_of(&output);
     assert!(stdout.starts_with("otter "), "no version line:\n{stdout}");
+}
+
+#[test]
+fn an_unknown_optimization_level_is_a_usage_error() {
+    // The level is validated by the CLI, not clamped and not passed through to
+    // `clang`, so a typo is reported as a usage error naming the valid levels.
+    let dir = work_dir("bad-opt-level");
+    let source = dir.join("hello.ot");
+    fs::copy(programs_dir().join("hello.ot"), &source).expect("copy hello.ot");
+
+    let output = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-O9")
+        .output()
+        .expect("run the otter CLI");
+
+    assert_eq!(output.status.code(), Some(1), "-O9 must not build");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("-O0, -O1, -O2 or -O3"),
+        "the message should list the valid levels:\n{stderr}"
+    );
+}
+
+#[test]
+fn every_optimization_level_builds_a_working_binary() {
+    // `-O2` is the default, and this is the evidence that asking for it does
+    // not change what any program *does*. The runtime C source is compiled by
+    // the same flag, so a level that broke the runtime would show up here too.
+    let dir = work_dir("opt-levels");
+    let source = programs_dir().join("hello.ot");
+
+    for level in ["-O0", "-O1", "-O2", "-O3"] {
+        let exe = dir.join(format!("hello{level}{}", std::env::consts::EXE_SUFFIX));
+        let compile = Command::new(otter())
+            .arg("build")
+            .arg(&source)
+            .arg("-o")
+            .arg(&exe)
+            .arg(level)
+            .output()
+            .expect("run the otter CLI");
+        assert!(
+            compile.status.success(),
+            "building at {level} failed:\n{}",
+            stderr_of(&compile)
+        );
+        assert_eq!(
+            stdout_of(&run(&exe)),
+            "Hello, Otter!\n",
+            "the program printed differently at {level}"
+        );
+    }
 }
 
 #[test]

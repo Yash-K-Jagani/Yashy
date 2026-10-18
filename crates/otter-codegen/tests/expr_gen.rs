@@ -116,6 +116,67 @@ fn integer_divide_emits_sdiv_with_no_zero_guard() {
 }
 
 #[test]
+fn float_arithmetic_uses_the_float_mnemonics() {
+    // `add`/`sub`/`mul` take integer operands only; LLVM rejects `mul double`
+    // outright, so every float operator needs its own mnemonic. This went
+    // unnoticed until an f64 benchmark was compiled, because no test exercised
+    // f64 `+`, `-` or `*`.
+    let ir_text = gen_body(
+        "fn f() { const a = 1.0 + 2.0; const b = 1.0 - 2.0; const c = 1.0 * 2.0; \
+         const d = 1.0 / 2.0; const e = 1.0 % 2.0; }",
+    );
+    for mnemonic in ["fadd", "fsub", "fmul", "fdiv", "frem"] {
+        assert!(
+            ir_text.contains(&format!("{mnemonic} double")),
+            "expected `{mnemonic} double`:\n{ir_text}"
+        );
+    }
+    // A leading space distinguishes the integer opcode from its float twin,
+    // since `fadd double` contains the substring `add double`.
+    for mnemonic in [" add double", " sub double", " mul double"] {
+        assert!(
+            !ir_text.contains(mnemonic),
+            "integer opcode `{mnemonic}` used on a double:\n{ir_text}"
+        );
+    }
+}
+
+#[test]
+fn float_literals_always_carry_a_decimal_point() {
+    // LLVM's float grammar wants a point in the mantissa, so Rust's `Debug`
+    // spelling of a small double (`1e-7`) is not valid IR: LLVM lexes the
+    // leading `1` as an integer constant and reports a type error. The fix
+    // inserts the point rather than switching to hex, which keeps the emitted
+    // IR readable.
+    let ir_text = gen_body("fn f() { const small = 0.0000001; const whole = 2.0; }");
+    assert!(ir_text.contains("1.0e-7"), ":\n{ir_text}");
+    assert!(ir_text.contains("2.0"), ":\n{ir_text}");
+    assert!(
+        !ir_text.contains(" 1e-7"),
+        "an exponent literal without a point is rejected by LLVM:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_none_value_writes_only_the_tag() {
+    // `None` has no payload, so the value is the tag alone: one `insertvalue`
+    // storing `i8 0` in field 0 of `Option`'s `{ i8, T }` representation. What
+    // matters is that *something* is emitted: codegen had no arm for `None` and
+    // fell through to a call to a function named `@None`, which does not exist,
+    // so the program failed at link time with an error naming a symbol the user
+    // never wrote.
+    let ir_text = gen_body("fn f() { const empty: Option[i64] = None; }");
+    assert!(
+        ir_text.contains("insertvalue { i8, i64 } undef, i8 0, 0"),
+        "expected a tag-only construction:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("@None") && !ir_text.contains("call"),
+        "`None` must be built, not called:\n{ir_text}"
+    );
+}
+
+#[test]
 fn comparisons_emit_the_matching_predicate() {
     let ir_text = gen_body("fn f() { const a = 1 < 2; const b = 1.0 < 2.0; }");
     assert!(ir_text.contains("icmp slt i64"), ":\n{ir_text}");

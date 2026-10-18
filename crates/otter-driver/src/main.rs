@@ -17,19 +17,20 @@ use std::process::ExitCode;
 
 use otter_codegen::{check_main_exists, emit_program};
 use otter_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
-use otter_driver::{compile_to_binary, detect};
+use otter_driver::{compile_to_binary, detect, OptLevel};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, HirProgram};
 
 const USAGE: &str = "\
 usage:
-  otter build <file.ot> [-o <out>] [--emit-ir]
+  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--emit-ir]
   otter check <file.ot>
   otter version
 
   build   compile a program to a native executable
   check   lex, parse and type-check without emitting anything
+  -O<n>       LLVM optimization level for the generated code (default -O2)
   --emit-ir   print the generated LLVM IR to stdout and stop";
 
 fn main() -> ExitCode {
@@ -58,11 +59,16 @@ fn main() -> ExitCode {
     }
 }
 
-/// `otter build <file.ot> [-o <out>] [--emit-ir]`.
+/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--emit-ir]`.
 fn build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
+    // Defaulting to `-O2` is the whole point of exposing this: the compiler
+    // emits unoptimized IR so it stays readable, and hands the optimization to
+    // LLVM. A build that passes no level gets `-O0` and a binary an order of
+    // magnitude slower than the same source deserves.
+    let mut opt = OptLevel::default();
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -72,14 +78,21 @@ fn build(args: &[String]) -> ExitCode {
                 Some(value) => output = Some(PathBuf::from(value)),
                 None => return usage_error("`-o` needs a path"),
             },
-            other if other.starts_with('-') => {
-                return usage_error(&format!("unknown option `{other}`"))
-            }
             other => {
-                if input.is_some() {
-                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                if let Some(level) = OptLevel::parse(other) {
+                    opt = level;
+                } else if other.starts_with("-O") {
+                    return usage_error(&format!(
+                        "`{other}` is not an optimization level; use -O0, -O1, -O2 or -O3"
+                    ));
+                } else if other.starts_with('-') {
+                    return usage_error(&format!("unknown option `{other}`"));
+                } else {
+                    if input.is_some() {
+                        return usage_error(&format!("unexpected extra argument `{other}`"));
+                    }
+                    input = Some(PathBuf::from(other));
                 }
-                input = Some(PathBuf::from(other));
             }
         }
     }
@@ -118,7 +131,7 @@ fn build(args: &[String]) -> ExitCode {
     };
 
     let output = output.unwrap_or_else(|| default_output(&input));
-    match compile_to_binary(&source, &entry, &output, &toolchain) {
+    match compile_to_binary(&source, &entry, &output, &toolchain, opt) {
         Ok(()) => exit_code(EXIT_OK),
         Err(diagnostics) => render(&source, &entry, &diagnostics),
     }
