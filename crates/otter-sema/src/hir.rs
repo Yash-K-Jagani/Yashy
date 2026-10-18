@@ -263,6 +263,14 @@ pub enum HirExpr {
     FieldAccess {
         base: Box<HirExpr>,
         field: String,
+        /// The field's position in the struct's **declaration** order, which is
+        /// the order the IR aggregate is laid out in.
+        ///
+        /// Resolved here rather than in the backend so the name-versus-index
+        /// resolution happens once, against the declaration table that only the
+        /// checker has, and the IR layout cannot depend on how a particular
+        /// struct literal happened to spell its fields.
+        index: usize,
         span: Span,
         ty: Type,
     },

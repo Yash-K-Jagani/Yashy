@@ -9,7 +9,7 @@
 use otter_common::{Diagnostic, FileId, Severity, SourceMap};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
-use otter_sema::{check_program, expr_ty, HirItem, HirProgram, HirStmt, TypeKind};
+use otter_sema::{check_program, expr_ty, HirExpr, HirItem, HirProgram, HirStmt, TypeKind};
 
 /// Lex, parse and check `source`.
 fn check_source(src: &str) -> (Result<HirProgram, Vec<Diagnostic>>, SourceMap, FileId) {
@@ -185,6 +185,115 @@ fn unknown_field_in_struct_literal_is_an_error() {
         "struct P { x: f64 } fn f() { const p = P { z: 1.0 }; }",
         "unknown field `z` in struct `P`",
     );
+}
+
+/// The `n`th statement of the function called `name`, as a checked expression.
+fn expr_of_statement(src: &str, name: &str, n: usize) -> HirExpr {
+    let (result, _, _) = check_source(src);
+    let hir = result.expect("expected program to type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == name => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    match f.body.stmts.get(n) {
+        Some(HirStmt::Const { init, .. }) => init.clone(),
+        other => panic!("expected a const binding at {n}, got {:?}", other),
+    }
+}
+
+#[test]
+fn field_access_has_the_fields_declared_type() {
+    // `p` is a parameter, so the field access is the first statement and
+    // `assert_type` can read it.
+    assert_type(
+        "struct P { x: i64, y: f64 } fn f(p: P) { const a = p.y; }",
+        "f",
+        TypeKind::F64,
+    );
+}
+
+#[test]
+fn field_access_carries_the_declaration_order_index() {
+    // The index is what the backend extracts with, so it has to be the position
+    // in the declaration -- not the position in any literal.
+    let expr = expr_of_statement(
+        "struct P { x: i64, y: f64 } fn f(p: P) { const a = p.y; }",
+        "f",
+        0,
+    );
+    match expr {
+        HirExpr::FieldAccess { field, index, ty, .. } => {
+            assert_eq!(field, "y");
+            assert_eq!(index, 1, "`y` is the second declared field");
+            assert_eq!(ty.kind, TypeKind::F64);
+        }
+        other => panic!("expected a field access, got {:?}", other),
+    }
+}
+
+#[test]
+fn a_dotted_name_reads_fields_of_nested_structs() {
+    let expr = expr_of_statement(
+        "struct P { x: i64, y: i64 }\n\
+         struct L { from: P, to: P }\n\
+         fn f(l: L) { const a = l.from.y; }",
+        "f",
+        0,
+    );
+    let outer = match expr {
+        HirExpr::FieldAccess { field, index, ty, base, .. } => {
+            assert_eq!(field, "y", "the tail of the chain is the last field written");
+            assert_eq!(index, 1);
+            assert_eq!(ty.kind, TypeKind::I64);
+            base
+        }
+        other => panic!("expected a field access chain, got {:?}", other),
+    };
+    match *outer {
+        HirExpr::FieldAccess { ref field, index, .. } => {
+            assert_eq!(field, "from");
+            assert_eq!(index, 0, "`from` is the first declared field of `L`");
+        }
+        other => panic!("expected `l.from` as the base, got {:?}", other),
+    }
+}
+
+#[test]
+fn a_field_that_the_struct_does_not_declare_is_an_error() {
+    assert_error(
+        "struct P { x: i64 } fn f(p: P) { const a = p.z; }",
+        "struct `P` has no field `z`",
+    );
+}
+
+#[test]
+fn a_field_access_on_a_non_struct_is_an_error() {
+    assert_error(
+        "fn f(n: i64) { const a = n.x; }",
+        "cannot access a field on `i64`",
+    );
+}
+
+#[test]
+fn a_struct_literal_is_laid_out_in_declaration_order() {
+    // Written `y, x`; the HIR must be `x, y`, because that is the order the IR
+    // aggregate is built in and the order a field's index refers to.
+    let expr = expr_of_statement(
+        "struct P { x: i64, y: i64 } fn f() { const p = P { y: 2, x: 1 }; }",
+        "f",
+        0,
+    );
+    match expr {
+        HirExpr::StructLit { fields, .. } => {
+            let names: Vec<&str> = fields.iter().map(|(n, _, _)| n.as_str()).collect();
+            assert_eq!(names, vec!["x", "y"], "declaration order, not written order");
+        }
+        other => panic!("expected a struct literal, got {:?}", other),
+    }
 }
 
 #[test]

@@ -1,0 +1,39 @@
+// A struct is a value: built with a literal, read field by field with `.`, and
+// passed to a function whole. The fields are laid out in the order the struct
+// *declares* them, so a literal may spell them in any order -- `Point { y: 4,
+// x: 3 }` and `Point { x: 3, y: 4 }` are the same value, and `p.x` means the
+// same field either way.
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+struct Line {
+    from: Point,
+    to: Point,
+}
+
+fn manhattan(p: Point) -> i64 {
+    return p.x + p.y;
+}
+
+fn main() {
+    // Written out of order on purpose: `x` first in the output, but second in
+    // the literal.
+    const p = Point { y: 4, x: 3 };
+    print_i64(p.x);
+    print_str(" ");
+    print_i64(p.y);
+    print_str("\n");
+
+    // A field of a field, and a struct literal nested in another literal.
+    const line = Line { to: p, from: Point { x: 1, y: 2 } };
+    print_i64(line.from.x + line.to.y);
+    print_str("\n");
+
+    // A struct crosses a call boundary by value and its fields are readable on
+    // the other side.
+    print_i64(manhattan(line.from));
+    print_str("\n");
+}

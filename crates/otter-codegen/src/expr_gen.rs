@@ -13,8 +13,12 @@
 //! UB until M4. Both are pinned by `tests/golden/ops.expected.ll`, so M4's
 //! replacement is a deliberate diff rather than a silent change.
 //!
-//! A construct not lowered yet (`FieldAccess`) becomes a comment plus a zero
-//! of its type: visibly incomplete IR, never a silently wrong answer.
+//! A construct not lowered yet becomes a comment plus a zero of its type:
+//! visibly incomplete IR, never a silently wrong answer.
+//!
+//! `FieldAccess` was the last of those and is no longer: a struct value is an
+//! aggregate, so a field read is `extractvalue` with the index the checker
+//! resolved against the declaration order.
 //!
 //! # No input makes this module panic
 //!
@@ -218,11 +222,20 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::StructLit {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
-        HirExpr::FieldAccess { field, span, ty, .. } => {
-            ctx.push(format!(
-                "; TODO(Task 12): field access `{field}` needs the declaration table (at {span:?})"
-            ));
-            zero_of(&ty.kind, ctx)
+        // A struct value is an aggregate, so reading one field of it is
+        // `extractvalue` -- no address, no alloca, no GEP. The index was resolved
+        // against the declaration order in the checker (see `HirExpr::FieldAccess`).
+        HirExpr::FieldAccess {
+            base, index, ty, ..
+        } => {
+            let value = gen_expr(ctx, base);
+            let repr = repr_type(&value.ty);
+            let tmp = ctx.tmp();
+            ctx.push(format!("{tmp} = extractvalue {repr} {}, {index}", value.value));
+            GenValue {
+                value: tmp,
+                ty: ty.kind.clone(),
+            }
         }
         HirExpr::Cast { expr, ty, .. } => gen_cast(ctx, expr, &ty.kind),
         HirExpr::Try { expr, ty, .. } => gen_try(ctx, expr, &ty.kind),

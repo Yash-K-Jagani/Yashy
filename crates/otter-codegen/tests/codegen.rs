@@ -238,6 +238,40 @@ fn input_calls_use_the_runtime_symbols() {
 }
 
 #[test]
+fn a_struct_field_is_read_with_the_declaration_order_index() {
+    // A struct value is an aggregate, so reading a field is `extractvalue` and
+    // needs no address. The index is the declaration order position: this
+    // literal writes `y` first, and `p.x` must still extract field 0.
+    let ir_text = ir_of(
+        "struct P { x: i64, y: f64 }\n\
+         fn main() {\n\
+         \x20   const p = P { y: 2.0, x: 1 };\n\
+         \x20   print_i64(p.x);\n\
+         \x20   print_f64(p.y);\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("%struct.P = type { i64, double }"),
+        "the aggregate follows the declaration:\n{ir_text}"
+    );
+    let extracts: Vec<&str> = ir_text
+        .lines()
+        .filter(|line| line.contains("extractvalue"))
+        .collect();
+    assert_eq!(extracts.len(), 2, "one extract per field read:\n{ir_text}");
+    assert!(
+        extracts[0].trim_end().ends_with(", 0"),
+        "`p.x` is field 0: {}",
+        extracts[0]
+    );
+    assert!(
+        extracts[1].trim_end().ends_with(", 1"),
+        "`p.y` is field 1: {}",
+        extracts[1]
+    );
+}
+
+#[test]
 fn llvm_type_mapping_matches_the_spec() {
     assert_eq!(llvm_type_string(&TypeKind::I64), "i64");
     assert_eq!(llvm_type_string(&TypeKind::F64), "double");

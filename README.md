@@ -10,7 +10,8 @@ external tool is `clang`.
 
 **Status: milestones M0–M2 are complete, and M3 is in progress.** Otter lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
-`struct`, `enum`, `Option<T>`, `Result<T, E>`, `if`/`for`/`switch`, `defer`, and
+`struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
+`if`/`for`/`switch`, `defer`, and
 `?` propagation. A program can also read its input (`read_line`, `parse_i64`) and
 manage its own memory (`alloc`, `dealloc`, `move`). Panics, C interop,
 collections, concurrency and the standard library are later milestones; see
@@ -65,6 +66,26 @@ fn describe(o: Option[i64]) -> i64 {
         case Some(x) { x }
         case None { 0 }
     };
+}
+```
+
+```otter
+// A struct is a value: built with a literal and read field by field with `.`.
+// The layout follows the declaration order, so a literal may spell the fields
+// in any order and `p.x` still means the declared `x`.
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn manhattan(p: Point) -> i64 {
+    return p.x + p.y;
+}
+
+fn main() {
+    const p = Point { y: 4, x: 3 };
+    print_i64(manhattan(p));
+    print_str("\n");
 }
 ```
 

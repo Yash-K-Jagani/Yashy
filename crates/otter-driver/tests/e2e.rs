@@ -724,6 +724,13 @@ fn a_program_can_read_its_input() {
 }
 
 #[test]
+fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
+    // The literal writes `y` first; `p.x` must still be the declared `x`.
+    let output = build_and_run("structs");
+    assert_eq!(stdout_of(&output), "3 4\n5\n3\n");
+}
+
+#[test]
 fn defer_runs_at_scope_exit_and_sees_registration_time_values() {
     // Last registered first, and the deferred free releases the block that was
     // live when the `defer` was reached.

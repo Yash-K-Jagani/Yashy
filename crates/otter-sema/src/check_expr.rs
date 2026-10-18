@@ -1168,6 +1168,15 @@ impl Checker {
                 if path.len() == 1 && path.first().map(String::as_str) == Some("None") {
                     return self.check_constructor("None", &[], *span, None)?;
                 }
+                // A dotted name is a chain of field accesses: `p.x`, `a.b.c`.
+                // The parser produces one `Ident` for the whole dotted name (see
+                // its `x`, `std.io.puts`), so the decision lands here, where the
+                // types are — a dotted name is a module path only once modules
+                // exist, and today the only dotted name that resolves to a value
+                // is a field chain.
+                if path.len() > 1 {
+                    return self.check_field_path(path, *span);
+                }
                 let name = path.last().cloned().unwrap_or_default();
                 if let Err(e) = self.scope.check_live(&name, *span) {
                     self.error(e.span, e.message);
@@ -1346,13 +1355,17 @@ impl Checker {
                 let sig = self.structs.get(&name).cloned();
                 match sig {
                     Some(sig) => {
-                        let mut hir_fields = Vec::new();
+                        // Every value the literal wrote is type-checked, whether
+                        // or not its field name belongs to the struct; the
+                        // diagnostics below need the written order to report what
+                        // is missing and what is unknown.
+                        let mut written: Vec<(String, HirExpr)> = Vec::new();
                         for (fname, value, _) in fields {
                             let value = self.check_expr(value)?;
-                            hir_fields.push((fname.clone(), value, Span::new(0, 0)));
+                            written.push((fname.clone(), value));
                         }
                         let provided: Vec<&str> =
-                            hir_fields.iter().map(|(n, _, _)| n.as_str()).collect();
+                            written.iter().map(|(n, _)| n.as_str()).collect();
                         for (fname, _) in &sig.fields {
                             if !provided.contains(&fname.as_str()) {
                                 self.error(
@@ -1362,9 +1375,7 @@ impl Checker {
                             }
                         }
                         for (fname, fty) in &sig.fields {
-                            if let Some((_, value, _)) =
-                                hir_fields.iter().find(|(n, _, _)| n == fname)
-                            {
+                            if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
                                 let value_ty = expr_ty(value);
                                 if !fty.eq_ignoring_span(&value_ty) {
                                     self.error(
@@ -1374,12 +1385,28 @@ impl Checker {
                                 }
                             }
                         }
-                        for (fname, _, _) in &hir_fields {
+                        for (fname, _) in &written {
                             if !sig.fields.iter().any(|(n, _)| n == fname) {
                                 self.error(
                                     *span,
                                     format!("unknown field `{fname}` in struct `{name}`"),
                                 );
+                            }
+                        }
+                        // Laid out in **declaration** order, not the order the
+                        // literal spelled the fields in. Two literals of one
+                        // struct written differently would otherwise define two
+                        // different IR layouts for the same named type, and a
+                        // field's index would depend on which literal happened to
+                        // be lowered first.
+                        let mut hir_fields = Vec::new();
+                        for (fname, _) in &sig.fields {
+                            if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
+                                hir_fields.push((
+                                    fname.clone(),
+                                    value.clone(),
+                                    Span::new(0, 0),
+                                ));
                             }
                         }
                         Some(HirExpr::StructLit {
@@ -1406,13 +1433,15 @@ impl Checker {
                         match self
                             .structs
                             .get(sname)
-                            .and_then(|s| s.fields.iter().find(|(n, _)| n == field))
+                            .and_then(|s| s.fields.iter().position(|(n, _)| n == field))
+                            .map(|index| (index, self.structs[sname].fields[index].1.clone()))
                         {
-                            Some((_, fty)) => Some(HirExpr::FieldAccess {
+                            Some((index, fty)) => Some(HirExpr::FieldAccess {
                                 base: Box::new(base),
                                 field: field.clone(),
+                                index,
                                 span: *span,
-                                ty: fty.clone(),
+                                ty: fty,
                             }),
                             None => {
                                 self.error(
@@ -1500,6 +1529,51 @@ impl Checker {
                 })
             }
         }
+    }
+
+    /// Resolve a dotted name as the field-access chain it is: `p.x`, `a.b.c`.
+    ///
+    /// The parser hands a dotted name over whole, so this is where the chain is
+    /// taken apart. The first segment is an ordinary name — resolved through the
+    /// same path a bare `p` takes, so a moved binding or an unbound name gets
+    /// the diagnostic it would get on its own — and every later segment is a
+    /// field of the struct the previous value has. Deeper chains are the same
+    /// step repeated, so `a.b.c` needs no special handling.
+    fn check_field_path(&mut self, path: &[String], span: Span) -> Option<HirExpr> {
+        let first = path.first()?.clone();
+        let mut current = self.check_expr(&Expr::Ident(vec![first], span))?;
+
+        for field in path.iter().skip(1) {
+            let base_ty = expr_ty(&current);
+            let struct_name = match &base_ty.kind {
+                TypeKind::Struct(name) => name.clone(),
+                _ => {
+                    self.error(span, format!("cannot access a field on `{base_ty}`"));
+                    return None;
+                }
+            };
+            let resolved = self.structs.get(&struct_name).and_then(|sig| {
+                sig.fields
+                    .iter()
+                    .position(|(name, _)| name == field)
+                    .map(|index| (index, sig.fields[index].1.clone()))
+            });
+            let (index, field_ty) = match resolved {
+                Some(found) => found,
+                None => {
+                    self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                    return None;
+                }
+            };
+            current = HirExpr::FieldAccess {
+                base: Box::new(current),
+                field: field.clone(),
+                index,
+                span,
+                ty: field_ty,
+            };
+        }
+        Some(current)
     }
 }
 
