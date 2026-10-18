@@ -212,13 +212,15 @@ pub struct ExternDecl {
 
 /// A type as the source wrote it.
 ///
-/// These five forms are the whole type grammar. There is no pointer, slice or
-/// reference form: those arrive with the memory model in M3, and adding a
-/// variant later is additive for the parser and a recompile for everyone else.
+/// These six forms are the whole type grammar. It gained `Ptr` with the memory
+/// model in M3; slices and maps arrive in M6, and adding a variant is additive
+/// for the parser and a recompile for everyone else.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeExpr {
     /// A named type, primitive or declared: `i64`, `f64`, `P`.
     Name(String, Span),
+    /// `*mut T` — a raw, owning pointer to `T`.
+    Ptr(Box<TypeExpr>, Span),
     /// `Option[T]`
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`

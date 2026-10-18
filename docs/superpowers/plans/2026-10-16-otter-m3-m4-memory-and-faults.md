@@ -85,81 +85,93 @@ git commit -m "feat(runtime): heap allocation and arena primitives"
 **Interfaces:**
 - Consumes: `Type`/`TypeKind`/`Scope` from M0–M2
 - Produces:
-  - `TypeKind::Ptr(Box<TypeKind>)` added to `ty.rs` (ledger L2, M3 row)
+  - `TypeKind::Ptr(Box<Type>)` added to `ty.rs` (ledger L2, M3 row). The master
+    plan spells this `Ptr(Type)`; this phase plan's original `Box<TypeKind>` was
+    a slip — only `Type` carries a span, and `Display` needs it.
   - `pub enum Linearity { Linear, Copy }`
   - `pub fn linearity_of(ty: &TypeKind) -> Linearity` — `Linear` for `Ptr` and, from M6, `Slice`; `Copy` for everything else
   - `pub enum Ownership { Live, Moved }`
   - `Binding { ty, mutability, span, ownership: Ownership }` — one new field
   - `Scope::move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError>` — sets the binding to `Moved`
   - `Scope::check_live(&self, name: &str, span: Span) -> Result<(), TypeError>` — errors on a read of a `Moved` binding
+  - `Scope::rebind(&mut self, name: &str)` — an assignment installs a fresh owner
+  - `Scope::moved_bindings(&self) -> BTreeSet<(usize, String)>` and
+    `Scope::apply_moved(&mut self, ...)` — snapshot/restore of ownership state,
+    used to check the two branches of an `if` from the same entry state and then
+    merge them by union
+  - `Checker::forbid_linear_copy(&mut self, source: &Expr, checked: &HirExpr)` —
+    the one rule "a linear value may leave its binding only through `move`",
+    applied at `const`/`var` initialisers and assignment right-hand sides
+  - `alloc(i64) -> *mut i64` and `dealloc(*mut i64)` builtins. **Divergence from
+    ledger L3**, which says `alloc(i64) -> *mut u8`: Otter has no `u8`, and
+    without indexing or pointer casts a `*mut u8` could not be used at all. The
+    master plan's L3 row is updated to `*mut i64` in the same change.
   - Errors: "value `buf` has already been moved" naming the binding, and "cannot assign linear value `buf` without `move`"
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-```rust
-#[test]
-fn ptr_type_parses_and_prints() {
-    // "const p: *mut i64 = ..." -> TypeKind::Ptr(I64); Display is "*mut i64".
-}
+`crates/otter-sema/tests/check.rs`, 15 tests: `a_pointer_type_prints_as_a_mutable_pointer`,
+`alloc_returns_a_pointer_to_i64`, `a_pointer_annotation_and_alloc_agree`,
+`a_pointer_cannot_be_initialised_from_an_integer`,
+`assigning_a_linear_binding_without_move_is_an_error`,
+`moving_a_linear_binding_is_legal_and_releases_it`,
+`reading_a_moved_binding_is_an_error`,
+`a_second_dealloc_of_the_same_pointer_is_an_error`,
+`rebinding_a_var_releases_the_previous_linear_value`,
+`rebinding_a_var_from_another_linear_binding_needs_move`,
+`dealloc_wants_a_pointer_not_an_integer`,
+`freeing_in_both_branches_of_an_if_is_legal`,
+`a_move_in_only_one_branch_is_conservatively_moved`,
+`moving_a_copy_value_is_a_no_op`,
+`a_linear_argument_to_a_user_function_is_moved_out`, and
+`a_linear_argument_does_not_have_to_be_a_name`.
 
-#[test]
-fn moving_a_pointer_transfers_ownership() {
-    // var buf = alloc(16); var other = move buf; -> Ok
-}
+Two are additions beyond this plan's sketch, and both exist because the sketch
+had a hole:
 
-#[test]
-fn reading_a_moved_binding_is_an_error() {
-    // var buf = alloc(16); var o = move buf; dealloc(buf); -> Err naming buf.
-}
+- `freeing_in_both_branches_of_an_if_is_legal` — checking `then` and `else`
+  sequentially from one running state would leave `then`'s moves visible to
+  `else`, rejecting `if c { dealloc(buf); } else { dealloc(buf); }`. Branch
+  checking snapshots the entry state, checks each branch from it, and merges by
+  union.
+- `a_linear_argument_to_a_user_function_is_moved_out` — a parameter of linear
+  type takes ownership, so calling such a function moves the argument. Without
+  this rule `dealloc` would need a special case; with it, `dealloc` is just a
+  function whose parameter is `*mut i64`.
 
-#[test]
-fn assigning_a_linear_binding_without_move_is_an_error() {
-    // var buf = alloc(16); var o = buf; -> Err, message mentions move.
-}
-
-#[test]
-fn moving_the_same_binding_twice_is_an_error() {
-    // var buf = alloc(16); var a = move buf; var b = move buf; -> Err.
-}
-
-#[test]
-fn non_linear_bindings_copy_without_complaint() {
-    // var x = 1; var y = x; var z = x; -> Ok.
-}
-
-#[test]
-fn rebinding_a_var_releases_the_previous_linear_value() {
-    // var buf = alloc(16); buf = alloc(32); -> Ok; the first allocation is
-    // released at the reassignment.
-}
-
-#[test]
-fn ownership_is_per_binding_not_per_allocation() {
-    // Two separate alloc calls into two vars are independent; moving one does
-    // not affect the other.
-}
-```
-
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cargo test -p otter-sema` → FAIL — `ownership` module missing.
 
-- [ ] **Step 3: Add `Ptr` and the ownership state**
+- [x] **Step 3: Add `Ptr` and the ownership state**
 
-Add `TypeKind::Ptr(Box<TypeKind>)` with `Display` as `*mut T`. `linearity_of` is one match; add the `Slice` arm as a commented placeholder so M6 has an obvious slot. `Scope::declare` records `ownership: Live`. `Scope::move_out` flips to `Moved`. `check_live` is called at every identifier read.
+Add `TypeKind::Ptr(Box<Type>)` with `Display` as `*mut T`. The parser gains
+`*mut T` in `parse_type_expr` (`TypeExpr::Ptr`), rejecting anything but `mut`
+after the `*`. `linearity_of` is one match; the `Slice` arm is a commented
+placeholder so M6 has an obvious slot. `Scope::declare` records `ownership:
+Live`. `Scope::move_out` flips to `Moved` and errors on a second move.
+`check_live` is called at every identifier read. `alloc`/`dealloc` are
+predeclared builtins (see the divergence note above).
 
-- [ ] **Step 4: Wire `move` and assignment checking**
+- [x] **Step 4: Wire `move` and assignment checking**
 
-Parse `move` as a unary operator in M0–M2's expression parser path, producing a `HirExpr::Move`. On assignment of a linear value to a new binding, require `move`. On rebinding an existing `var` of linear type, treat it as an implicit release-then-store and allow it. Reading a `Moved` binding always errors — including in a `defer`.
+`move` was already parsed in M0–M2 as a unary operator producing a
+`HirExpr::Move`; what changed is that it now calls `Scope::move_out` when its
+operand is a bare name of linear type. `move` of a copy value is a no-op rather
+than an error — being explicit about intent is not a mistake. On assignment of a
+linear value to a new binding, `forbid_linear_copy` requires `move`. On rebinding
+an existing `var`, `rebind` installs a fresh owner, so
+`buf = alloc(32); dealloc(buf);` is legal. Reading a `Moved` binding always
+errors — including in a `defer`.
 
-- [ ] **Step 5: Run to verify they pass**
+- [x] **Step 5: Run to verify they pass**
 
-Run: `cargo test -p otter-sema` → PASS.
+Run: `cargo test -p otter-sema` → PASS (56 tests, up from 41).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add crates/otter-sema/
+git add crates/otter-sema/ crates/otter-parser/ crates/otter-codegen/src/ir.rs
 git commit -m "feat(sema): pointer types and linear ownership checking"
 ```
 

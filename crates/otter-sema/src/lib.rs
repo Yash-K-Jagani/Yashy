@@ -9,6 +9,7 @@ pub mod check_pat;
 pub mod error;
 pub mod exhaustive;
 pub mod hir;
+pub mod ownership;
 pub mod scope;
 pub mod ty;
 
@@ -17,5 +18,6 @@ pub use check_pat::check_pattern;
 pub use error::TypeError;
 pub use exhaustive::{is_exhaustive, missing_cases};
 pub use hir::*;
+pub use ownership::{linearity_of, Linearity, Ownership};
 pub use scope::{Binding, Scope};
 pub use ty::{Mutability, Type, TypeKind};

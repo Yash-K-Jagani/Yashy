@@ -24,6 +24,9 @@ pub enum TypeKind {
     Enum(String),
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
+    /// A raw owning pointer to `T`, written `*mut T`. Linear (see
+    /// [`crate::ownership`]): at most one binding owns it at a time.
+    Ptr(Box<Type>),
     /// A function value type. First-class functions do not exist in M0-M2;
     /// this is the type of builtin and user function signatures as they are
     /// tracked during checking.
@@ -67,6 +70,7 @@ impl std::fmt::Display for Type {
             TypeKind::Enum(name) => write!(f, "{name}"),
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
+            TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
             TypeKind::Func(params, ret) => {
                 write!(f, "(")?;
                 let mut first = true;

@@ -60,8 +60,30 @@ impl<'src> Parser<'src> {
         match self.peek() {
             TokenKind::LParen => self.parse_paren_type(),
             TokenKind::Ident => self.parse_named_type(),
+            TokenKind::Star => self.parse_pointer_type(),
             _ => Err(self.type_expected_error()),
         }
+    }
+
+    /// `*mut T` -- a raw owning pointer to `T`.
+    ///
+    /// Only `mut` is accepted after the `*`. `*const T` does not exist in M3:
+    /// there are no shared references, so spelling one would promise a
+    /// guarantee the language cannot keep.
+    fn parse_pointer_type(&mut self) -> Result<TypeExpr, ParseError> {
+        let star = self.expect(TokenKind::Star)?;
+        let (word, word_span) = self.identifier()?;
+        if word != "mut" {
+            return Err(self.error(
+                word_span,
+                format!("expected `mut` after `*` in a pointer type, found `{word}`"),
+            ));
+        }
+        let pointee = self.parse_type_expr()?;
+        Ok(TypeExpr::Ptr(
+            Box::new(pointee),
+            cover(star.span, self.previous_span()),
+        ))
     }
 
     /// `()` or `(T, U)`.

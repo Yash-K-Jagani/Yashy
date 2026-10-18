@@ -27,6 +27,10 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::Bool => "i1".to_string(),
         TypeKind::Str => "{ i32, i32, i8* }".to_string(),
         TypeKind::Unit | TypeKind::Never => "void".to_string(),
+        // Every pointer is `i8*` under LLVM's opaque pointers: the pointee type
+        // exists in Otter's checker (a `*mut i64` is not a `*mut f64`) but not
+        // in the IR, which is why `llvm_type_string` ignores the inner type.
+        TypeKind::Ptr(_) => "i8*".to_string(),
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
         | TypeKind::Struct(_)

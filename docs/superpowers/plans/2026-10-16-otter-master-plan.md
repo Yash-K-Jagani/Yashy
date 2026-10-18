@@ -178,10 +178,18 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | Milestone | Builtins |
 |---|---|
 | M0–M2 | `print_str(string)`, `print_i64(i64)`, `print_f64(f64)` |
-| M3 | `alloc(i64) -> *mut u8`, `dealloc(*mut u8)`, `Arena.new()`, `arena.alloc(i64)`, `arena.free()`, string constructors and accessors from L1 |
+| M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, string constructors and accessors from L1 |
 | M4 | `panic(string)`, `assert(bool)`, `debug_assert(bool)`, `assert_eq` (typed per pair), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
 | M6 | `len(slice) -> i64`, `slice_push`, `map_new/get/insert/remove/len`, string `len`, indexing |
 | M7 | `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock/unlock`, `Channel.new(i64)`, `chan.send/recv/close` |
+
+> **L3 revision, M3: `alloc`/`dealloc` are over `*mut i64`, not `*mut u8`.**
+> Otter has no `u8`, and M3 has neither indexing nor pointer casts, so a byte
+> pointer would be a value no program could do anything with. `*mut i64` is
+> usable the moment M6 adds indexing, and the M3–M4 plan's own `buffer.ot`
+> already assumed `*mut i64`. Cost: a program that wants raw bytes waits for
+> M6's `Slice`; nothing else moves, because `Ptr(_)` is `i8*` in the IR whatever
+> the pointee type is.
 
 ### L4 — Codegen contracts that later milestones replace
 
@@ -205,9 +213,13 @@ Introduced in M3, unchanged until M10.
 - `move x` transfers ownership; `x` is dead afterwards and any read is an
   error.
 - Assigning a linear binding to another name without `move` is an error.
-- Rebinding a linear name in the same scope with `var` releases the previous
-  value if the compiler can prove it has not been moved; otherwise it is an
-  error naming the path.
+- Rebinding a linear name with `var` installs a fresh owner: whatever the binding
+  held — live or moved — it owns a value again afterwards. This is deliberately
+  permissive (the phase plan first said "error if the compiler cannot prove the
+  old value was not moved"): `dealloc(buf); buf = alloc(32);` is a correct
+  re-initialisation, and rejecting it would enforce a rule the checker cannot
+  justify. Ownership state is restored per branch across an `if` and merged by
+  union, so a value moved in either branch counts as moved afterwards.
 - Sema tracks this per binding, not per allocation. Two `move`s of the same
   binding are caught; aliasing a raw pointer obtained through `extern` is not,
   which is what `unsafe` marks (spec §8.1).

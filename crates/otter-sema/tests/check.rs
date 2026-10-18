@@ -429,3 +429,170 @@ fn an_assignment_is_not_a_binding() {
         "cannot find value `x` in this scope",
     );
 }
+
+// ---- M3 Task 2: pointer types and linear ownership ----------------------
+
+/// The printed type of the first binding in function `needle`.
+fn binding_type_in_fn(src: &str, needle: &str) -> String {
+    let (result, _, _) = check_source(src);
+    let hir = result.expect("expected the program to type-check");
+    let item = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == needle => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    match item.body.stmts.first() {
+        Some(HirStmt::Const { init, .. }) | Some(HirStmt::Var { init, .. }) => {
+            expr_ty(init).to_string()
+        }
+        other => panic!("expected a binding first, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_pointer_type_prints_as_a_mutable_pointer() {
+    let (result, _, _) = check_source("fn f(p: *mut i64) -> *mut i64 { return p; }");
+    let hir = result.expect("a pointer parameter and return type should check");
+    let item = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("f should exist");
+    let param = item.params.first().expect("f has one parameter");
+    assert_eq!(param.ty.to_string(), "*mut i64");
+}
+
+#[test]
+fn alloc_returns_a_pointer_to_i64() {
+    assert_eq!(
+        binding_type_in_fn("fn f() { const p = alloc(16); }", "f"),
+        "*mut i64"
+    );
+}
+
+#[test]
+fn a_pointer_annotation_and_alloc_agree() {
+    // `*mut i64` is a real type, not a spelling: an annotated binding accepts
+    // `alloc`'s result, which it would not if the two disagreed.
+    let (result, _, _) = check_source("fn f() { const p: *mut i64 = alloc(16); }");
+    assert!(result.is_ok(), "expected `*mut i64` to accept alloc: {result:?}");
+}
+
+#[test]
+fn a_pointer_cannot_be_initialised_from_an_integer() {
+    assert_error(
+        "fn f() { const p: *mut i64 = 0; }",
+        "expected `*mut i64`, found `i64`",
+    );
+}
+
+#[test]
+fn assigning_a_linear_binding_without_move_is_an_error() {
+    assert_error(
+        "fn f() { var buf = alloc(16); var other = buf; }",
+        "cannot assign linear value `buf` without `move`",
+    );
+}
+
+#[test]
+fn moving_a_linear_binding_is_legal_and_releases_it() {
+    let (result, _, _) = check_source(
+        "fn f() { var buf = alloc(16); var other = move buf; dealloc(other); }",
+    );
+    assert!(result.is_ok(), "move should transfer ownership: {result:?}");
+}
+
+#[test]
+fn reading_a_moved_binding_is_an_error() {
+    assert_error(
+        "fn f() { var buf = alloc(16); var other = move buf; dealloc(buf); }",
+        "value `buf` has already been moved",
+    );
+}
+
+#[test]
+fn a_second_dealloc_of_the_same_pointer_is_an_error() {
+    assert_error(
+        "fn f() { var buf = alloc(16); dealloc(buf); dealloc(buf); }",
+        "value `buf` has already been moved",
+    );
+}
+
+#[test]
+fn rebinding_a_var_releases_the_previous_linear_value() {
+    let (result, _, _) = check_source(
+        "fn f() { var buf = alloc(16); buf = alloc(32); dealloc(buf); }",
+    );
+    assert!(result.is_ok(), "a rebind installs a fresh owner: {result:?}");
+}
+
+#[test]
+fn rebinding_a_var_from_another_linear_binding_needs_move() {
+    assert_error(
+        "fn f() { var buf = alloc(16); var other = alloc(32); buf = other; }",
+        "cannot assign linear value `other` without `move`",
+    );
+}
+
+#[test]
+fn dealloc_wants_a_pointer_not_an_integer() {
+    assert_error("fn f() { dealloc(1); }", "expected `*mut i64`, found `i64`");
+}
+
+#[test]
+fn freeing_in_both_branches_of_an_if_is_legal() {
+    // The branch check restores the entry ownership state before checking the
+    // `else`, so a `then`-branch move does not poison the `else` branch. Freeing
+    // in both branches is the shape of "free exactly once" without a `defer`.
+    let (result, _, _) = check_source(
+        "fn f(c: bool) { var buf = alloc(16); if c { dealloc(buf); } else { dealloc(buf); } }",
+    );
+    assert!(result.is_ok(), "both branches free: {result:?}");
+}
+
+#[test]
+fn a_move_in_only_one_branch_is_conservatively_moved() {
+    // The checker does not prove a path, so after `if c { dealloc(buf); }` a
+    // later `dealloc(buf)` is rejected rather than risked: `buf` may have been
+    // freed. Conservative by design -- see `ownership.rs`.
+    assert_error(
+        "fn f(c: bool) { var buf = alloc(16); if c { dealloc(buf); } dealloc(buf); }",
+        "value `buf` has already been moved",
+    );
+}
+
+#[test]
+fn moving_a_copy_value_is_a_no_op() {
+    // `i64` is not linear, so `move` asks for nothing: the value stays live and
+    // readable. Being explicit about intent is not an error.
+    let (result, _, _) = check_source("fn f() { var x = 1; var y = move x; print_i64(x + y); }");
+    assert!(result.is_ok(), "move of a copy value is a no-op: {result:?}");
+}
+
+#[test]
+fn a_linear_argument_to_a_user_function_is_moved_out() {
+    // A parameter of linear type takes ownership, so `consume(buf)` moves `buf`
+    // without a `move` keyword, and a later read is an error -- the same rule
+    // `dealloc` follows, applied to user functions.
+    assert_error(
+        "fn consume(p: *mut i64) { dealloc(p); } \
+         fn f() { var buf = alloc(16); consume(buf); dealloc(buf); }",
+        "value `buf` has already been moved",
+    );
+}
+
+#[test]
+fn a_linear_argument_does_not_have_to_be_a_name() {
+    // A fresh `alloc(...)` owns nothing yet, so passing it straight through a
+    // call leaves no moved binding behind.
+    let (result, _, _) = check_source(
+        "fn consume(p: *mut i64) { dealloc(p); } fn f() { consume(alloc(16)); }",
+    );
+    assert!(result.is_ok(), "a temporary argument should check: {result:?}");
+}

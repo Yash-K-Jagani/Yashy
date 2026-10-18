@@ -22,7 +22,7 @@
 //! fallible lookup returns `Result` or `Option`; every error becomes a
 //! [`TypeError`], and every [`TypeError`] becomes a [`otter_common::Diagnostic`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
@@ -34,6 +34,7 @@ use crate::check_pat::check_pattern;
 use crate::error::TypeError;
 use crate::exhaustive::missing_cases;
 use crate::hir::*;
+use crate::ownership::{linearity_of, Linearity, Ownership};
 use crate::scope::{Binding, Scope};
 use crate::ty::{Mutability, Type, TypeKind};
 
@@ -71,12 +72,18 @@ impl Checker {
     pub fn new(_sm: &SourceMap, file: FileId) -> Self {
         let mut scope = Scope::new();
         // Builtins are predeclared in the root scope. They are functions, so a
-        // call resolves through the same path as a user call; the names are
-        // exactly these three.
-        let builtins: [(&str, Vec<Type>, Type); 3] = [
+        // call resolves through the same path as a user call.
+        //
+        // `alloc` returns a pointer to `i64`, not `u8`. Otter has no byte type,
+        // and without indexing or pointer casts a `*mut u8` could not be used at
+        // all; `*mut i64` is directly usable and matches the plan's own
+        // `buffer.ot`. Recorded as a divergence from the master plan's L3.
+        let builtins: [(&str, Vec<Type>, Type); 5] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
+            ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
+            ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(
@@ -88,6 +95,7 @@ impl Checker {
                     },
                     mutability: Mutability::Const,
                     span: Span::new(0, 0),
+                    ownership: Ownership::Live,
                 },
             );
         }
@@ -103,6 +111,29 @@ impl Checker {
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push(TypeError::new(span, message));
+    }
+
+    /// A linear value may leave its binding only through `move`. Handing a live
+    /// linear binding to a new binding (`var o = buf`) without `move` would
+    /// leave two owners of one allocation, so it is an error rather than a
+    /// silent copy. Only a bare name can be a copy of a binding; a call or a
+    /// literal produces a value that already has exactly one owner, and a
+    /// `move` says the transfer out loud.
+    fn forbid_linear_copy(&mut self, source: &Expr, checked: &HirExpr) {
+        if matches!(checked, HirExpr::Move(..)) {
+            return;
+        }
+        if let Expr::Ident(path, span) = source {
+            let name = path.last().cloned().unwrap_or_default();
+            if let Some(binding) = self.scope.resolve(&name) {
+                if matches!(linearity_of(&binding.ty.kind), Linearity::Linear) {
+                    self.error(
+                        *span,
+                        format!("cannot assign linear value `{name}` without `move`"),
+                    );
+                }
+            }
+        }
     }
 
     /// Check a whole program. Returns the typed HIR when every item passed.
@@ -160,6 +191,7 @@ impl Checker {
                         },
                         mutability: Mutability::Const,
                         span: *span,
+                        ownership: Ownership::Live,
                     };
                     if let Err(e) = self.scope.declare(name.clone(), binding) {
                         self.error(e.span, e.message);
@@ -174,6 +206,7 @@ impl Checker {
                         },
                         mutability: Mutability::Const,
                         span: *span,
+                        ownership: Ownership::Live,
                     };
                     if let Err(e) = self.scope.declare(name.clone(), binding) {
                         self.error(e.span, e.message);
@@ -200,6 +233,7 @@ impl Checker {
                         },
                         mutability: Mutability::Const,
                         span: *span,
+                        ownership: Ownership::Live,
                     };
                     if let Err(e) = self.scope.declare(name.clone(), binding) {
                         self.error(e.span, e.message);
@@ -276,6 +310,13 @@ impl Checker {
                     span: *span,
                 })
             }
+            TypeExpr::Ptr(inner, span) => {
+                let inner = self.resolve_type(inner)?;
+                Ok(Type {
+                    kind: TypeKind::Ptr(Box::new(inner)),
+                    span: *span,
+                })
+            }
             TypeExpr::Tuple(_, span) => Err(TypeError::new(
                 *span,
                 "tuple types are not value types in M0-M2".to_string(),
@@ -314,6 +355,7 @@ impl Checker {
                             ty: pty.clone(),
                             mutability: Mutability::Const,
                             span: *pspan,
+                            ownership: Ownership::Live,
                         },
                     );
                 }
@@ -444,12 +486,15 @@ impl Checker {
                         );
                     }
                 }
+                // A linear value may leave its binding only through `move`.
+                self.forbid_linear_copy(init, &init_expr);
                 if let Err(e) = self.scope.declare(
                     name.clone(),
                     Binding {
                         ty: expr_ty(&init_expr),
                         mutability: Mutability::Const,
                         span: *span,
+                        ownership: Ownership::Live,
                     },
                 ) {
                     self.error(e.span, e.message);
@@ -483,12 +528,16 @@ impl Checker {
                         );
                     }
                 }
+                // Same as `Stmt::Const`: a linear initializer has to say
+                // `move`.
+                self.forbid_linear_copy(init, &init_expr);
                 if let Err(e) = self.scope.declare(
                     name.clone(),
                     Binding {
                         ty: expr_ty(&init_expr),
                         mutability: Mutability::Var,
                         span: *span,
+                        ownership: Ownership::Live,
                     },
                 ) {
                     self.error(e.span, e.message);
@@ -543,6 +592,12 @@ impl Checker {
                         format!("expected `{}`, found `{found}`", binding.ty),
                     );
                 }
+                // Re-initialising a `var` gives it a fresh owner, so whatever it
+                // held before -- live or moved -- it owns something now. The
+                // source may not be a bare linear name without `move`, for the
+                // same reason as a declaration.
+                self.forbid_linear_copy(value, &checked);
+                self.scope.rebind(&name);
 
                 Some(HirStmt::Assign {
                     name,
@@ -591,10 +646,29 @@ impl Checker {
                 // them must still yield the *function's* return type. Checking
                 // them against `()` rejected every `return` inside an `if` or a
                 // loop body with a bogus "expected `()`, found `i64`".
+                // Ownership across branches: check each branch from the state on
+                // entry, then treat a binding as moved after the `if` if *either*
+                // branch moved it. Without the restore, the `then` branch's moves
+                // would leak into the `else` branch's check and reject a program
+                // that frees in both branches -- which is exactly the shape a
+                // `defer`-less program has.
+                let entry_moved = self.scope.moved_bindings();
                 let then_block = self.check_block_with_ret(then_block, ret)?;
+                let after_then = self.scope.moved_bindings();
+                self.scope.apply_moved(&entry_moved);
                 let else_block = else_block
                     .as_ref()
                     .and_then(|b| self.check_block_with_ret(b, ret));
+                let after_else = if else_block.is_some() {
+                    self.scope.moved_bindings()
+                } else {
+                    // No `else` means the false path changed nothing, so its
+                    // moved-set is the entry state.
+                    entry_moved.clone()
+                };
+                let merged: BTreeSet<(usize, String)> =
+                    after_then.union(&after_else).cloned().collect();
+                self.scope.apply_moved(&merged);
                 Some(HirStmt::If {
                     init,
                     cond: cond_expr,
@@ -631,6 +705,7 @@ impl Checker {
                         ty: prim(TypeKind::I64),
                         mutability: Mutability::Const,
                         span: *span,
+                        ownership: Ownership::Live,
                     },
                 );
                 let body = self.check_block_with_ret(body, ret)?;
@@ -769,6 +844,7 @@ impl Checker {
                     ty,
                     mutability,
                     span,
+                    ownership: Ownership::Live,
                 },
             )?;
         }
@@ -1072,6 +1148,10 @@ impl Checker {
                     return self.check_constructor("None", &[], *span, None)?;
                 }
                 let name = path.last().cloned().unwrap_or_default();
+                if let Err(e) = self.scope.check_live(&name, *span) {
+                    self.error(e.span, e.message);
+                    return None;
+                }
                 match self.scope.resolve(&name) {
                     Some(binding) => Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone())),
                     None => {
@@ -1124,9 +1204,25 @@ impl Checker {
                 }
             }
             Expr::Move(inner, span) => {
-                let inner = self.check_expr(inner)?;
-                let ty = expr_ty(&inner);
-                Some(HirExpr::Move(Box::new(inner), *span, ty))
+                // Check the operand first. A read of an already-moved binding
+                // must be reported as such, and it must be reported *before*
+                // anything spends the value a second time.
+                let checked = self.check_expr(inner)?;
+                let ty = expr_ty(&checked);
+                // `move` transfers ownership only when the operand names a
+                // linear binding. Everything else -- a call, a literal, a copy
+                // type -- already produces a value with one owner, so `move`
+                // there is a no-op rather than an error: being explicit about
+                // intent is not a mistake.
+                if let Expr::Ident(path, ident_span) = inner.as_ref() {
+                    if matches!(linearity_of(&ty.kind), Linearity::Linear) {
+                        let name = path.last().cloned().unwrap_or_default();
+                        if let Err(e) = self.scope.move_out(&name, *ident_span) {
+                            self.error(e.span, e.message);
+                        }
+                    }
+                }
+                Some(HirExpr::Move(Box::new(checked), *span, ty))
             }
             Expr::Call {
                 callee,
@@ -1173,6 +1269,21 @@ impl Checker {
                                         expr_span(&checked),
                                         format!("expected `{param}`, found `{}`", expr_ty(&checked)),
                                     );
+                                }
+                                // A parameter of linear type takes ownership, so
+                                // passing a bare name moves it out --
+                                // `dealloc(buf)`, and a user function taking
+                                // `*mut T`, both consume without a `move` at the
+                                // call site. An argument that is not a bare name
+                                // (a fresh `alloc(...)`, say) owns nothing yet and
+                                // is left alone.
+                                if matches!(linearity_of(&param.kind), Linearity::Linear) {
+                                    if let Expr::Ident(path, arg_span) = arg {
+                                        let arg_name = path.last().cloned().unwrap_or_default();
+                                        if let Err(e) = self.scope.move_out(&arg_name, *arg_span) {
+                                            self.error(e.span, e.message);
+                                        }
+                                    }
                                 }
                                 arg_exprs.push(checked);
                             }
@@ -1389,6 +1500,15 @@ fn prim(kind: TypeKind) -> Type {
     }
 }
 
+/// A pointer to `pointee`, at a synthetic span. Used for the builtin
+/// signatures, where there is no source type expression to point at.
+fn ptr(pointee: Type) -> Type {
+    Type {
+        kind: TypeKind::Ptr(Box::new(pointee)),
+        span: Span::new(0, 0),
+    }
+}
+
 /// The type of a diverging expression, at the span where it diverged.
 fn never(span: Span) -> Type {
     Type {
@@ -1438,6 +1558,7 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             Box::new(type_to_expr(err)),
             span,
         ),
+        TypeKind::Ptr(pointee) => TypeExpr::Ptr(Box::new(type_to_expr(pointee)), span),
         TypeKind::Func(_, _) | TypeKind::Never => TypeExpr::Unit(span),
     }
 }
@@ -1526,6 +1647,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
     match ty {
         TypeExpr::Name(_, span) => *span,
         TypeExpr::Option(_, span) => *span,
+        TypeExpr::Ptr(_, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,

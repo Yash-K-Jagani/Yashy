@@ -362,6 +362,7 @@ fn ty_span(ty: &crate::ast::TypeExpr) -> Span {
     match ty {
         crate::ast::TypeExpr::Name(_, span)
         | crate::ast::TypeExpr::Option(_, span)
+        | crate::ast::TypeExpr::Ptr(_, span)
         | crate::ast::TypeExpr::Unit(span) => *span,
         crate::ast::TypeExpr::Result(_, _, span) => *span,
         crate::ast::TypeExpr::Tuple(_, span) => *span,
