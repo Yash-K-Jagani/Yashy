@@ -3,6 +3,9 @@
 
 # Build output
 target/
+# Benchmark binaries and their intermediate IR/objects: all build output, and
+# the patterns below already cover the file types. Listed for clarity.
+benchmarks/build/
 # Generated IR is build output, but golden expectations are tracked.
 *.ll
 !*.expected.ll

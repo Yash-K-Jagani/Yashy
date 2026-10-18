@@ -1,0 +1,18 @@
+// Benchmark 1: recursive Fibonacci.
+//
+// Measures call overhead and codegen quality for a pure, non-inlineable
+// recursive function. The result is printed so no compiler can delete the work.
+//
+// The same algorithm, in the same shape, appears as fib.c, fib.rs, fib.go,
+// fib.mjs and fib.py next to this file.
+fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    print_i64(fib(35));
+    print_str("\n");
+}

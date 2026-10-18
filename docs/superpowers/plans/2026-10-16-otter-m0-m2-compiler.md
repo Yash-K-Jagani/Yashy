@@ -1493,3 +1493,97 @@ git commit -m "test: fuzz targets and parser nesting limit; compiler never panic
 ## What the next plan covers
 
 M3: `alloc`/`dealloc`, `defer` extended to unwind paths, arenas, refcounted strings with `rc` in the string header, `move` linearity checking, and string operations and interpolation — at which point Task 11's wrapping-arithmetic contract is replaced by checked arithmetic from M4.
+
+---
+
+## Amendment: the performance round (after M0–M2 was signed off)
+
+M0–M2 shipped correct, but slow, and the gap was structural rather than
+incidental. Three things were wrong and all three are now fixed.
+
+**1. `otter build` never passed an optimization flag to `clang`, so every binary
+was `-O0`.** This is the one that mattered. The architecture deliberately places
+*all* optimization in LLVM (§9.1: `codegen` emits unoptimized, readable, textual
+IR) — so omitting the flag discarded the entire performance strategy in one
+place. Task 13 defined the pipeline as `clang -c` then `clang` (link) and never
+said what flags those two invocations carry; the omission is the plan's, not the
+implementation's.
+
+*Decision:* the optimization level is now an explicit, closed set —
+`Pipeline::OptLevel`, defaults to `-O2`, selectable as `-O0`…`-O3` on
+`otter build`. It is a parameter of `compile_to_binary`, not a constant inside
+it, because "how fast should this be" is the caller's question. `--emit-ir`
+still ignores it: it stops before any LLVM process starts.
+
+**2. `f64` `+`, `-` and `*` emitted LLVM's integer opcodes.** `1.0 + 2.0` lowered
+to `add double` and `3.0 * 4.0` to `mul double`. Only `Div` and `Rem` branched on
+`is_float`. `clang` rejects the result outright, so no program containing float
+arithmetic had *ever* compiled — the feature was listed as available in §10.2
+and was, in fact, unusable.
+
+**3. Renderable float literals were not always parseable.** `llvm_float` used
+Rust's `Debug`, which spells small values `1e-7`; LLVM's float grammar requires a
+decimal point in the mantissa and reads the leading `1` as an integer constant.
+
+Both were found by writing a benchmark that used `f64`, not by the test suite,
+and the reason is worth recording as a process rule:
+
+> **The golden file was the bug's accomplice.** `ops.expected.ll` recorded
+> `add double 1.0, 2.0` as the *expected* contract, so the one test that looked
+> at this output was actively asserting that the invalid IR was correct. A test
+> that compares generated text against a recorded expectation cannot tell whether
+> the text is valid, let alone fast; only a real backend can.
+
+*Consequence:* `crates/otter-driver/tests/programs/floats.ot` now puts every
+`f64` operator, and an exponent-form literal, through `clang` end to end. Unit
+tests in `expr_gen.rs` pin the mnemonics and the literal spelling, but the
+end-to-end program is the one that would have caught this.
+
+**4. Benchmarks and the speed claim.** `benchmarks/` holds three programs — a
+recursive `fib`, an integer loop with a branch, and an `f64` dependency chain —
+each written in Otter, C, Rust, Go, JavaScript and Python, plus `run.ps1`, which
+builds and times all of them (Otter at *both* `-O0` and `-O2`, so the effect of
+change 1 is measured rather than asserted). Methodology, caveats and the results
+live in `benchmarks/README.md`; the remaining improvement work is listed in
+`docs/performance-improvements.md`.
+
+*What the numbers show:* Otter's scalar code matches C and Rust compiled by the
+same backend, because it is the same backend. The front end — everything this
+repository implements — is a few milliseconds for a small program; the rest of
+`otter build` is `clang`, which is what C also pays.
+
+**Not done, and deliberately:** no optimization passes were added to
+`otter-codegen`; no prebuilt runtime archive was introduced (the driver still
+compiles `runtime.c` at link time, keeping the "cannot go stale" property); and
+no front-end micro-optimization was attempted, because measurement says the
+front end is not where the time goes. `docs/performance-improvements.md` records
+what was considered and why each item is either deferred or gated on measurement.
+
+**5. `Option[T]` could not be emptied.** Writing the benchmark suite surfaced a
+second feature that was advertised and unusable, next to the float arithmetic.
+The design spec §4.4 specifies the spelling `None` / `Some(x)`, and `None` could
+not be constructed by any spelling at all — three independent gaps lined up:
+
+- sema resolved a bare `None` as an ordinary value name, so it reported
+  "cannot find value `None` in this scope";
+- call arguments were checked *before* the callee was resolved, so an argument
+  was never checked against its parameter's type — which left `None`, the one
+  constructor with no payload of its own, with nothing to infer from;
+- codegen had no arm for `None` and fell through to a call to a function named
+  `@None`, which does not exist, so a program that got that far failed at link
+  time naming a symbol the user never wrote.
+
+The suite never caught it because every existing program only ever *matched* on
+`None`; not one of them built one, so `option.ot` passed while half of `Option`
+was dead.
+
+*Fix, in the same three places:* a bare `None` is resolved as a constructor
+(`check_expr`), a constructor with no payload is typed from the expected type —
+the annotation on a binding, or the parameter it is passed to — and the
+annotation is now resolved before the initializer is checked so it can serve as
+that expected type. Codegen builds the value with a single tag `insertvalue`.
+`crates/otter-driver/tests/programs/none.ot` constructs an empty `Option` all
+three ways and matches on it, so the next regression has to get past `clang`.
+
+Same lesson as the golden file, one level up: a test that only exercises one
+direction of a feature cannot notice the other direction is missing.

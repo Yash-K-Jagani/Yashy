@@ -1,0 +1,24 @@
+// Benchmark 2: integer loop with a data-dependent branch.
+//
+// Measures loop code generation, integer arithmetic and branch handling. The
+// branch keeps the sum from collapsing to a closed form, and the values stay
+// well inside i64 so no language's overflow rule changes the answer.
+//
+// The same algorithm appears as loop.c, loop.rs, loop.go, loop.mjs and loop.py
+// next to this file.
+fn work(n: i64) -> i64 {
+    var acc = 0;
+    for i in 0..n {
+        if i % 2 == 0 {
+            acc = acc + i;
+        } else {
+            acc = acc + i * 2;
+        }
+    }
+    return acc;
+}
+
+fn main() {
+    print_i64(work(200000000));
+    print_str("\n");
+}
