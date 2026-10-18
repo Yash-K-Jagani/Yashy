@@ -202,7 +202,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit | M4: landing pad with `cleanup`, so defers also run on unwind |
 | M0–M2 Task 3 | `Str` is an opaque literal with no operations | M3: refcounted, with concat, indexing, interpolation |
-| M3 | every heap allocation is explicit; nothing is elided | M9: escape analysis removes provably non-escaping allocations |
+| M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity
 
@@ -223,6 +223,13 @@ Introduced in M3, unchanged until M10.
 - Sema tracks this per binding, not per allocation. Two `move`s of the same
   binding are caught; aliasing a raw pointer obtained through `extern` is not,
   which is what `unsafe` marks (spec §8.1).
+- Overwriting a live linear binding releases the old value first. The checker
+  decides this per assignment (`release_previous` in the HIR) rather than letting
+  the backend load the slot and free it blindly: after `dealloc(buf)`, or after
+  `consume(buf)` where `consume` takes `*mut i64`, the slot still holds the
+  address but the block is already free. Only the ownership state distinguishes
+  "a pointer to release" from "a dangling pointer the program already released",
+  so the flag travels with the assignment rather than being recomputed.
 
 ---
 

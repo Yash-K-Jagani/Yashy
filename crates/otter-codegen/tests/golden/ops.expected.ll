@@ -8,6 +8,8 @@ target triple = "<host>"
 declare void @otter_print_str(i8*)
 declare void @otter_print_i64(i64)
 declare void @otter_print_f64(double)
+declare i8* @otter_alloc(i64, i64)
+declare void @otter_free(i8*)
 @.str.0 = private unnamed_addr constant [3 x i8] c"hi\00"
 entry:
 %slot0 = alloca i64

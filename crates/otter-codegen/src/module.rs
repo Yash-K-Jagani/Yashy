@@ -161,6 +161,8 @@ impl Module {
         out.push_str("declare void @otter_print_str(i8*)\n");
         out.push_str("declare void @otter_print_i64(i64)\n");
         out.push_str("declare void @otter_print_f64(double)\n");
+        out.push_str("declare i8* @otter_alloc(i64, i64)\n");
+        out.push_str("declare void @otter_free(i8*)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

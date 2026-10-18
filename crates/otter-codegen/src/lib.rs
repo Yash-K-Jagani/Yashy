@@ -13,6 +13,7 @@
 pub mod expr_gen;
 pub mod fn_gen;
 pub mod ir;
+pub mod memory;
 pub mod module;
 pub mod patterns;
 pub mod stmt_gen;

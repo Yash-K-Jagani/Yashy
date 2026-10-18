@@ -66,7 +66,11 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>)
             Flow::Fallthrough
         }
         HirStmt::Assign {
-            name, value, ty, ..
+            name,
+            value,
+            ty,
+            release_previous,
+            ..
         } => {
             // The checker proved `name` is a `var` binding, so its slot is in
             // `locals`. There is no `?` to reach for here: this is the backend,
@@ -76,8 +80,22 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>)
             // mode for a case that cannot happen -- the alternative is a panic,
             // which the project forbids.
             let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
-            let value = gen_expr(ctx, value);
             let repr = repr_type(&ty.kind);
+            // Overwriting a linear binding discards the pointer that was there,
+            // so it is released first. `release_previous` is the checker's
+            // verdict on whether that pointer was still owned: after
+            // `dealloc(buf)` the slot still holds the address, but the address
+            // was already freed, so freeing it again here would be a double
+            // free. Only the checker knows the difference, which is why the
+            // flag is in the HIR rather than recomputed from the slot.
+            if *release_previous && repr != "void" {
+                if let Some(slot) = &slot {
+                    let old = ctx.tmp();
+                    ctx.push(format!("{old} = load {repr}, ptr {slot}"));
+                    ctx.push(format!("call void @otter_free(i8* {old})"));
+                }
+            }
+            let value = gen_expr(ctx, value);
             match slot {
                 Some(slot) if repr != "void" => {
                     ctx.push(format!("store {repr} {}, ptr {slot}", value.value));

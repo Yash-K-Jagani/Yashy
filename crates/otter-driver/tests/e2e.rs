@@ -605,3 +605,44 @@ fn check_reports_a_type_error_without_building() {
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr_of(&output).contains("error:"));
 }
+
+#[test]
+fn heap_ownership_survives_the_whole_pipeline() {
+    // alloc / move / dealloc / overwrite, compiled and run. This is the only
+    // test that proves the heap symbols resolve against the runtime that the
+    // driver actually links, and that a pointer can cross a function boundary
+    // in a real binary.
+    let output = build_and_run("memory");
+    assert_eq!(stdout_of(&output), "memory ok\n");
+}
+
+#[test]
+fn a_double_free_is_a_compile_error_with_a_caret() {
+    // Ownership is checked, not assumed: freeing the same binding twice never
+    // reaches the backend, so the runtime's `otter_free` cannot be handed the
+    // same address twice by a program this compiler accepted.
+    let dir = work_dir("double-free");
+    let source = dir.join("double_free.ot");
+    fs::write(
+        &source,
+        "fn main() {\n    var buf = alloc(16);\n    dealloc(buf);\n    dealloc(buf);\n}\n",
+    )
+    .expect("write double_free.ot");
+
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .output()
+        .expect("run the otter CLI");
+
+    assert_eq!(compile.status.code(), Some(1), "a double free is a compile error");
+    let stderr = stderr_of(&compile);
+    assert!(
+        stderr.contains("already been moved"),
+        "the diagnostic must explain that the binding was spent:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        "expected a caret underlining the second use:\n{stderr}"
+    );
+}

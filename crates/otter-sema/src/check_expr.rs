@@ -596,6 +596,14 @@ impl Checker {
                 // held before -- live or moved -- it owns something now. The
                 // source may not be a bare linear name without `move`, for the
                 // same reason as a declaration.
+                //
+                // Whether the old value still needs releasing is decided here,
+                // where the ownership state is still known: `release_previous`
+                // is true only when the slot holds a live allocation. A binding
+                // that was already moved (by `dealloc(buf)`, or by passing it to
+                // a function that takes `*mut i64`) is not released again.
+                let release_previous = matches!(linearity_of(&binding.ty.kind), Linearity::Linear)
+                    && matches!(binding.ownership, Ownership::Live);
                 self.forbid_linear_copy(value, &checked);
                 self.scope.rebind(&name);
 
@@ -603,6 +611,7 @@ impl Checker {
                     name,
                     value: checked,
                     ty: binding.ty,
+                    release_previous,
                     span: *span,
                 })
             }

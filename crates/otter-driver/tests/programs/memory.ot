@@ -1,0 +1,27 @@
+// The whole M3 heap surface, end to end: allocate, transfer ownership with
+// `move`, release, and overwrite a live binding.
+//
+// Nothing reads the allocated memory -- M3 has no indexing yet, so a pointer is
+// not yet a buffer -- and that is not the point. The program's job is to prove
+// that the runtime's heap symbols link, that a real allocation succeeds and is
+// released, and that every ownership transition the backend lowers is reachable
+// in a real binary.
+//
+// The overwrite of `reused` is the interesting line: the checker knows the
+// binding still owns a block there, so the backend releases it before storing
+// the new one. `big` is a megabyte-sized allocation, which fails if `alloc`
+// ever stopped scaling its element count by the element size.
+fn main() {
+    var buf = alloc(16);
+    var other = move buf;
+    dealloc(other);
+
+    var reused = alloc(8);
+    reused = alloc(32);
+    dealloc(reused);
+
+    var big = alloc(1000000);
+    dealloc(big);
+
+    print_str("memory ok\n");
+}

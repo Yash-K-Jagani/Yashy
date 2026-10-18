@@ -201,7 +201,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             op, lhs, rhs, span, ..
         } => gen_binary(ctx, *op, lhs, rhs, *span),
         HirExpr::Unary { op, operand, .. } => gen_unary(ctx, *op, operand),
-        HirExpr::Move(inner, _, _) => gen_expr(ctx, inner),
+        HirExpr::Move(inner, _, ty) => crate::memory::gen_move(ctx, inner, &ty.kind),
         HirExpr::Call {
             callee, args, ty, ..
         } => gen_call(ctx, callee, args, &ty.kind),
@@ -457,6 +457,11 @@ fn gen_unary(ctx: &mut FnCtx<'_>, op: UnOp, operand: &HirExpr) -> GenValue {
 fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeKind) -> GenValue {
     let name = callee.last().cloned().unwrap_or_default();
     match name.as_str() {
+        // `alloc` and `dealloc` are calls to the runtime's heap (ledger L1),
+        // not C functions with matching names: `alloc(n)` counts elements and
+        // the runtime counts bytes, so the shape changes here.
+        "alloc" => crate::memory::gen_alloc(ctx, args, ty),
+        "dealloc" => crate::memory::gen_dealloc(ctx, args),
         "print_i64" | "print_f64" | "print_str" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
             let arg_list: Vec<String> = lowered

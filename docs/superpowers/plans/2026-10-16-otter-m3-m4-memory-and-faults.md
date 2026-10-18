@@ -181,67 +181,52 @@ git commit -m "feat(sema): pointer types and linear ownership checking"
 
 **Files:**
 - Create: `crates/otter-codegen/src/memory.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs` (`move`, address-of)
-- Create: `crates/otter-codegen/tests/golden/memory.ot`, `tests/golden/memory.expected.ll`
+- Modify: `crates/otter-codegen/src/expr_gen.rs` (`alloc`/`dealloc` call sites, `move`)
+- Modify: `crates/otter-codegen/src/stmt_gen.rs` (release-on-overwrite), `module.rs` (declarations)
+- Modify: `crates/otter-sema/src/hir.rs`, `check_expr.rs` (`release_previous`)
+- Create: `crates/otter-codegen/tests/memory.rs`, `tests/golden/memory.ot`, `tests/golden/memory.expected.ll`
 
 **Interfaces:**
-- Consumes: `gen_expr_to_slot`, `FnCtx` from M0–M2 Task 11; ledger L1 M3 symbols
+- Consumes: `gen_expr`, `FnCtx` from M0–M2; ledger L1 M3 symbols
 - Produces:
-  - `pub fn gen_alloc(ctx: &mut FnCtx, size: i64, align: i64) -> String` — emits `%t = call i8* @otter_alloc(i64 <size>, i64 <align>)`
-  - `pub fn gen_dealloc(ctx: &mut FnCtx, ptr: &str) -> ()` — emits `call void @otter_free(i8* <ptr>)`
-  - `pub fn gen_move(ctx: &mut FnCtx, expr: &HirExpr) -> String` — evaluates the operand into a temp, stores the bits, and **poisons the source slot** by storing a null `i8*`, so a compiler bug cannot emit a use of a moved value
-  - `pub fn gen_addr_of_slot(ctx: &mut FnCtx, name: &str) -> Option<String>` — the slot address for a binding, `None` if moved
+  - `pub fn gen_alloc(ctx: &mut FnCtx, args: &[HirExpr], ret: &TypeKind) -> GenValue` — scales the element count by the element size and emits `%t = call i8* @otter_alloc(i64 <bytes>, i64 8)`. `alloc(n)` grows in *elements*: the result is a `*mut i64`, so `alloc(16)` is room for sixteen `i64`s.
+  - `pub fn gen_dealloc(ctx: &mut FnCtx, args: &[HirExpr]) -> GenValue` — emits `call void @otter_free(i8* <ptr>)` and produces `()`.
+  - `pub fn gen_move(ctx: &mut FnCtx, inner: &HirExpr, ty: &TypeKind) -> GenValue` — evaluates the operand as a read would, then **poisons the source slot** with a null `i8*` when the operand is a linear binding, so a backend bug cannot hand out a second copy of a pointer the program already gave away.
+  - `HirStmt::Assign { release_previous: bool, .. }` — set by the checker to true only when the overwritten binding still owned a value, so the backend releases the old pointer and never double-frees.
 
-- [ ] **Step 1: Write the failing tests**
+  The plan's original sketch had `gen_addr_of_slot(name) -> Option<String>` "the slot address for a binding, `None` if moved". It is not implemented, and it is not needed: poisoning already makes a stale slot load a null, and `AddressOf` does not exist in the language, so the function would have had no caller.
 
-```rust
-#[test]
-fn alloc_emits_a_call_to_otter_alloc_with_size_and_align() {
-    // "var buf = alloc(16);" -> IR contains "call i8* @otter_alloc(i64 16, i64 8)".
-}
+- [x] **Step 1: Write the failing tests**
 
-#[test]
-fn dealloc_emits_a_call_to_otter_free() { /* dealloc(buf) */ }
+`crates/otter-codegen/tests/memory.rs` — a body-lowering harness through `gen_block`, then
+`alloc_counts_elements_and_asks_for_i64_alignment`, `dealloc_is_one_call_and_no_value`,
+`move_poisons_the_source_slot`, `move_of_a_copy_value_does_not_poison`,
+`rebinding_a_live_linear_var_releases_the_old_pointer`,
+`rebinding_after_a_dealloc_does_not_free_the_same_pointer_twice`,
+`a_deallocated_slot_is_not_released_by_a_later_rebind`, and the `memory` golden.
 
-#[test]
-fn move_copies_bits_and_poisons_the_source() {
-    // "var b = alloc(16); var o = move b;" -> IR must contain a store of the
-    // pointer into o AND a store of null into b. This is Review Focus item 2.
-}
+- [x] **Step 2: Run to verify they fail**
 
-#[test]
-fn defer_dealloc_captures_the_pointer_at_registration() {
-    // "var b = alloc(16); defer { dealloc(b); }" -> the deferred call uses b's
-    // value, not a later rebinding of b.
-}
+Run: `cargo test -p otter-codegen --test memory` → FAIL — `memory` module missing.
 
-#[test]
-fn rebinding_a_var_releases_the_previous_pointer() {
-    // "var b = alloc(16); b = alloc(32);" -> a free of the first value appears
-    // before the second allocation.
-}
-```
+- [x] **Step 3: Implement `memory.rs`**
 
-- [ ] **Step 2: Run to verify they fail**
+Alignment is the `i64` layout (8) because `*mut i64` is M3's only pointer type. `gen_move` stores the value, then writes a null into the source slot: deliberate belt and braces, since the linearity checker has already made a second use an error.
 
-Run: `cargo test -p otter-codegen` → FAIL — `memory` module missing.
+- [x] **Step 4: Run to verify they pass**
 
-- [ ] **Step 3: Implement `memory.rs`**
+Run: `cargo test -p otter-codegen` → PASS (8 new tests).
 
-Default alignment is 8 for `i64`/`f64` and 1 for `*mut u8`; derive it from the pointee type. `gen_move` stores the value then writes a null into the source slot — this is a deliberate belt-and-braces measure, since the linearity checker should already have made a second use an error.
+- [x] **Step 5: Add and read the golden file**
 
-- [ ] **Step 4: Run to verify they pass**
+`memory.ot` exercises alloc, move, dealloc, and overwriting a live binding. Generated `memory.expected.ll` with `UPDATE_GOLDEN=1` and read it back: the null-poisoning store is present, and the overwrite of `second` loads and frees the old pointer before storing the new one — three frees for three allocations, and no free for the binding that was already released.
 
-Run: `cargo test -p otter-codegen` → PASS.
+  The plan's `defer_dealloc_captures_the_pointer_at_registration` test moved. `defer` does not exist yet (it arrives with M4's unwinding work, Task 10), so a `defer`-based test could not compile here; the release-on-overwrite tests cover the same "which pointer is freed" question with a construct the language has.
 
-- [ ] **Step 5: Add and read the golden file**
-
-Write `memory.ot` exercising alloc, defer-dealloc, move, and rebinding. Generate `memory.expected.ll` with `UPDATE_GOLDEN=1`, then **read it** and confirm the null-poisoning store is present and the deferred free uses the captured pointer.
-
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add crates/otter-codegen/
+git add crates/otter-codegen/ crates/otter-sema/ crates/otter-driver/
 git commit -m "feat(codegen): allocation, deallocation, and move lowering"
 ```
 
