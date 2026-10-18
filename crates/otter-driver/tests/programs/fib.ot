@@ -1,0 +1,18 @@
+// Fibonacci as recursion rather than a loop.
+//
+// The plan sketched an accumulating-loop version, but the implemented grammar
+// has no assignment statement: `var` declares a mutable binding and nothing can
+// write to it after that, so `a = b;` does not parse. Recursion expresses the
+// same computation with the constructs that do exist, and still exercises
+// arithmetic, comparison and self-call at the call boundary.
+fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    print_i64(fib(10));
+    print_str("\n");
+}

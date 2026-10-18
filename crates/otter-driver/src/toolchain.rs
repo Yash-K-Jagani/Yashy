@@ -66,9 +66,24 @@ where
 
     Err(format!(
         "no LLVM toolchain found: Otter needs `llc` or `clang` to turn IR into a binary. \
-         Set {LLC_ENV_VAR} to the executable, or put it on PATH. Tried: {}",
+         Set {LLC_ENV_VAR} to the executable, or put it on PATH. {} Tried: {}",
+        install_hint(),
         tried.join("; ")
     ))
+}
+
+/// How to get an LLVM toolchain on this platform.
+///
+/// A "not found" message that does not say what to install leaves the user to
+/// guess, which is the difference between a two-minute fix and giving up.
+fn install_hint() -> &'static str {
+    if cfg!(windows) {
+        "Install it with `winget install LLVM.LLVM`."
+    } else if cfg!(target_os = "macos") {
+        "Install it with `brew install llvm`."
+    } else {
+        "Install it with your package manager, e.g. `apt install llvm clang`."
+    }
 }
 
 /// The real probe: `OTTER_LLC` first for `llc`, then every directory on `PATH`.

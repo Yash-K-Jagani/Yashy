@@ -237,3 +237,61 @@ fn switch_on_a_non_enum_without_default_is_an_error() {
         "add a `default` arm",
     );
 }
+
+#[test]
+fn return_inside_an_if_yields_the_function_return_type() {
+    // Regression: nested blocks used to be checked against `()`, so any
+    // `return <value>` inside an `if` or a loop body was rejected with a
+    // nonsensical "expected `()`, found `i64`".
+    check_source("fn f(x: bool) -> i64 { if x { return 1; } return 0; }")
+        .0
+        .expect("a `return` inside an `if` yields the function's return type");
+}
+
+#[test]
+fn return_inside_an_else_yields_the_function_return_type() {
+    check_source("fn f(x: bool) -> i64 { if x { return 1; } else { return 2; } }")
+        .0
+        .expect("a `return` inside an `else` yields the function's return type");
+}
+
+#[test]
+fn return_inside_a_loop_body_yields_the_function_return_type() {
+    check_source("fn f() -> i64 { for i in 0..3 { return i; } return 0; }")
+        .0
+        .expect("a `return` inside a loop body yields the function's return type");
+    check_source("fn g() -> i64 { for i := 0; i < 3; print_i64(i) { return i; } return 0; }")
+        .0
+        .expect("and so does a `return` inside a C-style loop");
+}
+
+#[test]
+fn a_nested_return_still_has_to_match_the_return_type() {
+    assert_error(
+        "fn f(x: bool) -> i64 { if x { return \"s\"; } return 0; }",
+        "expected `i64`, found `string`",
+    );
+}
+
+#[test]
+fn an_unknown_type_name_in_a_signature_is_an_error() {
+    // Regression: signature types used to be resolved with
+    // `unwrap_or_else(|_| Never)`, so `double` (not a type in Otter) silently
+    // became a `void` parameter instead of a diagnostic.
+    assert_error(
+        "fn f(b: double) -> i64 { return 0; }",
+        "cannot find type `double`",
+    );
+    assert_error(
+        "fn g() -> double { return 0; }",
+        "cannot find type `double`",
+    );
+}
+
+#[test]
+fn an_unknown_type_name_in_a_struct_field_is_an_error() {
+    assert_error(
+        "struct S { w: double } fn f() -> i64 { return 0; }",
+        "cannot find type `double`",
+    );
+}

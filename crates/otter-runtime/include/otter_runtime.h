@@ -17,7 +17,8 @@
 extern "C" {
 #endif
 
-/* Writes the NUL-terminated string to stdout. Nothing else: no newline. */
+/* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
+ * newline, and no line-ending translation (see the note in runtime.c). */
 void otter_print_str(const char *s);
 
 /* Writes a decimal integer to stdout, no newline. */

@@ -1,0 +1,20 @@
+// Error propagation with `?`.
+//
+// `const` rather than the plan's `let`: `let` is not a keyword in Otter (spec
+// 3.2 keeps `const` and `var`, and rejects a third synonym on purpose).
+fn inner() -> Result[i64, string] {
+    return Ok(7);
+}
+
+fn outer() -> Result[i64, string] {
+    const v = inner()?;
+    return Ok(v);
+}
+
+fn main() {
+    switch outer() {
+        case Ok(v) { print_i64(v) }
+        case Err(e) { print_i64(0) }
+    }
+    print_str("\n");
+}

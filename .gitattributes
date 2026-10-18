@@ -11,3 +11,8 @@
 **/tests/golden/*.ot        text eol=lf
 **/tests/golden/*.expected text eol=lf
 **/tests/golden/*.expected.ll text eol=lf
+
+# The end-to-end programs are compiled and their output compared as bytes. A
+# checkout that rewrote their line endings would still compile, but the pinned
+# expected stdout in `e2e.rs` would no longer describe the same program.
+**/tests/programs/*.ot      text eol=lf

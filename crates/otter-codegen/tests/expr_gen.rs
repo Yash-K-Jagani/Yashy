@@ -152,7 +152,12 @@ fn match_on_option_tests_the_tag_then_loads_the_payload() {
         ir_text.contains("icmp eq i8"),
         "expected a tag comparison:\n{ir_text}"
     );
-    assert!(ir_text.contains(", i8 1"), "tag for Some is 1:\n{ir_text}");
+    assert!(
+        ir_text
+            .lines()
+            .any(|line| line.contains("icmp eq i8") && line.trim_end().ends_with(", 1")),
+        "tag for Some is 1:\n{ir_text}"
+    );
     // The payload is extracted and stored into the binding's slot.
     assert!(
         ir_text.contains("extractvalue { i8, i64 }"),
@@ -170,7 +175,12 @@ fn match_on_result_distinguishes_ok_and_err() {
         "fn f(r: Result[i64, string]) -> i64 { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
     );
     // Ok is tag 0 and its payload is field 1.
-    assert!(ir_text.contains(", i8 0"), "tag for Ok is 0:\n{ir_text}");
+    assert!(
+        ir_text
+            .lines()
+            .any(|line| line.contains("icmp eq i8") && line.trim_end().ends_with(", 0")),
+        "tag for Ok is 0:\n{ir_text}"
+    );
     let extracts: Vec<&str> = ir_text
         .lines()
         .filter(|l| l.contains("extractvalue") && l.contains("i8, i64, i8*"))
@@ -189,6 +199,27 @@ fn match_on_result_distinguishes_ok_and_err() {
         ir_text.matches("store i64").count() >= 2,
         "expected both arms to store payloads:\n{ir_text}"
     );
+}
+
+#[test]
+fn comparisons_use_untyped_constants() {
+    // Modern LLVM removed typed constants: `icmp eq i8 %t, i8 1` is a parse
+    // error ("expected value token"), not a style preference. Every comparison
+    // this backend emits must end in a bare value.
+    let ir_text = gen_return(
+        "fn f(o: Option[i64]) -> i64 { return switch o { case Some(x) { x } case None { 0 } }; }",
+    );
+    for line in ir_text
+        .lines()
+        .filter(|line| line.contains("icmp ") || line.contains("fcmp "))
+    {
+        for typed in [", i8 ", ", i64 ", ", double ", ", i1 "] {
+            assert!(
+                !line.contains(typed),
+                "comparison operand carries a type (`{typed}`): `{line}`\n{ir_text}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -244,13 +275,20 @@ fn read_lf_only(path: &Path) -> String {
     out
 }
 
-/// Replace the host-specific `target triple` line with a placeholder so the
-/// golden file is identical on Windows (MSVC) and Linux (GNU).
-fn normalize_triple(ir: &str) -> String {
+/// Replace the host-specific `target datalayout` and `target triple` lines with
+/// placeholders.
+///
+/// Those two lines describe the machine, not the compiler: the triple follows
+/// the Rust toolchain's environment (MSVC or GNU) and the datalayout's mangling
+/// character follows the triple. Masking them keeps one golden file valid on
+/// every host while everything the backend actually decides stays pinned.
+fn normalize_host_header(ir: &str) -> String {
     ir.lines()
         .map(|line| {
             if line.starts_with("target triple =") {
                 "target triple = \"<host>\""
+            } else if line.starts_with("target datalayout =") {
+                "target datalayout = \"<host>\""
             } else {
                 line
             }
@@ -263,14 +301,14 @@ fn normalize_triple(ir: &str) -> String {
 #[test]
 fn golden_ops_match_the_pinned_contract() {
     let input = read_lf_only(&golden_dir().join("ops.ot"));
-    let actual = normalize_triple(&gen_body(&input));
+    let actual = normalize_host_header(&gen_body(&input));
     let expected_path = golden_dir().join("ops.expected.ll");
     if updating_goldens() {
         fs::write(&expected_path, &actual)
             .unwrap_or_else(|e| panic!("cannot write {}: {e}", expected_path.display()));
         return;
     }
-    let expected = normalize_triple(&read_lf_only(&expected_path));
+    let expected = normalize_host_header(&read_lf_only(&expected_path));
     assert_eq!(
         actual, expected,
         "generated IR drifted from the pinned contract; \

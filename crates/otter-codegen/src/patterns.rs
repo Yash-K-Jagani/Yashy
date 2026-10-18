@@ -94,7 +94,9 @@ pub fn gen_match(
             subject.value
         ));
         let is_match = ctx.tmp();
-        ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, i8 {tag}"));
+        // The compared operand is a bare integer: modern LLVM has no typed
+        // constants, so `i8 0` here is a parse error ("expected value token").
+        ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, {tag}"));
 
         let next = next_test(&tests, index)
             .map(|next| test_labels[next].clone())

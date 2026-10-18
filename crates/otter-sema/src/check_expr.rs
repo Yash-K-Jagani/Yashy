@@ -392,11 +392,12 @@ impl Checker {
         }
     }
 
-    fn check_block(&mut self, block: &Block) -> Option<HirBlock> {
-        self.check_block_with_ret(block, &prim(TypeKind::Unit))
-    }
-
     /// Check a block in which `return` must yield `ret`.
+    ///
+    /// Every block in a function body — the body itself, an `if` arm, a loop
+    /// body, a `defer` body — is checked with the *function's* return type, so
+    /// threading `ret` down is what lets a `return` nested inside them mean
+    /// what it says.
     fn check_block_with_ret(&mut self, block: &Block, ret: &Type) -> Option<HirBlock> {
         self.scope.push();
         let mut stmts = Vec::new();
@@ -522,8 +523,14 @@ impl Checker {
                         format!("expected `bool`, found `{}`", expr_ty(&cond_expr)),
                     );
                 }
-                let then_block = self.check_block(then_block)?;
-                let else_block = else_block.as_ref().and_then(|b| self.check_block(b));
+                // Nested blocks belong to the same function, so `return` inside
+                // them must still yield the *function's* return type. Checking
+                // them against `()` rejected every `return` inside an `if` or a
+                // loop body with a bogus "expected `()`, found `i64`".
+                let then_block = self.check_block_with_ret(then_block, ret)?;
+                let else_block = else_block
+                    .as_ref()
+                    .and_then(|b| self.check_block_with_ret(b, ret));
                 Some(HirStmt::If {
                     init,
                     cond: cond_expr,
@@ -562,7 +569,7 @@ impl Checker {
                         span: *span,
                     },
                 );
-                let body = self.check_block(body)?;
+                let body = self.check_block_with_ret(body, ret)?;
                 self.scope.pop();
                 Some(HirStmt::ForRange {
                     name: name.clone(),
@@ -593,7 +600,7 @@ impl Checker {
                     }
                 }
                 let update_expr = update.as_ref().and_then(|u| self.check_expr(u));
-                let body = self.check_block(body)?;
+                let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::ForC {
                     init,
                     cond: cond_expr,
@@ -610,7 +617,7 @@ impl Checker {
             Stmt::Break(span) => Some(HirStmt::Break(*span)),
             Stmt::Continue(span) => Some(HirStmt::Continue(*span)),
             Stmt::Defer { body, span } => {
-                let body = self.check_block(body)?;
+                let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::Defer { body, span: *span })
             }
         }

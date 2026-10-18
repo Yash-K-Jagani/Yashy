@@ -21,6 +21,7 @@ pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use fn_gen::{fn_return_repr, gen_fn};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::Module;
+pub use module::host_target_triple;
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_defers, Flow};
 

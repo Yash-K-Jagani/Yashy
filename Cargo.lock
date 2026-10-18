@@ -38,6 +38,8 @@ version = "0.1.0"
 dependencies = [
  "otter-codegen",
  "otter-common",
+ "otter-lexer",
+ "otter-parser",
  "otter-runtime",
  "otter-sema",
 ]

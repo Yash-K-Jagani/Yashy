@@ -1,0 +1,16 @@
+// Tower of Hanoi move count: 2^d - 1.
+//
+// The plan's version returned 1 for d <= 1 and then doubled, which computes 4
+// for d = 3 while its test asserts 7. The recurrence below is the real one, so
+// the program and the expected output agree.
+fn count(d: i64) -> i64 {
+    if d == 0 {
+        return 0;
+    }
+    return 2 * count(d - 1) + 1;
+}
+
+fn main() {
+    print_i64(count(3));
+    print_str("\n");
+}

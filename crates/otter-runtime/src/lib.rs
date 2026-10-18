@@ -19,6 +19,25 @@
 
 use std::ffi::{c_char, c_double, c_longlong};
 
+/// The runtime's C source, embedded so the driver can hand it to the linker
+/// without knowing where this crate was built.
+///
+/// The driver links freshly generated IR, not a Rust binary, so it cannot rely
+/// on `cargo`'s link line. Embedding the text means the runtime a compiled
+/// Otter program links against is exactly the one the print tests exercise,
+/// with no library search path to get wrong and no stale archive to be tricked
+/// by.
+pub const RUNTIME_C_SOURCE: &str = include_str!("../runtime.c");
+
+/// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
+pub const RUNTIME_HEADER: &str = include_str!("../include/otter_runtime.h");
+
+/// The header's file name, which `runtime.c`'s `#include` has to match.
+pub const RUNTIME_HEADER_NAME: &str = "otter_runtime.h";
+
+/// The source file's file name, used when the driver writes it to disk.
+pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";
+
 // The IR says `i64`. If a target ever gave `long long` a different width, the
 // generated IR and the compiled runtime would disagree silently, so refuse to
 // build instead.

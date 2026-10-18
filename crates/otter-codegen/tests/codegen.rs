@@ -38,11 +38,9 @@ fn finish_emits_the_opaque_pointer_header() {
         ir.contains("declare void @otter_print_str(i8*)"),
         "the print symbols must return void per ledger L1:\n{ir}"
     );
-    let triple = if cfg!(target_os = "windows") {
-        "x86_64-pc-windows-msvc"
-    } else {
-        "x86_64-unknown-linux-gnu"
-    };
+    // The triple follows the LLVM target the *driver* will pass to `clang`, so
+    // assert against that one function rather than a second copy of the rule.
+    let triple = otter_codegen::host_target_triple();
     assert!(
         ir.contains(&format!("target triple = \"{triple}\"")),
         "wrong target triple for this host:\n{ir}"

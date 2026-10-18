@@ -1,0 +1,16 @@
+// Matching on `Option` and returning the payload.
+//
+// The `switch` is in *expression* position (`return switch ...`), which is what
+// makes the arm bodies produce a value. A bare `switch` statement evaluates its
+// arms for effect and discards them.
+fn unwrap_or_zero(o: Option[i64]) -> i64 {
+    return switch o {
+        case None { 0 }
+        case Some(v) { v }
+    };
+}
+
+fn main() {
+    print_i64(unwrap_or_zero(Some(42)));
+    print_str("\n");
+}

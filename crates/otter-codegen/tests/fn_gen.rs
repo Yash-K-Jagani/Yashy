@@ -239,13 +239,15 @@ fn read_lf_only(path: &Path) -> String {
     out
 }
 
-/// Replace the host-specific `target triple` line with a placeholder so the
-/// golden file is identical on Windows (MSVC) and Linux (GNU).
-fn normalize_triple(ir: &str) -> String {
+/// Replace the host-specific `target datalayout` and `target triple` lines with
+/// placeholders, so one golden file is valid on MSVC, GNU/Windows and Linux.
+fn normalize_host_header(ir: &str) -> String {
     ir.lines()
         .map(|line| {
             if line.starts_with("target triple =") {
                 "target triple = \"<host>\""
+            } else if line.starts_with("target datalayout =") {
+                "target datalayout = \"<host>\""
             } else {
                 line
             }
@@ -258,14 +260,14 @@ fn normalize_triple(ir: &str) -> String {
 #[test]
 fn golden_control_flow_matches_the_pinned_contract() {
     let input = read_lf_only(&golden_dir().join("control_flow.ot"));
-    let actual = normalize_triple(&ir_of(&input));
+    let actual = normalize_host_header(&ir_of(&input));
     let expected_path = golden_dir().join("control_flow.expected.ll");
     if updating_goldens() {
         fs::write(&expected_path, &actual)
             .unwrap_or_else(|e| panic!("cannot write {}: {e}", expected_path.display()));
         return;
     }
-    let expected = normalize_triple(&read_lf_only(&expected_path));
+    let expected = normalize_host_header(&read_lf_only(&expected_path));
     assert_eq!(
         actual, expected,
         "generated IR drifted from the pinned contract; \
