@@ -28,31 +28,43 @@
 **Files:**
 - Create: `crates/otter-runtime/runtime.c` (extend), `crates/otter-runtime/include/otter_runtime.h` (extend)
 - Modify: `crates/otter-runtime/build.rs`
-- Create: `crates/otter-runtime/tests/memory.c` (a C test main, run via `cargo test`)
+- Create: `crates/otter-runtime/tests/memory.rs` (Rust tests calling the linked C symbols)
 
 **Interfaces:**
 - Consumes: M0–M2 runtime build
 - Produces: the M3 half of ledger L1 — `otter_alloc`, `otter_free`, `otter_arena_new`, `otter_arena_alloc`, `otter_arena_free_all`
 
-- [ ] **Step 1: Write the failing C test**
+- [x] **Step 1: Write the failing tests**
 
-`crates/otter-runtime/tests/memory.c`: allocate 1 MiB, write a byte at both ends, free it, exit 0. Allocate 1000 blocks in an arena, verify all are writable, call `otter_arena_free_all`, exit 0. Run it via a `#[test]` that shells out to a compiled binary.
+`crates/otter-runtime/tests/memory.rs`: allocate 1 MiB, write a byte at both ends, read them back, free. Assert every allocation respects its requested alignment (and that a non-power-of-two request falls back instead of handing back a misaligned block). Allocate 1000 blocks of mixed sizes in an arena, write a distinct pattern into each, verify all patterns survive (proving the blocks are independent and writable), then `otter_arena_free_all`. Assert `otter_free(null)` and `otter_arena_free_all(null)` are no-ops, and that an arena is reusable after `free_all`.
 
-- [ ] **Step 2: Run it to verify it fails**
+> **Deviation from the plan as written:** the plan called for a compiled C `main` shelled out to from a `#[test]`. The tests are ordinary Rust tests that reach the same C symbols through `otter-runtime`'s `extern` block — the same approach `tests/print.rs` already uses. They prove the static library from `build.rs` is linked while needing no extra compiler invocation and no child process.
 
-Run: `cargo test -p otter-runtime`
-Expected: FAIL — the symbols do not exist.
 
-- [ ] **Step 3: Implement the primitives**
-
-`otter_alloc(size, align)` is `aligned_alloc` with a size rounded up to the alignment, zero-filling nothing — Otter is uninitialised-memory safe by explicit initialisation, and `defer` exists. `otter_free` is `free`. `otter_arena_new` mallocs a header holding a first-fit block list; `otter_arena_alloc` bumps within the current block and links a new block when full; `otter_arena_free_all` frees every block and the header. Never free individual arena allocations.
-
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cargo test -p otter-runtime`
-Expected: PASS.
+Expected: FAIL — the symbols do not exist. (Observed as a compile error in the test
+crate, which is the same signal: the declarations have nothing to bind to.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement the primitives**
+
+`otter_alloc(size, align)` over-allocates by one pointer plus `align - 1` bytes
+and stashes `malloc`'s address in the word before the aligned block, so there is
+one allocator and one free path on every platform — no `aligned_alloc` /
+`_aligned_malloc` pair to mix up. It does not zero-fill: Otter has no zero-fill
+guarantee, and `defer` exists. `otter_free` walks back to the stash and tolerates
+NULL. `otter_arena_new` mallocs a header; `otter_arena_alloc` bumps within the
+current 64 KiB block and links a new — possibly larger — block when full;
+`otter_arena_free_all` frees every block and empties the header. Individual arena
+allocations are never freed.
+
+- [x] **Step 4: Run it to verify it passes**
+
+Run: `cargo test -p otter-runtime` → PASS (9 memory tests, plus the existing print
+tests).
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-runtime/

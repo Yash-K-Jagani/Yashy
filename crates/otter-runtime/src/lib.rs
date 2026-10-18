@@ -17,7 +17,7 @@
 //! None of them writes a newline. A program prints one explicitly, as the
 //! `print_str("\n")` calls in the plan's examples do.
 
-use std::ffi::{c_char, c_double, c_longlong};
+use std::ffi::{c_char, c_double, c_longlong, c_void};
 
 /// The runtime's C source, embedded so the driver can hand it to the linker
 /// without knowing where this crate was built.
@@ -59,4 +59,34 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Writes a double with `%.17g`, no newline — enough digits to round-trip.
     pub fn otter_print_f64(value: c_double);
+}
+
+// The memory half of the contract. The generated IR calls these by name; these
+// declarations are what lets Rust tests exercise the same linked code.
+
+unsafe extern "C" {
+    /// Allocates `size` bytes aligned to `align`, or returns null. The bytes are
+    /// uninitialised. Free the result with [`otter_free`] exactly once.
+    pub fn otter_alloc(size: c_longlong, align: c_longlong) -> *mut c_void;
+}
+
+unsafe extern "C" {
+    /// Releases a block from [`otter_alloc`]. Tolerates null.
+    pub fn otter_free(ptr: *mut c_void);
+}
+
+unsafe extern "C" {
+    /// Creates an arena. Free it with [`otter_arena_free_all`]; individual
+    /// allocations from it are never freed one at a time.
+    pub fn otter_arena_new() -> *mut c_void;
+}
+
+unsafe extern "C" {
+    /// Hands out `size` bytes aligned to `align` from `arena`, or returns null.
+    pub fn otter_arena_alloc(arena: *mut c_void, size: c_longlong, align: c_longlong) -> *mut c_void;
+}
+
+unsafe extern "C" {
+    /// Releases every block in `arena` and the arena header. Tolerates null.
+    pub fn otter_arena_free_all(arena: *mut c_void);
 }
