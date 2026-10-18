@@ -65,6 +65,30 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>)
                 .insert(name.clone(), (slot, expr_ty(init).kind.clone()));
             Flow::Fallthrough
         }
+        HirStmt::Assign {
+            name, value, ty, ..
+        } => {
+            // The checker proved `name` is a `var` binding, so its slot is in
+            // `locals`. There is no `?` to reach for here: this is the backend,
+            // which never fails on user input, and a name with no slot would be
+            // a compiler bug rather than a bad program. Skipping the store
+            // leaves valid IR and a wrong value, which is the right failure
+            // mode for a case that cannot happen -- the alternative is a panic,
+            // which the project forbids.
+            let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
+            let value = gen_expr(ctx, value);
+            let repr = repr_type(&ty.kind);
+            match slot {
+                Some(slot) if repr != "void" => {
+                    ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
+                }
+                Some(_) => {}
+                None => ctx.push(format!(
+                    "; note: no slot for `{name}`, which the checker said was assignable"
+                )),
+            }
+            Flow::Fallthrough
+        }
         HirStmt::Return(value, _) => {
             // Defers for this scope run before the block is terminated, so
             // they execute on the way out, not when the `defer` was reached.

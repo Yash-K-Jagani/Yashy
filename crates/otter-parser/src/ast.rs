@@ -261,6 +261,32 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
+    /// `x = expr;` -- assigning to a binding that already exists.
+    ///
+    /// Only a `var` binding in scope may be assigned; assigning a `const` is a
+    /// diagnostic, and so is assigning a name that is not declared. Those are
+    /// the *checker's* rules, which is why the target is an `Expr` and not a
+    /// name: the parser accepts any expression the expression grammar can
+    /// already produce and leaves to the checker the question of whether that
+    /// expression names something assignable.
+    ///
+    /// That choice is what keeps this statement from having to be invented
+    /// again. The day Otter has struct fields and subscripts to assign to, `s.x
+    /// = 1` and `a[i] = 1` are new shapes of *target* -- one match arm each in
+    /// the checker and a new way to compute an address in code generation --
+    /// rather than new statements threaded through both.
+    ///
+    /// Assignment is a statement, not an expression, so it has no value and
+    /// cannot appear as a subexpression. `x = y = 1` is not in the language,
+    /// and neither is `f(x = 1)`.
+    Assign {
+        /// The expression being assigned to. Only certain shapes are
+        /// assignable, and the checker is what says which.
+        target: Expr,
+        /// What is stored.
+        value: Expr,
+        span: Span,
+    },
     /// `return;` or `return expr;`.
     Return(Option<Expr>, Span),
     /// `if cond { .. } else { .. }`, or with a condition binding:
@@ -301,11 +327,20 @@ pub enum Stmt {
         body: Block,
         span: Span,
     },
-    /// `for i := 0; i < 10; i = i + 1 { .. }`
+    /// `for i := 0; i < 10; step(i) { .. }`
     ///
     /// Each of the three parts is optional -- `for ;; { .. }` is legal -- so
     /// each is an `Option`, and `init` is boxed because a statement is already
     /// a large enum.
+    ///
+    /// `update` is an **expression**, so it cannot be an assignment: `i = i + 1`
+    /// in that slot does not parse. A C-style loop therefore cannot advance a
+    /// counter, and the accumulating loop this language has is
+    /// `for i in 0..n { total = total + i; }` -- a [`Stmt::Assign`] in the body.
+    /// Two things would make the C form useful and neither is in the grammar:
+    /// widening `update` to a statement, and letting `:=` in a loop head bind a
+    /// `var` (today it is a [`Stmt::Const`], so the binding it would assign to
+    /// is immutable even once `update` could assign).
     ForC {
         init: Option<Box<Stmt>>,
         cond: Option<Expr>,

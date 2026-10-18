@@ -401,7 +401,15 @@ fn collect_callee(expr: &Expr, out: &mut Vec<String>) -> bool {
     }
 }
 
-pub(crate) fn expr_span(expr: &Expr) -> Span {
+/// The span of `expr` as it was written.
+///
+/// Public because the span of an expression node is not recoverable from the
+/// outside: every `Expr` variant carries its own span, in a different field
+/// position, so a caller that has an `Expr` and needs to point a diagnostic at
+/// it -- the type checker does, for an assignment target it refuses -- would
+/// otherwise have to re-list every variant and drift out of step the next time
+/// one is added.
+pub fn expr_span(expr: &Expr) -> Span {
     match expr {
         Expr::Literal(_, s) => *s,
         Expr::Ident(_, s) => *s,

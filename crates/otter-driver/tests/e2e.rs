@@ -88,8 +88,9 @@ fn hello_world_prints_and_exits_zero() {
 
 #[test]
 fn fibonacci_prints_the_tenth_number() {
-    // 55, the tenth Fibonacci number. Recursion rather than a loop: Otter has
-    // no assignment statement for a loop body to accumulate into (see fib.ot).
+    // 55, the tenth Fibonacci number, from an accumulating loop: this is the
+    // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a
+    // binding (see fib.ot).
     let output = build_and_run("fib");
     assert_eq!(stdout_of(&output), "55\n");
 }

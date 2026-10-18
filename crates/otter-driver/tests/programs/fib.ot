@@ -1,15 +1,25 @@
-// Fibonacci as recursion rather than a loop.
+// Fibonacci as an accumulating loop.
 //
-// The plan sketched an accumulating-loop version, but the implemented grammar
-// has no assignment statement: `var` declares a mutable binding and nothing can
-// write to it after that, so `a = b;` does not parse. Recursion expresses the
-// same computation with the constructs that do exist, and still exercises
-// arithmetic, comparison and self-call at the call boundary.
+// This is the shape the plan sketched, and the language could not express it
+// until `x = expr;` existed: a binding could be declared `var` and never written
+// to afterwards, so a loop body had nothing to accumulate into and the sample
+// had to be recursive instead.
+//
+// `next` is declared before the loop rather than inside it deliberately. A
+// binding declared in the body gets a fresh stack slot on every iteration, and
+// that slot is not released until the function returns, so a long loop would
+// grow the stack a slot at a time. Declaring the slot once and storing into it
+// is both the cheaper IR and the whole point of the statement.
 fn fib(n: i64) -> i64 {
-    if n < 2 {
-        return n;
+    var a = 0;
+    var b = 1;
+    var next = 0;
+    for step in 0..n {
+        next = a + b;
+        a = b;
+        b = next;
     }
-    return fib(n - 1) + fib(n - 2);
+    return a;
 }
 
 fn main() {

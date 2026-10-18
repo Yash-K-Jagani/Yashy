@@ -487,6 +487,56 @@ impl Checker {
                     span: *span,
                 })
             }
+            Stmt::Assign {
+                target,
+                value,
+                span,
+            } => {
+                // The parser left the target an expression on purpose, so the
+                // question "what may be assigned to?" is answered here. Today
+                // one shape is assignable: a name bound by `var` in a scope that
+                // encloses this statement. Fields and subscripts become further
+                // arms in this match the day they exist.
+                let name = match target {
+                    Expr::Ident(path, _) => path.last().cloned().unwrap_or_default(),
+                    other => {
+                        // Check the value first: a bad value is worth reporting
+                        // in the same pass as a bad target.
+                        let _ = self.check_expr(value);
+                        let span = otter_parser::exprs::expr_span(other);
+                        self.error(span, "only a `var` binding can be assigned");
+                        return None;
+                    }
+                };
+
+                let Some(binding) = self.scope.resolve(&name).cloned() else {
+                    let _ = self.check_expr(value);
+                    let span = otter_parser::exprs::expr_span(target);
+                    self.error(span, format!("cannot find value `{name}` in this scope"));
+                    return None;
+                };
+
+                if !binding.mutability.is_mutable() {
+                    let span = otter_parser::exprs::expr_span(target);
+                    self.error(span, format!("cannot assign to `{name}`, which is immutable"));
+                }
+
+                let checked = self.check_expr_with_expected(value, &binding.ty)?;
+                let found = expr_ty(&checked);
+                if !binding.ty.eq_ignoring_span(&found) {
+                    self.error(
+                        expr_span(&checked),
+                        format!("expected `{}`, found `{found}`", binding.ty),
+                    );
+                }
+
+                Some(HirStmt::Assign {
+                    name,
+                    value: checked,
+                    ty: binding.ty,
+                    span: *span,
+                })
+            }
             Stmt::Return(expr, span) => match expr {
                 Some(e) => {
                     let checked = self.check_expr_with_expected(e, ret)?;

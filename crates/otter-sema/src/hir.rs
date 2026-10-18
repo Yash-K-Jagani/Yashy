@@ -130,6 +130,23 @@ pub enum HirStmt {
         mutability: Mutability,
         span: Span,
     },
+    /// `x = value;`.
+    ///
+    /// The target is gone by now: the checker proved it named a `var` binding,
+    /// so what is left is the name to store through and the type of the slot.
+    /// Carrying the name rather than the `HirExpr` is deliberate -- it makes it
+    /// unrepresentable in HIR to assign to something the checker did not
+    /// approve, so code generation has no case to write for a bad target. When
+    /// fields and subscripts become assignable, the target reappears here as a
+    /// shape the checker has already validated.
+    Assign {
+        name: String,
+        value: HirExpr,
+        /// The binding's declared type, so code generation stores the right
+        /// width without looking the name up again.
+        ty: Type,
+        span: Span,
+    },
     Return(Option<HirExpr>, Span),
     If {
         init: Option<Box<HirStmt>>,

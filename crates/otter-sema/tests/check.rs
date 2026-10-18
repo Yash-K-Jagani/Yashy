@@ -295,3 +295,67 @@ fn an_unknown_type_name_in_a_struct_field_is_an_error() {
         "cannot find type `double`",
     );
 }
+
+// -- assignment -------------------------------------------------------------
+
+#[test]
+fn assigning_a_var_binding_is_legal() {
+    check_source("fn main() { var x = 1; x = 2; }")
+        .0
+        .expect("a `var` binding exists to be assigned to");
+}
+
+#[test]
+fn assigning_a_const_is_an_error() {
+    // The whole point of having two binding forms is that one of them refuses
+    // assignment. A `const` that accepts it is a `var` with extra steps.
+    assert_error(
+        "fn main() { const x = 1; x = 2; }",
+        "cannot assign to `x`, which is immutable",
+    );
+}
+
+#[test]
+fn assigning_an_undeclared_name_is_an_error() {
+    // Same wording as reading an undeclared name: one situation, one message.
+    assert_error("fn main() { x = 2; }", "cannot find value `x` in this scope");
+}
+
+#[test]
+fn the_assigned_value_must_match_the_binding_type() {
+    assert_error(
+        "fn main() { var x = 1; x = 2.0; }",
+        "expected `i64`, found `f64`",
+    );
+}
+
+#[test]
+fn only_a_var_binding_can_be_assigned() {
+    // The parser builds the target as an expression and lets the checker decide
+    // what is assignable, so this is where the decision is made.
+    assert_error("fn main() { 1 = 2; }", "only a `var` binding can be assigned");
+}
+
+#[test]
+fn assignment_resolves_the_innermost_binding() {
+    // `x` inside the `if` is a different binding from `x` outside it. If the
+    // checker resolved the wrong one, one of these two assignments would be
+    // judged against the other's type: the inner `x` is an `f64` and the outer
+    // one an `i64`, so a mixed-up lookup cannot pass both.
+    check_source(
+        "fn main() { var x = 1; if true { var x = 2.0; x = 3.0; } x = 4; }",
+    )
+    .0
+    .expect("each assignment must be judged against the binding it names");
+}
+
+#[test]
+fn an_assignment_is_not_a_binding() {
+    // Assignment adds no name to the scope, so assigning to a name that was
+    // only ever assigned to is still an error -- otherwise `x = 1;` would
+    // silently declare `x`.
+    assert_error(
+        "fn main() { x = 1; x = 2; }",
+        "cannot find value `x` in this scope",
+    );
+}

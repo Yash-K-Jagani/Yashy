@@ -213,6 +213,71 @@ fn parameters_are_spilled_into_entry_block_slots() {
     );
 }
 
+// --- assignment --------------------------------------------------------------
+
+#[test]
+fn assignment_stores_into_the_bindings_own_slot() {
+    let ir_text = ir_of("fn f() { var x = 1; x = 2; }");
+    let stores: Vec<&str> = ir_text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("store i64"))
+        .collect();
+    assert_eq!(
+        stores.len(),
+        2,
+        "declaring and assigning are two stores:\n{ir_text}"
+    );
+    // Both stores must go to the same address. An assignment that wrote to a
+    // fresh slot would leave `x` reading its old value, and the IR would still
+    // look perfectly reasonable line by line.
+    let target = |line: &str| line.split("ptr ").nth(1).unwrap_or_default().to_string();
+    assert_eq!(
+        target(stores[0]),
+        target(stores[1]),
+        "the assignment must overwrite the binding's slot:\n{ir_text}"
+    );
+}
+
+#[test]
+fn assignment_inside_a_loop_body_accumulates() {
+    // The reason the statement exists: a loop body that keeps a running total.
+    let ir_text = ir_of(
+        "fn f() -> i64 { var sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
+    );
+    assert!(
+        ir_text.contains("add i64"),
+        "expected the accumulation to be computed:\n{ir_text}"
+    );
+    // `return sum` must read the slot the loop body wrote, not a fresh value.
+    assert!(
+        ir_text.lines().any(|l| l.contains("load i64")),
+        "expected the total to be read back out of its slot:\n{ir_text}"
+    );
+    let stores: usize = ir_text.matches("store i64").count();
+    assert!(
+        stores >= 3,
+        "declaration, the parameter spill and the loop-body assignment are all stores:\n{ir_text}"
+    );
+}
+
+#[test]
+fn assigning_other_reprs_stores_their_width() {
+    // The store's type comes from the binding, not from the value: a store of
+    // the wrong width writes over the neighbouring slot.
+    let bools = ir_of("fn f() { var b = true; b = false; }");
+    assert_eq!(
+        bools.matches("store i1").count(),
+        2,
+        "a bool binding is an i1 slot:\n{bools}"
+    );
+    let floats = ir_of("fn f() { var d = 1.0; d = 2.0; }");
+    assert_eq!(
+        floats.matches("store double").count(),
+        2,
+        "an f64 binding is a double slot:\n{floats}"
+    );
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {

@@ -118,8 +118,28 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("field access with no field", "fn main() { const x = x.; }".to_string()),
         ("call with no callee", "fn main() { (1); }".to_string()),
         (
-            "assignment, which the grammar does not have",
-            "fn main() { var x = 1; x = 2; }".to_string(),
+            "assignment to an undeclared name",
+            "fn main() { x = 1; }".to_string(),
+        ),
+        (
+            "assignment to a const",
+            "fn main() { const x = 1; x = 2; }".to_string(),
+        ),
+        (
+            "assignment with a literal target",
+            "fn main() { 1 = 2; }".to_string(),
+        ),
+        (
+            "assignment with no value",
+            "fn main() { var x = 1; x = ; }".to_string(),
+        ),
+        (
+            "assignment with no target",
+            "fn main() { = 1; }".to_string(),
+        ),
+        (
+            "chained assignment, which is not an expression",
+            "fn main() { var x = 1; var y = 2; x = y = 3; }".to_string(),
         ),
         (
             "let, which is not a keyword",
@@ -315,6 +335,7 @@ const TEMPLATES: &[&str] = &[
     "enum E { A, B(i64) } fn f(e: E) -> i64 { return switch e { case A { 0 } case B(v) { v } }; }\n",
     "struct S { x: i64, y: f64 } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
     "fn f() { defer { print_i64(1); } for i in 0..3 { print_i64(i); } }\n",
+    "fn f() { var sum = 0; for i in 0..3 { sum = sum + i; } }\n",
     "fn f(x: bool) { if x { break; } }\n",
     "fn f() -> Result[i64, string] { return Err(\"no\"); }\n",
     "import std.io;\nextern \"C\" { fn puts(s: string) -> i64; }\n",

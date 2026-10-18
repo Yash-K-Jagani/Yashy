@@ -1141,7 +1141,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["Const", "name", "ty", "init", "span"],
             &[
                 "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
-                "Binary", "Call",
+                "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1155,6 +1155,19 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["Var", "name", "ty", "init", "span"],
             &[
                 "Const", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Defer", "Assign", "Binary", "Call",
+            ],
+        ),
+        case(
+            "Stmt::Assign",
+            Stmt::Assign {
+                target: Expr::Ident(vec!["x".to_string()], here()),
+                value: int(2, here()),
+                span: here(),
+            },
+            &["Assign", "target", "value", "span"],
+            &[
+                "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Binary", "Call",
             ],
         ),
@@ -1164,7 +1177,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["Return", "start", "end"],
             &[
                 "Const", "Var", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
-                "Binary", "Call",
+                "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1187,7 +1200,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["If", "init", "cond", "then_block", "else_block", "span"],
             &[
                 "Const", "Var", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
-                "Defer", "Binary", "Call",
+                "Defer", "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1202,7 +1215,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["ForRange", "name", "start", "end", "body", "span"],
             &[
                 "Const", "Var", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer",
-                "Binary", "Call",
+                "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1217,7 +1230,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["ForC", "init", "cond", "update", "body", "span"],
             &[
                 "Const", "Var", "Return", "If", "ForRange", "Switch", "Break", "Continue", "Defer",
-                "Binary", "Call",
+                "Assign", "Binary", "Call",
             ],
         ),
         case(

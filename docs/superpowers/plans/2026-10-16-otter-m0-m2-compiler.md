@@ -383,7 +383,13 @@ git commit -m "feat(lexer): tokens with byte spans, golden span tests"
   - `TypeExpr` — `Name(String, Span)`, `Option(Box<TypeExpr>, Span)`, `Result(Box<TypeExpr>, Box<TypeExpr>, Span)`, `Tuple(Vec<TypeExpr>, Span)`, `Unit(Span)`
     - `()` must parse to exactly one node, and it is **`Unit`**. `Tuple` is never produced empty. Two spellings of one type would make `PartialEq` and the AST golden dumps drift, and every later task would have to special-case one of them.
   - `Block { pub stmts: Vec<Stmt>, pub span: Span }`
-  - `Stmt` — `Expr(Expr, Span)`, `Const { name, ty: Option<TypeExpr>, init: Expr, span }`, `Var { name, ty: Option<TypeExpr>, init: Expr, span }`, `Return(Option<Expr>, Span)`, `If { init: Option<Box<Stmt>>, cond: Expr, then_block: Block, else_block: Option<Block>, span }`, `ForRange { name, start, end, body, span }`, `ForC { init: Option<Box<Stmt>>, cond: Option<Expr>, update: Option<Expr>, body, span }`, `Switch { subject: Expr, arms: Vec<SwitchArm>, span }`, `Break(Span)`, `Continue(Span)`, `Defer { body: Block, span }`
+  - `Stmt` — `Expr(Expr, Span)`, `Const { name, ty: Option<TypeExpr>, init: Expr, span }`, `Var { name, ty: Option<TypeExpr>, init: Expr, span }`, `Assign { target: Expr, value: Expr, span }` (**amendment**, see below), `Return(Option<Expr>, Span)`, `If { init: Option<Box<Stmt>>, cond: Expr, then_block: Block, else_block: Option<Block>, span }`, `ForRange { name, start, end, body, span }`, `ForC { init: Option<Box<Stmt>>, cond: Option<Expr>, update: Option<Expr>, body, span }`, `Switch { subject: Expr, arms: Vec<SwitchArm>, span }`, `Break(Span)`, `Continue(Span)`, `Defer { body: Block, span }`
+
+    **Contract amendment (M0–M2 fix round, after Task 14).** The list above originally had no way to assign to anything: `var` was lexed and parsed, `Mutability` was threaded through `Binding` and `HirStmt`, and nothing could ever write to a mutable binding. That made `var` dead syntax and left every loop body unable to accumulate — `sum = sum + i;` was `expected `;`, found `=``. The spec settles what was intended (§3.2 makes `var` the mutable form, and M1's own acceptance example is "Fibonacci, **loops**"), and M3 Task 2 depends on "assignment to linear bindings", so this is an omission rather than an open question.
+    - `Stmt::Assign { target: Expr, value: Expr, span }`. The target is an **expression**, not a name: the parser builds whatever the expression grammar produced and the checker decides what is assignable. That is what keeps `s.x = 1` and `a[i] = 1` from needing a new statement in M6 — they are new target shapes, one arm each in the checker plus address computation in codegen.
+    - Only a `var` binding in an enclosing scope is assignable. Assigning a `const` is `cannot assign to `x`, which is immutable`; assigning an undeclared name is the same `cannot find value `x` in this scope` a read produces; assigning a non-name is `only a `var` binding can be assigned`. All three point a caret at the target.
+    - Assignment is a **statement**, so it has no value: `x = y = 1` and `f(x = 1)` are not in the language.
+    - Consequence, deliberately not fixed: `ForC`'s `update` is an `Expr`, so `for i := 0; i < 10; i = i + 1` still does not parse, and `init`'s `:=` binds a `const` anyway. The accumulating loop is `for i in 0..n { total = total + i; }`. Making the C form useful needs `update` widened to a statement and `:=` in a loop head to bind a `var`; both are recorded as deferred rather than decided here.
     - `If.init` exists because `if d := f(); d > 5.0` needs a place to put the binding that is scoped to the `if`. It holds a `Stmt::Const`; the condition refers to the name as an ordinary `Expr::Ident`. The alternative — overloading the condition's left side — makes the binding invisible in the tree, which Tasks 5, 8, and 12 then have to rediscover.
     - `ForC.init` is `Option<Box<Stmt>>` because the init clause is a complete statement (it may be a three-clause `for` variable declaration).
   - `SwitchArm { pub pattern: Pattern, pub body: Expr, pub is_default: bool, pub span: Span }`
@@ -512,7 +518,7 @@ git commit -m "feat(parser): item parsing with unclosed-delimiter diagnostics"
 **Interfaces:**
 - Consumes: `Parser` primitives from Task 4, AST from Task 3
 - Produces: `Parser::parse_block(&mut self) -> Result<Block, ParseError>`, `Parser::parse_stmt(&mut self) -> Result<Stmt, ParseError>`
-- `Stmt` forms produced, per spec §10.2: `Expr`, `Const`, `Var`, `Return`, `If`, `ForRange`, `ForC`, `Switch`, `Break`, `Continue`, `Defer`. `defer` takes a braced block.
+- `Stmt` forms produced, per spec §10.2: `Expr`, `Const`, `Var`, `Assign` (amendment, see the interface list above), `Return`, `If`, `ForRange`, `ForC`, `Switch`, `Break`, `Continue`, `Defer`. `defer` takes a braced block.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -750,7 +756,7 @@ git commit -m "feat(sema): exhaustiveness checking for enum switches"
     - `HirFn { pub name: String, pub params: Vec<HirParam>, pub ret: Type, pub body: HirBlock, pub span: Span }`
     - `HirParam { pub name: String, pub ty: Type, pub span: Span }`
     - `HirBlock { pub stmts: Vec<HirStmt>, pub span: Span }`
-    - `HirStmt` — same variants as `Stmt`, with `ty: Type` on expression statements and `mutability: Mutability` on `HirStmt::Const` / `HirStmt::Var`
+    - `HirStmt` — same variants as `Stmt`, with `ty: Type` on expression statements and `mutability: Mutability` on `HirStmt::Const` / `HirStmt::Var`. One deliberate difference: `HirStmt::Assign { name: String, value: HirExpr, ty: Type, span }` carries the **name** the checker approved rather than the target expression, so code generation has no case for a bad target — assigning to something unassignable is unrepresentable after checking.
     - `HirExpr` — same variants as `Expr`, each carrying an extra `ty: Type` field
     - `HirSwitchArm { pub pattern: HirPattern, pub body: HirExpr, pub is_default: bool, pub span: Span }`
     - `HirPattern` — same variants as `Pattern`, plus the bound type and mutability on `Binding`

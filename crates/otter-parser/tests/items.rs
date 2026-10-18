@@ -14,7 +14,7 @@
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::ast::{
-    Expr, FieldDef, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp, VariantField,
+    BinOp, Expr, FieldDef, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp, VariantField,
 };
 use otter_parser::Parser;
 
@@ -1264,5 +1264,72 @@ fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
                 && matches!(&fields[0].1, Pattern::Binding { name, .. } if name == "r")),
         "expected RGB struct pattern, got {:?}",
         arms[0].pattern
+    );
+}
+
+// -- assignment -------------------------------------------------------------
+
+#[test]
+fn assignment_to_a_var_binding_is_a_statement() {
+    // Before this, `var x = 1; x = 2;` did not parse at all: the parser read `x`
+    // as an expression statement, wanted a `;`, and found `=`. So a binding
+    // could be declared mutable and never mutated, which made `var` dead syntax
+    // and left every loop body unable to accumulate anything.
+    let src = "fn main() { var x = 1; x = 2; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    assert_eq!(body.stmts.len(), 2, "two statements expected: {body:?}");
+    let Stmt::Assign { target, value, .. } = &body.stmts[1] else {
+        panic!("expected an assignment, got {:?}", body.stmts[1]);
+    };
+    assert!(
+        matches!(target, Expr::Ident(path, _) if path == &vec!["x".to_string()]),
+        "expected the assignment to target `x`, got {target:?}"
+    );
+    assert!(
+        matches!(value, Expr::Literal(Literal::I64(2), _)),
+        "expected the assigned value 2, got {value:?}"
+    );
+}
+
+#[test]
+fn equality_is_not_an_assignment() {
+    // `=` and `==` are separate tokens, and the statement parser must read them
+    // separately: an `Expr::Binary` comparison is a statement in its own right,
+    // not the left half of an assignment.
+    let src = "fn main() { var x = 1; if x == 1 { } }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::If { cond, .. } = &body.stmts[1] else {
+        panic!("expected an if, got {:?}", body.stmts[1]);
+    };
+    assert!(
+        matches!(cond, Expr::Binary { op: BinOp::Eq, .. }),
+        "expected an equality comparison, got {cond:?}"
+    );
+}
+
+#[test]
+fn an_assignment_target_is_an_expression_not_a_name() {
+    // `1 = 2;` has no meaning in Otter -- only a `var` binding is assignable --
+    // but it must be the *checker* that says so, not the parser. Building the
+    // target as an `Expr` is what lets M6 add field and subscript targets by
+    // widening the target shape rather than by adding another statement, and a
+    // parser that rejected non-names here would have to be reopened to do it.
+    let src = "fn f() { 1 = 2; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Assign { target, .. } = &body.stmts[0] else {
+        panic!("expected an assignment, got {:?}", body.stmts[0]);
+    };
+    assert!(
+        matches!(target, Expr::Literal(Literal::I64(1), _)),
+        "expected the literal 1 as the target, got {target:?}"
     );
 }

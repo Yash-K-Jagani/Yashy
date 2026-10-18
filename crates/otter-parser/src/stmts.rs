@@ -1,5 +1,5 @@
 //! Statements: `const`, `var`, `return`, `if`, `for`, `switch`, `break`,
-//! `continue`, `defer`, and expression statements.
+//! `continue`, `defer`, assignment, and expression statements.
 //!
 //! `parse_block` lives here too, because a block is a list of statements and
 //! the seam Task 4 left for it is closed by this module.
@@ -386,6 +386,28 @@ impl<'src> Parser<'src> {
     fn parse_expr_stmt(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expr()?;
         let span = crate::exprs::expr_span(&expr);
+
+        // `target = value;` -- the only place `=` appears in statement position.
+        //
+        // The left side is parsed as an expression first and only then re-read
+        // as a target, rather than being recognised by its shape. That is what
+        // lets the target be any expression the expression grammar can produce
+        // without a second lookahead rule per target shape: `s.x = 1` needs no
+        // parser change at all, now or when fields become assignable.
+        //
+        // `==` is a different token, so a comparison statement is untouched:
+        // `x == 1;` still parses as an expression statement.
+        if self.check(TokenKind::Eq) {
+            self.expect(TokenKind::Eq)?;
+            let value = self.parse_expr()?;
+            let semi = self.expect(TokenKind::Semi)?;
+            return Ok(Stmt::Assign {
+                target: expr,
+                value,
+                span: cover(span, semi.span),
+            });
+        }
+
         let semi = self.expect(TokenKind::Semi)?;
         Ok(Stmt::Expr(expr, cover(span, semi.span)))
     }
