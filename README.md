@@ -66,6 +66,25 @@ fn describe(o: Option[i64]) -> i64 {
 }
 ```
 
+```otter
+// Heap memory is explicit and linear. `alloc(n)` reserves room for n `i64`s and
+// returns a `*mut i64`; handing a pointer to `dealloc` consumes it, and the
+// checker rejects a second use before code generation ever runs:
+//
+//     var buf = alloc(16);
+//     dealloc(buf);
+//     dealloc(buf);   // error: value `buf` has already been moved
+//
+// Reading a pointer's elements needs indexing, which arrives with slices in M6;
+// until then a pointer can be allocated, moved, and freed.
+fn main() {
+    var buf = alloc(16);
+    var other = move buf;
+    dealloc(other);
+    print_str("memory ok\n");
+}
+```
+
 ## Speed
 
 Same algorithm, same input, every language compiled by its own native
@@ -262,7 +281,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 | `alloc`/`dealloc`/`defer`, moves, arenas, refcounted strings |
+| M3 🚧 | Heap in progress: `alloc`/`dealloc`, `move`, linear ownership. Still to come: `defer`, arenas, refcounted strings |
 | M4 | Panic and unwinding, checked arithmetic, `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |

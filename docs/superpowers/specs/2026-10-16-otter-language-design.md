@@ -205,7 +205,15 @@ The riskiest part of the design, and the one most likely to change schedule.
 |---|---|---|---|
 | Stack | `const p = Point { x: 3.0, y: 4.0 }` | Free | Nobody; scope exit |
 | Arena | `arena = Arena.new();` | Bump allocation | `arena.free()` |
-| Heap | `var buf = alloc(u8, 4096);` | Real `malloc` | You, via `defer dealloc(buf)` |
+| Heap | `var buf = alloc(i64, 4096);` | Real `malloc` | You, via `defer dealloc(buf)` |
+
+> **M3 interim form.** `alloc(T, count)` needs a type in argument position and a
+> size for `T`, and neither exists until generics and slices land (M6). M3
+> therefore ships `alloc(count) -> *mut i64` — the element type is fixed at
+> `i64` and the count is in elements — with `dealloc(*mut i64)`. The two-argument
+> spelling above is what M6 delivers, and no program changes meaning when it
+> arrives, because `alloc(count)` is exactly `alloc(i64, count)`. The master
+> plan's ledger L3 records the same revision.
 
 ### 5.2 Escape analysis is an optimization, not the safety mechanism
 
@@ -220,11 +228,10 @@ critical path.
 to another variable consumes it.
 
 ```c
-var buf = alloc(u8, 4096);
-defer dealloc(buf);
-
+var buf = alloc(4096);  // 4096 i64s (see the M3 interim form in §5.1)
 var other = move buf;   // OK: ownership transfers, buf is dead
 var leak  = buf;        // ERROR: buf has no live owner
+dealloc(other);         // the one free
 ```
 
 Tracking which pointer variables are live and who owns each allocation is far
