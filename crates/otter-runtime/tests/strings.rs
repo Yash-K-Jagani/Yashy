@@ -157,3 +157,33 @@ fn building_many_strings_does_not_exhaust_memory() {
         assert_eq!(total, 2_000 * 20);
     }
 }
+
+#[test]
+fn concurrent_builders_never_share_a_string_block() {
+    // The string arena is thread-local, and this is the test that says why: as a
+    // single shared arena it handed two threads the same block -- allocation is
+    // an unsynchronized pointer increment -- and one thread's bytes appeared in
+    // another thread's string. Sixteen threads building strings in a loop hit it
+    // almost every run; here, every string must come back exactly as built.
+    //
+    // The Rust test harness runs tests in parallel by default, so a shared arena
+    // also made *other* tests in this file flaky.
+    let builders: Vec<std::thread::JoinHandle<()>> = (0..16)
+        .map(|worker| {
+            std::thread::spawn(move || {
+                let left = c(&format!("left-{worker}-"));
+                let right = c(&format!("right-{worker}"));
+                let expected = format!("left-{worker}-right-{worker}");
+                for _ in 0..200 {
+                    let joined =
+                        unsafe { otter_runtime::otter_str_concat(left.as_ptr(), right.as_ptr()) };
+                    let text = unsafe { read(joined) };
+                    assert_eq!(text, expected, "thread {worker} read another's bytes");
+                }
+            })
+        })
+        .collect();
+    for builder in builders {
+        builder.join().expect("no builder thread may panic");
+    }
+}

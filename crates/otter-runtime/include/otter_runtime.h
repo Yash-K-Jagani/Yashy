@@ -49,7 +49,13 @@ void otter_free(void *ptr);
  * An arena hands out many allocations and releases them all at once. Individual
  * arena allocations are never freed: `otter_arena_free_all` frees every block
  * and the header in one call. An arena value is an ordinary pointer as far as
- * the generated code is concerned, so the IR treats it as `i8*`. */
+ * the generated code is concerned, so the IR treats it as `i8*`.
+ *
+ * An arena is **single-threaded**: allocation is an unsynchronized pointer
+ * increment, so two threads calling `otter_arena_alloc` on one arena race. A
+ * program that shares an arena across threads must serialize the calls. The
+ * runtime's internal string arena is thread-local for exactly this reason, and
+ * `otter_alloc`/`otter_free` go to `malloc`/`free`, which are thread-safe. */
 typedef struct otter_arena otter_arena;
 otter_arena *otter_arena_new(void);
 void *otter_arena_alloc(otter_arena *arena, long long size, long long align);

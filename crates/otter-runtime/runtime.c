@@ -12,6 +12,21 @@
 #include <io.h>
 #endif
 
+/* Thread-local storage, which the runtime uses wherever a `static` would
+ * otherwise be shared mutable state:
+ *
+ * - the string arena, because a bump allocator has no lock and two threads
+ *   taking the same block is a data race (see the string section);
+ * - the stdout-mode flag below, because the switch it guards is idempotent and
+ *   repeating it per thread is cheaper than sharing a flag. */
+
+#if defined(_MSC_VER)
+/* MSVC (and clang with the MSVC target) spell thread-local storage this way. */
+#define OTTER_THREAD_LOCAL __declspec(thread)
+#else
+#define OTTER_THREAD_LOCAL __thread
+#endif
+
 /* Otter strings are byte strings, so `print_str("\n")` has to write exactly one
  * 0x0A byte. Windows opens stdout in text mode, where the C library rewrites
  * every 0x0A as 0x0D 0x0A before it reaches the operating system -- the byte the
@@ -20,10 +35,12 @@
  * leaves the choice of line ending to the program, which is where it belongs.
  *
  * The switch happens once, before the first write. `_setmode` is idempotent, so
- * the flag is only there to keep it off the hot path. */
+ * the flag is only there to keep it off the hot path -- and it is thread-local
+ * rather than shared, because an unsynchronized `static` written by two threads
+ * is a data race even when the work it guards is harmless to repeat. */
 static void otter_stdout_binary(void) {
 #if defined(_WIN32)
-    static int already_switched = 0;
+    static OTTER_THREAD_LOCAL int already_switched = 0;
     if (!already_switched) {
         already_switched = 1;
         (void)_setmode(_fileno(stdout), _O_BINARY);
@@ -109,7 +126,14 @@ void otter_free(void *ptr) {
  * An arena is a bump allocator over a linked list of blocks. Allocation is a
  * pointer increment; the only way to release is `otter_arena_free_all`, which
  * walks the list. There is no per-allocation free, because an arena exists to
- * make that impossible to get wrong. */
+ * make that impossible to get wrong.
+ *
+ * An arena is **not** safe to use from two threads at once: `head` and `used`
+ * are written with no synchronization, which keeps allocation to a pointer
+ * increment. A caller that shares one arena across threads must serialize the
+ * calls itself. The runtime's own string arena does not share one -- see below --
+ * and the generated `alloc`/`dealloc` go to `malloc`/`free`, which are
+ * thread-safe. */
 
 /* The block header is padded to this many bytes so the payload that follows it
  * starts on a 16-byte boundary -- enough for the widest scalar and for a
@@ -230,14 +254,30 @@ void otter_arena_free_all(otter_arena *arena) {
  * while the refcounted representation is still pending.
  *
  * The internal arena is created on first use and never destroyed. A program
- * that never builds a string never allocates one. */
+ * that never builds a string never allocates one.
+ *
+ * It is **thread-local**, one arena per thread, and that is a correctness
+ * requirement rather than an optimization. `otter_string_arena` used to be a
+ * single shared arena published through a plain `static` pointer, so two threads
+ * building strings at once could both take the same block -- the arena's bump
+ * pointer is unsynchronized -- and the symptom was one string's bytes appearing
+ * where another's should be. The test suite started failing about one run in
+ * five as soon as enough parallel tests built strings. Per-thread state removes
+ * the race instead of guarding it, and costs no lock on the path to a string.
+ *
+ * A string built on one thread and read on another is still valid: the bytes
+ * live in the building thread's arena, which is never freed. The cost is one
+ * arena per thread that builds strings, each holding up to a block until the
+ * process exits -- the same "held until exit" as before, multiplied by the
+ * number of threads. */
+
+static OTTER_THREAD_LOCAL otter_arena *otter_string_arena_slot = NULL;
 
 static otter_arena *otter_string_arena(void) {
-    static otter_arena *arena = NULL;
-    if (arena == NULL) {
-        arena = otter_arena_new();
+    if (otter_string_arena_slot == NULL) {
+        otter_string_arena_slot = otter_arena_new();
     }
-    return arena;
+    return otter_string_arena_slot;
 }
 
 /* Copies `len` bytes out of `bytes` and NUL-terminates the copy, in the string
