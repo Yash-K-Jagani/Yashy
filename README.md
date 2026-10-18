@@ -130,24 +130,31 @@ What the tables say:
 | `loop` | 1536 ms | 246 ms | 6.2× |
 | `float` | 953 ms | 567 ms | 1.7× |
 
-**Compile time** (the `fib` program, best of 5):
+**Compile time** (the `fib` program, best of 9):
 
 | Toolchain | ms |
 |---|---:|
 | Otter (front end only: lex, parse, check, emit IR) | 20 |
+| C (`clang -O2`) | 263 |
 | Go (`go build`) | 266 |
-| C (`clang -O2`) | 282 |
-| Otter (full build) | 415 |
+| Otter (full build) | 283 |
 | Rust (`rustc -O`) | 620 |
 
 The front end — everything this repository implements — is 20 ms. The rest of
-`otter build` is `clang` doing the same job it does for C, plus one extra
-invocation: Otter compiles the IR to an object and then links the object against
-the runtime's C source, so `clang` runs twice where C runs it once. That is
-where the 415 vs 282 ms goes, and it is on the list in
-[`docs/performance-improvements.md`](docs/performance-improvements.md).
+`otter build` is `clang` doing the same job it does for C: Otter compiles the IR
+to an object, then links it. An earlier version compiled the runtime's C source
+from scratch on *every* build, which cost 135 ms of the 403 ms it took then; that
+object is now cached in a content-addressed directory, which is where the
+415 → 283 ms comes from. The first build on a machine still pays 518 ms while it
+fills the cache. See [`docs/performance-improvements.md`](docs/performance-improvements.md)
+for the breakdown.
 
 ### What the numbers do not prove
+
+The runtime rows were re-measured after the performance work recorded in
+[`docs/performance-improvements.md`](docs/performance-improvements.md) and
+reproduced within run-to-run variation. Neither change can alter `-O2` output,
+and the object cache was verified to produce byte-identical executables.
 
 M0–M2 has no heap, no collections, no string operations and no checked
 arithmetic. These benchmarks exercise scalar arithmetic and function calls —

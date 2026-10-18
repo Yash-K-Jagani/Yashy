@@ -88,6 +88,15 @@ It does not mean "Otter is as fast as C". Read the caveats:
 - **Timing is process wall-clock**, which includes process start-up. For these
   programs the work dominates start-up several hundredfold; it does not matter
   for the `loop` and `float` rows at all.
+- **A run that produced no output is not a run.** On a machine with an
+  Application Control (Device Guard) policy, a freshly linked binary can be
+  refused outright — *"was blocked by your organization's Device Guard policy"*.
+  That message goes to the host's error stream, not the program's, so a harness
+  that only collects stdout would time a refusal and record it as a suspiciously
+  fast row. Check that the output is non-empty (and correct) before accepting a
+  measurement, and rebuild if one binary is refused: the linker stamps a fresh
+  timestamp into every build, so a rebuild is a different hash and usually a
+  different verdict.
 
 ## Compile time
 
@@ -171,20 +180,25 @@ Otter built at `-O0` and at `-O2`, same source, same machine:
 | `loop` | 1535.6 ms | 246.2 ms | 6.24× |
 | `float` | 952.5 ms | 566.5 ms | 1.68× |
 
-### Compile time (`fib`, best of 5)
+### Compile time (`fib`, best of 9)
 
 | Toolchain | min ms | median ms |
 |---|---:|---:|
-| Otter (front end only, `--emit-ir`) | 19.8 | 22.7 |
+| Otter (front end only, `--emit-ir`) | 20.0 | 21.3 |
+| C (`clang -O2`) | 263.0 | 294.7 |
 | Go (`go build`) | 266.0 | 281.2 |
-| C (`clang -O2`) | 282.3 | 329.8 |
-| Otter (full build, `-O2`) | 415.2 | 427.5 |
+| Otter (full build, `-O2`, warm cache) | 282.8 | 318.8 |
+| Otter (full build, `-O2`, first build on a machine) | 517.6 | — |
 | Rust (`rustc -O`) | 619.7 | 696.6 |
 
-Otter's full build is slower than C's `clang -O2` despite the front end being
-20 ms, because `clang` runs twice: once for the IR, once to link against the
-runtime C source it recompiles each time. That gap is the measured case for
-item 2 in `../docs/performance-improvements.md`.
+`otter build` used to be 415 ms here, and the gap to C's 263 ms was the second
+`clang` invocation recompiling the runtime C source on every build — 135 ms of a
+403 ms build. That object is now cached in a content-addressed directory, so a
+steady-state build is within 8% of the same C file built by the same `clang`. The
+first build on a machine is slower than before (518 vs 403 ms) because it now
+compiles the runtime and links it in two invocations instead of one; that is paid
+once per toolchain and optimization level. See item 2 in
+`../docs/performance-improvements.md`.
 
 When these numbers change, update this file and the `Speed` section of the
 top-level `README.md` in the same commit, so the two cannot drift.

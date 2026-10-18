@@ -1554,7 +1554,9 @@ repository implements — is a few milliseconds for a small program; the rest of
 
 **Not done, and deliberately:** no optimization passes were added to
 `otter-codegen`; no prebuilt runtime archive was introduced (the driver still
-compiles `runtime.c` at link time, keeping the "cannot go stale" property); and
+compiles `runtime.c` at link time, keeping the "cannot go stale" property —
+**superseded by Amendment 2**, which caches the compiled object in a way that
+preserves that property); and
 no front-end micro-optimization was attempted, because measurement says the
 front end is not where the time goes. `docs/performance-improvements.md` records
 what was considered and why each item is either deferred or gated on measurement.
@@ -1587,3 +1589,73 @@ three ways and matches on it, so the next regression has to get past `clang`.
 
 Same lesson as the golden file, one level up: a test that only exercises one
 direction of a feature cannot notice the other direction is missing.
+
+## Amendment 2: the build-time round
+
+The first amendment fixed what Otter *ran* like. This one is about what `otter
+build` *costs*, and it supersedes one decision recorded above.
+
+**1. Every `alloca` now lands in the entry block.** `alloca` was emitted at the
+current insertion point, so a `for` loop inside another `for` allocated its
+counter slots in the *outer* loop's body — an allocation that runs once per
+iteration where the source has one that runs once. Task 12's shape
+(`gen_stmt(ctx, stmt, defers)` emits statements where they are) never said where
+allocation happens, which is how the gap opened.
+
+*Evidence:* `fn f(n: i64) { for i in 0..n { for j in 0..n { var x = i * j; } } }`
+placed `%slot3` and `%slot4` inside `bb1_body`.
+
+*Fix:* `FnCtx::push_alloca` diverts each `alloca` into a buffer, and the
+`begin_entry` / `finish` pair splices it in directly after `entry:`, so no block
+other than `entry` allocates. Amendment 1's lesson applies directly: this is
+pinned by an assertion that no `alloca` line follows any block label, **not** by
+a golden file — `ops.expected.ll` had to be regenerated for this change, which is
+precisely the edit that could have blessed a wrong alloca position instead of
+exposing it.
+
+*Why it cannot change `-O2` code:* every slot is addressed only by its own
+`store`/`load` and no address escapes (checked across the golden corpus and all
+three benchmarks), so `mem2reg` promotes them and the optimized IR is identical
+either way. At `-O0`, where `mem2reg` does not run, the slots are now static
+instead of re-created per iteration. Re-running the benchmarks after the change
+reproduced the runtime table within run-to-run variation.
+
+**2. Superseding "no prebuilt runtime archive was introduced".** That decision
+was about staleness, not speed, and it had never been measured. Measured, the
+cost was **135 ms of a 403 ms build** — a third of every build spent recompiling
+a file whose bytes never change.
+
+*Decision:* the object is cached, content-addressed, keyed on the runtime bytes,
+the header, the target triple, the optimization level, and the toolchain's path
+and modification time. That keeps the staleness property *by construction* — a
+changed runtime is a different key — while removing the cost. The object is
+written to a staged name and renamed into place, `OTTER_CACHE_DIR` relocates the
+cache, and every failure path falls back to the old link, because a cache must
+never be able to fail a build. Verified output-neutral: the cached and fallback
+paths produce byte-identical executables (same SHA-256).
+
+| build | before | after |
+| --- | ---: | ---: |
+| first build on a machine (cold cache) | 403 ms | 518 ms |
+| steady state | 403 ms | **283 ms** |
+| `clang -O2` on the same C file | 263 ms | 263 ms |
+
+A steady-state build is now within 8% of C built by the same `clang`; the one-time
+cold cost is two `clang` invocations where the old path used one.
+
+**3. Measured and deliberately not done.** The front end is linear in program
+size, at roughly a microsecond per emitted IR line (a 6,000-function, 5 MB module
+costs ~200 ms of codegen on top of ~230 ms of front end), so rewriting
+`Module::push` into a single buffer is not worth a rewrite. The numbers for that,
+and for the items still open, are in `docs/performance-improvements.md`.
+
+**Process note.** The first measurement of this round blamed codegen for a 2.5 s
+front end. It was an artifact: piping `--emit-ir` through PowerShell materialises
+one object per output line, and the same command redirected with `cmd` was 279 ms
+— a 9× error that looked exactly like a quadratic codegen bug. The rule that came
+out of it: discard large output through `cmd`, never through the PowerShell
+pipeline, before believing a compile-time number. It is recorded in the
+tooling-gap list in `docs/performance-improvements.md`, together with the
+machine's Application Control policy, which blocks a content-defined subset of
+freshly linked executables and is why an end-to-end test can fail here for a
+reason that has nothing to do with the compiler.
