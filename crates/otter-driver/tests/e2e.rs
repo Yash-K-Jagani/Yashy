@@ -49,9 +49,30 @@ fn build_program(name: &str) -> (PathBuf, PathBuf, Output) {
 
 /// Run a built executable and return its output.
 fn run(exe: &Path) -> Output {
-    Command::new(exe)
-        .output()
-        .expect("the compiled executable must be runnable")
+    Command::new(exe).output().unwrap_or_else(|error| {
+        // A machine can refuse to start a binary it has just been handed: an
+        // Application Control (Device Guard) policy blocks a content-defined
+        // subset of newly linked executables, and the linker stamps a fresh
+        // timestamp into every build, so the same source is judged differently
+        // from one run to the next. That is an environment result, not evidence
+        // about the compiler, and saying so here stops the failure being read as
+        // a codegen bug.
+        let policy = error.to_string().contains("blocked")
+            || error.to_string().contains("Application Control")
+            || error.raw_os_error() == Some(4551);
+        let hint = if policy {
+            "\n\nthe operating system refused to start the binary: an Application \
+             Control / Device Guard policy blocked it. Rebuilding produces a \
+             different binary (the linker stamps a timestamp), which usually has a \
+             different verdict."
+        } else {
+            ""
+        };
+        panic!(
+            "the compiled executable at {} must be runnable: {error}{hint}",
+            exe.display()
+        )
+    })
 }
 
 fn stdout_of(output: &Output) -> String {

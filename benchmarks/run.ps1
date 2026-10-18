@@ -117,7 +117,14 @@ function Measure-Runs {
     # One untimed warm-up. The first execution of a file that was written
     # seconds ago pays for it not being in the OS cache, and that cost has
     # nothing to do with the language.
-    & $Exe @Arguments 2>$null | Out-Null
+    $warm = (& $Exe @Arguments 2>$null) -join ''
+    # A binary the machine's Application Control policy refuses produces no
+    # output at all, and a refusal is fast. Timing it would record a blocked
+    # binary as the quickest row in the table, so a run with no output is
+    # reported as a failure instead of a measurement.
+    if ([string]::IsNullOrWhiteSpace($warm)) {
+        return [pscustomobject]@{ Min = $null; Median = $null; Output = ''; Blocked = $true }
+    }
     $times = New-Object System.Collections.Generic.List[double]
     $last = ''
     for ($i = 0; $i -lt $Count; $i++) {
@@ -128,9 +135,10 @@ function Measure-Runs {
     }
     $sorted = @($times | Sort-Object)
     [pscustomobject]@{
-        Min    = [math]::Round($sorted[0], 1)
-        Median = [math]::Round($sorted[[int][math]::Floor($sorted.Count / 2)], 1)
-        Output = $last.Trim()
+        Min     = [math]::Round($sorted[0], 1)
+        Median  = [math]::Round($sorted[[int][math]::Floor($sorted.Count / 2)], 1)
+        Output  = $last.Trim()
+        Blocked = $false
     }
 }
 
@@ -152,12 +160,16 @@ function Invoke-Runtime {
             if ($program.ContainsKey('Args')) { $extra = [string[]]$program.Args }
             $count = if ($program.ContainsKey('Args')) { $InterpRuns } else { $Runs }
             $result = Measure-Runs $program.Path $extra $count
+            # A blocked row sorts to the bottom and says so, rather than being
+            # reported as a fast row that silently did no work.
+            $min = if ($result.Blocked) { [double]::PositiveInfinity } else { $result.Min }
+            $label = if ($result.Blocked) { "$($program.Lang) -- BLOCKED" } else { $program.Lang }
             $rows += [pscustomobject]@{
                 Benchmark = $name
-                Language  = $program.Lang
-                MinMs     = $result.Min
+                Language  = $label
+                MinMs     = $min
                 MedianMs  = $result.Median
-                NsPerOp   = [math]::Round(($result.Min * 1e6) / $work[$name], 3)
+                NsPerOp   = if ($result.Blocked) { $null } else { [math]::Round(($min * 1e6) / $work[$name], 3) }
                 Output    = $result.Output
             }
         }
