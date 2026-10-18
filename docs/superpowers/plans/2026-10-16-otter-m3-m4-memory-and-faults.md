@@ -221,7 +221,7 @@ Run: `cargo test -p otter-codegen` → PASS (8 new tests).
 
 `memory.ot` exercises alloc, move, dealloc, and overwriting a live binding. Generated `memory.expected.ll` with `UPDATE_GOLDEN=1` and read it back: the null-poisoning store is present, and the overwrite of `second` loads and frees the old pointer before storing the new one — three frees for three allocations, and no free for the binding that was already released.
 
-  The plan's `defer_dealloc_captures_the_pointer_at_registration` test moved. `defer` does not exist yet (it arrives with M4's unwinding work, Task 10), so a `defer`-based test could not compile here; the release-on-overwrite tests cover the same "which pointer is freed" question with a construct the language has.
+  The plan's `defer_dealloc_captures_the_pointer_at_registration` test was not written here, because at this step the codegen could not yet lower a `defer` body that a linear binding had been moved into — see Task 5c, which fixed that. The release-on-overwrite tests cover the same "which pointer is freed" question with a construct the language already lowers.
 
 - [x] **Step 6: Commit**
 
@@ -279,10 +279,10 @@ git commit -m "feat(codegen): arena allocation"
 ### Task 5a: String operations without refcounting (delivered as the M3 interim)
 
 The tasks below give strings the design's length-prefixed, refcounted
-representation. They depend on `defer` (Task 10) for release points, so they land
-after it. What ships first is the *operations*, over the representation the
-backend already has — an `i8*` to NUL-terminated bytes — so a program can build
-and compare text while the memory work finishes:
+representation, which is what provides the release points. What ships first is
+the *operations*, over the representation the backend already has — an `i8*` to
+NUL-terminated bytes — so a program can build and compare text while the memory
+work finishes:
 
 - Runtime: `otter_str_len`, `otter_str_byte_at`, `otter_str_concat`,
   `otter_str_from_i64`, `otter_str_from_f64`, `otter_str_from_bool`, `otter_str_eq`
@@ -301,12 +301,12 @@ and compare text while the memory work finishes:
   `tests/programs/strings.ot` that concatenates across a function boundary.
 
 The leak is the documented interim (master plan ledger L1's M3 note, ledger L4,
-and the spec's §5.4 note): `defer` does not exist yet, so there is no point at
-which a program could say a built string is finished with, and a refcount without
-a release is worse than no refcount. Nothing here is undone by Tasks 5–7: they
-replace the *representation* underneath these same operators, which is why the
-tests for `+`, `==` and `len` are written against the operations rather than the
-layout.
+and the spec's §5.4 note): a built string has no owner to release, because the
+value carries no refcount and the language exposes no `release`; a refcount
+without a release is worse than no refcount. Nothing here is undone by Tasks 5–7:
+they replace the *representation* underneath these same operators, which is why
+the tests for `+`, `==` and `len` are written against the operations rather than
+the layout.
 
 ### Task 5b: `main` returns `i32` (a defect found while testing strings)
 
@@ -327,6 +327,52 @@ the right output and exited 1.
 - Deterministic guard: `a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero`
   in `crates/otter-driver/tests/e2e.rs` and four IR tests in
   `crates/otter-codegen/tests/codegen.rs`.
+
+### Task 5c: `defer` captures the values it will read (a double free, fixed)
+
+Writing a deferred `dealloc` test exposed the real defect in M0–M2 Task 12's
+`defer`. The checker validates a deferred body when the `defer` statement is
+**reached**; the codegen runs it at **scope exit**. Those are different moments,
+and this program makes them disagree:
+
+```otter
+var buf = alloc(16);
+defer { dealloc(buf); }   // the checker's `buf` is live here (the move inside
+                          // the body is applied at registration) ...
+buf = alloc(32);          // ... so this rebind emits no free of the old block
+dealloc(buf);             // and this releases the second block
+```
+
+At exit the deferred body loaded `buf`'s *slot* — the second block — and handed
+it to `otter_free` again. The process aborted with `STATUS_HEAP_CORRUPTION`
+(`0xC0000374`). Ownership checking was doing its job; the lowering was not.
+
+The fix makes the two moments agree, and its rule is the spec's §5.5 "`defer`
+captures at registration time":
+
+- `crates/otter-codegen/src/stmt_gen.rs`: `defer` keeps a `Deferred { body,
+  captured }` rather than a bare body. At registration, every **linear** binding
+  in scope is copied into a snapshot slot of its own (sorted by name, so
+  `HashMap` order never reaches the IR); `run_defers` installs those slots into
+  `FnCtx::locals` while the body runs and restores the previous entries
+  afterwards. So the deferred `dealloc` releases the block that was live at
+  registration, and the body's own `dealloc` releases the rebind: one free per
+  allocation.
+- Copy-typed bindings are deliberately not captured. They carry no ownership, so
+  a stale read cannot free anything twice, and snapshotting every integer in
+  scope at every registration would cost a load and a store per binding — much
+  more than the rule is worth inside a loop. A deferred body that reads an `i64`
+  still sees its exit-time value; recorded in ledger L5.
+- Tests: `a_deferred_free_targets_the_value_live_at_registration`,
+  `a_defer_captures_only_linear_bindings`, and
+  `a_defer_inside_a_loop_snapshots_once_per_iteration` in
+  `crates/otter-codegen/tests/memory.rs`; `defer_runs_at_scope_exit_and_sees_registration_time_values`
+  and `a_deferred_free_after_a_rebind_does_not_double_free` in
+  `crates/otter-driver/tests/e2e.rs`, the second being the program above that
+  used to corrupt the heap.
+
+M4's Task 10 replaces the static exit sequence with a `cleanup` landing pad, so
+the capture moves with it — a landing pad reads the same snapshot slots.
 
 ---
 

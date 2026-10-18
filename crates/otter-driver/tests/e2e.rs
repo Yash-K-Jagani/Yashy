@@ -671,6 +671,64 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
 }
 
 #[test]
+fn defer_runs_at_scope_exit_and_sees_registration_time_values() {
+    // Last registered first, and the deferred free releases the block that was
+    // live when the `defer` was reached.
+    let output = build_and_run("defer");
+    assert_eq!(stdout_of(&output), "body\nfirst\nsecond\n");
+}
+
+#[test]
+fn a_deferred_free_after_a_rebind_does_not_double_free() {
+    // Before the capture, the deferred body read `buf`'s slot at exit -- the
+    // *second* allocation -- and freed it a second time after the explicit
+    // `dealloc`, which corrupted the heap and aborted the process
+    // (STATUS_HEAP_CORRUPTION). The two frees must now name different blocks:
+    // the deferred one releases the allocation that was live at registration,
+    // and the body's own `dealloc` releases the rebind.
+    let dir = work_dir("deferred-free-rebind");
+    let source = dir.join("deferred_free_rebind.ot");
+    fs::write(
+        &source,
+        "fn main() {\n\
+         \x20   var buf = alloc(16);\n\
+         \x20   defer {\n\
+         \x20       dealloc(buf);\n\
+         \x20   }\n\
+         \x20   buf = alloc(32);\n\
+         \x20   dealloc(buf);\n\
+         \x20   print_str(\"survived\\n\");\n\
+         }\n",
+    )
+    .expect("write deferred_free_rebind.ot");
+    let exe = dir.join(format!(
+        "deferred_free_rebind{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "compiling deferred_free_rebind.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "survived\n");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a second free of the same block aborts the process; the deferred body \
+         must free the registration-time value instead"
+    );
+}
+
+#[test]
 fn a_double_free_is_a_compile_error_with_a_caret() {
     // Ownership is checked, not assumed: freeing the same binding twice never
     // reaches the backend, so the runtime's `otter_free` cannot be handed the

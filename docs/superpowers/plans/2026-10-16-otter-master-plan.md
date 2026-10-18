@@ -222,7 +222,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 | Pinned in | Interim behaviour | Replaced by |
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op |
-| M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit | M4: landing pad with `cleanup`, so defers also run on unwind |
+| M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
 | M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note) | M3's remaining string task: length-prefixed `%otter_str` with retain/release, then interpolation; indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
@@ -252,6 +252,14 @@ Introduced in M3, unchanged until M10.
   address but the block is already free. Only the ownership state distinguishes
   "a pointer to release" from "a dangling pointer the program already released",
   so the flag travels with the assignment rather than being recomputed.
+- A `defer` body is checked when the `defer` is **reached** but runs at scope
+  exit, so the backend captures the linear bindings in scope at registration into
+  snapshot slots and the body reads those (Task 5c of the M3–M4 plan). Otherwise
+  the state the checker approved and the state the body executes against can
+  differ, and the difference is a double free rather than a diagnostic. The
+  capture covers **linear** bindings only: a deferred body that reads a
+  copy-typed binding still sees its exit-time value, which cannot free anything
+  twice and avoids a load and a store per binding per registration.
 
 ---
 

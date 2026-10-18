@@ -68,8 +68,15 @@ fn describe(o: Option[i64]) -> i64 {
 
 ```otter
 // Heap memory is explicit and linear. `alloc(n)` reserves room for n `i64`s and
-// returns a `*mut i64`; handing a pointer to `dealloc` consumes it, and the
+// returns a `*mut i64`; `defer` releases it when the scope exits, and the
 // checker rejects a second use before code generation ever runs:
+//
+//     var buf = alloc(16);
+//     defer { dealloc(buf); }
+//     buf = alloc(32);        // the deferred free still releases the first block
+//     dealloc(buf);
+//
+// Ownership transfers with `move`, so only one name can free a block:
 //
 //     var buf = alloc(16);
 //     dealloc(buf);
@@ -79,8 +86,9 @@ fn describe(o: Option[i64]) -> i64 {
 // until then a pointer can be allocated, moved, and freed.
 fn main() {
     var buf = alloc(16);
-    var other = move buf;
-    dealloc(other);
+    defer {
+        dealloc(buf);
+    }
     print_str("memory ok\n");
 }
 ```
@@ -300,7 +308,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 🚧 | Heap and strings in progress: `alloc`/`dealloc`, `move`, linear ownership, and `+` / `len` / `==` on strings. Still to come: `defer`, arenas, refcounted (non-leaking) strings |
+| M3 🚧 | Heap and strings in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, and `+` / `len` / `==` on strings. Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
 | M4 | Panic and unwinding, checked arithmetic, `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |

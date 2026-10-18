@@ -76,9 +76,10 @@ void otter_arena_free_all(otter_arena *arena);
  * zero-extends the `i1` to `i64` instead, so there is nothing to disagree about.
  *
  * The strings these functions *produce* live in one internal arena and are
- * released when the process exits. M3 has no `defer`, so a program has no way to
- * say when it has finished with a built string; leaking it until exit is the
- * correct reading of that, and a use-after-free is not. */
+ * released when the process exits. A built string has no owner to release -- the
+ * value is a bare `char*` with no refcount and no release operation in the
+ * language -- so leaking it until exit is the correct reading of that, and a
+ * use-after-free is not. */
 long long otter_str_len(const char *s);
 long long otter_str_byte_at(const char *s, long long index);
 const char *otter_str_concat(const char *a, const char *b);

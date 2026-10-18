@@ -16,12 +16,18 @@
 //! nested `if`/`for` passes its own `Vec` so only its own defers fire at its
 //! own exit.
 //!
+//! A deferred body is validated by the checker when the `defer` is **reached**
+//! but runs at **exit**, so each registration snapshots the linear bindings in
+//! scope into slots of their own ([`Deferred`]). Without that, the state the
+//! checker approved and the state the body executes against can disagree, and
+//! the disagreement is a double free rather than a diagnostic.
+//!
 //! # No input makes this module panic
 //!
 //! Every lookup is total; a `break` outside a loop, or a missing loop label,
 //! lowers to a comment rather than an abort.
 
-use otter_sema::{expr_ty, HirBlock, HirExpr, HirStmt, TypeKind};
+use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, TypeKind};
 
 use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx};
 use crate::ir::repr_type;
@@ -40,9 +46,83 @@ pub enum Flow {
     Return,
 }
 
+/// A registered `defer` body, plus the values it must see when it runs.
+///
+/// The checker validates a deferred body when the `defer` statement is
+/// *reached*; the body itself *runs* at scope exit, and the ownership state can
+/// differ between those two moments. `captured` is what makes the two agree: at
+/// registration every linear binding in scope is copied into a slot of its own,
+/// and while the body runs those slots replace the bindings in `FnCtx::locals`.
+///
+/// Without it, this program compiles and corrupts the heap:
+///
+/// ```text
+/// var buf = alloc(16);
+/// defer { dealloc(buf); }   // the checker sees `buf` live here
+/// buf = alloc(32);          // ... and does not free the first block here,
+/// dealloc(buf);             // because the deferred `dealloc` already moved it
+///                           // at registration — so the deferred body frees the
+///                           // same pointer a second time at exit.
+/// ```
+///
+/// With the capture, the deferred `dealloc` releases the block that was live at
+/// registration (the one still owned), and the body's own `dealloc` releases the
+/// rebind. One free per allocation, which is what the source reads like.
+///
+/// The snapshot is limited to **linear** bindings, which are the ones whose
+/// *ownership* is at stake. A deferred body that reads a copy-typed binding
+/// still sees its value at exit rather than at registration; that differs from
+/// the design's "captures at registration" for those reads, but it cannot free
+/// anything twice, and copying every integer in scope at every `defer` would
+/// cost a load and a store per binding per registration — much more than the
+/// rule is worth inside a loop.
+pub struct Deferred {
+    /// The body, as written.
+    pub body: HirBlock,
+    /// `(name, slot, type)` for each captured binding, sorted by name so the
+    /// emitted stores do not depend on `HashMap` iteration order.
+    pub captured: Vec<(String, String, TypeKind)>,
+}
+
+/// Snapshot every linear binding in scope into a fresh slot.
+///
+/// The stores are emitted here, at the `defer` statement, so the snapshot is
+/// taken when the `defer` is *reached* — which is what "captures at
+/// registration" means. The slots themselves are allocas, so they are hoisted
+/// into the entry block like every other slot.
+fn capture_linear_locals(ctx: &mut FnCtx<'_>) -> Vec<(String, String, TypeKind)> {
+    let mut names: Vec<String> = ctx
+        .locals
+        .iter()
+        .filter(|(_, (slot, ty))| {
+            !slot.is_empty()
+                && repr_type(ty) != "void"
+                && matches!(linearity_of(ty), Linearity::Linear)
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    names.sort();
+
+    let mut captured = Vec::new();
+    for name in names {
+        let current = match ctx.locals.get(&name) {
+            Some((slot, ty)) => (slot.clone(), ty.clone()),
+            None => continue,
+        };
+        let repr = repr_type(&current.1);
+        let snapshot = ctx.alloc_slot();
+        ctx.push_alloca(format!("{snapshot} = alloca {repr}"));
+        let value = ctx.tmp();
+        ctx.push(format!("{value} = load {repr}, ptr {}", current.0));
+        ctx.push(format!("store {repr} {value}, ptr {snapshot}"));
+        captured.push((name, snapshot, current.1));
+    }
+    captured
+}
+
 /// Lower every statement of `block` into the current basic block, stopping at
 /// the first statement that terminates it.
-pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock, defers: &mut Vec<HirBlock>) -> Flow {
+pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock, defers: &mut Vec<Deferred>) -> Flow {
     for stmt in &block.stmts {
         let flow = gen_stmt(ctx, stmt, defers);
         if flow != Flow::Fallthrough {
@@ -53,7 +133,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock, defers: &mut Vec<HirBloc
 }
 
 /// Lower one statement.
-pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>) -> Flow {
+pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>) -> Flow {
     match stmt {
         HirStmt::Expr(expr, _, _) => {
             let _ = gen_expr(ctx, expr);
@@ -197,7 +277,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>)
             }
         }
         HirStmt::Defer { body, .. } => {
-            defers.push(body.clone());
+            // The capture happens *here*, not when the body runs: that is what
+            // makes the deferred body see the ownership state the checker
+            // approved. See [`Deferred`].
+            defers.push(Deferred {
+                body: body.clone(),
+                captured: capture_linear_locals(ctx),
+            });
             Flow::Fallthrough
         }
     }
@@ -210,7 +296,7 @@ fn gen_if(
     cond: &HirExpr,
     then_block: &HirBlock,
     else_block: Option<&HirBlock>,
-    defers: &mut Vec<HirBlock>,
+    defers: &mut Vec<Deferred>,
 ) -> Flow {
     if let Some(init) = init {
         let flow = gen_stmt(ctx, init, defers);
@@ -327,7 +413,7 @@ fn gen_for_c(
     cond: Option<&HirExpr>,
     update: Option<&HirExpr>,
     body: &HirBlock,
-    defers: &mut Vec<HirBlock>,
+    defers: &mut Vec<Deferred>,
 ) -> Flow {
     if let Some(init) = init {
         let flow = gen_stmt(ctx, init, defers);
@@ -376,10 +462,39 @@ fn gen_for_c(
 
 /// Lower every pending deferred body, last registered first, plus any bodies
 /// those bodies themselves defer.
-pub fn run_defers(ctx: &mut FnCtx<'_>, defers: &mut Vec<HirBlock>) {
-    while let Some(body) = defers.pop() {
+///
+/// Each body runs with the bindings it captured installed in `FnCtx::locals`, so
+/// a name in a deferred body resolves to the value the binding held when the
+/// `defer` was reached rather than to whatever is in the slot at exit. The
+/// previous entries are restored afterwards, so the code *after* a `defer`
+/// statement still sees the real binding — only the deferred body reads the
+/// snapshot.
+pub fn run_defers(ctx: &mut FnCtx<'_>, defers: &mut Vec<Deferred>) {
+    while let Some(deferred) = defers.pop() {
+        // Install the captured slots for the duration of this body.
+        let mut restore: Vec<(String, Option<(String, TypeKind)>)> = Vec::new();
+        for (name, slot, ty) in &deferred.captured {
+            let previous = ctx
+                .locals
+                .insert(name.clone(), (slot.clone(), ty.clone()));
+            restore.push((name.clone(), previous));
+        }
+
         let mut inner = Vec::new();
-        let _ = gen_block(ctx, &body, &mut inner);
+        let _ = gen_block(ctx, &deferred.body, &mut inner);
+        // Bodies deferred by this body are registered under the same capture, so
+        // they run before the snapshot is taken back down.
         run_defers(ctx, &mut inner);
+
+        for (name, previous) in restore {
+            match previous {
+                Some(entry) => {
+                    ctx.locals.insert(name, entry);
+                }
+                None => {
+                    ctx.locals.remove(&name);
+                }
+            }
+        }
     }
 }

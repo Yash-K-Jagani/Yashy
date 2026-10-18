@@ -14,7 +14,7 @@ use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, HirFn, HirItem, HirProgram};
 
-use otter_codegen::{gen_block, FnCtx, Module};
+use otter_codegen::{gen_block, run_defers, FnCtx, Flow, Module};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
@@ -43,6 +43,9 @@ fn first_fn(src: &str) -> HirFn {
 }
 
 /// Lower the first function's body into a finished module.
+///
+/// Pending `defer` bodies are run at the end, the way [`otter_codegen::gen_fn`]
+/// does, so a test can exercise the exit sequence as well as the body.
 fn gen_body(src: &str) -> String {
     let f = first_fn(src);
     let mut module = Module::new();
@@ -51,7 +54,10 @@ fn gen_body(src: &str) -> String {
         ctx.begin_entry();
         let _ = ctx.alloc_params(&f);
         let mut defers = Vec::new();
-        let _ = gen_block(&mut ctx, &f.body, &mut defers);
+        let flow = gen_block(&mut ctx, &f.body, &mut defers);
+        if flow == Flow::Fallthrough {
+            run_defers(&mut ctx, &mut defers);
+        }
         ctx.finish();
     }
     module.finish()
@@ -136,6 +142,119 @@ fn a_deallocated_slot_is_not_released_by_a_later_rebind() {
     // must emit no free of its own.
     let ir_text = gen_body("fn f() { var b = alloc(16); dealloc(b); b = alloc(32); }");
     assert_eq!(free_count(&ir_text), 1, "only the explicit free:\n{ir_text}");
+}
+
+// --- defer ------------------------------------------------------------------
+
+/// The slot named by the `load` that produced the last free's argument.
+///
+/// A free takes one operand, and it always comes from a `load` of the binding's
+/// slot or of the snapshot slot a `defer` captured it into — so which slot it
+/// names is exactly the question these tests are asking.
+fn last_free_source(ir_text: &str) -> Option<String> {
+    let lines: Vec<&str> = ir_text.lines().collect();
+    let free_index = lines
+        .iter()
+        .rposition(|line| line.contains("call void @otter_free"))?;
+    let load_line = lines[..free_index]
+        .iter()
+        .rev()
+        .find(|line| line.contains("= load i8*, ptr"))?;
+    load_line.split("ptr ").nth(1).map(|slot| slot.trim().to_string())
+}
+
+#[test]
+fn a_deferred_free_targets_the_value_live_at_registration() {
+    // The checker validates the deferred body when the `defer` is reached but
+    // the body runs at exit, and this program's `buf` changes identity in
+    // between. Without the capture, the deferred body would read the slot at
+    // exit -- the second block -- and free it a second time after the explicit
+    // `dealloc`, which is heap corruption rather than a diagnostic.
+    let ir_text = gen_body(
+        "fn f() {\n\
+         \x20   var buf = alloc(16);\n\
+         \x20   defer { dealloc(buf); }\n\
+         \x20   buf = alloc(32);\n\
+         \x20   dealloc(buf);\n\
+         }",
+    );
+    assert_eq!(
+        ir_text.matches("alloca i8*").count(),
+        2,
+        "one slot for `buf` and one for the snapshot:\n{ir_text}"
+    );
+    assert_eq!(
+        free_count(&ir_text),
+        2,
+        "one free per allocation, not a second free of the same block:\n{ir_text}"
+    );
+    assert_eq!(
+        last_free_source(&ir_text).as_deref(),
+        Some("%slot1"),
+        "the deferred free must read the registration-time snapshot:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_defer_captures_only_linear_bindings() {
+    // Copy types carry no ownership, so snapshotting them would cost a load and
+    // a store per binding per registration and buy nothing. `x` keeps its one
+    // slot.
+    let ir_text = gen_body("fn f() { const x = 1; defer { print_i64(x); } print_i64(x); }");
+    assert_eq!(
+        ir_text.matches("alloca i64").count(),
+        1,
+        "only the binding's own slot:\n{ir_text}"
+    );
+    assert_eq!(
+        ir_text.matches("alloca i8*").count(),
+        0,
+        "nothing linear is in scope:\n{ir_text}"
+    );
+}
+
+/// The names of the slots a module allocates for `of`, in allocation order.
+fn slot_names(ir_text: &str, of: &str) -> Vec<String> {
+    ir_text
+        .lines()
+        .filter(|line| line.contains(of))
+        .filter_map(|line| line.split('=').next().map(|name| name.trim().to_string()))
+        .collect()
+}
+
+#[test]
+fn a_defer_inside_a_loop_snapshots_once_per_iteration() {
+    // The registration runs every iteration, so the snapshot store is inside the
+    // loop body and the free happens at the end of each iteration rather than
+    // once at the end of the loop.
+    let ir_text = gen_body("fn f() { for i in 0..3 { var buf = alloc(8); defer { dealloc(buf); } } }");
+    assert_eq!(free_count(&ir_text), 1, "one free in the body:\n{ir_text}");
+    let pointers = slot_names(&ir_text, "alloca i8*");
+    assert_eq!(
+        pointers.len(),
+        2,
+        "the binding and its snapshot:\n{ir_text}"
+    );
+    let snapshot = pointers.last().cloned().unwrap_or_default();
+
+    let lines: Vec<&str> = ir_text.lines().collect();
+    let capture = lines
+        .iter()
+        .position(|line| line.contains("store i8*") && line.contains(&snapshot))
+        .expect("the snapshot store must be in the loop body");
+    let increment = lines
+        .iter()
+        .position(|line| line.trim_end().ends_with("_inc:"))
+        .expect("the loop must have an increment block");
+    let free = lines
+        .iter()
+        .position(|line| line.contains("call void @otter_free"))
+        .expect("the body must free");
+    assert!(
+        capture < free && free < increment,
+        "the snapshot store precedes the free, which precedes the loop's \
+         increment block -- so both happen per iteration:\n{ir_text}"
+    );
 }
 
 // --- golden IR ---------------------------------------------------------------

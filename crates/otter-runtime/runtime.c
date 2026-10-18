@@ -220,9 +220,12 @@ void otter_arena_free_all(otter_arena *arena) {
  * interim). The operations that *produce* a string -- concatenation and the
  * conversions -- allocate from one internal arena, so building strings in a
  * loop does not pay a `malloc` per call. Nothing built here is ever freed
- * individually: M3 has no `defer`, so a program cannot say when it has finished
- * with a built string, and leaking it until the process exits is the correct
- * reading of that.
+ * individually, because a built string has no owner to release: the value is a
+ * bare `i8*` with no refcount and no `release` operation in the language, so
+ * there is no way for a program to say it is finished with one (ledger L1's M3
+ * note, ledger L4). Holding it until the process exits is the correct reading of
+ * that -- and it is a leak, not a corruption, which is why it is acceptable
+ * while the refcounted representation is still pending.
  *
  * The internal arena is created on first use and never destroyed. A program
  * that never builds a string never allocates one. */

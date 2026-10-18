@@ -260,14 +260,14 @@ language about lifetimes instead of about problems.
 > `otter_str_eq`, and the `otter_str_from_*` conversions) build their results in
 > one internal arena that is released at process exit.
 >
-> That is a leak, chosen deliberately over a use-after-free: `defer` does not
-> exist yet (§5.5), so a program has no way to say when it has finished with a
-> built string, and a refcount with no `release` point would be the wrong half of
-> this design. Nothing is corrupted — a program is correct, it just holds its
-> built strings until it exits. The length-prefixed, refcounted layout in this
-> section, and the release points that go with it, are the next step (M3's
-> remaining string task; see the milestone plans and ledger L4 in the master
-> plan).
+> That is a leak, chosen deliberately over a use-after-free: a built string has
+> no owner to release — the value is a bare `i8*`, with no refcount and no
+> `release` operation reachable from the language — and a refcount with no
+> `release` point would be the wrong half of this design. Nothing is corrupted; a
+> program is correct, it just holds its built strings until it exits. The
+> length-prefixed, refcounted layout in this section, and the release points that
+> go with it, are the next step (M3's remaining string task; see the milestone
+> plans and ledger L4 in the master plan).
 
 ### 5.5 `defer`, `move`, and arenas together
 
