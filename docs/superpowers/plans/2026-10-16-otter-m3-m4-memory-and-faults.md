@@ -402,6 +402,87 @@ parses to zero (`parse_i64("12x")` is 0, not 12 — trailing text is rejected,
 overflow folds into the same answer). Both are losses that a checked form
 replaces in M4; neither is a wrong answer presented as a right one.
 
+### Task 5e: reading a struct field (`p.x`)
+
+The M0–M2 Task 12 plan says "`StructLit` allocs an aggregate slot and stores each
+field by index; `FieldAccess` loads from the aggregate's declared field index".
+The first half shipped differently (a struct value is built with `insertvalue`
+into `undef`, not an alloca) and the second half did not ship at all: `FieldAccess`
+lowered to a comment plus a zero of its type, so a program could construct a
+struct and never read it. Field access is the thing that makes a struct useful,
+so it lands here rather than waiting.
+
+Three pieces, and only the middle one was missing:
+
+- **The parser already produced the node.** A dotted name is one
+  `Ident(Vec<String>)` for the whole path (`p.x` → `["p", "x"]`), which is why
+  `move p.x` needed a rewrite in `parse_move` to stop the path collapsing into one
+  name. Field access and a dotted module path are the same shape, and only the
+  types can tell them apart, so the resolution belongs in the checker.
+- **Sema** resolves a dotted name into a `FieldAccess` chain
+  (`check_field_path`): the first segment goes through the ordinary name path — so
+  a moved or unbound base gets the diagnostic it would get alone — and every later
+  segment is a field of the struct the previous value has. `a.b.c` is that step
+  repeated. The single-level `Expr::FieldAccess` arm (produced by `move p.x`)
+  resolves through the same rule. This is also where the field's **index** is
+  resolved, against `HirStruct.fields`, and carried on `HirExpr::FieldAccess`.
+- **Codegen** reads the field with `extractvalue`, one instruction, no address:
+  the index is already the declaration-order position, and the aggregate type
+  spells as `%struct.Name` (ledger L1's type table).
+
+One correctness fix came with it. A struct literal's fields used to reach the HIR
+in the order the *literal* wrote them, and `define_named_type` keeps only the
+first shape it sees — so `P { y: 4, x: 3 }` would have defined `%struct.P` with
+`y` first and an index that means a different field than the same struct built
+`P { x: 3, y: 4 }`. Sema now orders a literal's fields by declaration, which makes
+the index mean one thing for every literal of one struct. Recorded in ledger L2.
+
+Tests: `a_struct_field_is_read_by_name_whatever_order_it_was_written` and
+`tests/programs/structs.ot` (out-of-order literal, a field of a field, and a
+struct crossing a call boundary by value) end to end; six sema tests pinning the
+field's type, its declaration index, a nested chain, an unknown field, a
+non-struct base, and the literal's declaration order; one codegen test pinning
+`extractvalue %struct.P ..., 0` and `..., 1` with the aggregate spelled
+`{ i64, double }` from a literal written `y, x`.
+
+Not here: a struct behind a pointer (`*mut P`), `p.x = 1` on a live binding, and
+nested struct *mutation*. Reading a field of a value is the whole of this task.
+
+### Task 5f: the string arena is per thread (a data race, fixed)
+
+Found by the suite, not by reading: after Task 5d added tests that built strings,
+`cargo test -p otter-runtime` failed about one run in five, always as one string
+test reading another test's bytes (`left: "012"`, `right: "xyz"`). Single-threaded
+it never failed, which is the signature of a race rather than a logic error.
+
+The cause was the string arena. `otter_string_arena` published **one** arena
+through a plain `static` pointer, and `otter_arena_alloc` is an unsynchronized
+bump: it writes `arena->head` and `block->used` with no lock, deliberately, so
+that allocation is a pointer increment. Two threads allocating at once could take
+the same block, and then one string's bytes were the other's.
+
+The fix is per-thread state rather than a lock — `OTTER_THREAD_LOCAL` (a macro for
+`__declspec(thread)` on MSVC and `__thread` elsewhere) on the arena slot. This
+removes the sharing instead of guarding it, so the path to a string gains no lock;
+and because a thread's arena is never freed, a string built on one thread and read
+on another is still valid.
+
+The public `otter_arena_*` API keeps its contract and now states it: **single
+threaded** — a program that shares one arena across threads must serialize the
+calls (header, `include/otter_runtime.h`). The runtime's other `static`s were
+audited at the same time: the stdout-mode flag became thread-local too, because an
+unsynchronized `static` written by two threads is a data race even when the work it
+guards (`_setmode`, idempotent) is harmless to repeat. `otter_alloc`/`otter_free`
+are `malloc`/`free`, which are already thread-safe.
+
+Test: `concurrent_builders_never_share_a_string_block` — sixteen threads each
+build two hundred strings and check every result. Against the shared arena it
+fails almost every run; it is what keeps the flakiness from returning.
+
+Not here: making the *public* arena safe to share (it stays a caller's problem,
+documented), and `%otter_str`'s refcount, which M3's remaining string task
+replaces wholesale anyway.
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

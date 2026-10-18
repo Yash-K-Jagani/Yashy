@@ -115,7 +115,9 @@ i8         otter_str_byte_at(otter_str*, i64);   // returns 0 out of range
 > ```
 >
 > The lengths are recovered with `strlen`, the results are built in one internal
-> arena that is released at process exit, and nothing is retained or released.
+> arena **per thread** that is released at process exit, and nothing is retained
+> or released. (Per thread, not shared: an arena is an unsynchronized bump
+> pointer, so a shared one handed two threads the same block — see M3–M4 Task 5f.)
 > Cost: a built string is held until the program exits, and an embedded NUL byte
 > truncates. The `otter_str*` half of this table lands together with the
 > `%otter_str` retype below, in M3's remaining string task; until then a program
@@ -208,6 +210,20 @@ M0–M2 uses `%otter_str = type { i32, i32, i8* }` with the first field always
 `1` and no refcount operations. M3 widens it to `i64` and adds the retain and
 release calls. **No milestone after M3 changes this layout** — which is why M3
 is a milestone boundary and not an incremental edit.
+
+**A `Struct` is an aggregate value, laid out in declaration order:**
+
+```llvm
+%struct.Point = type { i64, i64 }
+```
+
+A literal is built with `insertvalue` into `undef` and a field is read with
+`extractvalue` at the field's declaration index, so neither needs an address. The
+redeclaration rule — `define_named_type` keeps the first shape it is handed —
+is what makes the index mean one thing: a literal's fields reach the HIR in
+declaration order, so two literals of one struct written in different orders
+produce the same named type (M3–M4 Task 5e). A struct *behind* a pointer
+(`*mut P`, `p.x = 1`) does need an address, and is M6's.
 
 ### L3 — Builtin function set
 

@@ -258,7 +258,10 @@ language about lifetimes instead of about problems.
 > `otter_str_concat`), `==`/`!=` compare contents, and `len` counts bytes. The
 > runtime's string operations (`otter_str_len`, `otter_str_concat`,
 > `otter_str_eq`, and the `otter_str_from_*` conversions) build their results in
-> one internal arena that is released at process exit.
+> one internal arena **per thread** that is released at process exit. That is a
+> correctness requirement, not a tuning choice: an arena is an unsynchronized bump
+> pointer, so a single shared one handed two threads the same block and one
+> thread's bytes appeared in another's string.
 >
 > That is a leak, chosen deliberately over a use-after-free: a built string has
 > no owner to release — the value is a bare `i8*`, with no refcount and no
