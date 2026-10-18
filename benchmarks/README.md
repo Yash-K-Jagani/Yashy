@@ -197,7 +197,9 @@ Otter built at `-O0` and at `-O2`, same source, same machine:
 steady-state build is within 8% of the same C file built by the same `clang`. The
 first build on a machine is slower than before (518 vs 403 ms) because it now
 compiles the runtime and links it in two invocations instead of one; that is paid
-once per toolchain and optimization level. See item 2 in
+once per toolchain and optimization level. A cold *cache* is not the only cold
+cost — the first build after the toolchain itself has not run is slower still, so
+treat 518 ms as the measured case rather than as an upper bound. See item 2 in
 `../docs/performance-improvements.md`.
 
 When these numbers change, update this file and the `Speed` section of the
