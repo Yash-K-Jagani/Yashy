@@ -5,8 +5,8 @@ edition.workspace = true
 
 [dependencies]
 otter-common = { path = "../otter-common" }
+otter-parser = { path = "../otter-parser" }
 otter-sema = { path = "../otter-sema" }
 
 [dev-dependencies]
 otter-lexer = { path = "../otter-lexer" }
-otter-parser = { path = "../otter-parser" }

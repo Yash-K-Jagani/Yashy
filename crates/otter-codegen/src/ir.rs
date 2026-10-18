@@ -34,3 +34,75 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         | TypeKind::Func(_, _) => "void".to_string(),
     }
 }
+
+/// The LLVM representation of a **value** of type `t` at M0–M2.
+///
+/// This differs from [`llvm_type_string`] in exactly two places, both
+/// deliberate:
+///
+/// - `Str` is `i8*`: its data pointer. L4 pins Str as "an opaque literal
+///   with no operations" until M3, and the M0–M2 runtime takes `i8*` (the
+///   `%otter_str` shape exists in the header but nothing constructs one
+///   yet). M3 switches values to `%otter_str` in a golden-regenerating
+///   boundary.
+/// - `Option` and `Result` are tagged structs. `Option[T]` is
+///   `{ i8, repr(T) }` (tag: `None` = 0, `Some` = 1). `Result[T, E]` is
+///   `{ i8, repr(T), repr(E) }` — two payload fields, one per variant, so
+///   both halves keep their own representation with no bit-punning; the
+///   matching arm reads field 1 (`Ok`, tag 0) or field 2 (`Err`, tag 1).
+///
+/// Struct and enum values are not represented yet: Task 12 threads the
+/// declaration table they need. Until then `Struct` renders as its named
+/// `%struct.Name` type (usable by `StructLit`), and `Enum` renders as a
+/// placeholder `i8` tag — no M0–M2 test path can construct an enum value,
+/// so the placeholder cannot be reached by a passing program.
+pub fn repr_type(t: &TypeKind) -> String {
+    match t {
+        TypeKind::Str => "i8*".to_string(),
+        TypeKind::Option(inner) => format!("{{ i8, {} }}", repr_type(&inner.kind)),
+        TypeKind::Result(ok, err) => {
+            format!(
+                "{{ i8, {}, {} }}",
+                repr_type(&ok.kind),
+                repr_type(&err.kind)
+            )
+        }
+        TypeKind::Struct(name) => format!("%struct.{name}"),
+        TypeKind::Enum(_) => "i8".to_string(),
+        TypeKind::Func(_, _) => "void".to_string(),
+        other => llvm_type_string(other),
+    }
+}
+
+/// The tag constant for a variant pattern of a scrutinee type, at M0–M2.
+///
+/// `Option`: `None` = 0, `Some` = 1. `Result`: `Ok` = 0, `Err` = 1. User
+/// enums arrive with Task 12 and are not represented here yet.
+pub fn variant_tag(scrutinee: &TypeKind, variant: &str) -> Option<u8> {
+    match scrutinee {
+        TypeKind::Option(_) => match variant {
+            "None" => Some(0),
+            "Some" => Some(1),
+            _ => None,
+        },
+        TypeKind::Result(_, _) => match variant {
+            "Ok" => Some(0),
+            "Err" => Some(1),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The payload field index for a variant of a scrutinee type, at M0–M2.
+///
+/// `Option` stores its single payload at field 1; `Result` stores `Ok`'s at
+/// field 1 and `Err`'s at field 2 (see [`repr_type`]).
+pub fn variant_payload_index(scrutinee: &TypeKind, variant: &str) -> Option<u32> {
+    match scrutinee {
+        TypeKind::Option(_) if variant == "Some" => Some(1),
+        TypeKind::Result(_, _) if variant == "Ok" => Some(1),
+        TypeKind::Result(_, _) if variant == "Err" => Some(2),
+        _ => None,
+    }
+}

@@ -10,11 +10,15 @@
 //! LLVM-type mapping), and `main` discovery (a program with no `fn main`
 //! must fail as a diagnostic here, not as a linker error 400 lines later).
 
+pub mod expr_gen;
 pub mod ir;
 pub mod module;
+pub mod patterns;
 
-pub use ir::llvm_type_string;
+pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
+pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::Module;
+pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 
 use otter_common::{Diagnostic, FileId, Severity, Span};
 use otter_sema::{HirFn, HirItem, TypeKind};

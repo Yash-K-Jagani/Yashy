@@ -10,3 +10,4 @@
 # a fresh clone.
 **/tests/golden/*.ot        text eol=lf
 **/tests/golden/*.expected text eol=lf
+**/tests/golden/*.expected.ll text eol=lf

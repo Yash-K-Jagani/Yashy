@@ -1,0 +1,25 @@
+fn ops() {
+    const add = 1 + 2;
+    const sub = 5 - 3;
+    const mul = 3 * 4;
+    const div = 6 / 2;
+    const rem = 7 % 3;
+    const fadd = 1.0 + 2.0;
+    const fsub = 5.0 - 3.0;
+    const fmul = 3.0 * 4.0;
+    const fdiv = 6.0 / 2.0;
+    const frem = 7.0 % 3.0;
+    const eq = 1 == 2;
+    const ne = 1 != 2;
+    const lt = 1 < 2;
+    const le = 1 <= 2;
+    const gt = 1 > 2;
+    const ge = 1 >= 2;
+    const feq = 1.0 == 2.0;
+    const flt = 1.0 < 2.0;
+    const and_ = true && false;
+    const or_ = true || false;
+    print_str("hi");
+    print_i64(1);
+    print_f64(1.0);
+}
