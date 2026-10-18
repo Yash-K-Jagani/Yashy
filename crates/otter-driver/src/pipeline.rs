@@ -96,6 +96,40 @@ impl OptLevel {
     }
 }
 
+/// Which instruction set the generated program may use.
+///
+/// The baseline of a `--target` triple is deliberately conservative: an
+/// `x86_64` binary may only use what every x86-64 CPU has, so it runs anywhere.
+/// That costs real performance — a loop the backend would otherwise vectorise
+/// four integers at a time is held to two — but the alternative, emitting
+/// instructions for the *build* machine, produces a binary that dies with an
+/// illegal instruction on an older CPU.
+///
+/// This is therefore opt-in, and [`CpuTarget::Portable`] is the default. Asking
+/// for [`CpuTarget::Native`] is the user saying "this program is for this
+/// machine", which is what makes it safe to un-conserve the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CpuTarget {
+    /// The triple's baseline: any CPU of that architecture can run the result.
+    #[default]
+    Portable,
+    /// `-march=native`: the CPU this compiler is running on.
+    Native,
+}
+
+impl CpuTarget {
+    /// The extra `clang` arguments that select this target.
+    ///
+    /// Empty for the baseline, so a portable build passes nothing and behaves
+    /// exactly as it did before this choice existed.
+    pub fn flags(self) -> &'static [&'static str] {
+        match self {
+            CpuTarget::Portable => &[],
+            CpuTarget::Native => &["-march=native"],
+        }
+    }
+}
+
 /// Where compiled runtime objects are reused between builds.
 ///
 /// `OTTER_CACHE_DIR` overrides the location, which is what a build system or a
@@ -235,6 +269,11 @@ fn cached_runtime_object(
 /// `opt` is the `clang` optimization level for the generated code; see
 /// [`OptLevel`] for why the caller, not codegen, chooses it.
 ///
+/// `cpu` is the instruction set the generated code may use; see [`CpuTarget`]
+/// for why the default is the portable baseline rather than this machine. It
+/// applies to the IR and to nothing else — see the link step for why the
+/// runtime deliberately stays portable.
+///
 /// Every diagnostic refers to file id **zero** of a fresh [`SourceMap`], which
 /// is `entry_name`'s text. A caller that wants to render them builds its own
 /// map by adding the same source first — the driver's CLI does exactly that.
@@ -247,6 +286,7 @@ pub fn compile_to_binary(
     out: &Path,
     toolchain: &Toolchain,
     opt: OptLevel,
+    cpu: CpuTarget,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
     let file = sources.add_file(entry_name, source.to_string());
@@ -294,16 +334,26 @@ pub fn compile_to_binary(
     // it the runtime would stay at `-O0` while the program it is linked into
     // was optimized, which is the kind of asymmetry that shows up later as a
     // mystery in a profile.
+    //
+    // The *machine* flag is the opposite case: it goes here and nowhere else.
+    // The runtime is a handful of `printf` wrappers called once at the end of a
+    // program, so what `-march=native` buys it is unmeasurable, while keeping it
+    // on the baseline is worth something real — one runtime object serves both
+    // portable and native builds, so enabling `--native` does not throw away the
+    // cache, and a cache shared between machines never hands one machine another
+    // machine's instructions.
+    let mut object_args: Vec<String> = vec![
+        "-c".to_string(),
+        display(&ir_path),
+        "-o".to_string(),
+        display(&object_path),
+        format!("--target={target}"),
+        opt.flag().to_string(),
+    ];
+    object_args.extend(cpu.flags().iter().map(|flag| flag.to_string()));
     run_tool(
         toolchain,
-        &[
-            "-c".to_string(),
-            display(&ir_path),
-            "-o".to_string(),
-            display(&object_path),
-            format!("--target={target}"),
-            opt.flag().to_string(),
-        ],
+        &object_args,
         entry_name,
         "assembling the generated IR",
     )?;
@@ -456,7 +506,7 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, fnv1a, runtime_cache_dir, runtime_cache_key, OptLevel,
+        cached_runtime_object, fnv1a, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
         FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
@@ -483,6 +533,23 @@ mod tests {
         for level in OptLevel::ALL {
             assert_eq!(OptLevel::parse(level.flag()), Some(level));
         }
+    }
+
+    #[test]
+    fn the_default_target_is_portable() {
+        // The default must not quietly emit this machine's instructions: the
+        // value of the baseline is that the binary runs on a machine the
+        // compiler has never seen.
+        assert_eq!(CpuTarget::default(), CpuTarget::Portable);
+        assert!(
+            CpuTarget::default().flags().is_empty(),
+            "a portable build must pass no machine flag at all"
+        );
+    }
+
+    #[test]
+    fn only_the_native_target_un_conserves_the_instruction_set() {
+        assert_eq!(CpuTarget::Native.flags(), ["-march=native"]);
     }
 
     #[test]

@@ -1,14 +1,15 @@
 //! The `otter` command line interface.
 //!
 //! ```text
-//! otter build <file.ot> [-o <out>] [--emit-ir]
+//! otter build <file.ot> [-o <out>] [--emit-ir] [--native]
 //! otter check <file.ot>
 //! otter version
 //! ```
 //!
-//! Argument parsing is hand-rolled on purpose: three subcommands and two flags
-//! do not need a parser generator, and every dependency in this workspace is
-//! one more thing between a user and a compiler that builds offline.
+//! Argument parsing is hand-rolled on purpose: three subcommands and a handful
+//! of flags do not need a parser generator, and every dependency in this
+//! workspace is one more thing between a user and a compiler that builds
+//! offline.
 
 use std::env;
 use std::ffi::OsStr;
@@ -17,20 +18,21 @@ use std::process::ExitCode;
 
 use otter_codegen::{check_main_exists, emit_program};
 use otter_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
-use otter_driver::{compile_to_binary, detect, OptLevel};
+use otter_driver::{compile_to_binary, detect, CpuTarget, OptLevel};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, HirProgram};
 
 const USAGE: &str = "\
 usage:
-  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--emit-ir]
+  otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--native] [--emit-ir]
   otter check <file.ot>
   otter version
 
   build   compile a program to a native executable
   check   lex, parse and type-check without emitting anything
   -O<n>       LLVM optimization level for the generated code (default -O2)
+  --native    optimize for this machine; the binary may not run on an older CPU
   --emit-ir   print the generated LLVM IR to stdout and stop";
 
 fn main() -> ExitCode {
@@ -59,7 +61,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--emit-ir]`.
+/// `otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--native] [--emit-ir]`.
 fn build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
@@ -69,11 +71,16 @@ fn build(args: &[String]) -> ExitCode {
     // LLVM. A build that passes no level gets `-O0` and a binary an order of
     // magnitude slower than the same source deserves.
     let mut opt = OptLevel::default();
+    // Portable unless asked otherwise: `-march=native` produces a binary that
+    // can die with an illegal instruction on a machine older than this one, so
+    // it is never the default.
+    let mut cpu = CpuTarget::default();
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
+            "--native" => cpu = CpuTarget::Native,
             "-o" | "--output" => match args.next() {
                 Some(value) => output = Some(PathBuf::from(value)),
                 None => return usage_error("`-o` needs a path"),
@@ -131,7 +138,7 @@ fn build(args: &[String]) -> ExitCode {
     };
 
     let output = output.unwrap_or_else(|| default_output(&input));
-    match compile_to_binary(&source, &entry, &output, &toolchain, opt) {
+    match compile_to_binary(&source, &entry, &output, &toolchain, opt, cpu) {
         Ok(()) => exit_code(EXIT_OK),
         Err(diagnostics) => render(&source, &entry, &diagnostics),
     }

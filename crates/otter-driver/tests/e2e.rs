@@ -331,6 +331,48 @@ fn every_optimization_level_builds_a_working_binary() {
 }
 
 #[test]
+fn native_optimization_does_not_change_what_the_program_prints() {
+    // `--native` lets the backend use this CPU's instruction set, which on a
+    // machine with AVX2 is a large speed-up on a vectorisable loop. What it
+    // must *not* do is change the answer: a program may not print something
+    // different because it was compiled for a newer CPU. `floats` is the
+    // interesting case, because floating-point contraction is the one place a
+    // faster CPU could quietly change a result — and this compiler does not
+    // enable it, so the value must be identical.
+    let dir = work_dir("native");
+    let source = programs_dir().join("floats.ot");
+
+    let builds = [
+        ("portable", None),
+        ("native", Some("--native")),
+    ];
+    let mut outputs = Vec::new();
+    for (label, flag) in builds {
+        let exe = dir.join(format!("floats-{label}{}", std::env::consts::EXE_SUFFIX));
+        let mut command = Command::new(otter());
+        command.arg("build").arg(&source).arg("-o").arg(&exe);
+        if let Some(flag) = flag {
+            command.arg(flag);
+        }
+        let compile = command.output().expect("run the otter CLI");
+        assert!(
+            compile.status.success(),
+            "building the {label} variant failed:\n{}",
+            stderr_of(&compile)
+        );
+        outputs.push((label, stdout_of(&run(&exe))));
+    }
+
+    let expected = "3\n2\n12\n3\n1\n-2\n0\n";
+    for (label, actual) in &outputs {
+        assert_eq!(
+            actual, expected,
+            "the {label} build printed a different result"
+        );
+    }
+}
+
+#[test]
 fn check_reports_a_type_error_without_building() {
     let dir = work_dir("check-error");
     let source = dir.join("bad.ot");
