@@ -1191,6 +1191,20 @@ impl Checker {
                     },
                     None => {
                         self.error(*span, format!("cannot find function `{name}`"));
+                        // Check the arguments anyway, each one standing alone.
+                        //
+                        // Resolving the callee first is what lets `f(None)`
+                        // infer what `None` is an `Option` of, but *stopping*
+                        // here when the callee is unknown meant a typo in the
+                        // function and a typo in an argument took two builds to
+                        // find, one error at a time. There is no parameter type
+                        // to check against, so this pass asks only whether each
+                        // argument is valid by itself — and an argument that is
+                        // fine reports nothing, so the common case of a
+                        // misspelled callee with good arguments is unchanged.
+                        for arg in args {
+                            let _ = self.check_expr(arg);
+                        }
                         None
                     }
                 }

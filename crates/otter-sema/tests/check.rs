@@ -66,6 +66,33 @@ fn assert_error(src: &str, needle: &str) {
 }
 
 #[test]
+fn an_unknown_function_does_not_hide_its_arguments_errors() {
+    // Resolving the callee before its arguments is what lets `f(None)` infer
+    // what `None` is an `Option` of. It must not also mean that an unknown
+    // callee swallows the arguments: `nope(bad_var)` has two independent
+    // problems, and reporting one of them costs the reader a second build to
+    // discover the other.
+    let (result, _, _) = check_source("fn main() { nope(bad_var); }");
+    let diags = match result {
+        Ok(_) => panic!("expected the program to fail to check"),
+        Err(diags) => diags,
+    };
+    let messages: Vec<&str> = diags.iter().map(|d| d.message.as_str()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("cannot find function `nope`")),
+        "the unknown callee should be reported: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("cannot find value `bad_var`")),
+        "the bad argument should be reported too: {messages:?}"
+    );
+}
+
+#[test]
 fn infers_i64_from_integer_literal() {
     assert_type("fn f() { const x = 1; }", "f", TypeKind::I64);
 }
