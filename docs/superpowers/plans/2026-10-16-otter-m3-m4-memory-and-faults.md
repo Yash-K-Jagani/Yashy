@@ -483,6 +483,37 @@ Not here: making the *public* arena safe to share (it stays a caller's problem,
 documented), and `%otter_str`'s refcount, which M3's remaining string task
 replaces wholesale anyway.
 
+### Task 5g: reaching the value-to-string conversions
+
+The runtime has had `otter_str_from_i64`, `otter_str_from_f64` and
+`otter_str_from_bool` since the M3 string work (Task 5a), all three declared in
+the emitted IR from the start — and nothing in the language could call them. So a
+program could print a number (`print_i64`) and could not put one *inside* a
+string: `"count = " + n` did not type-check and there was no other spelling. It
+left a hole in exactly the thing strings are for.
+
+Three more entries in the builtins table close it: `str_from_i64`,
+`str_from_f64`, `str_from_bool`, all `-> string`. The names are the runtime's
+minus the prefix, so the codegen rename path (`read_line` → `otter_read_line`)
+covers two of them with no new code; the third needs one arm, because the runtime
+takes an `i64` where the language has a `bool` (C has no one-bit type, argued in
+the header) and the `i1` is zero-extended to meet the declaration. `str_from_bool`
+is the only conversion whose IR signature is not the language signature.
+
+Three names rather than one `str` is forced, not chosen: a builtin declares its
+name once in the root scope and a duplicate declaration is an error, so there is
+no overloading to hang three argument types on. **Task 7's interpolation is the
+ergonomic form of this** — `"n = ${n}"` — and it lowers to exactly these three
+conversions, which is why they are the right thing to build first: interpolation
+becomes sugar over a working operation rather than the only way to get one.
+
+Tests: `the_value_to_string_conversions_resolve_and_check_their_argument`
+(each takes exactly one type; a wrong argument is a diagnostic), one sema test
+pinning that a built string type-checks at all, one codegen test pinning the two
+direct calls and the `zext` on the bool, and `greet.ot` end to end — read a name
+and an age, print one sentence built from both, which is the whole reason the
+pair is needed.
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

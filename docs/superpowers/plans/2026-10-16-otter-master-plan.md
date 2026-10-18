@@ -233,7 +233,8 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | Milestone | Builtins |
 |---|---|
 | M0–M2 | `print_str(string)`, `print_i64(i64)`, `print_f64(f64)` |
-| M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, string constructors and accessors from L1 |
+| M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, `len(string)`, string constructors and accessors from L1 |
+| M3, as built ahead of the row above | `read_line() -> string`, `parse_i64(string) -> i64`, `parse_f64(string) -> f64`, `str_from_i64(i64) -> string`, `str_from_f64(f64) -> string`, `str_from_bool(bool) -> string` (L1's input and conversion notes) |
 | M4 | `panic(string)`, `assert(bool)`, `debug_assert(bool)`, `assert_eq` (typed per pair), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
 | M6 | `len(slice) -> i64`, `slice_push`, `map_new/get/insert/remove/len`, string `len`, indexing |
 | M7 | `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock/unlock`, `Channel.new(i64)`, `chan.send/recv/close` |

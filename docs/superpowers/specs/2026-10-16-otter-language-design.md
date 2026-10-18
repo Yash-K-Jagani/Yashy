@@ -389,15 +389,18 @@ v1 stdlib scope: `io` (stdout/stderr/files), `string`, `array`/`slice`, `math`,
 
 Until that library exists, the functions a program can call are the compiler's
 builtins, and they are exactly the ones a program cannot be written without:
-`print_str`, `print_i64`, `print_f64` on the way out, `read_line` and
+`print_str`, `print_i64`, `print_f64` on the way out, `str_from_i64`,
+`str_from_f64`, `str_from_bool` to put a value *inside* a string, `read_line` and
 `parse_i64`/`parse_f64` on the way in, `alloc`/`dealloc` for memory, and
 `len` for a string's byte length. They are ordinary names resolved like any
 other function, so `io.readLine` arriving in M6 replaces `read_line` rather than
-living beside it. Two of them have a contract worth stating: `read_line` returns
-the empty string at end of input (which the language cannot yet distinguish from
-an empty line — the checked form waits for `panic` or `Option` in M4), and the
-parsers return zero when their argument is not a number, with trailing text
-making the whole string a non-number rather than being ignored.
+living beside it. Three of them have a contract worth stating: `read_line`
+returns the empty string at end of input (which the language cannot yet
+distinguish from an empty line — the checked form waits for `panic` or `Option`
+in M4), and the parsers return zero when their argument is not a number, with
+trailing text making the whole string a non-number rather than being ignored.
+`str_from_bool` takes a `bool` in the language and an `i64` at the ABI, because
+C has no one-bit type; the generated code widens.
 
 Dynamic loading differs by platform and is isolated in `otter-runtime`:
 `LoadLibrary`/`GetProcAddress` on Windows, `dlopen`/`dlsym` on Linux. The language

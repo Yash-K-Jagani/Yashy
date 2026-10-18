@@ -78,7 +78,7 @@ impl Checker {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 9] = [
+        let builtins: [(&str, Vec<Type>, Type); 12] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -96,6 +96,19 @@ impl Checker {
             ("read_line", vec![], prim(TypeKind::Str)),
             ("parse_i64", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
             ("parse_f64", vec![prim(TypeKind::Str)], prim(TypeKind::F64)),
+            // Out the other way: a number as text, so a program can build a
+            // string that *contains* one (`"count = " + str_from_i64(n)`).
+            // Without these the runtime's conversions existed and nothing could
+            // call them, and `print_i64` was the only way to show a number.
+            //
+            // Three names rather than one `str`: the builtin table declares a
+            // name once and duplicate declarations in a scope are an error, so
+            // there is no overloading to hang three argument types on. Task 7's
+            // interpolation is the ergonomic form of this ("n = ${n}") and will
+            // call exactly these conversions.
+            ("str_from_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Str)),
+            ("str_from_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Str)),
+            ("str_from_bool", vec![prim(TypeKind::Bool)], prim(TypeKind::Str)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(

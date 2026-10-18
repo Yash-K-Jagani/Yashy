@@ -724,6 +724,27 @@ fn a_program_can_read_its_input() {
 }
 
 #[test]
+fn a_program_can_build_a_string_with_a_number_in_it() {
+    // The conversions put a value inside a string, so a whole sentence is one
+    // string rather than a sequence of `print_*` calls.
+    let (_dir, exe, compile) = build_program("greet");
+    assert!(
+        compile.status.success(),
+        "compiling greet.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run_with_input(&exe, "Ada\n36\n");
+    assert_eq!(stdout_of(&output), "name? age? Ada is 36 years old\n");
+    assert_eq!(output.status.code(), Some(0));
+
+    // A line that is not an integer contributes zero, which is what
+    // `parse_i64` promises -- and the sentence is still well formed.
+    let junk = run_with_input(&exe, "Bo\nnot a number\n");
+    assert_eq!(stdout_of(&junk), "name? age? Bo is 0 years old\n");
+}
+
+#[test]
 fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
     // The literal writes `y` first; `p.x` must still be the declared `x`.
     let output = build_and_run("structs");

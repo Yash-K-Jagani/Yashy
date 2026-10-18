@@ -1,0 +1,12 @@
+// Reads a name and an age, then prints a sentence built from both.
+//
+// This is the pair a program needs to *produce* text rather than just print
+// pieces of it: `read_line` gets the input, and `str_from_i64` puts a number
+// inside a string, so the whole sentence is one value.
+fn main() {
+    print_str("name? ");
+    const name = read_line();
+    print_str("age? ");
+    const age = parse_i64(read_line());
+    print_str(name + " is " + str_from_i64(age) + " years old\n");
+}

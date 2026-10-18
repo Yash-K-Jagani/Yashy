@@ -272,6 +272,41 @@ fn a_struct_field_is_read_with_the_declaration_order_index() {
 }
 
 #[test]
+fn the_number_to_string_conversions_call_the_runtime() {
+    let ir_text = ir_of(
+        "fn main() {\n\
+         \x20   const a = str_from_i64(1);\n\
+         \x20   const b = str_from_f64(1.5);\n\
+         \x20   const c = str_from_bool(true);\n\
+         \x20   print_str(a + b + c);\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_str_from_i64(i64 "),
+        "the integer conversion is a direct call:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_str_from_f64(double "),
+        "and so is the float one:\n{ir_text}"
+    );
+    // The bool takes a different path: the runtime declares an `i64` because C
+    // has no one-bit type, so the `i1` is widened first rather than handed over
+    // as a value the callee would read differently.
+    assert!(
+        ir_text.contains("zext i1 "),
+        "the bool is widened:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_str_from_bool(i64 "),
+        "and the call passes the widened value:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("@otter_str_from_bool(i1 "),
+        "never as an `i1`, which the declaration does not take:\n{ir_text}"
+    );
+}
+
+#[test]
 fn llvm_type_mapping_matches_the_spec() {
     assert_eq!(llvm_type_string(&TypeKind::I64), "i64");
     assert_eq!(llvm_type_string(&TypeKind::F64), "double");

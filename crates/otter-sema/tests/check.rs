@@ -308,6 +308,35 @@ fn builtin_calls_resolve() {
     assert_error("fn f() { print_str(1); }", "expected `string`, found `i64`");
 }
 
+/// The three conversions a program uses to put a value inside a string.
+fn assert_conversion(param: &str, arg: &str, expected: TypeKind) {
+    let src = format!("fn f(x: {param}) {{ const s = str_from_{param}(x); }}");
+    assert_type(&src, "f", expected.clone());
+    let wrong = format!("fn f() {{ const s = str_from_{param}({arg}); }}");
+    assert_error(&wrong, "found");
+}
+
+#[test]
+fn the_value_to_string_conversions_resolve_and_check_their_argument() {
+    // Each conversion takes exactly one type, so a wrong argument is a type
+    // error rather than a call to a runtime function that would read the
+    // register as something else.
+    assert_conversion("i64", "\"text\"", TypeKind::Str);
+    assert_conversion("f64", "1", TypeKind::Str);
+    assert_conversion("bool", "1", TypeKind::Str);
+}
+
+#[test]
+fn a_conversion_no_longer_leaves_the_runtime_unreachable() {
+    // `otter_str_from_i64` and friends have existed since the M3 string work
+    // and nothing could call them; `print_i64` was the only way to show a
+    // number. This is the pin that they are reachable from the language.
+    let (result, _, _) = check_source(
+        "fn f(n: i64) { const line = \"n = \" + str_from_i64(n); }",
+    );
+    result.expect("a built line should type-check");
+}
+
 #[test]
 fn matches_some_and_binds_the_payload() {
     // Switch-expression arm bodies are bare expressions: `case None { 0 }`,

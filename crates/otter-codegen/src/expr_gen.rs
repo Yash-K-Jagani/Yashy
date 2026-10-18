@@ -493,6 +493,32 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
         // `len` is the byte length of a string today. M6 adds the slice case.
         "len" => crate::strings::gen_str_len(ctx, args),
+        // `str_from_bool` is the one conversion whose runtime signature is wider
+        // than the language's type. C has no one-bit type, so
+        // `otter_str_from_bool` takes an `i64` and the header argues the case;
+        // the `i1` is zero-extended here to meet it. (`str_from_i64` and
+        // `str_from_f64` need no reshaping and go through the rename arm.)
+        "str_from_bool" => {
+            let value = match args.first() {
+                Some(arg) => gen_expr(ctx, arg),
+                None => return zero_of(ty, ctx),
+            };
+            let as_i64 = if repr_type(&value.ty) == "i1" {
+                let widened = ctx.tmp();
+                ctx.push(format!("{widened} = zext i1 {} to i64", value.value));
+                widened
+            } else {
+                value.value
+            };
+            let converted = ctx.tmp();
+            ctx.push(format!(
+                "{converted} = call i8* @otter_str_from_bool(i64 {as_i64})"
+            ));
+            GenValue {
+                value: converted,
+                ty: ty.clone(),
+            }
+        }
         "print_i64" | "print_f64" | "print_str" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
             let arg_list: Vec<String> = lowered
@@ -552,7 +578,7 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             // whose arguments and result need no reshaping: only the name
             // differs, so the common path handles them.
             match name.as_str() {
-                "read_line" | "parse_i64" | "parse_f64" => {
+                "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64" => {
                     gen_plain_call(ctx, &format!("otter_{name}"), args, ty)
                 }
                 _ => gen_plain_call(ctx, &name, args, ty),
