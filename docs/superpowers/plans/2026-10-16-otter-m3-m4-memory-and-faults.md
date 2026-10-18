@@ -546,6 +546,31 @@ shapes plus the span, and a sema test pins that the checker then accepts them.
 This is a syntax change beyond the plan, recorded in the spec's section 3.1 and
 3.3 rather than here.
 
+### Task 5i: compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`)
+
+The lexer has had all five spelling tokens since it was written and nothing
+consumed them — the same wart as `@`. They are now the statement forms they were
+meant to be, as pure sugar: the parser builds `Stmt::Assign` whose target is the
+expression the source wrote and whose value is that same expression as the left
+operand of the operator. There is no compound-assignment node, so the checker and
+the backend never learn the forms exist, and the desugar cannot disagree with the
+expanded spelling because the expanded spelling *is* what everything downstream
+sees.
+
+That is also the whole correctness argument: `n += 1.5` is rejected with the
+message for `n = n + 1.5` ("cannot apply `+` to `i64` and `f64`"), and
+`c += 1` on a `const` is rejected with "cannot assign to `c`, which is
+immutable" — for the same reason, since the target rules are the assignment's.
+The target being an expression rather than a name means `+=` will keep working
+when M6 makes `p.x` and `v[i]` assignable, without reopening the parser.
+
+Tests: `compound_assignment_is_sugar_for_the_expanded_assignment` (the node, the
+shared target, the operand order),
+`every_compound_operator_maps_to_its_own_binary` (each token reaches its own
+operator), a sema test for all five on a `var` plus the two rejections, and
+`collatz.ot` now writes `n /= 2`, `steps += 1` and `i += 1` — its expected output
+is unchanged, so the end-to-end test covers the sugar without knowing about it.
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

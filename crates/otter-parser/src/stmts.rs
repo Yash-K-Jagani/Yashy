@@ -7,7 +7,7 @@
 use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::{Block, Expr, Literal, Pattern, Stmt, SwitchArm};
+use crate::ast::{BinOp, Block, Expr, Literal, Pattern, Stmt, SwitchArm};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -421,6 +421,43 @@ impl<'src> Parser<'src> {
         //
         // `==` is a different token, so a comparison statement is untouched:
         // `x == 1;` still parses as an expression statement.
+        // Compound assignment, `target op= value;`, is sugar for the plain
+        // assignment of the operator applied to the target: `x += 1` *is*
+        // `x = x + 1`, as one `Stmt::Assign` whose value is the binary.
+        //
+        // The desugar reuses the target expression unchanged -- same node, same
+        // span -- so any target the expression grammar produces works here too,
+        // and the checker never learns that `+=` exists: a target that cannot be
+        // assigned gets the diagnostic the expanded form would get, because the
+        // expanded form is what the checker sees.
+        //
+        // The five spelling tokens were already in the lexer and had no
+        // consumer; this is the consumer.
+        let compound = match self.peek() {
+            TokenKind::PlusEq => Some(BinOp::Add),
+            TokenKind::MinusEq => Some(BinOp::Sub),
+            TokenKind::StarEq => Some(BinOp::Mul),
+            TokenKind::SlashEq => Some(BinOp::Div),
+            TokenKind::PercentEq => Some(BinOp::Rem),
+            _ => None,
+        };
+        if let Some(op) = compound {
+            self.advance();
+            let rhs = self.parse_expr()?;
+            let semi = self.expect(TokenKind::Semi)?;
+            let value = Expr::Binary {
+                op,
+                lhs: Box::new(expr.clone()),
+                rhs: Box::new(rhs),
+                span,
+            };
+            return Ok(Stmt::Assign {
+                target: expr,
+                value,
+                span: cover(span, semi.span),
+            });
+        }
+
         if self.check(TokenKind::Eq) {
             self.expect(TokenKind::Eq)?;
             let value = self.parse_expr()?;

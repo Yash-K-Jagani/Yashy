@@ -1356,6 +1356,68 @@ fn assignment_to_a_var_binding_is_a_statement() {
 }
 
 #[test]
+fn compound_assignment_is_sugar_for_the_expanded_assignment() {
+    // `x += 1` and `x = x + 1` must produce the same statement, because there is
+    // no compound-assignment node: the desugar happens in the parser and the
+    // checker never learns that `+=` exists. The target is one node reused,
+    // not two shapes that could disagree.
+    let src = "fn main() { var x = 1; x += 1; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Assign { target, value, .. } = &body.stmts[1] else {
+        panic!("expected an assignment, got {:?}", body.stmts[1]);
+    };
+    assert!(
+        matches!(target, Expr::Ident(path, _) if path == &vec!["x".to_string()]),
+        "the target is the name written, got {target:?}"
+    );
+    let Expr::Binary { op, lhs, rhs, .. } = value else {
+        panic!("expected the operator applied to the target, got {value:?}")
+    };
+    assert_eq!(*op, BinOp::Add);
+    assert!(
+        matches!(lhs.as_ref(), Expr::Ident(path, _) if path == &vec!["x".to_string()]),
+        "the left operand is the target, got {lhs:?}"
+    );
+    assert!(
+        matches!(rhs.as_ref(), Expr::Literal(Literal::I64(1), _)),
+        "the right operand is the value written, got {rhs:?}"
+    );
+}
+
+#[test]
+fn every_compound_operator_maps_to_its_own_binary() {
+    // The lexer's five `…=` tokens had no consumer before this; each must reach
+    // its own operator rather than, say, all of them becoming `Add`.
+    for (written, expected) in [
+        ("+=", BinOp::Add),
+        ("-=", BinOp::Sub),
+        ("*=", BinOp::Mul),
+        ("/=", BinOp::Div),
+        ("%=", BinOp::Rem),
+    ] {
+        let src = format!("fn main() {{ var x = 1; x {written} 2; }}");
+        let program = parse_ok(&src);
+        let Item::Fn { body, .. } = &program.items[0] else {
+            panic!("expected fn")
+        };
+        let Stmt::Assign {
+            value: Expr::Binary { op, .. },
+            ..
+        } = &body.stmts[1]
+        else {
+            panic!(
+                "`{written}` must parse as an assignment of a binary, got {:?}",
+                body.stmts[1]
+            )
+        };
+        assert_eq!(*op, expected, "`{written}` maps to {expected:?}");
+    }
+}
+
+#[test]
 fn equality_is_not_an_assignment() {
     // `=` and `==` are separate tokens, and the statement parser must read them
     // separately: an `Expr::Binary` comparison is a statement in its own right,

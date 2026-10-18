@@ -124,6 +124,11 @@ fn main() {
 - `const x = expr;` — immutable binding. `var x = expr;` — mutable.
 - `let` is **not** a keyword: a third synonym for `const` is one more thing to
   learn.
+- Assignment is spelled `x = v;` and only a `var` binding may be the target.
+- `x op= v;` for `+=`, `-=`, `*=`, `/=`, `%=` is **sugar**: it is exactly
+  `x = x op v`, and there is no compound-assignment node. So the right operand
+  is checked against the operator and the target against mutability, and a
+  program that writes the long form gets the same result.
 - `:=` is the one open spelling question (§12.1). If accepted, it is sugar for
   `const`, never the canonical spelling.
 - Parameters, return types, and struct fields are always annotated.

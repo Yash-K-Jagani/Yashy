@@ -318,6 +318,25 @@ fn an_empty_body_after_a_bare_name_still_type_checks() {
 }
 
 #[test]
+fn compound_assignment_is_an_assignment_of_the_expanded_value() {
+    // The parser desugars, so the checker sees `n = n + 1` and applies its
+    // existing rules -- including the rule about *what* can be assigned to,
+    // which is why an immutable binding is rejected exactly as it would be.
+    let (result, _, _) = check_source("fn f() { var n = 0; n += 1; n -= 1; n *= 2; n /= 2; n %= 2; }");
+    result.expect("every compound operator should type-check on a `var`");
+    assert_error(
+        "fn f() { const n = 0; n += 1; }",
+        "cannot assign to `n`, which is immutable",
+    );
+    // And the right operand meets the operator's rule, because the expanded
+    // form is what the checker saw: `n += 1.5` is `n = n + 1.5`.
+    assert_error(
+        "fn f() { var n = 0; n += 1.5; }",
+        "cannot apply `+` to `i64` and `f64`",
+    );
+}
+
+#[test]
 fn if_condition_must_be_bool() {
     assert_error("fn f() { if 1 { } }", "expected `bool`, found `i64`");
 }
