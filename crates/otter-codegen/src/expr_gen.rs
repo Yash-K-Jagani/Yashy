@@ -13,9 +13,8 @@
 //! UB until M4. Both are pinned by `tests/golden/ops.expected.ll`, so M4's
 //! replacement is a deliberate diff rather than a silent change.
 //!
-//! A construct not lowered yet (`?` propagation, `FieldAccess`) becomes a
-//! comment plus a zero of its type: visibly incomplete IR, never a silently
-//! wrong answer.
+//! A construct not lowered yet (`FieldAccess`) becomes a comment plus a zero
+//! of its type: visibly incomplete IR, never a silently wrong answer.
 //!
 //! # No input makes this module panic
 //!
@@ -24,7 +23,7 @@
 //! missing one lowers to a comment plus a zero rather than aborting the
 //! compile.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use otter_common::Span;
 use otter_parser::ast::Literal;
@@ -64,9 +63,10 @@ pub struct FnCtx<'a> {
     /// Bound names (`locals`, parameters, pattern bindings) to their slot and
     /// declared type.
     pub locals: HashMap<String, (String, TypeKind)>,
-    /// Struct types already defined in this module, so a second literal of the
-    /// same struct does not re-emit `%struct.Name = type { … }`.
-    pub seen_structs: HashSet<String>,
+    /// Active loop labels, innermost last: `(break label, continue label)`.
+    /// `break`/`continue` read the top entry, so nested loops need no extra
+    /// plumbing through the statement tree.
+    pub loops: Vec<(String, String)>,
 }
 
 impl<'a> FnCtx<'a> {
@@ -78,7 +78,7 @@ impl<'a> FnCtx<'a> {
             next_slot: 0,
             next_label: 0,
             locals: HashMap::new(),
-            seen_structs: HashSet::new(),
+            loops: Vec::new(),
         }
     }
 
@@ -105,10 +105,9 @@ impl<'a> FnCtx<'a> {
         name
     }
 
-    /// A fresh label base, `match0`, `match1`, … so nested switches do not
-    /// collide.
+    /// A fresh label base, `bb0`, `bb1`, … so nested blocks do not collide.
     pub(crate) fn alloc_label_base(&mut self) -> String {
-        let name = format!("match{}", self.next_label);
+        let name = format!("bb{}", self.next_label);
         self.next_label += 1;
         name
     }
@@ -131,7 +130,9 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::Ident(path, _, ty) => {
             let name = path.last().cloned().unwrap_or_default();
             match ctx.locals.get(&name).cloned() {
-                Some((slot, slot_ty)) => {
+                Some((slot, slot_ty))
+                    if !slot.is_empty() && repr_type(&slot_ty) != "void" =>
+                {
                     let tmp = ctx.tmp();
                     let repr = repr_type(&slot_ty);
                     ctx.push(format!("{tmp} = load {repr}, ptr {slot}"));
@@ -141,9 +142,9 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                     }
                 }
                 // `None` (and any other value-position variant name) has no
-                // slot; it is a unit variant of the type the expression
-                // already carries.
-                None => zero_of(&ty.kind, ctx),
+                // slot, and a `()` binding has no loadable value; both take a
+                // zero of the type the expression already carries.
+                _ => zero_of(&ty.kind, ctx),
             }
         }
         HirExpr::Binary {
@@ -164,10 +165,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             zero_of(&ty.kind, ctx)
         }
         HirExpr::Cast { expr, ty, .. } => gen_cast(ctx, expr, &ty.kind),
-        HirExpr::Try { span, ty, .. } => {
-            ctx.push(format!("; TODO(Task 12): `?` propagation (at {span:?})"));
-            zero_of(&ty.kind, ctx)
-        }
+        HirExpr::Try { expr, ty, .. } => gen_try(ctx, expr, &ty.kind),
         HirExpr::SwitchExpr {
             subject, arms, ty, ..
         } => {
@@ -448,6 +446,60 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
     }
 }
 
+/// Lower `expr?`: test the Result tag, propagate on `Err`, unwrap on `Ok`.
+///
+/// The `Err` path returns the whole Result value out of the enclosing
+/// function, so the function's own return type must be the same Result shape.
+/// The type checker does not yet enforce that, so a mismatch lowers to
+/// `unreachable` plus a comment instead of a malformed `ret`.
+///
+/// The `Err` path does **not** run pending `defer` bodies (Task 12 limitation,
+/// recorded in the ledger): expressions have no access to the statement
+/// scope's defer list.
+fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValue {
+    let value = gen_expr(ctx, expr);
+    let subject_repr = repr_type(&value.ty);
+    let ret_repr = repr_type(&ctx.ret_type);
+    let ok_label = ctx.alloc_label_base() + "_try_ok";
+    let err_label = ctx.alloc_label_base() + "_try_err";
+    let cont_label = ctx.alloc_label_base() + "_try_cont";
+
+    let tag = ctx.tmp();
+    ctx.push(format!(
+        "{tag} = extractvalue {subject_repr} {}, 0",
+        value.value
+    ));
+    let is_ok = ctx.tmp();
+    ctx.push(format!("{is_ok} = icmp eq i8 {tag}, 0"));
+    ctx.push(format!(
+        "br i1 {is_ok}, label %{ok_label}, label %{err_label}"
+    ));
+
+    ctx.push(format!("{err_label}:"));
+    if ret_repr == subject_repr && ret_repr != "void" {
+        ctx.push(format!("ret {ret_repr} {}", value.value));
+    } else {
+        ctx.push(
+            "; TODO: `?` in a function whose return type is not the same Result shape".to_string(),
+        );
+        ctx.push("unreachable".to_string());
+    }
+
+    ctx.push(format!("{ok_label}:"));
+    let payload = ctx.tmp();
+    ctx.push(format!(
+        "{payload} = extractvalue {subject_repr} {}, 1",
+        value.value
+    ));
+    ctx.push(format!("br label %{cont_label}"));
+    ctx.push(format!("{cont_label}:"));
+
+    GenValue {
+        value: payload,
+        ty: result_ty.clone(),
+    }
+}
+
 /// Lower a struct literal: define the named type once, then `insertvalue`
 /// each field in **literal order**.
 ///
@@ -462,13 +514,8 @@ fn gen_struct_lit(
 ) -> GenValue {
     let struct_name = format!("%struct.{}", path.last().cloned().unwrap_or_default());
     let lowered: Vec<GenValue> = fields.iter().map(|(_, e, _)| gen_expr(ctx, e)).collect();
-    if ctx.seen_structs.insert(struct_name.clone()) {
-        let field_tys: Vec<String> = lowered.iter().map(|v| repr_type(&v.ty)).collect();
-        ctx.push(format!(
-            "{struct_name} = type {{ {} }}",
-            field_tys.join(", ")
-        ));
-    }
+    let field_tys: Vec<String> = lowered.iter().map(|v| repr_type(&v.ty)).collect();
+    ctx.module.define_named_type(&struct_name, field_tys);
     let repr = repr_type(ty);
     let mut acc = "undef".to_string();
     for (index, value) in lowered.iter().enumerate() {

@@ -143,12 +143,10 @@ impl Checker {
                 } => {
                     let param_tys: Vec<Type> = params
                         .iter()
-                        .map(|Param { ty, .. }| {
-                            self.resolve_type(ty).unwrap_or_else(|_| never(*span))
-                        })
+                        .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
                         .collect();
                     let ret_ty = match ret {
-                        Some(ty) => self.resolve_type(ty).unwrap_or_else(|_| never(*span)),
+                        Some(ty) => self.resolve_or_report(ty, *span),
                         None => prim(TypeKind::Unit),
                     };
                     let sig = FnSig {
@@ -183,7 +181,7 @@ impl Checker {
                     let field_tys = fields
                         .iter()
                         .map(|f| {
-                            let ty = self.resolve_type(&f.ty).unwrap_or_else(|_| never(f.span));
+                            let ty = self.resolve_or_report(&f.ty, f.span);
                             (f.name.clone(), ty)
                         })
                         .collect();
@@ -214,6 +212,24 @@ impl Checker {
                     );
                 }
                 Item::Import { .. } | Item::Extern { .. } => {}
+            }
+        }
+    }
+
+    /// Resolve a type expression, reporting a diagnostic and falling back to
+    /// `Never` when the name is unknown.
+    ///
+    /// A silently swallowed resolution failure is how an unknown type name in
+    /// a signature used to become `Never` and compile: the program was
+    /// accepted and the mistake surfaced later as garbage IR. Reporting here
+    /// is what makes `fn f(b: double)` a diagnostic rather than a `void`
+    /// parameter.
+    fn resolve_or_report(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
+        match self.resolve_type(ty) {
+            Ok(resolved) => resolved,
+            Err(e) => {
+                self.error(e.span, e.message);
+                never(fallback_span)
             }
         }
     }

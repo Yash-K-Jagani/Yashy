@@ -1,0 +1,38 @@
+fn control(x: bool, o: Option[i64]) -> i64 {
+    if x {
+        print_i64(1);
+    } else {
+        print_i64(2);
+    }
+
+    for i in 0..10 {
+        if i == 3 {
+            break;
+        }
+        if i == 5 {
+            continue;
+        }
+    }
+
+    for i := 0; i < 3; print_i64(i) {
+        print_i64(i);
+    }
+
+    defer {
+        print_i64(4);
+    }
+    defer {
+        print_i64(5);
+    }
+
+    switch o {
+        case None {
+            print_i64(0)
+        }
+        default {
+            print_i64(1)
+        }
+    }
+
+    return 0;
+}
