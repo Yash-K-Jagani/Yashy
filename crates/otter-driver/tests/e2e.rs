@@ -79,6 +79,33 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// Run a built executable with `input` on its standard input.
+///
+/// The write end is closed before waiting, so the program sees end of input
+/// after the last line rather than blocking on a pipe nobody will write to
+/// again — which is what makes a read-until-EOF loop terminate.
+fn run_with_input(exe: &Path, input: &str) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(exe)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the built executable must start");
+    child
+        .stdin
+        .as_mut()
+        .expect("standard input was piped")
+        .write_all(input.as_bytes())
+        .expect("writing the program's input must succeed");
+    drop(child.stdin.take());
+    child
+        .wait_with_output()
+        .expect("the built executable must be waitable")
+}
+
 fn stderr_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
@@ -668,6 +695,32 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
         Some(0),
         "the entry point must return an explicit zero, not the last call's register"
     );
+}
+
+#[test]
+fn a_program_can_read_its_input() {
+    // `read_line` and `parse_i64` through a real pipe: the loop runs until end
+    // of input, and a line that is not an integer contributes zero.
+    let (_dir, exe, compile) = build_program("adder");
+    assert!(
+        compile.status.success(),
+        "compiling adder.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let counted = run_with_input(&exe, "1\n2\n3\n");
+    assert_eq!(stdout_of(&counted), "6\n");
+    assert_eq!(counted.status.code(), Some(0));
+
+    let with_junk = run_with_input(&exe, "1\nx\n3\n");
+    assert_eq!(
+        stdout_of(&with_junk),
+        "4\n",
+        "a line that is not an integer parses as zero"
+    );
+
+    let empty = run_with_input(&exe, "");
+    assert_eq!(stdout_of(&empty), "0\n", "end of input is the empty string");
 }
 
 #[test]

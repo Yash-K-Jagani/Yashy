@@ -208,6 +208,36 @@ fn an_ordinary_function_keeps_its_own_return_type() {
 }
 
 #[test]
+fn input_calls_use_the_runtime_symbols() {
+    // The Otter names are `read_line`/`parse_i64`, and the runtime's carry the
+    // `otter_` prefix. Nothing else changes: the argument and result types are
+    // already the IR types, so the call is the whole lowering.
+    let ir_text = ir_of(
+        "fn main() {\n\
+         \x20   const line = read_line();\n\
+         \x20   print_i64(parse_i64(line));\n\
+         \x20   print_f64(parse_f64(line));\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_read_line()"),
+        "a no-argument call to the runtime reader:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i64 @otter_parse_i64(i8* "),
+        "the line is passed through unchanged:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call double @otter_parse_f64(i8* "),
+        "and the floating-point parser is the same shape:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("call i8* @read_line"),
+        "the bare Otter name is not a symbol the runtime defines:\n{ir_text}"
+    );
+}
+
+#[test]
 fn llvm_type_mapping_matches_the_spec() {
     assert_eq!(llvm_type_string(&TypeKind::I64), "i64");
     assert_eq!(llvm_type_string(&TypeKind::F64), "double");

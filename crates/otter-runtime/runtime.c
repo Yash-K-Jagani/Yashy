@@ -1,5 +1,7 @@
 #include "otter_runtime.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -312,4 +314,104 @@ const char *otter_str_from_f64(double value) {
 const char *otter_str_from_bool(long long value) {
     const char *text = value != 0 ? "true" : "false";
     return otter_str_copy_into_arena(text, value != 0 ? 4u : 5u);
+}
+
+/* ---- Input ------------------------------------------------------------
+ *
+ * `otter_read_line` reads one line from standard input and returns it without
+ * its line terminator, built in the string arena like every other produced
+ * string (so it is never individually freed). At end of input it returns the
+ * empty string: the language has no way to spell "no line" yet, and an empty
+ * line and the end of input reading the same is a limitation, not a choice --
+ * a checked form needs `panic` or an `Option` to be reachable from a runtime
+ * call, and M4 is where those arrive.
+ *
+ * A trailing 0x0D is stripped along with the 0x0A. On Windows the C library
+ * folds CRLF to LF before `fgetc` sees it; this is for a CRLF that arrives from
+ * somewhere else -- a pipe, or the same program on Linux.
+ *
+ * The parsers return zero when the text is not an integer (or number), and the
+ * check is over the *whole* string: `parse_i64("12x")` is zero, not twelve.
+ * Reading the leading digits and ignoring the rest is what `strtoll` does on its
+ * own, and it turns a malformed line into a plausible-looking wrong number --
+ * the failure a user is least likely to notice. Overflow folds into the same
+ * zero rather than saturating, so the contract is exactly "the integer `s`
+ * denotes, or zero", with nothing in between. It is still a real answer and a
+ * wrong answer both; M4's checked variant replaces it once `panic` exists. */
+
+const char *otter_read_line(void) {
+    size_t capacity = 128;
+    size_t length = 0;
+    char *buffer = (char *)malloc(capacity);
+    if (buffer == NULL) {
+        return otter_str_copy_into_arena("", 0);
+    }
+
+    int byte;
+    while ((byte = fgetc(stdin)) != EOF && byte != '\n') {
+        if (length + 1 >= capacity) {
+            size_t grown = capacity * 2;
+            char *moved = (char *)realloc(buffer, grown);
+            if (moved == NULL) {
+                /* Return what was read rather than losing the line: the buffer
+                 * still holds `length` valid bytes. */
+                break;
+            }
+            buffer = moved;
+            capacity = grown;
+        }
+        buffer[length++] = (char)byte;
+    }
+
+    if (length > 0 && buffer[length - 1] == '\r') {
+        length -= 1;
+    }
+    const char *line = otter_str_copy_into_arena(buffer, length);
+    free(buffer);
+    return line;
+}
+
+/* Whether only whitespace is left in `s` -- the second half of "the whole
+ * string is a number". `strtoll` stops at the first character it cannot read, so
+ * the position it stopped at is the only evidence that anything was left over. */
+static int otter_only_space_remains(const char *s) {
+    while (*s != '\0') {
+        if (!isspace((unsigned char)*s)) {
+            return 0;
+        }
+        s += 1;
+    }
+    return 1;
+}
+
+long long otter_parse_i64(const char *s) {
+    if (s == NULL) {
+        return 0;
+    }
+    errno = 0;
+    char *end = NULL;
+    long long value = strtoll(s, &end, 10);
+    if (end == s || errno == ERANGE) {
+        return 0;
+    }
+    if (!otter_only_space_remains(end)) {
+        return 0;
+    }
+    return value;
+}
+
+double otter_parse_f64(const char *s) {
+    if (s == NULL) {
+        return 0.0;
+    }
+    errno = 0;
+    char *end = NULL;
+    double value = strtod(s, &end);
+    if (end == s || errno == ERANGE) {
+        return 0.0;
+    }
+    if (!otter_only_space_remains(end)) {
+        return 0.0;
+    }
+    return value;
 }

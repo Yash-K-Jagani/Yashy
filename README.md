@@ -8,11 +8,13 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M2 are complete.** Otter lexes, parses, type-checks and
-compiles programs with `i64`, `f64`, `bool`, `string`, `struct`, `enum`,
-`Option<T>`, `Result<T, E>`, `if`/`for`/`switch`, `defer`, and `?` propagation.
-Memory management, panics, C interop, collections, concurrency and the standard
-library are later milestones; see [Roadmap](#roadmap).
+**Status: milestones M0–M2 are complete, and M3 is in progress.** Otter lexes,
+parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
+`struct`, `enum`, `Option<T>`, `Result<T, E>`, `if`/`for`/`switch`, `defer`, and
+`?` propagation. A program can also read its input (`read_line`, `parse_i64`) and
+manage its own memory (`alloc`, `dealloc`, `move`). Panics, C interop,
+collections, concurrency and the standard library are later milestones; see
+[Roadmap](#roadmap).
 
 ## Quick start
 
@@ -109,6 +111,24 @@ fn main() {
     if greeting == "Hello, Otter!" {
         print_str("equal\n");
     }
+}
+```
+
+```otter
+// A program can read its input. `for ;;` is the unbounded loop; `read_line`
+// returns the empty string at end of input, which the loop's `break` uses as its
+// only stopping condition.
+fn main() {
+    var total = 0;
+    for ;; {
+        const line = read_line();
+        if line == "" {
+            break;
+        }
+        total = total + parse_i64(line);
+    }
+    print_i64(total);
+    print_str("\n");
 }
 ```
 
@@ -308,7 +328,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 🚧 | Heap and strings in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, and `+` / `len` / `==` on strings. Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
+| M3 🚧 | Heap, strings and input in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, `+` / `len` / `==` on strings, and `read_line` / `parse_i64` / `parse_f64`. Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
 | M4 | Panic and unwinding, checked arithmetic, `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |

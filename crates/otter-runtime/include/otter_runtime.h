@@ -88,6 +88,14 @@ const char *otter_str_from_f64(double value);
 const char *otter_str_from_bool(long long value);
 int otter_str_eq(const char *a, const char *b);
 
+/* Reads one line from standard input without its terminator, built in the
+ * string arena; returns the empty string at end of input. The parsers return
+ * zero when their argument is not a number (see the input section of runtime.c
+ * for why that is the whole story today). */
+const char *otter_read_line(void);
+long long otter_parse_i64(const char *s);
+double otter_parse_f64(const char *s);
+
 #ifdef __cplusplus
 }
 #endif

@@ -131,4 +131,15 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Byte equality. Null equals only null.
     pub fn otter_str_eq(a: *const c_char, b: *const c_char) -> std::ffi::c_int;
+
+    /// One line of standard input without its terminator, or `""` at end of
+    /// input. The result is built in the string arena and is never freed.
+    pub fn otter_read_line() -> *const c_char;
+
+    /// The integer `s` denotes, or zero when it denotes none (including a value
+    /// too large for `i64`).
+    pub fn otter_parse_i64(s: *const c_char) -> c_longlong;
+
+    /// The floating-point number `s` denotes, or zero when it denotes none.
+    pub fn otter_parse_f64(s: *const c_char) -> c_double;
 }

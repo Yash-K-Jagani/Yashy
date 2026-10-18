@@ -1,0 +1,20 @@
+// Reads one integer per line from standard input until the input ends, then
+// prints their sum.
+//
+// This is the smallest program that needs both halves of the input API.
+// `read_line` returns the empty string at end of input, and `parse_i64` turns a
+// line that is not an integer into zero -- which is why the loop can use "no
+// line arrived" as its only stopping condition and still sum the numbers it did
+// read.
+fn main() {
+    var total = 0;
+    for ;; {
+        const line = read_line();
+        if line == "" {
+            break;
+        }
+        total = total + parse_i64(line);
+    }
+    print_i64(total);
+    print_str("\n");
+}

@@ -17,6 +17,9 @@ declare i8* @otter_str_from_i64(i64)
 declare i8* @otter_str_from_f64(double)
 declare i8* @otter_str_from_bool(i64)
 declare i1 @otter_str_eq(i8*, i8*)
+declare i8* @otter_read_line()
+declare i64 @otter_parse_i64(i8*)
+declare double @otter_parse_f64(i8*)
 @.str.0 = private unnamed_addr constant [3 x i8] c"hi\00"
 entry:
 %slot0 = alloca i64

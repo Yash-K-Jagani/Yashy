@@ -173,6 +173,11 @@ impl Module {
         out.push_str("declare i8* @otter_str_from_f64(double)\n");
         out.push_str("declare i8* @otter_str_from_bool(i64)\n");
         out.push_str("declare i1 @otter_str_eq(i8*, i8*)\n");
+        // Input (ledger L1's input additions). Declared up front for the same
+        // reason as the string set.
+        out.push_str("declare i8* @otter_read_line()\n");
+        out.push_str("declare i64 @otter_parse_i64(i8*)\n");
+        out.push_str("declare double @otter_parse_f64(i8*)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

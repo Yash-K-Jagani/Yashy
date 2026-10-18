@@ -374,6 +374,34 @@ captures at registration time":
 M4's Task 10 replaces the static exit sequence with a `cleanup` landing pad, so
 the capture moves with it — a landing pad reads the same snapshot slots.
 
+### Task 5d: reading input (`read_line`, `parse_i64`, `parse_f64`)
+
+Not in the original task list, and not strictly memory or faults — but every
+program the milestone sets out to make possible (the string builder, the buffer
+sum) needs input to be *about* something, and until this landed a program could
+print and nothing else. Between them they make the compiler usable for a program
+that takes input, which is the bar "people can use it" actually sets.
+
+- Runtime: `otter_read_line`, `otter_parse_i64`, `otter_parse_f64`
+  (`crates/otter-runtime/runtime.c`). The line is built in the same never-freed
+  string arena as every other produced string, so it needs no release point and
+  no ownership rule of its own.
+- Sema: three more entries in the builtins table (nine now). `read_line` takes
+  nothing and yields a `string`; the parsers take a `string`.
+- Codegen: only the symbol differs — the Otter name is `read_line` and the
+  runtime's is `otter_read_line` — so `gen_call`'s common path gained a rename
+  (`gen_plain_call`, factored out of the default arm rather than duplicated).
+- Tests: 6 in `crates/otter-runtime/tests/input.rs` for the parse contract, one
+  IR test in `crates/otter-codegen/tests/codegen.rs`, and
+  `a_program_can_read_its_input` in `crates/otter-driver/tests/e2e.rs`, which
+  pipes lines to `tests/programs/adder.ot` through a real pipe.
+
+Two contracts, stated once and repeated in the spec §8.2 and ledger L1: the line
+at end of input is the empty string, and a string that is not *wholly* a number
+parses to zero (`parse_i64("12x")` is 0, not 12 — trailing text is rejected,
+overflow folds into the same answer). Both are losses that a checked form
+replaces in M4; neither is a wrong answer presented as a right one.
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

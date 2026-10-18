@@ -78,7 +78,7 @@ impl Checker {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 6] = [
+        let builtins: [(&str, Vec<Type>, Type); 9] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -89,6 +89,13 @@ impl Checker {
             // now costs nothing and is what a program printing text actually
             // needs. M6 widens the same name to slices.
             ("len", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
+            // Input. `read_line` yields a `string` (empty at end of input);
+            // `parse_i64`/`parse_f64` yield zero when their argument is not a
+            // number. A program that can print but not read is a report
+            // generator; these three lines are what make it a program.
+            ("read_line", vec![], prim(TypeKind::Str)),
+            ("parse_i64", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
+            ("parse_f64", vec![prim(TypeKind::Str)], prim(TypeKind::F64)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(

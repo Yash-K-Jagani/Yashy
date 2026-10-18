@@ -121,6 +121,23 @@ i8         otter_str_byte_at(otter_str*, i64);   // returns 0 out of range
 > `%otter_str` retype below, in M3's remaining string task; until then a program
 > that builds strings is correct and simply does not give the memory back.
 
+**Input (added with the M3 string operations, because a program that cannot read
+is not yet a program):**
+
+```c
+i8*  otter_read_line(void);          // one line, no terminator; "" at end of input
+i64  otter_parse_i64(i8*);           // 0 when the whole string is not an integer
+f64  otter_parse_f64(i8*);
+```
+
+These are compiler builtins (`read_line`, `parse_i64`, `parse_f64`) resolved like
+any other name, so M6's `io.readLine` replaces them rather than joining them. The
+line is built in the same never-freed string arena as every other produced string.
+`otter_read_line` returns the empty string at end of input, which the language
+cannot currently distinguish from an empty line; the parsers reject trailing text
+(`parse_i64("12x")` is 0, not 12) and fold overflow into the same zero, so each
+has exactly one contract and no in-between. Checked forms wait for M4's `panic`.
+
 **M4 (faults):**
 
 ```c

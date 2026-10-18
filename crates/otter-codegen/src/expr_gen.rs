@@ -535,29 +535,46 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             }
         }
         _ => {
-            let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
-            let arg_list: Vec<String> = lowered
-                .iter()
-                .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
-                .collect();
-            let ret_repr = repr_type(ty);
-            if ret_repr == "void" {
-                ctx.push(format!("call void @{name}({})", arg_list.join(", ")));
-                return GenValue {
-                    value: String::new(),
-                    ty: ty.clone(),
-                };
-            }
-            let tmp = ctx.tmp();
-            ctx.push(format!(
-                "{tmp} = call {ret_repr} @{name}({})",
-                arg_list.join(", ")
-            ));
-            GenValue {
-                value: tmp,
-                ty: ty.clone(),
+            // Builtins whose runtime symbol is the `otter_`-prefixed name and
+            // whose arguments and result need no reshaping: only the name
+            // differs, so the common path handles them.
+            match name.as_str() {
+                "read_line" | "parse_i64" | "parse_f64" => {
+                    gen_plain_call(ctx, &format!("otter_{name}"), args, ty)
+                }
+                _ => gen_plain_call(ctx, &name, args, ty),
             }
         }
+    }
+}
+
+/// Emit a direct call to `symbol`, passing the arguments through unchanged.
+///
+/// This is the common case: a runtime builtin or a user function whose declared
+/// parameter and return types are already the IR types, so the call *is* the
+/// whole lowering.
+fn gen_plain_call(ctx: &mut FnCtx<'_>, symbol: &str, args: &[HirExpr], ty: &TypeKind) -> GenValue {
+    let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+    let arg_list: Vec<String> = lowered
+        .iter()
+        .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
+        .collect();
+    let ret_repr = repr_type(ty);
+    if ret_repr == "void" {
+        ctx.push(format!("call void @{symbol}({})", arg_list.join(", ")));
+        return GenValue {
+            value: String::new(),
+            ty: ty.clone(),
+        };
+    }
+    let tmp = ctx.tmp();
+    ctx.push(format!(
+        "{tmp} = call {ret_repr} @{symbol}({})",
+        arg_list.join(", ")
+    ));
+    GenValue {
+        value: tmp,
+        ty: ty.clone(),
     }
 }
 

@@ -17,6 +17,9 @@ declare i8* @otter_str_from_i64(i64)
 declare i8* @otter_str_from_f64(double)
 declare i8* @otter_str_from_bool(i64)
 declare i1 @otter_str_eq(i8*, i8*)
+declare i8* @otter_read_line()
+declare i64 @otter_parse_i64(i8*)
+declare double @otter_parse_f64(i8*)
 entry:
 %slot0 = alloca i8*
 %slot1 = alloca i8*
