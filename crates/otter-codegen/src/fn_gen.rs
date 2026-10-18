@@ -33,7 +33,39 @@ pub fn fn_return_repr(kind: &TypeKind) -> String {
 
 /// Emit `f` — its signature, its parameter spills, its body — into `module`.
 pub fn gen_fn(module: &mut Module, f: &HirFn) {
-    let ret_repr = fn_return_repr(&f.ret.kind);
+    gen_fn_impl(module, f, false);
+}
+
+/// Emit `f` as the program's entry point.
+///
+/// The C runtime starts a process by calling `main` and using its `int` return
+/// as the exit status, so the entry point is always emitted as
+/// `define i32 @main()` — whatever the Otter signature says:
+///
+/// * `fn main()` becomes an `i32` function whose `return` and fall-off-the-end
+///   both yield 0. Emitting `void main` instead leaves the exit status as
+///   whatever the last call happened to leave in the return register, which is
+///   a real bug and not a theoretical one: `fn main() { print_str("hello"); }`
+///   exits with the number of bytes its last runtime call returned, so adding a
+///   `==` on strings to a program silently changed its exit code.
+/// * `fn main() -> i64` keeps its `i64` body but truncates the result to `i32`
+///   at every `return`, which is the width the operating system reads.
+///
+/// The checker rejects an entry point that returns anything else, so there is no
+/// third case to write. `main`'s own name is left alone, so a recursive `main`
+/// still resolves.
+pub fn gen_main(module: &mut Module, f: &HirFn) {
+    gen_fn_impl(module, f, true);
+}
+
+/// The shared body of [`gen_fn`] and [`gen_main`]: the only difference is
+/// whether the signature and the terminators use the entry point's `i32`.
+fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
+    let ret_repr = if entry_point {
+        "i32".to_string()
+    } else {
+        fn_return_repr(&f.ret.kind)
+    };
     let params: Vec<String> = f
         .params
         .iter()
@@ -48,6 +80,10 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
 
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
+        ctx.entry_point = entry_point;
+        if entry_point {
+            ctx.unit_terminator = "ret i32 0".to_string();
+        }
         ctx.begin_entry();
         let slots = ctx.alloc_params(f);
         for (index, (slot, param)) in slots.iter().zip(f.params.iter()).enumerate() {
@@ -61,9 +97,13 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
             run_defers(&mut ctx, &mut defers);
         }
         if flow != Flow::Return {
-            match f.ret.kind {
-                TypeKind::Unit | TypeKind::Never => ctx.push("ret void"),
-                _ => ctx.push(format!("ret {} 0", repr_type(&f.ret.kind))),
+            if entry_point {
+                ctx.push("ret i32 0");
+            } else {
+                match f.ret.kind {
+                    TypeKind::Unit | TypeKind::Never => ctx.push("ret void"),
+                    _ => ctx.push(format!("ret {} 0", repr_type(&f.ret.kind))),
+                }
             }
         }
         ctx.push("}");

@@ -10,7 +10,7 @@ use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, HirProgram, TypeKind};
 
-use otter_codegen::{check_main_exists, find_main, llvm_type_string, Module};
+use otter_codegen::{check_main_exists, emit_program, find_main, llvm_type_string, CodegenOptions, Module};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
@@ -114,6 +114,96 @@ fn main_may_be_absent_or_return_i64() {
         err.message.contains("i64") || err.message.contains("return"),
         "the diagnostic must explain the return type: {}",
         err.message
+    );
+}
+
+#[test]
+fn main_may_not_take_parameters() {
+    // The C runtime calls the entry point with its own argument convention, and
+    // the symbol this backend emits takes none. Accepting a parameter would
+    // produce a `main` the loader cannot call.
+    let with_param = check_source("fn main(argc: i64) { print_i64(argc); }");
+    let err = check_main_exists(&with_param.items)
+        .expect_err("a `main` with a parameter is not callable");
+    assert!(
+        err.message.contains("parameter") && err.message.contains("argc"),
+        "the diagnostic must name the offending parameter: {}",
+        err.message
+    );
+    assert_eq!(
+        err.span,
+        with_param
+            .items
+            .iter()
+            .find_map(|item| match item {
+                otter_sema::HirItem::Fn(f) => f.params.first().map(|p| p.span),
+                _ => None,
+            })
+            .expect("the parameter must have a span"),
+        "the diagnostic must point at the parameter, not the function"
+    );
+}
+
+/// Lower a whole program's source to one IR module.
+fn ir_of(src: &str) -> String {
+    emit_program(&check_source(src), "main.ot", CodegenOptions::default())
+}
+
+#[test]
+fn a_unit_main_is_emitted_as_i32_and_exits_zero() {
+    // `void main` leaves the process exit status as whatever the last call left
+    // in the return register, so `fn main() { print_str("hello"); }` exits with
+    // the length its last call happened to return. The entry point therefore
+    // returns `i32` even when the Otter signature is `()`.
+    let ir_text = ir_of("fn main() { print_str(\"hi\"); }");
+    assert!(
+        ir_text.contains("define i32 @main()"),
+        "the entry point is an `i32` function:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("define void @main"),
+        "and never a `void` one:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("\nret i32 0"),
+        "the fall-through terminator yields zero:\n{ir_text}"
+    );
+}
+
+#[test]
+fn an_explicit_unit_return_in_main_still_yields_zero() {
+    let ir_text = ir_of("fn main() { print_str(\"hi\"); return; }");
+    assert!(
+        ir_text.contains("ret i32 0"),
+        "`return;` in `main` is the entry point's zero:\n{ir_text}"
+    );
+    assert!(!ir_text.contains("ret void"), "no `ret void` in `main`:\n{ir_text}");
+}
+
+#[test]
+fn an_i64_main_truncates_to_the_entry_point_width() {
+    let ir_text = ir_of("fn main() -> i64 { return 7; }");
+    assert!(
+        ir_text.contains("define i32 @main()"),
+        "the entry point is still `i32`:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("trunc i64 ") && ir_text.contains("to i32"),
+        "the `i64` result narrows to the exit code's width:\n{ir_text}"
+    );
+}
+
+#[test]
+fn an_ordinary_function_keeps_its_own_return_type() {
+    // The `i32` rule is the entry point's, not every function's.
+    let ir_text = ir_of("fn seven() -> i64 { return 7; }\nfn main() { print_i64(seven()); }");
+    assert!(
+        ir_text.contains("define i64 @seven()"),
+        "a helper keeps `i64`:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("ret i64 7"),
+        "and so does its `ret`:\n{ir_text}"
     );
 }
 

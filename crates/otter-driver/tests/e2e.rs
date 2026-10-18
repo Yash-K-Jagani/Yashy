@@ -269,7 +269,9 @@ fn emit_ir_prints_llvm_without_invoking_llvm() {
     );
     let ir = stdout_of(&output);
     assert!(ir.contains("target datalayout"), "not LLVM IR:\n{ir}");
-    assert!(ir.contains("define void @main()"), "not this program:\n{ir}");
+    // The entry point is an `i32` function whatever the Otter signature says,
+    // because that is the return type the C runtime reads as the exit status.
+    assert!(ir.contains("define i32 @main()"), "not this program:\n{ir}");
 }
 
 #[test]
@@ -614,6 +616,58 @@ fn heap_ownership_survives_the_whole_pipeline() {
     // in a real binary.
     let output = build_and_run("memory");
     assert_eq!(stdout_of(&output), "memory ok\n");
+}
+
+#[test]
+fn strings_concatenate_compare_and_measure() {
+    // `+`, `len`, `==` and `!=` across a function boundary, compiled and run:
+    // string values are returned from a helper, and the helper's concatenation
+    // happens in a different frame from the caller's.
+    let output = build_and_run("strings");
+    assert_eq!(
+        stdout_of(&output),
+        "Hello, Otter!\n13\n[x]\n0\ndifferent\nequal\n"
+    );
+}
+
+#[test]
+fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
+    // The entry point is emitted as `define i32 @main()`; a `void main` would
+    // leave the process exit status as whatever the last call left in the return
+    // register. Here that last call is a string comparison, which returns 1 when
+    // the strings are equal -- so a `void main` exits 1 with the right output,
+    // and only the exit code gives it away.
+    let dir = work_dir("entry-exit-status");
+    let source = dir.join("entry_exit_status.ot");
+    fs::write(
+        &source,
+        "fn main() {\n    if \"a\" == \"a\" {\n        print_str(\"equal\\n\");\n    }\n}\n",
+    )
+    .expect("write entry_exit_status.ot");
+    let exe = dir.join(format!(
+        "entry_exit_status{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "compiling entry_exit_status.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "equal\n");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the entry point must return an explicit zero, not the last call's register"
+    );
 }
 
 #[test]

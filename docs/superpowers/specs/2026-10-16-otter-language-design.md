@@ -252,6 +252,23 @@ language about lifetimes instead of about problems.
 
 **The rule:** arrays and buffers are manual, strings are refcounted.
 
+> **M3 interim representation.** The design above is what the language ships;
+> M3 ships the *shape* of the operations without the refcount. A `string` value
+> is an `i8*` to NUL-terminated bytes, `+` concatenates (through
+> `otter_str_concat`), `==`/`!=` compare contents, and `len` counts bytes. The
+> runtime's string operations (`otter_str_len`, `otter_str_concat`,
+> `otter_str_eq`, and the `otter_str_from_*` conversions) build their results in
+> one internal arena that is released at process exit.
+>
+> That is a leak, chosen deliberately over a use-after-free: `defer` does not
+> exist yet (§5.5), so a program has no way to say when it has finished with a
+> built string, and a refcount with no `release` point would be the wrong half of
+> this design. Nothing is corrupted — a program is correct, it just holds its
+> built strings until it exits. The length-prefixed, refcounted layout in this
+> section, and the release points that go with it, are the next step (M3's
+> remaining string task; see the milestone plans and ledger L4 in the master
+> plan).
+
 ### 5.5 `defer`, `move`, and arenas together
 
 These three interact, so the rules are stated explicitly.

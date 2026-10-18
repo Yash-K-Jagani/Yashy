@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(_WIN32)
 #include <fcntl.h>
@@ -210,4 +211,102 @@ void otter_arena_free_all(otter_arena *arena) {
         block = next;
     }
     arena->head = NULL;
+}
+
+/* ---- Strings -----------------------------------------------------------
+ *
+ * A `string` value in generated code is an `i8*`: a pointer to a
+ * NUL-terminated byte sequence (M0-M2's representation; ledger L4 records the
+ * interim). The operations that *produce* a string -- concatenation and the
+ * conversions -- allocate from one internal arena, so building strings in a
+ * loop does not pay a `malloc` per call. Nothing built here is ever freed
+ * individually: M3 has no `defer`, so a program cannot say when it has finished
+ * with a built string, and leaking it until the process exits is the correct
+ * reading of that.
+ *
+ * The internal arena is created on first use and never destroyed. A program
+ * that never builds a string never allocates one. */
+
+static otter_arena *otter_string_arena(void) {
+    static otter_arena *arena = NULL;
+    if (arena == NULL) {
+        arena = otter_arena_new();
+    }
+    return arena;
+}
+
+/* Copies `len` bytes out of `bytes` and NUL-terminates the copy, in the string
+ * arena. Returns NULL only when the arena cannot grow. */
+static const char *otter_str_copy_into_arena(const char *bytes, size_t len) {
+    char *out = (char *)otter_arena_alloc(otter_string_arena(), (long long)(len + 1), 1);
+    if (out == NULL) {
+        return NULL;
+    }
+    if (len > 0 && bytes != NULL) {
+        memcpy(out, bytes, len);
+    }
+    out[len] = '\0';
+    return out;
+}
+
+long long otter_str_len(const char *s) {
+    return s == NULL ? 0 : (long long)strlen(s);
+}
+
+long long otter_str_byte_at(const char *s, long long index) {
+    if (s == NULL || index < 0) {
+        return 0;
+    }
+    size_t len = strlen(s);
+    if ((size_t)index >= len) {
+        return 0;
+    }
+    return (long long)(unsigned char)s[index];
+}
+
+const char *otter_str_concat(const char *a, const char *b) {
+    size_t len_a = a == NULL ? 0 : strlen(a);
+    size_t len_b = b == NULL ? 0 : strlen(b);
+    char *out = (char *)otter_arena_alloc(otter_string_arena(), (long long)(len_a + len_b + 1), 1);
+    if (out == NULL) {
+        return NULL;
+    }
+    if (len_a > 0) {
+        memcpy(out, a, len_a);
+    }
+    if (len_b > 0) {
+        memcpy(out + len_a, b, len_b);
+    }
+    out[len_a + len_b] = '\0';
+    return out;
+}
+
+int otter_str_eq(const char *a, const char *b) {
+    if (a == NULL || b == NULL) {
+        return a == b;
+    }
+    return strcmp(a, b) == 0;
+}
+
+const char *otter_str_from_i64(long long value) {
+    char buffer[32];
+    int written = snprintf(buffer, sizeof(buffer), "%lld", value);
+    if (written < 0 || (size_t)written >= sizeof(buffer)) {
+        return NULL;
+    }
+    return otter_str_copy_into_arena(buffer, (size_t)written);
+}
+
+const char *otter_str_from_f64(double value) {
+    char buffer[40];
+    int written = snprintf(buffer, sizeof(buffer), "%.17g", value);
+    if (written < 0 || (size_t)written >= sizeof(buffer)) {
+        return NULL;
+    }
+    return otter_str_copy_into_arena(buffer, (size_t)written);
+}
+
+const char *otter_str_from_bool(long long value) {
+    const char *text = value != 0 ? "true" : "false";
+    return otter_str_copy_into_arena(text, value != 0 ? 4u : 5u);
 }

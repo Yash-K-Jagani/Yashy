@@ -85,6 +85,25 @@ fn main() {
 }
 ```
 
+```otter
+// Strings are values: `+` concatenates, `len` counts bytes, and `==`/`!=`
+// compare contents rather than addresses.
+fn label(name: string) -> string {
+    return "[" + name + "]";
+}
+
+fn main() {
+    const greeting = "Hello, " + "Otter!";
+    print_str(greeting + "\n");
+    print_i64(len(greeting));
+    print_str("\n");
+    print_str(label("x") + "\n");
+    if greeting == "Hello, Otter!" {
+        print_str("equal\n");
+    }
+}
+```
+
 ## Speed
 
 Same algorithm, same input, every language compiled by its own native
@@ -281,7 +300,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 🚧 | Heap in progress: `alloc`/`dealloc`, `move`, linear ownership. Still to come: `defer`, arenas, refcounted strings |
+| M3 🚧 | Heap and strings in progress: `alloc`/`dealloc`, `move`, linear ownership, and `+` / `len` / `==` on strings. Still to come: `defer`, arenas, refcounted (non-leaking) strings |
 | M4 | Panic and unwinding, checked arithmetic, `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |

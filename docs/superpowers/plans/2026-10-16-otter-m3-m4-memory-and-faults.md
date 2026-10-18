@@ -276,6 +276,60 @@ git commit -m "feat(codegen): arena allocation"
 
 ---
 
+### Task 5a: String operations without refcounting (delivered as the M3 interim)
+
+The tasks below give strings the design's length-prefixed, refcounted
+representation. They depend on `defer` (Task 10) for release points, so they land
+after it. What ships first is the *operations*, over the representation the
+backend already has — an `i8*` to NUL-terminated bytes — so a program can build
+and compare text while the memory work finishes:
+
+- Runtime: `otter_str_len`, `otter_str_byte_at`, `otter_str_concat`,
+  `otter_str_from_i64`, `otter_str_from_f64`, `otter_str_from_bool`, `otter_str_eq`
+  (`crates/otter-runtime/runtime.c`, declared in the header and in
+  `otter-runtime/src/lib.rs`). Results are built in one internal arena that is
+  released at process exit; nothing is individually freed. `from_bool` takes an
+  `i64` where the design says `i1`, because C has no one-bit type and a mismatched
+  declaration is worse than a widened argument.
+- Sema: `+` on two `string`s is concatenation; `==`/`!=` already type-checked and
+  now compare contents; `len(string) -> i64` is a builtin.
+- Codegen: `crates/otter-codegen/src/strings.rs` emits one runtime call per
+  operator, dispatched from `gen_binary` (before the numeric table, so that table
+  stays about numbers) and from `gen_call`.
+- Tests: 11 in `crates/otter-runtime/tests/strings.rs`, 6 in
+  `crates/otter-codegen/tests/string_ops.rs`, and an end-to-end
+  `tests/programs/strings.ot` that concatenates across a function boundary.
+
+The leak is the documented interim (master plan ledger L1's M3 note, ledger L4,
+and the spec's §5.4 note): `defer` does not exist yet, so there is no point at
+which a program could say a built string is finished with, and a refcount without
+a release is worse than no refcount. Nothing here is undone by Tasks 5–7: they
+replace the *representation* underneath these same operators, which is why the
+tests for `+`, `==` and `len` are written against the operations rather than the
+layout.
+
+### Task 5b: `main` returns `i32` (a defect found while testing strings)
+
+Writing the end-to-end string test exposed a latent bug. `fn main()` was emitted
+as `define void @main()`, and a `void main` leaves the process exit status as
+whatever the last call happened to leave in the return register. The string
+program's last statement is a comparison, which returns 1, so it printed exactly
+the right output and exited 1.
+
+- `emit_program` now routes `main` through `gen_main`
+  (`crates/otter-codegen/src/fn_gen.rs`): `define i32 @main()` for both entry
+  signatures, `ret i32 0` on every `return;` and on falling off the end, and a
+  `trunc` for an `i64`-returning `main` whose value is wider than an exit code.
+- `check_main_exists` also rejects a `main` that declares parameters: the C
+  runtime calls the entry point with its own argument convention and the symbol
+  this backend emits takes none, so such a `main` is a symbol the loader cannot
+  call rather than a program.
+- Deterministic guard: `a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero`
+  in `crates/otter-driver/tests/e2e.rs` and four IR tests in
+  `crates/otter-codegen/tests/codegen.rs`.
+
+---
+
 ### Task 5: Refcounted strings in the runtime
 
 **Files:**

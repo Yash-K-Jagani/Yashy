@@ -17,9 +17,10 @@ pub mod memory;
 pub mod module;
 pub mod patterns;
 pub mod stmt_gen;
+pub mod strings;
 
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
-pub use fn_gen::{fn_return_repr, gen_fn};
+pub use fn_gen::{fn_return_repr, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
 pub use module::Module;
@@ -76,7 +77,13 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
     module.set_fp_contract(options.fp_contract);
     for item in &hir.items {
         if let HirItem::Fn(f) = item {
-            gen_fn(&mut module, f);
+            // The entry point is the one function whose signature the operating
+            // system dictates, so it is emitted through its own path.
+            if f.name == "main" {
+                gen_main(&mut module, f);
+            } else {
+                gen_fn(&mut module, f);
+            }
         }
     }
     module.finish()
@@ -94,7 +101,7 @@ pub fn find_main(items: &[HirItem]) -> Option<&HirFn> {
 }
 
 /// Check that the program has a `fn main` whose return type is an entry
-/// point (`()` or `i64`).
+/// point (`()` or `i64`) and that takes no parameters.
 ///
 /// The diagnostic's span is the synthetic `Span { start: 0, end: 0 }`: a
 /// missing `main` points at nothing in particular, and a file-level caret
@@ -102,6 +109,11 @@ pub fn find_main(items: &[HirItem]) -> Option<&HirFn> {
 /// missing entry point means. The `FileId` is index zero because only the
 /// driver knows which file is being compiled; presence, not attribution, is
 /// this function's job.
+///
+/// Parameters are rejected for a different reason: the C runtime starts the
+/// process by calling `main` with its own argument convention, and the entry
+/// point this backend emits takes none. A `main` with parameters would produce
+/// a symbol the loader cannot call rather than a program.
 pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
     let file = FileId::from_index(0);
     match find_main(items) {
@@ -113,6 +125,18 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
             label: None,
         }),
         Some(main) => {
+            if let Some(first) = main.params.first() {
+                return Err(Diagnostic {
+                    severity: Severity::Error,
+                    message: format!(
+                        "`main` takes no parameters, but it declares `{}`",
+                        first.name
+                    ),
+                    file,
+                    span: first.span,
+                    label: None,
+                });
+            }
             let ok = matches!(
                 main.ret.kind,
                 TypeKind::Unit | TypeKind::I64 | TypeKind::Never

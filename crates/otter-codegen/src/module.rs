@@ -163,6 +163,16 @@ impl Module {
         out.push_str("declare void @otter_print_f64(double)\n");
         out.push_str("declare i8* @otter_alloc(i64, i64)\n");
         out.push_str("declare void @otter_free(i8*)\n");
+        // The string half of ledger L1. All of it is declared up front so a
+        // later task that starts emitting one of these does not change every
+        // golden file a second time; an unused `declare` is legal IR.
+        out.push_str("declare i64 @otter_str_len(i8*)\n");
+        out.push_str("declare i64 @otter_str_byte_at(i8*, i64)\n");
+        out.push_str("declare i8* @otter_str_concat(i8*, i8*)\n");
+        out.push_str("declare i8* @otter_str_from_i64(i64)\n");
+        out.push_str("declare i8* @otter_str_from_f64(double)\n");
+        out.push_str("declare i8* @otter_str_from_bool(i64)\n");
+        out.push_str("declare i1 @otter_str_eq(i8*, i8*)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

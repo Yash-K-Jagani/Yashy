@@ -99,6 +99,28 @@ i8*        otter_str_data(otter_str*);
 i8         otter_str_byte_at(otter_str*, i64);   // returns 0 out of range
 ```
 
+> **L1 revision, M3 interim: the string half ships in the M0–M2 representation.**
+> A `string` value is an `i8*` to NUL-terminated bytes, not an `otter_str*`, so
+> the six signatures above that mention `otter_str*` are not what M3 emits. What
+> M3 emits and the runtime defines is:
+>
+> ```c
+> i64         otter_str_len(i8*);
+> i64         otter_str_byte_at(i8*, i64);
+> i8*         otter_str_concat(i8*, i8*);
+> i8*         otter_str_from_i64(i64);
+> i8*         otter_str_from_f64(double);
+> i8*         otter_str_from_bool(i64);   // i64, not i1: C has no one-bit type
+> i1          otter_str_eq(i8*, i8*);
+> ```
+>
+> The lengths are recovered with `strlen`, the results are built in one internal
+> arena that is released at process exit, and nothing is retained or released.
+> Cost: a built string is held until the program exits, and an embedded NUL byte
+> truncates. The `otter_str*` half of this table lands together with the
+> `%otter_str` retype below, in M3's remaining string task; until then a program
+> that builds strings is correct and simply does not give the memory back.
+
 **M4 (faults):**
 
 ```c
@@ -201,7 +223,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit | M4: landing pad with `cleanup`, so defers also run on unwind |
-| M0–M2 Task 3 | `Str` is an opaque literal with no operations | M3: refcounted, with concat, indexing, interpolation |
+| M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note) | M3's remaining string task: length-prefixed `%otter_str` with retain/release, then interpolation; indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity

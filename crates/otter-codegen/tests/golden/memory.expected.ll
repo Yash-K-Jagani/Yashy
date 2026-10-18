@@ -10,6 +10,13 @@ declare void @otter_print_i64(i64)
 declare void @otter_print_f64(double)
 declare i8* @otter_alloc(i64, i64)
 declare void @otter_free(i8*)
+declare i64 @otter_str_len(i8*)
+declare i64 @otter_str_byte_at(i8*, i64)
+declare i8* @otter_str_concat(i8*, i8*)
+declare i8* @otter_str_from_i64(i64)
+declare i8* @otter_str_from_f64(double)
+declare i8* @otter_str_from_bool(i64)
+declare i1 @otter_str_eq(i8*, i8*)
 entry:
 %slot0 = alloca i8*
 %slot1 = alloca i8*

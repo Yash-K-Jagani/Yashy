@@ -73,6 +73,14 @@ pub struct FnCtx<'a> {
     /// `break`/`continue` read the top entry, so nested loops need no extra
     /// plumbing through the statement tree.
     pub loops: Vec<(String, String)>,
+    /// The terminator for a `return` with no value, and for falling off the end
+    /// of a body. `ret void` everywhere except the program's entry point, which
+    /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
+    pub unit_terminator: String,
+    /// True for a function emitted as the process entry point, where `i32` is
+    /// the return type the C runtime expects and an `i64` result is truncated
+    /// to match it.
+    pub entry_point: bool,
 }
 
 impl<'a> FnCtx<'a> {
@@ -87,6 +95,8 @@ impl<'a> FnCtx<'a> {
             entry_line: None,
             locals: HashMap::new(),
             loops: Vec::new(),
+            unit_terminator: "ret void".to_string(),
+            entry_point: false,
         }
     }
 
@@ -360,6 +370,12 @@ fn gen_binary(
 ) -> GenValue {
     let l = gen_expr(ctx, lhs);
     let r = gen_expr(ctx, rhs);
+    // A `string` has no instruction-level operator: `+` concatenates and
+    // `==`/`!=` compare bytes, both through the runtime. Handling it before the
+    // numeric table below keeps that table about numbers.
+    if matches!(l.ty, TypeKind::Str) {
+        return crate::strings::gen_string_binary(ctx, op, &l, &r);
+    }
     let is_float = matches!(l.ty, TypeKind::F64);
     let ty = l.ty.clone();
     let (mnemonic, result_ty) = match op {
@@ -462,6 +478,8 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
+        // `len` is the byte length of a string today. M6 adds the slice case.
+        "len" => crate::strings::gen_str_len(ctx, args),
         "print_i64" | "print_f64" | "print_str" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
             let arg_list: Vec<String> = lowered

@@ -90,3 +90,45 @@ unsafe extern "C" {
     /// Releases every block in `arena` and the arena header. Tolerates null.
     pub fn otter_arena_free_all(arena: *mut c_void);
 }
+
+// The string half of the contract. A `string` value is a pointer to
+// NUL-terminated bytes in both the IR and here, so Rust tests can drive the same
+// linked operations the generated code calls.
+
+unsafe extern "C" {
+    /// The byte length of `s`, not counting the NUL. Null is length zero.
+    pub fn otter_str_len(s: *const c_char) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// The byte at `index`, or `0` when `index` is out of range. `0` is also
+    /// the byte a NUL contributes, so callers that care about the difference
+    /// must compare against [`otter_str_len`] first.
+    pub fn otter_str_byte_at(s: *const c_char, index: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// A fresh string holding `a` followed by `b`. Neither operand is modified.
+    pub fn otter_str_concat(a: *const c_char, b: *const c_char) -> *const c_char;
+}
+
+unsafe extern "C" {
+    /// `value` in decimal.
+    pub fn otter_str_from_i64(value: c_longlong) -> *const c_char;
+}
+
+unsafe extern "C" {
+    /// `value` with `%.17g`, matching [`otter_print_f64`].
+    pub fn otter_str_from_f64(value: c_double) -> *const c_char;
+}
+
+unsafe extern "C" {
+    /// `"true"` or `"false"`. Takes an `i64` where the IR passes a zero-extended
+    /// `i1`, because C has no one-bit type.
+    pub fn otter_str_from_bool(value: c_longlong) -> *const c_char;
+}
+
+unsafe extern "C" {
+    /// Byte equality. Null equals only null.
+    pub fn otter_str_eq(a: *const c_char, b: *const c_char) -> std::ffi::c_int;
+}

@@ -115,13 +115,22 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<HirBlock>)
                 Some(expr) => {
                     let v = gen_expr(ctx, expr);
                     let repr = repr_type(&ctx.ret_type);
-                    if repr == "void" {
+                    if ctx.entry_point && repr == "i64" {
+                        // The entry point's signature is `i32`: truncate the
+                        // Otter result to the width the operating system reads.
+                        let narrowed = ctx.tmp();
+                        ctx.push(format!("{narrowed} = trunc i64 {} to i32", v.value));
+                        ctx.push(format!("ret i32 {narrowed}"));
+                    } else if repr == "void" {
                         ctx.push("ret void");
                     } else {
                         ctx.push(format!("ret {repr} {}", v.value));
                     }
                 }
-                None => ctx.push("ret void"),
+                None => {
+                    let terminator = ctx.unit_terminator.clone();
+                    ctx.push(terminator);
+                }
             }
             Flow::Return
         }

@@ -78,12 +78,17 @@ impl Checker {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 5] = [
+        let builtins: [(&str, Vec<Type>, Type); 6] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
+            // `len(string) -> i64` is the byte length. The master plan lists
+            // string `len` in M6 alongside slice `len`; taking the string case
+            // now costs nothing and is what a program printing text actually
+            // needs. M6 widens the same name to slices.
+            ("len", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(
@@ -1583,6 +1588,16 @@ fn binary_result_type(op: BinOp, lhs: &Type, rhs: &Type) -> Result<Type, String>
     let numeric = is_numeric(lhs) && is_numeric(rhs);
     match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+            // `+` is the one arithmetic operator that means something else for
+            // a second type: two strings concatenate. Keeping it inside this
+            // arm rather than before the table means `-`, `*`, `/` and `%` stay
+            // numeric-only, so a typo cannot silently become a string operation.
+            if op == BinOp::Add
+                && lhs.eq_ignoring_span(&prim(TypeKind::Str))
+                && rhs.eq_ignoring_span(&prim(TypeKind::Str))
+            {
+                return Ok(prim(TypeKind::Str));
+            }
             if !numeric || !lhs.eq_ignoring_span(rhs) {
                 return Err(format!(
                     "cannot apply `{}` to `{}` and `{}`",
