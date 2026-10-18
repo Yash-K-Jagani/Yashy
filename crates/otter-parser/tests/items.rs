@@ -1180,6 +1180,67 @@ fn move_binds_looser_than_postfix_tighter_than_binary() {
 }
 
 #[test]
+fn an_empty_body_after_a_bare_name_is_a_block_not_a_struct_literal() {
+    // `{}` is not a struct literal -- every struct declares a field -- so a bare
+    // name followed by `{ }` is a condition (or a range end) and an empty body.
+    // This shape used to be read as `name {}`, after which the loop or `if` had
+    // no body and the error pointed at the end of the enclosing function.
+    for (src, expected) in [
+        ("fn f(flag: bool) { if flag { } }", "if flag { }"),
+        ("fn g(flag: bool) { while flag { } }", "while flag { }"),
+        ("fn h(n: i64) { for i in 0..n { } }", "for i in 0..n { }"),
+    ] {
+        let prog = parse_ok(src);
+        let Item::Fn { body, .. } = &prog.items[0] else {
+            panic!("expected fn")
+        };
+        assert_eq!(body.stmts.len(), 1, "{src:?} must be one statement");
+        let span = match &body.stmts[0] {
+            Stmt::If { span, .. } | Stmt::ForC { span, .. } | Stmt::ForRange { span, .. } => *span,
+            other => panic!("expected a block statement, got {other:?}"),
+        };
+        assert_eq!(span, span_of(src, expected), "the span covers {expected:?}");
+    }
+}
+
+#[test]
+fn while_is_the_condition_only_for_loop() {
+    // `while` is sugar, and this is the pin that it is *only* sugar: it builds
+    // the same `Stmt::ForC` the equivalent C-style loop builds, so the checker
+    // and the backend never learn that `while` exists. There is one loop node,
+    // which is why the keyword cannot lower differently from `for ; cond; { }`
+    // by accident.
+    let src = "fn f(flag: bool) { while flag { } }";
+    let prog = parse_ok(src);
+    let Item::Fn { body, .. } = &prog.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::ForC {
+        init,
+        cond,
+        update,
+        body: loop_body,
+        span,
+    } = &body.stmts[0]
+    else {
+        panic!("expected the condition-only loop, got {:?}", body.stmts[0])
+    };
+    assert!(init.is_none(), "a `while` has no initialiser");
+    assert!(update.is_none(), "and nothing to run after each turn");
+    assert!(
+        cond.as_ref()
+            .is_some_and(|c| matches!(c, Expr::Ident(path, _) if path == &vec!["flag".to_string()])),
+        "the condition is the expression written, got {cond:?}"
+    );
+    assert!(loop_body.stmts.is_empty());
+    assert_eq!(
+        *span,
+        span_of(src, "while flag { }"),
+        "the loop's span covers its own text"
+    );
+}
+
+#[test]
 fn switch_expression_retains_subject() {
     let src = "fn f() { const c = switch x { default { 0 } }; }";
     let program = parse_ok(src);

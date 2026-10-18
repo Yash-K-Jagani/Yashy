@@ -296,13 +296,21 @@ impl<'src> Parser<'src> {
                     } else { break; }
                 }
                 // struct literal? Only treat `{ ... }` as a struct literal when it
-                // actually looks like one (`{}` or `{ ident: ... }`); otherwise a
-                // `{` belongs to whatever surrounds this expression (e.g. the arms
-                // of a `switch` whose subject is a bare identifier).
+                // actually looks like one (`{ ident: ... }`); otherwise a `{`
+                // belongs to whatever surrounds this expression -- the body of an
+                // `if`/`while`/loop, the arms of a `switch`, an arm body.
+                //
+                // The empty form `{}` is deliberately *not* a struct literal.
+                // Every struct declares at least one field, so a zero-field
+                // literal is never a program -- while `{}` after a bare name is
+                // exactly how an empty body is spelled. It used to be accepted as
+                // a literal, so `while running { }` parsed as `running {}` and
+                // then failed with "expected `{`, found `}`" pointing at the end
+                // of the enclosing function: the same bug for `if flag { }` and
+                // `for i in 0..n { }`, and for an empty `switch` arm body.
                 let looks_like_struct_lit = self.check(TokenKind::LBrace)
-                    && (self.peek_second() == TokenKind::RBrace
-                        || (self.peek_second() == TokenKind::Ident
-                            && self.peek_third() == TokenKind::Colon));
+                    && self.peek_second() == TokenKind::Ident
+                    && self.peek_third() == TokenKind::Colon;
                 if looks_like_struct_lit {
                     let open = self.expect(TokenKind::LBrace)?;
                     let _ = self.push_open(TokenKind::LBrace, open.span)?;

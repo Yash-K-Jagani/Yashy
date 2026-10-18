@@ -514,6 +514,38 @@ direct calls and the `zext` on the bool, and `greet.ot` end to end — read a na
 and an age, print one sentence built from both, which is the whole reason the
 pair is needed.
 
+### Task 5h: `while`, and the empty-body misparse it exposed
+
+`for ;; { ... if done { break; } }` is how the language spelled an unbounded loop,
+and it reads badly: nothing about the loop is a `for`, and the condition sits at
+the bottom instead of the top. `while cond { }` is the missing spelling. It is a
+lexer keyword plus a parser rule that builds the **existing** `Stmt::ForC` with no
+init and no update, so the checker and the backend never learn the keyword exists;
+the pin is
+`while_is_the_condition_only_for_loop`, which asserts the node and that the two
+optional parts are empty.
+
+Writing the test with an empty body (`while flag { }`) failed, and the failure was
+the interesting part. The parser decides a `{` is a struct literal when it is
+`{}` or `{ field: ... }` — a heuristic, not a grammar rule, because `p.x` and a
+module path are one AST shape and the arms of a `switch` whose subject is a bare
+identifier must not be eaten. With `{}` counted as a literal, `while flag { }`
+parsed as `flag {}` and then reported "expected `{`, found `}`" at the closing
+brace of the enclosing function. `if flag { }`, `for i in 0..n { }` and an empty
+`switch` arm body were all broken the same way, and had been since the heuristic
+was written — they were invisible because every test used a non-empty body.
+
+The fix is to drop the empty form from the heuristic. **Every struct declares at
+least one field** (pinned by `struct_requires_at_least_one_named_field`), so `X {}`
+is never a program; `{}` after a bare name is always a block. The cost is that an
+empty struct literal is now a parse error rather than a "missing field" checker
+error, and it is not a cost: there is nothing a program could have meant.
+`an_empty_body_after_a_bare_name_is_a_block_not_a_struct_literal` pins all three
+shapes plus the span, and a sema test pins that the checker then accepts them.
+
+This is a syntax change beyond the plan, recorded in the spec's section 3.1 and
+3.3 rather than here.
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

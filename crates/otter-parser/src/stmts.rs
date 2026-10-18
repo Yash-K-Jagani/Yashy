@@ -39,6 +39,7 @@ impl<'src> Parser<'src> {
             TokenKind::Return => self.parse_return(),
             TokenKind::If => self.parse_if(),
             TokenKind::For => self.parse_for(),
+            TokenKind::While => self.parse_while(),
             TokenKind::Switch => self.parse_switch_stmt(),
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
@@ -192,6 +193,29 @@ impl<'src> Parser<'src> {
             init,
             cond,
             update,
+            body,
+            span: cover(kw.span, body_span),
+        })
+    }
+
+    /// `while <cond> { ... }` -- the condition-only loop.
+    ///
+    /// Sugar for the C form with no init and no update, `for ; <cond>; { }`.
+    /// It earns its own keyword because that is what most loops actually are --
+    /// "keep going while there is something to read" -- and `for ;;` with the
+    /// exit buried in the body says the wrong thing twice: nothing about the
+    /// loop is a `for`, and the condition is at the bottom rather than at the
+    /// top, where a reader looks for it. The AST is unchanged: the range form
+    /// and the C form already carry every loop the backend knows how to lower.
+    fn parse_while(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::While)?;
+        let cond = self.parse_expr()?;
+        let body = self.parse_block()?;
+        let body_span = body.span;
+        Ok(Stmt::ForC {
+            init: None,
+            cond: Some(cond),
+            update: None,
             body,
             span: cover(kw.span, body_span),
         })

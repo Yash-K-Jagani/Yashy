@@ -115,7 +115,8 @@ fn main() {
 
 - Line comments `//`, block comments `/* */` (nesting permitted).
 - Identifiers, keywords (`fn`, `struct`, `enum`, `const`, `var`, `defer`, `move`,
-  `as`, `extern`, `import`, `switch`), literals.
+  `as`, `extern`, `import`, `switch`, `if`, `else`, `for`, `while`, `in`, `break`,
+  `continue`, `return`, `case`, `default`, `true`, `false`), literals.
 - Semicolons are required at statement end. Braces delimit blocks.
 
 ### 3.2 Declarations and mutability
@@ -131,8 +132,16 @@ fn main() {
 ### 3.3 Control flow
 
 - `if cond { } else { }`; `if let`-style binding via `if d := expr; cond { }`.
+- `while cond { }` — the condition-only loop, and nothing more than that: it
+  parses to the same node as `for ; cond; { }`, so the two are interchangeable
+  and `while` cannot drift from `for`. The condition is at the top, which is
+  where a reader looks for it; the update is in the body.
 - `for i in 0..10 { }` range loop; C-style three-clause `for` retained for
   irregular iteration.
+- A `{` after an expression is a block unless it holds `field:`, which is a
+  struct literal. So `while running { }` is a loop with an empty body, not a
+  struct literal named `running` — an ambiguity that used to be resolved the
+  wrong way for the empty form.
 - `break`, `continue`.
 - `switch` with `case` arms, `default`, and exhaustiveness checking on enums.
   Struct/enum payloads destructure: `case Rect { w, h }`.

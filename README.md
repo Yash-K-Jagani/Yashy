@@ -11,7 +11,7 @@ external tool is `clang`.
 **Status: milestones M0–M2 are complete, and M3 is in progress.** Otter lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
-`if`/`for`/`switch`, `defer`, and `?` propagation. A program can read its input
+`if`/`while`/`for`/`switch`, `defer`, and `?` propagation. A program can read its input
 (`read_line`, `parse_i64`), put a value inside a string (`str_from_i64` and
 friends), and manage its own memory (`alloc`, `dealloc`, `move`). Panics, C
 interop, collections, concurrency and the standard library are later milestones;

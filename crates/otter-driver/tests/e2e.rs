@@ -724,6 +724,16 @@ fn a_program_can_read_its_input() {
 }
 
 #[test]
+fn a_while_loop_runs_until_its_condition_stops_holding() {
+    // `while` is the condition-only loop; the count of Collatz steps from each
+    // start is a fact about the number, so the output pins the loop's control
+    // flow rather than anything the program chose.
+    let output = build_and_run("collatz");
+    assert_eq!(stdout_of(&output), "1: 0\n2: 1\n3: 7\n4: 2\n5: 5\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn a_program_can_build_a_string_with_a_number_in_it() {
     // The conversions put a value inside a string, so a whole sentence is one
     // string rather than a sequence of `print_*` calls.

@@ -225,6 +225,7 @@ pub enum TokenKind {
     If,
     Else,
     For,
+    While,
     In,
     Switch,
     Case,
@@ -320,6 +321,7 @@ impl TokenKind {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "for" => TokenKind::For,
+            "while" => TokenKind::While,
             "in" => TokenKind::In,
             "switch" => TokenKind::Switch,
             "case" => TokenKind::Case,
@@ -351,6 +353,7 @@ impl TokenKind {
                 | TokenKind::If
                 | TokenKind::Else
                 | TokenKind::For
+                | TokenKind::While
                 | TokenKind::In
                 | TokenKind::Switch
                 | TokenKind::Case
@@ -392,6 +395,7 @@ impl TokenKind {
             TokenKind::If => Naming::Fixed("if"),
             TokenKind::Else => Naming::Fixed("else"),
             TokenKind::For => Naming::Fixed("for"),
+            TokenKind::While => Naming::Fixed("while"),
             TokenKind::In => Naming::Fixed("in"),
             TokenKind::Switch => Naming::Fixed("switch"),
             TokenKind::Case => Naming::Fixed("case"),
@@ -489,7 +493,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 23] = [
+    const KEYWORDS: [(&str, TokenKind); 24] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -505,6 +509,7 @@ mod tests {
         ("if", TokenKind::If),
         ("else", TokenKind::Else),
         ("for", TokenKind::For),
+        ("while", TokenKind::While),
         ("in", TokenKind::In),
         ("switch", TokenKind::Switch),
         ("case", TokenKind::Case),
@@ -547,7 +552,7 @@ mod tests {
 
     #[test]
     fn every_kind_is_named_exactly_once_and_no_other_way() {
-        // All sixty-three kinds, not a sample of them. `naming` is a match with
+        // All sixty-four kinds, not a sample of them. `naming` is a match with
         // no catch-all, so a new variant is a compile error until it is named
         // there -- and this test then checks the naming is *sensible*: a fixed
         // spelling must be backticked, and the five value kinds must be named
@@ -568,6 +573,7 @@ mod tests {
             TokenKind::If,
             TokenKind::Else,
             TokenKind::For,
+            TokenKind::While,
             TokenKind::In,
             TokenKind::Switch,
             TokenKind::Case,

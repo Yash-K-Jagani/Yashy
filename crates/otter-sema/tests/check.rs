@@ -297,6 +297,27 @@ fn a_struct_literal_is_laid_out_in_declaration_order() {
 }
 
 #[test]
+fn a_while_condition_must_be_bool() {
+    // `while` parses to the condition-only `ForC`, so it gets the loop's
+    // condition rule for free: the checker requires `bool` exactly as it does
+    // for `if`.
+    let (result, _, _) = check_source("fn f(flag: bool) { while flag { } }");
+    result.expect("a bool condition should type-check");
+    assert_error("fn f(n: i64) { while n { } }", "expected `bool`, found `i64`");
+}
+
+#[test]
+fn an_empty_body_after_a_bare_name_still_type_checks() {
+    // The parser change that made `while flag { }` a loop with an empty body
+    // (rather than `flag {}` plus a missing body) is only useful if the checker
+    // then accepts it. A busy-wait is `while running { }` and nothing else.
+    let (result, _, _) = check_source("fn f(flag: bool) { if flag { } while flag { } }");
+    result.expect("empty bodies should type-check");
+    let (range, _, _) = check_source("fn f(n: i64) { for i in 0..n { } }");
+    range.expect("an empty range loop should type-check");
+}
+
+#[test]
 fn if_condition_must_be_bool() {
     assert_error("fn f() { if 1 { } }", "expected `bool`, found `i64`");
 }
