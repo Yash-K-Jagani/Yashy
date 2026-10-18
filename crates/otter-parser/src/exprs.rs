@@ -118,41 +118,6 @@ impl<'src> Parser<'src> {
             let span = expr_span(&operand);
             return Ok(Expr::Unary { op: UnOp::Not, operand: Box::new(operand), span });
         }
-        if self.check(TokenKind::Unsafe) {
-            // unsafe call
-            let unsafe_tok = self.advance();
-            // parse callee path
-            let (first, start_span) = self.identifier()?;
-            let mut callee = vec![first];
-            let mut end = start_span;
-            while self.check(TokenKind::Dot) {
-                self.advance();
-                if self.check(TokenKind::Ident) {
-                    let (seg, sspan) = self.identifier()?;
-                    callee.push(seg);
-                    end = sspan;
-                } else { break; }
-            }
-            let _ = end;
-            // args
-            let open = self.expect(TokenKind::LParen)?;
-            let _ = self.push_open(TokenKind::LParen, open.span)?;
-            let mut args = Vec::new();
-            while !self.check(TokenKind::RParen) && !self.at_eof() {
-                args.push(self.parse_expr()?);
-                if !self.eat(TokenKind::Comma) { break; }
-            }
-            let close = self.expect(TokenKind::RParen)?;
-            self.close_open(TokenKind::RParen);
-            let span = cover(unsafe_tok.span, close.span);
-            let _ = start_span;
-            let mut expr = Expr::Call { callee, args, unsafe_call: true, span };
-            // postfix
-            expr = self.parse_postfix_rest(expr)?;
-            // cast
-            expr = self.parse_cast_rest(expr)?;
-            return Ok(expr);
-        }
         let base = self.parse_cast()?;
         Ok(base)
     }
@@ -268,14 +233,6 @@ impl<'src> Parser<'src> {
         Ok(expr)
     }
 
-    fn parse_cast_rest(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
-        while self.eat(TokenKind::As) {
-            let ty = self.parse_type_expr()?;
-            let span = cover(expr_span(&expr), ty_span(&ty));
-            expr = Expr::Cast { expr: Box::new(expr), ty, span };
-        }
-        Ok(expr)
-    }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         match self.peek() {
@@ -364,6 +321,33 @@ impl<'src> Parser<'src> {
                 }
                 let span = cover(first_span, end);
                 Ok(Expr::Ident(path, span))
+            }
+            TokenKind::Unsafe => {
+                let unsafe_tok = self.advance();
+                let (first, start_span) = self.identifier()?;
+                let mut callee = vec![first];
+                let mut end = start_span;
+                while self.check(TokenKind::Dot) {
+                    self.advance();
+                    if self.check(TokenKind::Ident) {
+                        let (seg, sspan) = self.identifier()?;
+                        callee.push(seg);
+                        end = sspan;
+                    } else { break; }
+                }
+                let _ = end;
+                let open = self.expect(TokenKind::LParen)?;
+                let _ = self.push_open(TokenKind::LParen, open.span)?;
+                let mut args = Vec::new();
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    args.push(self.parse_expr()?);
+                    if !self.eat(TokenKind::Comma) { break; }
+                }
+                let close = self.expect(TokenKind::RParen)?;
+                self.close_open(TokenKind::RParen);
+                let span = cover(unsafe_tok.span, close.span);
+                let _ = start_span;
+                Ok(Expr::Call { callee, args, unsafe_call: true, span })
             }
             _ => Err(self.error(self.peek_span(), "expected an expression".to_string())),
         }
