@@ -1,0 +1,5 @@
+# cargo-fuzz's scratch
+/target/
+/artifacts/
+coverage/
+Cargo.lock

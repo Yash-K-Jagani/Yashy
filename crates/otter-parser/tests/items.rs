@@ -1073,25 +1073,29 @@ fn hostile_input_is_reported_rather_than_panicking() {
 
 #[test]
 fn deeply_nested_delimiters_hit_the_depth_limit_rather_than_the_stack() {
-    // `{` a thousand deep is what a fuzzer finds first. The parser is
-    // iterative, so there is no recursion to overflow; the depth limit is what
-    // turns a million-deep input into a diagnostic.
+    // Nested delimiters are what a fuzzer finds first. The parser is recursive
+    // descent -- one stack frame per open delimiter -- so without the limit this
+    // input overflows the stack and takes the process down; `MAX_NESTING_DEPTH`
+    // is what turns it into a diagnostic instead.
+    //
+    // This test used to run the parse on a thread with an 8 MiB stack, on the
+    // stated grounds that the parser was iterative and had nothing to overflow.
+    // Task 14 measured the opposite: `otter check` on 130 nested parentheses
+    // died with STATUS_STACK_OVERFLOW on the default 1 MiB main-thread stack.
+    // The thread is gone deliberately. Running on the ordinary test stack is
+    // what makes this test evidence that the bound protects the *machine* stack
+    // rather than that a large-enough thread hides the problem.
     let mut src = String::from("fn f() { (");
-    for _ in 0..130 {
+    for _ in 0..200 {
         src.push('(');
     }
     src.push('1');
-    for _ in 0..130 {
+    for _ in 0..200 {
         src.push(')');
     }
     src.push_str(") ; }");
 
-    let src2 = src.clone();
-    let handle = std::thread::Builder::new()
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || parse_err(&src2))
-        .unwrap();
-    let diags = handle.join().unwrap();
+    let diags = parse_err(&src);
     let message = all_messages(&diags);
     assert!(
         message.contains("nested"),

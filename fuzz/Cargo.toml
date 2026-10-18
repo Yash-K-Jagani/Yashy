@@ -1,0 +1,36 @@
+[package]
+name = "otter-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# `cargo fuzz` looks for this to know it may drive the package.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+otter-codegen = { path = "../crates/otter-codegen" }
+otter-common = { path = "../crates/otter-common" }
+otter-lexer = { path = "../crates/otter-lexer" }
+otter-parser = { path = "../crates/otter-parser" }
+otter-sema = { path = "../crates/otter-sema" }
+
+# Its own workspace root: the fuzz package needs a nightly compiler and
+# `libfuzzer-sys`, and the main workspace must stay buildable on stable with no
+# network. `cargo test --workspace` therefore never builds this.
+[workspace]
+
+[[bin]]
+name = "lex_parse"
+path = "fuzz_targets/lex_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "check"
+path = "fuzz_targets/check.rs"
+test = false
+doc = false
+bench = false

@@ -43,15 +43,35 @@ use crate::error::{self, ParseError};
 
 /// How deeply delimiters may nest before the parser stops reading.
 ///
-/// Not the same limit as a maximum *recursion* depth, and deliberately so: the
-/// parser in this crate is iterative, so a million `{` cannot overflow the
-/// machine stack -- it can only cost time and memory. This bound is what turns
-/// that input into a diagnostic instead.
+/// This is a **stack safety** bound, not a style preference. Recursive descent
+/// costs one stack frame per open delimiter, and the number that matters is how
+/// many frames fit in the smallest stack the parser can be called on: the
+/// program's main thread, which is 1 MiB on Windows and 8 MiB on Linux.
 ///
-/// The value is generous for a language whose block nesting in real code is
-/// under ten. It is here rather than in Task 14 because Task 4 is where the
-/// stack is; Task 14 raises it if the fuzzer says it is too low.
-pub const MAX_NESTING_DEPTH: usize = 128;
+/// Measured on this machine, a debug build of the driver (`target/debug/otter.exe`,
+/// unoptimized frames are the worst case, and the case the tests exercise):
+///
+/// | nested `(` | result |
+/// |-----------|--------|
+/// | 90        | parses |
+/// | 110       | `STATUS_STACK_OVERFLOW` |
+///
+/// So the ceiling is around 100, and a limit of 128 -- as this value was, and as
+/// Task 14's plan suggested raising it to 256 -- is *past* the point where the
+/// process dies. A stack overflow aborts uncatchably, which is worse than a
+/// panic and cannot be reported as a diagnostic, so the limit has to sit below
+/// the ceiling rather than at it.
+///
+/// 48 is half the measured ceiling, which leaves room for the frames above the
+/// parser (the driver, `parse_program`) and for the type checker and code
+/// generator, which walk the same tree afterwards. Real code nests under ten; a
+/// generated file that needs more than 48 levels of parentheses is pathological.
+///
+/// Raising this safely needs one of: an iterative parser, or running the whole
+/// pipeline on a thread with a deliberately large stack. Both are M3+ work.
+///
+/// Task 4 is where the stack is; Task 14 is where it was measured.
+pub const MAX_NESTING_DEPTH: usize = 48;
 
 /// One delimiter that has been opened and not yet closed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
