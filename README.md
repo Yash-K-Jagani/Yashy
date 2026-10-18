@@ -76,59 +76,82 @@ optimizer at `-O2`. Lower is better. Full methodology and caveats in
 
 | Language | ms | ns/call |
 |---|---:|---:|
-| C (gcc -O2) | 49 | 1.64 |
-| **Otter (clang -O2)** | **79** | **2.65** |
-| Rust (rustc -O) | 87 | 2.91 |
-| C (clang -O2) | 91 | 3.04 |
-| Otter (clang -O0) | 140 | 4.68 |
-| Go | 141 | 4.73 |
-| Node 24 | 341 | 11.4 |
+| C (gcc -O2) | 51 | 1.70 |
+| C (clang -O2) | 80 | 2.68 |
+| Rust (rustc -O) | 88 | 2.96 |
+| **Otter (clang -O2)** | **91** | **3.04** |
+| Go | 145 | 4.85 |
+| Otter (clang -O0) | 153 | 5.13 |
+| Node 24 | 393 | 13.1 |
 | CPython 3.14 | 3526 | 118 |
 
 **A 200,000,000-iteration integer loop with a branch:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| C (gcc -O2) | 237 | 1.18 |
-| **Otter (clang -O2)** | **246** | **1.23** |
-| C (clang -O2) | 251 | 1.25 |
-| Rust (rustc -O) | 259 | 1.30 |
-| Go | 298 | 1.49 |
-| Node 24 | 708 | 3.54 |
-| Otter (clang -O0) | 1536 | 7.68 |
-| CPython 3.14 | 35183 | 176 |
+| C (gcc -O2) | 243 | 1.22 |
+| **Otter (clang -O2)** | **252** | **1.26** |
+| C (clang -O2) | 259 | 1.30 |
+| Rust (rustc -O) | 261 | 1.31 |
+| Go | 286 | 1.43 |
+| Node 24 | 671 | 3.36 |
+| Otter (clang -O0) | 1529 | 7.65 |
+| CPython 3.14 | 35216 | 176 |
 
 **100,000,000 iterations of an `f64` dependency chain:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| C (clang -O2) | 541 | 5.41 |
-| Go | 549 | 5.49 |
-| Rust (rustc -O) | 554 | 5.54 |
-| C (gcc -O2) | 560 | 5.60 |
-| **Otter (clang -O2)** | **567** | **5.67** |
-| Node 24 | 655 | 6.55 |
-| Otter (clang -O0) | 953 | 9.53 |
+| **Otter (clang -O2)** | **536** | **5.36** |
+| C (gcc -O2) | 540 | 5.40 |
+| C (clang -O2) | 542 | 5.42 |
+| Rust (rustc -O) | 547 | 5.47 |
+| Go | 562 | 5.62 |
+| Node 24 | 682 | 6.82 |
+| Otter (clang -O0) | 936 | 9.36 |
 | CPython 3.14 | 9586 | 95.9 |
+
+Laptops are laptops, and these three tables come from one run of one script on
+one machine: the ordering of rows that are close together — Otter, `clang` and
+Rust on `fib`, for instance — moves between runs. The `ns/iteration` column is
+there because it travels better than the millisecond column.
 
 What the tables say:
 
 - **Otter's scalar code is in the same band as C and Rust, and that is the whole
-  claim.** On the loop and float benchmarks it is within 4% of the fastest row.
-  It is sometimes ahead of C built by the same `clang` — which is evidence the
-  emitted IR is clean, not evidence that Otter is better than C. It is not a
-  claim that `otter-codegen` optimizes anything: it contains no optimization
-  passes, and hands everything to LLVM.
+  claim.** On `loop` and `float` it is within 4% of the fastest portable row — and
+  on `float` it *is* the fastest portable row, ahead of both C compilers. On `fib`
+  it is about 10% behind `clang`, which is a fact about how each compiler inlines
+  a 30-million-call recursion rather than about the quality of the emitted IR. It
+  is sometimes ahead of C built by the same `clang` — evidence the IR is clean,
+  not evidence that Otter is better than C. It is not a claim that `otter-codegen`
+  optimizes anything: it contains no optimization passes, and hands everything to
+  LLVM.
+- **There is an opt-in `--native` that is worth 3.7× on the loop, and nothing on
+  the other two.** It lets the backend use *this* CPU's instruction set instead of
+  the x86-64 baseline, which is what allows the loop's accumulator to be
+  vectorised four integers at a time rather than two. It is opt-in because the
+  binary may then die with an illegal instruction on an older CPU, and it is
+  measured against another `clang` build with the same flag rather than against a
+  C build that went without it: on the loop, Otter `--native` is 68 ms and
+  `clang -march=native` is 75 ms.
+
+| Benchmark | portable | `--native` | Speedup |
+|---|---:|---:|---:|
+| `fib` | 91 ms | 85 ms | 1.07× |
+| `loop` | 252 ms | 68 ms | 3.69× |
+| `float` | 536 ms | 542 ms | 0.99× |
+
 - **Enabling optimization mattered enormously.** `otter build` used to pass
   `clang` no optimization flag at all, so every Otter binary ran at `-O0`. Fixing
-  that is worth **6.2×** on the loop, 1.8× on `fib` and 1.7× on the float chain —
+  that is worth **6.1×** on the loop, 1.7× on `fib` and 1.7× on the float chain —
   the rows above labeled `-O0` are what Otter shipped before.
 
 | Benchmark | `-O0` | `-O2` | Speedup |
 |---|---:|---:|---:|
-| `fib` | 140 ms | 79 ms | 1.8× |
-| `loop` | 1536 ms | 246 ms | 6.2× |
-| `float` | 953 ms | 567 ms | 1.7× |
+| `fib` | 153 ms | 91 ms | 1.7× |
+| `loop` | 1529 ms | 252 ms | 6.1× |
+| `float` | 936 ms | 536 ms | 1.7× |
 
 **Compile time** (the `fib` program, best of 9):
 
@@ -151,10 +174,12 @@ for the breakdown.
 
 ### What the numbers do not prove
 
-The runtime rows were re-measured after the performance work recorded in
-[`docs/performance-improvements.md`](docs/performance-improvements.md) and
-reproduced within run-to-run variation. Neither change can alter `-O2` output,
-and the object cache was verified to produce byte-identical executables.
+The runtime rows are re-measured whenever the compiler's output could change.
+`--native` cannot change a portable build — it is one extra argument on the
+`clang` command line and no more — so the portable rows moved only with
+run-to-run variation, and the `--native` rows are the new measurement. See
+[`docs/performance-improvements.md`](docs/performance-improvements.md) for the
+round-by-round record, including the changes that were measured and *not* made.
 
 M0–M2 has no heap, no collections, no string operations and no checked
 arithmetic. These benchmarks exercise scalar arithmetic and function calls —

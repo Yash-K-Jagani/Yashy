@@ -29,7 +29,10 @@ branch, which resists collapsing to a closed form while keeping every
 intermediate value well inside `i64` — no language's overflow rule changes the
 answer, and C's signed-overflow undefined behaviour never fires. `float` is a
 strict dependency chain, so no compiler may reassociate or vectorise it without
-a fast-math flag, and every language computes bit-identical results.
+a fast-math flag, and every portable row computes bit-identical results. The one
+row that does not is `float` built with `-march=native`: clang fuses `x * a + b`
+into a single FMA there, which rounds once instead of twice and moves the last
+six digits. It is labelled, and it is discussed separately below.
 
 ## What the comparison does and does not mean
 
@@ -59,8 +62,10 @@ It does not mean "Otter is as fast as C". Read the caveats:
   doubles because JavaScript has no 64-bit integer. Its printed total differs
   from the others above 2^53. The timing is comparable, the arithmetic is not.
 - **One machine, no PGO, no fast-math.** All numbers come from one laptop, with
-  no profile-guided optimization and no relaxed floating-point flags. Absolute
-  times will differ on your hardware; the ratios should be stable.
+  no profile-guided optimization and no relaxed floating-point flags. The
+  `-march=native` rows are the single exception to the portable target, and they
+  are labelled wherever they appear. Absolute times will differ on your hardware;
+  the ratios should be stable.
 
 ## Methodology
 
@@ -74,6 +79,10 @@ It does not mean "Otter is as fast as C". Read the caveats:
   against one backend's quirks.
 - **Otter is built twice**, at `-O0` and at `-O2`, so the table shows what
   enabling optimization actually buys instead of asserting that it helps.
+- **`--native` rows are opt-in and always paired.** The Otter row and the clang
+  row are built with the flag together, so the table shows what the *flag* buys
+  rather than what Otter buys over a compiler that was not given it. They are
+  never the headline; the portable rows are.
 - **One untimed warm-up run per program**, then the reported number is the
   **minimum** of N runs. For a short-lived process the minimum is the run least
   disturbed by everything else on the machine, and it is far more stable than
@@ -132,43 +141,105 @@ untimed warm-up.
 
 | Language | min ms | median ms | ns/call |
 |---|---:|---:|---:|
-| C (gcc -O2) | 49.0 | 50.1 | 1.641 |
-| **Otter (clang -O2)** | **79.2** | **80.7** | **2.652** |
-| Rust (rustc -O) | 87.0 | 100.1 | 2.914 |
-| C (clang -O2) | 90.9 | 95.8 | 3.044 |
-| Otter (clang -O0) | 139.8 | 144.0 | 4.682 |
-| Go (go build) | 141.3 | 144.4 | 4.732 |
-| Node 24 | 341.3 | 380.7 | 11.430 |
-| CPython 3.14 | 3525.7 | 3525.9 | 118.072 |
+| C (gcc -O2) | 50.7 | 62.6 | 1.698 |
+| C (clang -O2) | 80.1 | 91.4 | 2.682 |
+| C (clang -O2, `-march=native`) | 84.1 | 90.1 | 2.816 |
+| Otter (`-O2 --native`) | 84.6 | 87.7 | 2.833 |
+| Rust (rustc -O) | 88.3 | 90.5 | 2.957 |
+| **Otter (clang -O2)** | **90.8** | **96.0** | **3.041** |
+| Go (go build) | 144.8 | 152.5 | 4.849 |
+| Otter (clang -O0) | 153.2 | 161.4 | 5.130 |
+| Node 24 | 392.6 | 395.3 | 13.148 |
+| CPython 3.14 | 3525.6 | 3531.6 | 118.068 |
+
+`gcc` is consistently the fastest here and the reason is not codegen quality: it
+inlines across the recursive call differently. Between `clang`, Rust and Otter
+the spread is about 10%, and which of the three wins moves from run to run —
+`fib` is a small function called 30 million times, so it is dominated by how the
+recursion is inlined and by call overhead, not by the quality of the surrounding
+IR.
 
 ### `loop` — 200,000,000 iterations
 
 | Language | min ms | median ms | ns/iteration |
 |---|---:|---:|---:|
-| C (gcc -O2) | 236.7 | 239.9 | 1.184 |
-| **Otter (clang -O2)** | **246.2** | **252.7** | **1.231** |
-| C (clang -O2) | 250.7 | 252.5 | 1.254 |
-| Rust (rustc -O) | 259.1 | 261.2 | 1.296 |
-| Go (go build) | 298.2 | 318.1 | 1.491 |
-| Node 24 | 707.8 | 709.6 | 3.539 |
-| Otter (clang -O0) | 1535.6 | 1571.1 | 7.678 |
-| CPython 3.14 | 35183.0 | 36450.3 | 175.915 |
+| Otter (`-O2 --native`) | 68.4 | 68.9 | 0.342 |
+| C (clang -O2, `-march=native`) | 74.9 | 75.7 | 0.374 |
+| C (gcc -O2) | 243.1 | 251.4 | 1.216 |
+| **Otter (clang -O2)** | **252.2** | **267.7** | **1.261** |
+| C (clang -O2) | 259.2 | 283.1 | 1.296 |
+| Rust (rustc -O) | 261.3 | 277.6 | 1.306 |
+| Go (go build) | 286.1 | 321.9 | 1.430 |
+| Node 24 | 671.0 | 723.8 | 3.355 |
+| Otter (clang -O0) | 1529.0 | 1544.5 | 7.645 |
+| CPython 3.14 | 35215.5 | 35771.9 | 176.078 |
 
 Node's total is `29999999922509360`, not `29999999900000000`: JavaScript has no
 64-bit integers and this sum exceeds 2^53. See the caveats above.
+
+The two `-march=native` rows are three to four times faster than everything else
+in the table, and that is the whole `loop` story: the accumulator is vectorisable,
+the x86-64 baseline is not allowed to use AVX2, and the moment the target permits
+it four `i64` additions happen per instruction instead of two. Otter's row is
+ahead of clang's here by 9%; on a benchmark this size that is closer to a tie than
+a result, and the honest reading is that the two moved together.
 
 ### `float` — 100,000,000 iterations
 
 | Language | min ms | median ms | ns/iteration |
 |---|---:|---:|---:|
-| C (clang -O2) | 540.5 | 544.3 | 5.405 |
-| Go (go build) | 549.0 | 552.0 | 5.490 |
-| Rust (rustc -O) | 553.7 | 581.0 | 5.537 |
-| C (gcc -O2) | 560.2 | 582.9 | 5.602 |
-| **Otter (clang -O2)** | **566.5** | **577.0** | **5.665** |
-| Node 24 | 654.7 | 654.9 | 6.547 |
-| Otter (clang -O0) | 952.5 | 953.7 | 9.525 |
-| CPython 3.14 | 9585.7 | 10077.7 | 95.857 |
+| C (clang -O2, `-march=native`) | 311.5 | 325.3 | 3.115 |
+| **Otter (clang -O2)** | **535.5** | **545.9** | **5.355** |
+| C (gcc -O2) | 540.1 | 553.5 | 5.401 |
+| C (clang -O2) | 541.8 | 549.2 | 5.418 |
+| Otter (`-O2 --native`) | 542.2 | 553.2 | 5.422 |
+| Rust (rustc -O) | 547.3 | 556.6 | 5.473 |
+| Go (go build) | 561.6 | 570.8 | 5.616 |
+| Node 24 | 681.6 | 692.1 | 6.816 |
+| Otter (clang -O0) | 936.3 | 955.0 | 9.363 |
+| CPython 3.14 | 9586.3 | 9628.1 | 95.863 |
+
+The fastest row prints `44051.909807502794`; every other row prints
+`44051.909822450085`. That is not a typo. `clang` contracts `x * a + b` into a
+single fused multiply-add when the target has an FMA unit, which rounds once
+instead of twice, and the last six digits are the difference. It is a 1.7× win
+bought by changing the answer, and Otter does not take it — see below.
+
+### The effect of `--native`
+
+`--native` (clang's `-march=native`) stops targeting the x86-64 baseline and
+targets the CPU that is running the build. The C row is built with the same flag,
+because the flag — not the compiler — is what does the work.
+
+| Benchmark | portable `-O2` | `-O2 --native` | Speedup |
+|---|---:|---:|---:|
+| `fib` | 90.8 ms | 84.6 ms | 1.07× |
+| `loop` | 252.2 ms | 68.4 ms | 3.69× |
+| `float` | 535.5 ms | 542.2 ms | 0.99× |
+
+Two of the three rows say the flag is worth almost nothing, and one says it is
+worth a great deal. That is the honest shape of it: `-march=native` unlocks AVX2
+and the wider vector unit, so it pays exactly where the backend has something to
+do with them and nowhere else. `float` is unaffected because its dependency
+chain is serial — no vectorisation is possible — and `fib` is unaffected because
+it is calls, not arithmetic.
+
+Two things are deliberately *not* done, and both were measured:
+
+- **The flag is not the default.** A binary built for one CPU dies with an
+  illegal instruction on an older one. The default has to run on a machine the
+  compiler has never seen, so `--native` is opt-in and the portable row stays the
+  headline.
+- **Otter does not contract float multiplies into FMAs.** It would win the
+  `float` row outright (that is what clang's 311 ms above is), and it would be
+  within the letter of IEEE-754 — a fused multiply-add rounds once, and every C
+  compiler does it by default. But it changes the number a program prints, and
+  the premise this suite is built on is that every row computes the same answer,
+  so the one thing a benchmark *cannot* be allowed to buy is a different result.
+  Even the LLVM `contract` flag on our own `fmul`/`fadd` does not fuse here (it
+  was tried: the backend still emits `vmulsd`/`vaddsd`; clang gets an FMA by
+  emitting an explicit `llvm.fmuladd` intrinsic from the front end), so taking it
+  would mean teaching codegen a fast-math rule, not flipping a switch.
 
 ### The effect of the optimization level
 
@@ -176,9 +247,9 @@ Otter built at `-O0` and at `-O2`, same source, same machine:
 
 | Benchmark | `-O0` | `-O2` | Speedup |
 |---|---:|---:|---:|
-| `fib` | 139.8 ms | 79.2 ms | 1.77× |
-| `loop` | 1535.6 ms | 246.2 ms | 6.24× |
-| `float` | 952.5 ms | 566.5 ms | 1.68× |
+| `fib` | 153.2 ms | 90.8 ms | 1.69× |
+| `loop` | 1529.0 ms | 252.2 ms | 6.06× |
+| `float` | 936.3 ms | 535.5 ms | 1.75× |
 
 ### Compile time (`fib`, best of 9)
 
