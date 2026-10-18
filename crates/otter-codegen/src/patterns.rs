@@ -50,7 +50,7 @@ pub fn gen_match(
         String::new()
     } else {
         let slot = ctx.alloc_slot();
-        ctx.push(format!("{slot} = alloca {result_repr}"));
+        ctx.push_alloca(format!("{slot} = alloca {result_repr}"));
         slot
     };
     let result_done = ctx.alloc_label_base() + "_result";
@@ -167,7 +167,7 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
         HirPattern::Binding { name, ty, .. } => {
             let slot = ctx.alloc_slot();
             let repr = repr_type(&ty.kind);
-            ctx.push(format!("{slot} = alloca {repr}"));
+            ctx.push_alloca(format!("{slot} = alloca {repr}"));
             if !subject.value.is_empty() {
                 ctx.push(format!("store {repr} {}, ptr {slot}", subject.value));
             }
@@ -190,7 +190,7 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
                 if let HirPattern::Binding { name, ty, .. } = arg {
                     let slot = ctx.alloc_slot();
                     let repr = repr_type(&ty.kind);
-                    ctx.push(format!("{slot} = alloca {repr}"));
+                    ctx.push_alloca(format!("{slot} = alloca {repr}"));
                     ctx.push(format!("store {repr} {payload}, ptr {slot}"));
                     ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
                 }

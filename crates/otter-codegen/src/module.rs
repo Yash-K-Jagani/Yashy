@@ -58,6 +58,24 @@ impl Module {
         self.lines.push(line.into());
     }
 
+    /// How many body lines have been pushed so far.
+    ///
+    /// A caller uses this to remember a position it will later insert at; see
+    /// [`Module::insert_lines`].
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Insert `lines` before `index`, shifting everything after it down.
+    ///
+    /// This is how the allocas gathered while lowering a function body reach
+    /// the entry block: the body is lowered in one pass with each `alloca`
+    /// diverted into a buffer, and the buffer is spliced in at the remembered
+    /// position once the function is finished.
+    pub fn insert_lines(&mut self, index: usize, lines: Vec<String>) {
+        self.lines.splice(index..index, lines);
+    }
+
     /// Intern `bytes` as a global string constant, returning its name.
     ///
     /// Identical byte slices share one global: the second `intern_string`

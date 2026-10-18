@@ -12,6 +12,9 @@ define i64 @control(i1 %arg0, { i8, i64 } %arg1) {
 entry:
 %slot0 = alloca i1
 %slot1 = alloca { i8, i64 }
+%slot2 = alloca i64
+%slot3 = alloca i64
+%slot4 = alloca i64
 store i1 %arg0, ptr %slot0
 store { i8, i64 } %arg1, ptr %slot1
 %t0 = load i1, ptr %slot0
@@ -23,9 +26,7 @@ bb1_else:
 call void @otter_print_i64(i64 2)
 br label %bb2_merge
 bb2_merge:
-%slot2 = alloca i64
 store i64 10, ptr %slot2
-%slot3 = alloca i64
 store i64 0, ptr %slot3
 br label %bb3_cond
 bb3_cond:
@@ -57,7 +58,6 @@ bb5_inc:
 store i64 %t9, ptr %slot3
 br label %bb3_cond
 bb6_done:
-%slot4 = alloca i64
 store i64 0, ptr %slot4
 br label %bb13_cond
 bb13_cond:

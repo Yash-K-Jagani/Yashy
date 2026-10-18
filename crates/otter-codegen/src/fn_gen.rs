@@ -5,6 +5,12 @@
 //! nodes — the whole M0–M2 backend is deliberately SSA-naive and leans on
 //! `mem2reg` in the optimizer instead.
 //!
+//! Every *other* alloca the body needs lands in the entry block too. They are
+//! diverted into `FnCtx::push_alloca` as the body is lowered and spliced in
+//! after the `entry:` label here, so no block other than `entry` ever allocates
+//! — see that method for why an alloca inside a loop is a real cost and not
+//! just a style question.
+//!
 //! The function always ends with exactly one terminator: a body that returns
 //! on every path has already emitted its `ret`, and a body that falls through
 //! emits `ret void` or `ret <zero>` for its return type.
@@ -42,7 +48,7 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
 
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
-        ctx.push("entry:");
+        ctx.begin_entry();
         let slots = ctx.alloc_params(f);
         for (index, (slot, param)) in slots.iter().zip(f.params.iter()).enumerate() {
             let repr = repr_type(&param.ty.kind);
@@ -61,5 +67,7 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
             }
         }
         ctx.push("}");
+        // Every alloca the body asked for lands here, directly after `entry:`.
+        ctx.finish();
     }
 }

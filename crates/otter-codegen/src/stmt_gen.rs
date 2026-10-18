@@ -236,10 +236,10 @@ fn gen_for_range(
     let end_value = gen_expr(ctx, end);
 
     let end_slot = ctx.alloc_slot();
-    ctx.push(format!("{end_slot} = alloca i64"));
+    ctx.push_alloca(format!("{end_slot} = alloca i64"));
     ctx.push(format!("store i64 {}, ptr {end_slot}", end_value.value));
     let index_slot = ctx.alloc_slot();
-    ctx.push(format!("{index_slot} = alloca i64"));
+    ctx.push_alloca(format!("{index_slot} = alloca i64"));
     ctx.push(format!("store i64 {}, ptr {index_slot}", start_value.value));
 
     let cond_label = ctx.alloc_label_base() + "_cond";

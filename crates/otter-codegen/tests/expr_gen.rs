@@ -14,7 +14,7 @@ use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program, expr_ty, HirItem, HirProgram, HirStmt};
 
-use otter_codegen::{gen_expr, gen_expr_to_slot, FnCtx, Module};
+use otter_codegen::{gen_block, gen_expr, gen_expr_to_slot, FnCtx, Module};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
@@ -45,11 +45,17 @@ fn first_fn(src: &str) -> otter_sema::HirFn {
 
 /// Lower the first function's body: each `const` into a slot, each expression
 /// statement for effect. Returns the finished module.
+///
+/// `begin_entry`/`finish` bracket the body the same way `gen_fn` brackets a
+/// real function, so the golden sees the allocas where the backend actually
+/// puts them — at the top of the entry block — rather than where the call that
+/// wanted one happened to run.
 fn gen_body(src: &str) -> String {
     let f = first_fn(src);
     let mut module = Module::new();
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
+        ctx.begin_entry();
         let _ = ctx.alloc_params(&f);
         for stmt in &f.body.stmts {
             match stmt {
@@ -64,6 +70,7 @@ fn gen_body(src: &str) -> String {
                 other => panic!("the harness only handles const and expr, got {other:?}"),
             }
         }
+        ctx.finish();
     }
     module.finish()
 }
@@ -75,6 +82,7 @@ fn gen_return(src: &str) -> String {
     let mut module = Module::new();
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
+        ctx.begin_entry();
         let _ = ctx.alloc_params(&f);
         let expr = f
             .body
@@ -86,6 +94,7 @@ fn gen_return(src: &str) -> String {
             })
             .expect("the source must return an expression");
         let _ = gen_expr(&mut ctx, expr);
+        ctx.finish();
     }
     module.finish()
 }
@@ -357,6 +366,40 @@ fn normalize_host_header(ir: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+
+#[test]
+fn every_alloca_lands_in_the_entry_block() {
+    // A loop inside a loop is the case that exposed this: the inner loop's
+    // counter slots were emitted into the outer loop's body block, so they were
+    // re-created on every outer iteration. LLVM wants all of a function's
+    // allocas in `entry`, which executes once.
+    let f = first_fn("fn f(n: i64) { for i in 0..n { for j in 0..n { var x = i * j; } } }");
+    let mut module = Module::new();
+    {
+        let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
+        ctx.begin_entry();
+        let mut defers = Vec::new();
+        let _ = gen_block(&mut ctx, &f.body, &mut defers);
+        ctx.finish();
+    }
+    let ir_text = module.finish();
+
+    assert!(
+        ir_text.contains(" = alloca "),
+        "the nested loop should still allocate its counter slots:\n{ir_text}"
+    );
+    // Every block after `entry:` is re-entered; an alloca there is dynamic.
+    let mut seen_later_block = false;
+    for line in ir_text.lines() {
+        if line.ends_with(':') && line != "entry:" {
+            seen_later_block = true;
+        }
+        assert!(
+            !(seen_later_block && line.contains(" = alloca ")),
+            "`{line}` allocates outside the entry block:\n{ir_text}"
+        );
+    }
 }
 
 #[test]

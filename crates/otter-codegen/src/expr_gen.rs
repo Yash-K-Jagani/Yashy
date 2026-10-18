@@ -60,6 +60,12 @@ pub struct FnCtx<'a> {
     pub next_slot: u32,
     /// The index the next `matchN` block-name base will use.
     next_label: u32,
+    /// `alloca` lines waiting to be spliced into the entry block, in the order
+    /// they were allocated. See [`FnCtx::push_alloca`].
+    hoisted_allocas: Vec<String>,
+    /// The module line index of the entry block's label, once
+    /// [`FnCtx::begin_entry`] has declared it.
+    entry_line: Option<usize>,
     /// Bound names (`locals`, parameters, pattern bindings) to their slot and
     /// declared type.
     pub locals: HashMap<String, (String, TypeKind)>,
@@ -77,9 +83,23 @@ impl<'a> FnCtx<'a> {
             ret_type,
             next_slot: 0,
             next_label: 0,
+            hoisted_allocas: Vec::new(),
+            entry_line: None,
             locals: HashMap::new(),
             loops: Vec::new(),
         }
+    }
+
+    /// Open the function's entry block.
+    ///
+    /// Emits the `entry:` label and remembers where it landed, so
+    /// [`FnCtx::finish`] can place the allocas `push_alloca` diverted.
+    /// A function must call this before lowering its body and close with
+    /// [`FnCtx::finish`]; the pair is what keeps an `alloca` from being emitted
+    /// mid-body.
+    pub fn begin_entry(&mut self) {
+        self.entry_line = Some(self.module.line_count());
+        self.push("entry:");
     }
 
     /// Allocate the parameters of `f` into fresh slots so an identifier read
@@ -90,12 +110,42 @@ impl<'a> FnCtx<'a> {
         for param in &f.params {
             let slot = self.alloc_slot();
             let repr = repr_type(&param.ty.kind);
-            self.module.push(format!("{slot} = alloca {repr}"));
+            self.push_alloca(format!("{slot} = alloca {repr}"));
             self.locals
                 .insert(param.name.clone(), (slot.clone(), param.ty.kind.clone()));
             slots.push(slot);
         }
         slots
+    }
+
+    /// Record an `alloca` for the function's entry block instead of emitting it
+    /// here.
+    ///
+    /// LLVM wants every `alloca` in the entry block. One emitted mid-body — a
+    /// loop's counter slots, a `switch`'s result slot — is a *dynamic*
+    /// allocation: it runs again on every pass of the enclosing block, which at
+    /// `-O0` means the stack pointer is adjusted inside the loop and the slot is
+    /// re-created each iteration. Diverting them here and splicing the buffer
+    /// into `entry:` at the end of the function gives one static slot per
+    /// function, and the entry block dominates every use so the presence of the
+    /// slot at its use site is never in question.
+    pub(crate) fn push_alloca(&mut self, line: impl Into<String>) {
+        self.hoisted_allocas.push(line.into());
+    }
+
+    /// Splice the allocas diverted during body lowering into the entry block.
+    ///
+    /// The counterpart of [`FnCtx::begin_entry`]. One static slot per function
+    /// ends up at the top of `entry:`, which dominates every use, so the slot's
+    /// presence at its use site is never in question. Allocas gathered without
+    /// a `begin_entry` to place them are dropped — there is no valid position
+    /// for an `alloca` outside the entry block, so emitting them late would be
+    /// worse than not emitting them.
+    pub fn finish(&mut self) {
+        let allocas = std::mem::take(&mut self.hoisted_allocas);
+        if let Some(line) = self.entry_line {
+            self.module.insert_lines(line + 1, allocas);
+        }
     }
 
     /// A fresh alloca name, `%slot0`, `%slot1`, …
@@ -200,7 +250,7 @@ pub fn gen_expr_to_slot(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> String {
         return String::new();
     }
     let slot = ctx.alloc_slot();
-    ctx.push(format!("{slot} = alloca {repr}"));
+    ctx.push_alloca(format!("{slot} = alloca {repr}"));
     ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
     slot
 }
