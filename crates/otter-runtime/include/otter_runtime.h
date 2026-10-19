@@ -102,6 +102,20 @@ const char *otter_read_line(void);
 long long otter_parse_i64(const char *s);
 double otter_parse_f64(const char *s);
 
+/* ---- Diagnostics ----
+ *
+ *     declare void @otter_panic(i8*, i8*, i64, i64)
+ *
+ * Writes `<file>:<line>:<column>: panic: <message>` to standard error and ends
+ * the process with a failure status. It never returns, so generated IR puts
+ * `unreachable` after the call: nothing in a function that panics can be
+ * reached.
+ *
+ * It does not unwind, so a `defer` body does not run before a panic yet. The
+ * diagnostics section of runtime.c is where that limitation and its replacement
+ * are written down. */
+void otter_panic(const char *message, const char *file, long long line, long long column);
+
 #ifdef __cplusplus
 }
 #endif

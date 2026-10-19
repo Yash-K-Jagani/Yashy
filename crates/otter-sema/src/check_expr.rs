@@ -59,17 +59,24 @@ struct FnSig {
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
-pub struct Checker {
+pub struct Checker<'src> {
     scope: Scope,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
     errors: Vec<TypeError>,
     file: FileId,
+    /// The source text and its line index.
+    ///
+    /// Only `panic` reads this. A panic is reported to the user with the
+    /// position it was written at, and resolving a span to a line and column
+    /// needs the file; the checker is the last stage that has it, and the
+    /// backend is handed IR text and a path rather than a map.
+    sm: &'src SourceMap,
 }
 
-impl Checker {
-    pub fn new(_sm: &SourceMap, file: FileId) -> Self {
+impl<'src> Checker<'src> {
+    pub fn new(sm: &'src SourceMap, file: FileId) -> Self {
         let mut scope = Scope::new();
         // Builtins are predeclared in the root scope. They are functions, so a
         // call resolves through the same path as a user call.
@@ -78,7 +85,7 @@ impl Checker {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 12] = [
+        let builtins: [(&str, Vec<Type>, Type); 13] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -109,6 +116,18 @@ impl Checker {
             ("str_from_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Str)),
             ("str_from_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Str)),
             ("str_from_bool", vec![prim(TypeKind::Bool)], prim(TypeKind::Str)),
+            // The way out of a situation the program cannot continue from.
+            //
+            // Its result type is `Never`, not `()`, and that is the whole point:
+            // a call that cannot return has no value, so a program cannot go on
+            // to use one, and the checker's `!` is where that is recorded. The
+            // backend lowers it to a call that ends the process.
+            //
+            // It takes the message only. The file, line and column a panic
+            // reports are facts the *checker* has and the program does not, so
+            // they are added to the lowered call here rather than written down
+            // by the user -- see `Checker::panic_call`.
+            ("panic", vec![prim(TypeKind::Str)], prim(TypeKind::Never)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(
@@ -131,6 +150,7 @@ impl Checker {
             fns: HashMap::new(),
             errors: Vec::new(),
             file,
+            sm,
         }
     }
 
@@ -643,7 +663,7 @@ impl Checker {
             Stmt::Return(expr, span) => match expr {
                 Some(e) => {
                     let checked = self.check_expr_with_expected(e, ret)?;
-                    if !ret.eq_ignoring_span(&expr_ty(&checked)) {
+                    if !fits(ret, &expr_ty(&checked)) {
                         self.error(
                             expr_span(&checked),
                             format!("expected `{ret}`, found `{}`", expr_ty(&checked)),
@@ -811,15 +831,8 @@ impl Checker {
         for arm in arms {
             let checked = self.check_arm_against(&subject_ty, arm)?;
             let body_ty = expr_ty(&checked.body);
-            match &arm_ty {
-                None => arm_ty = Some(body_ty),
-                Some(expected) if expected.eq_ignoring_span(&body_ty) => {}
-                Some(expected) => {
-                    self.error(
-                        checked.span,
-                        format!("expected `{expected}`, found `{body_ty}`"),
-                    );
-                }
+            if let Some(message) = merge_arm_type(&mut arm_ty, body_ty) {
+                self.error(checked.span, message);
             }
             hir_arms.push(checked);
         }
@@ -1307,7 +1320,7 @@ impl Checker {
                             let mut arg_exprs = Vec::with_capacity(args.len());
                             for (arg, param) in args.iter().zip(params.iter()) {
                                 let checked = self.check_expr_with_expected(arg, param)?;
-                                if !param.eq_ignoring_span(&expr_ty(&checked)) {
+                                if !fits(param, &expr_ty(&checked)) {
                                     self.error(
                                         expr_span(&checked),
                                         format!("expected `{param}`, found `{}`", expr_ty(&checked)),
@@ -1329,6 +1342,17 @@ impl Checker {
                                     }
                                 }
                                 arg_exprs.push(checked);
+                            }
+                            // `panic` is sugar in the same way interpolation is:
+                            // the position it reports is a fact only this stage
+                            // holds, so it is resolved here and the call handed
+                            // down carries it. The arity check above already
+                            // pinned `arg_exprs` to one element. Every other
+                            // builtin passes through untouched.
+                            if callee.len() == 1 && name == "panic" {
+                                if let Some(message) = arg_exprs.first().cloned() {
+                                    return Some(self.panic_call(message, *span));
+                                }
                             }
                             Some(HirExpr::Call {
                                 callee: callee.clone(),
@@ -1564,15 +1588,8 @@ impl Checker {
                 for arm in arms {
                     let checked = self.check_arm_against(&subject_ty, arm)?;
                     let body_ty = expr_ty(&checked.body);
-                    match &arm_ty {
-                        None => arm_ty = Some(body_ty),
-                        Some(expected) if expected.eq_ignoring_span(&body_ty) => {}
-                        Some(expected) => {
-                            self.error(
-                                checked.span,
-                                format!("expected `{expected}`, found `{body_ty}`"),
-                            );
-                        }
+                    if let Some(message) = merge_arm_type(&mut arm_ty, body_ty) {
+                        self.error(checked.span, message);
                     }
                     hir_arms.push(checked);
                 }
@@ -1667,6 +1684,57 @@ impl Checker {
             ty: prim(TypeKind::Str),
         })
     }
+
+    /// `panic(message)` as the call the backend lowers: the message the program
+    /// wrote, then the file, line and column it was written at.
+    ///
+    /// Resolving the position here rather than in code generation is the same
+    /// trade interpolation made: the stage that holds a fact owns it. The
+    /// checker has the source map, so it can turn the call's span into a line
+    /// and column, and the backend -- which is handed IR text and a path, and no
+    /// map at all -- is left lowering a call it already knows how to lower.
+    ///
+    /// The type stays `Never`, so nothing downstream can use a value that does
+    /// not exist, and the extra arguments are ordinary literals: a `string` and
+    /// two `i64`s, which the runtime prints.
+    fn panic_call(&mut self, message: HirExpr, span: Span) -> HirExpr {
+        let location = self.sm.locate(self.file, span);
+        let file = self.sm.path(self.file).to_string();
+        let args = vec![
+            message,
+            HirExpr::Literal(
+                Literal::Str(str_lit(file)),
+                span,
+                prim(TypeKind::Str),
+            ),
+            HirExpr::Literal(
+                Literal::I64(i64::from(location.line)),
+                span,
+                prim(TypeKind::I64),
+            ),
+            HirExpr::Literal(
+                Literal::I64(i64::from(location.col)),
+                span,
+                prim(TypeKind::I64),
+            ),
+        ];
+        HirExpr::Call {
+            callee: vec!["panic".to_string()],
+            args,
+            unsafe_call: false,
+            span,
+            ty: never(span),
+        }
+    }
+}
+
+/// A [`StringLit`] from its decoded text, keeping `value` and `bytes` in step.
+///
+/// Sema synthesises exactly one string literal -- the file name a panic reports
+/// -- and the two fields have to agree for the backend, which interns `bytes`.
+fn str_lit(value: String) -> StringLit {
+    let bytes = value.as_bytes().to_vec();
+    StringLit { value, bytes }
 }
 
 /// The empty string literal, for a piece that must be a string and is not there.
@@ -1702,6 +1770,42 @@ fn ptr(pointee: Type) -> Type {
         kind: TypeKind::Ptr(Box::new(pointee)),
         span: Span::new(0, 0),
     }
+}
+
+/// Whether a value of type `found` may stand where `expected` is wanted.
+///
+/// Types otherwise have to match exactly; `!` -- [`TypeKind::Never`] -- is the
+/// one exception. An expression that never produces a value cannot disagree
+/// about what kind of value it is, so it fits wherever one is wanted: the code
+/// that would have used it never runs. That is what lets `return panic("...")`
+/// stand in for any return type, and a diverging argument stand in for any
+/// parameter. Everything else has to match exactly, so this widens nothing else.
+fn fits(expected: &Type, found: &Type) -> bool {
+    expected.eq_ignoring_span(found) || matches!(found.kind, TypeKind::Never)
+}
+
+/// Fold one `switch` arm's body type into the type every arm has to agree on.
+///
+/// Returns the message for an arm that does not fit, so the caller reports it
+/// against the span it already has. `!` follows the same rule as everywhere
+/// else ([`fits`]): a `panic` in the `default` arm makes that one arm
+/// unreachable rather than making the whole switch `!`.
+fn merge_arm_type(slot: &mut Option<Type>, body: Type) -> Option<String> {
+    let Some(expected) = slot.as_ref() else {
+        *slot = Some(body);
+        return None;
+    };
+    if fits(expected, &body) {
+        return None;
+    }
+    // The first arm was the diverging one and this arm is the first to actually
+    // produce something, so it becomes the type the later arms agree with.
+    if matches!(expected.kind, TypeKind::Never) {
+        *slot = Some(body);
+        return None;
+    }
+    let expected = expected.to_string();
+    Some(format!("expected `{expected}`, found `{body}`"))
 }
 
 /// The type of a diverging expression, at the span where it diverged.

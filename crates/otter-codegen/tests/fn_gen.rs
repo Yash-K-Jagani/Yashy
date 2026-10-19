@@ -422,3 +422,24 @@ fn golden_control_flow_matches_the_pinned_contract() {
          rerun with UPDATE_GOLDEN=1 only after checking the diff"
     );
 }
+
+#[test]
+fn golden_panic_matches_the_pinned_contract() {
+    // The diagnostic path is the one place lowering emits a terminator of its
+    // own inside an expression, so its IR is pinned rather than only
+    // spot-checked: the block structure around the call *is* the design.
+    let input = read_lf_only(&golden_dir().join("panic.ot"));
+    let actual = normalize_host_header(&ir_of(&input));
+    let expected_path = golden_dir().join("panic.expected.ll");
+    if updating_goldens() {
+        fs::write(&expected_path, &actual)
+            .unwrap_or_else(|e| panic!("cannot write {}: {e}", expected_path.display()));
+        return;
+    }
+    let expected = normalize_host_header(&read_lf_only(&expected_path));
+    assert_eq!(
+        actual, expected,
+        "generated IR drifted from the pinned contract; \
+         rerun with UPDATE_GOLDEN=1 only after checking the diff"
+    );
+}

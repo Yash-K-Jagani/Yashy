@@ -178,6 +178,10 @@ impl Module {
         out.push_str("declare i8* @otter_read_line()\n");
         out.push_str("declare i64 @otter_parse_i64(i8*)\n");
         out.push_str("declare double @otter_parse_f64(i8*)\n");
+        // The diagnostic path (M4). Declared up front like the rest, so a
+        // program that starts panicking does not change every golden file
+        // again; an unused `declare` is legal IR.
+        out.push_str("declare void @otter_panic(i8*, i8*, i64, i64)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

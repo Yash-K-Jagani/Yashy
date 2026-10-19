@@ -13,9 +13,10 @@ parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. A program can read its input
 (`read_line`, `parse_i64`), put a value inside a string — including with
-interpolation, `"n = ${n}"` — and manage its own memory (`alloc`, `dealloc`,
-`move`). Panics, C interop, collections, concurrency and the standard library are
-later milestones; see [Roadmap](#roadmap).
+interpolation, `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`),
+and stop itself with `panic("...")`, which reports the position it was written at
+and exits with a failure status. C interop, collections, concurrency and the
+standard library are later milestones; see [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -350,7 +351,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
 | M3 🚧 | Heap, strings and input in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, `+` / `len` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_i64` / `str_from_f64` / `str_from_bool`, and string interpolation (`"n = ${n}"`). Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
-| M4 | Panic and unwinding, checked arithmetic, `assert`, exit codes |
+| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Still to come: unwinding on the panic path (so a `defer` runs before the process ends), checked arithmetic, `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |
 | M7 | Threads, channels, mutexes |

@@ -189,6 +189,41 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
             "interpolation at the end of the file",
             "fn main() { const s = \"${".to_string(),
         ),
+        ("panic with no arguments", "fn panic() { panic(); }".to_string()),
+        ("panic with two arguments", "fn main() { panic(\"a\", \"b\"); }".to_string()),
+        (
+            "panic with a non-string argument",
+            "fn main() { panic(1); }".to_string(),
+        ),
+        (
+            "panic whose argument is its own call",
+            "fn main() { panic(panic(\"x\")); }".to_string(),
+        ),
+        (
+            "panic in a switch arm whose other arm is a value",
+            "fn f(o: Option[i64]) -> i64 { return switch o { case None { panic(\"n\") } case Some(v) { v } }; }"
+                .to_string(),
+        ),
+        (
+            "panic on every path of a function",
+            "fn f() -> i64 { panic(\"a\"); } fn main() { print_i64(f()); }".to_string(),
+        ),
+        (
+            "panic returning from a unit function",
+            "fn f() { return panic(\"a\"); } fn main() { f(); }".to_string(),
+        ),
+        (
+            "panic inside a deferred body",
+            "fn main() { defer { panic(\"bye\"); } }".to_string(),
+        ),
+        (
+            "panic with an unterminated message",
+            "fn main() { panic(\"oops); }".to_string(),
+        ),
+        (
+            "panic in an interpolation",
+            "fn main() { const s = \"${panic(\"x\")}\"; }".to_string(),
+        ),
         ("char literal, which Otter has no syntax for", "fn main() { const x = 'a'; }".to_string()),
         ("at sign with no use", "fn main() { const x = @; }".to_string()),
         ("byte order mark", "\u{feff}fn main() { }".to_string()),

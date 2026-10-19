@@ -863,3 +863,36 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
         "expected a caret underlining the second use:\n{stderr}"
     );
 }
+
+#[test]
+fn a_panic_prints_its_message_and_the_position_it_was_written_at() {
+    // The whole pipeline on the diagnostic path: the message and the source
+    // position reach standard error, the exit status is a failure, and nothing
+    // after the panic runs. `checked_halve` panics one call deeper than `main`,
+    // which is what makes "there is no recovery" a real claim about the program
+    // rather than a reading of its source.
+    let (_dir, exe, compile) = build_program("panic");
+    assert!(
+        compile.status.success(),
+        "compiling panic.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "10\n", "the line printed before the panic");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a panic is a failure, not a normal exit: {:?}",
+        output.status
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic.ot:10:9: panic: cannot halve an odd number"),
+        "the message and the position it was written at must reach standard \
+         error:\n{stderr}"
+    );
+    assert!(
+        !stdout_of(&output).contains("never be printed"),
+        "nothing after the panic may run:\n{stderr}"
+    );
+}

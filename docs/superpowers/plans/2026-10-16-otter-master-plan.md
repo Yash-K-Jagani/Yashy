@@ -143,9 +143,24 @@ has exactly one contract and no in-between. Checked forms wait for M4's `panic`.
 **M4 (faults):**
 
 ```c
-noreturn void otter_panic(i8* msg, i64 msg_len, i8* file, i64 line, i64 col);
-noreturn void otter_assert_failed(i8* expr_src, i8* file, i64 line, i64 col);
+void otter_panic(const char* message, const char* file, long long line, long long column);
 ```
+
+As built (M3–M4 Task 9), the `msg_len` in the sketch above is gone: every string
+in Otter is already NUL-terminated `i8*`, and every other runtime call takes the
+pointer alone, so a length here would be the one ABI that reads a string two ways.
+The three position arguments are resolved by the **checker**, not the backend — it
+is the last stage holding the `SourceMap`, and the alternative was growing
+`emit_program`'s signature (and every test that calls it) for one call — and they
+arrive as ordinary literal arguments.
+
+`otter_panic` does **not** unwind, and so does not run `defer` bodies yet: it
+writes one `stderr` line and exits with status 1. That is a stated limitation
+rather than a hidden one, and it is the seam the M3–M4 plan's Task 10 replaces
+with the throw that generated cleanup landing pads catch. No stack trace is
+printed for the same reason; it arrives with the unwinding machinery.
+
+`otter_assert_failed` is Task 12's and is not written yet.
 
 Checked arithmetic is **not** a runtime call. M4 emits the compare and the
 conditional branch to an inline panic block in generated code (see L4).
@@ -235,7 +250,8 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | M0–M2 | `print_str(string)`, `print_i64(i64)`, `print_f64(f64)` |
 | M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, `len(string)`, string constructors and accessors from L1 |
 | M3, as built ahead of the row above | `read_line() -> string`, `parse_i64(string) -> i64`, `parse_f64(string) -> f64`, `str_from_i64(i64) -> string`, `str_from_f64(f64) -> string`, `str_from_bool(bool) -> string` (L1's input and conversion notes) |
-| M4 | `panic(string)`, `assert(bool)`, `debug_assert(bool)`, `assert_eq` (typed per pair), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
+| M4, as built ahead of the row below | `panic(string) -> !` (M3–M4 Task 9). `!` and not `()`: a panic produces no value, so it can stand in for a value of any type — a `return`, a `switch` arm — without letting a program use one. The call carries the file, line and column the checker resolved, and ends the process with status 1 |
+| M4 | `assert(bool)`, `debug_assert(bool)`, `assert_eq` (typed per pair), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
 | M6 | `len(slice) -> i64`, `slice_push`, `map_new/get/insert/remove/len`, string `len`, indexing |
 | M7 | `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock/unlock`, `Channel.new(i64)`, `chan.send/recv/close` |
 
@@ -255,7 +271,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 
 | Pinned in | Interim behaviour | Replaced by |
 |---|---|---|
-| M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op |
+| M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op. The panic block itself exists as of Task 9, so Task 11 branches to it rather than building it |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
 | M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note). Interpolation (M3–M4 Task 7) is lowered to exactly these calls, so it added no contract of its own | M3's remaining string task: length-prefixed `%otter_str` with retain/release; indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |

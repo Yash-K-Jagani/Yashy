@@ -356,6 +356,22 @@ undefined behaviour. This costs real codegen work — landing pads and unwind
 tables — but without it, "no exceptions" and "no null" would leave programs
 dying in ways nobody can debug.
 
+> **As built (M3–M4 Task 9): steps 1 and 3, not step 2.** `panic(message)` exists
+> and reports the position it was written at on standard error as
+> `<file>:<line>:<column>: panic: <message>`, then ends the process with status 1.
+> It does **not** unwind yet, so a `defer` does **not** run before a panic, and no
+> stack trace is printed; M3–M4 Task 10 adds the cleanup landing pads and turns
+> `otter_panic` into the throw they catch. The caret in step 1 is not printed
+> either, and cannot be by a *runtime* fault: the compiler's diagnostics have one
+> because it is holding the source text, which is not in the binary. The position
+> is what a panic reports; a caret would mean embedding the line.
+>
+> `panic` is a builtin whose result type is `!` — an expression that produces no
+> value. That is what lets it stand where a value is wanted (`return panic(...)`,
+> a `switch` arm) without also letting a program *use* a value that does not
+> exist: the block that would have used it is unreachable, and the IR says so.
+> `assert` and checked arithmetic (§6.1, §6.2) are not written yet.
+
 **Unwinding is bounded, not a coroutine.** Otter supports panic-unwinding
 across `fn` frames, not `catch`/`throw`. Once a panic starts, the only choice
 the language offers is whether `defer` cleanup runs first.

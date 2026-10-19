@@ -455,3 +455,41 @@ double otter_parse_f64(const char *s) {
     }
     return value;
 }
+
+/* ---- Diagnostics -------------------------------------------------------
+ *
+ *     declare void @otter_panic(i8*, i8*, i64, i64)
+ *
+ * `otter_panic` is where a program stops. It writes the position the panic was
+ * written at and the message to standard error, then ends the process with a
+ * failure status. It never returns, so generated code puts `unreachable` after
+ * every call.
+ *
+ * It does **not** unwind, and so a `defer` body does **not** run before a panic.
+ * This is M4's first half: the plan's next task replaces this body with a throw
+ * that generated landing pads catch, and the deferred calls move onto that path.
+ * Until then the process dies. The limitation is stated rather than hidden, and
+ * dying is the honest reading of the alternative -- before `panic` existed a
+ * program with an unrecoverable condition printed a wrong answer and exited
+ * zero, which is worse than either.
+ *
+ * `stdout` is flushed first, so a program that printed before it panicked does
+ * not lose that output to a buffer that would never be flushed. `exit` is used
+ * rather than `abort` for the same reason: it flushes both streams, and a caller
+ * reading the exit status still sees the failure.
+ *
+ * `file` is the path the compiler was handed and may be relative; `line` and
+ * `column` are one-based and count characters, like every other diagnostic. */
+void otter_panic(const char *message, const char *file, long long line, long long column) {
+    fflush(stdout);
+    fprintf(
+        stderr,
+        "%s:%lld:%lld: panic: %s\n",
+        file != NULL ? file : "<unknown>",
+        line,
+        column,
+        message != NULL ? message : ""
+    );
+    fflush(stderr);
+    exit(1);
+}

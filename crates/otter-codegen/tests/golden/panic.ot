@@ -1,0 +1,33 @@
+// The diagnostic path's IR, pinned.
+//
+// One `panic` as a statement inside an `if`, one as a diverging `switch` arm,
+// and one as a whole function body. The golden therefore holds the block
+// structure around each of them: a branch into the block that carries the call,
+// `unreachable` after it, and a fresh block for the code that would have
+// followed. That last block is dead -- the process ends inside the runtime call
+// -- but it has to exist, or the module would have two terminators in one block
+// and `clang` would reject it.
+fn checked(n: i64) -> i64 {
+    if n < 0 {
+        panic("negative");
+    }
+    return n;
+}
+
+fn pick(o: Option[i64]) -> i64 {
+    return switch o {
+        case None { panic("empty") }
+        case Some(v) { v }
+    };
+}
+
+// Never called, and never returns: the body falls off the end, so code
+// generation emits its zero return into the block after the panic.
+fn always() -> i64 {
+    panic("always");
+}
+
+fn main() {
+    print_i64(checked(3));
+    print_i64(pick(Some(4)));
+}

@@ -306,6 +306,156 @@ fn the_number_to_string_conversions_call_the_runtime() {
     );
 }
 
+// --- panic -------------------------------------------------------------------
+
+#[test]
+fn a_panic_call_is_followed_by_unreachable_in_a_block_of_its_own() {
+    // `panic` never returns, so the call cannot be followed by more instructions
+    // in the same block. It goes into a block of its own instead: the current
+    // block branches to it, it ends in `unreachable`, and a fresh block follows
+    // for whatever the enclosing expression still had to emit. Emitting
+    // `unreachable` in place would put two terminators in one block -- which LLVM
+    // rejects -- and the enclosing expression can be anywhere, so the lowering
+    // cannot know whether anything follows.
+    let ir_text = ir_of("fn f() { panic(\"stop\"); } fn main() { f(); }");
+    let lines: Vec<&str> = ir_text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.contains("call void @otter_panic("))
+        .expect("the runtime call must be emitted");
+    assert!(
+        lines[at - 1].ends_with(':'),
+        "the call opens a block of its own: {}",
+        lines[at - 1]
+    );
+    assert!(
+        lines[at - 2].starts_with("br label %"),
+        "and the block before it branches there: {}",
+        lines[at - 2]
+    );
+    assert_eq!(lines[at + 1], "unreachable", "nothing may follow the call");
+    assert!(
+        lines[at + 2].ends_with(':'),
+        "a fresh block must follow the panic, so the rest of the expression has \
+         somewhere valid to go: {}",
+        lines[at + 2]
+    );
+}
+
+#[test]
+fn the_panic_call_carries_the_message_and_the_position_it_was_written_at() {
+    // The message is whatever the program wrote. The file, line and column are
+    // the checker's: it resolved them from the call's span, because the backend
+    // is handed IR text and a path rather than a source map. Both arrive as
+    // ordinary arguments, so the runtime needs no global state to report them.
+    let ir_text = ir_of("fn f() {\n    panic(\"boom\");\n}\nfn main() { f(); }");
+    let call = ir_text
+        .lines()
+        .find(|line| line.contains("call void @otter_panic("))
+        .expect("the runtime call must be emitted");
+    assert!(
+        call.ends_with("i64 2, i64 5)"),
+        "the position `panic` was written at -- line 2, column 5 -- is passed as \
+         operand constants: {call}"
+    );
+    assert!(
+        ir_text.contains("c\"boom\\00\""),
+        "the message is interned as a string global:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("c\"main.ot\\00\""),
+        "and so is the file name the compiler was given:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("declare void @otter_panic(i8*, i8*, i64, i64)"),
+        "the declaration must match the runtime's signature:\n{ir_text}"
+    );
+}
+
+#[test]
+fn every_panic_in_a_program_routes_to_the_one_runtime_function() {
+    // There is no recovery and no second path: a panic inside a callee stops the
+    // process exactly as a panic in `main` does, because both are the same call.
+    let ir_text = ir_of(
+        "fn inner() { panic(\"inner\"); }\n\
+         fn outer() { inner(); }\n\
+         fn main() { outer(); panic(\"main\"); }",
+    );
+    let calls = ir_text
+        .lines()
+        .filter(|line| line.contains("call void @otter_panic("))
+        .count();
+    assert_eq!(
+        calls, 2,
+        "one call per `panic`, all to the same function:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_program_that_never_panics_still_declares_the_symbol_and_never_calls_it() {
+    // The declaration is emitted up front for every module, so a program that
+    // starts panicking does not rearrange every line of the IR it already had --
+    // and an unused `declare` is legal IR.
+    let ir_text = ir_of("fn main() { print_str(\"hi\"); }");
+    assert!(ir_text.contains("declare void @otter_panic("));
+    assert!(!ir_text.contains("call void @otter_panic("));
+}
+
+#[test]
+fn a_returned_panic_terminates_the_block_with_unreachable() {
+    // `return panic("...")` has no value to return, so the block that would have
+    // returned is unreachable. Falling through to the ordinary `ret` would emit
+    // `ret i64 ` with a missing operand, which is not valid IR.
+    let ir_text = ir_of("fn f() -> i64 { return panic(\"nope\"); }\nfn main() { f(); }");
+    for line in ir_text.lines() {
+        assert!(
+            line.trim_end() != "ret i64"
+                && line.trim_end() != "ret double"
+                && line.trim_end() != "ret i1"
+                && !line.trim_end().ends_with("ret i8*"),
+            "a `ret` with no operand is not valid IR: `{line}`"
+        );
+    }
+    let lines: Vec<&str> = ir_text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.contains("call void @otter_panic("))
+        .expect("the runtime call must be emitted");
+    assert_eq!(lines[at + 1], "unreachable");
+    assert!(
+        lines[at + 2..].iter().any(|line| *line == "unreachable"),
+        "the return's own block is unreachable too:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_switch_whose_every_arm_diverges_is_lowered_with_no_result_slot() {
+    // The switch expression's type is `!`, which has no representation, so there
+    // is nothing to store an arm's value into and no load after the merge. The
+    // arms still have to be well formed, which is what the fresh block after each
+    // panic is for.
+    let ir_text = ir_of(
+        "fn f(o: Option[i64]) -> i64 {\n\
+         \x20   return switch o {\n\
+         \x20       case None { panic(\"none\") }\n\
+         \x20       case Some(v) { panic(\"some\") }\n\
+         \x20   };\n\
+         }",
+    );
+    assert!(
+        !ir_text.contains("alloca void"),
+        "a `!`-valued switch has no result slot to allocate:\n{ir_text}"
+    );
+    assert_eq!(
+        ir_text
+            .lines()
+            .filter(|line| line.contains("call void @otter_panic("))
+            .count(),
+        2,
+        "both arms lower to the one runtime call:\n{ir_text}"
+    );
+}
+
 #[test]
 fn llvm_type_mapping_matches_the_spec() {
     assert_eq!(llvm_type_string(&TypeKind::I64), "i64");

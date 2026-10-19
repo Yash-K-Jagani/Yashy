@@ -1,0 +1,20 @@
+// `panic` ends the program: the message and the position it was written at
+// reach standard error, the exit status is a failure, and nothing after the
+// panic runs.
+//
+// `checked_halve` panics from one call deeper than `main`, so this also pins
+// that a panic is not something a caller can catch or ignore -- there is no
+// recovery, only a stop.
+fn checked_halve(n: i64) -> i64 {
+    if n % 2 != 0 {
+        panic("cannot halve an odd number");
+    }
+    return n / 2;
+}
+
+fn main() {
+    print_i64(checked_halve(20));
+    print_str("\n");
+    print_i64(checked_halve(7));
+    print_str("this line must never be printed\n");
+}

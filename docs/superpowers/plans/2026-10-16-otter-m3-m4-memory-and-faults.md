@@ -845,6 +845,83 @@ git commit -m "test: end-to-end memory programs with leak detection"
 
 ### Task 9: `panic` and the diagnostic path
 
+**Status:** delivered (the diagnostic half). Unwinding is Task 10, and
+`otter_panic`'s body is the seam where it attaches.
+
+**What was built (the deviation, and why):**
+
+- **No `crates/otter-codegen/src/panic.rs`, and no `HirStmt::Panic`.** `panic` is
+  an ordinary builtin call whose result type is `Never`, so it works in every
+  position a call works in — an expression statement, a `return`, a `switch` arm
+  — without a statement form to go with it, and without the parser, the AST or
+  the HIR gaining a variant. A statement form would have been a second way to
+  write a call.
+- **The checker resolves the source position, not the backend.** Handing
+  `emit_program` the `SourceMap` would have changed a signature every test uses,
+  to put into the backend a fact the checker already has. Instead `panic(msg)`
+  is desugared — after its argument is checked — into the *same* call with four
+  arguments: the message, then the file path, line and column as ordinary
+  literals. The runtime needs no global state, the IR shows the position as
+  operands, and the backend keeps lowering calls it already knows how to lower.
+  See `Checker::panic_call`.
+- **The call is lowered into a block of its own.** `panic` never returns, so the
+  call cannot be followed by more instructions in the same block — but they exist:
+  the enclosing expression may be an operand of a larger one, a `switch` arm that
+  still has to branch to the merge, or an argument list. Emitting `call` +
+  `unreachable` in place would leave the next instruction after a terminator,
+  which LLVM rejects. So the current block branches to a fresh block holding the
+  call and its `unreachable`, and a second fresh block follows for the rest. That
+  continuation is dead, but it is where the rest of the expression belongs, and
+  no later stage has to know a panic happened.
+- **`!` fits wherever a value is wanted** (`fits` in `check_expr.rs`). Without
+  this rule the useful shapes did not work: `return switch o { case None {
+  panic("none") } case Some(v) { v } }` needed a diverging arm to stand in for an
+  `i64`, and `return panic("...")` needed a diverging expression to stand in for
+  any return type. Two sites were widened — a call argument and a `return` — plus
+  the switch arms' agreement rule (`merge_arm_type`). Nothing else changed:
+  `return true` from an `i64` function is still an error, which a test pins.
+- **A defect found on the way:** `return <never-valued expression>` emitted
+  `ret i64 ` with a missing operand, because the `Return` arm takes its repr from
+  the *function's* return type. The block is unreachable, so `unreachable` is the
+  honest terminator; the arm checks the expression's type first now.
+- **It does not unwind, and a `defer` does not run before a panic.** This is the
+  half Task 10 replaces, not an accident: `otter_panic` flushes `stdout`, writes
+  `<file>:<line>:<column>: panic: <message>` to `stderr`, flushes that, and calls
+  `exit(1)`. `exit` rather than `abort` so the program's earlier output is not
+  lost to a buffer that never flushes, and so the caller sees a failure rather
+  than a signal. There is **no stack trace** yet — the plan's fourth test named
+  one, and it belongs to the unwinding work; the end-to-end test written instead
+  pins the message, the position and the exit status.
+- **A golden file, after all.** Task 7 could skip one because interpolation leaves
+  no trace in the IR; a panic is the one place lowering emits a terminator of its
+  own inside an expression, so `tests/golden/panic.ot` and its `.expected.ll` pin
+  the block structure directly. The three existing goldens gained exactly one
+  line (the `declare`).
+
+**Files (as built):**
+- Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h` (`otter_panic`)
+- Modify: `crates/otter-codegen/src/{module,expr_gen,stmt_gen}.rs` (the `declare`, the panic block, the `unreachable` return)
+- Modify: `crates/otter-sema/src/check_expr.rs` (the builtin, `fits`, `merge_arm_type`, `panic_call`, `str_lit`; `Checker` holds the `SourceMap`)
+- Create: `crates/otter-codegen/tests/golden/panic.ot`, `panic.expected.ll`; `crates/otter-driver/tests/programs/panic.ot`
+- Modify: the goldens, and the tests in `otter-sema`, `otter-codegen` (`codegen.rs`, `fn_gen.rs`), `otter-driver` (`e2e.rs`, `never_panics.rs`)
+
+**Steps (all done):**
+
+- [x] Runtime: `otter_panic(message, file, line, column)` — flush, one `stderr` line, flush, `exit(1)`; declared in the header and in every module.
+- [x] Checker: the `panic` builtin (`string` in, `!` out); `panic(msg)` → the four-argument call with the position resolved from the source map.
+- [x] Checker: `!` fits where a value is wanted, at call arguments, `return`, and the switch arms' agreement rule.
+- [x] Backend: the panic block (branch in, call, `unreachable`, fresh block after) and `unreachable` for a diverging `return`.
+- [x] Tests at every level: HIR shape and the position operands in `otter-sema`; block structure, routing and the goldens in `otter-codegen`; the message, the position, the failure status and "nothing after it runs" end to end; nine malformed panics in `never_panics.rs`.
+- [x] Commit (`feat: panic with a source location`).
+
+**Interfaces (as built):**
+- Consumes: nothing new. The message is an ordinary `string` expression; the position is resolved by the checker; the backend lowers a `call`.
+- Produces: `otter_panic` in the runtime (the seam Task 10 turns into a throw), the `panic` builtin, and `Checker::panic_call`. No new HIR node, so `Task 11`'s `gen_panic_block` becomes a call to the same lowering rather than a second one.
+
+---
+
+### Task 9 (original sketch, kept for the record)
+
 **Files:**
 - Modify: `crates/otter-runtime/runtime.c`, `include/otter_runtime.h`
 - Create: `crates/otter-codegen/src/panic.rs`

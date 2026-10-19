@@ -491,6 +491,39 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
+        // `panic` never returns, so everything after it in the enclosing block
+        // is dead. The call and its `unreachable` go into a block of their own
+        // rather than into the current one: emitting `unreachable` here would
+        // terminate the block and leave the caller appending instructions after
+        // a terminator, which is not well-formed IR -- and the caller can be
+        // anywhere, including the argument list of another call. So this block
+        // branches to the panic block, and a fresh block is opened for whatever
+        // follows. That continuation is unreachable -- the process ends inside
+        // `otter_panic` -- but it is where the rest of the enclosing expression
+        // belongs, and no later stage has to know a panic happened at all.
+        //
+        // The four arguments are the *checker's*, not the source's: it resolved
+        // the message plus the file, line and column the panic was written at,
+        // because the backend has no source map to attribute a runtime failure
+        // with. See `Checker::panic_call`.
+        "panic" => {
+            let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+            let panic_label = ctx.alloc_label_base() + "_panic";
+            let after_label = ctx.alloc_label_base() + "_after_panic";
+            ctx.push(format!("br label %{panic_label}"));
+            ctx.push(format!("{panic_label}:"));
+            let arg_list: Vec<String> = lowered
+                .iter()
+                .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
+                .collect();
+            ctx.push(format!("call void @otter_panic({})", arg_list.join(", ")));
+            ctx.push("unreachable".to_string());
+            ctx.push(format!("{after_label}:"));
+            GenValue {
+                value: "undef".to_string(),
+                ty: TypeKind::Never,
+            }
+        }
         // `len` is the byte length of a string today. M6 adds the slice case.
         "len" => crate::strings::gen_str_len(ctx, args),
         // `str_from_bool` is the one conversion whose runtime signature is wider

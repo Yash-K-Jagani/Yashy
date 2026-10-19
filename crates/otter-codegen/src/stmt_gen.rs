@@ -195,7 +195,14 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
                 Some(expr) => {
                     let v = gen_expr(ctx, expr);
                     let repr = repr_type(&ctx.ret_type);
-                    if ctx.entry_point && repr == "i64" {
+                    if matches!(v.ty, TypeKind::Never) {
+                        // The expression never produces a value, so the block
+                        // that would have returned is unreachable. `unreachable`
+                        // is the honest terminator for it: `ret i64 ` with no
+                        // operand, which is what falling through to the `else`
+                        // below would emit, is not valid IR.
+                        ctx.push("unreachable".to_string());
+                    } else if ctx.entry_point && repr == "i64" {
                         // The entry point's signature is `i32`: truncate the
                         // Otter result to the width the operating system reads.
                         let narrowed = ctx.tmp();

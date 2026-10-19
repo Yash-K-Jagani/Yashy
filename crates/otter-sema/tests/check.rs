@@ -8,6 +8,7 @@
 
 use otter_common::{Diagnostic, FileId, Severity, SourceMap};
 use otter_lexer::Lexer;
+use otter_parser::ast::Literal;
 use otter_parser::Parser;
 use otter_sema::{check_program, expr_ty, HirExpr, HirItem, HirProgram, HirStmt, TypeKind};
 
@@ -857,3 +858,137 @@ fn a_linear_argument_does_not_have_to_be_a_name() {
     );
     assert!(result.is_ok(), "a temporary argument should check: {result:?}");
 }
+
+// -- panic --------------------------------------------------------------------
+
+/// The `n`th statement of the function called `name`.
+fn statement_of(src: &str, name: &str, n: usize) -> HirStmt {
+    let (result, _, _) = check_source(src);
+    let hir = result.expect("expected program to type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == name => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    f.body
+        .stmts
+        .get(n)
+        .cloned()
+        .unwrap_or_else(|| panic!("expected a statement at {n}"))
+}
+
+#[test]
+fn panic_is_a_builtin_whose_result_is_never() {
+    // `!` and not `()`: a panic produces no value at all, and that is what lets
+    // it stand in for a value of any type -- a `return`, a switch arm -- without
+    // also letting a program *use* a value that does not exist.
+    let HirStmt::Expr(expr, _, ty) = statement_of("fn f() { panic(\"stop\"); }", "f", 0) else {
+        panic!("expected an expression statement");
+    };
+    assert_eq!(ty.kind, TypeKind::Never);
+    assert_eq!(expr_ty(&expr).kind, TypeKind::Never);
+}
+
+#[test]
+fn panic_carries_the_position_it_was_written_at() {
+    // The file, line and column a panic reports are facts only the checker has:
+    // the backend is handed IR text and a path, not a source map. So the checker
+    // resolves the position and hands it down as ordinary literal arguments --
+    // the message the program wrote, then the file, line and column.
+    let HirStmt::Expr(HirExpr::Call { callee, args, ty, .. }, _, _) =
+        statement_of("fn f() {\n    panic(\"boom\");\n}\n", "f", 0)
+    else {
+        panic!("expected the lowered panic call");
+    };
+    assert_eq!(callee, vec!["panic".to_string()]);
+    assert_eq!(ty.kind, TypeKind::Never);
+    let kinds: Vec<TypeKind> = args.iter().map(|a| expr_ty(a).kind.clone()).collect();
+    assert_eq!(
+        kinds,
+        vec![TypeKind::Str, TypeKind::Str, TypeKind::I64, TypeKind::I64],
+        "the message, the file, the line and the column"
+    );
+    let text = |e: &HirExpr| match e {
+        HirExpr::Literal(Literal::Str(lit), _, _) => lit.value.clone(),
+        other => panic!("expected a string literal, got {other:?}"),
+    };
+    let integer = |e: &HirExpr| match e {
+        HirExpr::Literal(Literal::I64(value), _, _) => *value,
+        other => panic!("expected an integer literal, got {other:?}"),
+    };
+    assert_eq!(text(&args[0]), "boom", "the message the program wrote");
+    assert_eq!(text(&args[1]), "test.ot", "the file the compiler was given");
+    assert_eq!(integer(&args[2]), 2, "the panic is on line 2");
+    assert_eq!(integer(&args[3]), 5, "and starts at column 5");
+}
+
+#[test]
+fn panic_takes_exactly_one_string() {
+    assert_error("fn f() { panic(1); }", "expected `string`, found `i64`");
+    assert_error("fn f() { panic(); }", "expected 1 arguments, found 0");
+    assert_error(
+        "fn f() { panic(\"a\", \"b\"); }",
+        "expected 1 arguments, found 2",
+    );
+}
+
+#[test]
+fn a_diverging_arm_does_not_decide_the_switch_type() {
+    // `!` fits wherever a value is wanted, which is what makes
+    // `case None { panic("...") }` a legal arm beside `case Some(v) { v }` -- in
+    // either order. Without the rule the first arm would fix the switch's type at
+    // `!` and the `return` would reject it, so a diverging arm could never be
+    // anything but the last one.
+    for arms in [
+        "case None { panic(\"none\") } case Some(v) { v }",
+        "case Some(v) { v } case None { panic(\"none\") }",
+    ] {
+        let src = format!("fn f(o: Option[i64]) -> i64 {{ return switch o {{ {arms} }}; }}");
+        let HirStmt::Return(Some(expr), _) = statement_of(&src, "f", 0) else {
+            panic!("expected a return statement");
+        };
+        assert_eq!(expr_ty(&expr).kind, TypeKind::I64, "arms: {arms}");
+    }
+}
+
+#[test]
+fn a_diverging_return_fits_any_return_type() {
+    for ret in ["i64", "f64", "bool", "string"] {
+        let src = format!("fn f() -> {ret} {{ return panic(\"nope\"); }}");
+        let (result, _, _) = check_source(&src);
+        assert!(
+            result.is_ok(),
+            "`return panic(..)` must satisfy a `{ret}` return: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn a_function_whose_only_statement_panics_checks() {
+    // The body falls off the end, which Otter already allows -- code generation
+    // returns a zero there. The panic makes that path unreachable, so the program
+    // is honest even though nothing ever produces a value.
+    let (result, _, _) = check_source(
+        "fn f() -> i64 { panic(\"always\"); } fn main() { print_i64(f()); }",
+    );
+    assert!(result.is_ok(), "a panicking function must check: {result:?}");
+}
+
+#[test]
+fn only_a_diverging_expression_stands_in_for_a_value() {
+    // `fits` accepts `!` where a value is wanted. It must not accept anything
+    // else, or the sites it touched would stop catching mistakes.
+    assert_error(
+        "fn f() -> i64 { return true; }",
+        "expected `i64`, found `bool`",
+    );
+    assert_error("fn f() -> i64 { return; }", "expected `i64`, found `()`");
+    assert_error(
+        "fn f() -> i64 { return switch 1 { default { true } }; }",
+        "expected `i64`, found `bool`",
+    );
+}
+
