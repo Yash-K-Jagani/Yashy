@@ -301,6 +301,7 @@ pub(crate) fn gen_checked_neg(
         // prints `<lhs> <symbol> <rhs>`, so passing zero as the left operand
         // produces `0 - -9223372036854775808`, which is exactly the operation
         // that has no answer.
+        crate::stmt_gen::run_all_scopes_defers(ctx);
         let args = operands(ctx, "-", "0", &value.value, site);
         format!("call void @otter_panic_overflow({args})")
     });
@@ -350,6 +351,7 @@ fn gen_overflow(
     ctx.push(format!("br i1 {flag}, label %{fault}, label %{merge}"));
     let symbol = symbol_of(op);
     close_fault(ctx, &fault, |ctx| {
+        crate::stmt_gen::run_all_scopes_defers(ctx);
         let args = operands(ctx, symbol, &l.value, &r.value, site);
         format!("call void @otter_panic_overflow({args})")
     });
@@ -395,6 +397,7 @@ fn gen_division(
     ctx.push(format!("br i1 {fails}, label %{fault}, label %{merge}"));
     let symbol = symbol_of(op);
     close_fault(ctx, &fault, |ctx| {
+        crate::stmt_gen::run_all_scopes_defers(ctx);
         let args = operands(ctx, symbol, &l.value, &r.value, site);
         format!("call void @otter_panic_division({args})")
     });

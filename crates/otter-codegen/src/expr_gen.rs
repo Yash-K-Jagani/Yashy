@@ -48,8 +48,8 @@ use otter_sema::{BinOp, FaultSite, HirExpr, HirFn, TypeKind, UnOp};
 use crate::ir::repr_type;
 use crate::module::Module;
 
-/// A lowered value: its LLVM representation (an SSA name or a literal like
-/// `42`) and the Otter type it came from.
+/// Run every pending deferred body in every active scope, innermost first, then
+/// clear them all. Used on the panic/exit path, where no scope exits normally.
 #[derive(Clone, Debug)]
 pub struct GenValue {
     /// An LLVM SSA name (`%t3`) or a literal (`42`, `1.0`, `true`, `null`).
@@ -89,6 +89,14 @@ pub struct FnCtx<'a> {
     /// `break`/`continue` read the top entry, so nested loops need no extra
     /// plumbing through the statement tree.
     pub loops: Vec<(String, String)>,
+    /// Deferred bodies registered in the active scopes, innermost scope last.
+    ///
+    /// Each scope pushes its own `Vec` on entry and pops it on exit, so a
+    /// `defer` registers into the scope it is written in and the right set runs
+    /// on `return`/`break`/`continue`. On a panic every level runs, innermost
+    /// first, which is what makes `defer` useful on the fault path even though
+    /// the process still ends.
+    pub defers: Vec<Vec<crate::stmt_gen::Deferred>>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
     /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
@@ -111,6 +119,7 @@ impl<'a> FnCtx<'a> {
             entry_line: None,
             locals: HashMap::new(),
             loops: Vec::new(),
+            defers: Vec::new(),
             unit_terminator: "ret void".to_string(),
             entry_point: false,
         }
@@ -552,7 +561,10 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             let fault = crate::faults::fault_label(ctx);
             let after_label = format!("{}_after_panic", ctx.alloc_label_base());
             ctx.push(format!("br label %{fault}"));
-            crate::faults::close_fault(ctx, &fault, |_| call);
+            crate::faults::close_fault(ctx, &fault, |ctx| {
+                crate::stmt_gen::run_all_scopes_defers(ctx);
+                call.clone()
+            });
             ctx.push(format!("{after_label}:"));
             GenValue {
                 value: "undef".to_string(),
@@ -578,7 +590,10 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             let fault = crate::faults::fault_label(ctx);
             let after_label = format!("{}_after_exit", ctx.alloc_label_base());
             ctx.push(format!("br label %{fault}"));
-            crate::faults::close_fault(ctx, &fault, |_| call);
+            crate::faults::close_fault(ctx, &fault, |ctx| {
+                crate::stmt_gen::run_all_scopes_defers(ctx);
+                call.clone()
+            });
             ctx.push(format!("{after_label}:"));
             GenValue {
                 value: "undef".to_string(),
@@ -770,7 +785,10 @@ fn branch_to_report(
     let pass = format!("{}_assert_ok", ctx.alloc_label_base());
     let fault = crate::faults::fault_label(ctx);
     ctx.push(format!("br i1 {verdict}, label %{pass}, label %{fault}"));
-    crate::faults::close_fault(ctx, &fault, report);
+    crate::faults::close_fault(ctx, &fault, |ctx| {
+        crate::stmt_gen::run_all_scopes_defers(ctx);
+        report(ctx)
+    });
     ctx.push(format!("{pass}:"));
 }
 

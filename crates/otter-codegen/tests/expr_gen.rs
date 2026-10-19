@@ -916,8 +916,8 @@ fn every_alloca_lands_in_the_entry_block() {
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
         ctx.begin_entry();
-        let mut defers = Vec::new();
-        let _ = gen_block(&mut ctx, &f.body, &mut defers);
+        let mut defers: Vec<otter_codegen::stmt_gen::Deferred> = Vec::new();
+        let _ = gen_block(&mut ctx, &f.body);
         ctx.finish();
     }
     let ir_text = module.finish();

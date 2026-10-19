@@ -91,10 +91,9 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
             ctx.push(format!("store {repr} %arg{index}, ptr {slot}"));
         }
 
-        let mut defers = Vec::new();
-        let flow = gen_block(&mut ctx, &f.body, &mut defers);
+        let flow = gen_block(&mut ctx, &f.body);
         if flow == Flow::Fallthrough {
-            run_defers(&mut ctx, &mut defers);
+            run_defers(&mut ctx);
         }
         if flow != Flow::Return {
             if entry_point {

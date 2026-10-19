@@ -973,6 +973,23 @@ git commit -m "feat(codegen): panic with source location"
 
 ### Task 10: Unwinding, and `defer` on the unwind path
 
+> **As built (first half).** `defer` bodies registered in the panicking
+> function's scopes now run, innermost first, before `otter_panic` is called:
+> the panic/exit/fault lowering emits `run_all_scopes_defers` into the fault
+> block, in reverse registration order, so the capture-at-registration snapshot
+> is honoured. The panic's `undef`/`!` value and the fresh continuation block
+> are unchanged, so no golden file grew a new shape beyond the existing one.
+>
+> What is **not** done: the call stack is not unwound, so defers registered in
+> *calling* functions do not run, and there is no stack trace. Doing that needs
+> the full landing-pad machinery (`invoke` for every panicking call, a
+> personality routine in the runtime, cleanup landing pads carrying the deferred
+> bodies, and `nounwind` elision so non-panicking code stays fast) — the
+> remaining half of this task. The `defer` stack now lives in `FnCtx` (a
+> `Vec<Vec<Deferred>>`, one level per active scope) instead of being threaded
+> through `gen_block`/`gen_stmt` by hand, which is what made running it from the
+> fault block possible at all.
+
 **Files:**
 - Create: `crates/otter-codegen/src/unwind.rs`
 - Modify: `crates/otter-codegen/src/fn_gen.rs` (landing pads)

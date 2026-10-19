@@ -122,18 +122,28 @@ fn capture_linear_locals(ctx: &mut FnCtx<'_>) -> Vec<(String, String, TypeKind)>
 
 /// Lower every statement of `block` into the current basic block, stopping at
 /// the first statement that terminates it.
-pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock, defers: &mut Vec<Deferred>) -> Flow {
+pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
+    // Each scope owns its own defer list, so a `defer` registers into the
+    // scope it is written in and only that scope's defers run at its exit.
+    ctx.defers.push(Vec::new());
     for stmt in &block.stmts {
-        let flow = gen_stmt(ctx, stmt, defers);
+        let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {
+            // The terminating statement (return/break/continue) already ran
+            // this scope's defers before branching, so the list is empty;
+            // popping keeps the stack honest for whatever scope is below.
+            ctx.defers.pop();
             return flow;
         }
     }
+    // Fall-through: run this scope's defers, then close the scope.
+    run_defers(ctx);
+    ctx.defers.pop();
     Flow::Fallthrough
 }
 
 /// Lower one statement.
-pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>) -> Flow {
+pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
     match stmt {
         HirStmt::Expr(expr, _, _) => {
             let _ = gen_expr(ctx, expr);
@@ -190,7 +200,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
         HirStmt::Return(value, _) => {
             // Defers for this scope run before the block is terminated, so
             // they execute on the way out, not when the `defer` was reached.
-            run_defers(ctx, defers);
+            run_defers(ctx);
             match value {
                 Some(expr) => {
                     let v = gen_expr(ctx, expr);
@@ -233,7 +243,6 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
             cond,
             then_block,
             else_block.as_ref(),
-            defers,
         ),
         HirStmt::ForRange {
             name, start, end, body, ..
@@ -250,7 +259,6 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
             cond.as_ref(),
             update.as_ref(),
             body,
-            defers,
         ),
         HirStmt::Switch { subject, arms, .. } => {
             let scrutinee = gen_expr(ctx, subject);
@@ -258,7 +266,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
             Flow::Fallthrough
         }
         HirStmt::Break(_) => {
-            run_defers(ctx, defers);
+            run_defers(ctx);
             match ctx.loops.last().cloned() {
                 Some((break_label, _)) => {
                     ctx.push(format!("br label %{break_label}"));
@@ -271,7 +279,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
             }
         }
         HirStmt::Continue(_) => {
-            run_defers(ctx, defers);
+            run_defers(ctx);
             match ctx.loops.last().cloned() {
                 Some((_, continue_label)) => {
                     ctx.push(format!("br label %{continue_label}"));
@@ -287,9 +295,11 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt, defers: &mut Vec<Deferred>)
             // The capture happens *here*, not when the body runs: that is what
             // makes the deferred body see the ownership state the checker
             // approved. See [`Deferred`].
+            let captured = capture_linear_locals(ctx);
+            let defers = ctx.defers.last_mut().expect("a scope is always active");
             defers.push(Deferred {
                 body: body.clone(),
-                captured: capture_linear_locals(ctx),
+                captured,
             });
             Flow::Fallthrough
         }
@@ -303,10 +313,9 @@ fn gen_if(
     cond: &HirExpr,
     then_block: &HirBlock,
     else_block: Option<&HirBlock>,
-    defers: &mut Vec<Deferred>,
 ) -> Flow {
     if let Some(init) = init {
-        let flow = gen_stmt(ctx, init, defers);
+        let flow = gen_stmt(ctx, init);
         if flow != Flow::Fallthrough {
             return flow;
         }
@@ -321,18 +330,16 @@ fn gen_if(
     ));
 
     ctx.push(format!("{then_label}:"));
-    let mut then_defers = Vec::new();
-    if gen_block(ctx, then_block, &mut then_defers) == Flow::Fallthrough {
-        run_defers(ctx, &mut then_defers);
+    if gen_block(ctx, then_block) == Flow::Fallthrough {
+        run_defers(ctx);
         ctx.push(format!("br label %{merge_label}"));
     }
 
     ctx.push(format!("{else_label}:"));
     match else_block {
         Some(block) => {
-            let mut else_defers = Vec::new();
-            if gen_block(ctx, block, &mut else_defers) == Flow::Fallthrough {
-                run_defers(ctx, &mut else_defers);
+            if gen_block(ctx, block) == Flow::Fallthrough {
+                run_defers(ctx);
                 ctx.push(format!("br label %{merge_label}"));
             }
         }
@@ -384,8 +391,7 @@ fn gen_for_range(
         .locals
         .insert(name.to_string(), (index_slot.clone(), TypeKind::I64));
     ctx.loops.push((done_label.clone(), inc_label.clone()));
-    let mut body_defers = Vec::new();
-    let flow = gen_block(ctx, body, &mut body_defers);
+    let flow = gen_block(ctx, body);
     ctx.loops.pop();
     match shadowed {
         Some(previous) => {
@@ -396,7 +402,7 @@ fn gen_for_range(
         }
     }
     if flow == Flow::Fallthrough {
-        run_defers(ctx, &mut body_defers);
+        run_defers(ctx);
         ctx.push(format!("br label %{inc_label}"));
     }
 
@@ -420,10 +426,9 @@ fn gen_for_c(
     cond: Option<&HirExpr>,
     update: Option<&HirExpr>,
     body: &HirBlock,
-    defers: &mut Vec<Deferred>,
 ) -> Flow {
     if let Some(init) = init {
-        let flow = gen_stmt(ctx, init, defers);
+        let flow = gen_stmt(ctx, init);
         if flow != Flow::Fallthrough {
             return flow;
         }
@@ -449,11 +454,10 @@ fn gen_for_c(
 
     ctx.push(format!("{body_label}:"));
     ctx.loops.push((done_label.clone(), inc_label.clone()));
-    let mut body_defers = Vec::new();
-    let flow = gen_block(ctx, body, &mut body_defers);
+    let flow = gen_block(ctx, body);
     ctx.loops.pop();
     if flow == Flow::Fallthrough {
-        run_defers(ctx, &mut body_defers);
+        run_defers(ctx);
         ctx.push(format!("br label %{inc_label}"));
     }
 
@@ -476,8 +480,12 @@ fn gen_for_c(
 /// previous entries are restored afterwards, so the code *after* a `defer`
 /// statement still sees the real binding — only the deferred body reads the
 /// snapshot.
-pub fn run_defers(ctx: &mut FnCtx<'_>, defers: &mut Vec<Deferred>) {
-    while let Some(deferred) = defers.pop() {
+pub fn run_defers(ctx: &mut FnCtx<'_>) {
+    let Some(defers) = ctx.defers.last_mut() else {
+        return;
+    };
+    let mut pending = std::mem::take(defers);
+    while let Some(deferred) = pending.pop() {
         // Install the captured slots for the duration of this body.
         let mut restore: Vec<(String, Option<(String, TypeKind)>)> = Vec::new();
         for (name, slot, ty) in &deferred.captured {
@@ -487,11 +495,10 @@ pub fn run_defers(ctx: &mut FnCtx<'_>, defers: &mut Vec<Deferred>) {
             restore.push((name.clone(), previous));
         }
 
-        let mut inner = Vec::new();
-        let _ = gen_block(ctx, &deferred.body, &mut inner);
-        // Bodies deferred by this body are registered under the same capture, so
-        // they run before the snapshot is taken back down.
-        run_defers(ctx, &mut inner);
+        ctx.defers.push(Vec::new());
+        let _ = gen_block(ctx, &deferred.body);
+        run_defers(ctx);
+        ctx.defers.pop();
 
         for (name, previous) in restore {
             match previous {
@@ -503,5 +510,15 @@ pub fn run_defers(ctx: &mut FnCtx<'_>, defers: &mut Vec<Deferred>) {
                 }
             }
         }
+    }
+}
+
+/// Run every pending deferred body in every active scope, innermost first, then
+/// clear them all. Used on the panic/exit path, where no scope exits normally
+/// and every defer that was registered must still fire.
+pub fn run_all_scopes_defers(ctx: &mut FnCtx<'_>) {
+    while !ctx.defers.is_empty() {
+        run_defers(ctx);
+        ctx.defers.pop();
     }
 }

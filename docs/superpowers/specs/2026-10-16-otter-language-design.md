@@ -316,9 +316,12 @@ These three interact, so the rules are stated explicitly.
 - **`defer` runs during panic unwinding** (§6), so cleanup is not skipped on a
   fault. A `defer` that panics during unwinding aborts the process.
 
-At M0–M2 there are no panics (§10, M4), so `defer` lowers statically: each
-scope's deferred expressions are emitted in reverse order before every exit path
-out of that scope — `return`, `break`, `continue`, and normal fallthrough.
+As built (M4 Task 10): `defer` bodies registered in the panicking function's
+scopes run, innermost first, before `otter_panic` is called. Each scope's
+deferred bodies are emitted into the fault block in reverse registration order,
+so the capture-at-registration snapshot is honoured. Defers registered in
+*calling* functions do not run yet — that needs the full landing-pad machinery
+(`invoke` plus a personality routine) which is the remaining half of Task 10.
 
 ### 5.6 Strings and threads
 

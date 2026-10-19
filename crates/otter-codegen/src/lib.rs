@@ -26,7 +26,7 @@ pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
 pub use module::Module;
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
-pub use stmt_gen::{gen_block, gen_stmt, run_defers, Flow};
+pub use stmt_gen::{gen_block, gen_stmt, run_all_scopes_defers, run_defers, Flow};
 
 use otter_common::{Diagnostic, FileId, Severity, Span};
 use otter_sema::{HirFn, HirItem, HirProgram, TypeKind};
