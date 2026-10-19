@@ -9,15 +9,34 @@
 //! against, and they are frozen:
 //!
 //! ```text
-//! void otter_print_str(i8*);      // NUL-terminated string, NO trailing newline
-//! void otter_print_i64(i64);      // decimal
-//! void otter_print_f64(double);   // %.17g
+//! void otter_print_str(otter_str*);  // a string value, NO trailing newline
+//! void otter_print_i64(i64);         // decimal
+//! void otter_print_f64(double);      // %.17g
 //! ```
 //!
 //! None of them writes a newline. A program prints one explicitly, as the
 //! `print_str("\n")` calls in the plan's examples do.
 
-use std::ffi::{c_char, c_double, c_longlong, c_void};
+use std::ffi::{c_char, c_double, c_int, c_longlong, c_void};
+
+/// The runtime's refcounted string value, as C lays it out:
+/// `struct otter_str { long long refcount; long long len; long long cap; char *data; }`.
+///
+/// Rust tests build one of these to hand a string to the runtime the same way
+/// the generated IR does — a pointer to the header, with the bytes reachable
+/// through `data`. A `refcount` of `-1` is a *static* string: the runtime never
+/// frees it, which is what a literal is.
+#[repr(C)]
+pub struct OtterStr {
+    /// 1 when owned, -1 when static (never freed).
+    pub refcount: c_longlong,
+    /// Byte length, excluding the NUL.
+    pub len: c_longlong,
+    /// Allocated capacity, excluding the NUL.
+    pub cap: c_longlong,
+    /// NUL-terminated bytes.
+    pub data: *mut c_char,
+}
 
 /// The runtime's C source, embedded so the driver can hand it to the linker
 /// without knowing where this crate was built.
@@ -48,7 +67,7 @@ const _: () = assert!(std::mem::size_of::<c_longlong>() == std::mem::size_of::<i
 
 unsafe extern "C" {
     /// Writes the NUL-terminated string to stdout. Nothing else, no newline.
-    pub fn otter_print_str(s: *const c_char);
+    pub fn otter_print_str(s: *const OtterStr);
 }
 
 unsafe extern "C" {
@@ -91,55 +110,65 @@ unsafe extern "C" {
     pub fn otter_arena_free_all(arena: *mut c_void);
 }
 
-// The string half of the contract. A `string` value is a pointer to
-// NUL-terminated bytes in both the IR and here, so Rust tests can drive the same
-// linked operations the generated code calls.
+// The string half of the contract. A `string` value is a pointer to an
+// `OtterStr` in both the IR and here, so Rust tests can drive the same linked
+// operations the generated code calls.
 
 unsafe extern "C" {
     /// The byte length of `s`, not counting the NUL. Null is length zero.
-    pub fn otter_str_len(s: *const c_char) -> c_longlong;
+    pub fn otter_str_len(s: *const OtterStr) -> c_longlong;
 }
 
 unsafe extern "C" {
     /// The byte at `index`, or `0` when `index` is out of range. `0` is also
     /// the byte a NUL contributes, so callers that care about the difference
     /// must compare against [`otter_str_len`] first.
-    pub fn otter_str_byte_at(s: *const c_char, index: c_longlong) -> c_longlong;
+    pub fn otter_str_byte_at(s: *const OtterStr, index: c_longlong) -> c_longlong;
 }
 
 unsafe extern "C" {
-    /// A fresh string holding `a` followed by `b`. Neither operand is modified.
-    pub fn otter_str_concat(a: *const c_char, b: *const c_char) -> *const c_char;
+    /// A fresh owned string holding `a` followed by `b`. Neither operand is
+    /// modified, and the result's refcount is 1: the caller owns it.
+    pub fn otter_str_concat(a: *const OtterStr, b: *const OtterStr) -> *mut OtterStr;
 }
 
 unsafe extern "C" {
-    /// `value` in decimal.
-    pub fn otter_str_from_i64(value: c_longlong) -> *const c_char;
+    /// `value` in decimal, as a fresh owned string.
+    pub fn otter_str_from_i64(value: c_longlong) -> *mut OtterStr;
 }
 
 unsafe extern "C" {
-    /// `value` with `%.17g`, matching [`otter_print_f64`].
-    pub fn otter_str_from_f64(value: c_double) -> *const c_char;
+    /// `value` with `%.17g`, matching [`otter_print_f64`], as a fresh owned
+    /// string.
+    pub fn otter_str_from_f64(value: c_double) -> *mut OtterStr;
 }
 
 unsafe extern "C" {
-    /// `"true"` or `"false"`. Takes an `i64` where the IR passes a zero-extended
-    /// `i1`, because C has no one-bit type.
-    pub fn otter_str_from_bool(value: c_longlong) -> *const c_char;
+    /// `"true"` or `"false"`, as a fresh owned string. Takes an `i64` where the
+    /// IR passes a zero-extended `i1`, because C has no one-bit type.
+    pub fn otter_str_from_bool(value: c_longlong) -> *mut OtterStr;
 }
 
 unsafe extern "C" {
     /// Byte equality. Null equals only null.
-    pub fn otter_str_eq(a: *const c_char, b: *const c_char) -> std::ffi::c_int;
+    pub fn otter_str_eq(a: *const OtterStr, b: *const OtterStr) -> c_int;
 
     /// One line of standard input without its terminator, or `""` at end of
-    /// input. The result is built in the string arena and is never freed.
-    pub fn otter_read_line() -> *const c_char;
+    /// input. The caller owns the result.
+    pub fn otter_read_line() -> *mut OtterStr;
 
     /// The integer `s` denotes, or zero when it denotes none (including a value
     /// too large for `i64`).
-    pub fn otter_parse_i64(s: *const c_char) -> c_longlong;
+    pub fn otter_parse_i64(s: *const OtterStr) -> c_longlong;
 
     /// The floating-point number `s` denotes, or zero when it denotes none.
-    pub fn otter_parse_f64(s: *const c_char) -> c_double;
+    pub fn otter_parse_f64(s: *const OtterStr) -> c_double;
+
+    /// Adds one to `s`'s reference count and returns `s`. A no-op on a static
+    /// string (refcount -1).
+    pub fn otter_str_retain(s: *mut OtterStr) -> *mut OtterStr;
+
+    /// Drops one reference to `s`, freeing it when the count reaches zero. A
+    /// no-op on null and on a static string.
+    pub fn otter_str_release(s: *mut OtterStr);
 }

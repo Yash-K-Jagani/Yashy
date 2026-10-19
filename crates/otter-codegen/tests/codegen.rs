@@ -60,8 +60,18 @@ fn intern_string_dedupes_identical_bytes() {
         "different bytes must get their own global"
     );
     let ir = module.finish();
-    let globals = ir.lines().filter(|line| line.starts_with("@.str.")).count();
-    assert_eq!(globals, 2, "two globals for three interns:\n{ir}");
+    // Two literals, four globals: a struct and a byte array each. The struct
+    // is what a `string` value points at; the bytes live beside it.
+    let structs = ir
+        .lines()
+        .filter(|line| line.starts_with("@.str.") && !line.starts_with("@.str.0.data") && !line.starts_with("@.str.1.data"))
+        .count();
+    assert_eq!(structs, 2, "two struct globals for three interns:\n{ir}");
+    let datas = ir
+        .lines()
+        .filter(|line| line.contains(".data = private unnamed_addr constant"))
+        .count();
+    assert_eq!(datas, 2, "two byte-array globals for three interns:\n{ir}");
 }
 
 #[test]
@@ -76,6 +86,10 @@ fn string_global_is_nul_terminated_and_escaped() {
     assert!(
         ir.contains("[4 x i8]"),
         "a 3-byte string plus its NUL is 4 bytes:\n{ir}"
+    );
+    assert!(
+        ir.contains("%otter_str { i64 -1, i64 3, i64 3, i8* @.str.0.data }"),
+        "a literal is a static string: refcount -1, length 3, capacity 3:\n{ir}"
     );
 }
 

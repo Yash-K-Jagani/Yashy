@@ -10,10 +10,12 @@
 pub struct Module {
     /// The body lines accumulated by `push`, in emission order.
     lines: Vec<String>,
-    /// Interned string globals: `(global name, definition body)`. The body
-    /// excludes the `@.str.N = ` prefix so two equal bodies compare equal,
-    /// which is what deduplicates identical literals.
-    strings: Vec<(String, String)>,
+    /// Interned string globals: `(struct name, struct body, data body)`.
+    /// The bodies exclude the `@.str.N = ` prefix so two equal data bodies
+    /// compare equal, which is what deduplicates identical literals. The
+    /// bytes live in a separate global named `@.str.N.data`; the struct
+    /// global holds the refcount, length, capacity, and a pointer to them.
+    strings: Vec<(String, String, String)>,
     /// Module-level named type definitions: `(name, field reps)`. These are
     /// hoisted out of any function body and emitted at the top of the module,
     /// because a `%struct.X = type { … }` line inside a `define` block is not
@@ -98,25 +100,29 @@ impl Module {
         self.lines.splice(index..index, lines);
     }
 
-    /// Intern `bytes` as a global string constant, returning its name.
+    /// Intern `bytes` as a static string global, returning its name.
     ///
     /// Identical byte slices share one global: the second `intern_string`
-    /// of `b"hi"` returns the same `@.str.0` and emits nothing new. The
-    /// global is NUL-terminated — `b"a"` becomes `[2 x i8] c"a\00"` — and
-    /// every byte outside printable ASCII, plus `"` and `\`, is escaped as
-    /// `\XX` so the definition is one line of pure ASCII.
+    /// of `b"hi"` returns the same `@.str.0` and emits nothing new. Two
+    /// globals are emitted per literal: a NUL-terminated `[N x i8]` byte
+    /// array named `@.str.N.data` (`b"a"` becomes `[2 x i8] c"a\00"`), and
+    /// the `%otter_str` struct that points at it with refcount -1, so the
+    /// literal is never freed. Every byte outside printable ASCII, plus `"`
+    /// and `\`, is escaped as `\XX` so the definition is pure ASCII.
     pub fn intern_string(&mut self, bytes: &[u8]) -> String {
-        let body = Self::definition_body(bytes);
-        if let Some((name, _)) = self.strings.iter().find(|(_, def)| *def == body) {
+        let data_body = Self::data_body(bytes);
+        if let Some((name, _, _)) = self.strings.iter().find(|(_, _, def)| *def == data_body) {
             return name.clone();
         }
         let name = format!("@.str.{}", self.strings.len());
-        self.strings.push((name.clone(), body));
+        let data_name = format!("{name}.data");
+        let body = Self::struct_body(bytes, &data_name);
+        self.strings.push((name.clone(), body, data_body));
         name
     }
 
-    /// The definition body for a string global: everything after `@.str.N = `.
-    fn definition_body(bytes: &[u8]) -> String {
+    /// The byte-array body of a string global: everything after `@.str.N.data = `.
+    fn data_body(bytes: &[u8]) -> String {
         let mut escaped = String::with_capacity(bytes.len() * 4 + 2);
         for &byte in bytes {
             match byte {
@@ -131,6 +137,17 @@ impl Module {
         format!("private unnamed_addr constant [{length} x i8] c\"{escaped}\\00\"")
     }
 
+    /// The `%otter_str` struct body of a string global: everything after
+    /// `@.str.N = `. A literal is *static* — refcount -1, so a release is a
+    /// no-op and the bytes are never freed — with its length and capacity
+    /// written down and a pointer to the `@.str.N.data` byte array. The
+    /// array's address *is* the address of its first byte, so the data
+    /// pointer is the global itself, with no `getelementptr` to spell.
+    fn struct_body(bytes: &[u8], data_name: &str) -> String {
+        let len = bytes.len() as i64;
+        format!("private unnamed_addr constant %otter_str {{ i64 -1, i64 {len}, i64 {len}, i8* {data_name} }}")
+    }
+
     /// The next SSA temporary, `%t0`, `%t1`, …
     pub fn next_value(&mut self) -> String {
         let name = format!("%t{}", self.next_value);
@@ -138,22 +155,16 @@ impl Module {
         name
     }
 
-    /// Intern `bytes` and emit the `getelementptr` that turns the constant global
-    /// into the `i8*` a `string` value is.
+    /// Intern `bytes` and return the operand that names its **static**
+    /// `otter_str` global: the global itself, since a `string` value is a
+    /// pointer to the struct and `@.str.N` is already that pointer.
     ///
-    /// Every string constant reaches a function body through the same two steps,
-    /// and the array length in the `getelementptr` is the length that was just
-    /// used to build the global, so this is the one place that pairing is written
-    /// down. The order of the two emissions matters for readability only: the
-    /// global is named first, then the value that points into it.
+    /// This replaces the M3 interim, where a string literal was a bare
+    /// `[N x i8]` global and the value was a `getelementptr` into it. Every
+    /// `string` value is now a pointer to an `otter_str`, and a literal is
+    /// never freed, which is what refcount -1 says.
     pub fn intern_bytes_ptr(&mut self, bytes: &[u8]) -> String {
-        let name = self.intern_string(bytes);
-        let array_ty = format!("[{} x i8]", bytes.len() + 1);
-        let tmp = self.next_value();
-        self.push(format!(
-            "{tmp} = getelementptr inbounds {array_ty}, ptr {name}, i64 0, i64 0"
-        ));
-        tmp
+        self.intern_string(bytes)
     }
 
     /// Finish the module: the fixed header, the string globals, the body.
@@ -171,7 +182,11 @@ impl Module {
         ));
         out.push_str(&format!("target triple = \"{triple}\"\n"));
         out.push('\n');
-        out.push_str("%otter_str = type { i32, i32, i8* }\n");
+        // The refcounted string value: refcount, byte length, capacity, data.
+        // `-1` in the refcount means static (a literal, never freed); a field
+        // order and width that match `struct otter_str` in the runtime, which
+        // is what lets one layout describe a value on both sides of a call.
+        out.push_str("%otter_str = type { i64, i64, i64, i8* }\n");
         for (name, fields) in &self.named_types {
             out.push_str(&format!("{name} = type {{ {} }}\n", fields.join(", ")));
         }
@@ -235,7 +250,8 @@ impl Module {
         // a program that exits early does not rewrite every golden file; an
         // unused `declare` is legal IR.
         out.push_str("declare void @otter_exit(i64)\n");
-        for (name, body) in &self.strings {
+        for (name, body, data) in &self.strings {
+            out.push_str(&format!("{name}.data = {data}\n"));
             out.push_str(&format!("{name} = {body}\n"));
         }
         for line in &self.lines {

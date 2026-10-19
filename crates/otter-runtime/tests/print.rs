@@ -9,11 +9,26 @@
 //! `harness = false` (see `Cargo.toml`) because the harness owns `main`, and
 //! stdout has to be captured by re-running this same binary as a child.
 
-use std::ffi::{c_double, c_longlong};
+use std::ffi::{c_char, c_double, c_longlong, CStr};
+
+use otter_runtime::OtterStr;
 use std::process::{Command, Stdio};
 
 /// Marker that turns this binary into the child that does the printing.
 const CHILD_VAR: &str = "OTTER_RUNTIME_PRINT_CHILD";
+
+/// A static (`refcount -1`) string over a `'static` C-string literal, which is
+/// the shape a literal has in a compiled program.
+fn literal(text: &'static CStr) -> OtterStr {
+    let bytes = text.to_bytes();
+    let len = bytes.len() as i64;
+    OtterStr {
+        refcount: -1,
+        len,
+        cap: len,
+        data: text.as_ptr() as *mut c_char,
+    }
+}
 
 fn main() {
     if std::env::var_os(CHILD_VAR).is_some() {
@@ -29,12 +44,12 @@ fn main() {
 /// The child's whole job: call one runtime helper and let the C stdio buffer
 /// flush at exit.
 fn emit(case: &str) {
-    // SAFETY: every pointer handed over here is a NUL-terminated `'static`
-    // literal, and the integers are plain scalars.
+    // SAFETY: the string values are static literals, and the integers are plain
+    // scalars.
     unsafe {
         match case {
-            "str" => otter_runtime::otter_print_str(c"Hello, Otter!".as_ptr()),
-            "str_empty" => otter_runtime::otter_print_str(c"".as_ptr()),
+            "str" => otter_runtime::otter_print_str(&literal(c"Hello, Otter!")),
+            "str_empty" => otter_runtime::otter_print_str(&literal(c"")),
             "i64_negative" => otter_runtime::otter_print_i64(-42 as c_longlong),
             "i64_zero" => otter_runtime::otter_print_i64(0 as c_longlong),
             "f64_exact" => otter_runtime::otter_print_f64(3.5 as c_double),

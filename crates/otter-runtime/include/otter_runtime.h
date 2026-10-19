@@ -17,9 +17,13 @@
 extern "C" {
 #endif
 
+/* The refcounted string value, spelled out in the strings section below; the
+ * tag is declared here because the print and diagnostic functions take one. */
+typedef struct otter_str otter_str;
+
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
-void otter_print_str(const char *s);
+void otter_print_str(const otter_str *s);
 
 /* Writes a decimal integer to stdout, no newline. */
 void otter_print_i64(long long value);
@@ -71,36 +75,45 @@ void otter_arena_free_all(otter_arena *arena);
  *     declare i8* @otter_str_from_bool(i64)
  *     declare i1  @otter_str_eq(i8*, i8*)
  *
- * A `string` value in generated code is an `i8*`: a pointer to a NUL-terminated
- * byte sequence. That is M0-M2's representation, kept for M3, and ledger L4
- * records the interim (the length-prefixed, refcounted `%otter_str` layout in
- * ledger L2 replaces it, at which point these signatures change with it).
+ * A `string` value in generated code is an `i8*` pointing at a `otter_str`:
+ *
+ *     %otter_str = type { i64, i64, i64, i8* }   ; refcount, len, cap, data
+ *
+ * The refcount is 1 when a string is created and copied, decremented when a
+ * reference is dropped, and the string is freed when it reaches zero. A
+ * string with refcount -1 is *static*: it is never freed (string literals).
+ *
+ * This replaces the M3 interim (bare `char*` NUL-terminated, leaking until
+ * exit). Every string operation now takes and returns `otter_str*` and
+ * manages the refcount, so a built string has an owner that releases it.
  *
  * `otter_str_from_bool` takes an `i64` rather than an `i1`: C has no one-bit
  * type, so `i1` would have to be spelled `int` here and the two declarations
  * would disagree about how many bytes the callee may read. Generated code
- * zero-extends the `i1` to `i64` instead, so there is nothing to disagree about.
- *
- * The strings these functions *produce* live in one internal arena and are
- * released when the process exits. A built string has no owner to release -- the
- * value is a bare `char*` with no refcount and no release operation in the
- * language -- so leaking it until exit is the correct reading of that, and a
- * use-after-free is not. */
-long long otter_str_len(const char *s);
-long long otter_str_byte_at(const char *s, long long index);
-const char *otter_str_concat(const char *a, const char *b);
-const char *otter_str_from_i64(long long value);
-const char *otter_str_from_f64(double value);
-const char *otter_str_from_bool(long long value);
-int otter_str_eq(const char *a, const char *b);
+ * zero-extends the `i1` to `i64` instead, so there is nothing to disagree about. */
+long long otter_str_len(const otter_str *s);
+long long otter_str_byte_at(const otter_str *s, long long index);
+otter_str *otter_str_concat(const otter_str *a, const otter_str *b);
+otter_str *otter_str_from_i64(long long value);
+otter_str *otter_str_from_f64(double value);
+otter_str *otter_str_from_bool(long long value);
+int otter_str_eq(const otter_str *a, const otter_str *b);
 
-/* Reads one line from standard input without its terminator, built in the
- * string arena; returns the empty string at end of input. The parsers return
- * zero when their argument is not a number (see the input section of runtime.c
- * for why that is the whole story today). */
-const char *otter_read_line(void);
-long long otter_parse_i64(const char *s);
-double otter_parse_f64(const char *s);
+/* Reads one line from standard input without its terminator, as a string the
+ * caller *owns* (refcount 1); returns the empty string at end of input. The
+ * parsers return zero when their argument is not a number (see the input
+ * section of runtime.c for why that is the whole story today). */
+otter_str *otter_read_line(void);
+long long otter_parse_i64(const otter_str *s);
+double otter_parse_f64(const otter_str *s);
+
+/* Reference counting. `otter_str_retain` adds one to the count and returns its
+ * argument; `otter_str_release` drops one and frees the string when the count
+ * reaches zero. A static string (refcount -1, a literal) is never freed, so
+ * both are no-ops on one -- which is what lets a binding keep a literal as
+ * cheaply as it keeps a built string. */
+otter_str *otter_str_retain(otter_str *s);
+void otter_str_release(otter_str *s);
 
 /* ---- Diagnostics ----
  *
@@ -114,7 +127,7 @@ double otter_parse_f64(const char *s);
  * It does not unwind, so a `defer` body does not run before a panic yet. The
  * diagnostics section of runtime.c is where that limitation and its replacement
  * are written down. */
-void otter_panic(const char *message, const char *file, long long line, long long column);
+void otter_panic(const otter_str *message, const otter_str *file, long long line, long long column);
 
 /* ---- Exiting ----
  *
@@ -144,18 +157,18 @@ void otter_exit(long long code);
  * `-i64::MIN` reports through `otter_panic_overflow` with `0` as the left operand
  * and `-` as the symbol, because that is what negation is. */
 void otter_panic_overflow(
-    const char *op,
+    const otter_str *op,
     long long lhs,
     long long rhs,
-    const char *file,
+    const otter_str *file,
     long long line,
     long long column
 );
 void otter_panic_division(
-    const char *op,
+    const otter_str *op,
     long long lhs,
     long long rhs,
-    const char *file,
+    const otter_str *file,
     long long line,
     long long column
 );

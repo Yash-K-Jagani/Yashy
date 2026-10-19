@@ -8,23 +8,36 @@
 //! suite where stdin can be piped and captured. What is here is the whole-string
 //! parse contract, which is pure.
 
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 
-/// A NUL-terminated C string literal for the duration of the call.
-fn c(s: &str) -> CString {
-    CString::new(s).expect("test strings must not contain a NUL byte")
+use otter_runtime::OtterStr;
+
+/// A NUL-terminated C string plus the static `OtterStr` header over its bytes.
+///
+/// Both halves come back so the caller keeps the bytes alive for as long as it
+/// uses the value: `let (_bytes, value) = c("7");`.
+fn c(s: &str) -> (CString, OtterStr) {
+    let bytes = CString::new(s).expect("test strings must not contain a NUL byte");
+    let len = bytes.as_bytes().len() as i64;
+    let value = OtterStr {
+        refcount: -1,
+        len,
+        cap: len,
+        data: bytes.as_ptr() as *mut c_char,
+    };
+    (bytes, value)
 }
 
 /// Parse `text` as an `i64` through the runtime.
 fn parse_i64(text: &str) -> i64 {
-    let owned = c(text);
-    unsafe { otter_runtime::otter_parse_i64(owned.as_ptr()) }
+    let (_bytes, value) = c(text);
+    unsafe { otter_runtime::otter_parse_i64(&value) }
 }
 
 /// Parse `text` as an `f64` through the runtime.
 fn parse_f64(text: &str) -> f64 {
-    let owned = c(text);
-    unsafe { otter_runtime::otter_parse_f64(owned.as_ptr()) }
+    let (_bytes, value) = c(text);
+    unsafe { otter_runtime::otter_parse_f64(&value) }
 }
 
 #[test]
@@ -86,9 +99,11 @@ fn a_parsed_integer_round_trips_through_the_string_conversion() {
     let printed = unsafe { otter_runtime::otter_str_from_i64(-1234) };
     assert_eq!(parse_i64("-1234"), -1234, "the source text parses");
     let text = unsafe {
-        std::ffi::CStr::from_ptr(printed)
+        assert!(!printed.is_null(), "the conversion must produce a string");
+        std::ffi::CStr::from_ptr((*printed).data)
             .to_str()
             .expect("the conversion must yield UTF-8")
     };
     assert_eq!(parse_i64(text), -1234, "the printed form parses back");
+    unsafe { otter_runtime::otter_str_release(printed) };
 }

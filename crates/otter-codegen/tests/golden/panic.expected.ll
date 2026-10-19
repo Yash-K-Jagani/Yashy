@@ -3,7 +3,7 @@ source_filename = "main.ot"
 target datalayout = "<host>"
 target triple = "<host>"
 
-%otter_str = type { i32, i32, i8* }
+%otter_str = type { i64, i64, i64, i8* }
 
 declare void @otter_print_str(i8*)
 declare void @otter_print_i64(i64)
@@ -32,10 +32,14 @@ declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_exit(i64)
-@.str.0 = private unnamed_addr constant [9 x i8] c"negative\00"
-@.str.1 = private unnamed_addr constant [8 x i8] c"main.ot\00"
-@.str.2 = private unnamed_addr constant [6 x i8] c"empty\00"
-@.str.3 = private unnamed_addr constant [7 x i8] c"always\00"
+@.str.0.data = private unnamed_addr constant [9 x i8] c"negative\00"
+@.str.0 = private unnamed_addr constant %otter_str { i64 -1, i64 8, i64 8, i8* @.str.0.data }
+@.str.1.data = private unnamed_addr constant [8 x i8] c"main.ot\00"
+@.str.1 = private unnamed_addr constant %otter_str { i64 -1, i64 7, i64 7, i8* @.str.1.data }
+@.str.2.data = private unnamed_addr constant [6 x i8] c"empty\00"
+@.str.2 = private unnamed_addr constant %otter_str { i64 -1, i64 5, i64 5, i8* @.str.2.data }
+@.str.3.data = private unnamed_addr constant [7 x i8] c"always\00"
+@.str.3 = private unnamed_addr constant %otter_str { i64 -1, i64 6, i64 6, i8* @.str.3.data }
 define i64 @checked(i64 %arg0) {
 entry:
 %slot0 = alloca i64
@@ -44,19 +48,17 @@ store i64 %arg0, ptr %slot0
 %t1 = icmp slt i64 %t0, 0
 br i1 %t1, label %bb0_then, label %bb1_else
 bb0_then:
-%t2 = getelementptr inbounds [9 x i8], ptr @.str.0, i64 0, i64 0
-%t3 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
 br label %bb3_fault
 bb3_fault:
-call void @otter_panic(i8* %t2, i8* %t3, i64 12, i64 9)
+call void @otter_panic(i8* @.str.0, i8* @.str.1, i64 12, i64 9)
 unreachable
 bb4_after_panic:
 br label %bb2_merge
 bb1_else:
 br label %bb2_merge
 bb2_merge:
-%t4 = load i64, ptr %slot0
-ret i64 %t4
+%t2 = load i64, ptr %slot0
+ret i64 %t2
 }
 define i64 @pick({ i8, i64 } %arg0) {
 entry:
@@ -64,52 +66,48 @@ entry:
 %slot1 = alloca i64
 %slot2 = alloca i64
 store { i8, i64 } %arg0, ptr %slot0
-%t5 = load { i8, i64 }, ptr %slot0
-%t6 = extractvalue { i8, i64 } %t5, 0
-%t7 = icmp eq i8 %t6, 0
-br i1 %t7, label %bb1_arm, label %bb4_test
+%t3 = load { i8, i64 }, ptr %slot0
+%t4 = extractvalue { i8, i64 } %t3, 0
+%t5 = icmp eq i8 %t4, 0
+br i1 %t5, label %bb1_arm, label %bb4_test
 bb4_test:
-%t8 = extractvalue { i8, i64 } %t5, 0
-%t9 = icmp eq i8 %t8, 1
-br i1 %t9, label %bb2_arm, label %bb0_result
+%t6 = extractvalue { i8, i64 } %t3, 0
+%t7 = icmp eq i8 %t6, 1
+br i1 %t7, label %bb2_arm, label %bb0_result
 bb1_arm:
-%t10 = getelementptr inbounds [6 x i8], ptr @.str.2, i64 0, i64 0
-%t11 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
 br label %bb5_fault
 bb5_fault:
-call void @otter_panic(i8* %t10, i8* %t11, i64 19, i64 21)
+call void @otter_panic(i8* @.str.2, i8* @.str.1, i64 19, i64 21)
 unreachable
 bb6_after_panic:
 store i64 undef, ptr %slot1
 br label %bb0_result
 bb2_arm:
-%t12 = extractvalue { i8, i64 } %t5, 1
-store i64 %t12, ptr %slot2
-%t13 = load i64, ptr %slot2
-store i64 %t13, ptr %slot1
+%t8 = extractvalue { i8, i64 } %t3, 1
+store i64 %t8, ptr %slot2
+%t9 = load i64, ptr %slot2
+store i64 %t9, ptr %slot1
 br label %bb0_result
 bb0_result:
-%t14 = load i64, ptr %slot1
-ret i64 %t14
+%t10 = load i64, ptr %slot1
+ret i64 %t10
 }
 define i64 @always() {
 entry:
-%t15 = getelementptr inbounds [7 x i8], ptr @.str.3, i64 0, i64 0
-%t16 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
 br label %bb0_fault
 bb0_fault:
-call void @otter_panic(i8* %t15, i8* %t16, i64 27, i64 5)
+call void @otter_panic(i8* @.str.3, i8* @.str.1, i64 27, i64 5)
 unreachable
 bb1_after_panic:
 ret i64 0
 }
 define i32 @main() {
 entry:
-%t17 = call i64 @checked(i64 3)
-call void @otter_print_i64(i64 %t17)
-%t18 = insertvalue { i8, i64 } undef, i8 1, 0
-%t19 = insertvalue { i8, i64 } %t18, i64 4, 1
-%t20 = call i64 @pick({ i8, i64 } %t19)
-call void @otter_print_i64(i64 %t20)
+%t11 = call i64 @checked(i64 3)
+call void @otter_print_i64(i64 %t11)
+%t12 = insertvalue { i8, i64 } undef, i8 1, 0
+%t13 = insertvalue { i8, i64 } %t12, i64 4, 1
+%t14 = call i64 @pick({ i8, i64 } %t13)
+call void @otter_print_i64(i64 %t14)
 ret i32 0
 }

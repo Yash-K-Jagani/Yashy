@@ -3,7 +3,7 @@ source_filename = "main.ot"
 target datalayout = "<host>"
 target triple = "<host>"
 
-%otter_str = type { i32, i32, i8* }
+%otter_str = type { i64, i64, i64, i8* }
 
 declare void @otter_print_str(i8*)
 declare void @otter_print_i64(i64)

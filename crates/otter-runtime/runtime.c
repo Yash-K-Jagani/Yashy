@@ -12,6 +12,11 @@
 #include <io.h>
 #endif
 
+/* `otter_str_data`, defined with the string type further down, gives the bytes
+ * of a string to the C functions that want a `const char*`. Declared here
+ * because the printing and diagnostic functions come before it. */
+static const char *otter_str_data(const otter_str *s);
+
 /* Thread-local storage, which the runtime uses wherever a `static` would
  * otherwise be shared mutable state:
  *
@@ -48,12 +53,12 @@ static void otter_stdout_binary(void) {
 #endif
 }
 
-void otter_print_str(const char *s) {
+void otter_print_str(const otter_str *s) {
     if (s == NULL) {
         return;
     }
     otter_stdout_binary();
-    fputs(s, stdout);
+    fputs(otter_str_data(s), stdout);
 }
 
 void otter_print_i64(long long value) {
@@ -241,130 +246,148 @@ void otter_arena_free_all(otter_arena *arena) {
 
 /* ---- Strings -----------------------------------------------------------
  *
- * A `string` value in generated code is an `i8*`: a pointer to a
- * NUL-terminated byte sequence (M0-M2's representation; ledger L4 records the
- * interim). The operations that *produce* a string -- concatenation and the
- * conversions -- allocate from one internal arena, so building strings in a
- * loop does not pay a `malloc` per call. Nothing built here is ever freed
- * individually, because a built string has no owner to release: the value is a
- * bare `i8*` with no refcount and no `release` operation in the language, so
- * there is no way for a program to say it is finished with one (ledger L1's M3
- * note, ledger L4). Holding it until the process exits is the correct reading of
- * that -- and it is a leak, not a corruption, which is why it is acceptable
- * while the refcounted representation is still pending.
+ * A `string` value in generated code is an `i8*` pointing at an `otter_str`:
  *
- * The internal arena is created on first use and never destroyed. A program
- * that never builds a string never allocates one.
+ *     %otter_str = type { i64, i64, i64, i8* }   ; refcount, len, cap, data
  *
- * It is **thread-local**, one arena per thread, and that is a correctness
- * requirement rather than an optimization. `otter_string_arena` used to be a
- * single shared arena published through a plain `static` pointer, so two threads
- * building strings at once could both take the same block -- the arena's bump
- * pointer is unsynchronized -- and the symptom was one string's bytes appearing
- * where another's should be. The test suite started failing about one run in
- * five as soon as enough parallel tests built strings. Per-thread state removes
- * the race instead of guarding it, and costs no lock on the path to a string.
+ * The refcount is 1 when a string is created and copied, decremented when a
+ * reference is dropped, and the string is freed when it reaches zero. A string
+ * with refcount -1 is *static*: a literal baked into the binary, never freed.
+ * Generated code writes that -1; the runtime only ever *creates* owned
+ * strings, from concatenation, the numeric conversions, and input.
  *
- * A string built on one thread and read on another is still valid: the bytes
- * live in the building thread's arena, which is never freed. The cost is one
- * arena per thread that builds strings, each holding up to a block until the
- * process exits -- the same "held until exit" as before, multiplied by the
- * number of threads. */
+ * The operations that produce a string own the result -- it comes back with
+ * refcount 1 and the caller is expected to drop it when finished. Nothing in
+ * generated code drops one yet: automatic release, which pairs a retain with
+ * each binding and a release with each scope, is the second half of this task
+ * and lands on top of this representation. Until then a built string is held
+ * until the process exits, which is a leak and not a corruption. */
 
-static OTTER_THREAD_LOCAL otter_arena *otter_string_arena_slot = NULL;
+struct otter_str {
+    long long refcount;   /* 1 = owned, -1 = static (never freed) */
+    long long len;        /* number of bytes, excluding NUL */
+    long long cap;        /* allocated capacity, excluding NUL */
+    char *data;           /* NUL-terminated byte buffer */
+};
 
-static otter_arena *otter_string_arena(void) {
-    if (otter_string_arena_slot == NULL) {
-        otter_string_arena_slot = otter_arena_new();
+/* Creates a new owned string from `len` bytes at `bytes`. */
+static otter_str *otter_str_new(const char *bytes, size_t len) {
+    otter_str *s = (otter_str *)malloc(sizeof(otter_str));
+    if (s == NULL) {
+        return NULL;
     }
-    return otter_string_arena_slot;
-}
-
-/* Copies `len` bytes out of `bytes` and NUL-terminates the copy, in the string
- * arena. Returns NULL only when the arena cannot grow. */
-static const char *otter_str_copy_into_arena(const char *bytes, size_t len) {
-    char *out = (char *)otter_arena_alloc(otter_string_arena(), (long long)(len + 1), 1);
-    if (out == NULL) {
+    s->refcount = 1;
+    s->len = (long long)len;
+    s->cap = (long long)len;
+    s->data = (char *)malloc(len + 1);
+    if (s->data == NULL) {
+        free(s);
         return NULL;
     }
     if (len > 0 && bytes != NULL) {
-        memcpy(out, bytes, len);
+        memcpy(s->data, bytes, len);
     }
-    out[len] = '\0';
-    return out;
+    s->data[len] = '\0';
+    return s;
 }
 
-long long otter_str_len(const char *s) {
-    return s == NULL ? 0 : (long long)strlen(s);
+/* Returns the data pointer for passing to C functions that expect `const char*`. */
+static const char *otter_str_data(const otter_str *s) {
+    return s == NULL ? "" : s->data;
 }
 
-long long otter_str_byte_at(const char *s, long long index) {
-    if (s == NULL || index < 0) {
+/* Keeps a reference to `s`: the refcount goes up by one. A static string
+ * (refcount -1) is untouched, because it is never freed and has no count to
+ * keep. Returns `s` so a caller can write `x = otter_str_retain(x)`. */
+otter_str *otter_str_retain(otter_str *s) {
+    if (s != NULL && s->refcount > 0) {
+        s->refcount++;
+    }
+    return s;
+}
+
+/* Drops a reference to `s`. The count goes down by one, and when it reaches
+ * zero the bytes and the header are freed. Static strings (refcount -1) and
+ * NULL are left alone. */
+void otter_str_release(otter_str *s) {
+    if (s == NULL || s->refcount <= 0) {
+        return;
+    }
+    s->refcount--;
+    if (s->refcount == 0) {
+        free(s->data);
+        free(s);
+    }
+}
+
+long long otter_str_len(const otter_str *s) {
+    return s == NULL ? 0 : s->len;
+}
+
+long long otter_str_byte_at(const otter_str *s, long long index) {
+    if (s == NULL || index < 0 || index >= s->len) {
         return 0;
     }
-    size_t len = strlen(s);
-    if ((size_t)index >= len) {
-        return 0;
-    }
-    return (long long)(unsigned char)s[index];
+    return (long long)(unsigned char)s->data[index];
 }
 
-const char *otter_str_concat(const char *a, const char *b) {
-    size_t len_a = a == NULL ? 0 : strlen(a);
-    size_t len_b = b == NULL ? 0 : strlen(b);
-    char *out = (char *)otter_arena_alloc(otter_string_arena(), (long long)(len_a + len_b + 1), 1);
+otter_str *otter_str_concat(const otter_str *a, const otter_str *b) {
+    size_t len_a = a == NULL ? 0 : (size_t)a->len;
+    size_t len_b = b == NULL ? 0 : (size_t)b->len;
+    otter_str *out = otter_str_new(NULL, len_a + len_b);
     if (out == NULL) {
         return NULL;
     }
     if (len_a > 0) {
-        memcpy(out, a, len_a);
+        memcpy(out->data, a->data, len_a);
     }
     if (len_b > 0) {
-        memcpy(out + len_a, b, len_b);
+        memcpy(out->data + len_a, b->data, len_b);
     }
-    out[len_a + len_b] = '\0';
     return out;
 }
 
-int otter_str_eq(const char *a, const char *b) {
+int otter_str_eq(const otter_str *a, const otter_str *b) {
     if (a == NULL || b == NULL) {
         return a == b;
     }
-    return strcmp(a, b) == 0;
+    if (a->len != b->len) {
+        return 0;
+    }
+    return a->len == 0 || memcmp(a->data, b->data, (size_t)a->len) == 0;
 }
 
-const char *otter_str_from_i64(long long value) {
+otter_str *otter_str_from_i64(long long value) {
     char buffer[32];
     int written = snprintf(buffer, sizeof(buffer), "%lld", value);
     if (written < 0 || (size_t)written >= sizeof(buffer)) {
         return NULL;
     }
-    return otter_str_copy_into_arena(buffer, (size_t)written);
+    return otter_str_new(buffer, (size_t)written);
 }
 
-const char *otter_str_from_f64(double value) {
+otter_str *otter_str_from_f64(double value) {
     char buffer[40];
     int written = snprintf(buffer, sizeof(buffer), "%.17g", value);
     if (written < 0 || (size_t)written >= sizeof(buffer)) {
         return NULL;
     }
-    return otter_str_copy_into_arena(buffer, (size_t)written);
+    return otter_str_new(buffer, (size_t)written);
 }
 
-const char *otter_str_from_bool(long long value) {
+otter_str *otter_str_from_bool(long long value) {
     const char *text = value != 0 ? "true" : "false";
-    return otter_str_copy_into_arena(text, value != 0 ? 4u : 5u);
+    return otter_str_new(text, value != 0 ? 4u : 5u);
 }
 
 /* ---- Input ------------------------------------------------------------
  *
  * `otter_read_line` reads one line from standard input and returns it without
- * its line terminator, built in the string arena like every other produced
- * string (so it is never individually freed). At end of input it returns the
- * empty string: the language has no way to spell "no line" yet, and an empty
- * line and the end of input reading the same is a limitation, not a choice --
- * a checked form needs `panic` or an `Option` to be reachable from a runtime
- * call, and M4 is where those arrive.
+ * its line terminator, as a refcounted string (owned by the caller). At end of
+ * input it returns the empty string: the language has no way to spell "no line"
+ * yet, and an empty line and the end of input reading the same is a limitation,
+ * not a choice -- a checked form needs `panic` or an `Option` to be reachable
+ * from a runtime call, and M4 is where those arrive.
  *
  * A trailing 0x0D is stripped along with the 0x0A. On Windows the C library
  * folds CRLF to LF before `fgetc` sees it; this is for a CRLF that arrives from
@@ -379,12 +402,12 @@ const char *otter_str_from_bool(long long value) {
  * denotes, or zero", with nothing in between. It is still a real answer and a
  * wrong answer both; M4's checked variant replaces it once `panic` exists. */
 
-const char *otter_read_line(void) {
+otter_str *otter_read_line(void) {
     size_t capacity = 128;
     size_t length = 0;
     char *buffer = (char *)malloc(capacity);
     if (buffer == NULL) {
-        return otter_str_copy_into_arena("", 0);
+        return otter_str_new("", 0);
     }
 
     int byte;
@@ -406,7 +429,7 @@ const char *otter_read_line(void) {
     if (length > 0 && buffer[length - 1] == '\r') {
         length -= 1;
     }
-    const char *line = otter_str_copy_into_arena(buffer, length);
+    otter_str *line = otter_str_new(buffer, length);
     free(buffer);
     return line;
 }
@@ -424,14 +447,12 @@ static int otter_only_space_remains(const char *s) {
     return 1;
 }
 
-long long otter_parse_i64(const char *s) {
-    if (s == NULL) {
-        return 0;
-    }
+long long otter_parse_i64(const otter_str *s) {
+    const char *text = otter_str_data(s);
     errno = 0;
     char *end = NULL;
-    long long value = strtoll(s, &end, 10);
-    if (end == s || errno == ERANGE) {
+    long long value = strtoll(text, &end, 10);
+    if (end == text || errno == ERANGE) {
         return 0;
     }
     if (!otter_only_space_remains(end)) {
@@ -440,14 +461,12 @@ long long otter_parse_i64(const char *s) {
     return value;
 }
 
-double otter_parse_f64(const char *s) {
-    if (s == NULL) {
-        return 0.0;
-    }
+double otter_parse_f64(const otter_str *s) {
+    const char *text = otter_str_data(s);
     errno = 0;
     char *end = NULL;
-    double value = strtod(s, &end);
-    if (end == s || errno == ERANGE) {
+    double value = strtod(text, &end);
+    if (end == text || errno == ERANGE) {
         return 0.0;
     }
     if (!otter_only_space_remains(end)) {
@@ -480,15 +499,15 @@ double otter_parse_f64(const char *s) {
  *
  * `file` is the path the compiler was handed and may be relative; `line` and
  * `column` are one-based and count characters, like every other diagnostic. */
-void otter_panic(const char *message, const char *file, long long line, long long column) {
+void otter_panic(const otter_str *message, const otter_str *file, long long line, long long column) {
     fflush(stdout);
     fprintf(
         stderr,
         "%s:%lld:%lld: panic: %s\n",
-        file != NULL ? file : "<unknown>",
+        file != NULL ? file->data : "<unknown>",
         line,
         column,
-        message != NULL ? message : ""
+        otter_str_data(message)
     );
     fflush(stderr);
     exit(1);
@@ -547,10 +566,10 @@ void otter_exit(long long code) {
 
 static void otter_fault(
     const char *what,
-    const char *op,
+    const otter_str *op,
     long long lhs,
     long long rhs,
-    const char *file,
+    const otter_str *file,
     long long line,
     long long column
 ) {
@@ -558,12 +577,12 @@ static void otter_fault(
     fprintf(
         stderr,
         "%s:%lld:%lld: panic: %s: %lld %s %lld\n",
-        file != NULL ? file : "<unknown>",
+        file != NULL ? file->data : "<unknown>",
         line,
         column,
         what,
         lhs,
-        op != NULL ? op : "?",
+        otter_str_data(op),
         rhs
     );
     fflush(stderr);
@@ -571,10 +590,10 @@ static void otter_fault(
 }
 
 void otter_panic_overflow(
-    const char *op,
+    const otter_str *op,
     long long lhs,
     long long rhs,
-    const char *file,
+    const otter_str *file,
     long long line,
     long long column
 ) {
@@ -582,10 +601,10 @@ void otter_panic_overflow(
 }
 
 void otter_panic_division(
-    const char *op,
+    const otter_str *op,
     long long lhs,
     long long rhs,
-    const char *file,
+    const otter_str *file,
     long long line,
     long long column
 ) {

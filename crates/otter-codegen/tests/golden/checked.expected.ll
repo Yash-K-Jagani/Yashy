@@ -3,7 +3,7 @@ source_filename = "main.ot"
 target datalayout = "<host>"
 target triple = "<host>"
 
-%otter_str = type { i32, i32, i8* }
+%otter_str = type { i64, i64, i64, i8* }
 
 declare void @otter_print_str(i8*)
 declare void @otter_print_i64(i64)
@@ -32,12 +32,18 @@ declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_exit(i64)
-@.str.0 = private unnamed_addr constant [2 x i8] c"+\00"
-@.str.1 = private unnamed_addr constant [8 x i8] c"main.ot\00"
-@.str.2 = private unnamed_addr constant [2 x i8] c"-\00"
-@.str.3 = private unnamed_addr constant [2 x i8] c"*\00"
-@.str.4 = private unnamed_addr constant [2 x i8] c"/\00"
-@.str.5 = private unnamed_addr constant [2 x i8] c"%\00"
+@.str.0.data = private unnamed_addr constant [2 x i8] c"+\00"
+@.str.0 = private unnamed_addr constant %otter_str { i64 -1, i64 1, i64 1, i8* @.str.0.data }
+@.str.1.data = private unnamed_addr constant [8 x i8] c"main.ot\00"
+@.str.1 = private unnamed_addr constant %otter_str { i64 -1, i64 7, i64 7, i8* @.str.1.data }
+@.str.2.data = private unnamed_addr constant [2 x i8] c"-\00"
+@.str.2 = private unnamed_addr constant %otter_str { i64 -1, i64 1, i64 1, i8* @.str.2.data }
+@.str.3.data = private unnamed_addr constant [2 x i8] c"*\00"
+@.str.3 = private unnamed_addr constant %otter_str { i64 -1, i64 1, i64 1, i8* @.str.3.data }
+@.str.4.data = private unnamed_addr constant [2 x i8] c"/\00"
+@.str.4 = private unnamed_addr constant %otter_str { i64 -1, i64 1, i64 1, i8* @.str.4.data }
+@.str.5.data = private unnamed_addr constant [2 x i8] c"%\00"
+@.str.5 = private unnamed_addr constant %otter_str { i64 -1, i64 1, i64 1, i8* @.str.5.data }
 entry:
 %slot0 = alloca i64
 %slot1 = alloca i64
@@ -54,90 +60,78 @@ entry:
 %t4 = extractvalue { i64, i1 } %t2, 1
 br i1 %t4, label %bb0_fault, label %bb1_ok
 bb0_fault:
-%t5 = getelementptr inbounds [2 x i8], ptr @.str.0, i64 0, i64 0
-%t6 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_overflow(i8* %t5, i64 %t0, i64 %t1, i8* %t6, i64 2, i64 17)
+call void @otter_panic_overflow(i8* @.str.0, i64 %t0, i64 %t1, i8* @.str.1, i64 2, i64 17)
 unreachable
 bb1_ok:
 store i64 %t3, ptr %slot2
-%t7 = load i64, ptr %slot0
-%t8 = load i64, ptr %slot1
-%t9 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %t7, i64 %t8)
-%t10 = extractvalue { i64, i1 } %t9, 0
-%t11 = extractvalue { i64, i1 } %t9, 1
-br i1 %t11, label %bb2_fault, label %bb3_ok
+%t5 = load i64, ptr %slot0
+%t6 = load i64, ptr %slot1
+%t7 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %t5, i64 %t6)
+%t8 = extractvalue { i64, i1 } %t7, 0
+%t9 = extractvalue { i64, i1 } %t7, 1
+br i1 %t9, label %bb2_fault, label %bb3_ok
 bb2_fault:
-%t12 = getelementptr inbounds [2 x i8], ptr @.str.2, i64 0, i64 0
-%t13 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_overflow(i8* %t12, i64 %t7, i64 %t8, i8* %t13, i64 3, i64 24)
+call void @otter_panic_overflow(i8* @.str.2, i64 %t5, i64 %t6, i8* @.str.1, i64 3, i64 24)
 unreachable
 bb3_ok:
-store i64 %t10, ptr %slot3
-%t14 = load i64, ptr %slot0
-%t15 = load i64, ptr %slot1
-%t16 = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %t14, i64 %t15)
-%t17 = extractvalue { i64, i1 } %t16, 0
-%t18 = extractvalue { i64, i1 } %t16, 1
-br i1 %t18, label %bb4_fault, label %bb5_ok
+store i64 %t8, ptr %slot3
+%t10 = load i64, ptr %slot0
+%t11 = load i64, ptr %slot1
+%t12 = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %t10, i64 %t11)
+%t13 = extractvalue { i64, i1 } %t12, 0
+%t14 = extractvalue { i64, i1 } %t12, 1
+br i1 %t14, label %bb4_fault, label %bb5_ok
 bb4_fault:
-%t19 = getelementptr inbounds [2 x i8], ptr @.str.3, i64 0, i64 0
-%t20 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_overflow(i8* %t19, i64 %t14, i64 %t15, i8* %t20, i64 4, i64 21)
+call void @otter_panic_overflow(i8* @.str.3, i64 %t10, i64 %t11, i8* @.str.1, i64 4, i64 21)
 unreachable
 bb5_ok:
-store i64 %t17, ptr %slot4
-%t21 = load i64, ptr %slot0
-%t22 = load i64, ptr %slot1
-%t23 = icmp eq i64 %t22, 0
-%t24 = icmp eq i64 %t21, -9223372036854775808
-%t25 = icmp eq i64 %t22, -1
-%t26 = and i1 %t24, %t25
-%t27 = or i1 %t23, %t26
-br i1 %t27, label %bb6_fault, label %bb7_ok
+store i64 %t13, ptr %slot4
+%t15 = load i64, ptr %slot0
+%t16 = load i64, ptr %slot1
+%t17 = icmp eq i64 %t16, 0
+%t18 = icmp eq i64 %t15, -9223372036854775808
+%t19 = icmp eq i64 %t16, -1
+%t20 = and i1 %t18, %t19
+%t21 = or i1 %t17, %t20
+br i1 %t21, label %bb6_fault, label %bb7_ok
 bb6_fault:
-%t28 = getelementptr inbounds [2 x i8], ptr @.str.4, i64 0, i64 0
-%t29 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_division(i8* %t28, i64 %t21, i64 %t22, i8* %t29, i64 5, i64 22)
+call void @otter_panic_division(i8* @.str.4, i64 %t15, i64 %t16, i8* @.str.1, i64 5, i64 22)
 unreachable
 bb7_ok:
-%t30 = sdiv i64 %t21, %t22
-store i64 %t30, ptr %slot5
-%t31 = load i64, ptr %slot0
-%t32 = load i64, ptr %slot1
-%t33 = icmp eq i64 %t32, 0
-%t34 = icmp eq i64 %t31, -9223372036854775808
-%t35 = icmp eq i64 %t32, -1
-%t36 = and i1 %t34, %t35
-%t37 = or i1 %t33, %t36
-br i1 %t37, label %bb8_fault, label %bb9_ok
+%t22 = sdiv i64 %t15, %t16
+store i64 %t22, ptr %slot5
+%t23 = load i64, ptr %slot0
+%t24 = load i64, ptr %slot1
+%t25 = icmp eq i64 %t24, 0
+%t26 = icmp eq i64 %t23, -9223372036854775808
+%t27 = icmp eq i64 %t24, -1
+%t28 = and i1 %t26, %t27
+%t29 = or i1 %t25, %t28
+br i1 %t29, label %bb8_fault, label %bb9_ok
 bb8_fault:
-%t38 = getelementptr inbounds [2 x i8], ptr @.str.5, i64 0, i64 0
-%t39 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_division(i8* %t38, i64 %t31, i64 %t32, i8* %t39, i64 6, i64 23)
+call void @otter_panic_division(i8* @.str.5, i64 %t23, i64 %t24, i8* @.str.1, i64 6, i64 23)
 unreachable
 bb9_ok:
-%t40 = srem i64 %t31, %t32
-store i64 %t40, ptr %slot6
-%t41 = load i64, ptr %slot0
-%t42 = icmp eq i64 %t41, -9223372036854775808
-br i1 %t42, label %bb10_fault, label %bb11_ok
+%t30 = srem i64 %t23, %t24
+store i64 %t30, ptr %slot6
+%t31 = load i64, ptr %slot0
+%t32 = icmp eq i64 %t31, -9223372036854775808
+br i1 %t32, label %bb10_fault, label %bb11_ok
 bb10_fault:
-%t43 = getelementptr inbounds [2 x i8], ptr @.str.2, i64 0, i64 0
-%t44 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-call void @otter_panic_overflow(i8* %t43, i64 0, i64 %t41, i8* %t44, i64 7, i64 21)
+call void @otter_panic_overflow(i8* @.str.2, i64 0, i64 %t31, i8* @.str.1, i64 7, i64 21)
 unreachable
 bb11_ok:
-%t45 = sub i64 0, %t41
-store i64 %t45, ptr %slot7
-%t46 = load i64, ptr %slot2
-call void @otter_print_i64(i64 %t46)
-%t47 = load i64, ptr %slot3
-call void @otter_print_i64(i64 %t47)
-%t48 = load i64, ptr %slot4
-call void @otter_print_i64(i64 %t48)
-%t49 = load i64, ptr %slot5
-call void @otter_print_i64(i64 %t49)
-%t50 = load i64, ptr %slot6
-call void @otter_print_i64(i64 %t50)
-%t51 = load i64, ptr %slot7
-call void @otter_print_i64(i64 %t51)
+%t33 = sub i64 0, %t31
+store i64 %t33, ptr %slot7
+%t34 = load i64, ptr %slot2
+call void @otter_print_i64(i64 %t34)
+%t35 = load i64, ptr %slot3
+call void @otter_print_i64(i64 %t35)
+%t36 = load i64, ptr %slot4
+call void @otter_print_i64(i64 %t36)
+%t37 = load i64, ptr %slot5
+call void @otter_print_i64(i64 %t37)
+%t38 = load i64, ptr %slot6
+call void @otter_print_i64(i64 %t38)
+%t39 = load i64, ptr %slot7
+call void @otter_print_i64(i64 %t39)
