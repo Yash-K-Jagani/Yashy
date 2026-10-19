@@ -53,7 +53,6 @@ fn gen_body(src: &str) -> String {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
         ctx.begin_entry();
         let _ = ctx.alloc_params(&f);
-        let mut defers: Vec<otter_codegen::stmt_gen::Deferred> = Vec::new();
         let flow = gen_block(&mut ctx, &f.body);
         if flow == Flow::Fallthrough {
             run_defers(&mut ctx);

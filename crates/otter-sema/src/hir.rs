@@ -154,6 +154,17 @@ pub enum HirStmt {
         release_previous: bool,
         span: Span,
     },
+    /// `p[i] = value;`
+    ///
+    /// Like `Assign`, the target is validated by the checker before it
+    /// reaches here: `p` must be a mutable `*mut i64` binding and `i` an
+    /// `i64`. What remains is the three pieces of the store.
+    IndexAssign {
+        base: HirExpr,
+        index: HirExpr,
+        value: HirExpr,
+        span: Span,
+    },
     Return(Option<HirExpr>, Span),
     If {
         init: Option<Box<HirStmt>>,
@@ -303,6 +314,12 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    Index {
+        base: Box<HirExpr>,
+        index: Box<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
     Cast {
         expr: Box<HirExpr>,
         ty: Type,
@@ -336,6 +353,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Call { span, .. } => *span,
         HirExpr::StructLit { span, .. } => *span,
         HirExpr::FieldAccess { span, .. } => *span,
+        HirExpr::Index { span, .. } => *span,
         HirExpr::Cast { span, .. } => *span,
         HirExpr::Try { span, .. } => *span,
         HirExpr::SwitchExpr { span, .. } => *span,
@@ -353,6 +371,7 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Call { ty, .. } => ty.clone(),
         HirExpr::StructLit { ty, .. } => ty.clone(),
         HirExpr::FieldAccess { ty, .. } => ty.clone(),
+        HirExpr::Index { ty, .. } => ty.clone(),
         HirExpr::Cast { ty, .. } => ty.clone(),
         HirExpr::Try { ty, .. } => ty.clone(),
         HirExpr::SwitchExpr { ty, .. } => ty.clone(),

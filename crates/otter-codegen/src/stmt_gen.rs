@@ -197,6 +197,21 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             }
             Flow::Fallthrough
         }
+        HirStmt::IndexAssign { base, index, value, .. } => {
+            // `p[i] = v`: getelementptr to the element's address, then store.
+            // The checker proved `base` is a `*mut i64` and both `index` and
+            // `value` are `i64`, so the types are known and correct here.
+            let ptr = gen_expr(ctx, base);
+            let idx = gen_expr(ctx, index);
+            let val = gen_expr(ctx, value);
+            let addr = ctx.tmp();
+            ctx.push(format!(
+                "{addr} = getelementptr i64, ptr {}, i64 {}",
+                ptr.value, idx.value
+            ));
+            ctx.push(format!("store i64 {}, ptr {addr}", val.value));
+            Flow::Fallthrough
+        }
         HirStmt::Return(value, _) => {
             // Defers for this scope run before the block is terminated, so
             // they execute on the way out, not when the `defer` was reached.

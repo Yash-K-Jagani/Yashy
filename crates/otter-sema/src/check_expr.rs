@@ -712,9 +712,51 @@ impl<'src> Checker<'src> {
             } => {
                 // The parser left the target an expression on purpose, so the
                 // question "what may be assigned to?" is answered here. Today
-                // one shape is assignable: a name bound by `var` in a scope that
-                // encloses this statement. Fields and subscripts become further
-                // arms in this match the day they exist.
+                // two shapes are assignable: a name bound by `var` in a scope
+                // that encloses this statement, and an index into a mutable
+                // `*mut i64` binding (`p[i] = v`). Fields become a further arm
+                // the day they exist.
+                //
+                // `p[i] = v` is checked before the name case because the
+                // target is not a bare name -- it is an index expression whose
+                // base must resolve to a mutable pointer binding.
+                if let Expr::Index { base, index, span } = target {
+                    let base = self.check_expr(base)?;
+                    let base_ty = expr_ty(&base);
+                    let TypeKind::Ptr(pointee) = &base_ty.kind else {
+                        let _ = self.check_expr(value);
+                        self.error(*span, format!("cannot assign to index of `{}`", base_ty));
+                        return None;
+                    };
+                    if !matches!(pointee.kind, TypeKind::I64) {
+                        let _ = self.check_expr(value);
+                        self.error(
+                            *span,
+                            format!("only `*mut i64` can be indexed, found `*mut {}`", pointee),
+                        );
+                        return None;
+                    }
+                    let index = self.check_expr(index)?;
+                    if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
+                        let _ = self.check_expr(value);
+                        self.error(expr_span(&index), "index must be `i64`");
+                        return None;
+                    }
+                    let value = self.check_expr(value)?;
+                    if !expr_ty(&value).eq_ignoring_span(&prim(TypeKind::I64)) {
+                        self.error(
+                            expr_span(&value),
+                            format!("expected `i64`, found `{}`", expr_ty(&value)),
+                        );
+                        return None;
+                    }
+                    return Some(HirStmt::IndexAssign {
+                        base,
+                        index,
+                        value,
+                        span: *span,
+                    });
+                }
                 let name = match target {
                     Expr::Ident(path, _) => path.last().cloned().unwrap_or_default(),
                     other => {
@@ -1628,12 +1670,37 @@ impl<'src> Checker<'src> {
                 }
             }
             Expr::Index { base, index, span } => {
-                // Pointer indexing (`p[i]`) is parsed but not lowered yet.
-                // Report a clear diagnostic rather than panic or emit wrong IR.
-                let _ = self.check_expr(base);
-                let _ = self.check_expr(index);
-                self.error(*span, "indexing is not implemented yet");
-                None
+                // `p[i]` reads (or, in an assignment target, writes) an
+                // element of a pointer. Otter has no arrays yet, so the base
+                // is always a `*mut i64` and the index an `i64`; the result
+                // is `i64`.
+                let base = self.check_expr(base)?;
+                let base_ty = expr_ty(&base);
+                let TypeKind::Ptr(pointee) = &base_ty.kind else {
+                    self.error(*span, format!("cannot index `{}`", base_ty));
+                    return None;
+                };
+                let index = self.check_expr(index)?;
+                if !matches!(pointee.kind, TypeKind::I64) {
+                    self.error(
+                        *span,
+                        format!("only `*mut i64` can be indexed, found `*mut {}`", pointee),
+                    );
+                    return None;
+                }
+                if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
+                    self.error(
+                        expr_span(&index),
+                        "index must be `i64`",
+                    );
+                    return None;
+                }
+                Some(HirExpr::Index {
+                    base: Box::new(base),
+                    index: Box::new(index),
+                    span: *span,
+                    ty: prim(TypeKind::I64),
+                })
             }
             Expr::FieldAccess { base, field, span } => {
                 let base = self.check_expr(base)?;

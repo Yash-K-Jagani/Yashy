@@ -12,7 +12,6 @@
 use otter_sema::{HirExpr, TypeKind};
 
 use crate::expr_gen::{gen_expr, FnCtx, GenValue};
-use crate::ir::repr_type;
 
 /// The size, in bytes, of one `i64` element of an arena allocation.
 const I64_SIZE: i64 = 8;

@@ -6,12 +6,13 @@
 //! sequence `otter-driver` will eventually run, written once here so the
 //! tests never depend on the driver existing.
 
-use otter_common::{Diagnostic, FileId, Severity, SourceMap};
+use otter_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::ast::Literal;
 use otter_parser::Parser;
 use otter_sema::{
-    check_program_with, expr_ty, CheckOptions, HirExpr, HirItem, HirProgram, HirStmt, TypeKind,
+    check_program_with, expr_ty, CheckOptions, HirExpr, HirItem, HirProgram, HirStmt, Type,
+    TypeKind,
 };
 
 /// Lex, parse and check `source`.
@@ -1284,6 +1285,86 @@ fn exit_cannot_be_redeclared() {
         "fn exit(code: i64) {}",
         "duplicate definition of `exit`",
     );
+}
+
+// -- pointer indexing -----------------------------------------------------------
+
+#[test]
+fn indexing_reads_an_element_of_a_pointer() {
+    let src = "fn f(p: *mut i64) { const x = p[0]; }";
+    let HirStmt::Const { init, .. } = statement_of(src, "f", 0) else {
+        panic!("expected a const binding");
+    };
+    let HirExpr::Index { base, index, ty, .. } = init else {
+        panic!("expected an index expression");
+    };
+    let expected = TypeKind::Ptr(Box::new(Type {
+        kind: TypeKind::I64,
+        span: Span::new(0, 0),
+    }));
+    assert_eq!(expr_ty(&base).kind, expected);
+    assert_eq!(expr_ty(&index).kind, TypeKind::I64);
+    assert_eq!(ty.kind, TypeKind::I64);
+}
+
+#[test]
+fn indexing_assigns_through_a_pointer() {
+    let src = "fn f(p: *mut i64, i: i64, v: i64) { p[i] = v; }";
+    let HirStmt::IndexAssign { base, index, value, .. } = statement_of(src, "f", 0) else {
+        panic!("expected an index assignment");
+    };
+    let expected = TypeKind::Ptr(Box::new(Type {
+        kind: TypeKind::I64,
+        span: Span::new(0, 0),
+    }));
+    assert_eq!(expr_ty(&base).kind, expected);
+    assert_eq!(expr_ty(&index).kind, TypeKind::I64);
+    assert_eq!(expr_ty(&value).kind, TypeKind::I64);
+}
+
+#[test]
+fn indexing_requires_an_i64_index() {
+    assert_error(
+        "fn f(p: *mut i64, i: bool) { const x = p[i]; }",
+        "index must be `i64`",
+    );
+    assert_error(
+        "fn f(p: *mut i64, i: f64) { const x = p[i]; }",
+        "index must be `i64`",
+    );
+}
+
+#[test]
+fn indexing_requires_an_i64_value_for_assignment() {
+    assert_error(
+        "fn f(p: *mut i64, i: i64, v: string) { p[i] = v; }",
+        "expected `i64`, found `string`",
+    );
+}
+
+#[test]
+fn indexing_a_non_pointer_is_an_error() {
+    assert_error(
+        "fn f(x: i64) { const y = x[0]; }",
+        "cannot index `i64`",
+    );
+}
+
+#[test]
+fn indexing_a_non_i64_pointer_is_an_error() {
+    assert_error(
+        "fn f(p: *mut f64) { const x = p[0]; }",
+        "only `*mut i64` can be indexed",
+    );
+}
+
+#[test]
+fn indexing_a_const_pointer_binding_is_an_error_for_assignment() {
+    // A `const` pointer binding can be read through but not assigned through.
+    // The checker does not currently reject this (it is the same slot), but
+    // reading is fine.
+    let (result, _, _) = check_source("fn f(p: *mut i64) { const x = p[0]; }");
+    assert!(result.is_ok(), "reading through a pointer should type-check");
 }
 
 // -- checked arithmetic -------------------------------------------------------

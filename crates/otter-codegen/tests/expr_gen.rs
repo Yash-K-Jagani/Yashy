@@ -14,7 +14,7 @@ use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_sema::{check_program_with, expr_ty, CheckOptions, HirItem, HirProgram, HirStmt};
 
-use otter_codegen::{gen_block, gen_expr, gen_expr_to_slot, FnCtx, Module};
+use otter_codegen::{gen_block, gen_expr, gen_expr_to_slot, gen_stmt, FnCtx, Module};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
@@ -86,7 +86,10 @@ fn lower_body(f: &otter_sema::HirFn) -> String {
                 HirStmt::Expr(expr, _, _) => {
                     let _ = gen_expr(&mut ctx, expr);
                 }
-                other => panic!("the harness only handles const and expr, got {other:?}"),
+                HirStmt::IndexAssign { .. } => {
+                    let _ = gen_stmt(&mut ctx, stmt);
+                }
+                other => panic!("the harness only handles const, expr, and index assignment, got {other:?}"),
             }
         }
         ctx.finish();
@@ -853,6 +856,32 @@ fn exit_fits_in_a_value_position() {
     assert!(ir_text.contains("trunc i64") || ir_text.contains("unreachable"));
 }
 
+#[test]
+fn indexing_reads_an_element_via_getelementptr() {
+    let ir_text = gen_body("fn f(p: *mut i64) { const x = p[0]; }");
+    assert!(
+        ir_text.contains("getelementptr i64"),
+        "indexing must compute the element address:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("load i64"),
+        "and then load from it:\n{ir_text}"
+    );
+}
+
+#[test]
+fn index_assignment_stores_through_getelementptr() {
+    let ir_text = gen_body("fn f(p: *mut i64, i: i64, v: i64) { p[i] = v; }");
+    assert!(
+        ir_text.contains("getelementptr i64"),
+        "index assignment must compute the element address:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("store i64"),
+        "and then store through it:\n{ir_text}"
+    );
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {
@@ -916,7 +945,6 @@ fn every_alloca_lands_in_the_entry_block() {
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
         ctx.begin_entry();
-        let mut defers: Vec<otter_codegen::stmt_gen::Deferred> = Vec::new();
         let _ = gen_block(&mut ctx, &f.body);
         ctx.finish();
     }

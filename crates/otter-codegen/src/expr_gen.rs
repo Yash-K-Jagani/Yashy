@@ -264,6 +264,23 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                 ty: ty.kind.clone(),
             }
         }
+        HirExpr::Index { base, index, ty, .. } => {
+            // `p[i]` reads an element of a `*mut i64`: getelementptr to the
+            // element's address, then load.
+            let ptr = gen_expr(ctx, base);
+            let idx = gen_expr(ctx, index);
+            let addr = ctx.tmp();
+            ctx.push(format!(
+                "{addr} = getelementptr i64, ptr {}, i64 {}",
+                ptr.value, idx.value
+            ));
+            let value = ctx.tmp();
+            ctx.push(format!("{value} = load i64, ptr {addr}"));
+            GenValue {
+                value,
+                ty: ty.kind.clone(),
+            }
+        }
         HirExpr::Cast { expr, ty, .. } => gen_cast(ctx, expr, &ty.kind),
         HirExpr::Try { expr, ty, .. } => gen_try(ctx, expr, &ty.kind),
         HirExpr::SwitchExpr {
