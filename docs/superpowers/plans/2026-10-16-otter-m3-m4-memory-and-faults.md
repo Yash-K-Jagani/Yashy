@@ -1066,13 +1066,24 @@ git commit -m "feat(codegen): unwind landing pads and defer cleanup on unwind"
 >   and `otter_panic_division` take the operator's symbol and both operands, so
 >   the message names the numbers:
 >   `main.ot:7:13: panic: integer overflow: 9223372036854775807 + 1`.
-> - **Measured cost** (same machine, same binaries, min of 5 runs):
->   `fib` 79 → 143 ms, `loop` 247 → 256 ms, `float` 529 → 540 ms. The
->   call-dominated benchmark pays for three checks per call; the loop and float
->   benchmarks are within noise, because LLVM proves the loop's arithmetic safe
->   and elides the checks entirely. **With the opt-out in, `fib` is 81 ms** —
->   the escape hatch recovers all of it, which is why it is part of this task
->   rather than a later one.
+> - **Measured cost**, in interleaved passes so the ratios are trustworthy
+>   (the machine's clock moves every row together between windows): `fib`
+>   79 → 158 ms, `loop` at the portable tier 253 → 261 ms, `float` 529 → 535 ms.
+>   The call-dominated benchmark pays for three checks per call. The portable
+>   loop and `float` are within noise, because LLVM proves the arithmetic safe
+>   and deletes the checks. **With the opt-out in, `fib` is 84 ms and the
+>   portable `loop` 262 ms — the escape hatch recovers all of it**, which is why
+>   it is part of this task rather than a later one.
+> - **The first measurement of `loop` was wrong, and the way it was wrong is
+>   worth keeping.** It was taken at the portable tier only, where the checks are
+>   proved away, which produced the comfortable conclusion "the loop is
+>   unaffected". Measured at `--cpu=x86-64-v3`, the checked loop is **171 ms
+>   against 69 ms opted out** — 2.5× — because a check is a potentially-faulting
+>   branch in the body and LLVM's loop vectoriser will not speculate it. The
+>   baseline loop is scalar so the checks vanish; the `v3` loop would vectorise,
+>   so they do not. The opt-out lands on clang's number exactly (69 vs 68 ms).
+>   See `docs/performance-improvements.md` item 9 for the table and item 10 for
+>   making the checked form vectorisable.
 >
 > **The second half — the opt-outs.** Nine builtins, declared in the checker's
 > builtin table like any other function:

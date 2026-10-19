@@ -1,0 +1,26 @@
+// Benchmark 2b: the same integer loop, with the arithmetic opt-out.
+//
+// `loop.ot` is plain `+` and `*`, which in Otter are checked. The values stay
+// far inside i64, so neither variant can overflow and both print the same
+// number -- but the checked one asks the compiler to prove that, per iteration,
+// and the wrapping one does not.
+//
+// `%` stays checked here (there is no `wrapping_rem`): the divisor is the
+// constant 2, so the check is free, and the same is true of the loop's bounds.
+// See fib-wrap.ot for why this variant exists at all.
+fn work(n: i64) -> i64 {
+    var acc = 0;
+    for i in 0..n {
+        if i % 2 == 0 {
+            acc = wrapping_add(acc, i);
+        } else {
+            acc = wrapping_add(acc, wrapping_mul(i, 2));
+        }
+    }
+    return acc;
+}
+
+fn main() {
+    print_i64(work(200000000));
+    print_str("\n");
+}

@@ -17,6 +17,13 @@
   Otter is additionally built at -O0, so the table shows what enabling
   optimization actually buys rather than just asserting that it helps.
 
+  The integer benchmarks have a second Otter row, built from `<name>-wrap.ot`:
+  the same algorithm with `wrapping_*` in place of bare `+`/`-`/`*`. Otter's
+  arithmetic is checked by default, which C, Go, Rust, Node and Python's is not,
+  so the plain row promises more than the rows it is compared against and the
+  wrapping row is the strictly like-for-like one. The gap between the two is
+  what the check costs; it is not a defect to be hidden.
+
   Four rows carry a machine flag, in two pairs: `--native` / `-march=native`,
   which build for the CPU of the machine running the benchmark, and
   `--cpu=x86-64-v3` / `-march=x86-64-v3`, which build for an AVX2-era CPU
@@ -110,6 +117,15 @@ function Build-All {
         Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-O0$exe", '-O0') "otter build $name -O0"
         Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-O2$exe") "otter build $name -O2"
 
+        # `<name>-wrap.ot` is the same algorithm with `wrapping_*` instead of
+        # bare `+`/`-`/`*`, and it is the row that is strictly comparable with the
+        # C/Go/Rust/Node/Python rows: those languages wrap, and Otter's default
+        # checks. Only the integer benchmarks have one -- the float benchmark has
+        # no integer arithmetic to opt out of.
+        if (Test-Path "$bench\$name-wrap.ot") {
+            Invoke-Tool $otter @('build', "$bench\$name-wrap.ot", '-o', "$build\$name-otter-wrap$exe") "otter build $name-wrap"
+        }
+
         # `--native` targets the machine that builds, so its C counterpart is
         # compiled with `-march=native` too. The pair answers "what is the flag
         # worth" without either side quietly receiving a flag the other did not.
@@ -176,6 +192,7 @@ function Invoke-Runtime {
         $programs = @(
             @{ Lang = 'Otter (clang -O0)'; Path = "$build\$name-otter-O0$exe" },
             @{ Lang = 'Otter (clang -O2)'; Path = "$build\$name-otter-O2$exe" },
+            @{ Lang = 'Otter (-O2, wrapping_*)'; Path = "$build\$name-otter-wrap$exe"; Optional = $true },
             @{ Lang = 'Otter (-O2, --native)'; Path = "$build\$name-otter-native$exe" },
             @{ Lang = 'Otter (-O2, --cpu=x86-64-v3)'; Path = "$build\$name-otter-v3$exe" },
             @{ Lang = 'C (clang -O2)';     Path = "$build\$name-clang$exe" },
@@ -189,6 +206,11 @@ function Invoke-Runtime {
             @{ Lang = 'CPython 3.14';      Path = 'python'; Args = @("$bench\$name.py") }
         )
         foreach ($program in $programs) {
+            # A row whose binary does not exist is skipped, not failed: the
+            # wrapping_* variant only exists for the integer benchmarks.
+            if ($program.ContainsKey('Optional') -and -not (Test-Path $program.Path)) {
+                continue
+            }
             $extra = @()
             if ($program.ContainsKey('Args')) { $extra = [string[]]$program.Args }
             $count = if ($program.ContainsKey('Args')) { $InterpRuns } else { $Runs }

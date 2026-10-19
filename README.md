@@ -186,59 +186,75 @@ Same algorithm, same input, every language compiled by its own native
 optimizer at `-O2`. Lower is better. Full methodology and caveats in
 [`benchmarks/README.md`](benchmarks/README.md).
 
+One row needs explaining before the numbers mean anything. Otter's arithmetic is
+**checked**, and C's, Rust's, Go's, Node's and Python's is not: `a + b` in Otter
+stops the program if it overflows. Rows labeled ``Otter (-O2, `wrapping_*`)`` are
+the same program with the opt-out (§ Checks in [`README`](#arithmetic-is-checked)),
+and they are the strictly like-for-like rows; the plain Otter rows promise more
+and sometimes pay for it.
+
 **`fib(35)` — about 30 million calls** (function call overhead):
 
 | Language | ms | ns/call |
 |---|---:|---:|
 | C (gcc -O2) | 49 | 1.63 |
-| C (clang -O2) | 80 | 2.67 |
-| **Otter (clang -O2)** | **81** | **2.72** |
-| Rust (rustc -O) | 83 | 2.77 |
-| Otter (clang -O0) | 140 | 4.70 |
-| Go | 144 | 4.84 |
-| Node 24 | 333 | 11.2 |
-| CPython 3.14 | 2934 | 98.3 |
+| C (clang -O2) | 82 | 2.75 |
+| **Otter (-O2, `wrapping_*`)** | **82** | **2.75** |
+| Rust (rustc -O) | 87 | 2.91 |
+| Go (go build) | 140 | 4.67 |
+| **Otter (clang -O2)** | **149** | **4.99** |
+| Otter (clang -O0) | 176 | 5.91 |
+| Node 24 | 362 | 12.1 |
+| CPython 3.14 | 3418 | 114 |
 
 **A 200,000,000-iteration integer loop with a branch:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| C (gcc -O2) | 240 | 1.20 |
-| Rust (rustc -O) | 252 | 1.26 |
-| **Otter (clang -O2)** | **253** | **1.27** |
-| C (clang -O2) | 254 | 1.27 |
-| Go | 270 | 1.35 |
-| Node 24 | 616 | 3.08 |
-| Otter (clang -O0) | 1476 | 7.38 |
-| CPython 3.14 | 50886 | 254 |
+| **Otter (clang -O2)** | **241** | **1.20** |
+| C (gcc -O2) | 243 | 1.21 |
+| Rust (rustc -O) | 249 | 1.25 |
+| **Otter (-O2, `wrapping_*`)** | **251** | **1.25** |
+| C (clang -O2) | 267 | 1.33 |
+| Go (go build) | 293 | 1.47 |
+| Node 24 | 688 | 3.44 |
+| Otter (clang -O0) | 1717 | 8.58 |
+| CPython 3.14 | 26476 | 132 |
 
 **100,000,000 iterations of an `f64` dependency chain:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| C (gcc -O2) | 524 | 5.24 |
-| **Otter (clang -O2)** | **529** | **5.29** |
-| Rust (rustc -O) | 530 | 5.30 |
-| C (clang -O2) | 531 | 5.31 |
-| Go | 538 | 5.38 |
-| Node 24 | 644 | 6.44 |
-| Otter (clang -O0) | 888 | 8.88 |
-| CPython 3.14 | 12870 | 128.7 |
+| **Otter (clang -O2)** | **535** | **5.35** |
+| C (gcc -O2) | 537 | 5.37 |
+| Rust (rustc -O) | 542 | 5.42 |
+| C (clang -O2) | 546 | 5.46 |
+| Go (go build) | 549 | 5.49 |
+| Node 24 | 684 | 6.84 |
+| Otter (clang -O0) | 827 | 8.27 |
+| CPython 3.14 | 9421 | 94.2 |
 
-Laptops are laptops, and these three tables come from one run of one script on
-one machine: the ordering of rows that are close together — Otter, `clang` and
-Rust on `fib`, for instance — moves between runs. The `ns/iteration` column is
-there because it travels better than the millisecond column.
+Laptops are laptops, and these three tables come from two runs of one script on
+one machine, each row reporting the best of the ten runs. The ordering of rows
+that are close together — Otter, `clang` and Rust on `loop`, for instance — moves
+between runs. The `ns/iteration` column is there because it travels better than
+the millisecond column, and so does a ratio measured within one pass: this
+machine's clock varies by up to 3× between windows (a background scan or a
+thermal state; the cause was not identified), which moves every row of a table
+together and moves nothing between them.
 
 What the tables say:
 
 - **Otter's scalar code is in the same band as C and Rust, and that is the whole
-  claim.** On `loop` it is ahead of `clang` and within 6% of `gcc`; on `float` it is
-  ahead of both C compilers; on `fib` it is within 2% of `clang` and ahead of Rust. It
-  is sometimes ahead of C built by the same `clang` — evidence the IR is clean, not
-  evidence that Otter is better than C. It is not a claim that `otter-codegen`
-  optimizes anything: it contains no optimization passes, and hands everything to
-  LLVM.
+  claim.** On `loop` it is ahead of `clang` and level with `gcc`; on `float` it is
+  ahead of both C compilers; on `fib` with the arithmetic opt-out it is within a
+  percent of `clang` and ahead of Rust. It is sometimes ahead of C built by the
+  same `clang` — evidence the IR is clean, not evidence that Otter is better than
+  C. It is not a claim that `otter-codegen` optimizes anything: it contains no
+  optimization passes, and hands everything to LLVM.
+- **Checked arithmetic is free where the backend can see the answer and 1.8× on
+  `fib` where it cannot**, which is the one place Otter's default is behind Go.
+  See [what the check costs](#what-the-check-costs) below.
 - **Two opt-in flags buy most of the remaining speed.** `--cpu=<tier>` spends
   portability for instruction-set width (which is what lets the backend vectorise the
   loop); `--fast-math` lets the backend fuse a floating-point multiply and add into
@@ -247,51 +263,96 @@ What the tables say:
 
 | Benchmark | portable | `--cpu=x86-64-v3` | Speedup | `+ --fast-math` | Speedup |
 |---|---:|---:|---:|---:|---:|
-| `fib` | 81 ms | 76 ms | 1.06× | 78 ms | 1.04× |
-| `loop` | 253 ms | 62 ms | 4.09× | 62 ms | 4.06× |
-| `float` | 529 ms | 527 ms | 1.00× | 312 ms | 1.70× |
+| `fib` | 149 ms | 146 ms | 1.02× | 143 ms | 1.04× |
+| `loop` | 241 ms | 184 ms | 1.31× | 169 ms | 1.43× |
+| `float` | 535 ms | 543 ms | 0.99× | 320 ms | 1.67× |
 
-  On `fib` and `loop` the tiers barely matter; on `float` the fusion is the whole
-  story. `clang` gets that fusion for free at `-march=x86-64-v3` (C's
-  `-ffp-contract=on` is the default), which is why the `float` row that matches
-  `clang` needs the flag: it is Otter asking for what C does by default.
+  `fib` gets nothing from the tier — it is calls, not instruction width. `float`
+  gets the fusion, and that is the whole story there: `clang` gets it for free at
+  `-march=x86-64-v3` (C's `-ffp-contract=on` is the default), which is why the
+  `float` row that matches `clang` needs the flag — it is Otter asking for what C
+  does by default. `loop` is the one that changed: the tier buys 1.31× where it
+  used to buy 4.1×, because the check is what stops the loop from vectorising.
+  With `wrapping_*` the same build reaches 69 ms. That is [what the check
+  costs](#what-the-check-costs), and this row is the strongest argument for the
+  opt-out.
 - **The tiers are graded against the same tier in C.** `--cpu=x86-64-v3` is compared
   with `clang -march=x86-64-v3`, never against a baseline C build that went without.
-  At that tier Otter is within a few percent of `clang` on all three rows — `loop`
-  62 vs 61 ms, `float` 312 vs 311 ms, `fib` 76 vs 77 ms. `--native` is the last tier,
-  tuned to the build machine; its numbers travel worse between machines, which is why
-  the portable scale and `x86-64-v3` are the ones quoted.
+  At that tier the like-for-like rows are within a percent of `clang` — `float` 320
+  vs 322 ms, and `loop` with `wrapping_*` 69 vs 68 ms in one pass — while Otter's
+  default trails on `fib` (146 vs 80 ms) and on `loop` (184 vs 64 ms), both because
+  of the same check. `--native` is the last tier, tuned to the build machine; its
+  numbers travel worse between machines, which is why the portable scale and
+  `x86-64-v3` are the ones quoted.
 - **Enabling optimization mattered enormously.** `otter build` used to pass `clang`
   no optimization flag at all, so every Otter binary ran at `-O0`. Fixing that is
-  worth **5.8×** on the loop, 1.7× on `fib` and 1.7× on the float chain — the rows
+  worth **7.1×** on the loop, 1.2× on `fib` and 1.5× on the float chain — the rows
   above labeled `-O0` are what Otter shipped before.
 
 | Benchmark | `-O0` | `-O2` | Speedup |
 |---|---:|---:|---:|
-| `fib` | 140 ms | 81 ms | 1.7× |
-| `loop` | 1476 ms | 253 ms | 5.8× |
-| `float` | 888 ms | 529 ms | 1.7× |
+| `fib` | 176 ms | 149 ms | 1.2× |
+| `loop` | 1717 ms | 241 ms | 7.1× |
+| `float` | 827 ms | 535 ms | 1.5× |
 
 **Compile time** (the `fib` program, best of 5):
 
 | Toolchain | ms |
 |---|---:|
-| Otter (front end only: lex, parse, check, emit IR) | 25 |
-| C (`clang -O2`) | 245 |
-| Otter (full build) | 256 |
-| Go (`go build`) | 262 |
-| Rust (`rustc -O`) | 559 |
+| Otter (front end only: lex, parse, check, emit IR) | 22 |
+| C (`clang -O2`) | 252 |
+| Otter (full build) | 259 |
+| Go (`go build`) | 281 |
+| Rust (`rustc -O`) | 602 |
 
-The front end — everything this repository implements — is 25 ms. The rest of
+The front end — everything this repository implements — is 22 ms. The rest of
 `otter build` is `clang` doing the same job it does for C, and it is now a *single*
 `clang` invocation: compile the IR and link, in one step, with no intermediate
-object file. That is why `otter build` sits about 5% above `clang -O2` on the same
+object file. That is why `otter build` sits about 3% above `clang -O2` on the same
 program instead of double it. An earlier version ran `clang` twice and compiled the
 runtime's C source from scratch on *every* build, which cost 135 ms of the 403 ms
 it took then; the runtime object is cached in a content-addressed directory now.
 The first build on a machine still pays for filling that cache. See
 [`docs/performance-improvements.md`](docs/performance-improvements.md) for the
 breakdown.
+
+### What the check costs
+
+The arithmetic is checked, so a program that would overflow stops with a message
+naming the operands instead of continuing with a wrapped number. That promise has
+a price, and it is not the same price everywhere: it is free where the backend can
+prove the operation cannot overflow, and charged per operation where it cannot.
+Every number below is one interleaved pass — thermal effects cancel within a pass,
+which they do not across passes — minimum of seven runs, `-O2`.
+
+| Benchmark | checked | `wrapping_*` | C (`clang -O2`) | Cost |
+|---|---:|---:|---:|---:|
+| `fib(35)` | 158 ms | 84 ms | 84 ms | 1.9× |
+| `loop`, portable | 261 ms | 262 ms | 273 ms | 1.0× |
+| `loop`, `--cpu=x86-64-v3` | 171 ms | 69 ms | 68 ms | 2.5× |
+| `float` | 535 ms | — | 546 ms | 1.0× |
+
+- **`float` costs nothing**, because there is no integer arithmetic in it: only
+  integer operations carry a check.
+- **`loop` costs nothing at the default tier.** Its induction variable and its sum
+  are provably within range, so LLVM deletes every check: 261 ms checked against
+  262 ms opted out, and both are ahead of `clang`'s 273 ms.
+- **`fib` costs 1.8–1.9×**: three checks inside a function called thirty million
+  times. This is the one row where Otter's default falls behind Go, and the one
+  where the opt-out matters most.
+- **At `--cpu=x86-64-v3` the check costs 2.5× on `loop`, for a specific reason: it
+  stops the loop from vectorising.** The baseline loop is scalar and the checks are
+  proved away. The `v3` build's loop would vectorise, and a potentially-faulting
+  branch in the body is not something LLVM's vectoriser will speculate. With
+  `wrapping_*` the same build vectorises to exactly C's code: 69 ms against 68 ms
+  in the same pass.
+
+So the opt-out is not a claim that checking was a mistake; it is how a program
+says *this one cannot overflow* where the backend cannot see that for itself. It
+recovers all of the cost every time, which is why it shipped in the same commit as
+the check rather than in a later one. Making the checked form itself vectorisable
+is an open optimisation, recorded in
+[`docs/performance-improvements.md`](docs/performance-improvements.md).
 
 ### How fast can Otter get
 
@@ -301,14 +362,20 @@ Compiling with `--cpu=x86-64-v3 --fast-math` puts Otter within a few percent of
 IR shape — which is the honest upper bound, not a promise of beating it. Measured
 against what each language actually reached in the run above, that ceiling is:
 
-| Row | Otter (`v3`, `--fast-math`) | Language's own best | Otter's ratio |
+| Row | Otter's best | Language's own best | Otter's ratio |
 |---|---:|---:|---:|
-| `loop`, vs `gcc -O2` | 62 ms | 240 ms | 3.9× faster |
-| `loop`, vs Rust | 62 ms | 252 ms | 4.1× faster |
-| `loop`, vs Go | 62 ms | 270 ms | 4.3× faster |
-| `loop`, vs Node 24 | 62 ms | 616 ms | 9.9× faster |
-| `loop`, vs CPython | 62 ms | 50886 ms | 820× faster |
-| `float`, vs the portable C/Rust cluster | 312 ms | ~524 ms | 1.7× faster |
+| `loop`, vs `gcc -O2` | 69 ms (`v3`, `wrapping_*`) | 243 ms | 3.5× faster |
+| `loop`, vs Rust | 69 ms | 249 ms | 3.6× faster |
+| `loop`, vs Go | 69 ms | 293 ms | 4.2× faster |
+| `loop`, vs Node 24 | 69 ms | 688 ms | 10× faster |
+| `loop`, vs CPython | 69 ms | 26476 ms | 380× faster |
+| `float`, vs the portable C/Rust cluster | 320 ms (`v3`, `--fast-math`) | 535 ms | 1.7× faster |
+
+The `loop` rows are with `wrapping_*`, because that is what the program should say:
+its arithmetic provably cannot overflow, and the opt-out is what lets the loop
+vectorise. (`--fast-math` does nothing for an integer loop.) Left checked, the same
+build is 169 ms and the ratio against `gcc` is 1.4×. `float` needs no opt-out —
+there is no integer arithmetic in it — so its ceiling is available by default.
 
 Both flags are opt-in because they trade something away — the tier gives up running
 on older CPUs, `--fast-math` gives up exact floating-point results. The portable
@@ -325,14 +392,20 @@ tiered and fused rows are this run's measurement. See
 [`docs/performance-improvements.md`](docs/performance-improvements.md) for the
 round-by-round record, including the changes that were measured and *not* made.
 
-M0–M2 has no heap, no collections, no string operations and no checked
-arithmetic. These benchmarks exercise scalar arithmetic and function calls —
-they exercise none of the costs a real program pays, so they are a lower bound
-on the work to come, not a preview of it. When M4 adds checked integer
-arithmetic, the `loop` row is *expected* to get slower; having the number before
-is what turns that into a measured cost instead of a surprise. Measured on one
-machine with one run of the script: ratios should be stable, absolute times will
-not be.
+Checked integer arithmetic has landed since these tables were first written, and
+the prediction that the `loop` row would get slower was half right: at the default
+tier LLVM deletes the checks and the row did not move, while at `x86-64-v3` it did,
+by 2.5×, because the check is what stops the loop from vectorising. See [what the
+check costs](#what-the-check-costs). Either way the cost is now measured rather
+than a surprise, which is what the numbers were for.
+
+These benchmarks exercise scalar arithmetic and function calls; they exercise
+none of the costs a real program pays — no heap, no collections, no string
+operations — so they are a lower bound on the work to come, not a preview of it.
+They are also a fixed algorithm in each language, which is what makes them
+comparable and what makes them narrow: `fib` measures call overhead and little
+else. Measured on one machine: ratios should be stable, absolute times will not
+be.
 
 The benchmark suite exists in part because it caught two real compiler bugs that
 the test suite could not: `f64` `+`, `-` and `*` were lowering to LLVM's

@@ -376,14 +376,62 @@ touching. For a user enum with fifty variants it is fifty. LLVM has a pass that
 recovers a jump table from an `icmp` chain, so the real cost may be near zero —
 measure with a wide enum before changing anything.
 
-### 9. Re-measure when checked arithmetic lands — M4, process
+### 9. Re-measure when checked arithmetic lands — M4, done
 
-The language contract says integer overflow panics (§6.1 of the design spec);
-at M0–M2 it wraps, and the benchmarks depend on wrapping. M4 will add the
-checks, and Otter's `loop` row will get slower. Having the before-number is
-what turns that from a surprise into a measured cost.
+The language contract says integer overflow panics (§6.1 of the design spec) and
+M4 implemented it: `+ - * / %` and unary `-` on `i64` now branch to a runtime
+report that names the operands and the source position, and `wrapping_*`,
+`checked_*` and `saturating_*` are the named opt-outs. The before-and-after
+numbers, and the reason they are not what was expected:
 
-### 10. Make the benchmarks a CI gate with stored baselines — process
+| Benchmark | before (wrapping) | checked default | `wrapping_*` opt-out | C (`clang -O2`) |
+|---|---:|---:|---:|---:|
+| `fib(35)` | 79 ms | 158 ms | 84 ms | 84 ms |
+| `loop`, portable | 253 ms | 261 ms | 262 ms | 273 ms |
+| `loop`, `--cpu=x86-64-v3` | 62 ms | 171 ms | 69 ms | 68 ms |
+| `float` | 529 ms | 535 ms | — | 546 ms |
+
+Every number in a row comes from one interleaved pass (minimum of seven runs), so
+the four columns are comparable with each other and not with the tables earlier in
+this file, which were measured in a different clock state. See the note on that
+under "Gaps in the tooling".
+
+Three things came out of this that were not predicted:
+
+- **The check is free where the backend can prove it away.** `loop` at the portable
+  tier did not move: 261 ms checked against 262 ms opted out. `ir_verify`-clean
+  `with.overflow` intrinsics are exactly what LLVM's range analysis can fold, and
+  it folds all of them here.
+- **It costs 2.5× on `loop` at `--cpu=x86-64-v3`, and the mechanism is
+  vectorisation.** The baseline loop is scalar and the checks disappear; the `v3`
+  loop would vectorise, and a body containing a potentially-faulting branch is not
+  something the vectoriser will speculate. This is the opposite of the expected
+  result — the faster tier is where the check is expensive — and the opt-out
+  recovers it exactly (69 vs 68 ms).
+- **The opt-out is therefore not a nicety.** It is the difference between "checked
+  arithmetic is a language decision that costs what it costs" and "checked
+  arithmetic is a 2.5× tax on the one loop the compiler could have made 4× faster".
+
+### 10. Make the checked form vectorisable — codegen, unknown
+
+The finding above is a real optimisation target, and it is the largest single
+number in this file: `loop` at `x86-64-v3` is 171 ms checked and 69 ms opted out.
+
+The check is an `llvm.sadd.with.overflow` pair plus a branch to a cold block that
+calls a runtime reporting function. Candidates, cheapest first: (a) hoist the
+check differently — the fault path is `cold` but a `call` it cannot speculate is
+what blocks the vectoriser, and an `unreachable`-terminated block containing only
+`call @llvm.trap`-style codegen may be speculation-friendly; (b) let the
+vectoriser see the flags — `with.overflow` is a recognised intrinsic and the loop
+vectorizer can keep the flag as a vector, if the reduction and the early exit are
+expressed so it can; (c) emit the check only outside the loop when the induction
+variable's range is known, which is a generalised form of what LLVM already does
+at the baseline tier. (c) is what a user gets from `wrapping_*` today, by hand.
+
+Anything here must be measured against the same table, and it must not regress the
+portable rows, which are currently free.
+
+### 11. Make the benchmarks a CI gate with stored baselines — process
 
 The f64 defect above was found by a human running a new program, not by the
 test suite, because the suite compared IR text against a recorded expectation
@@ -392,7 +440,7 @@ hole: run every benchmark program through `clang` in CI (which the end-to-end
 suite now does for `floats.ot`), and store a baseline so a codegen regression
 shows up as a number that moved.
 
-### 11. Add size and speed checks for aggregate passing — codegen, unknown
+### 12. Add size and speed checks for aggregate passing — codegen, unknown
 
 `struct` values are LLVM aggregate types passed and returned by value
 (`%otter_str = type { i32, i32, i8* }`). LLVM's SROA splits small ones into
@@ -425,6 +473,17 @@ evidence yet that it matters; no struct-heavy benchmark exists.
   same policy is why `cargo clippy` cannot run here. Treat a blocked `spawn` as
   an environment result, not a test failure, and rebuild when a benchmark binary
   is refused.
+- **This machine's clock changes state by up to 3× between measurement windows.**
+  The same binary — `loop` at `-O2`, output verified correct on every run — has
+  measured 74 ms in one window and 261 ms in another, with every row of a table
+  moving together. A background error scan or a thermal state is the likely cause;
+  it was never identified, and no counter in the harness reports it. Two
+  consequences: an absolute millisecond figure from a single pass is nearly
+  meaningless, and a *ratio* is only safe when both rows were measured in the same
+  pass. Every table in this file that matters for a comparison was taken
+  interleaved for that reason, and rows drawn from different passes are marked.
+  The old tables earlier in this file were all measured in the slow state, which
+  is why they are internally consistent and not comparable with the new ones.
 - **`cargo clippy` cannot run in this environment.** An Application Control
   policy blocks `cargo-clippy` (`os error 4551`). The gates used instead are
   `cargo check --workspace --all-targets` and `cargo test --workspace`. Restoring
@@ -438,23 +497,31 @@ evidence yet that it matters; no struct-heavy benchmark exists.
 ## The honest summary
 
 The compiler is not the bottleneck. For a small program, lexing through IR
-emission is about 25 ms — and it is linear in program size, so it stays
+emission is about 22 ms — and it is linear in program size, so it stays
 proportional. The build's real costs were two `clang` invocations and a runtime
 recompiled on every build; caching the runtime and merging the two invocations
-took a steady-state build from 402.9 ms to 256.2 ms, within 5% of `clang -O2` on
+took a steady-state build from 402.9 ms to 259 ms, within 3% of `clang -O2` on
 the same C file.
 
-The largest single result in this document is not a build-time number at all.
-A CPU tier takes the `loop` benchmark from 253 ms to 62 ms — a 4.1× speed-up — by
-letting the backend use AVX2, and `--fast-math` takes `float` from 529 ms to
-312 ms — 1.7× — by fusing multiply-add. Both are opt-in because they cost
-something real (portability, exact results), and both are honest because the C
-reference, given the same flag, lands in the same place: what is being unlocked
-is the target and the permission, not Otter. Otter's ceiling is clang's ceiling,
-because clang is the backend.
+The largest single result in this document is not a build-time number at all, and
+after M4 it is also the most interesting one. A CPU tier takes the `loop` benchmark
+from 253 ms to 62 ms — a 4.1× speed-up — by letting the backend use AVX2, and
+`--fast-math` takes `float` from 529 ms to 320 ms — 1.7× — by fusing multiply-add.
+Both are opt-in because they cost something real (portability, exact results), and
+both are honest because the C reference, given the same flag, lands in the same
+place: what is being unlocked is the target and the permission, not Otter. Otter's
+ceiling is clang's ceiling, because clang is the backend.
 
-What is left is not in the front end. It is the memory system (M3), the cost
-checked arithmetic adds (M4), and escape analysis (M9). This document lists the
+M4 then put a check on every integer operation, and the tier result above turned
+out to be conditional on it: the checked `loop` gets 1.31× from the tier where the
+opted-out one gets all 3.8×, because a fault branch in the loop body is not
+something the vectoriser will speculate. At the portable tier the check is free —
+far from the "expect `loop` to get slower" prediction. That is the one open
+optimisation this document would put first (item 10), and it is measurable
+against a table that already exists.
+
+What is left is not in the front end. It is the memory system (M3), making the
+checked form vectorisable (M4), and escape analysis (M9). This document lists the
 front-end items for completeness, but nothing here should be done before
 measuring, and the measurements so far say the front end is not where the time
 goes.
