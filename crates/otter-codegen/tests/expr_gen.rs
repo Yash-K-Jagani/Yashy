@@ -12,12 +12,18 @@ use std::path::{Path, PathBuf};
 use otter_common::SourceMap;
 use otter_lexer::Lexer;
 use otter_parser::Parser;
-use otter_sema::{check_program, expr_ty, HirItem, HirProgram, HirStmt};
+use otter_sema::{check_program_with, expr_ty, CheckOptions, HirItem, HirProgram, HirStmt};
 
 use otter_codegen::{gen_block, gen_expr, gen_expr_to_slot, FnCtx, Module};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
+    check_source_in(src, false)
+}
+
+/// Lex, parse and check `source` into a typed HIR program, in the build mode
+/// `release` names -- the only thing a build mode changes about the checker.
+fn check_source_in(src: &str, release: bool) -> HirProgram {
     let mut sm = SourceMap::new();
     let file = sm.add_file("main.ot", src.to_string());
     let tokens = Lexer::new(src)
@@ -27,12 +33,17 @@ fn check_source(src: &str) -> HirProgram {
     let ast = parser
         .parse_program()
         .expect("these test sources must parse");
-    check_program(&ast, &sm, file).expect("these test sources must type-check")
+    check_program_with(&ast, &sm, file, CheckOptions { release })
+        .expect("these test sources must type-check")
 }
 
 /// The first function in `src`.
 fn first_fn(src: &str) -> otter_sema::HirFn {
-    let program = check_source(src);
+    first_fn_of(&check_source(src))
+}
+
+/// The first function in a checked program.
+fn first_fn_of(program: &HirProgram) -> otter_sema::HirFn {
     program
         .items
         .iter()
@@ -51,12 +62,20 @@ fn first_fn(src: &str) -> otter_sema::HirFn {
 /// puts them — at the top of the entry block — rather than where the call that
 /// wanted one happened to run.
 fn gen_body(src: &str) -> String {
-    let f = first_fn(src);
+    lower_body(&first_fn(src))
+}
+
+/// Lower the first function's body in the build mode `release` names.
+fn gen_body_in(src: &str, release: bool) -> String {
+    lower_body(&first_fn_of(&check_source_in(src, release)))
+}
+
+fn lower_body(f: &otter_sema::HirFn) -> String {
     let mut module = Module::new();
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());
         ctx.begin_entry();
-        let _ = ctx.alloc_params(&f);
+        let _ = ctx.alloc_params(f);
         for stmt in &f.body.stmts {
             match stmt {
                 HirStmt::Const { name, init, .. } => {
@@ -770,6 +789,44 @@ fn an_asserted_operand_is_evaluated_once() {
         ir_text.matches("call i64 @g(").count(),
         1,
         "the operand is evaluated once:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_debug_assert_is_lowered_like_an_assert_in_a_debug_build() {
+    // Same fault path, same message. The two names differ only in whether the
+    // call survives a release build, which is a checker decision.
+    let ir_text = gen_body("fn f(a: i64) { debug_assert(a > 0); }");
+    assert!(
+        ir_text.contains("assertion failed: a > 0")
+            && ir_text.contains("call void @otter_panic")
+            && ir_text.contains("_assert_ok:"),
+        "a debug build lowers it exactly as `assert`:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_debug_assert_disappears_in_a_release_build() {
+    // Nothing at all: no branch, no message, no call. The string is not even
+    // interned, which is what makes the check free rather than merely skipped.
+    let ir_text = gen_body_in("fn f(a: i64) { debug_assert(a > 0); }", true);
+    let body = body_of(&ir_text);
+    for absent in ["otter_panic", "_fault", "_assert_ok", "assertion failed"] {
+        assert!(
+            !body.contains(absent),
+            "a release build must not emit `{absent}`:\n{body}"
+        );
+    }
+}
+
+#[test]
+fn an_assert_survives_a_release_build() {
+    // The other half of the pair: `assert` is not a debugging aid.
+    let ir_text = gen_body_in("fn f(a: i64) { assert(a > 0); }", true);
+    assert!(
+        ir_text.contains("assertion failed: a > 0")
+            && ir_text.contains("call void @otter_panic"),
+        "a release build still lowers `assert`:\n{ir_text}"
     );
 }
 

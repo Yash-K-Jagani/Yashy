@@ -1001,17 +1001,18 @@ fn the_smallest_i64_can_be_written_and_printed() {
 /// of the runtime, so a failed compile fails the test with the compiler's own
 /// message rather than with whatever the run then says.
 fn compile_and_run(name: &str, source: &str) -> Output {
+    compile_and_run_with(name, source, &[])
+}
+
+/// The same, with extra `otter build` flags -- `--release`, say.
+fn compile_and_run_with(name: &str, source: &str, flags: &[&str]) -> Output {
     let dir = work_dir(name);
     let file = dir.join(format!("{name}.ot"));
     fs::write(&file, source).expect("writing the test program");
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-    let compile = Command::new(otter())
-        .arg("build")
-        .arg(&file)
-        .arg("-o")
-        .arg(&exe)
-        .output()
-        .expect("run the otter CLI");
+    let mut command = Command::new(otter());
+    command.arg("build").arg(&file).arg("-o").arg(&exe).args(flags);
+    let compile = command.output().expect("run the otter CLI");
     assert!(
         compile.status.success(),
         "compiling {name}.ot failed:\n{}",
@@ -1453,5 +1454,99 @@ fn an_asserted_operand_runs_exactly_once() {
         stderr_of(&output).contains("left = 1, right = 2"),
         "the message reports the value that was compared:\n{}",
         stderr_of(&output)
+    );
+}
+
+#[test]
+fn a_release_build_compiles_debug_asserts_away_and_keeps_asserts() {
+    // The one user-visible difference a build mode makes. A `debug_assert` is a
+    // claim about the program that is worth checking while writing it and worth
+    // nothing in front of a user; `assert` is a claim the program depends on.
+    let source = concat!(
+        "fn main() {\n",
+        "    print_str(\"start\\n\");\n",
+        "    var n = 0;\n",
+        "    debug_assert(n > 0);\n",   // false, and dropped by --release
+        "    print_str(\"checked\\n\");\n",
+        "    assert(n == 0);\n",         // true, and kept by both
+        "    print_str(\"done\\n\");\n",
+        "}\n"
+    );
+    let release = compile_and_run_with("debug-release", source, &["--release"]);
+    assert_eq!(
+        release.status.code(),
+        Some(0),
+        "a debug build's assertion must not stop a release build: {}",
+        stderr_of(&release)
+    );
+    assert_eq!(stdout_of(&release), "start\nchecked\ndone\n");
+
+    let debug = compile_and_run_with("debug-debug", source, &[]);
+    assert_eq!(
+        debug.status.code(),
+        Some(1),
+        "and a debug build must still stop on it"
+    );
+    assert_eq!(
+        stdout_of(&debug),
+        "start\n",
+        "nothing after the failed assertion may run"
+    );
+    assert!(
+        stderr_of(&debug).contains("panic: assertion failed: n > 0"),
+        "with the same message a debug build always had:\n{}",
+        stderr_of(&debug)
+    );
+    assert!(
+        stderr_of(&debug).contains("debug-debug.ot:4:5:"),
+        "reported at the position it was written at:\n{}",
+        stderr_of(&debug)
+    );
+}
+
+#[test]
+fn the_release_flag_reaches_the_ir_dump() {
+    // `--emit-ir` is a front-end path of its own, taken before the toolchain is
+    // even looked for, so the flag has to be plumbed there too. The proof is in
+    // the text: the debug assertion's message is not interned and its branch is
+    // gone, while `assert`'s is untouched.
+    let dir = work_dir("release-ir");
+    let file = dir.join("release-ir.ot");
+    fs::write(
+        &file,
+        concat!(
+            "fn main() {\n",
+            "    var n = 0;\n",
+            "    debug_assert(n > 0);\n",
+            "    assert(n == 0);\n",
+            "}\n"
+        ),
+    )
+    .expect("writing the test program");
+    let dump = |extra: &[&str]| {
+        let mut command = Command::new(otter());
+        command.arg("build").arg(&file).arg("--emit-ir").args(extra);
+        let output = command.output().expect("run the otter CLI");
+        assert!(
+            output.status.success(),
+            "--emit-ir {extra:?} failed:\n{}",
+            stderr_of(&output)
+        );
+        stdout_of(&output)
+    };
+
+    let debug = dump(&[]);
+    assert!(
+        debug.contains("assertion failed: n > 0"),
+        "a debug build emits both assertions:\n{debug}"
+    );
+    let release = dump(&["--release"]);
+    assert!(
+        !release.contains("assertion failed: n > 0"),
+        "a release build drops the debug one:\n{release}"
+    );
+    assert!(
+        release.contains("assertion failed: n == 0"),
+        "and keeps `assert`:\n{release}"
     );
 }

@@ -1194,9 +1194,10 @@ git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping con
 - Consumes: ledger L1 `otter_assert_failed`, ledger L3 M4 builtins
 - Produces: `assert(bool)`, `debug_assert(bool)`, `assert_eq`/`assert_ne` as builtin forms specialised per type pair, `os.exit(i32)` emitting a call to `exit`
 
-> **As built so far (the assertion half).** `assert`, `assert_eq` and
-> `assert_ne` are in; `debug_assert` (needs a `--release` flag that does not
-> exist yet), the `i32`-returning `main` and `os.exit` are not.
+> **As built (the assertion half; the exit-code half is not).** `assert`,
+> `assert_eq`, `assert_ne` and `debug_assert` are in, with the `--release` build
+> mode that compiles the last one away; the `i32`-returning `main` and `os.exit`
+> are not.
 >
 > Four things differ from the sketch above, and each is worth keeping:
 >
@@ -1223,11 +1224,23 @@ git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping con
 >   for `f64` and `otter_str_eq` for `string`.
 > - **The result type is `()`.** `assert` does not diverge when it holds, and
 >   typing it `!` would let its non-existent value into anything.
+> - **`--release` is not tied to `-O`.** `-O2` is already the default, so a flag
+>   meaning "optimize harder" would be a no-op; this one answers whether the
+>   build is one a user runs. The flag reaches the checker
+>   (`CheckOptions { release }`, with `check_program_with` beside
+>   `check_program`) rather than the backend, because dropping a
+>   `debug_assert` is dropping the *tree*: the condition is still checked --
+>   a release build that accepted source a debug build rejects would be the
+>   worst of both -- but the message is never interned and an argument with a
+>   side effect never runs. `debug_assert` in a debug build desugars to exactly
+>   the `assert` call; in a release build to a call with no arguments, which
+>   the backend lowers to nothing.
 >
-> Tests: 8 in `crates/otter-sema/tests/check.rs`, 6 in
-> `crates/otter-codegen/tests/expr_gen.rs`, 5 in
+> Tests: 13 in `crates/otter-sema/tests/check.rs`, 9 in
+> `crates/otter-codegen/tests/expr_gen.rs`, 7 in
 > `crates/otter-driver/tests/e2e.rs` -- the last of which asserts that an
-> operand with a side effect runs exactly once, passing *and* failing.
+> operand with a side effect runs exactly once, passing *and* failing, and that
+> a release build drops a `debug_assert` while keeping an `assert`.
 
 - [ ] **Step 1: Write the failing tests**
 

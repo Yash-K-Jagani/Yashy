@@ -10,10 +10,23 @@ use otter_common::{Diagnostic, FileId, Severity, SourceMap};
 use otter_lexer::Lexer;
 use otter_parser::ast::Literal;
 use otter_parser::Parser;
-use otter_sema::{check_program, expr_ty, HirExpr, HirItem, HirProgram, HirStmt, TypeKind};
+use otter_sema::{
+    check_program_with, expr_ty, CheckOptions, HirExpr, HirItem, HirProgram, HirStmt, TypeKind,
+};
 
 /// Lex, parse and check `source`.
 fn check_source(src: &str) -> (Result<HirProgram, Vec<Diagnostic>>, SourceMap, FileId) {
+    check_source_in(src, false)
+}
+
+/// Lex, parse and check `source` in the build mode `release` names.
+///
+/// The only difference a build mode makes to the *checker* is whether a
+/// `debug_assert` survives into the tree.
+fn check_source_in(
+    src: &str,
+    release: bool,
+) -> (Result<HirProgram, Vec<Diagnostic>>, SourceMap, FileId) {
     let mut sm = SourceMap::new();
     let file = sm.add_file("test.ot", src.to_string());
     let tokens = Lexer::new(src)
@@ -23,7 +36,7 @@ fn check_source(src: &str) -> (Result<HirProgram, Vec<Diagnostic>>, SourceMap, F
     let ast = parser
         .parse_program()
         .expect("parser should never panic on these inputs");
-    let result = check_program(&ast, &sm, file);
+    let result = check_program_with(&ast, &sm, file, CheckOptions { release });
     (result, sm, file)
 }
 
@@ -1140,6 +1153,97 @@ fn a_program_cannot_redeclare_an_assertion() {
         "fn assert_eq(a: i64, b: i64) {}",
         "duplicate definition of `assert_eq`",
     );
+}
+
+#[test]
+fn debug_assert_is_a_debug_build_assertion() {
+    // In a debug build it lowers exactly as `assert` does -- the same call, the
+    // same message, the same position -- because it is the same assertion.
+    let src = "fn f() {\n    const n = 3;\n    debug_assert(n > 0);\n}\n";
+    let (result, _, _) = check_source(src);
+    let hir = result.expect("expected program to type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    let Some(HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, _)) = f.body.stmts.get(1) else {
+        panic!("expected the lowered assertion call");
+    };
+    assert_eq!(callee, &vec!["assert".to_string()]);
+    assert_eq!(
+        args.get(1).map(literal_text).unwrap_or_default(),
+        "assertion failed: n > 0"
+    );
+}
+
+#[test]
+fn a_release_build_drops_a_debug_assert_entirely() {
+    // The condition is checked -- a release build that accepts source a debug
+    // build rejects would be the worst of both worlds -- but the tree is
+    // dropped, so the string is not emitted and an argument with side effects
+    // does not run.
+    let src = "fn f() {\n    const n = 3;\n    debug_assert(n > 0);\n}\n";
+    let (result, _, _) = check_source_in(src, true);
+    let hir = result.expect("expected program to type-check in a release build");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    let Some(HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty)) = f.body.stmts.get(1)
+    else {
+        panic!("expected the call the release build leaves behind");
+    };
+    assert_eq!(callee, &vec!["debug_assert".to_string()]);
+    assert!(
+        args.is_empty(),
+        "the condition is gone, not merely unreached: {args:?}"
+    );
+    assert_eq!(ty.kind, TypeKind::Unit);
+}
+
+#[test]
+fn a_release_build_still_checks_a_debug_assert_condition() {
+    // The half of the contract that keeps a release build from being a
+    // different language: what the checker rejects, it rejects in both modes.
+    let (result, _, _) = check_source_in("fn f() { debug_assert(1); }", true);
+    let Err(errors) = result else {
+        panic!("a release build must still reject a non-bool condition");
+    };
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("expected `bool`, found `i64`")),
+        "expected the type error, got {errors:?}"
+    );
+}
+
+#[test]
+fn assert_is_never_dropped_by_a_release_build() {
+    // The difference between the two names, and the whole reason both exist.
+    let src = "fn f() {\n    const n = 3;\n    assert(n > 0);\n}\n";
+    let (result, _, _) = check_source_in(src, true);
+    let hir = result.expect("expected program to type-check");
+    let f = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("function should exist");
+    let Some(HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, _)) = f.body.stmts.get(1) else {
+        panic!("expected the assertion to survive a release build");
+    };
+    assert_eq!(callee, &vec!["assert".to_string()]);
+    assert_eq!(args.len(), 5, "condition, message and position");
 }
 
 // -- checked arithmetic -------------------------------------------------------

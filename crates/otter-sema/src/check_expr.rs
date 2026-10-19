@@ -66,6 +66,12 @@ pub struct Checker<'src> {
     fns: HashMap<String, FnSig>,
     errors: Vec<TypeError>,
     file: FileId,
+    /// Whether this is a release build, in which a `debug_assert` compiles away.
+    ///
+    /// The only build-mode decision the checker makes. It cannot be made later:
+    /// dropping the call is dropping the *tree*, so that an argument with side
+    /// effects is not lowered either.
+    release: bool,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -77,7 +83,7 @@ pub struct Checker<'src> {
 }
 
 impl<'src> Checker<'src> {
-    pub fn new(sm: &'src SourceMap, file: FileId) -> Self {
+    pub fn new(sm: &'src SourceMap, file: FileId, options: CheckOptions) -> Self {
         let mut scope = Scope::new();
         // Builtins are predeclared in the root scope. They are functions, so a
         // call resolves through the same path as a user call.
@@ -86,7 +92,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 25] = [
+        let builtins: [(&str, Vec<Type>, Type); 26] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -178,6 +184,16 @@ impl<'src> Checker<'src> {
             // normally, so treating it as diverging would let a program assign
             // its non-existent value to anything.
             ("assert", vec![prim(TypeKind::Bool)], prim(TypeKind::Unit)),
+            // `debug_assert` is the same assertion, lowered only in a debug
+            // build. The checker drops the whole call when `--release` asks for
+            // a release build, so the condition -- and any side effect in it --
+            // never reaches the backend. It is still checked first: source a
+            // release build rejects would be the worst of both worlds.
+            (
+                "debug_assert",
+                vec![prim(TypeKind::Bool)],
+                prim(TypeKind::Unit),
+            ),
             // `assert_eq(a, b)` and `assert_ne(a, b)` are the comparison forms.
             // The declared pair is an `i64` one, but the checker never consults
             // it: every call is built generically in `Checker::assert_cmp_call`,
@@ -208,6 +224,7 @@ impl<'src> Checker<'src> {
             fns: HashMap::new(),
             errors: Vec::new(),
             file,
+            release: options.release,
             sm,
         }
     }
@@ -1438,6 +1455,26 @@ impl<'src> Checker<'src> {
                                     return Some(self.assert_call(condition, *span));
                                 }
                             }
+                            if callee.len() == 1 && name == "debug_assert" {
+                                // A release build drops the call entirely: the
+                                // condition is checked (above) and its tree is
+                                // discarded, so nothing is lowered and nothing
+                                // is printed. That is the whole point of the
+                                // name -- an assertion you pay for in a debug
+                                // build and not in a release one.
+                                if self.release {
+                                    return Some(HirExpr::Call {
+                                        callee: vec![name.clone()],
+                                        args: Vec::new(),
+                                        unsafe_call: false,
+                                        span: *span,
+                                        ty: unit(*span),
+                                    });
+                                }
+                                if let Some(condition) = arg_exprs.first().cloned() {
+                                    return Some(self.assert_call(condition, *span));
+                                }
+                            }
                             Some(HirExpr::Call {
                                 callee: callee.clone(),
                                 args: arg_exprs,
@@ -2019,13 +2056,40 @@ fn empty_string() -> StringLit {
     }
 }
 
-/// The public entry point for the type checker.
+/// The build-mode choices that reach the checker.
+///
+/// One flag today. It is here rather than as a bare `bool` parameter because the
+/// call sites read `check_program_with(&ast, &sm, file, CheckOptions {
+/// release: true })` and not `... , true)` -- and because the next one will be
+/// added to a struct rather than to every call.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CheckOptions {
+    /// A release build, in which `debug_assert` is not lowered at all.
+    ///
+    /// The condition is still *checked* -- a release build that accepts source a
+    /// debug build rejects would be the worst of both -- but its tree is
+    /// dropped, so an argument with side effects is dropped with it.
+    pub release: bool,
+}
+
+/// The public entry point for the type checker, in a debug build.
 pub fn check_program(
     ast: &otter_parser::ast::Program,
     sm: &SourceMap,
     file: FileId,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
-    let mut checker = Checker::new(sm, file);
+    check_program_with(ast, sm, file, CheckOptions::default())
+}
+
+/// The public entry point for the type checker, in the build mode `options`
+/// asks for.
+pub fn check_program_with(
+    ast: &otter_parser::ast::Program,
+    sm: &SourceMap,
+    file: FileId,
+    options: CheckOptions,
+) -> Result<HirProgram, Vec<Diagnostic>> {
+    let mut checker = Checker::new(sm, file, options);
     checker.check_program(ast)
 }
 

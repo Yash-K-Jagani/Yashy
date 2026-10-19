@@ -564,6 +564,12 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // path pays one test and the reporting path is cold.
         "assert" => gen_assert(ctx, args),
         "assert_eq" | "assert_ne" => gen_assert_cmp(ctx, &name, args),
+        // `debug_assert` in a release build: the checker dropped the condition
+        // and handed down a call with nothing in it, so there is nothing to
+        // lower. The name is kept rather than replaced by a unit literal because
+        // the tree has no literal for "no value", and because a reader of the IR
+        // can then see that an assertion was written and compiled away.
+        "debug_assert" if args.is_empty() => unit(),
         // The opt-outs from the checked default, and the same operation the
         // checked lowering guards: `wrapping_*` is the bare opcode, `saturating_*`
         // is an LLVM saturating intrinsic, and `checked_*` spends the overflow

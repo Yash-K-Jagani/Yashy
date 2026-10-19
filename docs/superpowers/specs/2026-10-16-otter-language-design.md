@@ -370,9 +370,8 @@ dying in ways nobody can debug.
 > value. That is what lets it stand where a value is wanted (`return panic(...)`,
 > a `switch` arm) without also letting a program *use* a value that does not
 > exist: the block that would have used it is unreachable, and the IR says so.
-> Checked arithmetic (§6.1) and the assertions (§6.2) are written; the
-> `debug_assert` half of §6.2 waits for a `--release` flag to compile away
-> under.
+> Checked arithmetic (§6.1) and the assertions (§6.2) are written; §6.3's exit
+> codes are not.
 
 **Unwinding is bounded, not a coroutine.** Otter supports panic-unwinding
 across `fn` frames, not `catch`/`throw`. Once a panic starts, the only choice
@@ -396,9 +395,9 @@ no answer (a zero divisor, and `i64::MIN / -1`) are reported either way.
 `assert(cond);` and `assert_eq(a, b);` panic with source spans on failure and
 compile away under `--release` when the assertion is marked `debug_assert`.
 
-> **As built (M4 Task 12, first half).** `assert`, `assert_eq` and `assert_ne`
-> are written; `debug_assert` waits for a `--release` flag, and §6.3 for the
-> exit codes.
+> **As built (M4 Task 12, first half).** `assert`, `assert_eq`, `assert_ne` and
+> `debug_assert` are written, along with the `--release` flag that compiles the
+> last one away; §6.3's exit codes are not.
 >
 > They are the fault path of §6 with a test in front of it, so a failed
 > assertion reads exactly like every other fault:
@@ -427,6 +426,16 @@ compile away under `--release` when the assertion is marked `debug_assert`.
 > and typing it as diverging would let its non-existent value flow into
 > anything. The name is `assert_eq`, not `assert_eq_i64`/`assert_eq_str`/…,
 > because the intended spelling is the one a reader writes.
+>
+> `debug_assert` is the same assertion, lowered only when the build is not a
+> release one. `--release` is deliberately *not* tied to the optimization level:
+> `-O2` is already the default, so a flag meaning "optimize harder" would say
+> nothing, and the two questions — how hard to optimize, and whether this is a
+> build a user runs — are different ones. The decision is the checker's, because
+> dropping the call is dropping the *tree*: the condition is still checked (a
+> release build that accepted source a debug build rejects would be the worst of
+> both), but its tree is discarded, so the message is not interned and an
+> argument with side effects does not run.
 >
 > `assert_eq` on a `NaN` fails, as it must: the comparison is `fcmp oeq`, and a
 > NaN is equal to nothing including itself.

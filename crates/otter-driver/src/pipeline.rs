@@ -35,7 +35,7 @@ use otter_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_runtime::{RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME};
-use otter_sema::check_program;
+use otter_sema::{check_program_with, CheckOptions};
 
 use crate::toolchain::Toolchain;
 
@@ -344,6 +344,13 @@ pub struct BuildOptions {
     /// target that has a fused multiply-add, which the portable baseline does
     /// not.
     pub fast_math: bool,
+    /// A release build: `debug_assert` is not lowered. See
+    /// [`otter_sema::CheckOptions::release`].
+    ///
+    /// Independent of [`BuildOptions::opt`] on purpose. `-O2` is already the
+    /// default, so a flag meaning "optimize harder" would be a no-op; this one
+    /// answers a different question -- is this a build a user runs?
+    pub release: bool,
 }
 
 /// Compile `source` to a native executable at `out`.
@@ -375,7 +382,7 @@ pub fn compile_to_binary(
     let tokens = Lexer::new(source).tokenize()?;
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser.parse_program()?;
-    let hir = check_program(&program, &sources, file)?;
+    let hir = check_program_with(&program, &sources, file, CheckOptions { release: options.release })?;
 
     if let Err(diagnostic) = check_main_exists(&hir.items) {
         return Err(vec![diagnostic]);
