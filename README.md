@@ -154,6 +154,32 @@ fn main() {
 }
 ```
 
+```otter
+// Integer arithmetic is checked. `big + 1` stops the program with
+// `panic: integer overflow: 9223372036854775807 + 1` rather than continuing with
+// a wrapped number that looks exactly like an answer -- a language with no
+// exceptions has nowhere else to put the error. Code that wants the other
+// behaviour asks for it by name, and the three ways of asking are different
+// questions with three different answers.
+fn main() {
+    var big = 9223372036854775807;      // the largest i64
+    print_i64(wrapping_add(big, 1));    // wraps:  -9223372036854775808
+    print_str("\n");
+    print_i64(saturating_add(big, 1));  // clamps:  9223372036854775807
+    print_str("\n");
+    switch checked_add(big, 1) {        // reports: the caller decides
+        case Some(v) { print_i64(v) }
+        case None { print_str("no answer") }
+    }
+    print_str("\n");
+}
+```
+
+The same family exists for `-` and `*` (`wrapping_sub`, `checked_mul`,
+`saturating_mul`, ...). There is deliberately no `wrapping_div`: a wrapped
+quotient is not the quotient of anything, and the two ways a division has no
+answer -- a zero divisor, and `i64::MIN / -1` -- are reported either way.
+
 ## Speed
 
 Same algorithm, same input, every language compiled by its own native
@@ -351,7 +377,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
 | M3 🚧 | Heap, strings and input in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, `+` / `len` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_i64` / `str_from_f64` / `str_from_bool`, and string interpolation (`"n = ${n}"`). Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
-| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Still to come: unwinding on the panic path (so a `defer` runs before the process ends), checked arithmetic, `assert`, exit codes |
+| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Integer arithmetic is checked too: overflow, division by zero and `i64::MIN / -1` report both operands and the position instead of wrapping, with `wrapping_*`, `checked_*` and `saturating_*` as the named opt-outs. Still to come: unwinding on the panic path (so a `defer` runs before the process ends), `assert`, exit codes |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |
 | M7 | Threads, channels, mutexes |

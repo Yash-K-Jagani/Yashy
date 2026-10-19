@@ -1140,6 +1140,125 @@ fn negating_the_smallest_i64_is_an_overflow() {
 }
 
 #[test]
+fn the_arithmetic_opt_outs_do_what_their_names_say() {
+    // One program, all nine builtins, at the values where the three behaviours
+    // differ from each other and from the checked default: the largest `i64`
+    // plus one, the smallest minus one, and `i64::MAX` times two.
+    //
+    //   wrapping    gives the two's-complement answer -- `MAX + 1` is `MIN`
+    //   saturating  clamps to the nearest end
+    //   checked     says `None`, and the program decides
+    //
+    // `show` maps an absent answer to 999, a number none of the real answers is.
+    let output = compile_and_run(
+        "arithmetic-opt-outs",
+        concat!(
+            "fn show(o: Option[i64]) -> i64 {\n",
+            "    return switch o {\n",
+            "        case None { 999 }\n",
+            "        case Some(v) { v }\n",
+            "    };\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    var big = 9223372036854775807;\n",
+            "    var small = -9223372036854775808;\n",
+            "    print_i64(wrapping_add(big, 1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_add(big, 1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(wrapping_sub(small, 1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_sub(small, 1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(wrapping_mul(big, 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(big, 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(small, 0 - 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(3, 4));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(show(checked_add(big, 1)));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(show(checked_add(1, 2)));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(show(checked_sub(small, 1)));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(show(checked_mul(big, 2)));\n",
+            "    print_str(\"\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "none of these may stop the program: {}",
+        stderr_of(&output)
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "-9223372036854775808\n\
+         9223372036854775807\n\
+         9223372036854775807\n\
+         -9223372036854775808\n\
+         -2\n\
+         9223372036854775807\n\
+         9223372036854775807\n\
+         12\n\
+         999\n\
+         3\n\
+         999\n\
+         999\n",
+        "wrapping wraps, saturating clamps, checked says no"
+    );
+}
+
+#[test]
+fn the_saturating_multiply_clamps_at_both_ends_and_is_exact_inside() {
+    // `smul.sat` is not implemented in LLVM, so this one is written by hand from
+    // the overflow flag and the sign of the true product -- which is negative
+    // exactly when the operands' signs differ. That predicate is only correct if
+    // it is right for both ends and does not fire when the product fits, so all
+    // four cases are pinned here.
+    let output = compile_and_run(
+        "saturating-mul-edges",
+        concat!(
+            "fn main() {\n",
+            "    var big = 9223372036854775807;\n",
+            "    var small = -9223372036854775808;\n",
+            "    print_i64(saturating_mul(big, -1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(big, 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(small, 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(small, -1));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(4611686018427387903, 2));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(-3, 4));\n",
+            "    print_str(\"\\n\");\n",
+            "    print_i64(saturating_mul(6, 7));\n",
+            "    print_str(\"\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(
+        stdout_of(&output),
+        "-9223372036854775807\n\
+         9223372036854775807\n\
+         -9223372036854775808\n\
+         9223372036854775807\n\
+         9223372036854775806\n\
+         -12\n\
+         42\n",
+        "the clamp has to be right at both ends and silent in the middle"
+    );
+}
+
+#[test]
 fn arithmetic_that_fits_runs_to_completion() {
     // The check must not turn working programs into faults. A loop that adds to
     // a running total, an exact division, a signed remainder and a negation all

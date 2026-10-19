@@ -38,9 +38,185 @@
 use otter_sema::{BinOp, FaultSite, TypeKind, UnOp};
 
 use crate::expr_gen::{FnCtx, GenValue};
+use crate::ir::{repr_type, variant_payload_index, variant_tag};
 
 /// The smallest `i64`, as LLVM wants it written.
 const I64_MIN: &str = "-9223372036854775808";
+
+/// The largest `i64`.
+const I64_MAX: &str = "9223372036854775807";
+
+/// The three ways a program can ask for something other than a fault, when the
+/// run-time answer is what it wants and stopping is not.
+#[derive(Clone, Copy)]
+enum Family {
+    /// Two's-complement wraparound: the bare operation, no check at all.
+    Wrapping,
+    /// `None` instead of stopping, so the caller decides what to do.
+    Checked,
+    /// Clamp to `i64::MIN`/`i64::MAX`.
+    Saturating,
+}
+
+/// Lower one of the nine arithmetic builtins -- `wrapping_add`, `checked_sub`,
+/// `saturating_mul`, and the rest of the family.
+///
+/// The family and the operation come out of the name, which is why the names are
+/// spelled out: this function is the only place in the compiler that knows all
+/// nine, and the list is short enough to read. A name that is not one of them
+/// cannot arrive from the checker (the builtin table declares exactly these) and
+/// is answered with a zero rather than a `panic!` all the same.
+///
+/// The arguments arrive already lowered, and a call with fewer than two of them
+/// -- which the checker has already rejected -- is padded with zeroes rather than
+/// indexed into.
+pub(crate) fn gen_arithmetic_builtin(
+    ctx: &mut FnCtx<'_>,
+    name: &str,
+    args: &[GenValue],
+    ty: &TypeKind,
+) -> GenValue {
+    let i64_zero = || GenValue {
+        value: "0".to_string(),
+        ty: TypeKind::I64,
+    };
+    let lhs = args.first().cloned().unwrap_or_else(i64_zero);
+    let rhs = args.get(1).cloned().unwrap_or_else(i64_zero);
+    let (family, op) = match builtin_of(name) {
+        Some(pair) => pair,
+        None => return i64_zero(),
+    };
+    // `sadd`/`ssub`/`smul` name the operation in three of the four intrinsics this
+    // function uses, so the family picks the suffix and the operation picks the
+    // first half.
+    let stem = match op {
+        BinOp::Add => "add",
+        BinOp::Sub => "sub",
+        _ => "mul",
+    };
+    match family {
+        Family::Wrapping => {
+            // The bare operation, which is what C, Go and Rust-in-release emit
+            // for `+`. Nothing else: no flag, no branch, no cold block.
+            let tmp = ctx.tmp();
+            ctx.push(format!(
+                "{tmp} = {stem} i64 {}, {}",
+                lhs.value, rhs.value
+            ));
+            GenValue {
+                value: tmp,
+                ty: TypeKind::I64,
+            }
+        }
+        Family::Saturating => {
+            if stem == "mul" {
+                // `sadd.sat` and `ssub.sat` are LLVM intrinsics that clang lowers
+                // on sight; `smul.sat` is in the language reference but not
+                // implemented -- clang emits a call to an undefined symbol named
+                // `llvm.smul.sat.i64` and linking fails. So the multiply
+                // saturates by hand: saturate on the sign of the *true* product,
+                // which is negative exactly when the operands' signs differ.
+                // (Neither operand is zero when the multiply overflowed, so the
+                // sign of the true product is never a question of zero.)
+                let pair = ctx.tmp();
+                ctx.push(format!(
+                    "{pair} = call {{ i64, i1 }} @llvm.smul.with.overflow.i64(i64 {}, i64 {})",
+                    lhs.value, rhs.value
+                ));
+                let product = ctx.tmp();
+                ctx.push(format!("{product} = extractvalue {{ i64, i1 }} {pair}, 0"));
+                let overflowed = ctx.tmp();
+                ctx.push(format!("{overflowed} = extractvalue {{ i64, i1 }} {pair}, 1"));
+                let lhs_neg = ctx.tmp();
+                ctx.push(format!("{lhs_neg} = icmp slt i64 {}, 0", lhs.value));
+                let rhs_neg = ctx.tmp();
+                ctx.push(format!("{rhs_neg} = icmp slt i64 {}, 0", rhs.value));
+                let negative = ctx.tmp();
+                ctx.push(format!("{negative} = xor i1 {lhs_neg}, {rhs_neg}"));
+                let limit = ctx.tmp();
+                ctx.push(format!(
+                    "{limit} = select i1 {negative}, i64 {I64_MIN}, i64 {I64_MAX}"
+                ));
+                let saturated = ctx.tmp();
+                ctx.push(format!(
+                    "{saturated} = select i1 {overflowed}, i64 {limit}, i64 {product}"
+                ));
+                GenValue {
+                    value: saturated,
+                    ty: TypeKind::I64,
+                }
+            } else {
+                let tmp = ctx.tmp();
+                ctx.push(format!(
+                    "{tmp} = call i64 @llvm.s{stem}.sat.i64(i64 {}, i64 {})",
+                    lhs.value, rhs.value
+                ));
+                GenValue {
+                    value: tmp,
+                    ty: TypeKind::I64,
+                }
+            }
+        }
+        Family::Checked => {
+            // The same intrinsic the checked default uses, with the flag spent on
+            // a `select` instead of a branch: `Some(value)` when it did not
+            // overflow, `None` when it did. A program that handles overflow pays
+            // a select for the privilege of deciding.
+            //
+            // Both arms are built and one is selected, which is why `None`'s
+            // payload stays `undef` -- every match tests the tag first, the same
+            // contract the `None` builtin keeps.
+            let pair = ctx.tmp();
+            ctx.push(format!(
+                "{pair} = call {{ i64, i1 }} @llvm.s{stem}.with.overflow.i64(i64 {}, i64 {})",
+                lhs.value, rhs.value
+            ));
+            let value = ctx.tmp();
+            ctx.push(format!("{value} = extractvalue {{ i64, i1 }} {pair}, 0"));
+            let flag = ctx.tmp();
+            ctx.push(format!("{flag} = extractvalue {{ i64, i1 }} {pair}, 1"));
+            // The tag and the payload index come from the tree's own layout of
+            // `Option`, rather than being written down twice; the fallbacks are
+            // the values that layout has today.
+            let tag = variant_tag(ty, "Some").unwrap_or(1);
+            let field = variant_payload_index(ty, "Some").unwrap_or(1);
+            let repr = repr_type(ty);
+            let some = ctx.tmp();
+            ctx.push(format!("{some} = insertvalue {repr} undef, i8 {tag}, 0"));
+            let some_full = ctx.tmp();
+            ctx.push(format!(
+                "{some_full} = insertvalue {repr} {some}, i64 {value}, {field}"
+            ));
+            let none = ctx.tmp();
+            ctx.push(format!("{none} = insertvalue {repr} undef, i8 0, 0"));
+            let selected = ctx.tmp();
+            ctx.push(format!(
+                "{selected} = select i1 {flag}, {repr} {none}, {repr} {some_full}"
+            ));
+            GenValue {
+                value: selected,
+                ty: ty.clone(),
+            }
+        }
+    }
+}
+
+/// The family and operation a builtin name names, if it is one of the nine.
+fn builtin_of(name: &str) -> Option<(Family, BinOp)> {
+    let (family, op) = match name {
+        "wrapping_add" => (Family::Wrapping, BinOp::Add),
+        "wrapping_sub" => (Family::Wrapping, BinOp::Sub),
+        "wrapping_mul" => (Family::Wrapping, BinOp::Mul),
+        "checked_add" => (Family::Checked, BinOp::Add),
+        "checked_sub" => (Family::Checked, BinOp::Sub),
+        "checked_mul" => (Family::Checked, BinOp::Mul),
+        "saturating_add" => (Family::Saturating, BinOp::Add),
+        "saturating_sub" => (Family::Saturating, BinOp::Sub),
+        "saturating_mul" => (Family::Saturating, BinOp::Mul),
+        _ => return None,
+    };
+    Some((family, op))
+}
 
 /// A fresh label for the block a check branches to on failure.
 pub(crate) fn fault_label(ctx: &mut FnCtx<'_>) -> String {

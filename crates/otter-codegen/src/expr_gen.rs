@@ -563,6 +563,16 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
                 ty: TypeKind::Never,
             }
         }
+        // The opt-outs from the checked default, and the same operation the
+        // checked lowering guards: `wrapping_*` is the bare opcode, `saturating_*`
+        // is an LLVM saturating intrinsic, and `checked_*` spends the overflow
+        // flag on a `select` instead of a fault. All nine names are one family,
+        // so they are listed here once and lowered there. See [`crate::faults`].
+        "wrapping_add" | "wrapping_sub" | "wrapping_mul" | "checked_add" | "checked_sub"
+        | "checked_mul" | "saturating_add" | "saturating_sub" | "saturating_mul" => {
+            let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+            crate::faults::gen_arithmetic_builtin(ctx, &name, &lowered, ty)
+        }
         // `len` is the byte length of a string today. M6 adds the slice case.
         "len" => crate::strings::gen_str_len(ctx, args),
         // `str_from_bool` is the one conversion whose runtime signature is wider

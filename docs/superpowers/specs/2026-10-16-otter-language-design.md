@@ -370,7 +370,7 @@ dying in ways nobody can debug.
 > value. That is what lets it stand where a value is wanted (`return panic(...)`,
 > a `switch` arm) without also letting a program *use* a value that does not
 > exist: the block that would have used it is unreachable, and the IR says so.
-> `assert` and checked arithmetic (§6.1, §6.2) are not written yet.
+> Checked arithmetic (§6.1) is written; `assert` (§6.2) is not.
 
 **Unwinding is bounded, not a coroutine.** Otter supports panic-unwinding
 across `fn` frames, not `catch`/`throw`. Once a panic starts, the only choice
@@ -378,12 +378,16 @@ the language offers is whether `defer` cleanup runs first.
 
 ### 6.1 Checked arithmetic
 
-Integer arithmetic is **checked by default**: `i32` overflow panics rather than
+Integer arithmetic is **checked by default**: `i64` overflow panics rather than
 wrapping or invoking UB. Silent overflow is worse than a loud fault, and a
 language without exceptions has nowhere else to put the error.
 
-Wrapping and non-panicking forms are explicit opt-ins:
-`wrapping_add`, `checked_add` (returns `Option`), `saturating_add`.
+Wrapping and non-panicking forms are explicit opt-ins, one builtin per operation
+and per behaviour (so the name says both what it does and what it is for):
+`wrapping_add`/`_sub`/`_mul` wrap, `checked_add`/`_sub`/`_mul` return
+`Option[i64]`, and `saturating_add`/`_sub`/`_mul` clamp. Division has no opt-in:
+a wrapped quotient is not the quotient of anything, and both ways a division has
+no answer (a zero divisor, and `i64::MIN / -1`) are reported either way.
 
 ### 6.2 `assert`
 

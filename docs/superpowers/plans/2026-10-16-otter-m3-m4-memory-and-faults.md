@@ -1035,9 +1035,9 @@ git commit -m "feat(codegen): unwind landing pads and defer cleanup on unwind"
 
 ### Task 11: Checked arithmetic
 
-> **As built (first half: the default).** The checked lowering is in, and the
-> `wrapping_*` / `checked_*` / `saturating_*` builtins are the follow-up commit.
-> What differed from the sketch, and why:
+> **As built (both halves).** The checked default and the
+> `wrapping_*` / `checked_*` / `saturating_*` opt-outs are in. What differed from
+> the sketch, and why:
 >
 > - **No `span` reaches the backend.** The sketch had `gen_checked_binary(...,
 >   span: Span)`, but the backend is handed IR text and a path and has no source
@@ -1070,8 +1070,37 @@ git commit -m "feat(codegen): unwind landing pads and defer cleanup on unwind"
 >   `fib` 79 → 143 ms, `loop` 247 → 256 ms, `float` 529 → 540 ms. The
 >   call-dominated benchmark pays for three checks per call; the loop and float
 >   benchmarks are within noise, because LLVM proves the loop's arithmetic safe
->   and elides the checks entirely. The opt-out is what closes the `fib` gap,
->   which is why the `wrapping_*` half is not optional.
+>   and elides the checks entirely. **With the opt-out in, `fib` is 81 ms** —
+>   the escape hatch recovers all of it, which is why it is part of this task
+>   rather than a later one.
+>
+> **The second half — the opt-outs.** Nine builtins, declared in the checker's
+> builtin table like any other function:
+>
+> | Family | Type | Lowering |
+> |---|---|---|
+> | `wrapping_add`, `_sub`, `_mul` | `(i64, i64) -> i64` | the bare `add`/`sub`/`mul`: no flag, no branch, no cold block |
+> | `saturating_add`, `_sub` | `(i64, i64) -> i64` | `llvm.sadd.sat` / `llvm.ssub.sat` |
+> | `saturating_mul` | `(i64, i64) -> i64` | by hand — see below |
+> | `checked_add`, `_sub`, `_mul` | `(i64, i64) -> Option[i64]` | the overflow intrinsic, then a `select` between `Some(value)` and `None` |
+>
+> - **`llvm.smul.sat.i64` does not exist.** It is in LLVM's language reference
+>   and clang 23 emits a call to an undefined symbol for it, which fails at link
+>   time. So `saturating_mul` is built from `smul.with.overflow` plus the sign of
+>   the true product — negative exactly when the operands' signs differ, which is
+>   never ambiguous at the point of overflow because neither operand is zero
+>   then. Both ends and the "did not overflow" case are pinned by tests, because
+>   a hand-rolled clamp is exactly the kind of predicate that is wrong in one
+>   corner.
+> - **`checked_*` is a `select`, not a branch**, which is what makes it usable
+>   for code that can recover: no runtime call, no cold block, no fault. The
+>   result is an ordinary `Option[i64]` that `switch` matches on.
+> - **No `wrapping_div`/`checked_div`/`saturating_div`.** A wrapped quotient is
+>   not the quotient of anything, and both ways a division has no answer are
+>   reported either way; `/` and `%` keep their check with no opt-out.
+> - Named functions rather than an overloaded name, because the table declares a
+>   name once and a redeclaration is an error. `acc = wrapping_add(acc, x);`
+>   reads as what it does.
 
 **Files:**
 - Modify: `crates/otter-codegen/src/expr_gen.rs`

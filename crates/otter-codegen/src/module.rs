@@ -216,6 +216,12 @@ impl Module {
         out.push_str("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n");
         out.push_str("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n");
         out.push_str("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
+        // The saturating family (`saturating_*`), which clamps instead of
+        // reporting anything. `smul.sat` is deliberately absent: it is not
+        // implemented in LLVM, so `faults.rs` saturates the multiply by hand from
+        // the overflow flag.
+        out.push_str("declare i64 @llvm.sadd.sat.i64(i64, i64)\n");
+        out.push_str("declare i64 @llvm.ssub.sat.i64(i64, i64)\n");
         // The two ways integer arithmetic stops a program, with the operands, so
         // the message can say which numbers and which operator. The operator is
         // a symbol (`+`, `-`, `*`, `/`, `%`); the runtime owns the wording around

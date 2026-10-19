@@ -539,6 +539,143 @@ fn call_emits_a_call_instruction_naming_the_runtime_symbol() {
     );
 }
 
+// --- the opt-outs from the checked default -----------------------------------
+
+#[test]
+fn wrapping_arithmetic_is_the_bare_operation_and_nothing_else() {
+    // The whole point of `wrapping_add` is that it is what `+` was before the
+    // arithmetic became checked: one instruction, no flag, no branch, no cold
+    // block. It is the escape hatch for code that has already decided the
+    // arithmetic cannot overflow -- and the cheapest possible way to say so.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = wrapping_add(a, b); }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("add i64"),
+        "a wrapping add is a plain `add`:\n{body}"
+    );
+    assert!(
+        !body.contains("with.overflow")
+            && !body.contains("_fault")
+            && !body.contains("icmp")
+            && !body.contains("otter_panic"),
+        "and pays for no check at all:\n{body}"
+    );
+}
+
+#[test]
+fn wrapping_subtraction_and_multiplication_are_bare_too() {
+    // The family is only worth having if all three are free; a `wrapping_mul`
+    // that checked would be a different operation with the same name.
+    let ir_text = gen_body(
+        "fn f(a: i64, b: i64) { const x = wrapping_sub(a, b); const y = wrapping_mul(a, b); }",
+    );
+    let body = body_of(&ir_text);
+    assert!(body.contains("sub i64"), "wrapping subtraction:\n{body}");
+    assert!(body.contains("mul i64"), "wrapping multiplication:\n{body}");
+    assert!(
+        !body.contains("with.overflow") && !body.contains("_fault"),
+        "neither one checks:\n{body}"
+    );
+}
+
+#[test]
+fn saturating_addition_and_subtraction_ask_for_the_intrinsic() {
+    // Clamping is not something to hand-roll, and LLVM has both of these: the
+    // flag is not read at all, and there is no branch.
+    for (name, intrinsic) in [
+        ("saturating_add", "@llvm.sadd.sat.i64"),
+        ("saturating_sub", "@llvm.ssub.sat.i64"),
+    ] {
+        let ir_text = gen_body(&format!("fn f(a: i64, b: i64) {{ const x = {name}(a, b); }}"));
+        let body = body_of(&ir_text);
+        assert!(
+            body.contains(intrinsic),
+            "`{name}` asks LLVM for the clamp:\n{body}"
+        );
+        assert!(
+            !body.contains("_fault") && !body.contains("select"),
+            "clamping is not a fault and needs no select:\n{body}"
+        );
+    }
+}
+
+#[test]
+fn saturating_multiplication_is_saturated_by_hand() {
+    // `smul.sat` is in LLVM's language reference but not implemented: clang
+    // emits a call to a symbol nothing defines and the link fails. So the
+    // multiply clamps from the overflow flag and the sign of the true product,
+    // which is negative exactly when the operands' signs differ -- neither
+    // operand is zero when it overflowed. This is a real correctness trap, which
+    // is why the intrinsic that does not exist must not be named anywhere.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = saturating_mul(a, b); }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("@llvm.smul.with.overflow.i64"),
+        "the wrapping product and the flag are the raw material:\n{body}"
+    );
+    assert!(
+        body.contains("xor i1") && body.contains("select i1"),
+        "the sign is an xor and both the limit and the result are selected:\n{body}"
+    );
+    assert!(
+        !ir_text.contains("smul.sat"),
+        "`llvm.smul.sat.i64` does not exist and must not be declared:\n{ir_text}"
+    );
+    assert!(
+        !body.contains("_fault") && !body.contains("otter_panic"),
+        "saturating never stops the program:\n{body}"
+    );
+}
+
+#[test]
+fn checked_arithmetic_answers_with_an_option_instead_of_a_branch() {
+    // `checked_add` is for code that can do something better than die. It spends
+    // the same overflow flag on a `select` between `Some(value)` and `None`, so
+    // the caller decides: no branch, no cold block, no runtime call.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = checked_add(a, b); }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("@llvm.sadd.with.overflow.i64"),
+        "the flag is still how it knows:\n{body}"
+    );
+    assert!(
+        body.contains("select i1"),
+        "but the flag selects rather than branches:\n{body}"
+    );
+    assert!(
+        body.contains("insertvalue { i8, i64 } undef, i8 1, 0"),
+        "the `Some` side is built with the tag and the value:\n{body}"
+    );
+    assert!(
+        body.contains("insertvalue { i8, i64 } undef, i8 0, 0"),
+        "and `None` with the tag alone:\n{body}"
+    );
+    assert!(
+        !body.contains("_fault") && !body.contains("otter_panic"),
+        "nothing here can stop the program:\n{body}"
+    );
+}
+
+#[test]
+fn a_checked_result_is_an_ordinary_option_that_matches() {
+    // The type is a real `Option[i64]`, not a special case: a `switch` over it
+    // tests the tag like any other, which is what makes `checked_*` usable
+    // rather than merely callable.
+    let ir_text = gen_return(concat!(
+        "fn f(a: i64, b: i64) -> i64 {\n",
+        "    return switch checked_add(a, b) {\n",
+        "        case Some(v) { v }\n",
+        "        case None { 0 }\n",
+        "    };\n",
+        "}"
+    ));
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("icmp eq i8") && body.contains("extractvalue { i8, i64 }"),
+        "the tag is tested and the payload extracted:\n{body}"
+    );
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {

@@ -1076,6 +1076,68 @@ fn negating_an_integer_is_checkable_and_everything_else_is_not() {
     }
 }
 
+// -- the arithmetic opt-outs --------------------------------------------------
+
+#[test]
+fn the_arithmetic_builtins_have_the_types_they_claim() {
+    // `wrapping_*` and `saturating_*` answer with an `i64`: two's complement
+    // always has an answer, wrapped or clamped. `checked_*` answers with an
+    // `Option`, because "there is no answer" is something the caller has to be
+    // able to see.
+    for name in [
+        "wrapping_add",
+        "wrapping_sub",
+        "wrapping_mul",
+        "saturating_add",
+        "saturating_sub",
+        "saturating_mul",
+    ] {
+        let src = format!("fn f(a: i64, b: i64) {{ const x = {name}(a, b); }}");
+        assert_type(&src, "f", TypeKind::I64);
+    }
+    // The payload comes out through a match, which the checker could only do if
+    // the result really were an `Option[i64]`: the `switch` has to cover both
+    // variants, and its own type is the payload's.
+    assert_type(
+        "fn f(a: i64, b: i64) -> i64 {\n\
+         const n = switch checked_add(a, b) {\n\
+         case Some(v) { v }\n\
+         case None { 0 }\n\
+         };\n\
+         return n;\n\
+         }",
+        "f",
+        TypeKind::I64,
+    );
+}
+
+#[test]
+fn a_checked_result_cannot_be_used_without_opening_it() {
+    // The point of the `Option` is that the number is not there when it does not
+    // exist, so arithmetic on the result itself is a type error rather than a
+    // wrapped answer -- `checked_add(a, b) + 1` has to be spelled as a match,
+    // which is where the program decides what a missing answer means.
+    assert_error(
+        "fn f(a: i64, b: i64) { const x = checked_add(a, b) + 1; }",
+        "cannot apply `+` to `Option[i64]` and `i64`",
+    );
+}
+
+#[test]
+fn the_arithmetic_builtins_take_exactly_two_arguments() {
+    // They are ordinary functions with an ordinary arity, so a wrong call gets
+    // the diagnostic every other call gets. A `wrapping_add` that quietly took
+    // one argument would be a different operation with the same name.
+    assert_error(
+        "fn f(a: i64) { const x = wrapping_add(a); }",
+        "expected 2 arguments, found 1",
+    );
+    assert_error(
+        "fn f(a: i64) { const x = saturating_mul(a, 2, 3); }",
+        "expected 2 arguments, found 3",
+    );
+}
+
 #[test]
 fn a_diverging_arm_does_not_decide_the_switch_type() {
     // `!` fits wherever a value is wanted, which is what makes

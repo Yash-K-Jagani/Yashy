@@ -85,7 +85,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 13] = [
+        let builtins: [(&str, Vec<Type>, Type); 22] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -128,6 +128,41 @@ impl<'src> Checker<'src> {
             // they are added to the lowered call here rather than written down
             // by the user -- see `Checker::panic_call`.
             ("panic", vec![prim(TypeKind::Str)], prim(TypeKind::Never)),
+            // The three ways out of the checked default (spec 6.1). Integer
+            // arithmetic stops the program on overflow, which is the right
+            // default and the wrong answer for code that has a reason to want
+            // the other behaviour:
+            //
+            // - `wrapping_*` is what C, Go and Rust-in-release do all the time:
+            //   two's-complement wraparound, no check, no branch. It is the
+            //   fastest and it is a choice the program has to make out loud.
+            // - `checked_*` answers with `None` instead of stopping, for code
+            //   that can do something better than die. It is a `select`, not a
+            //   branch: the caller decides what the answer means.
+            // - `saturating_*` clamps to `i64::MIN`/`i64::MAX`, for accumulators
+            //   where "as large as it goes" is more useful than a fault.
+            //
+            // Only `+`, `-` and `*`. A division has no wrapping answer worth
+            // naming -- a wrapped quotient is not the quotient of anything, and
+            // `i64::MIN / -1` is exactly the case the checked lowering already
+            // handles -- so `/` and `%` keep their check with no opt-out. That
+            // asymmetry is deliberate: a divisor of zero is not an overflow, and
+            // a language that let a program wrap *that* would be lying about
+            // what happened.
+            //
+            // Nine names, not one overloaded name: the table declares a name
+            // once and a duplicate declaration is an error, so the family has to
+            // be in the name. It reads the way the arithmetic reads
+            // (`acc = wrapping_add(acc, x);`), which is the point.
+            ("wrapping_add", i64_pair(), prim(TypeKind::I64)),
+            ("wrapping_sub", i64_pair(), prim(TypeKind::I64)),
+            ("wrapping_mul", i64_pair(), prim(TypeKind::I64)),
+            ("checked_add", i64_pair(), option_i64()),
+            ("checked_sub", i64_pair(), option_i64()),
+            ("checked_mul", i64_pair(), option_i64()),
+            ("saturating_add", i64_pair(), prim(TypeKind::I64)),
+            ("saturating_sub", i64_pair(), prim(TypeKind::I64)),
+            ("saturating_mul", i64_pair(), prim(TypeKind::I64)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(
@@ -1824,6 +1859,17 @@ fn ptr(pointee: Type) -> Type {
         kind: TypeKind::Ptr(Box::new(pointee)),
         span: Span::new(0, 0),
     }
+}
+
+/// The two `i64` parameters shared by all nine arithmetic builtins.
+fn i64_pair() -> Vec<Type> {
+    vec![prim(TypeKind::I64), prim(TypeKind::I64)]
+}
+
+/// `Option[i64]`, the answer `checked_add` and its siblings give instead of
+/// stopping the program.
+fn option_i64() -> Type {
+    prim(TypeKind::Option(Box::new(prim(TypeKind::I64))))
 }
 
 /// Whether a value of type `found` may stand where `expected` is wanted.
