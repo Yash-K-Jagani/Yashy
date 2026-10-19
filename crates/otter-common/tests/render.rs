@@ -369,6 +369,38 @@ fn a_file_can_be_read_back_by_id() {
 }
 
 #[test]
+fn a_snippet_is_the_text_a_span_names() {
+    let (sm, f) = sample_map();
+
+    // Bytes 16..21 of SAMPLE are `let x`.
+    assert_eq!(sm.snippet(f, Span { start: 16, end: 21 }), "let x");
+
+    // Both ends are clamped into the file rather than trusted: an end past the
+    // last byte is the last byte, and a reversed range names nothing.
+    assert_eq!(sm.snippet(f, Span { start: 0, end: u32::MAX }), SAMPLE);
+    assert_eq!(sm.snippet(f, Span { start: 21, end: 16 }), "");
+
+    // An id this map does not have, and a synthetic span, both degrade to the
+    // empty string. Nothing here may panic: the input that produces a bad span
+    // is exactly the input a reader needs reported.
+    assert_eq!(sm.snippet(FileId::from_index(7), Span { start: 0, end: 1 }), "");
+    assert_eq!(sm.snippet(f, Span::default()), "");
+}
+
+#[test]
+fn a_snippet_ends_on_a_character_boundary() {
+    // `é` is two bytes, so a span that stops inside it cannot be sliced at that
+    // offset. The end rounds down to the start of the character, which leaves an
+    // empty snippet rather than a panic.
+    let mut sm = SourceMap::new();
+    let f = sm.add_file("utf8.ot", "aé b\n".to_string());
+
+    assert_eq!(sm.snippet(f, Span { start: 0, end: 1 }), "a");
+    assert_eq!(sm.snippet(f, Span { start: 0, end: 3 }), "aé");
+    assert_eq!(sm.snippet(f, Span { start: 1, end: 2 }), "");
+}
+
+#[test]
 fn a_bag_keeps_diagnostics_in_push_order() {
     let (_, f) = sample_map();
     let mut bag = DiagnosticBag::new();

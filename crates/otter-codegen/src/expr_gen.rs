@@ -548,11 +548,7 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // with. See `Checker::panic_call`.
         "panic" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
-            let arg_list: Vec<String> = lowered
-                .iter()
-                .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
-                .collect();
-            let call = format!("call void @otter_panic({})", arg_list.join(", "));
+            let call = panic_call(&lowered, 0);
             let fault = crate::faults::fault_label(ctx);
             let after_label = format!("{}_after_panic", ctx.alloc_label_base());
             ctx.push(format!("br label %{fault}"));
@@ -563,6 +559,11 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
                 ty: TypeKind::Never,
             }
         }
+        // `assert`, `assert_eq` and `assert_ne` (spec 6.2) are the same shape as
+        // `panic` with a branch in front of the reporting block, so the passing
+        // path pays one test and the reporting path is cold.
+        "assert" => gen_assert(ctx, args),
+        "assert_eq" | "assert_ne" => gen_assert_cmp(ctx, &name, args),
         // The opt-outs from the checked default, and the same operation the
         // checked lowering guards: `wrapping_*` is the bare opcode, `saturating_*`
         // is an LLVM saturating intrinsic, and `checked_*` spends the overflow
@@ -666,6 +667,230 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
                 _ => gen_plain_call(ctx, &name, args, ty),
             }
         }
+    }
+}
+
+/// Lower `assert(condition, message, file, line, col)`.
+///
+/// The message and the position are the checker's: it has the source text and
+/// the map, and this stage does not. Everything here is the branch and the cold
+/// block, which is the shape every checked operation uses. See [`crate::faults`].
+fn gen_assert(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    // Every argument is lowered before the branch, in the caller's own block.
+    // The message is an interned string global and needs a `getelementptr`;
+    // emitted after the branch it would land in a block the fault path cannot
+    // reach.
+    let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+    let Some(condition) = lowered.first() else {
+        // The checker hands down exactly these arguments, so this is a guard
+        // against a short list rather than a case. Emitting nothing keeps a bug
+        // in this stage from becoming invalid IR attributed to the program.
+        return unit();
+    };
+    // `lowered` is [condition, message, file, line, col], and `otter_panic`
+    // takes the last four in that order.
+    let call = panic_call(&lowered, 1);
+    let verdict = condition.value.clone();
+    branch_to_report(ctx, &verdict, |_| call);
+    unit()
+}
+
+/// Lower `assert_eq(left, right, prefix, middle, file, line, col)` and the
+/// `assert_ne` spelling.
+///
+/// The operands arrive as expressions rather than as message text because the
+/// values can only be printed here, where they are registers -- and because
+/// lowering each of them once and using the result twice is what keeps
+/// `assert_eq(f(), 0)` from calling `f` a second time on the failure path, where
+/// it could produce a different number than the one that failed.
+fn gen_assert_cmp(ctx: &mut FnCtx<'_>, name: &str, args: &[HirExpr]) -> GenValue {
+    let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+    let (Some(left), Some(right), Some(prefix), Some(middle)) = (
+        lowered.first(),
+        lowered.get(1),
+        lowered.get(2),
+        lowered.get(3),
+    ) else {
+        // The checker hands down exactly these arguments. A shorter list means
+        // the name resolved to a call this lowering does not describe -- a
+        // dotted spelling the checker left alone, since it resolves by the last
+        // segment -- so the call is passed through instead. That fails at link
+        // time with the symbol's name in it, which is a better answer than the
+        // program compiling to nothing.
+        return gen_plain_call(ctx, name, args, &TypeKind::Unit);
+    };
+    // `assert_eq` passes when the operands compare equal; `assert_ne` is the
+    // negation of that, so one predicate covers both.
+    let verdict = compared(ctx, name == "assert_ne", left, right);
+    branch_to_report(ctx, &verdict, |ctx| {
+        let message = comparison_message(ctx, prefix, middle, left, right);
+        panic_call_with(&message, &lowered, 4)
+    });
+    unit()
+}
+
+/// Branch on `verdict` and, in a cold block, assemble the report and end the
+/// program; execution continues in a fresh block.
+///
+/// `report` runs *inside* that block, because what a failure message costs --
+/// three concatenations, a conversion per operand -- should be paid only when
+/// there is a failure to report.
+fn branch_to_report(
+    ctx: &mut FnCtx<'_>,
+    verdict: &str,
+    report: impl FnOnce(&mut FnCtx<'_>) -> String,
+) {
+    let pass = format!("{}_assert_ok", ctx.alloc_label_base());
+    let fault = crate::faults::fault_label(ctx);
+    ctx.push(format!("br i1 {verdict}, label %{pass}, label %{fault}"));
+    crate::faults::close_fault(ctx, &fault, report);
+    ctx.push(format!("{pass}:"));
+}
+
+/// The `i1` a comparison assertion tests.
+///
+/// `inverted` is the `assert_ne` sense. The instruction is chosen by the operand
+/// type: `fcmp` for `f64` -- `une`, because a `NaN` is not equal to anything and
+/// an `assert_eq` on one should fail -- the runtime's equality for a `string`,
+/// and `icmp` for `i64` and `bool`.
+fn compared(ctx: &mut FnCtx<'_>, inverted: bool, left: &GenValue, right: &GenValue) -> String {
+    let equal = !inverted;
+    let verdict = ctx.tmp();
+    match &left.ty {
+        TypeKind::F64 => {
+            ctx.push(format!(
+                "{verdict} = fcmp {} double {}, {}",
+                if equal { "oeq" } else { "une" },
+                left.value,
+                right.value
+            ));
+            verdict
+        }
+        // The runtime answers "equal" whichever name was written, so the `ne`
+        // case negates its answer rather than asking a second question.
+        TypeKind::Str => {
+            let same = ctx.tmp();
+            ctx.push(format!(
+                "{same} = call i1 @otter_str_eq(i8* {}, i8* {})",
+                left.value, right.value
+            ));
+            if equal {
+                return same;
+            }
+            ctx.push(format!("{verdict} = xor i1 {same}, true"));
+            verdict
+        }
+        // `i64` and `bool`, both integers to LLVM.
+        _ => {
+            ctx.push(format!(
+                "{verdict} = icmp {} {} {}, {}",
+                if equal { "eq" } else { "ne" },
+                repr_type(&left.ty),
+                left.value,
+                right.value
+            ));
+            verdict
+        }
+    }
+}
+
+/// The message a failed `assert_eq`/`assert_ne` reports: the two halves the
+/// checker wrote, with each operand's value printed between them.
+///
+/// ```text
+/// assertion failed: n == 0, left = 3, right = 0
+/// ```
+fn comparison_message(
+    ctx: &mut FnCtx<'_>,
+    prefix: &GenValue,
+    middle: &GenValue,
+    left: &GenValue,
+    right: &GenValue,
+) -> String {
+    let left_text = value_as_string(ctx, left);
+    let right_text = value_as_string(ctx, right);
+    let head = concat(ctx, &prefix.value, &left_text);
+    let tail = concat(ctx, &head, &middle.value);
+    concat(ctx, &tail, &right_text)
+}
+
+/// `left ++ right`, both `i8*`.
+fn concat(ctx: &mut FnCtx<'_>, left: &str, right: &str) -> String {
+    let joined = ctx.tmp();
+    ctx.push(format!(
+        "{joined} = call i8* @otter_str_concat(i8* {left}, i8* {right})"
+    ));
+    joined
+}
+
+/// A value as the string a message prints: the runtime's conversion for the
+/// three scalar types, and a `string` itself, which needs none.
+fn value_as_string(ctx: &mut FnCtx<'_>, value: &GenValue) -> String {
+    match &value.ty {
+        TypeKind::I64 => {
+            let text = ctx.tmp();
+            ctx.push(format!(
+                "{text} = call i8* @otter_str_from_i64(i64 {})",
+                value.value
+            ));
+            text
+        }
+        TypeKind::F64 => {
+            let text = ctx.tmp();
+            ctx.push(format!(
+                "{text} = call i8* @otter_str_from_f64(double {})",
+                value.value
+            ));
+            text
+        }
+        // C has no one-bit type, so `otter_str_from_bool` takes an `i64` and the
+        // `i1` is zero-extended to meet it -- the same widening `str_from_bool`
+        // does in [`gen_call`].
+        TypeKind::Bool => {
+            let widened = ctx.tmp();
+            ctx.push(format!("{widened} = zext i1 {} to i64", value.value));
+            let text = ctx.tmp();
+            ctx.push(format!(
+                "{text} = call i8* @otter_str_from_bool(i64 {widened})"
+            ));
+            text
+        }
+        // `string` is already a pointer to bytes, and anything else the checker
+        // lets through reads the same way.
+        _ => value.value.clone(),
+    }
+}
+
+/// `call void @otter_panic(<message>, <file>, <line>, <col>)`, the message being
+/// the register that holds one: `panic`'s own lowering, and `assert`'s, where
+/// the checker wrote the text.
+fn panic_call(lowered: &[GenValue], message_at: usize) -> String {
+    let args: Vec<String> = lowered
+        .iter()
+        .skip(message_at)
+        .map(operand_of)
+        .collect();
+    format!("call void @otter_panic({})", args.join(", "))
+}
+
+/// The same call with the message given as a name rather than an argument: the
+/// assembled message of a comparison assertion, followed by the position.
+fn panic_call_with(message: &str, lowered: &[GenValue], first_position: usize) -> String {
+    let mut args = vec![format!("i8* {message}")];
+    args.extend(lowered.iter().skip(first_position).map(operand_of));
+    format!("call void @otter_panic({})", args.join(", "))
+}
+
+/// One lowered value as an IR operand: its type's representation, then its name.
+fn operand_of(value: &GenValue) -> String {
+    format!("{} {}", repr_type(&value.ty), value.value)
+}
+
+/// The result of a statement-shaped builtin: no register, and `()` for a type.
+fn unit() -> GenValue {
+    GenValue {
+        value: String::new(),
+        ty: TypeKind::Unit,
     }
 }
 

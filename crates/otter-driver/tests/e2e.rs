@@ -1276,3 +1276,182 @@ fn arithmetic_that_fits_runs_to_completion() {
     );
     assert_eq!(stdout_of(&output), "45\n3\n-1\n-45\n");
 }
+
+// -- assert (spec 6.2) --------------------------------------------------------
+
+#[test]
+fn assertions_that_hold_do_nothing_at_all() {
+    // The passing path is a test and a branch: no message is built, nothing is
+    // printed, and the program carries on. All four comparable types are here,
+    // because each one branches through a different comparison.
+    let output = compile_and_run(
+        "assert-ok",
+        concat!(
+            "fn main() {\n",
+            "    var n = 3;\n",
+            "    assert(n > 0);\n",
+            "    assert_eq(n, 3);\n",
+            "    assert_ne(n, 4);\n",
+            "    assert_eq(n * 2, 6);\n",
+            "    assert_eq(1.5 + 0.5, 2.0);\n",
+            "    assert_eq(true, true);\n",
+            "    assert_eq(\"otter\", \"otter\");\n",
+            "    assert_ne(\"otter\", \"other\");\n",
+            "    print_str(\"done\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "nothing here fails: {}",
+        stderr_of(&output)
+    );
+    assert_eq!(stdout_of(&output), "done\n");
+    assert_eq!(
+        stderr_of(&output),
+        "",
+        "an assertion that holds says nothing"
+    );
+}
+
+#[test]
+fn a_failed_assertion_quotes_the_condition_it_was_given() {
+    // The message is the expression's own source text, which is the part a
+    // program cannot supply for itself and a reader needs most: "assertion
+    // failed" without the condition says nothing about what was expected.
+    let output = compile_and_run(
+        "assert-fail",
+        concat!(
+            "fn main() {\n",
+            "    var n = 0;\n",
+            "    print_str(\"before\\n\");\n",
+            "    assert(n > 0);\n",
+            "    print_str(\"after\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a failed assertion is a failure, not a normal exit: {:?}",
+        output.status
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "before\n",
+        "output from before the fault must survive it, and nothing after may run"
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: assertion failed: n > 0"),
+        "the condition belongs in the message:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("assert-fail.ot:4:5:"),
+        "and so does the position it was written at:\n{stderr}"
+    );
+}
+
+#[test]
+fn assert_eq_reports_both_values_and_assert_ne_does_too() {
+    // The point of the comparison forms: the two numbers, not just the fact that
+    // they disagreed.
+    let output = compile_and_run(
+        "assert-eq-fail",
+        concat!(
+            "fn main() {\n",
+            "    var n = 3;\n",
+            "    assert_eq(n, 4);\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: assertion failed: n == 4, left = 3, right = 4"),
+        "both operands and the comparison belong in the message:\n{stderr}"
+    );
+
+    // `assert_ne` prints the same two values, which for this failure are equal:
+    // that is exactly what a reader needs to see.
+    let output = compile_and_run(
+        "assert-ne-fail",
+        concat!(
+            "fn main() {\n",
+            "    var n = 3;\n",
+            "    assert_ne(n, 3);\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: assertion failed: n != 3, left = 3, right = 3"),
+        "the operator that was written must survive into the message:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_comparison_assertion_prints_floats_and_strings_as_text() {
+    let output = compile_and_run(
+        "assert-types-fail",
+        concat!(
+            "fn main() {\n",
+            "    assert_eq(1.5, 2.5);\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr_of(&output).contains("assertion failed: 1.5 == 2.5, left = 1.5, right = 2.5"),
+        "a float is printed the way the runtime prints one:\n{}",
+        stderr_of(&output)
+    );
+
+    let output = compile_and_run(
+        "assert-string-fail",
+        concat!(
+            "fn main() {\n",
+            "    var s = \"abc\";\n",
+            "    assert_eq(s, \"x\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr_of(&output).contains("assertion failed: s == \"x\", left = abc, right = x"),
+        "a string is quoted by its own expression and printed as its text:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
+fn an_asserted_operand_runs_exactly_once() {
+    // The comparison and the message read the same value. Re-evaluating the
+    // operand to print it would run its side effect twice -- and, on the failure
+    // path, could print a number that is not the one that failed.
+    let source = concat!(
+        "fn tick() -> i64 {\n",
+        "    print_str(\"tick\\n\");\n",
+        "    return 1;\n",
+        "}\n",
+        "\n",
+        "fn main() {\n",
+        "    assert_eq(tick(), 1);\n",
+        "    assert_eq(tick(), 2);\n",
+        "}\n"
+    );
+    let output = compile_and_run("assert-once", source);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout_of(&output),
+        "tick\ntick\n",
+        "one `tick` per assertion: the second failing must not run it a third time"
+    );
+    assert!(
+        stderr_of(&output).contains("left = 1, right = 2"),
+        "the message reports the value that was compared:\n{}",
+        stderr_of(&output)
+    );
+}

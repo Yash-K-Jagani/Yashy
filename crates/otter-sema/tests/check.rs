@@ -935,6 +935,213 @@ fn panic_takes_exactly_one_string() {
     );
 }
 
+// -- assert --------------------------------------------------------------------
+
+/// The string a literal expression holds.
+fn literal_text(expr: &HirExpr) -> String {
+    match expr {
+        HirExpr::Literal(Literal::Str(lit), _, _) => lit.value.clone(),
+        other => panic!("expected a string literal, got {other:?}"),
+    }
+}
+
+/// The integer a literal expression holds.
+fn literal_integer(expr: &HirExpr) -> i64 {
+    match expr {
+        HirExpr::Literal(Literal::I64(value), _, _) => *value,
+        other => panic!("expected an integer literal, got {other:?}"),
+    }
+}
+
+#[test]
+fn assert_is_a_unit_builtin_that_quotes_its_condition() {
+    // `()` and not `!`: an assertion that holds returns normally, so typing it
+    // as diverging would let its non-existent value flow into anything.
+    let src = "fn f() {\n    const n = 3;\n    assert(n > 0);\n}\n";
+    let HirStmt::Expr(expr, _, ty) = statement_of(src, "f", 1) else {
+        panic!("expected an expression statement");
+    };
+    assert_eq!(ty.kind, TypeKind::Unit);
+    let HirExpr::Call { callee, args, .. } = expr else {
+        panic!("expected the lowered assert call");
+    };
+    assert_eq!(callee, vec!["assert".to_string()]);
+    let kinds: Vec<TypeKind> = args.iter().map(|a| expr_ty(a).kind.clone()).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TypeKind::Bool,
+            TypeKind::Str,
+            TypeKind::Str,
+            TypeKind::I64,
+            TypeKind::I64
+        ],
+        "the condition, the message, the file, the line and the column"
+    );
+    assert_eq!(
+        literal_text(&args[1]),
+        "assertion failed: n > 0",
+        "the message quotes the condition as it was written"
+    );
+    assert_eq!(literal_text(&args[2]), "test.ot");
+    assert_eq!(literal_integer(&args[3]), 3);
+    assert_eq!(literal_integer(&args[4]), 5);
+}
+
+#[test]
+fn assert_quotes_a_condition_across_lines_as_one_line() {
+    // The message is printed after a position and a label, so a second line in
+    // it would read as a second diagnostic. The line break becomes a space.
+    let src = "fn f() {\n    const n = 3;\n    assert(n >\n        0);\n}\n";
+    let HirStmt::Expr(HirExpr::Call { args, .. }, _, _) = statement_of(src, "f", 1) else {
+        panic!("expected the lowered assert call");
+    };
+    assert_eq!(
+        args.first().map(|a| expr_ty(a).kind),
+        Some(TypeKind::Bool),
+        "the condition is the first argument"
+    );
+    assert_eq!(
+        args.get(1).map(literal_text).unwrap_or_default(),
+        "assertion failed: n > 0"
+    );
+}
+
+#[test]
+fn assert_takes_exactly_one_bool() {
+    assert_error(
+        "fn f() { assert(1); }",
+        "expected `bool`, found `i64`",
+    );
+    assert_error("fn f() { assert(); }", "expected 1 arguments, found 0");
+    assert_error(
+        "fn f() { assert(true, false); }",
+        "expected 1 arguments, found 2",
+    );
+}
+
+#[test]
+fn assert_eq_carries_both_operands_and_the_message_around_them() {
+    // The operands travel down as expressions, not as text: the backend has to
+    // evaluate each once and use the result twice -- the comparison and the
+    // value the message prints.
+    let src = "fn f() {\n    const n = 3;\n    assert_eq(n, 0);\n}\n";
+    let HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty) = statement_of(src, "f", 1)
+    else {
+        panic!("expected the lowered assert_eq call");
+    };
+    assert_eq!(ty.kind, TypeKind::Unit);
+    assert_eq!(callee, vec!["assert_eq".to_string()]);
+    let kinds: Vec<TypeKind> = args.iter().map(|a| expr_ty(a).kind.clone()).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TypeKind::I64,
+            TypeKind::I64,
+            TypeKind::Str,
+            TypeKind::Str,
+            TypeKind::Str,
+            TypeKind::I64,
+            TypeKind::I64
+        ],
+        "two operands, the two halves of the message, then the position"
+    );
+    assert_eq!(literal_text(&args[2]), "assertion failed: n == 0, left = ");
+    assert_eq!(literal_text(&args[3]), ", right = ");
+    assert_eq!(literal_text(&args[4]), "test.ot");
+    assert_eq!(literal_integer(&args[5]), 3);
+    assert_eq!(literal_integer(&args[6]), 5);
+}
+
+#[test]
+fn assert_ne_spells_the_comparison_it_tested() {
+    let src = "fn f() {\n    const a = 1;\n    const b = 2;\n    assert_ne(a, b);\n}\n";
+    let HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, _) = statement_of(src, "f", 2) else {
+        panic!("expected the lowered assert_ne call");
+    };
+    assert_eq!(callee, vec!["assert_ne".to_string()]);
+    assert_eq!(
+        literal_text(&args[2]),
+        "assertion failed: a != b, left = ",
+        "the message names the operator that was written"
+    );
+}
+
+#[test]
+fn assert_eq_compares_every_type_that_has_an_equality() {
+    // One name over four types, which is why the call cannot be resolved against
+    // the table's declared `i64` pair.
+    for (src, operand) in [
+        ("fn f() { assert_eq(1, 2); }", TypeKind::I64),
+        ("fn f() { assert_eq(1.5, 2.5); }", TypeKind::F64),
+        ("fn f() { assert_eq(true, false); }", TypeKind::Bool),
+        ("fn f() { assert_eq(\"a\", \"b\"); }", TypeKind::Str),
+    ] {
+        let HirStmt::Expr(HirExpr::Call { args, .. }, _, _) = statement_of(src, "f", 0) else {
+            panic!("expected the lowered assert_eq call for {src}");
+        };
+        let left = args.first().map(|a| expr_ty(a)).unwrap_or_else(|| {
+            panic!("expected a left operand for {src}")
+        });
+        assert_eq!(
+            left.kind, operand,
+            "the left operand of {src} should be {operand:?}"
+        );
+    }
+}
+
+#[test]
+fn assert_eq_reports_operands_it_cannot_compare() {
+    // An aggregate has no equality in Otter yet. Comparing one by its first
+    // field would be a wrong answer rather than a missing one, so it is
+    // reported -- and reported against the left operand, which is the one the
+    // message is about.
+    assert_error(
+        "fn f() { const o = Some(1); const p = Some(2); assert_eq(o, p); }",
+        "`assert_eq` cannot compare `Option[i64]` values: it compares `i64`, `f64`, `bool` and `string`",
+    );
+    // A `Never` operand is reported as uncomparable rather than as a mismatch
+    // against `!`, which is what the order of the two checks is for.
+    assert_error(
+        "fn f() { assert_eq(panic(\"x\"), 1); }",
+        "`assert_eq` cannot compare `!` values",
+    );
+}
+
+#[test]
+fn assert_eq_reports_a_mismatched_pair() {
+    assert_error(
+        "fn f() { assert_eq(1, \"x\"); }",
+        "expected `i64`, found `string`",
+    );
+    assert_error(
+        "fn f() { assert_eq(true, 1); }",
+        "expected `bool`, found `i64`",
+    );
+    assert_error(
+        "fn f() { assert_eq(1); }",
+        "expected 2 arguments, found 1",
+    );
+    assert_error(
+        "fn f() { assert_ne(1, 2, 3); }",
+        "expected 2 arguments, found 3",
+    );
+}
+
+#[test]
+fn a_program_cannot_redeclare_an_assertion() {
+    // The table is what reserves the names: a program that could define
+    // `assert_eq` itself would have a function that never runs.
+    assert_error(
+        "fn assert(cond: bool) {}",
+        "duplicate definition of `assert`",
+    );
+    assert_error(
+        "fn assert_eq(a: i64, b: i64) {}",
+        "duplicate definition of `assert_eq`",
+    );
+}
+
 // -- checked arithmetic -------------------------------------------------------
 
 /// Whether the tree marks this operation as one that can fault at run time.

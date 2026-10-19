@@ -208,6 +208,27 @@ impl SourceMap {
         }
     }
 
+    /// The source text a span covers, with both ends clamped into the file.
+    ///
+    /// This is how the compiler quotes a program back to itself: a failed
+    /// `assert` reports the expression that was written, which means slicing the
+    /// text the span names. The ends are clamped to character boundaries and to
+    /// the file's length, and a span that names nothing -- a synthetic one, an
+    /// id no map has, a reversed range -- yields `""` rather than a panic, which
+    /// is the same rule the rest of this module follows.
+    pub fn snippet(&self, id: FileId, span: Span) -> &str {
+        let file = match self.get(id) {
+            Some(file) => file,
+            None => return "",
+        };
+        let start = floor_char_boundary(&file.text, offset_of(span.start));
+        let end = floor_char_boundary(&file.text, offset_of(span.end).min(file.text.len()));
+        if end < start {
+            return "";
+        }
+        file.text.get(start..end).unwrap_or("")
+    }
+
     /// Renders a diagnostic the way a compiler should print it.
     ///
     /// The output is four lines: `path:line:col`, the severity and message, the

@@ -160,7 +160,10 @@ rather than a hidden one, and it is the seam the M3–M4 plan's Task 10 replaces
 with the throw that generated cleanup landing pads catch. No stack trace is
 printed for the same reason; it arrives with the unwinding machinery.
 
-`otter_assert_failed` is Task 12's and is not written yet.
+`otter_assert_failed` is not written, and as M4 Task 12 was built it is not
+needed: an assertion is a `panic` behind a test, so `assert`,
+`assert_eq` and `assert_ne` report through the `otter_panic` above and
+nothing new is declared.
 
 Checked arithmetic is **not** a runtime call. M4 emits the compare and the
 conditional branch to an inline panic block in generated code (see L4).
@@ -251,7 +254,8 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, `len(string)`, string constructors and accessors from L1 |
 | M3, as built ahead of the row above | `read_line() -> string`, `parse_i64(string) -> i64`, `parse_f64(string) -> f64`, `str_from_i64(i64) -> string`, `str_from_f64(f64) -> string`, `str_from_bool(bool) -> string` (L1's input and conversion notes) |
 | M4, as built ahead of the row below | `panic(string) -> !` (M3–M4 Task 9). `!` and not `()`: a panic produces no value, so it can stand in for a value of any type — a `return`, a `switch` arm — without letting a program use one. The call carries the file, line and column the checker resolved, and ends the process with status 1 |
-| M4 | `assert(bool)`, `debug_assert(bool)`, `assert_eq` (typed per pair), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
+| M4, as built ahead of the row below | `assert(bool)`, `assert_eq`/`assert_ne` over the four types with an equality (M3–M4 Task 12, first half). One `assert_eq` name rather than one per type: the comparison forms are built in the checker, so the table's declared `i64` pair is never consulted and exists to reserve the name. `assert_ne` is the same lowering with the predicate inverted |
+| M4 | `debug_assert(bool)` (needs a `--release` flag), `os.exit(i32)`, `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
 | M6 | `len(slice) -> i64`, `slice_push`, `map_new/get/insert/remove/len`, string `len`, indexing |
 | M7 | `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock/unlock`, `Channel.new(i64)`, `chan.send/recv/close` |
 

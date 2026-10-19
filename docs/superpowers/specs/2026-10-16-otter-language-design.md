@@ -370,7 +370,9 @@ dying in ways nobody can debug.
 > value. That is what lets it stand where a value is wanted (`return panic(...)`,
 > a `switch` arm) without also letting a program *use* a value that does not
 > exist: the block that would have used it is unreachable, and the IR says so.
-> Checked arithmetic (§6.1) is written; `assert` (§6.2) is not.
+> Checked arithmetic (§6.1) and the assertions (§6.2) are written; the
+> `debug_assert` half of §6.2 waits for a `--release` flag to compile away
+> under.
 
 **Unwinding is bounded, not a coroutine.** Otter supports panic-unwinding
 across `fn` frames, not `catch`/`throw`. Once a panic starts, the only choice
@@ -393,6 +395,41 @@ no answer (a zero divisor, and `i64::MIN / -1`) are reported either way.
 
 `assert(cond);` and `assert_eq(a, b);` panic with source spans on failure and
 compile away under `--release` when the assertion is marked `debug_assert`.
+
+> **As built (M4 Task 12, first half).** `assert`, `assert_eq` and `assert_ne`
+> are written; `debug_assert` waits for a `--release` flag, and §6.3 for the
+> exit codes.
+>
+> They are the fault path of §6 with a test in front of it, so a failed
+> assertion reads exactly like every other fault:
+>
+> ```text
+> main.ot:7:5: panic: assertion failed: n > 0
+> main.ot:9:5: panic: assertion failed: n == 0, left = 3, right = 0
+> ```
+>
+> The condition's own source text is quoted in the message. That is a fact only
+> the *checker* holds — the backend is handed IR text and a path, and no source
+> map — so the checker reads the span out of the map and hands the text down as
+> an ordinary string literal. A condition written across two lines is collapsed
+> to one, because a second line in the message would read as a second
+> diagnostic.
+>
+> `assert_eq`/`assert_ne` are one name over the four types with an equality
+> (`i64`, `f64`, `bool`, `string`), so they are built in the checker rather than
+> resolved against the builtin table's declared pair. The two *operands* travel
+> down as expressions, not as text, because the backend has to evaluate each one
+> once and use the result twice — the comparison, and the value printed in the
+> failure message. Re-reading an operand on the failure path would run its side
+> effects twice and could report a number that is not the one that failed.
+>
+> The result type is `()` and not `!`: an assertion that holds returns normally,
+> and typing it as diverging would let its non-existent value flow into
+> anything. The name is `assert_eq`, not `assert_eq_i64`/`assert_eq_str`/…,
+> because the intended spelling is the one a reader writes.
+>
+> `assert_eq` on a `NaN` fails, as it must: the comparison is `fcmp oeq`, and a
+> NaN is equal to nothing including itself.
 
 ### 6.3 Exit codes
 

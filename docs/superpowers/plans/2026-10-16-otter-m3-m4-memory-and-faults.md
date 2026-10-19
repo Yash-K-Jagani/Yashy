@@ -1194,6 +1194,41 @@ git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping con
 - Consumes: ledger L1 `otter_assert_failed`, ledger L3 M4 builtins
 - Produces: `assert(bool)`, `debug_assert(bool)`, `assert_eq`/`assert_ne` as builtin forms specialised per type pair, `os.exit(i32)` emitting a call to `exit`
 
+> **As built so far (the assertion half).** `assert`, `assert_eq` and
+> `assert_ne` are in; `debug_assert` (needs a `--release` flag that does not
+> exist yet), the `i32`-returning `main` and `os.exit` are not.
+>
+> Four things differ from the sketch above, and each is worth keeping:
+>
+> - **No new runtime function.** The sketch assumed an `otter_assert_failed`
+>   symbol. The existing `otter_panic(message, file, line, column)` already
+>   takes a message and a position, and an assertion failure *is* a panic, so
+>   the message is built before the call and nothing new is declared. The whole
+>   feature is therefore checker plus codegen: no runtime change, no golden
+>   regeneration, and a failed assertion reads exactly like every other fault.
+> - **The message is an argument, not a string the backend builds.** For
+>   `assert` the checker writes the whole message (`assertion failed: n > 0`)
+>   as a literal -- it has the source text, the backend does not. For
+>   `assert_eq`/`assert_ne` the two *operands* travel down as expressions with
+>   the two halves of the message around them, because only the backend can
+>   print the values, and lowering each operand once and using the register
+>   twice is what stops `assert_eq(f(), 0)` from running `f` again on the
+>   failure path and reporting a number that is not the one that failed.
+> - **`assert_eq` is one name over four types, built in the checker.** The
+>   builtin table has no generics and declares a name once, so the comparison
+>   forms are constructed in `Checker::assert_cmp_call` before the declared
+>   parameter types are consulted; the table entry exists to reserve the name,
+>   so a program that defines `assert_eq` of its own is a duplicate definition.
+>   The comparison is `icmp` for `i64`/`bool`, `fcmp oeq`/`une`
+>   for `f64` and `otter_str_eq` for `string`.
+> - **The result type is `()`.** `assert` does not diverge when it holds, and
+>   typing it `!` would let its non-existent value into anything.
+>
+> Tests: 8 in `crates/otter-sema/tests/check.rs`, 6 in
+> `crates/otter-codegen/tests/expr_gen.rs`, 5 in
+> `crates/otter-driver/tests/e2e.rs` -- the last of which asserts that an
+> operand with a side effect runs exactly once, passing *and* failing.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```rust

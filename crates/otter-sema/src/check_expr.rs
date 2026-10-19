@@ -68,10 +68,11 @@ pub struct Checker<'src> {
     file: FileId,
     /// The source text and its line index.
     ///
-    /// Only `panic` reads this. A panic is reported to the user with the
-    /// position it was written at, and resolving a span to a line and column
-    /// needs the file; the checker is the last stage that has it, and the
-    /// backend is handed IR text and a path rather than a map.
+    /// Only the diagnostics builtins read this: `panic` reports the position it
+    /// was written at, and `assert`/`assert_eq`/`assert_ne` quote the
+    /// expression back. Both are facts the checker holds and the backend does
+    /// not -- it is handed IR text and a path, and no map -- so they are
+    /// resolved here and travel in the tree.
     sm: &'src SourceMap,
 }
 
@@ -85,7 +86,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 22] = [
+        let builtins: [(&str, Vec<Type>, Type); 25] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -163,6 +164,28 @@ impl<'src> Checker<'src> {
             ("saturating_add", i64_pair(), prim(TypeKind::I64)),
             ("saturating_sub", i64_pair(), prim(TypeKind::I64)),
             ("saturating_mul", i64_pair(), prim(TypeKind::I64)),
+            // `assert` (spec 6.2). A condition that must hold, reported with
+            // the expression that was written when it does not:
+            //
+            //     assert(n > 0);
+            //     main.ot:3:5: panic: assertion failed: n > 0
+            //
+            // Like `panic`, the interesting arguments are added by the checker
+            // (`Checker::assert_call`): the source text and the position are
+            // facts only it holds.
+            //
+            // The type is `()`, not `Never`: an assertion that *passes* returns
+            // normally, so treating it as diverging would let a program assign
+            // its non-existent value to anything.
+            ("assert", vec![prim(TypeKind::Bool)], prim(TypeKind::Unit)),
+            // `assert_eq(a, b)` and `assert_ne(a, b)` are the comparison forms.
+            // The declared pair is an `i64` one, but the checker never consults
+            // it: every call is built generically in `Checker::assert_cmp_call`,
+            // so the two operands may be any pair of `i64`, `f64`, `bool` or
+            // `string`. The entry is here for what the table is actually for --
+            // a name, declared once, that a program therefore cannot redefine.
+            ("assert_eq", i64_pair(), prim(TypeKind::Unit)),
+            ("assert_ne", i64_pair(), prim(TypeKind::Unit)),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(
@@ -1363,6 +1386,15 @@ impl<'src> Checker<'src> {
                                 );
                                 return None;
                             }
+                            // `assert_eq` and `assert_ne` compare two values of
+                            // *the same* type, which is any of the four with an
+                            // equality, so they are built before the declared
+                            // parameter types are applied and the table's `i64`
+                            // pair is never consulted. See
+                            // `Checker::assert_cmp_call`.
+                            if callee.len() == 1 && (name == "assert_eq" || name == "assert_ne") {
+                                return self.assert_cmp_call(&name, args, *span);
+                            }
                             let mut arg_exprs = Vec::with_capacity(args.len());
                             for (arg, param) in args.iter().zip(params.iter()) {
                                 let checked = self.check_expr_with_expected(arg, param)?;
@@ -1389,15 +1421,21 @@ impl<'src> Checker<'src> {
                                 }
                                 arg_exprs.push(checked);
                             }
-                            // `panic` is sugar in the same way interpolation is:
-                            // the position it reports is a fact only this stage
-                            // holds, so it is resolved here and the call handed
-                            // down carries it. The arity check above already
-                            // pinned `arg_exprs` to one element. Every other
-                            // builtin passes through untouched.
+                            // `panic` and `assert` are sugar in the same way
+                            // interpolation is: the position they report is a
+                            // fact only this stage holds, so it is resolved here
+                            // and the call handed down carries it. The arity
+                            // check above already pinned `arg_exprs` to one
+                            // element. Every other builtin passes through
+                            // untouched.
                             if callee.len() == 1 && name == "panic" {
                                 if let Some(message) = arg_exprs.first().cloned() {
                                     return Some(self.panic_call(message, *span));
+                                }
+                            }
+                            if callee.len() == 1 && name == "assert" {
+                                if let Some(condition) = arg_exprs.first().cloned() {
+                                    return Some(self.assert_call(condition, *span));
                                 }
                             }
                             Some(HirExpr::Call {
@@ -1774,12 +1812,128 @@ impl<'src> Checker<'src> {
     /// not exist, and the extra arguments are ordinary literals: a `string` and
     /// two `i64`s, which the runtime prints.
     fn panic_call(&mut self, message: HirExpr, span: Span) -> HirExpr {
-        let location = self.sm.locate(self.file, span);
-        let file = self.sm.path(self.file).to_string();
-        let args = vec![
-            message,
+        let mut args = vec![message];
+        args.extend(self.position_args(span));
+        HirExpr::Call {
+            callee: vec!["panic".to_string()],
+            args,
+            unsafe_call: false,
+            span,
+            ty: never(span),
+        }
+    }
+
+    /// `assert(condition)` as the call the backend lowers: the condition, the
+    /// message to report when it is false, and the position.
+    ///
+    /// The message quotes the condition's own source text, which is the other
+    /// fact only this stage holds. It is a single literal -- everything in it is
+    /// known now -- so the backend lowers it exactly as it lowers a `panic`.
+    ///
+    /// The result type is `()` rather than `Never`: a condition that holds is
+    /// not a fault, and typing it as diverging would let the value that is never
+    /// produced flow into anything at all.
+    fn assert_call(&mut self, condition: HirExpr, span: Span) -> HirExpr {
+        let text = self.snippet_text(expr_span(&condition));
+        let message = format!("assertion failed: {text}");
+        let mut args = vec![
+            condition,
+            HirExpr::Literal(Literal::Str(str_lit(message)), span, prim(TypeKind::Str)),
+        ];
+        args.extend(self.position_args(span));
+        HirExpr::Call {
+            callee: vec!["assert".to_string()],
+            args,
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        }
+    }
+
+    /// `assert_eq(a, b)` and `assert_ne(a, b)` as the call the backend lowers:
+    /// the two operands, the two halves of the message written around them, and
+    /// the position.
+    ///
+    /// The operands travel down as expressions rather than as values because
+    /// the *backend* has to evaluate them once and use the result twice -- once
+    /// for the comparison and once for the message that prints it -- and it is
+    /// the stage that owns the registers. Building the message here would either
+    /// duplicate an operand that is a call (running it twice, on the failure
+    /// path with a value that may differ) or need a temporary this tree has no
+    /// way to name.
+    ///
+    /// Returns `None` when it has reported an error, so the caller does not
+    /// lower a call it has no types for.
+    fn assert_cmp_call(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
+        // Both operands are checked even when the first one fails, so a program
+        // with two mistakes reports two errors rather than taking two builds to
+        // say so -- the same rule the argument loop above follows.
+        let left = self.check_expr(args.first()?);
+        let right = self.check_expr(args.get(1)?);
+        let (Some(left), Some(right)) = (left, right) else {
+            return None;
+        };
+        let left_ty = expr_ty(&left);
+        let right_ty = expr_ty(&right);
+        // The "cannot compare" case is checked first so that a pair with one
+        // `Never` in it -- `assert_eq(panic("x"), 1)` -- is reported as an
+        // uncomparable operand rather than as a type mismatch against `!`.
+        if !has_equality(&left_ty) {
+            self.error(
+                expr_span(&left),
+                format!(
+                    "`{name}` cannot compare `{left_ty}` values: it compares `i64`, \
+                     `f64`, `bool` and `string`"
+                ),
+            );
+            return None;
+        }
+        if !left_ty.eq_ignoring_span(&right_ty) {
+            self.error(
+                expr_span(&right),
+                format!("expected `{left_ty}`, found `{right_ty}`"),
+            );
+            return None;
+        }
+        let symbol = if name == "assert_ne" { "!=" } else { "==" };
+        let text = format!(
+            "{} {symbol} {}",
+            self.snippet_text(expr_span(&left)),
+            self.snippet_text(expr_span(&right))
+        );
+        let mut built = vec![
+            left,
+            right,
             HirExpr::Literal(
-                Literal::Str(str_lit(file)),
+                Literal::Str(str_lit(format!("assertion failed: {text}, left = "))),
+                span,
+                prim(TypeKind::Str),
+            ),
+            HirExpr::Literal(
+                Literal::Str(str_lit(", right = ".to_string())),
+                span,
+                prim(TypeKind::Str),
+            ),
+        ];
+        built.extend(self.position_args(span));
+        Some(HirExpr::Call {
+            callee: vec![name.to_string()],
+            args: built,
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        })
+    }
+
+    /// The file, line and column a runtime report names, as literals.
+    ///
+    /// The tail of every call this stage hands the backend for a fault, so that
+    /// the position is resolved in the one stage that has a source map.
+    fn position_args(&self, span: Span) -> Vec<HirExpr> {
+        let location = self.sm.locate(self.file, span);
+        vec![
+            HirExpr::Literal(
+                Literal::Str(str_lit(self.sm.path(self.file).to_string())),
                 span,
                 prim(TypeKind::Str),
             ),
@@ -1793,15 +1947,46 @@ impl<'src> Checker<'src> {
                 span,
                 prim(TypeKind::I64),
             ),
-        ];
-        HirExpr::Call {
-            callee: vec!["panic".to_string()],
-            args,
-            unsafe_call: false,
-            span,
-            ty: never(span),
-        }
+        ]
     }
+
+    /// The source text a span covers, as one trimmed line.
+    ///
+    /// Any run of whitespace -- the indent of a continuation line as much as the
+    /// line break itself -- becomes a single space, so an assertion written
+    /// across two lines still reports as one. The message is printed after a
+    /// position and a label, and a second line of it would read as a second
+    /// diagnostic. A span with no text -- a synthetic one -- yields the empty
+    /// string, and the message degrades to `assertion failed: ` rather than to a
+    /// compiler fault.
+    fn snippet_text(&self, span: Span) -> String {
+        let mut out = String::new();
+        let mut pending_space = false;
+        for ch in self.sm.snippet(self.file, span).chars() {
+            if ch.is_whitespace() {
+                pending_space = true;
+                continue;
+            }
+            if pending_space && !out.is_empty() {
+                out.push(' ');
+            }
+            pending_space = false;
+            out.push(ch);
+        }
+        out
+    }
+}
+
+/// Whether `==` is defined for a type, which is what `assert_eq` needs.
+///
+/// The four the comparison emitters support. An aggregate has no equality in
+/// Otter yet, and comparing one by its first field would be a wrong answer
+/// rather than a missing one, so asking is reported.
+fn has_equality(ty: &Type) -> bool {
+    matches!(
+        ty.kind,
+        TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str
+    )
 }
 
 /// Whether a binary operation is integer arithmetic, and therefore checked.
@@ -1912,6 +2097,17 @@ fn merge_arm_type(slot: &mut Option<Type>, body: Type) -> Option<String> {
 fn never(span: Span) -> Type {
     Type {
         kind: TypeKind::Never,
+        span,
+    }
+}
+
+/// The type of a value-producing expression with nothing in it, at its span.
+///
+/// Used for the assertions, which return normally when they hold: `()` is the
+/// honest type, and it is what keeps `assert(cond)` out of value positions.
+fn unit(span: Span) -> Type {
+    Type {
+        kind: TypeKind::Unit,
         span,
     }
 }

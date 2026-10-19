@@ -676,6 +676,103 @@ fn a_checked_result_is_an_ordinary_option_that_matches() {
     );
 }
 
+// --- assertions --------------------------------------------------------------
+
+#[test]
+fn assert_branches_to_the_report_and_continues() {
+    // The passing path is one test and a branch; the failing path is a cold
+    // block that ends the program. That is the same shape every checked
+    // arithmetic operation uses, and the same reason: the common case is cheap
+    // and the report pays for itself.
+    let ir_text = gen_body("fn f(a: i64) { assert(a > 0); }");
+    let branch = ir_text.find("br i1").expect("the condition must branch");
+    let report = ir_text
+        .find("call void @otter_panic")
+        .expect("the cold block reports");
+    assert!(
+        branch < report,
+        "the branch comes first and the report is in a block of its own:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("_assert_ok:"),
+        "and execution continues in a fresh block:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_failed_assertion_reports_the_text_the_checker_read() {
+    // The expression's own text is a fact only the checker holds -- the backend
+    // is handed IR text and a path, and no source map -- so the message arrives
+    // as an interned constant rather than being recovered here.
+    let ir_text = gen_body("fn f(a: i64) { assert(a > 0); }");
+    assert!(
+        ir_text.contains("assertion failed: a > 0"),
+        "the message quotes the condition:\n{ir_text}"
+    );
+}
+
+#[test]
+fn assert_eq_compares_with_the_instruction_for_the_operand_type() {
+    // `i64` and `bool` are integers to LLVM, `f64` needs a float comparison, and
+    // `string` needs the runtime: three emitters behind one name, which is why
+    // the operands travel down as expressions rather than as text.
+    let integers = gen_body("fn f(a: i64) { assert_eq(a, 0); }");
+    assert!(integers.contains("icmp eq i64"), "{integers}");
+    let floats = gen_body("fn f(x: f64) { assert_eq(x, 0.5); }");
+    assert!(floats.contains("fcmp oeq double"), "{floats}");
+    let bools = gen_body("fn f(a: bool) { assert_eq(a, true); }");
+    assert!(bools.contains("icmp eq i1"), "{bools}");
+    let strings = gen_body("fn f(s: string) { assert_eq(s, \"x\"); }");
+    assert!(strings.contains("call i1 @otter_str_eq"), "{strings}");
+}
+
+#[test]
+fn assert_ne_inverts_the_same_comparison() {
+    let integers = gen_body("fn f(a: i64) { assert_ne(a, 0); }");
+    assert!(integers.contains("icmp ne i64"), "{integers}");
+    // `une` and not `one`: a `NaN` compares unordered, so it satisfies
+    // `!=` -- and `assert_ne` is the assertion that a NaN should pass.
+    let floats = gen_body("fn f(x: f64) { assert_ne(x, 0.5); }");
+    assert!(floats.contains("fcmp une double"), "{floats}");
+    let strings = gen_body("fn f(s: string) { assert_ne(s, \"x\"); }");
+    assert!(
+        strings.contains("call i1 @otter_str_eq") && strings.contains("xor i1"),
+        "the runtime answers `equal` either way, and `ne` negates it:\n{strings}"
+    );
+}
+
+#[test]
+fn a_comparison_message_is_built_only_on_the_failure_path() {
+    // Two conversions and three concatenations are what a report costs. Build
+    // them before the branch and they are paid by every assertion that passes.
+    let ir_text = gen_body("fn f(a: i64) { assert_eq(a, 0); }");
+    let fault = ir_text.find("_fault:").expect("a reporting block");
+    let convert = ir_text
+        .find("call i8* @otter_str_from_i64")
+        .expect("the value is converted to text");
+    assert!(
+        fault < convert,
+        "the message is built inside the reporting block:\n{ir_text}"
+    );
+}
+
+#[test]
+fn an_asserted_operand_is_evaluated_once() {
+    // The comparison and the message read the same register, so an operand that
+    // is a call is run once: on the failure path it would otherwise produce a
+    // *different* value than the one that failed.
+    let src = concat!(
+        "fn f(a: i64) { assert_eq(g(a), 0); }\n",
+        "fn g(a: i64) -> i64 { return a + 1; }"
+    );
+    let ir_text = gen_body(src);
+    assert_eq!(
+        ir_text.matches("call i64 @g(").count(),
+        1,
+        "the operand is evaluated once:\n{ir_text}"
+    );
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {
