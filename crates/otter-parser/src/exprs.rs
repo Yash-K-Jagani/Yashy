@@ -248,11 +248,20 @@ impl<'src> Parser<'src> {
                 expr = Expr::Call { callee, args, unsafe_call: false, span };
                 continue;
             }
+            if self.check(TokenKind::LBracket) {
+                let open = self.expect(TokenKind::LBracket)?;
+                let _ = self.push_open(TokenKind::LBracket, open.span)?;
+                let index = self.parse_expr()?;
+                let close = self.expect(TokenKind::RBracket)?;
+                self.close_open(TokenKind::RBracket);
+                let span = cover(expr_span(&expr), close.span);
+                expr = Expr::Index { base: Box::new(expr), index: Box::new(index), span };
+                continue;
+            }
             break;
         }
         Ok(expr)
     }
-
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         match self.peek() {
@@ -540,6 +549,7 @@ fn collect_callee(expr: &Expr, out: &mut Vec<String>) -> bool {
                 out.push(field.clone());
                 true
             },
+        Expr::Index { base, .. } => collect_callee(base, out),
         _ => false,
     }
 }
@@ -592,6 +602,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Call { span, .. } => *span,
         Expr::StructLit { span, .. } => *span,
         Expr::FieldAccess { span, .. } => *span,
+        Expr::Index { span, .. } => *span,
         Expr::Interp { span, .. } => *span,
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,

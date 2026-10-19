@@ -473,6 +473,14 @@ pub enum Expr {
         field: String,
         span: Span,
     },
+    /// `p[i]` -- reading (or, in an assignment target, writing) an element of
+    /// a pointer. Otter has no arrays yet, so the base is always a `*mut i64`
+    /// and the index an `i64`; the result is `i64`.
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
     /// `"far: ${d}!"` -- a string literal whose value is assembled at run time.
     ///
     /// `parts` is the literal in source order, text and expressions interleaved.

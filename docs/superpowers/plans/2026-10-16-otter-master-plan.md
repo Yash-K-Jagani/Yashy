@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coordinate the complete construction of the Otter language, from an empty repository to a self-hosting compiler, across five phase plans.
+**Goal:** Coordinate the complete construction of the Otter language, from an empty repository to a self-hosting compiler, across six phase plans.
 
-**Architecture:** This document holds no implementation tasks. It is the cross-plan contract: the interface ledger that five phase plans must agree on, the dependency order between milestones, and the global constraints that bind all of them. Read it before any phase plan.
+**Architecture:** This document holds no implementation tasks. It is the cross-plan contract: the interface ledger that six phase plans must agree on, the dependency order between milestones, and the global constraints that bind all of them. Read it before any phase plan.
 
 **Tech Stack:** Rust 1.99 (edition 2021), LLVM IR emitted as text, `llc`/`clang` as subprocesses, a C runtime shim, `cargo-fuzz`.
 
@@ -19,8 +19,9 @@
 | `2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6 | 13 | 7–10 weeks |
 | `2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8 | 10 | 8–12 weeks |
 | `2026-10-16-otter-m9-m10-optimization-and-bootstrap.md` | M9–M10 | 8 | 12–24 weeks |
+| `2026-10-16-otter-m11-adoption.md` | M11 | 9 | 4–6 weeks |
 
-Cumulative: **46–75 weeks** (11–18 months) at 25–30 effective hours/week. See
+Cumulative: **50–81 weeks** (12–19 months) at 25–30 effective hours/week. See
 spec §10.1.
 
 ## Dependency Order
@@ -39,6 +40,9 @@ spec §10.1.
           │
           ▼
         M9 ──────────▶ M10       escape analysis, then bootstrap
+          │
+          ▼
+        M11 ─▶ M12+             adoption: formatter, test runner, LSP, installer
 ```
 
 Two dependencies are load-bearing and easy to get wrong:
@@ -51,7 +55,7 @@ Two dependencies are load-bearing and easy to get wrong:
   harness is green, so a miscompile is distinguishable from a missed
   optimization.
 
-M9 and M10 are the only milestones where deferring is acceptable. Everything
+M9, M10, and M11 are the only milestones where deferring is acceptable. Everything
 else is strictly ordered.
 
 ---

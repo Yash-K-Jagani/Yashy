@@ -1627,6 +1627,14 @@ impl<'src> Checker<'src> {
                     }
                 }
             }
+            Expr::Index { base, index, span } => {
+                // Pointer indexing (`p[i]`) is parsed but not lowered yet.
+                // Report a clear diagnostic rather than panic or emit wrong IR.
+                let _ = self.check_expr(base);
+                let _ = self.check_expr(index);
+                self.error(*span, "indexing is not implemented yet");
+                None
+            }
             Expr::FieldAccess { base, field, span } => {
                 let base = self.check_expr(base)?;
                 let base_ty = expr_ty(&base);
