@@ -1039,6 +1039,168 @@ Each feature below includes **what** it is, **why** it matters, and **how** to i
 
 ---
 
+## 11.5 Additional Features Not Yet Covered
+
+These features are not in the P0–P3 roadmap but would make Otter significantly better. They are listed here so they are not forgotten.
+
+### 11.5.1 Module System
+
+**What:** `module` declarations, `import` statements, visibility control (`pub` vs private).
+
+**Why:** Without modules, every function is in the global namespace. Name collisions are inevitable in large programs.
+
+**How:**
+1. **Parser:** Add `module std.io;` and `import std.io.print;` syntax.
+2. **Sema:** Build a module tree. Resolve imports to their declarations. Enforce visibility (`pub` is exported, private is module-only).
+3. **Codegen:** Prefix symbols with the module path (`@std_io_print` instead of `@print`).
+4. **Tests:** Import a function from another module, call it, verify symbol prefixing.
+
+**Effort:** 2–3 weeks. This is a significant sema change (name resolution across modules).
+
+### 11.5.2 Generics
+
+**What:** `fn map[T](list: []T, f: fn(T) -> T) -> []T` — functions generic over types.
+
+**Why:** Without generics, you write `map_i64`, `map_string`, `map_f64` — one per type. Generics eliminate this duplication.
+
+**How:**
+1. **Parser:** Add `[T]` after function name: `fn identity[T](x: T) -> T`.
+2. **Sema:** At each call site, infer `T` from the arguments. Type-check the body with `T` bound to the inferred type.
+3. **Codegen:** Monomorphize — generate a separate function for each concrete `T`. `identity_i64`, `identity_string`, etc.
+4. **Tests:** `identity(5)` returns `5`, `identity("hi")` returns `"hi"`, `map([1,2,3], square)` returns `[1,4,9]`.
+
+**Effort:** 3–4 weeks. Parser + sema (type inference at call sites) + codegen (monomorphization).
+
+### 11.5.3 Method Syntax and `impl` Blocks
+
+**What:** `point.distance()` instead of `distance(point)`. `impl Point { fn distance(self) -> i64 { ... } }`.
+
+**Why:** Method syntax is the expected ergonomics for any modern language. It makes code read left-to-right: "take point, compute distance."
+
+**How:**
+1. **Parser:** Already parses `point.distance()` as `Expr::FieldAccess` + `Expr::Call`. No change needed.
+2. **Sema:** If the callee is a single identifier and the first argument matches the receiver type, resolve as a method: `distance(point)` where `point: Point` and `distance` is defined in `impl Point`.
+3. **Codegen:** Same as a regular function call. The receiver is just the first argument.
+4. **Tests:** `point.distance()` resolves to the same function as `distance(point)`.
+
+**Effort:** 1 week. Mostly sema (method resolution) — codegen is unchanged.
+
+### 11.5.4 Pattern Matching Guards
+
+**What:** `case Circle { radius } if radius > 10.0 { ... }` — add a condition to a pattern.
+
+**Why:** Without guards, you need nested `if` inside each arm:
+```otter
+case Circle { radius } {
+    if radius > 10.0 {
+        // ...
+    }
+}
+```
+Guards make pattern matching complete — every condition can be expressed in the match.
+
+**How:**
+1. **Parser:** Add `if <expr>` after a pattern: `case Pattern if cond { body }`.
+2. **Sema:** Check the pattern, then check the condition. If both hold, execute the body.
+3. **Codegen:** After binding the pattern variables, evaluate the condition. If false, jump to the next arm.
+4. **Tests:** Guard true executes body, guard false skips to next arm, exhaustiveness still checked.
+
+**Effort:** 1 week. Parser + sema + codegen.
+
+### 11.5.5 Destructuring
+
+**What:** `let (a, b) = pair;` — bind multiple names from one value.
+
+**Why:** Returning multiple values from a function is common. Destructuring makes it ergonomic:
+```otter
+fn min_max(list: []i64) -> (i64, i64) { ... }
+
+let (lo, hi) = min_max(nums);
+```
+
+**How:**
+1. **Parser:** Add tuple patterns: `(a, b, c)`.
+2. **Sema:** Check the pattern against the value type. Bind each name to the corresponding element.
+3. **Codegen:** `extractvalue` for each element.
+4. **Tests:** `let (a, b) = (1, 2);` binds `a=1`, `b=2`.
+
+**Effort:** 1 week. Parser + sema + codegen.
+
+### 11.5.6 Closures and Iterators
+
+**What:** `let add = |a: i64, b: i64| -> i64 { return a + b; };` — anonymous functions.
+
+**Why:** Closures are essential for functional-style code (`map`, `filter`, `reduce`). Iterators make loops lazy and composable.
+
+**How:**
+1. **Parser:** Add `|params| -> ret { body }` syntax.
+2. **Sema:** Type-check the closure body. If the closure captures variables, they are copied into a heap-allocated environment (or stack if escape analysis proves it safe).
+3. **Codegen:** Lower to a function pointer + environment struct. Call through the pointer.
+4. **Tests:** `let add = |a, b| a + b; add(1, 2)` returns `3`.
+
+**Effort:** 3–4 weeks. This is a significant feature (closure capture, environment allocation).
+
+### 11.5.7 Debug Formatting
+
+**What:** `print_str("value: ${x:?}")` — debug-print any value (structs, enums, arrays).
+
+**Why:** `str_from_i64` works for numbers. For structs and arrays, there is no built-in way to print them. `{:?}` fills that gap.
+
+**How:**
+1. **Sema:** `{:?}` on a struct generates a call to a synthesized `debug_struct` function that prints each field.
+2. **Codegen:** Emit a `debug_struct` function for each struct definition.
+3. **Tests:** `print_str("${point:?}")` prints `Point { x: 3, y: 4 }`.
+
+**Effort:** 1–2 weeks. Requires a `Debug`-like trait/protocol in sema.
+
+### 11.5.8 Numeric Literal Ergonomics
+
+**What:** `1_000_000`, `0xFF`, `0b1010`, `0o777` — separators and bases.
+
+**Why:** Large numbers are unreadable without separators: `1000000` vs `1_000_000`. Hex is essential for bit manipulation.
+
+**How:**
+1. **Lexer:** Recognize `_` as a separator in integer literals. Recognize `0x`, `0b`, `0o` prefixes.
+2. **Sema:** No change — the literal value is the same, just written differently.
+3. **Tests:** `1_000_000 == 1000000`, `0xFF == 255`, `0b1010 == 10`.
+
+**Effort:** 2 days. Lexer change only.
+
+### 11.5.9 Static Assertions
+
+**What:** `static_assert(size_of(Point) == 16);` — compile-time assertion.
+
+**Why:** Catch representation mismatches at compile time, not at runtime.
+
+**How:**
+1. **Sema:** Evaluate `static_assert` conditions at compile time. If false, emit a diagnostic.
+2. **Tests:** `static_assert(1 + 1 == 2)` passes, `static_assert(1 + 1 == 3)` is a compile error.
+
+**Effort:** 3 days. Sema-only change.
+
+### 11.5.10 Optional Chaining
+
+**What:** `user?.address?.city` — null-safe navigation.
+
+**Why:** Without it, you need nested `switch`:
+```otter
+return switch user {
+    case Some(u) { switch u.address { case Some(a) { a.city } case None { "" } } }
+    case None { "" }
+};
+```
+Optional chaining makes it one line.
+
+**How:**
+1. **Parser:** Add `?.` token. Parse `a?.b` as optional field access.
+2. **Sema:** If `a` is `Option[T]`, `a?.b` is `Option[U]` (where `b: U` on `T`). If `a` is `None`, the whole expression is `None`.
+3. **Codegen:** Insert a null check. If null, short-circuit to `None`.
+4. **Tests:** `Some(p)?.x` returns `Some(p.x)`, `None?.x` returns `None`.
+
+**Effort:** 1 week. Parser + sema + codegen.
+
+---
+
 ## 12. Migration Paths: Why Switch?
 
 ### From C
