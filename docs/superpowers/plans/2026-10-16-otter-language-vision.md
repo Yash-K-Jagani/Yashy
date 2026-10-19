@@ -1415,6 +1415,335 @@ No other language offers all three simultaneously. That is Otter's moat.
 
 ---
 
+## 13. Ecosystem: What to Build on Top of Otter
+
+A language is not just a compiler — it is everything built on top of it. This section covers the ecosystem layers that make Otter usable for real work.
+
+### 13.1 The Ecosystem Stack
+
+```
+Layer 7: Applications      (what users build)
+Layer 6: Frameworks        (web, CLI, GUI, embedded)
+Layer 5: Libraries         (JSON, HTTP, crypto, regex, databases)
+Layer 4: Tools             (formatter, test runner, LSP, profiler, debugger)
+Layer 3: Package manager   (otter pkg, registry, versioning)
+Layer 2: Standard library  (std/io, std/string, std/result, std/fs)
+Layer 1: Runtime           (memory, strings, panic, exit, threads)
+Layer 0: Compiler          (lexer, parser, sema, codegen, CLI)
+```
+
+**Current state:** Layers 0–2 are partially built. Layers 3–7 are empty.
+
+**Goal:** A complete ecosystem where users can build real applications without leaving Otter.
+
+### 13.2 Layer 3: Package Manager and Registry
+
+**What:** `otter pkg` — install, remove, update packages. A registry hosting community packages.
+
+**Why:** Without package management, every project is an island. No code reuse across projects.
+
+**How:**
+1. **Registry:** Simple HTTP server hosting `.tar.gz` packages. Each package has `otter.toml`, `src/*.ot`, `README.md`.
+2. **CLI:** `otter pkg add <name>` downloads to `~/.otter/packages/<name>/`. `otter build` searches this directory for imports.
+3. **Versioning:** Semantic versioning in `otter.toml`. Lock file (`otter.lock`) for reproducible builds.
+4. **Tests:** Add a package, import it, compile, run. Update to a new version.
+
+**Effort:** 3–4 weeks. Registry + CLI + build integration.
+
+### 13.3 Layer 4: Tools
+
+#### 13.3.1 Formatter (`otter fmt`)
+- **What:** Opinionated code formatter.
+- **Why:** One true style, no debates.
+- **Effort:** 1 week.
+
+#### 13.3.2 Test runner (`otter test`)
+- **What:** Built-in test runner with `#[test]` discovery.
+- **Why:** Tests in the language, not in Rust.
+- **Effort:** 1–2 weeks.
+
+#### 13.3.3 LSP (Language Server)
+- **What:** IDE integration: diagnostics, go-to-definition, hover, completion.
+- **Why:** Modern editor experience.
+- **Effort:** 2–3 weeks.
+
+#### 13.3.4 Profiler (`otter profile`)
+- **What:** Built-in profiler that samples stack traces and outputs flamegraphs.
+- **Why:** Performance work without guesswork.
+- **Effort:** 2 weeks.
+
+#### 13.3.5 Debugger (`otter debug`)
+- **What:** GDB/lldb integration with Otter-aware pretty-printing.
+- **Why:** Step-through debugging.
+- **Effort:** 3 weeks.
+
+#### 13.3.6 Documentation generator (`otter doc`)
+- **What:** Generates docs from `///` comments.
+- **Why:** Documentation in sync with code.
+- **Effort:** 1 week.
+
+### 13.4 Layer 5: Libraries
+
+These are community packages that every language needs.
+
+#### 13.4.1 JSON
+
+```otter
+import otter_json;
+
+let data = json_parse(r#"{"name": "otter", "version": 1}"#);
+print_str(data["name"]);  // "otter"
+let encoded = json_stringify(data);
+```
+
+**What:** JSON parse and stringify.
+**Why:** Every application needs JSON.
+**How:** Pure Otter library (no runtime dependency). Parser + serializer in Otter.
+**Effort:** 2 weeks.
+
+#### 13.4.2 HTTP client/server
+
+```otter
+import otter_http;
+
+let response = http_get("https://example.com");
+print_str(response.body);
+
+let server = http_server(":8080");
+server.get("/", (req) => http_response("Hello, Otter!"));
+```
+
+**What:** HTTP client and server.
+**Why:** Web services are the most common use case.
+**How:** Wrap `libcurl` or `libmicrohttpd` via `extern "C"`.
+**Effort:** 3–4 weeks.
+
+#### 13.4.3 Database drivers
+
+```otter
+import otter_sqlite;
+
+let db = sqlite_open("data.db");
+let rows = db.query("SELECT name, age FROM users WHERE age > ?");
+for row in rows {
+    print_str("${row["name"]} is ${row["age"]}");
+}
+```
+
+**What:** SQLite, PostgreSQL, MySQL drivers.
+**Why:** Persistent storage is essential.
+**How:** Wrap existing C libraries via `extern "C"`.
+**Effort:** 2–3 weeks per database.
+
+#### 13.4.4 Regex
+
+```otter
+import otter_regex;
+
+let re = regex_compile(r"\d{4}-\d{2}-\d{2}");
+let matches = regex_find_all(re, "2024-01-15, 2024-02-20");
+```
+
+**What:** Regular expressions.
+**Why:** Text processing is common.
+**How:** Wrap `PCRE2` or `RE2` via `extern "C"`.
+**Effort:** 2 weeks.
+
+#### 13.4.5 Crypto
+
+```otter
+import otter_crypto;
+
+let hash = sha256("hello");
+let key = aes_key();
+let encrypted = aes_encrypt(key, "secret message");
+```
+
+**What:** SHA-256, AES, HMAC, bcrypt.
+**Why:** Security is essential.
+**How:** Wrap `OpenSSL` via `extern "C"`.
+**Effort:** 2–3 weeks.
+
+#### 13.4.6 CLI framework
+
+```otter
+import otter_cli;
+
+#[command(name = "my-tool", version = "1.0")]
+struct MyTool {
+    #[arg(help = "Input file path")]
+    input: string,
+
+    #[arg(help = "Output file path")]
+    output: string,
+
+    #[arg(help = "Enable verbose output")]
+    verbose: bool,
+}
+
+fn main(args: MyTool) {
+    if args.verbose {
+        print_str("Processing ${args.input}...\n");
+    }
+    // ...
+}
+```
+
+**What:** CLI framework with argument parsing, help generation, subcommands.
+**Why:** CLI tools are Otter's sweet spot.
+**How:** Pure Otter library.
+**Effort:** 2 weeks.
+
+#### 13.4.7 Logging
+
+```otter
+import otter_log;
+
+log_info("Starting server");
+log_debug("Connection from ${ip}");
+log_error("Failed to connect: ${err}");
+```
+
+**What:** Structured logging with levels.
+**Why:** Observability is essential.
+**How:** Pure Otter library.
+**Effort:** 1 week.
+
+#### 13.4.8 Configuration
+
+```otter
+import otter_config;
+
+const config = config_load("config.toml");
+const db_url = config.get("database.url") ?? "localhost:5432";
+const timeout = config.get_int("server.timeout") ?? 30;
+```
+
+**What:** Load TOML/JSON/YAML configuration files.
+**Why:** Configuration is universal.
+**How:** Wrap `libtoml` or write a pure Otter parser.
+**Effort:** 2 weeks.
+
+### 13.5 Layer 6: Frameworks
+
+#### 13.5.1 Web framework
+
+```otter
+import otter_web;
+
+#[get("/users/{id}")]
+fn get_user(id: i64) -> Response {
+    const user = db.find_user(id)?;
+    return json_response(user);
+}
+
+#[post("/users")]
+fn create_user(body: CreateUser) -> Response {
+    const user = db.create_user(body)?;
+    return json_response(201, user);
+}
+
+fn main() {
+    let app = web_app();
+    app.run(":8080");
+}
+```
+
+**What:** HTTP routing, middleware, request/response handling, templating.
+**Why:** Web services are the most common application.
+**How:** Build on `otter_http` library.
+**Effort:** 4–6 weeks.
+
+#### 13.5.2 GUI framework
+
+```otter
+import otter_gui;
+
+fn main() {
+    let window = window_create("My App", 800, 600);
+    let button = button_create("Click me");
+    button.on_click(|| print_str("Clicked!"));
+    window.add(button);
+    window.show();
+}
+```
+
+**What:** Cross-platform GUI (Windows, Linux, macOS).
+**Why:** Desktop applications.
+**How:** Wrap `GTK` or `Qt` via `extern "C"`, or use a lightweight library like `Nuklear`.
+**Effort:** 8–12 weeks. Large effort, defer until core ecosystem is mature.
+
+#### 13.5.3 Embedded/IoT framework
+
+```otter
+import otter_embedded;
+
+#[pin(0)]
+let led = gpio_output(13);
+
+#[pin(1)]
+let button = gpio_input(12);
+
+fn main() {
+    loop {
+        if button.read() {
+            led.toggle();
+        }
+        sleep_ms(100);
+    }
+}
+```
+
+**What:** GPIO, SPI, I2C, UART abstractions for microcontrollers.
+**Why:** Otter's small binaries are ideal for embedded.
+**How:** Platform-specific `extern "C"` declarations.
+**Effort:** 4–6 weeks. Requires cross-compilation support.
+
+### 13.6 Layer 7: Application Examples
+
+These demonstrate what users can build with the ecosystem:
+
+| Application | Libraries used | Binary size |
+|-------------|---------------|-------------|
+| **CLI tool** | `otter_cli`, `otter_json`, `otter_log` | ~300 KB |
+| **HTTP API server** | `otter_web`, `otter_sqlite`, `otter_json` | ~400 KB |
+| **File processor** | `otter_fs`, `otter_config`, `otter_regex` | ~250 KB |
+| **Chat bot** | `otter_http`, `otter_websocket`, `otter_json` | ~350 KB |
+| **Monitoring agent** | `otter_http`, `otter_log`, `otter_config` | ~300 KB |
+
+All single binaries, zero runtime dependencies.
+
+### 13.7 Ecosystem Priorities
+
+| Priority | Item | Effort | User value |
+|----------|------|--------|------------|
+| **P0** | Package manager (`otter pkg`) | 3–4 weeks | Foundation for everything |
+| **P0** | JSON library | 2 weeks | Every app needs it |
+| **P1** | HTTP client/server | 3–4 weeks | Web services |
+| **P1** | CLI framework | 2 weeks | CLI tools |
+| **P1** | Logging | 1 week | Observability |
+| **P2** | Database drivers | 2–3 weeks each | Persistence |
+| **P2** | Regex | 2 weeks | Text processing |
+| **P2** | Crypto | 2–3 weeks | Security |
+| **P2** | Configuration | 2 weeks | Config files |
+| **P3** | Web framework | 4–6 weeks | Web apps |
+| **P3** | GUI framework | 8–12 weeks | Desktop apps |
+| **P3** | Embedded framework | 4–6 weeks | IoT |
+
+### 13.8 The Ecosystem Vision
+
+A user should be able to:
+
+1. `otter init my-web-app` — scaffold a project
+2. `otter pkg add otter-web otter-sqlite` — add dependencies
+3. Write their app in `src/main.ot`
+4. `otter build --release` — compile to a single binary
+5. Deploy the binary anywhere — no runtime, no dependencies
+
+**That is the ecosystem vision.** Everything in this section serves that goal.
+
+---
+
 ## 13. Relationship to Existing Plans
 
 This document complements, not replaces:
