@@ -851,7 +851,195 @@ Otter does not need to be the most powerful language. It needs to be the languag
 
 ---
 
-## 10. Migration Paths: Why Switch?
+## 10. Feature Roadmap: What to Add and How
+
+Each feature below includes **what** it is, **why** it matters, and **how** to implement it.
+
+### 10.1 `?` Error Propagation
+
+**What:** Propagate errors from library functions without killing the process.
+
+**Why:** Libraries need to return errors. `panic` exits the process — too blunt for reusable code.
+
+**How:**
+1. **Sema:** Add `Expr::Try` (already parsed as `?`). Type-check: if the expression is `Result[T, E]`, unwrap to `T` and generate an early return on `Err`.
+2. **Codegen:** Lower `expr?` to:
+   ```llvm
+   %result = call { i8, T } @expr(...)
+   %tag = extractvalue { i8, T } %result, 0
+   %is_err = icmp eq i8 %tag, 1
+   br i1 %is_err, label %err_block, label %ok_block
+   err_block:
+   %err = extractvalue { i8, T } %result, 1
+   ret { i8, E } { 1, %err }   ; return Err to caller
+   ok_block:
+   %val = extractvalue { i8, T } %result, 1
+   ```
+3. **Tests:** `?` on `Ok` unwraps, `?` on `Err` returns early, `?` in a loop returns from the function.
+
+**Effort:** 1 week. The `?` operator already parses; only sema + codegen needed.
+
+### 10.2 Array Literals and Slicing
+
+**What:** `[1, 2, 3]` literals and `nums[1..3]` slicing.
+
+**Why:** Arrays are fundamental. Without them, every program starts with manual memory management.
+
+**How:**
+1. **Parser:** Already has `Expr::Index` for `p[i]`. Add array literal parsing: `[expr, expr, ...]`.
+2. **Sema:** Type-check array literals: all elements must be the same type. Array type is `[T; N]` (fixed size) or `[]T` (slice).
+3. **Codegen:**
+   - Fixed array `[T; N]`: stack-allocate `{ T, T, ... }` aggregate.
+   - Slice `[]T`: `{ i64, i64, i8* }` (length, capacity, data pointer).
+   - Slicing `a[i..j]`: compute new length `j-i`, new data pointer `a.data + i`.
+4. **Tests:** Array literal type-checks, slicing produces correct sub-array, out-of-bounds slice is a runtime error.
+
+**Effort:** 2 weeks. Parser + sema + codegen + runtime (for bounds checking).
+
+### 10.3 `const fn` — Compile-Time Evaluation
+
+**What:** Pure functions marked `const` are evaluated at compile time.
+
+**Why:** Lookup tables and computed constants cost zero at runtime.
+
+**How:**
+1. **Sema:** Add `const` keyword to function declarations. Mark the function as compile-time evaluable.
+2. **Codegen:** When a `const fn` is called in a `const` context, evaluate it at compile time:
+   - Parse the function body into an AST.
+   - Interpret the AST with a simple tree-walker (no codegen).
+   - Substitute the result into the calling code.
+3. **Tests:** `const TABLE = build_table();` produces no runtime code for `build_table`.
+
+**Effort:** 2 weeks. Requires an interpreter for a subset of Otter (pure functions only).
+
+### 10.4 Escape Analysis (M9)
+
+**What:** Stack-allocate objects that never leave their function.
+
+**Why:** Eliminates 90%+ of heap allocations. Biggest single performance win.
+
+**How:**
+1. **Sema:** Track which pointers escape their function:
+   - A pointer escapes if it is: returned, stored in a global, passed to a function that stores it, or assigned to a binding that outlives the function.
+   - Use a simple intraprocedural analysis: if a pointer is only used within the function and never returned/passed to unknown functions, it does not escape.
+2. **Codegen:** For non-escaping pointers:
+   - Emit `alloca` instead of `call @otter_alloc`.
+   - Insert automatic `dealloc` at scope exit (or just let the stack frame die).
+3. **Tests:** A function that allocates and does not return the pointer uses stack allocation.
+
+**Effort:** 3–4 weeks. The analysis is the hard part; codegen is straightforward.
+
+### 10.5 LSP — Language Server
+
+**What:** IDE integration: diagnostics, go-to-definition, hover, completion.
+
+**Why:** Without LSP, Otter feels like 2010. With LSP, it feels modern.
+
+**How:**
+1. **Server:** Use `tower-lsp` (Rust LSP library). Implement:
+   - `textDocument/didOpen`: parse + type-check, publish diagnostics.
+   - `textDocument/definition`: resolve identifier to declaration.
+   - `textDocument/hover`: show type of symbol under cursor.
+   - `textDocument/completion`: suggest builtins + in-scope names.
+2. **Diagnostics:** Reuse the existing diagnostic infrastructure (spans + carets).
+3. **Tests:** LSP responds to `initialize`, `didOpen`, `definition`, `hover`, `completion`.
+
+**Effort:** 2–3 weeks. `tower-lsp` handles the protocol; the work is in the Otter-specific logic.
+
+### 10.6 `otter fmt` — Formatter
+
+**What:** Opinionated formatter, one true style.
+
+**Why:** No configuration, no debates. Like `gofmt`.
+
+**How:**
+1. **AST traversal:** Walk the AST and re-emit source with canonical formatting.
+2. **Rules:**
+   - 4-space indent, no tabs.
+   - One statement per line.
+   - Braces on same line as keyword.
+   - Max line length 100 (soft limit).
+3. **Idempotency:** Formatting twice produces identical output.
+4. **Tests:** Format a messy file, verify output is canonical. Format twice, verify idempotency.
+
+**Effort:** 1 week. Pure AST-to-text transformation.
+
+### 10.7 `otter test` — Test Runner
+
+**What:** Built-in test runner with `#[test]` discovery.
+
+**Why:** Tests should be written in the language, not in Rust.
+
+**How:**
+1. **Discovery:** Scan source for `#[test]` functions.
+2. **Codegen:** Generate a `main` that calls each test function and reports pass/fail.
+3. **Runtime:** Run the generated binary, capture output, print summary.
+4. **Tests:** `#[test]` function runs, failing test reports position, discovery skips non-test functions.
+
+**Effort:** 1–2 weeks. Codegen for the test harness + runtime reporting.
+
+### 10.8 Stack Traces on Panic
+
+**What:** When a panic unwinds the stack, print each frame with file:line:col.
+
+**Why:** Debugging is 50% of development time. Stack traces are essential.
+
+**How:**
+1. **Runtime:** Maintain a thread-local stack of function entry points (file, line, column).
+2. **Panic path:** When `otter_panic` is called, walk the stack and print each frame.
+3. **Tests:** A panicking program prints a stack trace with correct file:line:col for each frame.
+
+**Effort:** 1 week. Runtime stack tracking + printing.
+
+### 10.9 Cross-Compilation
+
+**What:** `--target=x86_64-linux-gnu`, `--target=wasm32-unknown-wasi`.
+
+**Why:** Cross-compilation is essential for embedded targets and CLI distribution.
+
+**How:**
+1. **CLI:** Add `--target` flag to `otter build`.
+2. **Codegen:** Pass `--target` to clang.
+3. **Tests:** Cross-compile to a different target, verify the binary runs (or at least links).
+
+**Effort:** 1 week. Mostly CLI plumbing; clang does the work.
+
+### 10.10 Package Manager
+
+**What:** `otter pkg add`, `otter pkg remove`, `otter pkg update`.
+
+**Why:** Package management is the foundation of an ecosystem.
+
+**How:**
+1. **Registry:** Simple HTTP registry hosting `.tar.gz` packages.
+2. **CLI:** `otter pkg add <name>` downloads and extracts to `~/.otter/packages/<name>`.
+3. **Build:** `otter build` searches `~/.otter/packages/` for imported modules.
+4. **Tests:** Add a package, import it, compile, run.
+
+**Effort:** 3–4 weeks. Registry + CLI + build integration.
+
+---
+
+## 11. Implementation Priority
+
+| Priority | Feature | Effort | User value | Dependencies |
+|----------|---------|--------|------------|--------------|
+| **P0** | `?` error propagation | 1 week | High | None |
+| **P0** | `otter fmt` | 1 week | High | None |
+| **P0** | `otter test` | 1–2 weeks | High | None |
+| **P1** | Array literals + slicing | 2 weeks | High | None |
+| **P1** | LSP | 2–3 weeks | High | None |
+| **P1** | Stack traces on panic | 1 week | Medium | None |
+| **P2** | `const fn` | 2 weeks | Medium | None |
+| **P2** | Cross-compilation | 1 week | Medium | None |
+| **P3** | Escape analysis (M9) | 3–4 weeks | High | None |
+| **P3** | Package manager | 3–4 weeks | Medium | None |
+
+**Recommended order:** P0 first (error propagation, fmt, test), then P1 (arrays, LSP, stack traces), then P2 (const fn, cross-compilation), then P3 (escape analysis, package manager).
+
+---
+
+## 12. Migration Paths: Why Switch?
 
 ### From C
 
@@ -887,7 +1075,7 @@ Otter does not need to be the most powerful language. It needs to be the languag
 
 ---
 
-## 11. Relationship to Existing Plans
+## 13. Relationship to Existing Plans
 
 This document complements, not replaces:
 
@@ -899,7 +1087,7 @@ When a feature from this vision is ready to implement, an executor writes a phas
 
 ---
 
-## 12. Debugging & Profiling Experience
+## 14. Debugging & Profiling Experience
 
 **Goal:** Users can debug Otter programs without leaving their editor.
 
@@ -957,7 +1145,7 @@ fib_35: min=79.2ms, max=81.1ms, mean=80.0ms, stddev=0.4ms
 
 ---
 
-## 13. Cross-Compilation & WebAssembly
+## 15. Cross-Compilation & WebAssembly
 
 **Goal:** Otter code compiles to any target clang supports, including WebAssembly.
 
@@ -989,7 +1177,7 @@ otter build main.ot -o main --target=wasm32-unknown-emscripten
 
 ---
 
-## 14. Package Management & Ecosystem
+## 16. Package Management & Ecosystem
 
 **Goal:** Users can share and reuse Otter code without vendoring.
 
@@ -1030,7 +1218,7 @@ release = true
 
 ---
 
-## 15. Security & Safety Features
+## 17. Security & Safety Features
 
 **Goal:** Otter is the safest systems language available.
 
@@ -1068,7 +1256,7 @@ fn read_file(cap: FileCap, path: string) -> string {
 
 ---
 
-## 16. Community & Adoption Strategy
+## 18. Community & Adoption Strategy
 
 **Goal:** Otter grows from a solo project to a community language.
 
@@ -1102,7 +1290,7 @@ fn read_file(cap: FileCap, path: string) -> string {
 
 ---
 
-## 17. Timeline: What to Build When
+## 19. Timeline: What to Build When
 
 | Phase | Duration | Focus | Success criterion |
 |-------|----------|-------|-------------------|
@@ -1117,7 +1305,7 @@ fn read_file(cap: FileCap, path: string) -> string {
 
 ---
 
-## 18. The One-Page Pitch
+## 20. The One-Page Pitch
 
 > **Otter** is a systems language that compiles to native binaries with zero
 > runtime dependencies. It writes like Python, runs like C, and links like
