@@ -164,6 +164,11 @@ impl StringLit {
 /// The set is deliberately small and closed: a backslash followed by anything
 /// else is a diagnostic rather than a guess, because silently passing `\d`
 /// through as `\d` is how a language grows a meaning nobody agreed to.
+///
+/// `\$` is in the set so that a literal `$` is *expressible*: `${` is the
+/// interpolation marker ([`crate::error::interpolation_not_implemented`] while
+/// it is unimplemented, and a conversion once it is not), so without an escape
+/// there would be no way to write the two characters in a string at all.
 fn decode_escape(escaped: u8) -> Option<u8> {
     match escaped {
         b'n' => Some(b'\n'),
@@ -173,6 +178,7 @@ fn decode_escape(escaped: u8) -> Option<u8> {
         b'\\' => Some(b'\\'),
         b'"' => Some(b'"'),
         b'\'' => Some(b'\''),
+        b'$' => Some(b'$'),
         _ => None,
     }
 }

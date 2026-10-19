@@ -571,6 +571,41 @@ operator), a sema test for all five on a `var` plus the two rejections, and
 `collatz.ot` now writes `n /= 2`, `steps += 1` and `i += 1` — its expected output
 is unchanged, so the end-to-end test covers the sugar without knowing about it.
 
+### Task 5j: `${` is a diagnostic until interpolation exists
+
+The design has advertised `"far: ${d}"` since it was written (spec §2 goal 2 and
+the §3 example), the compiler had no idea what `${` was, and the result was the
+worst kind of failure: `"n = ${n}"` compiled, ran, and printed `n = ${n}`. A
+wrong answer presented as a right one, and easy to mistake for success because the
+program does not crash and the output looks like the program's own text.
+
+Interpolation is Task 7 and is real work (a lexer that can produce an inner token
+stream with correct spans, a node the checker can type per operand, and a lowering
+that concatenates conversions). Doing it half-way inside this task would leave the
+language in a worse place than it is now. So this task does the part that makes
+the current state *honest*: the marker is reserved and reported, at the two bytes
+of the `${` itself, with the workaround named —
+
+    string interpolation is not implemented yet: build the string with `+` and a
+    conversion such as `str_from_i64`, or write `\$` for a literal `$`
+
+`\$` is added to the escape set in the same task, and not as an afterthought: once
+`${` means something, a literal `$` before `{` has to stay expressible, so the
+escape is the escape hatch interpolation needs anyway. Adding it now means it will
+not change meaning when `${` starts working.
+
+The check lives in the lexer's literal scan, next to the escape handling, which is
+also why it cannot misfire on `\$`: the backslash arm consumes two bytes, so an
+escaped `$` never reaches the `$` arm. `decode_escape` stays the single definition
+of what an escape *means*, and `${` is not an escape, so it is not defined there.
+
+Tests: `interpolation_is_reported_rather_than_printed_through` pins the
+diagnostic, the message naming the workaround, the two-byte caret, and that
+`"\${b}"` decodes to the four characters `a${b}` as one token; `\$` joins the
+escape table test, which enumerates the whole set.
+
+Not here: interpolation itself (Task 7).
+
 ---
 
 ### Task 5: Refcounted strings in the runtime

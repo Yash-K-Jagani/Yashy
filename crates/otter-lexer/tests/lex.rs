@@ -389,7 +389,7 @@ fn a_string_token_spans_its_quotes_and_decodes_to_its_contents() {
 
 #[test]
 fn every_supported_escape_decodes_and_anything_else_is_a_diagnostic() {
-    for (src, want) in [("\"\\n\"", "\n"), ("\"\\t\"", "\t"), ("\"\\r\"", "\r"), ("\"\\\\\"", "\\"), ("\"\\\"\"", "\""), ("\"\\0\"", "\0")] {
+    for (src, want) in [("\"\\n\"", "\n"), ("\"\\t\"", "\t"), ("\"\\r\"", "\r"), ("\"\\\\\"", "\\"), ("\"\\\"\"", "\""), ("\"\\0\"", "\0"), ("\"\\$\"", "$")] {
         let lit = match StringLit::decode(src) {
             Ok(lit) => lit,
             Err(e) => panic!("{src:?} must decode: {}", e.message),
@@ -404,6 +404,39 @@ fn every_supported_escape_decodes_and_anything_else_is_a_diagnostic() {
     assert_eq!(diags.len(), 1);
     assert!(diags[0].message.contains("escape"), "got {:?}", diags[0].message);
     assert!(diags[0].is_error());
+}
+
+#[test]
+fn interpolation_is_reported_rather_than_printed_through() {
+    // `${` is the design's interpolation marker and it is not implemented. Two
+    // ordinary bytes would compile, run, and print `${n}` where the value
+    // belongs -- a wrong answer that looks like a right one -- so the lexer
+    // reports the marker and names what to write instead.
+    let diags = errors("\"n = ${n}\"");
+    assert_eq!(diags.len(), 1, "one diagnostic: {:?}", messages(&diags));
+    assert!(diags[0].is_error());
+    let message = &diags[0].message;
+    assert!(
+        message.contains("interpolation"),
+        "the message must name the feature: {message:?}"
+    );
+    assert!(
+        message.contains("str_from_i64"),
+        "and say what to write instead: {message:?}"
+    );
+    // The caret covers `${` -- bytes 5 and 6 of `"n = ${n}"`, which are the two
+    // that are wrong, rather than the whole literal.
+    assert_eq!(diags[0].span, Span::new(5, 7));
+
+    // The escape is the way out, and it is stable: it means the two characters,
+    // not an interpolation. That is why it is worth having before the feature
+    // exists -- `\$` will not change meaning when `${` does.
+    let lit = match StringLit::decode("\"a\\${b}\"") {
+        Ok(lit) => lit,
+        Err(failure) => panic!("the escape must decode: {}", failure.message),
+    };
+    assert_eq!(lit.value, "a${b}");
+    assert_eq!(tokens("\"a\\${b}\"").len(), 2, "and it is still one token");
 }
 
 #[test]

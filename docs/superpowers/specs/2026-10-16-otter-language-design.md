@@ -117,6 +117,14 @@ fn main() {
 - Identifiers, keywords (`fn`, `struct`, `enum`, `const`, `var`, `defer`, `move`,
   `as`, `extern`, `import`, `switch`, `if`, `else`, `for`, `while`, `in`, `break`,
   `continue`, `return`, `case`, `default`, `true`, `false`), literals.
+- String literals are `"..."` with the escapes `\n`, `\r`, `\t`, `\0`, `\\`, `\"`,
+  `\'`, `\$`. The set is closed: `\q` is a diagnostic, not a literal `q`.
+- `${` begins **interpolation** (§3.3), and is reserved rather than ordinary
+  text. Until interpolation is implemented a `${` in a literal is a compile
+  error naming the workaround (`+` with `str_from_i64` and friends) — not the two
+  literal bytes, because printing the marker where the value belongs is a wrong
+  answer that looks like a right one. `\$` is what a literal `$` is written with,
+  and it will keep that meaning once `${` works.
 - Semicolons are required at statement end. Braces delimit blocks.
 
 ### 3.2 Declarations and mutability

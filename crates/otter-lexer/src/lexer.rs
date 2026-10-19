@@ -349,6 +349,15 @@ impl<'src> Lexer<'src> {
                     }
                     Some(_) => at = at.saturating_add(2),
                 },
+                // `${` is reserved for interpolation, which is not implemented;
+                // see `error::interpolation_not_implemented` for why it is a
+                // diagnostic rather than two ordinary bytes. A `\$` never
+                // reaches this arm -- the backslash arm above consumes both its
+                // bytes, so the escape for a literal `$` keeps working.
+                Some(b'$') if peek_at(bytes, at, 1) == Some(b'{') => {
+                    let span = self.span_of(at, at.saturating_add(2));
+                    return self.report(error::interpolation_not_implemented(self.file, span));
+                }
                 _ => at = at.saturating_add(1),
             }
         };

@@ -59,6 +59,22 @@ pub fn invalid_escape(file: FileId, span: Span, detail: &str) -> Diagnostic {
     error(file, span, format!("invalid escape sequence in string literal: {detail}"))
 }
 
+/// `${` inside a string literal: the interpolation marker the design reserves
+/// and this compiler does not implement yet.
+///
+/// It gets its own message rather than going through [`invalid_escape`], because
+/// `${` is not a malformed escape -- it is a real feature that is not here. And
+/// it is an error at all rather than two ordinary bytes because printing it
+/// through would look like success: the program compiles, runs, and prints `${n}`
+/// where the value belongs, which is a wrong answer presented as a right one.
+pub fn interpolation_not_implemented(file: FileId, span: Span) -> Diagnostic {
+    error(
+        file,
+        span,
+        "string interpolation is not implemented yet: build the string with `+` and a conversion such as `str_from_i64`, or write `\\$` for a literal `$`".to_string(),
+    )
+}
+
 /// A string literal with no closing quote. `reason` says where the literal ran
 /// out, which is the difference between "you forgot a quote" and "you forgot a
 /// quote and it ran over the end of the file".
