@@ -294,7 +294,115 @@ fn map(list: []i64, f: fn(i64) -> i64) -> []i64 {
 
 **Impact:** Small function call overhead disappears. Generics don't cost anything at runtime.
 
-#### 4.2.5 Performance ceiling
+#### 4.2.5 Performance Tiers
+
+Otter's performance is not a single number — it depends on what the user is willing to do. These tiers describe the realistic performance at each level of effort.
+
+| Tier | What the user does | Expected performance | Effort |
+|------|-------------------|---------------------|--------|
+| **Tier 1: Default** | Write Otter as-is, `otter build` | ~1.0–2.5× slower than C on arithmetic-heavy code; ~1.0× on call-dominated code | Zero |
+| **Tier 2: Opt-outs** | Use `wrapping_*`, `--release`, `-O3` | Within 5–15% of C | Low |
+| **Tier 3: Idiomatic** | Avoid hot-loop string concat, use `i64` not `Option[i64]`, keep functions small | Within 3–10% of C | Medium |
+| **Tier 4: Escape analysis** | M9 escape analysis eliminates heap allocations | Within 1–5% of C for allocation-heavy code | High |
+
+##### Tier 1: Default (Zero Effort)
+
+```otter
+fn main() {
+    var sum = 0;
+    for i in 0..100000000 {
+        sum = sum + i;
+    }
+    print_i64(sum);
+}
+```
+
+**Performance:** ~1.0× C (LLVM proves the loop safe and deletes the checked arithmetic)
+
+**Why:** The default is `-O2`, and LLVM's optimizer is very good at proving checks unnecessary in simple loops.
+
+##### Tier 2: Opt-outs (Low Effort)
+
+```otter
+fn main() {
+    var sum = 0;
+    for i in 0..100000000 {
+        sum = wrapping_add(sum, i);
+    }
+    print_i64(sum);
+}
+```
+
+**Performance:** Within 5–15% of C
+
+**What changes:**
+- `wrapping_add` removes the overflow check entirely
+- `--release` removes `debug_assert` calls
+- `-O3` enables more aggressive optimization
+
+**Benchmark expectations:**
+
+| Benchmark | Otter (default) | Otter (opt-outs) | C (clang -O2) | Ratio |
+|-----------|-----------------|------------------|----------------|-------|
+| `fib(35)` | ~150 ms | ~80 ms | ~78 ms | 1.03× |
+| `loop` (portable) | ~260 ms | ~260 ms | ~262 ms | 1.01× |
+| `loop` (x86-64-v3) | ~170 ms | ~70 ms | ~68 ms | 1.03× |
+| `float` | ~535 ms | ~535 ms | ~530 ms | 1.01× |
+
+##### Tier 3: Idiomatic Otter (Medium Effort)
+
+```otter
+// Bad: string concatenation in a hot loop
+fn bad() -> string {
+    var result = "";
+    for i in 0..1000000 {
+        result = result + str_from_i64(i);  // allocates every iteration
+    }
+    return result;
+}
+
+// Good: pre-allocate, write into buffer
+fn good() -> string {
+    var buf = alloc(8000000);
+    var pos = 0;
+    for i in 0..1000000 {
+        pos = write_str(buf, pos, str_from_i64(i));  // no allocation
+    }
+    return string_from_buf(buf, pos);
+}
+```
+
+**Performance:** Within 3–10% of C
+
+**Key idioms:**
+1. **Avoid allocation in hot loops** — use `alloc` once, reuse the buffer
+2. **Use `i64` directly** — not `Option[i64]` (which is `{ i8, i64 }`, twice the size)
+3. **Use `wrapping_*` in numeric kernels** — where overflow is impossible or handled separately
+4. **Keep functions small** — helps LLVM inline
+
+##### Tier 4: Escape Analysis (High Effort)
+
+With M9 escape analysis, the compiler can stack-allocate objects that don't escape:
+
+```otter
+fn process() -> i64 {
+    let buf = alloc(1024);   // currently: heap allocation
+    // ... use buf ...
+    dealloc(buf);             // currently: manual
+    return result;
+}
+```
+
+With escape analysis:
+- `buf` never leaves `process()` → stack-allocated
+- `dealloc` is inserted automatically at scope exit
+- No manual memory management, no heap overhead
+
+**Performance impact:** Eliminates 90%+ of heap allocations in typical code. Allocation-heavy programs (parsers, tree builders) approach C speed.
+
+**Effort:** High. Requires implementing escape analysis in the compiler frontend (or as an LLVM pass on the emitted IR).
+
+#### 4.2.6 Performance ceiling
 
 | Scenario | Expected performance |
 |----------|---------------------|
@@ -302,6 +410,8 @@ fn map(list: []i64, f: fn(i64) -> i64) -> []i64 {
 | `-O2` default with checked arithmetic | ~1.8–2× slower on arithmetic-heavy kernels |
 | `-O2` default, LLVM proves checks safe | ~1.0× (checks deleted) |
 | `-O3 --release --cpu=x86-64-v3` | Within 5–15% of C with same flags |
+
+**Theoretical maximum:** Identical to C compiled with clang — because that's literally what Otter becomes. Both end at the same place: LLVM's optimizer and code generator.
 
 ### 4.3 Developer Experience: “Install and Love”
 
