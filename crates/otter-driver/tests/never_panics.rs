@@ -165,6 +165,30 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
             "invalid escape in a string",
             "fn main() { const x = \"a\\q\"; }".to_string(),
         ),
+        (
+            "unterminated interpolation",
+            "fn main() { print_str(\"${x\"); }".to_string(),
+        ),
+        (
+            "empty interpolation",
+            "fn main() { print_str(\"${}\"); }".to_string(),
+        ),
+        (
+            "interpolation ending on an operator",
+            "fn main() { print_str(\"${1 +}\"); }".to_string(),
+        ),
+        (
+            "interpolation whose nested string runs on",
+            "fn main() { print_str(\"${f(\"x)}\"); }".to_string(),
+        ),
+        (
+            "unbalanced braces inside an interpolation",
+            "fn main() { print_str(\"${ {{ }\"); }".to_string(),
+        ),
+        (
+            "interpolation at the end of the file",
+            "fn main() { const s = \"${".to_string(),
+        ),
         ("char literal, which Otter has no syntax for", "fn main() { const x = 'a'; }".to_string()),
         ("at sign with no use", "fn main() { const x = @; }".to_string()),
         ("byte order mark", "\u{feff}fn main() { }".to_string()),

@@ -22,7 +22,9 @@
 //! number, the string and the identifier are read back out of the source text
 //! by the parser, which keeps a token `Copy` and makes it impossible for a
 //! value and the text it came from to disagree. [`StringLit`] is what that
-//! reading produces for a string, and is re-exported for the AST.
+//! reading produces for a string, and [`split_interpolation`] is how a literal
+//! that contains `${ ... }` yields its text and expression pieces instead of
+//! one string that would be wrong. Both are re-exported for the AST.
 //!
 //! # Example
 //!
@@ -55,4 +57,4 @@ pub(crate) mod error;
 
 pub use error::LitError;
 pub use lexer::Lexer;
-pub use token::{literal_as_i64, StringLit, Token, TokenKind};
+pub use token::{literal_as_i64, split_interpolation, StringLit, StringPiece, Token, TokenKind};

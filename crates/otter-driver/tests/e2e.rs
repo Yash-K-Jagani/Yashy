@@ -658,6 +658,20 @@ fn strings_concatenate_compare_and_measure() {
 }
 
 #[test]
+fn string_interpolation_builds_the_same_text_as_the_written_out_form() {
+    // `"n = ${n}"` must equal `"n = " + str_from_i64(n)`, because the checker
+    // lowers the first into the second. This is also the end-to-end proof that
+    // the parser's sub-parse of the expression inside `${ ... }` reaches code
+    // generation intact: the `${n + 1}` line is an arithmetic expression, not a
+    // name, and it has to come out as 8.
+    let output = build_and_run("interp");
+    assert_eq!(
+        stdout_of(&output),
+        "n = 7\nd = 1.5\nflag = true\nhello, Otter!\n7 + 1 = 8\nsame, written out: 7\n"
+    );
+}
+
+#[test]
 fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
     // The entry point is emitted as `define i32 @main()`; a `void main` would
     // leave the process exit status as whatever the last call left in the return

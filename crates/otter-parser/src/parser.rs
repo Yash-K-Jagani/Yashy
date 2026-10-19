@@ -112,6 +112,14 @@ pub struct Parser<'src> {
     file: FileId,
     /// The delimiters currently open, outermost first. Never contains a closer.
     open: Vec<Open>,
+    /// How many `${ ... }` interpolations enclose the text being parsed.
+    ///
+    /// Interpolation is parsed by a *sub-parser* with its own delimiter stack
+    /// (the `${ ... }` text is lexed on its own), so the delimiter-depth limit
+    /// would reset at every level and a literal like `"${"${"${...}"}"}"` could
+    /// recurse without bound. This counter is carried across that reset, and
+    /// checked against [`MAX_NESTING_DEPTH`] like any other nesting.
+    interp_depth: usize,
 }
 
 impl<'src> Parser<'src> {
@@ -159,6 +167,7 @@ impl<'src> Parser<'src> {
             source,
             file,
             open: Vec::new(),
+            interp_depth: 0,
         }
     }
 
@@ -404,6 +413,24 @@ impl<'src> Parser<'src> {
     /// How many delimiters are currently open. Always zero between items.
     pub fn open_depth(&self) -> usize {
         self.open.len()
+    }
+
+    /// How many `${ ... }` interpolations enclose the text being parsed.
+    pub fn interpolation_depth(&self) -> usize {
+        self.interp_depth
+    }
+
+    /// A parser for the expression inside one `${ ... }`, one level deeper.
+    ///
+    /// It shares this parser's source map and file id, so a name inside the
+    /// interpolation is read out of the file exactly as one outside it is, and
+    /// its tokens already carry file offsets. It carries one more level of
+    /// interpolation depth so that a literal nested inside a literal is counted
+    /// against [`MAX_NESTING_DEPTH`] rather than recursing without bound.
+    pub fn sub_parser(&self, tokens: Vec<Token>) -> Parser<'src> {
+        let mut parser = Parser::new(tokens, self.source, self.file);
+        parser.interp_depth = self.interp_depth.saturating_add(1);
+        parser
     }
 
     // -- items --------------------------------------------------------------

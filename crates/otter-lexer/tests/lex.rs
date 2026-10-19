@@ -13,7 +13,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use otter_common::{Diagnostic, FileId, Span};
-use otter_lexer::{literal_as_i64, Lexer, StringLit, Token, TokenKind};
+use otter_lexer::{
+    literal_as_i64, split_interpolation, Lexer, StringLit, StringPiece, Token, TokenKind,
+};
 
 /// The file id these tests report against.
 ///
@@ -55,6 +57,15 @@ fn errors(src: &str) -> Vec<Diagnostic> {
 
 fn messages(diags: &[Diagnostic]) -> Vec<String> {
     diags.iter().map(|d| format!("{:?}: {}", d.span, d.message)).collect()
+}
+
+/// A decoded literal from `value`, built the way [`StringLit::decode`] builds
+/// one, so a piece can be compared against it directly.
+fn text(value: &str) -> StringLit {
+    StringLit {
+        value: value.to_string(),
+        bytes: value.as_bytes().to_vec(),
+    }
 }
 
 // --- literals ---------------------------------------------------------------
@@ -407,36 +418,146 @@ fn every_supported_escape_decodes_and_anything_else_is_a_diagnostic() {
 }
 
 #[test]
-fn interpolation_is_reported_rather_than_printed_through() {
-    // `${` is the design's interpolation marker and it is not implemented. Two
-    // ordinary bytes would compile, run, and print `${n}` where the value
-    // belongs -- a wrong answer that looks like a right one -- so the lexer
-    // reports the marker and names what to write instead.
-    let diags = errors("\"n = ${n}\"");
-    assert_eq!(diags.len(), 1, "one diagnostic: {:?}", messages(&diags));
-    assert!(diags[0].is_error());
-    let message = &diags[0].message;
-    assert!(
-        message.contains("interpolation"),
-        "the message must name the feature: {message:?}"
+fn interpolation_is_part_of_the_literal_and_spans_the_whole_token() {
+    // `"n = ${n}"` -- one `Str` token, 10 bytes, `${n}` included.
+    let src = "\"n = ${n}\"";
+    assert_eq!(src.len(), 10, "fixture assumption");
+    assert_eq!(
+        tokens(src),
+        vec![
+            (TokenKind::Str, Span::new(0, 10)),
+            (TokenKind::Eof, Span::new(10, 10)),
+        ]
     );
-    assert!(
-        message.contains("str_from_i64"),
-        "and say what to write instead: {message:?}"
-    );
-    // The caret covers `${` -- bytes 5 and 6 of `"n = ${n}"`, which are the two
-    // that are wrong, rather than the whole literal.
-    assert_eq!(diags[0].span, Span::new(5, 7));
 
-    // The escape is the way out, and it is stable: it means the two characters,
-    // not an interpolation. That is why it is worth having before the feature
-    // exists -- `\$` will not change meaning when `${` does.
-    let lit = match StringLit::decode("\"a\\${b}\"") {
-        Ok(lit) => lit,
-        Err(failure) => panic!("the escape must decode: {}", failure.message),
-    };
-    assert_eq!(lit.value, "a${b}");
-    assert_eq!(tokens("\"a\\${b}\"").len(), 2, "and it is still one token");
+    // `"far: ${d}"` from the design.
+    let lit = "\"far: ${d}\"";
+    assert_eq!(
+        tokens(lit),
+        vec![
+            (TokenKind::Str, Span::new(0, 11)),
+            (TokenKind::Eof, Span::new(11, 11)),
+        ]
+    );
+}
+
+#[test]
+fn a_string_nested_inside_an_interpolation_does_not_end_the_literal() {
+    // `"${f("x")}"`: the inner quotes belong to the inner literal. If the
+    // scanner treated the first of them as the end of the outer one, the whole
+    // rest of the line would be lexed as tokens and every later span would be
+    // wrong.
+    let src = "\"${f(\"x\")}\"";
+    let kinds: Vec<TokenKind> = tokens(src).into_iter().map(|(k, _)| k).collect();
+    assert_eq!(kinds, vec![TokenKind::Str, TokenKind::Eof], "one literal: {src:?}");
+
+    // A `}` inside the nested string must not close the interpolation either.
+    let braced = "\"${f(\"}\")}\"";
+    assert_eq!(
+        tokens(braced).into_iter().map(|(k, _)| k).collect::<Vec<_>>(),
+        vec![TokenKind::Str, TokenKind::Eof],
+        "a brace inside a nested string is text: {braced:?}"
+    );
+}
+
+#[test]
+fn an_escaped_dollar_is_text_and_not_an_interpolation() {
+    // `\$` means the single character, and it will keep meaning that once `${`
+    // is the interpolation marker -- which is why it exists.
+    assert_eq!(StringLit::decode("\"a\\${b}\"").map(|l| l.value), Ok("a${b}".to_string()));
+    assert_eq!(tokens("\"a\\${b}\"").len(), 2, "one literal plus Eof");
+
+    // `split_interpolation` agrees: it is one text piece, no expression.
+    let pieces = split_interpolation("\"a\\${b}\"").expect("the escape decodes");
+    assert_eq!(
+        pieces,
+        vec![StringPiece::Text(text("a${b}"))],
+        "an escaped `$` leaves no interpolation piece"
+    );
+}
+
+#[test]
+fn split_interpolation_keeps_text_and_expression_ranges() {
+    // `"n = ${n}!"` -- text `n = `, expression at byte 7 (`n`), text `!`.
+    //  byte 0 `"`, 1..5 `n = `, 5 `$`, 6 `{`, 7 `n`, 8 `}`, 9 `!`, 10 `"`.
+    let raw = "\"n = ${n}!\"";
+    assert_eq!(raw.len(), 11, "fixture assumption");
+    assert_eq!(
+        split_interpolation(raw).expect("well formed"),
+        vec![
+            StringPiece::Text(text("n = ")),
+            StringPiece::Interpolation { start: 7, end: 8 },
+            StringPiece::Text(text("!")),
+        ]
+    );
+
+    // No text at either end: `${a}${b}` is two expressions and nothing else.
+    //  `"`(0) `$`(1) `{`(2) `a`(3) `}`(4) `$`(5) `{`(6) `b`(7) `}`(8) `"`(9).
+    assert_eq!(
+        split_interpolation("\"${a}${b}\"").expect("well formed"),
+        vec![
+            StringPiece::Interpolation { start: 3, end: 4 },
+            StringPiece::Interpolation { start: 7, end: 8 },
+        ]
+    );
+
+    // An empty interpolation has an empty range, which is how the parser knows
+    // to reject it rather than build an expression out of nothing.
+    //  `"`(0) `$`(1) `{`(2) `}`(3) `"`(4).
+    assert_eq!(
+        split_interpolation("\"${}\"").expect("structurally fine"),
+        vec![StringPiece::Interpolation { start: 3, end: 3 }]
+    );
+
+    // A literal with no interpolation is one text piece, whatever its text.
+    assert_eq!(
+        split_interpolation("\"hi\"").expect("well formed"),
+        vec![StringPiece::Text(text("hi"))]
+    );
+    assert_eq!(split_interpolation("\"\"").expect("well formed"), Vec::new());
+}
+
+#[test]
+fn an_interpolation_inside_a_nested_string_is_scanned_too() {
+    // `"${f("a${b}c")}"`: the inner string holds an interpolation of its own, so
+    // the two inner `"`s are not each other's pair and a scanner that stopped at
+    // the first one would end the literal in the middle of the expression.
+    let src = "\"${f(\"a${b}c\")}\"";
+    assert_eq!(src.len(), 16, "fixture assumption");
+    let kinds: Vec<TokenKind> = tokens(src).into_iter().map(|(k, _)| k).collect();
+    assert_eq!(kinds, vec![TokenKind::Str, TokenKind::Eof], "one literal: {src:?}");
+
+    // The outer literal is one interpolation and nothing else.
+    assert_eq!(
+        split_interpolation(src).expect("well formed"),
+        vec![StringPiece::Interpolation { start: 3, end: 14 }],
+        "the expression is everything between the outer `${{` and `}}`"
+    );
+}
+
+#[test]
+fn an_unterminated_interpolation_is_a_diagnostic_not_a_panic() {
+    // `${` with no `}` before the end of the line.
+    for src in ["\"${x\"", "\"a${f(b\"", "\"${\""] {
+        let diags = errors(src);
+        assert_eq!(diags.len(), 1, "{src:?}: {:?}", messages(&diags));
+        assert!(diags[0].is_error());
+        assert!(
+            diags[0].message.contains("interpolation"),
+            "{src:?}: {:?}",
+            diags[0].message
+        );
+    }
+
+    // A nested string that runs off the end of the line is the same problem.
+    let diags = errors("\"${f(\"x)}\"");
+    assert_eq!(diags.len(), 1, "{:?}", messages(&diags));
+    assert!(diags[0].message.contains("interpolation"), "{:?}", diags[0].message);
+
+    // And an unterminated interpolation at the very end of the file.
+    let diags = errors("\"${x");
+    assert_eq!(diags.len(), 1, "{:?}", messages(&diags));
+    assert!(diags[0].message.contains("interpolation"), "{:?}", diags[0].message);
 }
 
 #[test]

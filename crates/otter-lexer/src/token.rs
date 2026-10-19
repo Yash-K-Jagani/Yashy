@@ -91,6 +91,23 @@ pub struct StringLit {
     pub bytes: Vec<u8>,
 }
 
+/// One piece of a string literal: literal text, or an interpolated expression.
+///
+/// A literal with no `${ ... }` is exactly one [`StringPiece::Text`], which is
+/// what lets [`StringLit::decode`] be defined in terms of [`split_interpolation`]
+/// rather than as a second decoder that could drift from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StringPiece {
+    /// Text with its escape sequences decoded.
+    Text(StringLit),
+    /// `${ expr }`: the source of `expr` between the braces.
+    ///
+    /// `start` and `end` are byte offsets into the literal's own token text --
+    /// the text passed to [`split_interpolation`], quotes included -- so the
+    /// braces themselves are excluded and the range is empty for `"${}"`.
+    Interpolation { start: usize, end: usize },
+}
+
 impl StringLit {
     /// Decodes the source text of a `Str` token into the literal it stands for.
     ///
@@ -98,64 +115,260 @@ impl StringLit {
     /// `source[span.start..span.end]` for that token.
     ///
     /// This is the *only* implementation of what an escape sequence means: the
-    /// lexer calls it to decide whether a literal is well formed, and the
-    /// parser calls it to get the value. Two implementations would be two
-    /// chances to disagree about whether `"a\nb"` is four bytes or five.
+    /// lexer calls [`split_interpolation`] to decide whether a literal is well
+    /// formed, and this calls it to get the value. Two implementations would be
+    /// two chances to disagree about whether `"a\nb"` is four bytes or five.
     ///
     /// # Errors
     ///
     /// Returns a [`LitError`] whose `offset` is relative to `raw`. A token the
     /// lexer has already accepted never fails here; the error path exists so
     /// that a caller which has only raw text -- the parser, holding a `Str`
-    /// token from somewhere else -- reports rather than guesses.
+    /// token from somewhere else -- reports rather than guesses. A literal that
+    /// *does* contain an interpolation is also an error: its value is not one
+    /// string, and a caller that wants the pieces should ask for them with
+    /// [`split_interpolation`]. Returning the unexpanded `${ ... }` text instead
+    /// would look exactly like a right answer.
     pub fn decode(raw: &str) -> Result<StringLit, LitError> {
-        let bytes = raw.as_bytes();
-        // The quotes are part of the token's span but not of its text. Accepting
-        // a `raw` without them costs nothing and keeps the function usable on
-        // hand-written input, but the lexer always passes the full token.
-        let mut at = if bytes.first() == Some(&b'"') { 1 } else { 0 };
-        let mut out: Vec<u8> = Vec::new();
-
-        loop {
-            let current = match bytes.get(at) {
-                Some(byte) => *byte,
-                None => {
-                    return Err(LitError::new(at, "the text ends before the closing quote"));
-                }
-            };
-            match current {
-                b'"' => break,
-                b'\\' => {
-                    let escaped = match bytes.get(at.saturating_add(1)) {
-                        Some(byte) => *byte,
-                        None => {
-                            return Err(LitError::new(at, "the text ends after a backslash"));
-                        }
-                    };
-                    out.push(decode_escape(escaped).ok_or_else(|| {
-                        LitError::new(at, format!("unknown escape `\\{}`", printable_byte(escaped)))
-                    })?);
-                    at = at.saturating_add(2);
-                }
-                byte => {
-                    // A multi-byte character is copied byte by byte, which keeps
-                    // it intact: the input was a `&str`, so its bytes are
-                    // already valid UTF-8 in valid positions.
-                    out.push(byte);
-                    at = at.saturating_add(1);
+        let mut out = String::new();
+        for piece in split_interpolation(raw)? {
+            match piece {
+                StringPiece::Text(lit) => out.push_str(&lit.value),
+                StringPiece::Interpolation { .. } => {
+                    return Err(LitError::new(
+                        0,
+                        "this literal contains `${ ... }`, so it has no single value: read its pieces with `split_interpolation`",
+                    ));
                 }
             }
         }
-
-        // Valid by construction -- the bytes came from a `&str` and only ASCII
-        // was ever inserted -- but a `Result` here costs nothing and rules out
-        // an `unwrap` in a component whose whole job is not crashing.
-        let value = String::from_utf8(out).map_err(|e| {
-            LitError::new(0, format!("the literal is not valid UTF-8: {}", e.utf8_error()))
-        })?;
-        let bytes = value.as_bytes().to_vec();
-        Ok(StringLit { value, bytes })
+        let bytes = out.as_bytes().to_vec();
+        Ok(StringLit { value: out, bytes })
     }
+}
+
+/// Splits the source text of a `Str` token into text and interpolation pieces.
+///
+/// `raw` is the token's text, quotes included -- exactly
+/// `source[span.start..span.end]`. The literal does not have to be well formed:
+/// an unterminated one, an escape Otter does not have, or an interpolation with
+/// no closing `}` each come back as a [`LitError`] whose `offset` is relative to
+/// `raw`, so the caller can point a caret at the byte that is wrong instead of
+/// at the whole token.
+///
+/// This is the single scanner for every string literal: [`StringLit::decode`]
+/// is one [`StringPiece::Text`] of its output, and the lexer uses it to accept
+/// or reject a literal, so the rules for what an escape means and what `${`
+/// begins are written once.
+///
+/// # Errors
+///
+/// A [`LitError`] at the offending byte for an unterminated literal, an unknown
+/// escape, or an interpolation whose `}` is missing or runs off the end of the
+/// line.
+pub fn split_interpolation(raw: &str) -> Result<Vec<StringPiece>, LitError> {
+    let bytes = raw.as_bytes();
+    // The quotes are part of the token's span but not of its text. Accepting a
+    // `raw` without them costs nothing and keeps the function usable on
+    // hand-written input, but the lexer always passes the full token.
+    let mut at = if bytes.first() == Some(&b'"') { 1 } else { 0 };
+    let mut text: Vec<u8> = Vec::new();
+    let mut pieces: Vec<StringPiece> = Vec::new();
+
+    loop {
+        let current = match bytes.get(at) {
+            Some(byte) => *byte,
+            None => {
+                return Err(LitError::new(at, "the text ends before the closing quote"));
+            }
+        };
+        match current {
+            b'"' => break,
+            b'\\' => {
+                let escaped = match bytes.get(at.saturating_add(1)) {
+                    Some(byte) => *byte,
+                    None => {
+                        return Err(LitError::new(at, "the text ends after a backslash"));
+                    }
+                };
+                text.push(decode_escape(escaped).ok_or_else(|| {
+                    LitError::new(at, format!("unknown escape `\\{}`", printable_byte(escaped)))
+                })?);
+                at = at.saturating_add(2);
+            }
+            // `${` begins an interpolation. `\$` never reaches here -- the
+            // backslash arm above consumes both of its bytes -- which is what
+            // keeps the escape for a literal `$` working.
+            b'$' if bytes.get(at.saturating_add(1)) == Some(&b'{') => {
+                flush_text(&mut pieces, &mut text)?;
+                // The scan runs over the tail of `raw`, so an error offset is
+                // relative to that tail; move it back into the whole literal's
+                // coordinates, which is what a caller of this function expects.
+                let width = match skip_interpolation(&raw[at..]) {
+                    Ok(width) => width,
+                    Err(mut failure) => {
+                        failure.offset = failure.offset.saturating_add(at);
+                        return Err(failure);
+                    }
+                };
+                // The expression is what is between `${` and `}`. `width`
+                // counts both `$` and `{` at the front and the `}` at the back,
+                // so the two ends are computed from `at` rather than guessed.
+                let start = at.saturating_add(2);
+                let end = at.saturating_add(width).saturating_sub(1);
+                pieces.push(StringPiece::Interpolation { start, end });
+                at = at.saturating_add(width);
+            }
+            byte => {
+                // A multi-byte character is copied byte by byte, which keeps it
+                // intact: the input was a `&str`, so its bytes are already valid
+                // UTF-8 in valid positions.
+                text.push(byte);
+                at = at.saturating_add(1);
+            }
+        }
+    }
+
+    flush_text(&mut pieces, &mut text)?;
+    Ok(pieces)
+}
+
+/// The number of bytes an interpolation `${ ... }` occupies, starting at
+/// `text[0] == '$'`.
+///
+/// `text` must begin with `${`; the caller has already checked those two bytes,
+/// so this function's whole job is to find the `}` that closes it and to say
+/// why it could not. It counts nesting -- a `{` opens a level and a `}` closes
+/// one -- and skips a nested string whole, escapes included, so a `}` inside
+/// `"${f("}")}"` does not close the interpolation early.
+///
+/// The length is what the lexer needs to keep scanning the rest of the literal,
+/// and what [`split_interpolation`] needs to know where the expression ends, so
+/// both use the one implementation rather than two that agree until one changes.
+pub(crate) fn skip_interpolation(text: &str) -> Result<usize, LitError> {
+    skip_interpolation_from(text, 0)
+}
+
+/// How deeply `${ ... }` and `"..."` may nest inside a literal before the
+/// scanner stops rather than run out of stack.
+///
+/// A nested string can hold an interpolation and an interpolation can hold a
+/// nested string, so the two scanners call one another; this is what keeps that
+/// mutual recursion bounded. It is deliberately looser than the parser's
+/// `MAX_NESTING_DEPTH` (48), because the lexer spends *two* levels (a string and
+/// an interpolation) per level the parser counts, and a lexer that rejected a
+/// literal the parser was ready to read would be the wrong way round.
+const MAX_LITERAL_NESTING: usize = 64;
+
+/// [`skip_interpolation`], carrying the number of levels already entered.
+fn skip_interpolation_from(text: &str, entered: usize) -> Result<usize, LitError> {
+    if entered >= MAX_LITERAL_NESTING {
+        return Err(LitError::new(
+            0,
+            "the `${ ... }` interpolations are nested too deeply",
+        ));
+    }
+    let bytes = text.as_bytes();
+    let mut at = 2usize;
+    let mut depth = 1usize;
+
+    loop {
+        let current = match bytes.get(at) {
+            Some(byte) => *byte,
+            None => {
+                return Err(LitError::new(
+                    at,
+                    "the file ends before the `}` that closes this `${`",
+                ));
+            }
+        };
+        match current {
+            b'\n' => {
+                return Err(LitError::new(
+                    at,
+                    "the line ends before the `}` that closes this `${`",
+                ));
+            }
+            b'"' => {
+                // A nested string is skipped whole. Shifting its error is not
+                // needed -- it indexes the same `text` this frame does -- but the
+                // interpolation *inside* it is scanned over a slice, so its
+                // offset is moved back into this frame's coordinates.
+                at = skip_nested_string_from(text, at, entered)?;
+            }
+            b'{' => {
+                depth = depth.saturating_add(1);
+                at = at.saturating_add(1);
+            }
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                at = at.saturating_add(1);
+                if depth == 0 {
+                    return Ok(at);
+                }
+            }
+            _ => at = at.saturating_add(1),
+        }
+    }
+}
+
+/// The index just past the closing quote of a string that starts at the `"` at
+/// `text[at]`, skipping escapes so `\"` does not end it and skipping any
+/// `${ ... }` inside it so a `"` *there* does not either.
+fn skip_nested_string_from(text: &str, at: usize, entered: usize) -> Result<usize, LitError> {
+    let bytes = text.as_bytes();
+    let mut at = at.saturating_add(1);
+    loop {
+        match bytes.get(at) {
+            None => {
+                return Err(LitError::new(at, "the text ends before the closing quote"));
+            }
+            Some(b'\n') => {
+                return Err(LitError::new(at, "the line ends before the closing quote"));
+            }
+            Some(b'"') => return Ok(at.saturating_add(1)),
+            Some(b'\\') => match bytes.get(at.saturating_add(1)) {
+                None => return Err(LitError::new(at, "the text ends after a backslash")),
+                Some(b'\n') => return Err(LitError::new(at, "the line ends after a backslash")),
+                Some(_) => at = at.saturating_add(2),
+            },
+            // The interpolation is scanned over the tail of `text`, so its error
+            // offset is relative to that tail and has to be moved back into this
+            // frame's coordinates before it is handed to a caller that believes
+            // offsets are relative to the whole literal.
+            Some(b'$') if bytes.get(at.saturating_add(1)) == Some(&b'{') => {
+                let width = match skip_interpolation_from(&text[at..], entered.saturating_add(1)) {
+                    Ok(width) => width,
+                    Err(mut failure) => {
+                        failure.offset = failure.offset.saturating_add(at);
+                        return Err(failure);
+                    }
+                };
+                at = at.saturating_add(width);
+            }
+            Some(_) => at = at.saturating_add(1),
+        }
+    }
+}
+
+/// Appends the text collected so far as a [`StringPiece::Text`], if any.
+///
+/// Empty runs are dropped rather than recorded: a piece that contributes
+/// nothing would have to be handled -- and could be mishandled -- by every later
+/// stage, and `"${a}${b}"` has no text between the two at all.
+fn flush_text(pieces: &mut Vec<StringPiece>, text: &mut Vec<u8>) -> Result<(), LitError> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    // Valid by construction -- the bytes came from a `&str` and only ASCII was
+    // ever inserted -- but a `Result` here costs nothing and rules out an
+    // `unwrap` in a component whose whole job is not crashing.
+    let value = String::from_utf8(std::mem::take(text)).map_err(|e| {
+        LitError::new(0, format!("the literal is not valid UTF-8: {}", e.utf8_error()))
+    })?;
+    let bytes = value.as_bytes().to_vec();
+    pieces.push(StringPiece::Text(StringLit { value, bytes }));
+    Ok(())
 }
 
 /// The byte an escape sequence stands for, or `None` if Otter has no such
@@ -165,10 +378,9 @@ impl StringLit {
 /// else is a diagnostic rather than a guess, because silently passing `\d`
 /// through as `\d` is how a language grows a meaning nobody agreed to.
 ///
-/// `\$` is in the set so that a literal `$` is *expressible*: `${` is the
-/// interpolation marker ([`crate::error::interpolation_not_implemented`] while
-/// it is unimplemented, and a conversion once it is not), so without an escape
-/// there would be no way to write the two characters in a string at all.
+/// `\$` is in the set so that a literal `$` is *expressible*: `${` begins an
+/// interpolation, so without an escape there would be no way to write the two
+/// characters in a string at all (see [`split_interpolation`]).
 fn decode_escape(escaped: u8) -> Option<u8> {
     match escaped {
         b'n' => Some(b'\n'),

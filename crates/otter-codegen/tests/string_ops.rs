@@ -114,3 +114,31 @@ fn a_string_operation_result_can_be_bound_and_reassigned() {
         "string values live in slots like any other value:\n{ir_text}"
     );
 }
+
+#[test]
+fn interpolation_is_a_conversion_call_and_a_concatenation() {
+    // `${n}` is lowered by the *checker* into `str_from_i64(n)`, so by the time
+    // code generation sees the program it is an ordinary call and an ordinary
+    // `+`. One conversion, one concat -- and nothing named `interp` for the
+    // backend to know about.
+    let ir_text = ir("fn main() { const n = 7; print_str(\"n = ${n}\"); }");
+    assert_eq!(call_count(&ir_text, "@otter_str_from_i64"), 1, "{ir_text}");
+    assert_eq!(call_count(&ir_text, "@otter_str_concat"), 1, "{ir_text}");
+    assert!(
+        !ir_text.to_lowercase().contains("interp"),
+        "there is no interpolation instruction to emit:\n{ir_text}"
+    );
+}
+
+#[test]
+fn interpolating_a_string_needs_no_conversion() {
+    // A `string` already *is* text, so `${s}` is just `s`: the module calls no
+    // `str_from_*` at all. A conversion here would be a needless copy and a
+    // second place for the value and its text to disagree.
+    let ir_text = ir("fn main() { const s = \"x\"; print_str(\"${s}\"); }");
+    assert_eq!(
+        call_count(&ir_text, "@otter_str_from_"),
+        0,
+        "a string is already text:\n{ir_text}"
+    );
+}

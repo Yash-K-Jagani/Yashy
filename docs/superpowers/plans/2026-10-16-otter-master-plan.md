@@ -257,7 +257,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | M4: compare + branch to an inline panic block; `wrapping_*` keeps the bare op |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
-| M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note) | M3's remaining string task: length-prefixed `%otter_str` with retain/release, then interpolation; indexing a pointer in M6 |
+| M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note). Interpolation (M3–M4 Task 7) is lowered to exactly these calls, so it added no contract of its own | M3's remaining string task: length-prefixed `%otter_str` with retain/release; indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity

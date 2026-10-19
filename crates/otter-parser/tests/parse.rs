@@ -10,8 +10,8 @@ use std::fmt::Debug;
 
 use otter_common::Span;
 use otter_parser::ast::{
-    BinOp, Block, Expr, ExternDecl, FieldDef, Item, Literal, Param, Pattern, Program, Stmt,
-    StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
+    BinOp, Block, Expr, ExternDecl, FieldDef, InterpPart, Item, Literal, Param, Pattern, Program,
+    Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
 };
 
 // -- helpers ---------------------------------------------------------------
@@ -1410,6 +1410,30 @@ fn debug_names_every_expr_variant_and_its_fields() {
             &["Ident", "start", "end"],
             &[
                 "Literal",
+                "Binary",
+                "Unary",
+                "Call",
+                "StructLit",
+                "FieldAccess",
+                "Cast",
+                "Try",
+                "SwitchExpr",
+                "Move",
+            ],
+        ),
+        case(
+            "Expr::Interp",
+            Expr::Interp {
+                parts: vec![
+                    InterpPart::Text(text("n = ")),
+                    InterpPart::Expr(int(1, here())),
+                ],
+                span: here(),
+            },
+            &["Interp", "Text", "Expr", "parts", "span"],
+            // `Literal` is allowed here: the interpolation's own parts hold one.
+            &[
+                "Ident",
                 "Binary",
                 "Unary",
                 "Call",

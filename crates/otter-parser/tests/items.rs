@@ -14,9 +14,10 @@
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::ast::{
-    BinOp, Expr, FieldDef, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp, VariantField,
+    BinOp, Expr, FieldDef, InterpPart, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp,
+    VariantField,
 };
-use otter_parser::Parser;
+use otter_parser::{Parser, MAX_NESTING_DEPTH};
 
 // -- helpers ---------------------------------------------------------------
 
@@ -1454,5 +1455,152 @@ fn an_assignment_target_is_an_expression_not_a_name() {
     assert!(
         matches!(target, Expr::Literal(Literal::I64(1), _)),
         "expected the literal 1 as the target, got {target:?}"
+    );
+}
+
+// -- string interpolation ---------------------------------------------------
+
+#[test]
+fn an_interpolated_string_is_one_node_of_text_and_expressions() {
+    // `"n = ${value + 1}"`: text then expression, in source order, as written.
+    // The conversion of the expression to text is *not* decided here -- the
+    // parser does not know its type, and choosing `str_from_i64` would be a
+    // guess the checker would then have to trust.
+    let src = "fn main() { var value = 3; print_str(\"n = ${value + 1}\"); }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[1] else {
+        panic!("expected the print_str call, got {:?}", body.stmts[1]);
+    };
+    let Expr::Interp { parts, span } = &args[0] else {
+        panic!("expected an interpolation, got {:?}", args[0]);
+    };
+    assert_eq!(
+        span_of(src, "\"n = ${value + 1}\""),
+        *span,
+        "the node spans the whole literal, quotes included"
+    );
+    assert_eq!(parts.len(), 2, "text then expression: {parts:?}");
+    assert!(
+        matches!(&parts[0], InterpPart::Text(lit) if lit.value == "n = "),
+        "the leading text, got {:?}",
+        parts[0]
+    );
+    let InterpPart::Expr(inner) = &parts[1] else {
+        panic!("expected the expression part, got {:?}", parts[1]);
+    };
+    assert_eq!(
+        span_of(src, "value + 1"),
+        otter_parser::exprs::expr_span(inner),
+        "the inner expression keeps the span of its own text, not the literal's"
+    );
+}
+
+#[test]
+fn adjacent_interpolations_have_no_text_between_them() {
+    // `"${a}${b}"` is two expressions and no text. An empty text piece would
+    // have to be handled -- and could be mishandled -- by every later stage, so
+    // the split drops it rather than recording it.
+    let src = "fn main() { print_str(\"${a}${b}\"); }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
+        panic!("expected the print_str call, got {:?}", body.stmts[0]);
+    };
+    let Expr::Interp { parts, .. } = &args[0] else {
+        panic!("expected an interpolation, got {:?}", args[0]);
+    };
+    assert_eq!(parts.len(), 2, "two expressions, no text: {parts:?}");
+    assert!(
+        parts.iter().all(|p| matches!(p, InterpPart::Expr(_))),
+        "no text piece, got {parts:?}"
+    );
+}
+
+#[test]
+fn a_literal_without_interpolation_is_a_plain_string_not_an_interp_node() {
+    // Code that handles strings must not have to look for an `Interp` case that
+    // cannot occur: `"hi"` is a `Literal`, and only `${` makes it an `Interp`.
+    let src = "fn main() { print_str(\"hi\"); }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
+        panic!("expected the print_str call, got {:?}", body.stmts[0]);
+    };
+    assert!(
+        matches!(&args[0], Expr::Literal(Literal::Str(lit), _) if lit.value == "hi"),
+        "expected a plain string literal, got {:?}",
+        args[0]
+    );
+}
+
+#[test]
+fn an_empty_or_overfull_interpolation_is_reported() {
+    // `${}` has nothing to convert; the message has to say so rather than build
+    // an expression out of nothing.
+    let diags = parse_err("fn main() { print_str(\"${}\"); }");
+    assert!(
+        all_messages(&diags).contains("empty"),
+        "an empty interpolation must be named as empty: {}",
+        all_messages(&diags)
+    );
+
+    // `${a b}` is two expressions where one was expected: the second should have
+    // been the `}`.
+    let diags = parse_err("fn main() { var a = 1; print_str(\"${a b}\"); }");
+    assert!(
+        all_messages(&diags).contains("`}`"),
+        "the missing `}}` must be named: {}",
+        all_messages(&diags)
+    );
+}
+
+#[test]
+fn interpolations_nested_past_the_limit_are_a_diagnostic_not_a_deeper_stack() {
+    // Interpolation nests the *parser* as well as the input: each `${ ... }` is
+    // read by a fresh sub-parser, so the shared delimiter stack cannot bound it
+    // and a literal like `"${"${"${...}"}"}"` would recurse until the machine
+    // stack ran out. The limit has to be counted on its own, and hitting it has
+    // to be a diagnostic rather than an abort.
+    let mut expr = "x".to_string();
+    for _ in 0..MAX_NESTING_DEPTH.saturating_add(8) {
+        expr = format!("\"${{{expr}}}\"");
+    }
+    let diags = parse_err(&format!("fn f() {{ const s = {expr}; }}"));
+    assert!(
+        all_messages(&diags).contains("nested"),
+        "deep interpolation must be a nesting diagnostic, got {}",
+        all_messages(&diags)
+    );
+}
+
+#[test]
+fn a_few_levels_of_nested_interpolation_still_parse() {
+    // The limit above must not be so tight that ordinary nesting trips it:
+    // `"a ${"b ${x}"} c"` is awkward, but it is real, and it is three levels.
+    let mut expr = "x".to_string();
+    for _ in 0..3 {
+        expr = format!("\"${{{expr}}}\"");
+    }
+    let src = format!("fn f() {{ var x = 1; const s = {expr}; }}");
+    parse_ok(&src);
+}
+
+#[test]
+fn an_interpolated_string_cannot_be_a_pattern() {
+    // A `case` pattern is matched against a value; it is not built at run time,
+    // so `${ ... }` in one is a mistake with a name rather than a silent literal
+    // that would never match.
+    let diags = parse_err("fn f(s: string) { switch s { case \"${s}\" { 0 } } }");
+    assert!(
+        all_messages(&diags).contains("pattern"),
+        "the message must say a pattern cannot interpolate: {}",
+        all_messages(&diags)
     );
 }

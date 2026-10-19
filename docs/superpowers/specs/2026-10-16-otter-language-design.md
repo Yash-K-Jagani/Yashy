@@ -119,12 +119,18 @@ fn main() {
   `continue`, `return`, `case`, `default`, `true`, `false`), literals.
 - String literals are `"..."` with the escapes `\n`, `\r`, `\t`, `\0`, `\\`, `\"`,
   `\'`, `\$`. The set is closed: `\q` is a diagnostic, not a literal `q`.
-- `${` begins **interpolation** (§3.3), and is reserved rather than ordinary
-  text. Until interpolation is implemented a `${` in a literal is a compile
-  error naming the workaround (`+` with `str_from_i64` and friends) — not the two
-  literal bytes, because printing the marker where the value belongs is a wrong
-  answer that looks like a right one. `\$` is what a literal `$` is written with,
-  and it will keep that meaning once `${` works.
+- `${ expr }` is **interpolation** (§3.3): the text before, between and after the
+  interpolations is a string literal, and each `expr` is converted to text and
+  concatenated. `\$` is how a literal `$` before `{` is written — without it a
+  `$` followed by `{` could not appear in a string at all — and it means the two
+  characters, never an interpolation.
+- Interpolation is **sugar, lowered by the type checker** into a call to the
+  matching `str_from_i64` / `str_from_f64` / `str_from_bool` (a `string` operand
+  needs no call) joined by `+`. There is no interpolation node in the typed tree
+  and nothing for code generation to lower differently, so `"n = ${n}"` and
+  `"n = " + str_from_i64(n)` are the same program. A part whose type has no text
+  form — a struct, an enum, a pointer — is a compile error rather than a printed
+  address. See the M3–M4 plan, Task 7.
 - Semicolons are required at statement end. Braces delimit blocks.
 
 ### 3.2 Declarations and mutability

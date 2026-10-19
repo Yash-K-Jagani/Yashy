@@ -573,6 +573,12 @@ is unchanged, so the end-to-end test covers the sugar without knowing about it.
 
 ### Task 5j: `${` is a diagnostic until interpolation exists
 
+> **Superseded by Task 7.** Interpolation is implemented, so the `${`
+> *diagnostic* below is gone: the lexer now scans `${ ... }` and the checker
+> lowers it. What Task 7 kept from this task is `\$` — the escape for a literal
+> `$` — and the reason it exists. The task is kept as written for the record; the
+> diagnostic text no longer appears in the compiler.
+
 The design has advertised `"far: ${d}"` since it was written (spec §2 goal 2 and
 the §3 example), the compiler had no idea what `${` was, and the result was the
 worst kind of failure: `"n = ${n}"` compiled, ran, and printed `n = ${n}`. A
@@ -589,22 +595,22 @@ of the `${` itself, with the workaround named —
     string interpolation is not implemented yet: build the string with `+` and a
     conversion such as `str_from_i64`, or write `\$` for a literal `$`
 
-`\$` is added to the escape set in the same task, and not as an afterthought: once
-`${` means something, a literal `$` before `{` has to stay expressible, so the
-escape is the escape hatch interpolation needs anyway. Adding it now means it will
-not change meaning when `${` starts working.
+`\$` was added to the escape set in the same task, and not as an afterthought:
+once `${` means something, a literal `$` before `{` has to stay expressible, so the
+escape is the escape hatch interpolation needs anyway — and Task 7 found exactly
+that, so `\$` never had to change meaning.
 
-The check lives in the lexer's literal scan, next to the escape handling, which is
-also why it cannot misfire on `\$`: the backslash arm consumes two bytes, so an
+The check lived in the lexer's literal scan, next to the escape handling, which is
+also why it could not misfire on `\$`: the backslash arm consumes two bytes, so an
 escaped `$` never reaches the `$` arm. `decode_escape` stays the single definition
 of what an escape *means*, and `${` is not an escape, so it is not defined there.
 
-Tests: `interpolation_is_reported_rather_than_printed_through` pins the
-diagnostic, the message naming the workaround, the two-byte caret, and that
-`"\${b}"` decodes to the four characters `a${b}` as one token; `\$` joins the
-escape table test, which enumerates the whole set.
+Tests: `interpolation_is_reported_rather_than_printed_through` pinned the
+diagnostic, the message naming the workaround, and the two-byte caret; Task 7
+replaced it with tests for the feature. `\$` joins the escape table test, which
+enumerates the whole set, and still does.
 
-Not here: interpolation itself (Task 7).
+Not here: interpolation itself (Task 7, now delivered).
 
 ---
 
@@ -724,6 +730,57 @@ git commit -m "feat: refcounted strings, retype %otter_str, retain/release balan
 
 ### Task 7: String interpolation
 
+**Status:** delivered. The original sketch below is kept for the record; the
+"what was built" note says what changed and why.
+
+**What was built (the deviation, and why):**
+
+- **No `crates/otter-codegen/src/interp.rs`, and no `HirExpr::Interp`.** Choosing
+  `str_from_i64` over `str_from_f64` needs the *type* of the interpolated
+  expression, which only the checker knows, so the plan's own interfaces were
+  already pointing at the checker doing the work. Doing the conversion there —
+  desugaring an `Expr::Interp` (AST) into the `str_from_*` call and the `+` the
+  language already has — means the typed tree gains no node, code generation
+  learns nothing new, and `"n = ${n}"` is provably the same program as
+  `"n = " + str_from_i64(n)`. A backend module would have been a second lowering
+  of `+` to keep in step with the first.
+- **The lexer scans `${ ... }` as a unit** (brace-depth counted, a nested string
+  skipped whole), so `"${f("x")}"` does not end the literal at the inner quote,
+  and **the split into text and expression pieces is one function**
+  (`otter_lexer::split_interpolation`) that both the lexer's validation and the
+  parser's tree building call, so the escape rules and the `${` shape are
+  defined once.
+- **The parser sub-lexes each `${ ... }` expression** over the slice of the
+  original file, shifts the sub-token spans back to file offsets, and parses it
+  with a sub-parser that borrows the same `SourceMap` and `FileId` — so a name
+  inside the interpolation is read out of the file exactly as one outside it is,
+  and every diagnostic points at the real text.
+- **No golden file.** The HIR shape is pinned in `otter-sema` and the runtime
+  shape in `otter-driver`; a golden `.ll` would have pinned the same thing twice.
+
+**Files (as built):**
+- Modify: `crates/otter-lexer/src/{lexer,token,error}.rs` (`split_interpolation`, `skip_interpolation`, `StringPiece`, `invalid_interpolation`)
+- Modify: `crates/otter-parser/src/{ast,exprs,stmts}.rs` (`Expr::Interp`, `InterpPart`, the sub-parse, a `case` pattern rejects interpolation)
+- Modify: `crates/otter-sema/src/check_expr.rs` (desugar to the conversion + `+`; reject types with no text form)
+- Modify: `crates/otter-codegen/tests/string_ops.rs`, `crates/otter-sema/tests/check.rs`, `crates/otter-parser/tests/{items,parse}.rs`, `crates/otter-lexer/tests/lex.rs`
+- Create: `crates/otter-driver/tests/programs/interp.ot` + a test in `tests/e2e.rs`
+
+**Steps (all done):**
+
+- [x] Lexer: scan `${ ... }` as a unit; split a literal into `StringPiece`s in one place; `\$` stays a literal `$`.
+- [x] Parser: `Expr::Interp { parts }`; sub-parse each `${ expr }` with true spans; empty `${}` and `${a b}` are errors; a `case` pattern rejects `${`.
+- [x] Checker: `${x}` → `str_from_i64(x)`/`str_from_f64(x)`/`str_from_bool(x)` or `x` for a `string`, joined with `+`; a struct/enum/pointer is "cannot interpolate".
+- [x] Tests at every level, including the end-to-end `interp.ot` whose last line is the written-out form the interpolation must equal.
+- [x] Commit (`feat: string interpolation`).
+
+**Interfaces (as built):**
+- Consumes: `gen_string_binary` (`+`) and the three `str_from_*` builtins, both already present.
+- Produces: nothing new downstream. `Expr::Interp` is AST-only; the HIR is a `Binary`/`Call` the backend already lowered.
+
+---
+
+### Task 7 (original sketch, kept for the record)
+
 **Files:**
 - Modify: `crates/otter-lexer/src/lexer.rs` (recognise `${` inside string literals)
 - Modify: `crates/otter-parser/src/exprs.rs` (build an interpolation node)
@@ -731,54 +788,25 @@ git commit -m "feat: refcounted strings, retype %otter_str, retain/release balan
 - Create: `crates/otter-codegen/src/interp.rs`
 - Create: `crates/otter-codegen/tests/golden/interp.ot`, `tests/golden/interp.expected.ll`
 
-**Interfaces:**
+**Interfaces (original):**
 - Consumes: `gen_str_concat` from Task 6
 - Produces: `HirExpr::Interp { segments: Vec<InterpSegment>, span }` where `InterpSegment` is `Literal(Vec<u8>)` or `Expr(HirExpr)`. `pub fn gen_interp(ctx: &mut FnCtx, segs: &[InterpSegment]) -> String` lowers left to right, converting each non-string operand with the matching `otter_str_from_*`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests** (a literal-only interpolation; one i64 operand converts then concatenates; mixed operands convert by their own type; an unterminated interpolation is a diagnostic, not a panic; an escaped `$` is literal).
 
-```rust
-#[test]
-fn a_literal_only_interpolation_is_a_plain_string() { /* "${}" is not valid */ }
+- [x] **Step 2: Run to verify they fail** → FAIL (before the feature).
 
-#[test]
-fn interpolation_with_one_i64_operand_converts_then_concatenates() {
-    // "\"far: ${d}\"" -> from_i64 then concat, in that order.
-}
+- [x] **Step 3: Implement lexing** — done, but as a shared `split_interpolation` rather than a second literal shape.
 
-#[test]
-fn mixed_operands_convert_by_their_own_type() {
-    // A string, an i64, and a bool in one literal each use their converter.
-}
+- [x] **Step 4: Implement lowering** — done, but in the checker rather than a codegen module.
 
-#[test]
-fn an_unterminated_interpolation_is_a_diagnostic_not_a_panic() {
-    // "\"a ${x" -> Err.
-}
+- [x] **Step 5: Run to verify they pass** → PASS.
 
-#[test]
-fn an_escaped_dollar_is_literal() {
-    // "\"\\${x}\"" -> literal text "${x}", no interpolation.
-}
-```
-
-- [ ] **Step 2: Run to verify they fail** → FAIL.
-
-- [ ] **Step 3: Implement lexing**
-
-Extend `StringLit` to carry segments rather than a flat `String`, or add a parallel `InterpLit`. `\\` escapes and `\${` produce literal text.
-
-- [ ] **Step 4: Implement lowering**
-
-Convert then concat, left-associated. A `string` operand needs no conversion — it is already one.
-
-- [ ] **Step 5: Run to verify they pass** → PASS. Add and read the golden file.
-
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/
-git commit -m "feat: string interpolation with typed conversion"
+git commit -m "feat: string interpolation"
 ```
 
 ---

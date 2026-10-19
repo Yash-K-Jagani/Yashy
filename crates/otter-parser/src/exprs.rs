@@ -1,9 +1,9 @@
 use otter_common::Span;
-use otter_lexer::TokenKind;
+use otter_lexer::{Lexer, StringPiece, Token, TokenKind};
 
-use crate::ast::{Expr, Literal, TypeExpr, UnOp, BinOp};
+use crate::ast::{BinOp, Expr, InterpPart, Literal, StringLit, TypeExpr, UnOp};
 use crate::error::ParseError;
-use crate::parser::{cover, Parser};
+use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
 
 impl<'src> Parser<'src> {
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
@@ -250,9 +250,8 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Str => {
                 let tok = self.advance();
-                let raw = self.text(tok.span).unwrap_or_default();
-                let lit = otter_lexer::StringLit::decode(&raw).unwrap_or(otter_lexer::StringLit { value: String::new(), bytes: Vec::new() });
-                Ok(Expr::Literal(Literal::Str(lit), tok.span))
+                let raw = self.text(tok.span)?;
+                self.parse_string_literal(&raw, tok.span)
             }
             TokenKind::True => {
                 let tok = self.advance();
@@ -394,6 +393,123 @@ impl<'src> Parser<'src> {
             self.parse_expr()
         }
     }
+
+    /// Builds the expression for a `Str` token: a plain literal, or an
+    /// interpolation when the text contains `${ ... }`.
+    ///
+    /// `raw` is the token's text, quotes included. The split is
+    /// [`otter_lexer::split_interpolation`]'s job, so the escape rules and the
+    /// `${ ... }` shape are defined once, in the lexer, and this reads the same
+    /// pieces the lexer accepted the literal on.
+    fn parse_string_literal(&mut self, raw: &str, span: Span) -> Result<Expr, ParseError> {
+        let pieces = match otter_lexer::split_interpolation(raw) {
+            Ok(pieces) => pieces,
+            // The lexer accepts a literal only when the split agrees, so a
+            // failure here means the token did not come from this file. An empty
+            // literal is the honest fallback: wrong, but not a guess at text.
+            Err(_) => return Ok(Expr::Literal(Literal::Str(empty_string()), span)),
+        };
+
+        let mut parts: Vec<InterpPart> = Vec::new();
+        let mut has_expr = false;
+        for piece in pieces {
+            match piece {
+                StringPiece::Text(lit) => parts.push(InterpPart::Text(lit)),
+                StringPiece::Interpolation { start, end } => {
+                    has_expr = true;
+                    if start == end {
+                        return Err(self.error(
+                            sub_span(span, start.saturating_sub(2), end.saturating_add(1)),
+                            "this `${}` is empty: put an expression between `${` and `}`",
+                        ));
+                    }
+                    let expr = self.parse_interpolated_expr(span, start, end)?;
+                    parts.push(InterpPart::Expr(expr));
+                }
+            }
+        }
+
+        if !has_expr {
+            // A literal with no `${ ... }` is exactly one text piece (or none,
+            // for `""`), so its value is the concatenation of what is there.
+            let mut value = String::new();
+            for part in &parts {
+                if let InterpPart::Text(lit) = part {
+                    value.push_str(&lit.value);
+                }
+            }
+            return Ok(Expr::Literal(Literal::Str(str_lit(value)), span));
+        }
+        Ok(Expr::Interp { parts, span })
+    }
+
+    /// Parses the source of one `${ ... }` as a full expression.
+    ///
+    /// The expression's text is a byte range inside the literal, so it is lexed
+    /// on its own and the resulting tokens are shifted back to their true file
+    /// offsets before a sub-parser reads them. The sub-parser borrows the same
+    /// source map and file id, so a name inside the interpolation is read out of
+    /// the file exactly as one outside it is, and every span it reports points
+    /// at the real text.
+    fn parse_interpolated_expr(
+        &mut self,
+        token_span: Span,
+        rel_start: usize,
+        rel_end: usize,
+    ) -> Result<Expr, ParseError> {
+        let base = usize::try_from(token_span.start).unwrap_or(usize::MAX);
+        let start = base.saturating_add(rel_start);
+        let end = base.saturating_add(rel_end);
+        let region = sub_span(token_span, rel_start, rel_end);
+
+        // Interpolation nests the *parser* as well as the input: each `${ ... }`
+        // is read by a fresh sub-parser, whose delimiter stack starts empty. So
+        // the shared delimiter limit cannot bound this, and a literal like
+        // `"${"${"${...}"}"}"` would recurse until the machine stack ran out --
+        // an abort, which is the one failure a compiler for hostile input must
+        // not have. Count interpolation levels explicitly instead.
+        if self.interpolation_depth() >= MAX_NESTING_DEPTH {
+            return Err(crate::error::nested_too_deep(region));
+        }
+
+        let text = self.source().file(self.file());
+        let sub = match text.get(start..end) {
+            Some(sub) => sub,
+            None => {
+                return Err(self.error(region, "this interpolation could not be read from the source file"));
+            }
+        };
+
+        let shift = u32::try_from(start).unwrap_or(u32::MAX);
+        let tokens = match Lexer::with_file(sub, self.file()).tokenize() {
+            Ok(tokens) => tokens,
+            Err(diags) => {
+                let failure = match diags.first() {
+                    Some(d) => ParseError::new(shift_span(d.span, shift), d.message.clone()),
+                    None => self.error(region, "this interpolation could not be lexed"),
+                };
+                return Err(failure);
+            }
+        };
+        let tokens: Vec<Token> = tokens
+            .into_iter()
+            .map(|t| Token { kind: t.kind, span: shift_span(t.span, shift) })
+            .collect();
+
+        let mut sub_parser = self.sub_parser(tokens);
+        let expr = sub_parser.parse_expr()?;
+        if !sub_parser.at_eof() {
+            // The interpolation's `}` was found by the lexer, but there is more
+            // than one expression before it (`${a b}`). Point at the token that
+            // should have been the `}`.
+            return Err(crate::error::expected(
+                TokenKind::RBrace,
+                sub_parser.peek(),
+                sub_parser.peek_span(),
+            ));
+        }
+        Ok(expr)
+    }
 }
 
 // collect callee path from an expression
@@ -407,6 +523,36 @@ fn collect_callee(expr: &Expr, out: &mut Vec<String>) -> bool {
             },
         _ => false,
     }
+}
+
+/// The span of `[rel_start, rel_end)` bytes into a token that begins at `token`.
+///
+/// Interpolation pieces carry offsets relative to the literal, which is the
+/// only frame the lexer's scanner works in; a diagnostic needs file offsets, so
+/// the conversion happens in one place rather than at every use.
+fn sub_span(token: Span, rel_start: usize, rel_end: usize) -> Span {
+    let to_u32 = |rel: usize| {
+        token
+            .start
+            .saturating_add(u32::try_from(rel).unwrap_or(u32::MAX))
+    };
+    Span::new(to_u32(rel_start), to_u32(rel_end))
+}
+
+/// Moves a span by `by` bytes, for tokens lexed from a slice of the file.
+fn shift_span(span: Span, by: u32) -> Span {
+    Span::new(span.start.saturating_add(by), span.end.saturating_add(by))
+}
+
+/// The empty string literal, for a token whose text cannot be read back.
+fn empty_string() -> StringLit {
+    str_lit(String::new())
+}
+
+/// A [`StringLit`] from its decoded text, keeping `value` and `bytes` in step.
+fn str_lit(value: String) -> StringLit {
+    let bytes = value.as_bytes().to_vec();
+    StringLit { value, bytes }
 }
 
 /// The span of `expr` as it was written.
@@ -427,6 +573,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Call { span, .. } => *span,
         Expr::StructLit { span, .. } => *span,
         Expr::FieldAccess { span, .. } => *span,
+        Expr::Interp { span, .. } => *span,
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,
         Expr::SwitchExpr { span, .. } => *span,

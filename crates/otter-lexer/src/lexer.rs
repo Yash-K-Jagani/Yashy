@@ -27,7 +27,7 @@
 use otter_common::{Diagnostic, DiagnosticBag, FileId, Span};
 
 use crate::error;
-use crate::token::{StringLit, Token, TokenKind};
+use crate::token::{Token, TokenKind};
 
 /// The end of a scan: the lexer has already pushed a diagnostic.
 #[derive(Debug)]
@@ -293,9 +293,11 @@ impl<'src> Lexer<'src> {
 
     /// Scans a `"..."` literal.
     ///
-    /// Two passes, deliberately: the first finds where the literal ends, the
-    /// second hands that exact text to [`StringLit::decode`] to find out whether
-    /// it is well formed. Decoding is the only description of what an escape
+    /// Two passes, deliberately. The first finds where the literal ends: a
+    /// backslash swallows the next byte, and a `${ ... }` is skipped whole --
+    /// including any string nested inside it -- so neither `\"` nor the `"` of
+    /// `"${f("x")}"` ends the outer literal. The second hands that exact text to
+    /// [`split_interpolation`], which is the only description of what an escape
     /// means, so there is one implementation of the rules and the lexer cannot
     /// accept something the parser will then reject.
     ///
@@ -349,14 +351,27 @@ impl<'src> Lexer<'src> {
                     }
                     Some(_) => at = at.saturating_add(2),
                 },
-                // `${` is reserved for interpolation, which is not implemented;
-                // see `error::interpolation_not_implemented` for why it is a
-                // diagnostic rather than two ordinary bytes. A `\$` never
-                // reaches this arm -- the backslash arm above consumes both its
+                // `${` opens an interpolation. Skipping it as a unit is what
+                // makes a nested string harmless: the `"` inside `${ ... }`
+                // belongs to the inner literal, not to this one. Errors -- a
+                // missing `}`, an inner string that runs off the line -- are
+                // reported at the byte where scanning stopped. A `\$` never
+                // reaches this arm; the backslash arm above consumed both of its
                 // bytes, so the escape for a literal `$` keeps working.
                 Some(b'$') if peek_at(bytes, at, 1) == Some(b'{') => {
-                    let span = self.span_of(at, at.saturating_add(2));
-                    return self.report(error::interpolation_not_implemented(self.file, span));
+                    match crate::token::skip_interpolation(&self.src[at..]) {
+                        Ok(width) => at = at.saturating_add(width),
+                        Err(failure) => {
+                            let bad = at.saturating_add(failure.offset).min(self.src.len());
+                            let span =
+                                self.span_of(bad, bad.saturating_add(1).min(self.src.len()));
+                            return self.report(error::invalid_interpolation(
+                                self.file,
+                                span,
+                                &failure.message,
+                            ));
+                        }
+                    }
                 }
                 _ => at = at.saturating_add(1),
             }
@@ -377,7 +392,7 @@ impl<'src> Lexer<'src> {
             }
         };
 
-        match StringLit::decode(raw) {
+        match crate::token::split_interpolation(raw) {
             Ok(_) => {
                 self.pos = end;
                 Ok(())

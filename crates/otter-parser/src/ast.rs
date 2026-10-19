@@ -473,6 +473,21 @@ pub enum Expr {
         field: String,
         span: Span,
     },
+    /// `"far: ${d}!"` -- a string literal whose value is assembled at run time.
+    ///
+    /// `parts` is the literal in source order, text and expressions interleaved.
+    /// A literal with no `${ ... }` is never this variant; it is
+    /// [`Expr::Literal`] holding a [`StringLit`], so code that handles strings
+    /// does not have to look for a case that cannot occur.
+    ///
+    /// The conversion of each part to text is *not* decided here. Whether `${d}`
+    /// means `str_from_f64(d)` depends on the type of `d`, which the parser does
+    /// not know, so the parts stay as written and the type checker (§check_expr)
+    /// picks the conversion -- see [`InterpPart`].
+    Interp {
+        parts: Vec<InterpPart>,
+        span: Span,
+    },
     /// `x as f64`
     Cast {
         expr: Box<Expr>,
@@ -490,6 +505,15 @@ pub enum Expr {
         arms: Vec<SwitchArm>,
         span: Span,
     },
+}
+
+/// One part of an [`Expr::Interp`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum InterpPart {
+    /// Literal text between interpolations, already decoded.
+    Text(StringLit),
+    /// `${ expr }`, the expression as written.
+    Expr(Expr),
 }
 
 /// A binary operator. Copy because the parser holds one while deciding whether

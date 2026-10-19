@@ -718,6 +718,89 @@ fn rebinding_a_var_from_another_linear_binding_needs_move() {
     );
 }
 
+// -- string interpolation ---------------------------------------------------
+
+#[test]
+fn an_interpolation_checks_as_a_string() {
+    assert_type(
+        "fn f() { const line = \"n = ${1}\"; }",
+        "f",
+        TypeKind::Str,
+    );
+    assert_type("fn f() { const line = \"${1} text\"; }", "f", TypeKind::Str);
+}
+
+#[test]
+fn an_interpolation_lowers_to_the_matching_conversion_and_a_concatenation() {
+    // The parser cannot pick a conversion -- it does not know the type -- so the
+    // checker desugars `${n}` into `str_from_i64(n)` and joins it to the text
+    // with `+`. That is the pin that interpolation is *sugar*: code generation
+    // sees only a call and a string concatenation, the two things it already
+    // knew how to lower.
+    let src = "fn f(n: i64) { const line = \"n = ${n}\"; }";
+    let expr = expr_of_statement(src, "f", 0);
+    let HirExpr::Binary { op, lhs, rhs, .. } = &expr else {
+        panic!("expected a concatenation, got {expr:?}");
+    };
+    assert_eq!(*op, otter_sema::BinOp::Add);
+    assert!(
+        matches!(
+            lhs.as_ref(),
+            HirExpr::Literal(otter_parser::ast::Literal::Str(lit), _, _) if lit.value == "n = "
+        ),
+        "the text piece, got {lhs:?}"
+    );
+    let HirExpr::Call { callee, args, .. } = rhs.as_ref() else {
+        panic!("expected the conversion call, got {rhs:?}");
+    };
+    assert_eq!(callee, &vec!["str_from_i64".to_string()]);
+    assert_eq!(args.len(), 1, "one argument: {args:?}");
+}
+
+#[test]
+fn each_interpolated_type_gets_its_own_conversion() {
+    // A wrong pick -- say every number going through `str_from_i64` -- would
+    // compile and print nonsense, so each type must reach its own builtin.
+    for (param, callee) in [
+        ("i64", "str_from_i64"),
+        ("f64", "str_from_f64"),
+        ("bool", "str_from_bool"),
+    ] {
+        let src = format!("fn f(x: {param}) {{ const line = \"${{x}}\"; }}");
+        let expr = expr_of_statement(&src, "f", 0);
+        let HirExpr::Call { callee: got, .. } = &expr else {
+            panic!("`{param}` must lower to a conversion call, got {expr:?}");
+        };
+        assert_eq!(got, &vec![callee.to_string()], "`{param}` converts with {callee}");
+    }
+}
+
+#[test]
+fn a_string_piece_is_used_as_it_is_without_a_conversion() {
+    // A `string` already *is* text: wrapping it in anything would be a second
+    // allocation and a place for the two to disagree.
+    let src = "fn f(s: string) { const line = \"${s}\"; }";
+    let expr = expr_of_statement(src, "f", 0);
+    assert!(
+        matches!(&expr, HirExpr::Ident(path, _, _) if path == &vec!["s".to_string()]),
+        "a lone interpolation of a string is that string itself, got {expr:?}"
+    );
+}
+
+#[test]
+fn interpolating_a_type_with_no_text_form_is_an_error() {
+    assert_error(
+        "struct P { x: i64 } fn f(p: P) { const line = \"${p}\"; }",
+        "cannot interpolate",
+    );
+    // A pointer is the dangerous one: printing its address would succeed and
+    // mean nothing, which is the wrong answer the checker exists to refuse.
+    assert_error(
+        "fn f() { var p = alloc(1); const line = \"${p}\"; }",
+        "cannot interpolate",
+    );
+}
+
 #[test]
 fn dealloc_wants_a_pointer_not_an_integer() {
     assert_error("fn f() { dealloc(1); }", "expected `*mut i64`, found `i64`");

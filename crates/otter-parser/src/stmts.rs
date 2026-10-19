@@ -378,8 +378,22 @@ impl<'src> Parser<'src> {
         }
         if self.check(TokenKind::Str) {
             let tok = self.advance();
-            let raw = self.text(tok.span).unwrap_or_default();
-            let lit = otter_lexer::StringLit::decode(&raw).unwrap_or(otter_lexer::StringLit { value: String::new(), bytes: Vec::new() });
+            let raw = self.text(tok.span)?;
+            let interpolated = otter_lexer::split_interpolation(&raw)
+                .map(|pieces| {
+                    pieces
+                        .iter()
+                        .any(|p| matches!(p, otter_lexer::StringPiece::Interpolation { .. }))
+                })
+                .unwrap_or(false);
+            if interpolated {
+                return Err(self.error(
+                    tok.span,
+                    "a `case` pattern cannot be a `${ ... }` string: a pattern is matched against a value, not built at run time",
+                ));
+            }
+            let lit = otter_lexer::StringLit::decode(&raw)
+                .unwrap_or(otter_lexer::StringLit { value: String::new(), bytes: Vec::new() });
             return Ok(Pattern::Literal(Literal::Str(lit), tok.span));
         }
         Err(self.expected_error(TokenKind::Ident))

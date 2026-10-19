@@ -26,8 +26,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
-    BinOp, Block, Expr, Item, Literal, Param, Pattern, Stmt, SwitchArm, TypeExpr, VariantDef,
-    VariantField,
+    BinOp, Block, Expr, InterpPart, Item, Literal, Param, Pattern, Stmt, StringLit, SwitchArm,
+    TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -1475,6 +1475,49 @@ impl Checker {
                     }
                 }
             }
+            Expr::Interp { parts, span } => {
+                // The parser kept the parts as written because choosing a
+                // conversion needs the type of each expression, which is what
+                // this pass knows and the parser did not. Desugaring *here* --
+                // into the `str_from_*` call and the `+` the language already
+                // has -- means code generation never learns that interpolation
+                // exists and so cannot lower it differently from the equivalent
+                // written concatenation.
+                let mut pieces: Vec<HirExpr> = Vec::new();
+                for part in parts {
+                    match part {
+                        InterpPart::Text(lit) => pieces.push(HirExpr::Literal(
+                            Literal::Str(lit.clone()),
+                            *span,
+                            prim(TypeKind::Str),
+                        )),
+                        InterpPart::Expr(expr) => {
+                            let checked = self.check_expr(expr)?;
+                            match self.as_string(checked, *span) {
+                                Some(piece) => pieces.push(piece),
+                                None => return None,
+                            }
+                        }
+                    }
+                }
+
+                // A literal with no `${ ... }` is never an `Interp`, so there is
+                // at least one piece; if a future edit ever made that false, the
+                // empty string is the honest value rather than a panic.
+                let mut joined = pieces.pop().unwrap_or_else(|| {
+                    HirExpr::Literal(Literal::Str(empty_string()), *span, prim(TypeKind::Str))
+                });
+                while let Some(left) = pieces.pop() {
+                    joined = HirExpr::Binary {
+                        op: BinOp::Add,
+                        lhs: Box::new(left),
+                        rhs: Box::new(joined),
+                        span: *span,
+                        ty: prim(TypeKind::Str),
+                    };
+                }
+                Some(joined)
+            }
             Expr::Cast { expr, ty, span } => {
                 let inner = self.check_expr(expr)?;
                 let target = self.resolve_type(ty).ok()?;
@@ -1587,6 +1630,50 @@ impl Checker {
             };
         }
         Some(current)
+    }
+
+    /// The `string` an interpolated expression contributes, converting with the
+    /// `str_from_*` builtin that matches its type.
+    ///
+    /// A `string` needs no conversion and is returned as it is. `i64`, `f64` and
+    /// `bool` each have exactly one conversion, named here so the piece and the
+    /// builtin table cannot drift. Anything else -- a struct, an enum, a pointer,
+    /// `()` -- has no text form, and formatting its bytes or its address would be
+    /// a wrong answer that looks like a right one, so it is reported instead.
+    ///
+    /// Returns `None` after reporting when there is no conversion.
+    fn as_string(&mut self, expr: HirExpr, span: Span) -> Option<HirExpr> {
+        let ty = expr_ty(&expr);
+        let callee = match &ty.kind {
+            TypeKind::Str => return Some(expr),
+            TypeKind::I64 => "str_from_i64",
+            TypeKind::F64 => "str_from_f64",
+            TypeKind::Bool => "str_from_bool",
+            _ => {
+                self.error(
+                    expr_span(&expr),
+                    format!(
+                        "cannot interpolate a `{ty}` into a string: only `string`, `i64`, `f64` and `bool` have a text form"
+                    ),
+                );
+                return None;
+            }
+        };
+        Some(HirExpr::Call {
+            callee: vec![callee.to_string()],
+            args: vec![expr],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Str),
+        })
+    }
+}
+
+/// The empty string literal, for a piece that must be a string and is not there.
+fn empty_string() -> StringLit {
+    StringLit {
+        value: String::new(),
+        bytes: Vec::new(),
     }
 }
 
