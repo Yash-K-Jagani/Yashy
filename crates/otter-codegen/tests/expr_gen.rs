@@ -99,28 +99,251 @@ fn gen_return(src: &str) -> String {
     module.finish()
 }
 
+/// The one-based line and column of `needle` in `src`, which is what the checker
+/// resolves a span to and what a fault is expected to report.
+///
+/// Derived from the fixture rather than hardcoded: a column assertion with a
+/// number in it is a second copy of the fixture, and when the two disagree it is
+/// the number that gets "fixed".
+fn position_of(src: &str, needle: &str) -> (usize, usize) {
+    let at = src
+        .find(needle)
+        .expect("the fixture must contain the expression");
+    let before = &src[..at];
+    let line = before.matches('\n').count() + 1;
+    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+    (line, at - line_start + 1)
+}
+
+/// The function bodies of `ir_text`: everything from the first `define`.
+///
+/// The module declares every runtime function and every intrinsic up front,
+/// whether the program uses it or not -- an unused declaration is legal IR, and
+/// emitting them conditionally would make the goldens depend on the program.
+/// So "this program does not mention X" is a question about the body, and asking
+/// it of the whole module answers `true` for every name in the header.
+fn body_of(ir_text: &str) -> &str {
+    // A module from `gen_body` has no `define` line -- the harness seeds the
+    // entry block directly -- so the body starts at its `entry:` label. A real
+    // function module starts at its first `define`.
+    if let Some(at) = ir_text.find("define ") {
+        return &ir_text[at..];
+    }
+    match ir_text.find("\nentry:") {
+        Some(at) => &ir_text[at + 1..],
+        None => "",
+    }
+}
+
 #[test]
-fn integer_add_emits_wrapping_add_without_nsw() {
-    // Review Focus item 5: M0–M2 arithmetic wraps; M4 makes it checked.
-    let ir_text = gen_body("fn f() { const x = 1 + 2; }");
+fn integer_addition_is_checked_before_it_adds() {
+    // Ledger L4's M0-M2 row said `Add Sub Mul` emit bare `add`/`sub`/`mul` with
+    // no `nsw`, so wraparound was defined and silent. M4 replaces it: the value
+    // and the overflow flag come out of one LLVM intrinsic and the flag branches
+    // to the block that reports it. This is the diff the golden was rewritten
+    // for, and `nsw` is still absent -- the check is what makes the operation
+    // defined, not a flag that turns it into UB.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a + b; }");
     assert!(
-        ir_text.contains("add i64"),
-        "expected a wrapping add:\n{ir_text}"
+        ir_text.contains("call { i64, i1 } @llvm.sadd.with.overflow.i64"),
+        "expected the overflow intrinsic:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("extractvalue { i64, i1 }"),
+        "the result and the flag both come out of it:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("br i1") && ir_text.contains("_fault:"),
+        "the flag has to branch to wherever a fault is reported:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @otter_panic_overflow"),
+        "and that block reports the operands:\n{ir_text}"
     );
     assert!(
         !ir_text.contains("nsw") && !ir_text.contains("nuw"),
-        "nsw/nuw would make wraparound UB before M4:\n{ir_text}"
+        "the check is what makes this defined:\n{ir_text}"
     );
 }
 
 #[test]
-fn integer_divide_emits_sdiv_with_no_zero_guard() {
-    // Review Focus item 1: division by zero is UB until M4; the golden
-    // contract documents the hazard rather than hiding it.
-    let ir_text = gen_body("fn f() { const x = 1 / 0; }");
+fn subtraction_and_multiplication_use_their_own_intrinsics() {
+    // One intrinsic per operation: `ssub` for `-` and `smul` for `*`. The
+    // multiply is the one that would have needed a hand-rolled `i128` widening
+    // test, which is exactly the kind of predicate that is easier to get wrong
+    // than to notice.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a - b; const y = a * b; }");
+    let body = body_of(&ir_text);
     assert!(
-        ir_text.contains("sdiv i64"),
-        "expected a bare sdiv:\n{ir_text}"
+        body.contains("@llvm.ssub.with.overflow.i64"),
+        "subtraction has its own intrinsic:\n{body}"
+    );
+    assert!(
+        body.contains("@llvm.smul.with.overflow.i64"),
+        "so does multiplication:\n{body}"
+    );
+    assert!(
+        body.contains("call void @otter_panic_overflow"),
+        "both report through the same runtime function:\n{body}"
+    );
+}
+
+#[test]
+fn the_division_itself_is_emitted_behind_the_check() {
+    // This replaces the M0-M2 bare `sdiv` (ledger L4, Review Focus item 1). A
+    // `sdiv` by zero does not return a wrong answer, it raises `#DE`, so the
+    // division has to be in the block the check *falls through to* rather than in
+    // the block it guards: by the time the instruction runs, the divisor is known
+    // to be safe.
+    let src = "fn f(a: i64, b: i64) { const q = a / b; const r = a % b; }";
+    let ir_text = gen_body(src);
+    let branch = ir_text.find("br i1").expect("a check must branch");
+    let divide = ir_text.find("sdiv i64").expect("the quotient is still a sdiv");
+    let remainder = ir_text.find("srem i64").expect("so is the remainder");
+    assert!(
+        branch < divide && branch < remainder,
+        "the arithmetic must come after the branch:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @otter_panic_division"),
+        "the divisor being zero is reported by name:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("call void @otter_panic_overflow"),
+        "a division faults for two reasons and both go to the division report:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_fault_carries_the_operands_and_the_position_it_was_written_at() {
+    // Every piece of the run-time message is an operand: the operator's symbol,
+    // the two values, and the file, line and column. The position is the part the
+    // backend cannot work out for itself -- it is handed IR text and a path, and
+    // no source map -- so the checker resolves it and this asserts it survived
+    // the trip.
+    let src = "fn f(a: i64, b: i64) {\n    const q = a / b;\n}";
+    let (line, column) = position_of(src, "a / b");
+    let ir_text = gen_body(src);
+    assert!(
+        ir_text.contains(&format!("i64 {line}, i64 {column}")),
+        "expected the position {line}:{column} as operands:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("private unnamed_addr constant [2 x i8] c\"/\\00\""),
+        "the operator travels as a one-character string:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("c\"main.ot\\00\""),
+        "and the file the compiler was handed travels with it:\n{ir_text}"
+    );
+}
+
+#[test]
+fn the_fault_block_never_falls_through() {
+    // The block ends in `unreachable`, so the check's continuation has to be a
+    // block of its own: instructions appended after a terminator are not
+    // well-formed IR, and a checked operation can appear anywhere an expression
+    // may -- including as the argument of another call.
+    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a + b; }");
+    let lines: Vec<&str> = ir_text.lines().map(str::trim).collect();
+    let unreachable = lines
+        .iter()
+        .position(|line| *line == "unreachable")
+        .unwrap_or_else(|| panic!("the fault block ends in `unreachable`:\n{ir_text}"));
+    assert!(
+        lines[unreachable + 1].ends_with("_ok:"),
+        "the next block after it is the continuation, got {:?}:\n{ir_text}",
+        lines.get(unreachable + 1)
+    );
+    assert!(
+        lines[unreachable - 1].starts_with("call void @otter_panic_overflow"),
+        "and the instruction before it is the report:\n{ir_text}"
+    );
+}
+
+#[test]
+fn negating_an_integer_checks_for_the_smallest_one() {
+    // `-i64::MIN` has no answer in `i64`: it wraps to itself, so a silent
+    // wraparound would turn a mistake into a plausible number. It reports as an
+    // overflow of a subtraction from zero, which is what negation is.
+    let ir_text = gen_body("fn f(a: i64) { const b = -a; }");
+    assert!(
+        ir_text.contains("icmp eq i64 %t0, -9223372036854775808"),
+        "the one value that cannot be negated is the test:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @otter_panic_overflow"),
+        "and it reports like any other overflow:\n{ir_text}"
+    );
+}
+
+#[test]
+fn negating_a_float_is_not_checked() {
+    // Negating any `f64`, infinity included, is exact. There is no fault to
+    // report and no check to pay for.
+    let ir_text = gen_body("fn f(x: f64) { const y = -x; }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("fsub double 0.0"),
+        "float negation stays a subtraction from zero:\n{body}"
+    );
+    assert!(
+        !body.contains("_fault") && !body.contains("otter_panic"),
+        "and carries nothing else:\n{body}"
+    );
+}
+
+#[test]
+fn comparisons_and_boolean_logic_are_never_checked() {
+    // A comparison cannot overflow and `&&` is not arithmetic. This is the guard
+    // against the checked path widening to operations it does not belong on.
+    let ir_text =
+        gen_body("fn f(a: i64, b: i64) { const c = a < b; const d = (a < b) && (b < a); }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("icmp slt i64"),
+        "comparisons are still a `icmp`:\n{body}"
+    );
+    assert!(
+        body.contains("and i1"),
+        "`&&` is still an `and` on one bit:\n{body}"
+    );
+    assert!(
+        !body.contains("with.overflow") && !body.contains("_fault"),
+        "nothing here can fault:\n{body}"
+    );
+}
+
+#[test]
+fn float_arithmetic_carries_no_check() {
+    // An `f64` that overflows becomes an infinity, which is a float answer
+    // rather than a wrong one, and neither `fadd` nor `fdiv` traps.
+    let ir_text = gen_body("fn f(x: f64, y: f64) { const s = x + y; const q = x / y; }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("fadd double") && body.contains("fdiv double"),
+        "floats keep their own mnemonics:\n{body}"
+    );
+    assert!(
+        !body.contains("with.overflow") && !body.contains("otter_panic"),
+        "and no check rides along:\n{body}"
+    );
+}
+
+#[test]
+fn string_concatenation_is_not_checked() {
+    // `+` on strings is the same *token* and a completely different operation:
+    // it goes to the runtime and has nothing to overflow. The result type is what
+    // keeps it off the checked path.
+    let ir_text = gen_body("fn f(s: string, t: string) { const u = s + t; }");
+    let body = body_of(&ir_text);
+    assert!(
+        body.contains("@otter_str_concat"),
+        "a concatenation is a runtime call:\n{body}"
+    );
+    assert!(
+        !body.contains("_fault") && !body.contains("with.overflow"),
+        "with no check anywhere near it:\n{body}"
     );
 }
 
@@ -400,6 +623,29 @@ fn every_alloca_lands_in_the_entry_block() {
             "`{line}` allocates outside the entry block:\n{ir_text}"
         );
     }
+}
+
+#[test]
+fn golden_checked_matches_the_pinned_contract() {
+    // Every checked operation in one function, on *variables* rather than
+    // constants so the IR shows the check rather than a folded answer. This is
+    // the file that pins the shape of the fault path: the intrinsic (or the
+    // divisor test), the branch, the cold block with its report, and the
+    // continuation the value is computed in.
+    let input = read_lf_only(&golden_dir().join("checked.ot"));
+    let actual = normalize_host_header(&gen_body(&input));
+    let expected_path = golden_dir().join("checked.expected.ll");
+    if updating_goldens() {
+        fs::write(&expected_path, &actual)
+            .unwrap_or_else(|e| panic!("cannot write {}: {e}", expected_path.display()));
+        return;
+    }
+    let expected = normalize_host_header(&read_lf_only(&expected_path));
+    assert_eq!(
+        actual, expected,
+        "the checked-arithmetic contract drifted; \
+         rerun with UPDATE_GOLDEN=1 only after checking the diff"
+    );
 }
 
 #[test]

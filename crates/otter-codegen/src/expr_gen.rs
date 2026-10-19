@@ -5,13 +5,25 @@
 //! [`gen_expr_to_slot`] additionally spills it into an alloca, which is the
 //! single entry point statements, `return` and match arms use.
 //!
-//! # Interim semantics (ledger L4)
+//! # Checked integer arithmetic (ledger L4, replaced)
 //!
-//! `Add Sub Mul` emit bare `add`/`sub`/`mul` — **no `nsw`/`nuw`** — so
-//! wraparound is defined rather than UB until M4 makes arithmetic checked.
-//! `Div Rem` emit bare `sdiv`/`srem` with no zero guard: division by zero is
-//! UB until M4. Both are pinned by `tests/golden/ops.expected.ll`, so M4's
-//! replacement is a deliberate diff rather than a silent change.
+//! `Add Sub Mul` and `Div Rem` on `i64` are **checked**: an operation that
+//! overflows, divides by zero, or negates the smallest `i64` branches to a block
+//! that reports the operands and the position and ends the process. The ledger's
+//! M0–M2 row said these emitted bare `add`/`sub`/`mul` — no `nsw` — and a bare
+//! `sdiv`/`srem` with no zero guard, which made wraparound defined and division
+//! by zero UB; that row is what M4 replaced, and `tests/golden/ops.expected.ll`
+//! was rewritten with it rather than left to drift.
+//!
+//! The lowering lives in [`crate::faults`], and the position it reports comes
+//! from the checker (see [`otter_sema::FaultSite`]): the backend is handed IR
+//! text and a path, and a span would mean nothing to it.
+//!
+//! Everything else is untouched: a comparison, a boolean `and`/`or`, a string
+//! concatenation and float arithmetic have no fault to report and take the
+//! ordinary path.
+//!
+//! # Interim semantics
 //!
 //! A construct not lowered yet becomes a comment plus a zero of its type:
 //! visibly incomplete IR, never a silently wrong answer.
@@ -31,7 +43,7 @@ use std::collections::HashMap;
 
 use otter_common::Span;
 use otter_parser::ast::Literal;
-use otter_sema::{BinOp, HirExpr, HirFn, TypeKind, UnOp};
+use otter_sema::{BinOp, FaultSite, HirExpr, HirFn, TypeKind, UnOp};
 
 use crate::ir::repr_type;
 use crate::module::Module;
@@ -212,9 +224,15 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             }
         }
         HirExpr::Binary {
-            op, lhs, rhs, span, ..
-        } => gen_binary(ctx, *op, lhs, rhs, *span),
-        HirExpr::Unary { op, operand, .. } => gen_unary(ctx, *op, operand),
+            op,
+            lhs,
+            rhs,
+            fault,
+            ..
+        } => gen_binary(ctx, *op, lhs, rhs, fault.as_ref()),
+        HirExpr::Unary {
+            op, operand, fault, ..
+        } => gen_unary(ctx, *op, operand, fault.as_ref()),
         HirExpr::Move(inner, _, ty) => crate::memory::gen_move(ctx, inner, &ty.kind),
         HirExpr::Call {
             callee, args, ty, ..
@@ -316,18 +334,10 @@ fn gen_literal(ctx: &mut FnCtx<'_>, lit: &Literal, ty: &TypeKind) -> GenValue {
             value: if *b { "1".to_string() } else { "0".to_string() },
             ty: ty.clone(),
         },
-        Literal::Str(s) => {
-            let name = ctx.module.intern_string(&s.bytes);
-            let tmp = ctx.tmp();
-            let array_ty = format!("[{} x i8]", s.bytes.len() + 1);
-            ctx.push(format!(
-                "{tmp} = getelementptr inbounds {array_ty}, ptr {name}, i64 0, i64 0"
-            ));
-            GenValue {
-                value: tmp,
-                ty: ty.clone(),
-            }
-        }
+        Literal::Str(s) => GenValue {
+            value: ctx.module.intern_bytes_ptr(&s.bytes),
+            ty: ty.clone(),
+        },
     }
 }
 
@@ -363,23 +373,31 @@ fn llvm_float(v: f64) -> String {
     }
 }
 
-/// Lower a binary operation. Arithmetic is wrapping (no `nsw`/`nuw`),
-/// integer division is a bare `sdiv`, comparisons pick `icmp`/`fcmp` with
-/// the signed/ordered predicates, and `&&`/`||` are `and`/`or` on `i1`.
-///
-/// Floating point needs its own mnemonics for *every* operator, not just
-/// division: `add`/`sub`/`mul` accept only integer operands, so a malformed
-/// `add double` is a parse error from LLVM rather than something that silently
-/// works. The `is_float` test is therefore applied uniformly below.
+/// Lower a binary operation. Comparisons pick `icmp`/`fcmp` with the
+/// signed/ordered predicates, `&&`/`||` are `and`/`or` on `i1`, and float
+/// arithmetic needs its own mnemonics for *every* operator, not just division:
+/// `add`/`sub`/`mul` accept only integer operands, so a malformed `add double`
+/// is a parse error from LLVM rather than something that silently works. The
+/// `is_float` test is therefore applied uniformly below.
 ///
 /// Floating-point arithmetic also carries the `contract` fast-math flag when the
 /// module allows contraction; see [`crate::CodegenOptions::fp_contract`].
+///
+/// # Integer arithmetic is checked
+///
+/// `fault` is the position the checker resolved for an operation that can go
+/// wrong, and it is `Some` for exactly the integer arithmetic (`+ - * / %`,
+/// negation). It is handled first, in [`crate::faults`], because the check
+/// decides the *shape* of the block rather than just the mnemonic: the check is
+/// emitted, the operation is emitted behind it, and the continuation is a new
+/// block. A float `add` or a comparison cannot fault and takes the table below,
+/// unchanged by any of this.
 fn gen_binary(
     ctx: &mut FnCtx<'_>,
     op: BinOp,
     lhs: &HirExpr,
     rhs: &HirExpr,
-    _span: Span,
+    fault: Option<&FaultSite>,
 ) -> GenValue {
     let l = gen_expr(ctx, lhs);
     let r = gen_expr(ctx, rhs);
@@ -388,6 +406,11 @@ fn gen_binary(
     // numeric table below keeps that table about numbers.
     if matches!(l.ty, TypeKind::Str) {
         return crate::strings::gen_string_binary(ctx, op, &l, &r);
+    }
+    if let Some(site) = fault {
+        if let Some(checked) = crate::faults::gen_checked_binary(ctx, op, &l, &r, site) {
+            return checked;
+        }
     }
     let is_float = matches!(l.ty, TypeKind::F64);
     let ty = l.ty.clone();
@@ -455,8 +478,23 @@ fn cmp_predicate(op: BinOp, is_float: bool) -> String {
 
 /// Lower a unary operation: `Neg` is `sub`/`fsub` from zero, `Not` is `xor`
 /// with `true` on `i1`.
-fn gen_unary(ctx: &mut FnCtx<'_>, op: UnOp, operand: &HirExpr) -> GenValue {
+///
+/// Integer negation is checked, like every other integer operation: `-i64::MIN`
+/// has no answer in `i64`. `fault` carries the position the checker resolved
+/// when the operation can go wrong, and [`crate::faults`] lowers it; `!` and
+/// float negation have nothing to check.
+fn gen_unary(
+    ctx: &mut FnCtx<'_>,
+    op: UnOp,
+    operand: &HirExpr,
+    fault: Option<&FaultSite>,
+) -> GenValue {
     let value = gen_expr(ctx, operand);
+    if let Some(site) = fault {
+        if let Some(checked) = crate::faults::gen_checked_neg(ctx, op, &value, site) {
+            return checked;
+        }
+    }
     let tmp = ctx.tmp();
     match op {
         UnOp::Neg => {
@@ -500,7 +538,9 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // branches to the panic block, and a fresh block is opened for whatever
         // follows. That continuation is unreachable -- the process ends inside
         // `otter_panic` -- but it is where the rest of the enclosing expression
-        // belongs, and no later stage has to know a panic happened at all.
+        // belongs, and no later stage has to know a panic happened at all. The
+        // same shape is what every checked arithmetic operation uses; see
+        // [`crate::faults`].
         //
         // The four arguments are the *checker's*, not the source's: it resolved
         // the message plus the file, line and column the panic was written at,
@@ -508,16 +548,15 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // with. See `Checker::panic_call`.
         "panic" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
-            let panic_label = ctx.alloc_label_base() + "_panic";
-            let after_label = ctx.alloc_label_base() + "_after_panic";
-            ctx.push(format!("br label %{panic_label}"));
-            ctx.push(format!("{panic_label}:"));
             let arg_list: Vec<String> = lowered
                 .iter()
                 .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
                 .collect();
-            ctx.push(format!("call void @otter_panic({})", arg_list.join(", ")));
-            ctx.push("unreachable".to_string());
+            let call = format!("call void @otter_panic({})", arg_list.join(", "));
+            let fault = crate::faults::fault_label(ctx);
+            let after_label = format!("{}_after_panic", ctx.alloc_label_base());
+            ctx.push(format!("br label %{fault}"));
+            crate::faults::close_fault(ctx, &fault, |_| call);
             ctx.push(format!("{after_label}:"));
             GenValue {
                 value: "undef".to_string(),

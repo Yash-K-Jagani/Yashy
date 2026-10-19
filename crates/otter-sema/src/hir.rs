@@ -228,6 +228,29 @@ pub enum HirPattern {
     Literal(Literal, Span),
 }
 
+/// Where a runtime fault inside an expression reports itself from.
+///
+/// A resolved *position*, plus the file it indexes. This is the one thing the
+/// backend cannot work out for itself: it is handed IR text and a path, and no
+/// source map at all, so a span means nothing to it. The checker is the last
+/// stage that holds the map, so it resolves the span once, here, and the backend
+/// prints the numbers as constants.
+///
+/// [`HirExpr::Binary`] and [`HirExpr::Unary`] carry one when the operation can
+/// fault -- integer arithmetic, which is checked -- and `None` when it cannot:
+/// a comparison, a boolean `and`, a float operation, a string concatenation.
+/// Which operations those are is the *language's* decision, made in the checker
+/// (`Checker::fault_site`), not a detail the backend is free to reinterpret.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaultSite {
+    /// The path the compiler was handed, exactly as it was given.
+    pub file: String,
+    /// One-based line, counting characters.
+    pub line: u32,
+    /// One-based column, counting characters.
+    pub column: u32,
+}
+
 /// An expression after type checking: the AST shape plus its inferred type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HirExpr {
@@ -239,12 +262,18 @@ pub enum HirExpr {
         rhs: Box<HirExpr>,
         span: Span,
         ty: Type,
+        /// `Some` when this operation has a runtime fault to report, with the
+        /// position to report it at. See [`FaultSite`].
+        fault: Option<FaultSite>,
     },
     Unary {
         op: UnOp,
         operand: Box<HirExpr>,
         span: Span,
         ty: Type,
+        /// `Some` when this operation has a runtime fault to report -- the
+        /// negation of the smallest `i64`. See [`FaultSite`].
+        fault: Option<FaultSite>,
     },
     Move(Box<HirExpr>, Span, Type),
     Call {

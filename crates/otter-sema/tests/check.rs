@@ -935,6 +935,147 @@ fn panic_takes_exactly_one_string() {
     );
 }
 
+// -- checked arithmetic -------------------------------------------------------
+
+/// Whether the tree marks this operation as one that can fault at run time.
+///
+/// The checker decides *which* operations those are -- integer arithmetic -- and
+/// resolves the position for each; the backend decides how to check. So this
+/// flag is the whole of the language-level contract, and a comparison carrying it
+/// would be a position nothing could ever report from.
+fn is_checked(expr: &HirExpr) -> bool {
+    match expr {
+        HirExpr::Binary { fault, .. } | HirExpr::Unary { fault, .. } => fault.is_some(),
+        other => panic!("expected an arithmetic expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn integer_arithmetic_is_checkable_and_carries_its_position() {
+    // All five operations that can fault, each with the resolved position of its
+    // own source text. The columns come from the fixture rather than from a
+    // second copy of it, so a test that disagrees with the fixture says so.
+    for (symbol, source_expr) in [
+        ("add", "a + b"),
+        ("subtract", "a - b"),
+        ("multiply", "a * b"),
+        ("divide", "a / b"),
+        ("remainder", "a % b"),
+    ] {
+        let src = format!("fn f(a: i64, b: i64) {{\n    const x = {source_expr};\n}}\n");
+        let checked = expr_of_statement(&src, "f", 0);
+        let site = match &checked {
+            HirExpr::Binary { fault: Some(site), .. } => site.clone(),
+            other => panic!("`{symbol}` should be checkable, got {other:?}"),
+        };
+        let at = src
+            .find(source_expr)
+            .unwrap_or_else(|| panic!("the fixture must contain `{source_expr}`"));
+        let before = &src[..at];
+        let line = u32::try_from(before.matches('\n').count() + 1)
+            .expect("the fixture is a few lines long");
+        let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+        let column =
+            u32::try_from(at - line_start + 1).expect("the fixture is a few columns wide");
+        assert_eq!(site.file, "test.ot", "the file the compiler was given");
+        assert_eq!(site.line, line, "the line of `{source_expr}`");
+        assert_eq!(site.column, column, "its column");
+    }
+}
+
+#[test]
+fn comparisons_and_boolean_logic_are_not_checkable() {
+    // None of these can produce a wrong answer: a comparison's result is either
+    // the answer or the program is wrong about the types, which the checker has
+    // already rejected.
+    for source_expr in [
+        "a < b",
+        "a <= b",
+        "a > b",
+        "a >= b",
+        "a == b",
+        "a != b",
+        "(a < b) && (b < a)",
+        "(a < b) || (b < a)",
+    ] {
+        let src = format!("fn f(a: i64, b: i64) {{\n    const x = {source_expr};\n}}\n");
+        let checked = expr_of_statement(&src, "f", 0);
+        assert!(
+            !is_checked(&checked),
+            "`{source_expr}` cannot fault, so it must carry no position"
+        );
+    }
+}
+
+#[test]
+fn float_and_string_arithmetic_are_not_checkable() {
+    // An `f64` that overflows becomes an infinity, which is a float answer and
+    // not a wrong one, and neither `fadd` nor `fdiv` traps. A `+` on strings is a
+    // concatenation. Neither has a fault to report or a position to report it
+    // from, which is a decision about the language and is made here.
+    for (what, src) in [
+        (
+            "float add",
+            "fn f(x: f64, y: f64) {\n    const s = x + y;\n}\n",
+        ),
+        (
+            "float subtract",
+            "fn f(x: f64, y: f64) {\n    const s = x - y;\n}\n",
+        ),
+        (
+            "float multiply",
+            "fn f(x: f64, y: f64) {\n    const s = x * y;\n}\n",
+        ),
+        (
+            "float divide",
+            "fn f(x: f64, y: f64) {\n    const s = x / y;\n}\n",
+        ),
+        (
+            "float remainder",
+            "fn f(x: f64, y: f64) {\n    const s = x % y;\n}\n",
+        ),
+        (
+            "string concatenation",
+            "fn f(s: string, t: string) {\n    const u = s + t;\n}\n",
+        ),
+    ] {
+        let checked = expr_of_statement(src, "f", 0);
+        assert!(
+            !is_checked(&checked),
+            "`{what}` cannot fault, so it must carry no position"
+        );
+    }
+}
+
+#[test]
+fn negating_an_integer_is_checkable_and_everything_else_is_not() {
+    // `-i64::MIN` wraps to itself, so a silent wraparound turns a mistake into a
+    // plausible number. Negating any `f64`, infinity included, is exact, and `!`
+    // is not arithmetic at all.
+    let checked = expr_of_statement("fn f(a: i64) {\n    const x = -a;\n}\n", "f", 0);
+    match &checked {
+        HirExpr::Unary {
+            fault: Some(site), ..
+        } => {
+            assert_eq!(site.file, "test.ot");
+            assert_eq!(site.line, 2);
+            assert_eq!(site.column, 15, "the negation starts at the `-`");
+        }
+        other => panic!("integer negation should be checkable, got {other:?}"),
+    }
+
+    for (what, src) in [
+        ("float negation", "fn f(x: f64) {\n    const y = -x;\n}\n"),
+        ("boolean not", "fn f(b: bool) {\n    const c = !b;\n}\n"),
+    ] {
+        let checked = expr_of_statement(src, "f", 0);
+        assert!(
+            !is_checked(&checked),
+            "`{what}` cannot fault, so it must carry no position"
+        );
+    }
+}
+
 #[test]
 fn a_diverging_arm_does_not_decide_the_switch_type() {
     // `!` fits wherever a value is wanted, which is what makes

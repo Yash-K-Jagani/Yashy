@@ -1035,6 +1035,44 @@ git commit -m "feat(codegen): unwind landing pads and defer cleanup on unwind"
 
 ### Task 11: Checked arithmetic
 
+> **As built (first half: the default).** The checked lowering is in, and the
+> `wrapping_*` / `checked_*` / `saturating_*` builtins are the follow-up commit.
+> What differed from the sketch, and why:
+>
+> - **No `span` reaches the backend.** The sketch had `gen_checked_binary(...,
+>   span: Span)`, but the backend is handed IR text and a path and has no source
+>   map, so a span is meaningless to it. The checker resolves the position once
+>   into a new `otter_sema::FaultSite { file, line, column }` and hangs it on
+>   `HirExpr::Binary`/`HirExpr::Unary`. That is the same division of labour
+>   `panic(msg)` uses (Task 9): the tree records *that* an operation can fault
+>   and *where*; codegen decides *how*.
+> - **`add`/`sub`/`mul` go through `llvm.s{add,sub,mul}.with.overflow.i64`**
+>   rather than "emit the operation, then `icmp` the result against an operand".
+>   The intrinsic produces the value and the flag together — one `add` and one
+>   `seto` on x86 — where the comparison form needs more instructions and a
+>   predicate that is easy to get wrong for `mul`. The sketch's `icmp` wording
+>   dates from before the intrinsic was on the table.
+> - **`div`/`rem` check both of their faults in one branch.** A zero divisor, or
+>   `i64::MIN / -1` (whose answer is one past `i64::MAX`, and where `srem` is
+>   undefined too). The *division itself* is emitted in the fall-through block,
+>   after the branch: a `sdiv` that is going to fault does not return a wrong
+>   answer, it raises `#DE`.
+> - **Negation is checked too.** `-i64::MIN` wraps to itself; it reports as an
+>   overflow of `0 - i64::MIN` through the same runtime function.
+> - **The panic arm and the fault path are one shape.** `crate::faults::
+>   close_fault` emits the block Task 9 built by hand, and Task 9's panic block
+>   label changed from `bbN_panic` to `bbN_fault` because it is the same thing.
+> - **Two runtime functions, not a message per fault**: `otter_panic_overflow`
+>   and `otter_panic_division` take the operator's symbol and both operands, so
+>   the message names the numbers:
+>   `main.ot:7:13: panic: integer overflow: 9223372036854775807 + 1`.
+> - **Measured cost** (same machine, same binaries, min of 5 runs):
+>   `fib` 79 → 143 ms, `loop` 247 → 256 ms, `float` 529 → 540 ms. The
+>   call-dominated benchmark pays for three checks per call; the loop and float
+>   benchmarks are within noise, because LLVM proves the loop's arithmetic safe
+>   and elides the checks entirely. The opt-out is what closes the `fib` gap,
+>   which is why the `wrapping_*` half is not optional.
+
 **Files:**
 - Modify: `crates/otter-codegen/src/expr_gen.rs`
 - Create: `crates/otter-sema/src/builtins.rs` (wrapping/checked/saturating declarations)

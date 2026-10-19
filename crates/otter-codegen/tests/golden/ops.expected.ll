@@ -21,7 +21,18 @@ declare i8* @otter_read_line()
 declare i64 @otter_parse_i64(i8*)
 declare double @otter_parse_f64(i8*)
 declare void @otter_panic(i8*, i8*, i64, i64)
-@.str.0 = private unnamed_addr constant [3 x i8] c"hi\00"
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
+declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
+declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
+@.str.0 = private unnamed_addr constant [2 x i8] c"+\00"
+@.str.1 = private unnamed_addr constant [8 x i8] c"main.ot\00"
+@.str.2 = private unnamed_addr constant [2 x i8] c"-\00"
+@.str.3 = private unnamed_addr constant [2 x i8] c"*\00"
+@.str.4 = private unnamed_addr constant [2 x i8] c"/\00"
+@.str.5 = private unnamed_addr constant [2 x i8] c"%\00"
+@.str.6 = private unnamed_addr constant [3 x i8] c"hi\00"
 entry:
 %slot0 = alloca i64
 %slot1 = alloca i64
@@ -43,47 +54,98 @@ entry:
 %slot17 = alloca i1
 %slot18 = alloca i1
 %slot19 = alloca i1
-%t0 = add i64 1, 2
-store i64 %t0, ptr %slot0
-%t1 = sub i64 5, 3
-store i64 %t1, ptr %slot1
-%t2 = mul i64 3, 4
-store i64 %t2, ptr %slot2
-%t3 = sdiv i64 6, 2
-store i64 %t3, ptr %slot3
-%t4 = srem i64 7, 3
-store i64 %t4, ptr %slot4
-%t5 = fadd double 1.0, 2.0
-store double %t5, ptr %slot5
-%t6 = fsub double 5.0, 3.0
-store double %t6, ptr %slot6
-%t7 = fmul double 3.0, 4.0
-store double %t7, ptr %slot7
-%t8 = fdiv double 6.0, 2.0
-store double %t8, ptr %slot8
-%t9 = frem double 7.0, 3.0
-store double %t9, ptr %slot9
-%t10 = icmp eq i64 1, 2
-store i1 %t10, ptr %slot10
-%t11 = icmp ne i64 1, 2
-store i1 %t11, ptr %slot11
-%t12 = icmp slt i64 1, 2
-store i1 %t12, ptr %slot12
-%t13 = icmp sle i64 1, 2
-store i1 %t13, ptr %slot13
-%t14 = icmp sgt i64 1, 2
-store i1 %t14, ptr %slot14
-%t15 = icmp sge i64 1, 2
-store i1 %t15, ptr %slot15
-%t16 = fcmp oeq double 1.0, 2.0
-store i1 %t16, ptr %slot16
-%t17 = fcmp olt double 1.0, 2.0
-store i1 %t17, ptr %slot17
-%t18 = and i1 1, 0
-store i1 %t18, ptr %slot18
-%t19 = or i1 1, 0
-store i1 %t19, ptr %slot19
-%t20 = getelementptr inbounds [3 x i8], ptr @.str.0, i64 0, i64 0
-call void @otter_print_str(i8* %t20)
+%t0 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 1, i64 2)
+%t1 = extractvalue { i64, i1 } %t0, 0
+%t2 = extractvalue { i64, i1 } %t0, 1
+br i1 %t2, label %bb0_fault, label %bb1_ok
+bb0_fault:
+%t3 = getelementptr inbounds [2 x i8], ptr @.str.0, i64 0, i64 0
+%t4 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
+call void @otter_panic_overflow(i8* %t3, i64 1, i64 2, i8* %t4, i64 2, i64 17)
+unreachable
+bb1_ok:
+store i64 %t1, ptr %slot0
+%t5 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 5, i64 3)
+%t6 = extractvalue { i64, i1 } %t5, 0
+%t7 = extractvalue { i64, i1 } %t5, 1
+br i1 %t7, label %bb2_fault, label %bb3_ok
+bb2_fault:
+%t8 = getelementptr inbounds [2 x i8], ptr @.str.2, i64 0, i64 0
+%t9 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
+call void @otter_panic_overflow(i8* %t8, i64 5, i64 3, i8* %t9, i64 3, i64 17)
+unreachable
+bb3_ok:
+store i64 %t6, ptr %slot1
+%t10 = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 3, i64 4)
+%t11 = extractvalue { i64, i1 } %t10, 0
+%t12 = extractvalue { i64, i1 } %t10, 1
+br i1 %t12, label %bb4_fault, label %bb5_ok
+bb4_fault:
+%t13 = getelementptr inbounds [2 x i8], ptr @.str.3, i64 0, i64 0
+%t14 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
+call void @otter_panic_overflow(i8* %t13, i64 3, i64 4, i8* %t14, i64 4, i64 17)
+unreachable
+bb5_ok:
+store i64 %t11, ptr %slot2
+%t15 = icmp eq i64 2, 0
+%t16 = icmp eq i64 6, -9223372036854775808
+%t17 = icmp eq i64 2, -1
+%t18 = and i1 %t16, %t17
+%t19 = or i1 %t15, %t18
+br i1 %t19, label %bb6_fault, label %bb7_ok
+bb6_fault:
+%t20 = getelementptr inbounds [2 x i8], ptr @.str.4, i64 0, i64 0
+%t21 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
+call void @otter_panic_division(i8* %t20, i64 6, i64 2, i8* %t21, i64 5, i64 17)
+unreachable
+bb7_ok:
+%t22 = sdiv i64 6, 2
+store i64 %t22, ptr %slot3
+%t23 = icmp eq i64 3, 0
+%t24 = icmp eq i64 7, -9223372036854775808
+%t25 = icmp eq i64 3, -1
+%t26 = and i1 %t24, %t25
+%t27 = or i1 %t23, %t26
+br i1 %t27, label %bb8_fault, label %bb9_ok
+bb8_fault:
+%t28 = getelementptr inbounds [2 x i8], ptr @.str.5, i64 0, i64 0
+%t29 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
+call void @otter_panic_division(i8* %t28, i64 7, i64 3, i8* %t29, i64 6, i64 17)
+unreachable
+bb9_ok:
+%t30 = srem i64 7, 3
+store i64 %t30, ptr %slot4
+%t31 = fadd double 1.0, 2.0
+store double %t31, ptr %slot5
+%t32 = fsub double 5.0, 3.0
+store double %t32, ptr %slot6
+%t33 = fmul double 3.0, 4.0
+store double %t33, ptr %slot7
+%t34 = fdiv double 6.0, 2.0
+store double %t34, ptr %slot8
+%t35 = frem double 7.0, 3.0
+store double %t35, ptr %slot9
+%t36 = icmp eq i64 1, 2
+store i1 %t36, ptr %slot10
+%t37 = icmp ne i64 1, 2
+store i1 %t37, ptr %slot11
+%t38 = icmp slt i64 1, 2
+store i1 %t38, ptr %slot12
+%t39 = icmp sle i64 1, 2
+store i1 %t39, ptr %slot13
+%t40 = icmp sgt i64 1, 2
+store i1 %t40, ptr %slot14
+%t41 = icmp sge i64 1, 2
+store i1 %t41, ptr %slot15
+%t42 = fcmp oeq double 1.0, 2.0
+store i1 %t42, ptr %slot16
+%t43 = fcmp olt double 1.0, 2.0
+store i1 %t43, ptr %slot17
+%t44 = and i1 1, 0
+store i1 %t44, ptr %slot18
+%t45 = or i1 1, 0
+store i1 %t45, ptr %slot19
+%t46 = getelementptr inbounds [3 x i8], ptr @.str.6, i64 0, i64 0
+call void @otter_print_str(i8* %t46)
 call void @otter_print_i64(i64 1)
 call void @otter_print_f64(double 1.0)

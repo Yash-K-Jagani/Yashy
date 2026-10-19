@@ -138,6 +138,24 @@ impl Module {
         name
     }
 
+    /// Intern `bytes` and emit the `getelementptr` that turns the constant global
+    /// into the `i8*` a `string` value is.
+    ///
+    /// Every string constant reaches a function body through the same two steps,
+    /// and the array length in the `getelementptr` is the length that was just
+    /// used to build the global, so this is the one place that pairing is written
+    /// down. The order of the two emissions matters for readability only: the
+    /// global is named first, then the value that points into it.
+    pub fn intern_bytes_ptr(&mut self, bytes: &[u8]) -> String {
+        let name = self.intern_string(bytes);
+        let array_ty = format!("[{} x i8]", bytes.len() + 1);
+        let tmp = self.next_value();
+        self.push(format!(
+            "{tmp} = getelementptr inbounds {array_ty}, ptr {name}, i64 0, i64 0"
+        ));
+        tmp
+    }
+
     /// Finish the module: the fixed header, the string globals, the body.
     pub fn finish(&self) -> String {
         let triple = host_target_triple();
@@ -182,6 +200,28 @@ impl Module {
         // program that starts panicking does not change every golden file
         // again; an unused `declare` is legal IR.
         out.push_str("declare void @otter_panic(i8*, i8*, i64, i64)\n");
+        // The checked-arithmetic path (M4 Task 11). The three intrinsics are
+        // LLVM's own non-trapping overflow tests: each computes the result *and*
+        // says whether it overflowed in one instruction, which is what keeps a
+        // checked `a + b` to one `add`, two `extractvalue`s and a branch. The
+        // hand-rolled version of this -- comparing sign bits, or widening to
+        // `i128` for the multiply -- is more instructions and one wrong
+        // predicate away from being a wrong answer.
+        //
+        // Whether a program needs any of them is not known until its body is
+        // lowered, and they are declared here with the rest for the same reason
+        // as every other declare: an unused declaration is legal IR, and
+        // emitting one conditionally would make every golden file depend on the
+        // program rather than on the compiler.
+        out.push_str("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n");
+        out.push_str("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n");
+        out.push_str("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
+        // The two ways integer arithmetic stops a program, with the operands, so
+        // the message can say which numbers and which operator. The operator is
+        // a symbol (`+`, `-`, `*`, `/`, `%`); the runtime owns the wording around
+        // it, the way `otter_panic` owns `panic:`.
+        out.push_str("declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)\n");
+        out.push_str("declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

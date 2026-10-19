@@ -493,3 +493,91 @@ void otter_panic(const char *message, const char *file, long long line, long lon
     fflush(stderr);
     exit(1);
 }
+
+/* ---- Arithmetic faults -------------------------------------------------
+ *
+ *     declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
+ *     declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
+ *
+ * The two ways an integer operation stops a program. Integer arithmetic is
+ * checked (spec 6.1): `a + b` that overflows, `a / 0`, `a % 0`, and negating the
+ * smallest `i64` are faults rather than a wrapped result, a hardware trap, or
+ * undefined behaviour. Generated code emits the comparison and the branch and
+ * calls one of these from the block that is never taken on the happy path, so
+ * what arrives here is the *operation* that failed: its symbol, its two
+ * operands, and the position the checker resolved for it.
+ *
+ * The operands are passed rather than described, because the numbers are what
+ * make the message worth printing:
+ *
+ *     main.ot:7:13: panic: integer overflow: 9223372036854775807 + 1
+ *     main.ot:9:9: panic: division by zero: 5 / 0
+ *
+ * `otter_panic_division` decides which of its two cases it has from the operands
+ * instead of being told: a zero divisor is division by zero, and the only other
+ * way a division fails is `INT64_MIN / -1`, whose answer is one past `INT64_MAX`.
+ * Generated code covers both with one branch, and one branch is one instruction
+ * closer to not being there at all -- so the cheaper split is the comparison
+ * here, on the cold path, rather than the second test on the hot one.
+ *
+ * Neither unwinds; both end the process, exactly as `otter_panic` does and for
+ * the same reasons (`stdout` flushed first, `exit` rather than `abort`). The
+ * statement that a `defer` body does not run before a fault is about all three. */
+
+static void otter_fault(
+    const char *what,
+    const char *op,
+    long long lhs,
+    long long rhs,
+    const char *file,
+    long long line,
+    long long column
+) {
+    fflush(stdout);
+    fprintf(
+        stderr,
+        "%s:%lld:%lld: panic: %s: %lld %s %lld\n",
+        file != NULL ? file : "<unknown>",
+        line,
+        column,
+        what,
+        lhs,
+        op != NULL ? op : "?",
+        rhs
+    );
+    fflush(stderr);
+    exit(1);
+}
+
+void otter_panic_overflow(
+    const char *op,
+    long long lhs,
+    long long rhs,
+    const char *file,
+    long long line,
+    long long column
+) {
+    otter_fault("integer overflow", op, lhs, rhs, file, line, column);
+}
+
+void otter_panic_division(
+    const char *op,
+    long long lhs,
+    long long rhs,
+    const char *file,
+    long long line,
+    long long column
+) {
+    /* A negative divisor of -1 with the smallest `i64` is the overflow case; a
+     * zero divisor is the other. `srem` is undefined for both, so both arrive
+     * here. */
+    otter_fault(
+        rhs == 0 ? "division by zero" : "integer overflow",
+        op,
+        lhs,
+        rhs,
+        file,
+        line,
+        column
+    );
+}

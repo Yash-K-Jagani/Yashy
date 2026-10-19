@@ -994,3 +994,166 @@ fn the_smallest_i64_can_be_written_and_printed() {
     );
     assert_eq!(output.status.code(), Some(0));
 }
+
+/// Write `source` into a fresh work directory, compile it, and run it.
+///
+/// The compile must succeed or the test would be measuring the front end instead
+/// of the runtime, so a failed compile fails the test with the compiler's own
+/// message rather than with whatever the run then says.
+fn compile_and_run(name: &str, source: &str) -> Output {
+    let dir = work_dir(name);
+    let file = dir.join(format!("{name}.ot"));
+    fs::write(&file, source).expect("writing the test program");
+    let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&file)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "compiling {name}.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    run(&exe)
+}
+
+#[test]
+fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
+    // Integer arithmetic is checked. The alternative is a wrapped number that
+    // looks exactly like an answer, and a language with no exceptions has
+    // nowhere else to put the error (spec 6.1). The message names the numbers as
+    // well as the operation, because "it overflowed" is far less useful than
+    // "these two added to too much".
+    let output = compile_and_run(
+        "overflow-add",
+        "fn main() {\n    print_str(\"before\\n\");\n    var big = 9223372036854775807;\n    print_i64(big + 1);\n    print_str(\"after\\n\");\n}\n",
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a fault is a failure status: {:?}",
+        output.status
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "before\n",
+        "output from before the fault must survive it, and nothing after may run"
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: integer overflow: 9223372036854775807 + 1"),
+        "the operands belong in the message:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("overflow-add.ot:4:15:"),
+        "and so does the position the addition was written at:\n{stderr}"
+    );
+}
+
+#[test]
+fn an_overflowing_multiplication_is_a_fault_too() {
+    // The multiply is the one that would have needed a hand-rolled test -- the
+    // sign of the result is not enough to know whether the product fit -- which
+    // is why it goes through LLVM's `smul.with.overflow`.
+    let output = compile_and_run(
+        "overflow-mul",
+        "fn main() {\n    var big = 4000000000000000000;\n    print_i64(big * 3);\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: integer overflow: 4000000000000000000 * 3"),
+        "the message names the multiplication:\n{stderr}"
+    );
+}
+
+#[test]
+fn dividing_or_taking_the_remainder_by_zero_names_the_operator() {
+    // A `sdiv` by zero does not return a wrong answer, it raises `#DE`, so this
+    // is the check that keeps a division from reaching the instruction at all.
+    // Both operators share one runtime function, and the symbol is what tells
+    // them apart.
+    for (name, source, expected) in [
+        (
+            "divide-by-zero",
+            "fn main() {\n    var a = 5;\n    var b = 0;\n    print_i64(a / b);\n}\n",
+            "panic: division by zero: 5 / 0",
+        ),
+        (
+            "remainder-by-zero",
+            "fn main() {\n    var a = 5;\n    var b = 0;\n    print_i64(a % b);\n}\n",
+            "panic: division by zero: 5 % 0",
+        ),
+    ] {
+        let output = compile_and_run(name, source);
+        assert_eq!(output.status.code(), Some(1), "{name}");
+        let stderr = stderr_of(&output);
+        assert!(
+            stderr.contains(expected),
+            "{name} should report `{expected}`:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn dividing_the_smallest_i64_by_minus_one_is_an_overflow() {
+    // The other way a division has no answer: the result is one past `i64::MAX`.
+    // `srem` is undefined there too, so both operators are guarded, and the
+    // runtime names this case from the operands rather than being told -- the
+    // check in generated code is a single branch for both.
+    let output = compile_and_run(
+        "overflow-div-min",
+        "fn main() {\n    var m = -9223372036854775808;\n    var minus_one = 0 - 1;\n    print_i64(m / minus_one);\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains(
+            "panic: integer overflow: -9223372036854775808 / -1"
+        ),
+        "the division that has no answer must say so:\n{stderr}"
+    );
+}
+
+#[test]
+fn negating_the_smallest_i64_is_an_overflow() {
+    // `-i64::MIN` wraps to itself, which is the one negation that cannot be
+    // right. It reports as an overflow of a subtraction from zero, because that
+    // is what negation is.
+    let output = compile_and_run(
+        "overflow-neg",
+        "fn main() {\n    var m = -9223372036854775808;\n    print_i64(-m);\n}\n",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: integer overflow: 0 - -9223372036854775808"),
+        "the negation that has no answer must say so:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("overflow-neg.ot:3:15:"),
+        "and point at the negation:\n{stderr}"
+    );
+}
+
+#[test]
+fn arithmetic_that_fits_runs_to_completion() {
+    // The check must not turn working programs into faults. A loop that adds to
+    // a running total, an exact division, a signed remainder and a negation all
+    // stay on the succeeding path -- and the loop is the interesting one, since
+    // the check on `sum + i` is inside it.
+    let output = compile_and_run(
+        "arithmetic-ok",
+        "fn main() {\n    var sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print_i64(sum);\n    print_str(\"\\n\");\n    print_i64(7 / 2);\n    print_str(\"\\n\");\n    print_i64(-7 % 2);\n    print_str(\"\\n\");\n    print_i64(-sum);\n    print_str(\"\\n\");\n}\n",
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "nothing here overflows: {}",
+        stderr_of(&output)
+    );
+    assert_eq!(stdout_of(&output), "45\n3\n-1\n-45\n");
+}

@@ -21,6 +21,11 @@ declare i8* @otter_read_line()
 declare i64 @otter_parse_i64(i8*)
 declare double @otter_parse_f64(i8*)
 declare void @otter_panic(i8*, i8*, i64, i64)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
+declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
+declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
 @.str.0 = private unnamed_addr constant [9 x i8] c"negative\00"
 @.str.1 = private unnamed_addr constant [8 x i8] c"main.ot\00"
 @.str.2 = private unnamed_addr constant [6 x i8] c"empty\00"
@@ -35,8 +40,8 @@ br i1 %t1, label %bb0_then, label %bb1_else
 bb0_then:
 %t2 = getelementptr inbounds [9 x i8], ptr @.str.0, i64 0, i64 0
 %t3 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-br label %bb3_panic
-bb3_panic:
+br label %bb3_fault
+bb3_fault:
 call void @otter_panic(i8* %t2, i8* %t3, i64 12, i64 9)
 unreachable
 bb4_after_panic:
@@ -64,8 +69,8 @@ br i1 %t9, label %bb2_arm, label %bb0_result
 bb1_arm:
 %t10 = getelementptr inbounds [6 x i8], ptr @.str.2, i64 0, i64 0
 %t11 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-br label %bb5_panic
-bb5_panic:
+br label %bb5_fault
+bb5_fault:
 call void @otter_panic(i8* %t10, i8* %t11, i64 19, i64 21)
 unreachable
 bb6_after_panic:
@@ -85,8 +90,8 @@ define i64 @always() {
 entry:
 %t15 = getelementptr inbounds [7 x i8], ptr @.str.3, i64 0, i64 0
 %t16 = getelementptr inbounds [8 x i8], ptr @.str.1, i64 0, i64 0
-br label %bb0_panic
-bb0_panic:
+br label %bb0_fault
+bb0_fault:
 call void @otter_panic(i8* %t15, i8* %t16, i64 27, i64 5)
 unreachable
 bb1_after_panic:

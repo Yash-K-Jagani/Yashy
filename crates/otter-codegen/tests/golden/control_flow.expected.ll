@@ -21,6 +21,11 @@ declare i8* @otter_read_line()
 declare i64 @otter_parse_i64(i8*)
 declare double @otter_parse_f64(i8*)
 declare void @otter_panic(i8*, i8*, i64, i64)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
+declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
+declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
 define i64 @control(i1 %arg0, { i8, i64 } %arg1) {
 entry:
 %slot0 = alloca i1

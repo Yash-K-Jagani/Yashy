@@ -116,6 +116,39 @@ double otter_parse_f64(const char *s);
  * are written down. */
 void otter_panic(const char *message, const char *file, long long line, long long column);
 
+/* ---- Arithmetic faults ----
+ *
+ *     declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
+ *     declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
+ *
+ * The two ways a checked integer operation stops a program: `op` is its symbol
+ * (`+`, `-`, `*`, `/`, `%`), `lhs` and `rhs` are the operands, and the rest is
+ * the position the checker resolved. Generated code branches here when the check
+ * fails, so neither returns and both are followed by `unreachable`.
+ *
+ * `otter_panic_division` names the fault from the operands: a zero divisor is
+ * `division by zero`, and `INT64_MIN / -1` -- the only other division that has no
+ * answer in an `i64` -- is an `integer overflow`.
+ *
+ * `-i64::MIN` reports through `otter_panic_overflow` with `0` as the left operand
+ * and `-` as the symbol, because that is what negation is. */
+void otter_panic_overflow(
+    const char *op,
+    long long lhs,
+    long long rhs,
+    const char *file,
+    long long line,
+    long long column
+);
+void otter_panic_division(
+    const char *op,
+    long long lhs,
+    long long rhs,
+    const char *file,
+    long long line,
+    long long column
+);
+
 #ifdef __cplusplus
 }
 #endif

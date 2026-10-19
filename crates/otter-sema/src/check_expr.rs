@@ -1222,13 +1222,19 @@ impl<'src> Checker<'src> {
                 let lhs_ty = expr_ty(&lhs);
                 let rhs_ty = expr_ty(&rhs);
                 match binary_result_type(*op, &lhs_ty, &rhs_ty) {
-                    Ok(ty) => Some(HirExpr::Binary {
-                        op: *op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                        span: *span,
-                        ty,
-                    }),
+                    Ok(ty) => {
+                        let checked =
+                            is_checked_arithmetic(*op) && matches!(ty.kind, TypeKind::I64);
+                        let fault = self.fault_site(*span, checked);
+                        Some(HirExpr::Binary {
+                            op: *op,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                            span: *span,
+                            ty,
+                            fault,
+                        })
+                    }
                     Err(message) => {
                         self.error(*span, message);
                         None
@@ -1247,12 +1253,17 @@ impl<'src> Checker<'src> {
                     UnOp::Not => Err(format!("cannot apply `!` to `{operand_ty}`")),
                 };
                 match result {
-                    Ok(ty) => Some(HirExpr::Unary {
-                        op: *op,
-                        operand: Box::new(operand),
-                        span: *span,
-                        ty,
-                    }),
+                    Ok(ty) => {
+                        let checked = matches!(op, UnOp::Neg) && matches!(ty.kind, TypeKind::I64);
+                        let fault = self.fault_site(*span, checked);
+                        Some(HirExpr::Unary {
+                            op: *op,
+                            operand: Box::new(operand),
+                            span: *span,
+                            ty,
+                            fault,
+                        })
+                    }
                     Err(message) => {
                         self.error(*span, message);
                         None
@@ -1538,6 +1549,9 @@ impl<'src> Checker<'src> {
                         rhs: Box::new(joined),
                         span: *span,
                         ty: prim(TypeKind::Str),
+                        // A concatenation of strings cannot fault, which the
+                        // type says as plainly as the comment would.
+                        fault: None,
                     };
                 }
                 Some(joined)
@@ -1685,6 +1699,33 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// The position a runtime fault at `span` reports itself from, when the
+    /// operation there is one that can fault.
+    ///
+    /// Integer arithmetic is **checked**: `+`, `-`, `*`, `/` and `%` stop the
+    /// program with a message and a position rather than continuing with a
+    /// wrong number, and so does negating the smallest `i64`. Which operations
+    /// those are is a decision about the *language*, so it is made here and
+    /// recorded in the tree; the backend only decides how to check.
+    ///
+    /// Nothing else faults, so nothing else gets a position: a comparison, a
+    /// boolean `and`/`or`, a float operation (an infinity is a float answer, not
+    /// a fault) and a string concatenation all cannot go wrong.
+    ///
+    /// The resolution itself happens here for the reason `panic_call` resolves
+    /// its own: the checker has the source map and the backend does not.
+    fn fault_site(&self, span: Span, checked: bool) -> Option<FaultSite> {
+        if !checked {
+            return None;
+        }
+        let location = self.sm.locate(self.file, span);
+        Some(FaultSite {
+            file: self.sm.path(self.file).to_string(),
+            line: location.line,
+            column: location.col,
+        })
+    }
+
     /// `panic(message)` as the call the backend lowers: the message the program
     /// wrote, then the file, line and column it was written at.
     ///
@@ -1726,6 +1767,19 @@ impl<'src> Checker<'src> {
             ty: never(span),
         }
     }
+}
+
+/// Whether a binary operation is integer arithmetic, and therefore checked.
+///
+/// The set is the five that can overflow or trap. Comparisons produce a `bool`
+/// and cannot; `&&`/`||` are not arithmetic at all; and a `+` on strings is a
+/// concatenation, which the backend routes away before it reaches the numeric
+/// table -- the result type is what keeps it out of here.
+fn is_checked_arithmetic(op: BinOp) -> bool {
+    matches!(
+        op,
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+    )
 }
 
 /// A [`StringLit`] from its decoded text, keeping `value` and `bytes` in step.
