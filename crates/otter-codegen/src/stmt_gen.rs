@@ -146,7 +146,13 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
 pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
     match stmt {
         HirStmt::Expr(expr, _, _) => {
-            let _ = gen_expr(ctx, expr);
+            let value = gen_expr(ctx, expr);
+            // An expression statement discards its value, so an owned string
+            // the runtime just built has no other consumer and is released
+            // here. A call kept for its side effect (`print_str(...)`) has an
+            // empty value and owns nothing, and a name bound to a local is the
+            // local's reference, so both are left alone.
+            ctx.release_owned(&value.value);
             Flow::Fallthrough
         }
         HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {

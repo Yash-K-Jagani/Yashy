@@ -689,12 +689,44 @@ motivated Task 5f) became tests of ownership: a 2,000-string build/release
 loop, and sixteen threads building and releasing without reading each other's
 bytes.
 
-*Still to come.* Nothing in generated code drops a reference yet, so a built
-string is still held until exit — the same interim, now short one representation
-change rather than two. The second half is emission: a retain paired with each
-binding, a release paired with each scope exit and each reassignment, and a
-release for each temporary the moment its consumer has taken it. It lands on
-top of this and turns the leak into a balance.
+*Still to come.* Nothing in generated code drops a reference *to a bound
+binding* yet, so a string stored in a local is still held until exit — the same
+interim, now short one representation change rather than two. The second half is
+scope-exit emission: a retain paired with each binding, a release paired with
+each scope exit and each reassignment, so that what a `var` holds is given back
+when its scope ends. It lands on top of this and turns the leak into a balance.
+
+**As built (the temporary half, in the commit that follows).** The release half
+landed in the one part of it that is provably safe without scope tracking: a
+**temporary the runtime built is released the moment an operation has consumed
+it**. The consumers are the calls the runtime implements, and each one copies
+what it is given and keeps no pointer — `otter_str_concat`, `otter_str_eq`,
+`otter_str_len`, the two parsers, and `otter_print_str` — plus an expression
+statement whose value is discarded and the passing path of an
+`assert_eq`/`assert_ne`. That set is exactly the operations the checker already
+admits on a string, and it excludes the one call that could keep what it was
+handed: a *user* function, whose parameter is borrowed and whose body might bind
+it. So no `release` is emitted for an argument to a user call, for a field of a
+struct literal, or for the value a `var`/`const` stores — those are leaks, and a
+leak is not a corruption.
+
+The mechanism is a per-function set of SSA names that hold an owned reference
+(`FnCtx::owned_strings`), not a field on `GenValue`. The fact being tracked is
+"this exact value is owned", it belongs to the value rather than to the
+expression that built it, and a name set states it once without threading a flag
+through every construction in the backend. A producer marks its result
+(`str_from_*`, `read_line`, a concatenation); a consumer calls
+`release_owned`, which emits `call void @otter_str_release` only for a name in
+the set. A literal — a static string, refcount -1 — and a name bound to a local
+are never in the set, which is what keeps the release from dropping a reference
+the program still holds.
+
+What it buys is the common case: `print_str("i = ${i}\n")` in a loop builds a
+conversion and two concatenations per iteration and releases all three, where
+before they accumulated for the life of the process. The IR is three `release`
+calls inside the loop body, one after each consumer. What it does not buy is a
+bound string, and that is stated rather than hidden: the ledger and the README
+both say the scope-exit half is still open.
 
 ---
 

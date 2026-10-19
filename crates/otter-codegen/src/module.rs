@@ -209,6 +209,11 @@ impl Module {
         out.push_str("declare i8* @otter_str_from_f64(double)\n");
         out.push_str("declare i8* @otter_str_from_bool(i64)\n");
         out.push_str("declare i1 @otter_str_eq(i8*, i8*)\n");
+        // Reference counting (M3 Task 5). `retain` is declared with the rest so
+        // the pairing's second half does not rewrite every golden file; the
+        // release half is emitted wherever an owned temporary is consumed.
+        out.push_str("declare i8* @otter_str_retain(i8*)\n");
+        out.push_str("declare void @otter_str_release(i8*)\n");
         // Input (ledger L1's input additions). Declared up front for the same
         // reason as the string set.
         out.push_str("declare i8* @otter_read_line()\n");

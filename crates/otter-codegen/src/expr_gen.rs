@@ -32,6 +32,17 @@
 //! aggregate, so a field read is `extractvalue` with the index the checker
 //! resolved against the declaration order.
 //!
+//! # String ownership
+//!
+//! A `string` is a pointer to a refcounted `%otter_str`; a literal is *static*
+//! (refcount -1, never freed) and everything the runtime builds comes back owned
+//! (refcount 1). The backend tracks the owned ones in a per-function set of SSA
+//! names, [`FnCtx::owned_strings`], and emits a release where an operation has
+//! *consumed* one — see [`FnCtx::mark_owned`] and [`FnCtx::release_owned`] for
+//! why it is a name set and which operations count as consumers. A name that is
+//! never released is a leak; a name released while the program still holds it
+//! would be a use-after-free, so the set is what keeps the two apart.
+//!
 //! # No input makes this module panic
 //!
 //! No `unwrap`, no `expect`, no `panic!`, no unchecked indexing. Every
@@ -39,7 +50,7 @@
 //! missing one lowers to a comment plus a zero rather than aborting the
 //! compile.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use otter_common::Span;
 use otter_parser::ast::Literal;
@@ -97,6 +108,24 @@ pub struct FnCtx<'a> {
     /// first, which is what makes `defer` useful on the fault path even though
     /// the process still ends.
     pub defers: Vec<Vec<crate::stmt_gen::Deferred>>,
+    /// SSA names that hold an **owned** `string` reference: one the runtime
+    /// produced, that no binding has taken over and no consumer has released.
+    ///
+    /// A name in here is exactly a value a `release` is owed. It is a name set
+    /// rather than a field on [`GenValue`] because the set *is* the whole fact
+    /// -- "this exact value is owned" -- and because a temporary's owner is
+    /// still the value by the time its consumer runs, not the expression that
+    /// built it. A literal's static string and a name bound to a local are
+    /// never in here: a literal is never freed, and a local's reference is the
+    /// local's, so releasing one would drop a reference the program still
+    /// holds.
+    ///
+    /// See [`FnCtx::release_owned`] for where the release is emitted. A name
+    /// that is never released is a leak and not a corruption, which is why the
+    /// sites that *do* release are the ones the consumer provably does not
+    /// keep the pointer: the concatenations, the comparisons, `len`, the
+    /// parsers and `print_str`.
+    owned_strings: HashSet<String>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
     /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
@@ -120,8 +149,30 @@ impl<'a> FnCtx<'a> {
             locals: HashMap::new(),
             loops: Vec::new(),
             defers: Vec::new(),
+            owned_strings: HashSet::new(),
             unit_terminator: "ret void".to_string(),
             entry_point: false,
+        }
+    }
+
+    /// Record that `name` holds an owned `string` reference, so a consumer owes
+    /// it a `release`. See [`FnCtx::release_owned`].
+    pub(crate) fn mark_owned(&mut self, name: &str) {
+        if !name.is_empty() {
+            self.owned_strings.insert(name.to_string());
+        }
+    }
+
+    /// Release `name` if it holds an owned `string` reference, and forget it.
+    ///
+    /// A name that is not owned is left alone: a literal is a static string
+    /// (releasing it is a no-op, but there is nothing to say), a name bound to
+    /// a local belongs to that local, and an integer or `()` value is not a
+    /// reference at all. Emitting the release only for an owned name is what
+    /// keeps this from dropping a reference the program still holds.
+    pub(crate) fn release_owned(&mut self, name: &str) {
+        if self.owned_strings.remove(name) {
+            self.push(format!("call void @otter_str_release(i8* {name})"));
         }
     }
 
@@ -659,6 +710,8 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             ctx.push(format!(
                 "{converted} = call i8* @otter_str_from_bool(i64 {as_i64})"
             ));
+            // A conversion builds the string, so the result is owned.
+            ctx.mark_owned(&converted);
             GenValue {
                 value: converted,
                 ty: ty.clone(),
@@ -675,6 +728,12 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
                 suffix = name.trim_start_matches("print_"),
                 args = arg_list.join(", ")
             ));
+            // `print_str` copies the bytes into stdout and keeps no pointer, so
+            // a temporary it was handed is consumed here. Only owned names are
+            // released, so a literal or a local is untouched.
+            for value in &lowered {
+                ctx.release_owned(&value.value);
+            }
             GenValue {
                 value: String::new(),
                 ty: TypeKind::Unit,
@@ -724,7 +783,14 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             // differs, so the common path handles them.
             match name.as_str() {
                 "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64" => {
-                    gen_plain_call(ctx, &format!("otter_{name}"), args, ty)
+                    let value = gen_plain_call(ctx, &format!("otter_{name}"), args, ty);
+                    // `read_line` and the two conversions hand back a string the
+                    // runtime built, so the result is owned; the parsers return a
+                    // number and own nothing.
+                    if matches!(ty, TypeKind::Str) {
+                        ctx.mark_owned(&value.value);
+                    }
+                    value
                 }
                 _ => gen_plain_call(ctx, &name, args, ty),
             }
@@ -788,6 +854,12 @@ fn gen_assert_cmp(ctx: &mut FnCtx<'_>, name: &str, args: &[HirExpr]) -> GenValue
         let message = comparison_message(ctx, prefix, middle, left, right);
         panic_call_with(&message, &lowered, 4)
     });
+    // Back on the path where the assertion held, the operands have been read
+    // for the last time, so a temporary the expression built is released here.
+    // The failure path never reaches this point -- it ends the process inside
+    // the report -- so nothing below depends on the operands being alive.
+    ctx.release_owned(&left.value);
+    ctx.release_owned(&right.value);
     unit()
 }
 
@@ -880,6 +952,12 @@ fn comparison_message(
 }
 
 /// `left ++ right`, both `i8*`.
+///
+/// This is the assertion-message builder, and it is deliberately *not* one of
+/// the sites that releases: the only caller runs inside the reporting block,
+/// which ends the process, so every temporary it builds dies with the process
+/// rather than being reclaimed. The operands come from the failure path too,
+/// and the pass path releases them where it is created.
 fn concat(ctx: &mut FnCtx<'_>, left: &str, right: &str) -> String {
     let joined = ctx.tmp();
     ctx.push(format!(
@@ -890,6 +968,9 @@ fn concat(ctx: &mut FnCtx<'_>, left: &str, right: &str) -> String {
 
 /// A value as the string a message prints: the runtime's conversion for the
 /// three scalar types, and a `string` itself, which needs none.
+///
+/// Nothing here is marked owned, for the reason [`concat`] gives: the result
+/// exists only to be printed by a program that is already ending.
 fn value_as_string(ctx: &mut FnCtx<'_>, value: &GenValue) -> String {
     match &value.ty {
         TypeKind::I64 => {

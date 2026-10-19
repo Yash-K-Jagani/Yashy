@@ -1,9 +1,10 @@
 //! String-operation lowering: `+` (concatenation), `==`/`!=` (byte equality),
-//! and `len`.
+//! `len`, and the release of a temporary the operation consumed.
 //!
-//! A `string` value is an `i8*` to NUL-terminated bytes, so none of these is an
-//! instruction — each one is a call into the runtime half of ledger L1. These
-//! tests pin which call, and that the compiler emits exactly one per operator.
+//! A `string` value is a pointer to a refcounted `%otter_str`, so none of these
+//! is an instruction — each one is a call into the runtime half of ledger L1.
+//! These tests pin which call, that the compiler emits exactly one per operator,
+//! and which operands are owned (and therefore released) and which are not.
 
 use otter_common::SourceMap;
 use otter_lexer::Lexer;
@@ -47,9 +48,46 @@ fn concat_is_one_call_and_does_not_touch_its_operands() {
         ir_text.contains("call i8* @otter_str_concat(i8* "),
         "both operands are `i8*` values:\n{ir_text}"
     );
+    assert_eq!(
+        call_count(&ir_text, "@otter_str_release"),
+        0,
+        "two literals are static strings, so there is nothing to release:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_temporary_an_operation_built_is_released_when_consumed() {
+    // `"n = ${n}"` is a literal and a `str_from_i64` result, so the concatenation
+    // owns one of its operands and releases it; `print_str` then consumes the
+    // concatenation itself and releases that. Two releases, and a program that
+    // formats a number in a loop stops growing.
+    let ir_text = ir("fn main() { const n = 7; print_str(\"n = ${n}\"); }");
+    assert_eq!(
+        call_count(&ir_text, "@otter_str_release"),
+        2,
+        "the conversion and the concatenation are both released:\n{ir_text}"
+    );
     assert!(
-        !ir_text.contains("@otter_str_release"),
-        "M3 strings have no owner to release:\n{ir_text}"
+        ir_text.contains("call void @otter_str_release(i8* "),
+        "the release is a call into the runtime:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_bound_string_is_not_released_by_the_operation_that_read_it() {
+    // A name bound to a local belongs to that local: the runtime operation reads
+    // its bytes and keeps nothing, so it must not release a reference the
+    // program still holds. Only owned *temporaries* are released.
+    let ir_text = ir(
+        "fn main() {\n\
+         \x20   const s = \"x\" + \"y\";\n\
+         \x20   if s == \"xy\" { print_str(s); }\n\
+         }",
+    );
+    assert_eq!(
+        call_count(&ir_text, "@otter_str_release"),
+        0,
+        "`s` is a local, not a temporary:\n{ir_text}"
     );
 }
 

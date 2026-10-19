@@ -1,9 +1,12 @@
 //! String operations that are runtime calls rather than instructions.
 //!
-//! A `string` value is an `i8*` pointing at NUL-terminated bytes (M0–M2's
-//! representation; the interim is recorded in the master plan's ledger L4), so
-//! there is no instruction that concatenates or compares one. Each operator
-//! here is a call into the runtime half of ledger L1.
+//! A `string` value is a pointer to a refcounted `%otter_str` (see
+//! `crate::module` and the master plan's ledger L1), so there is no instruction
+//! that concatenates or compares one. Each operator here is a call into the
+//! runtime half of ledger L1, and each is a place a **temporary is consumed**:
+//! the runtime copies the bytes it is given and keeps no pointer, so an operand
+//! the expression itself built is released right after the call. A literal
+//! (refcount -1) and a local's value are not owned names and are left alone.
 
 use otter_sema::{BinOp, TypeKind};
 
@@ -23,6 +26,11 @@ pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenVa
                 "{joined} = call i8* @otter_str_concat(i8* {}, i8* {})",
                 l.value, r.value
             ));
+            // The result is a fresh string the caller owns; the operands have
+            // been copied, so an owned one is released here.
+            ctx.mark_owned(&joined);
+            ctx.release_owned(&l.value);
+            ctx.release_owned(&r.value);
             GenValue {
                 value: joined,
                 ty: TypeKind::Str,
@@ -34,6 +42,9 @@ pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenVa
                 "{equal} = call i1 @otter_str_eq(i8* {}, i8* {})",
                 l.value, r.value
             ));
+            // The comparison reads the bytes and keeps nothing.
+            ctx.release_owned(&l.value);
+            ctx.release_owned(&r.value);
             if op == BinOp::Eq {
                 return GenValue {
                     value: equal,
@@ -62,6 +73,8 @@ pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenVa
 /// Lower `len(s)`: the byte length of a string.
 ///
 /// Bytes, not characters: an Otter string is a byte string, so `len("é")` is 2.
+/// The length is stored, so this reads a field rather than scanning -- which is
+/// also why measuring a string does not keep it alive.
 pub fn gen_str_len(ctx: &mut FnCtx<'_>, args: &[otter_sema::HirExpr]) -> GenValue {
     let value = args
         .first()
@@ -71,6 +84,8 @@ pub fn gen_str_len(ctx: &mut FnCtx<'_>, args: &[otter_sema::HirExpr]) -> GenValu
         .unwrap_or_else(|| "null".to_string());
     let length = ctx.tmp();
     ctx.push(format!("{length} = call i64 @otter_str_len(i8* {value})"));
+    // The length is read out and nothing is kept, so a temporary is consumed.
+    ctx.release_owned(&value);
     GenValue {
         value: length,
         ty: TypeKind::I64,
