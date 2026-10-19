@@ -1194,10 +1194,12 @@ git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping con
 - Consumes: ledger L1 `otter_assert_failed`, ledger L3 M4 builtins
 - Produces: `assert(bool)`, `debug_assert(bool)`, `assert_eq`/`assert_ne` as builtin forms specialised per type pair, `os.exit(i32)` emitting a call to `exit`
 
-> **As built (the assertion half; the exit-code half is not).** `assert`,
-> `assert_eq`, `assert_ne` and `debug_assert` are in, with the `--release` build
-> mode that compiles the last one away; the `i32`-returning `main` and `os.exit`
-> are not.
+> **As built (the assertion and exit-code halves).** `assert`, `assert_eq`,
+> `assert_ne` and `debug_assert` are in, with the `--release` build mode that
+> compiles the last one away; `exit(i64)` (the `!`-typed `os.exit`) is in,
+> flushing both streams before ending the process; and `main` returning `i64`
+> is the exit status. The `i32` spelling in the specification is Otter's `i64`
+> -- Otter has no `i32` type, and the runtime narrows it to the C `int`.
 >
 > Four things differ from the sketch above, and each is worth keeping:
 >

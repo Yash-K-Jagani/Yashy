@@ -18,7 +18,9 @@ and stop itself with `panic("...")`, which reports the position it was written a
 and exits with a failure status. The assertions — `assert(cond)`,
 `assert_eq(a, b)`, `assert_ne(a, b)` — are the same fault path with a test in
 front of it, and they quote the expression that failed back in the message;
-`debug_assert` is the one `--release` compiles away.
+`debug_assert` is the one `--release` compiles away. A program can choose its
+exit status by returning `i64` from `main`, or by calling `os.exit(code)` from
+anywhere.
 C interop, collections, concurrency and the
 standard library are later milestones; see [Roadmap](#roadmap).
 
@@ -41,7 +43,8 @@ stops — useful on a machine with no LLVM backend at all. `-O0` through `-O3`
 control the optimization level passed to `clang`; the default is `-O2`.
 `--release` is a separate question from optimization: it is the flag that makes
 this a build a user runs, and the one build-mode decision the compiler makes —
-`debug_assert` is compiled out.
+`debug_assert` is compiled out. A `main` returning `i64` is the process exit
+status, and `os.exit(code)` ends the program with a chosen status from anywhere.
 
 ## A taste of Otter
 
@@ -476,7 +479,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
 | M3 🚧 | Heap, strings and input in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, `+` / `len` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_i64` / `str_from_f64` / `str_from_bool`, and string interpolation (`"n = ${n}"`). Still to come: arenas and refcounted (non-leaking) strings; M4 adds `defer` on the unwind path |
-| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Integer arithmetic is checked too: overflow, division by zero and `i64::MIN / -1` report both operands and the position instead of wrapping, with `wrapping_*`, `checked_*` and `saturating_*` as the named opt-outs. The assertions are in: `assert(cond)`, `assert_eq(a, b)` and `assert_ne(a, b)` quote the expression that failed and, for the comparison forms, both values; `debug_assert` is the one `--release` compiles out. Still to come: unwinding on the panic path (so a `defer` runs before the process ends), exit codes |
+| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Integer arithmetic is checked too: overflow, division by zero and `i64::MIN / -1` report both operands and the position instead of wrapping, with `wrapping_*`, `checked_*` and `saturating_*` as the named opt-outs. The assertions are in: `assert(cond)`, `assert_eq(a, b)` and `assert_ne(a, b)` quote the expression that failed and, for the comparison forms, both values; `debug_assert` is the one `--release` compiles out. Exit codes are in: `main` returning `i64` is the process status (the `i32` the specification names is Otter's `i64`, truncated to the C `int`), and `os.exit(code)` ends the program with a chosen status from anywhere. Still to come: unwinding on the panic path (so a `defer` runs before the process ends) |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |
 | M7 | Threads, channels, mutexes |

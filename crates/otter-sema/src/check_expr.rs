@@ -92,7 +92,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 26] = [
+        let builtins: [(&str, Vec<Type>, Type); 27] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -202,6 +202,21 @@ impl<'src> Checker<'src> {
             // a name, declared once, that a program therefore cannot redefine.
             ("assert_eq", i64_pair(), prim(TypeKind::Unit)),
             ("assert_ne", i64_pair(), prim(TypeKind::Unit)),
+            // `os.exit(code)` (spec 6.3). The one builtin whose name has a dot
+            // in it, because the specification writes it that way: it is the
+            // exit *of the operating system*, not of the program's own control
+            // flow, and the qualification is the documentation.
+            //
+            // There is no module system yet, so a call is resolved by its last
+            // segment like every other: `os.exit` reaches this entry as `exit`.
+            // Both spellings therefore work, and the checker cannot tell them
+            // apart -- which is recorded here rather than silently relied on.
+            //
+            // The type is `!`: exiting produces no value, and the same argument
+            // that lets `panic` stand in a `return` position applies. Taking an
+            // `i64` rather than an `i32` is because `i64` is the only integer
+            // type there is; the runtime narrows it.
+            ("exit", vec![prim(TypeKind::I64)], never(Span::new(0, 0))),
         ];
         for (name, params, ret) in builtins {
             let _ = scope.declare(

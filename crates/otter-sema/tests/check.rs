@@ -1246,6 +1246,46 @@ fn assert_is_never_dropped_by_a_release_build() {
     assert_eq!(args.len(), 5, "condition, message and position");
 }
 
+// -- exit (spec 6.3) ----------------------------------------------------------
+
+#[test]
+fn exit_is_a_never_returning_builtin() {
+    let HirStmt::Expr(expr, _, ty) = statement_of("fn f() { os.exit(1); }", "f", 0) else {
+        panic!("expected an expression statement");
+    };
+    assert_eq!(ty.kind, TypeKind::Never);
+    let HirExpr::Call { callee, args, .. } = expr else {
+        panic!("expected the lowered exit call");
+    };
+    assert_eq!(callee.last(), Some(&"exit".to_string()));
+    assert_eq!(args.len(), 1);
+    assert_eq!(expr_ty(&args[0]).kind, TypeKind::I64);
+}
+
+#[test]
+fn exit_takes_exactly_one_i64() {
+    assert_error("fn f() { os.exit(); }", "expected 1 arguments, found 0");
+    assert_error("fn f() { os.exit(1, 2); }", "expected 1 arguments, found 2");
+    assert_error("fn f() { os.exit(\"x\"); }", "expected `i64`, found `string`");
+    assert_error("fn f() { os.exit(true); }", "expected `i64`, found `bool`");
+}
+
+#[test]
+fn exit_fits_where_a_value_is_wanted() {
+    // `!` is the same fact as `panic`: a call that produces no value can stand
+    // in for one of any type, because the block that would have used it is
+    // unreachable.
+    assert_type("fn f() -> i64 { const x = os.exit(1); return x; }", "f", TypeKind::Never);
+}
+
+#[test]
+fn exit_cannot_be_redeclared() {
+    assert_error(
+        "fn exit(code: i64) {}",
+        "duplicate definition of `exit`",
+    );
+}
+
 // -- checked arithmetic -------------------------------------------------------
 
 /// Whether the tree marks this operation as one that can fault at run time.

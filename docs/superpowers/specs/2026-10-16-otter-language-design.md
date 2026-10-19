@@ -445,6 +445,21 @@ compile away under `--release` when the assertion is marked `debug_assert`.
 `fn main()` may return nothing or return `i32`, which becomes the process exit
 status. `os.exit(code)` is available anywhere.
 
+> **As built (M4 Task 12, second half).** `main` returning `i64` and `os.exit`
+> are in; `i32` is not, because Otter has no `i32` type. `main` returning
+> `i64` is the exit code, and the runtime narrows it to the C `int` the
+> operating system reads -- the same truncation C performs for a `main` that
+> returns `int`. `os.exit(code)` is the same narrowing, plus an explicit flush
+> of both streams, and it never returns (`!`), so it can stand in for a value of
+> any type, the way `panic` does.
+>
+> `os.exit` is spelled with a dot that means nothing yet: there is no module
+> system, and a call is resolved by its last segment, so `os.exit(1)` and
+> `exit(1)` are the same call. The prefix is kept because it is what the
+> specification writes, and because it keeps the door open for a real module
+> system to give `os` its own namespace later. The runtime owns the narrowing,
+> so the truncation rule lives in one place.
+
 ---
 
 ## 7. Concurrency

@@ -116,6 +116,17 @@ double otter_parse_f64(const char *s);
  * are written down. */
 void otter_panic(const char *message, const char *file, long long line, long long column);
 
+/* ---- Exiting ----
+ *
+ *     declare void @otter_exit(i64)
+ *
+ * Ends the process with `code` as its exit status, after flushing both streams.
+ * This is what `os.exit(code)` lowers to; it never returns, so generated IR puts
+ * `unreachable` after the call. An `i64` rather than the `i32` the operating
+ * system reads because `i64` is the only integer Otter has; the cast happens
+ * here, once. */
+void otter_exit(long long code);
+
 /* ---- Arithmetic faults ----
  *
  *     declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)

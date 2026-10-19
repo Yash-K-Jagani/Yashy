@@ -228,6 +228,10 @@ impl Module {
         // it, the way `otter_panic` owns `panic:`.
         out.push_str("declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)\n");
         out.push_str("declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)\n");
+        // `os.exit(code)` (spec 6.3). Declared up front like everything else, so
+        // a program that exits early does not rewrite every golden file; an
+        // unused `declare` is legal IR.
+        out.push_str("declare void @otter_exit(i64)\n");
         for (name, body) in &self.strings {
             out.push_str(&format!("{name} = {body}\n"));
         }

@@ -830,6 +830,29 @@ fn an_assert_survives_a_release_build() {
     );
 }
 
+#[test]
+fn exit_ends_the_program_in_a_block_of_its_own() {
+    let ir_text = gen_body("fn f() { os.exit(3); }");
+    assert!(ir_text.contains("call void @otter_exit(i64 3)"));
+    assert!(ir_text.contains("unreachable"));
+    // The shape is the same as `panic`: branch, label, call, unreachable, then
+    // a continuation that nothing reaches.
+    assert!(ir_text.contains("_after_exit:"));
+}
+
+#[test]
+fn exit_truncates_a_non_constant_status() {
+    let ir_text = gen_body("fn f(x: i64) { os.exit(x); }");
+    assert!(ir_text.contains("call void @otter_exit(i64 %t"));
+}
+
+#[test]
+fn exit_fits_in_a_value_position() {
+    let ir_text = gen_return("fn f() -> i64 { return os.exit(1); }");
+    assert!(ir_text.contains("call void @otter_exit(i64 1)"));
+    assert!(ir_text.contains("trunc i64") || ir_text.contains("unreachable"));
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {

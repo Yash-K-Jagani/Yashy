@@ -28,6 +28,7 @@ declare i64 @llvm.sadd.sat.i64(i64, i64)
 declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
+declare void @otter_exit(i64)
 entry:
 %slot0 = alloca i8*
 %slot1 = alloca i8*

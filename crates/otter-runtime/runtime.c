@@ -494,6 +494,27 @@ void otter_panic(const char *message, const char *file, long long line, long lon
     exit(1);
 }
 
+/* ---- Exiting -----------------------------------------------------------
+ *
+ *     declare void @otter_exit(i64)
+ *
+ * `os.exit(code)` ends the process with `code` as its exit status, which is the
+ * one thing a program could not do for itself: `main`'s return value is the exit
+ * status, but only for a program that reaches the end of `main` -- and an
+ * `os.exit` in the middle of a helper would have to be threaded back through
+ * every caller to have the same effect.
+ *
+ * It takes an `i64` rather than the `i32` the operating system reads, because
+ * `i64` is the only integer type Otter has; the cast is here, once, instead of at
+ * every call site. Both streams are flushed first for the same reason
+ * `otter_panic` flushes: output written before the exit must not be lost to a
+ * buffer that never gets flushed. */
+void otter_exit(long long code) {
+    fflush(stdout);
+    fflush(stderr);
+    exit((int)code);
+}
+
 /* ---- Arithmetic faults -------------------------------------------------
  *
  *     declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)

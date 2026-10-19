@@ -564,6 +564,27 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // path pays one test and the reporting path is cold.
         "assert" => gen_assert(ctx, args),
         "assert_eq" | "assert_ne" => gen_assert_cmp(ctx, &name, args),
+        // `os.exit(code)` (spec 6.3): the same shape as `panic` -- the call ends
+        // the process, so it goes in a block of its own and the caller continues
+        // in an unreachable one -- without the message. `exit` is `!` in the
+        // checker, so `undef` is the right answer for a value that never exists.
+        "exit" => {
+            let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+            let code = lowered
+                .first()
+                .map(operand_of)
+                .unwrap_or_else(|| "i64 0".to_string());
+            let call = format!("call void @otter_exit({code})");
+            let fault = crate::faults::fault_label(ctx);
+            let after_label = format!("{}_after_exit", ctx.alloc_label_base());
+            ctx.push(format!("br label %{fault}"));
+            crate::faults::close_fault(ctx, &fault, |_| call);
+            ctx.push(format!("{after_label}:"));
+            GenValue {
+                value: "undef".to_string(),
+                ty: TypeKind::Never,
+            }
+        }
         // `debug_assert` in a release build: the checker dropped the condition
         // and handed down a call with nothing in it, so there is nothing to
         // lower. The name is kept rather than replaced by a unit literal because

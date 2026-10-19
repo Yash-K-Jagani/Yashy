@@ -1022,6 +1022,72 @@ fn compile_and_run_with(name: &str, source: &str, flags: &[&str]) -> Output {
 }
 
 #[test]
+fn os_exit_ends_the_process_with_the_status_it_names() {
+    let output = compile_and_run(
+        "exit-status",
+        concat!(
+            "fn main() {\n",
+            "    print_str(\"before\\n\");\n",
+            "    os.exit(7);\n",
+            "    print_str(\"after\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(
+        stdout_of(&output),
+        "before\n",
+        "output written before the exit is flushed, and nothing after it runs"
+    );
+    assert_eq!(stderr_of(&output), "");
+}
+
+#[test]
+fn os_exit_accepts_zero() {
+    let output = compile_and_run(
+        "exit-zero",
+        "fn main() { os.exit(0); }\n",
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn a_returned_i64_becomes_the_exit_status() {
+    // `main` may return nothing or `i64`, which is the process status. The
+    // `i32` the specification names is the C `main`'s type; Otter has no `i32`,
+    // so `i64` is the spelling, truncated to the width the operating system reads.
+    let output = compile_and_run(
+        "exit-return",
+        "fn main() -> i64 { return 3; }\n",
+    );
+    assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
+fn os_exit_can_be_reached_through_a_helper() {
+    // The whole point of the builtin over `main`'s return value: a helper can
+    // stop the program without its caller learning the status.
+    let output = compile_and_run(
+        "exit-helper",
+        concat!(
+            "fn quit(code: i64) {\n",
+            "    print_str(\"leaving\\n\");\n",
+            "    os.exit(code);\n",
+            "    print_str(\"never\\n\");\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print_str(\"start\\n\");\n",
+            "    quit(7);\n",
+            "    print_str(\"after\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(stdout_of(&output), "start\nleaving\n");
+}
+
+#[test]
 fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // Integer arithmetic is checked. The alternative is a wrapped number that
     // looks exactly like an answer, and a language with no exceptions has

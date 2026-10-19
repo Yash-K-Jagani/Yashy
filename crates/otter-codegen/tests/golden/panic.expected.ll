@@ -28,6 +28,7 @@ declare i64 @llvm.sadd.sat.i64(i64, i64)
 declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @otter_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @otter_panic_division(i8*, i64, i64, i8*, i64, i64)
+declare void @otter_exit(i64)
 @.str.0 = private unnamed_addr constant [9 x i8] c"negative\00"
 @.str.1 = private unnamed_addr constant [8 x i8] c"main.ot\00"
 @.str.2 = private unnamed_addr constant [6 x i8] c"empty\00"
