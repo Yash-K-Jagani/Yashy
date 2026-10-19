@@ -404,6 +404,7 @@ impl<'src> Parser<'src> {
             let open = self.expect(TokenKind::LBrace)?;
             let _ = self.push_open(TokenKind::LBrace, open.span)?;
             let expr = self.parse_expr()?;
+            let _ = self.eat(TokenKind::Semi);
             self.expect(TokenKind::RBrace)?;
             self.close_open(TokenKind::RBrace);
             Ok(expr)

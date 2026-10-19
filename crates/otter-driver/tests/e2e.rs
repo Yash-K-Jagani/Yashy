@@ -1088,6 +1088,27 @@ fn os_exit_can_be_reached_through_a_helper() {
 }
 
 #[test]
+fn a_switch_arm_may_end_with_a_semicolon() {
+    // Statement-shaped arms are the common case, and the habitual trailing
+    // `;` must not make them fail to parse.
+    let output = compile_and_run(
+        "switch-semi",
+        concat!(
+            "fn main() {\n",
+            "    var o = Some(42);\n",
+            "    switch o {\n",
+            "        case Some(v) { print_i64(v); }\n",
+            "        case None { print_str(\"none\"); }\n",
+            "    }\n",
+            "    print_str(\"\\n\");\n",
+            "}\n"
+        ),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stdout_of(&output), "42\n");
+}
+
+#[test]
 fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // Integer arithmetic is checked. The alternative is a wrapped number that
     // looks exactly like an answer, and a language with no exceptions has
