@@ -573,6 +573,244 @@ This document complements, not replaces:
 - `docs/superpowers/plans/2026-10-16-otter-m0-m2-compiler.md` through `m11-adoption.md` — implementation task lists with checkboxes.
 - `docs/superpowers/specs/2026-10-16-otter-language-design.md` — language specification.
 
-When a feature from this vision is ready to implement, an executor writes a phase plan with checkbox tasks, adds it to the master plan’s dependency order, and derives interface ledger entries from this vision’s feature table.
+When a feature from this vision is ready to implement, an executor writes a phase plan with checkbox tasks, adds it to the master plan's dependency order, and derives interface ledger entries from this vision's feature table.
+
+---
+
+## 10. Debugging & Profiling Experience
+
+**Goal:** Users can debug Otter programs without leaving their editor.
+
+### 10.1 Debugging
+
+**Current state:** `panic` prints a message and exits. No debugger integration.
+
+**Proposed:**
+
+| Feature | Description |
+|---------|-------------|
+| **DWARF debug info** | Generated binaries include debug info so gdb/lldb work out of the box |
+| **Breakpoint support** | `otter debug` launches a GDB session with Otter-aware pretty-printing |
+| **Stack traces on panic** | When a panic unwinds the stack, print each frame with file:line:col |
+| **Variable inspection** | `otter print <expr>` in the debugger shows the value at runtime |
+
+**Example (stack trace on panic):**
+```
+thread 'main' panicked at 'integer overflow: 9223372036854775807 + 1'
+stack trace:
+  0: main::compute at src/main.ot:12:15
+  1: main::run at src/main.ot:8:5
+  2: main at src/main.ot:4:1
+```
+
+**Why:** Debugging is 50% of development time. A language without debugging support is a language people avoid for real work.
+
+### 10.2 Profiling
+
+**Current state:** No profiling tools. Users must use external profilers.
+
+**Proposed:**
+
+| Feature | Description |
+|---------|-------------|
+| **`otter profile`** | Built-in profiler that samples stack traces and outputs a flamegraph |
+| **`--profile` flag** | Compile with profiling hooks; runtime writes a trace file |
+| **Benchmark runner** | `otter bench` runs `#[bench]` functions and reports statistics |
+
+**Example:**
+```otter
+#[bench]
+fn fib_35() {
+    fib(35);
+}
+```
+
+**Output:**
+```
+running 1 benchmark
+fib_35: min=79.2ms, max=81.1ms, mean=80.0ms, stddev=0.4ms
+```
+
+**Why:** Performance work without measurement is guesswork. Built-in profiling makes optimization accessible.
+
+---
+
+## 11. Cross-Compilation & WebAssembly
+
+**Goal:** Otter code compiles to any target clang supports, including WebAssembly.
+
+### 11.1 Cross-compilation
+
+**Current state:** Compiles to the host platform only.
+
+**Proposed:**
+```bash
+otter build main.ot -o main --target=x86_64-linux-gnu
+otter build main.ot -o main --target=x86_64-w64-mingw32
+otter build main.ot -o main --target=wasm32-unknown-emscripten
+```
+
+**Why:** Cross-compilation is essential for embedded targets, CLI distribution, and cloud deployment. Since Otter uses clang as the backend, cross-compilation is nearly free.
+
+### 11.2 WebAssembly
+
+**Current state:** No WASM target.
+
+**Proposed:**
+- `--target=wasm32` compiles Otter to WASM with WASI for I/O
+- `otter build main.ot -o main.wasm --target=wasm32-unknown-wasi`
+- JavaScript glue generated automatically for browser use
+
+**Why:** WASM is the future of portable code. Otter's small binaries make it ideal for WASM — no runtime, no GC, just compute.
+
+**Example use case:** Ship an Otter CLI as a WASM module that runs in the browser, with zero dependencies.
+
+---
+
+## 12. Package Management & Ecosystem
+
+**Goal:** Users can share and reuse Otter code without vendoring.
+
+### 12.1 `otter pkg` — package manager
+
+**Current state:** No package manager. All code is local.
+
+**Proposed:**
+```bash
+otter pkg add otter-http     # add a dependency
+otter pkg remove otter-http   # remove a dependency
+otter pkg update             # update all dependencies
+```
+
+**Registry:** A simple HTTP registry (like crates.io or npm) hosting Otter packages. Each package is a `.tar.gz` with `src/*.ot`, `otter.toml`, and a `README.md`.
+
+### 12.2 `otter.toml` — package manifest
+
+**Current state:** No manifest.
+
+**Proposed:**
+```toml
+[package]
+name = "my-app"
+version = "0.1.0"
+otter-version = "0.5"
+
+[dependencies]
+otter-http = "0.2"
+otter-json = "1.0"
+
+[build]
+opt = "O3"
+release = true
+```
+
+**Why:** Package management is the foundation of an ecosystem. Without it, every project is an island.
+
+---
+
+## 13. Security & Safety Features
+
+**Goal:** Otter is the safest systems language available.
+
+### 13.1 Sandboxing
+
+**Proposed:**
+```otter
+@sandbox(files="readonly", network="none")
+fn process_data(path: string) -> i64 {
+    // Can only read files, cannot write or open network connections
+    return count_lines(path);
+}
+```
+
+**Why:** Untrusted code execution (plugins, user scripts) needs sandboxing. Otter's zero-runtime design makes sandboxing easier — intercept `open`/`socket` calls.
+
+### 13.2 Capability-based security
+
+**Proposed:**
+```otter
+fn read_file(cap: FileCap, path: string) -> string {
+    // Only works if `cap` grants read access to `path`
+    ...
+}
+```
+
+**Why:** Unix permissions are coarse-grained. Capability-based security is fine-grained. Otter's linear types make capabilities natural — they are values that can be passed around.
+
+### 13.3 No `unsafe` by default
+
+**Proposed:** All safe Otter code is memory-safe by construction. `unsafe` blocks are:
+- Opt-in per function or block
+- Audited by the compiler (all `unsafe` uses are listed in documentation)
+- Required for: raw pointer arithmetic, `extern "C"` calls, inline assembly
+
+---
+
+## 14. Community & Adoption Strategy
+
+**Goal:** Otter grows from a solo project to a community language.
+
+### 14.1 Documentation as a first-class citizen
+
+| Resource | Purpose |
+|----------|---------|
+| **Getting started** | 5-minute "hello world" tutorial |
+| **Language guide** | Complete reference, like the Rust Book |
+| **Cookbook** | Task-oriented examples ("How do I read a JSON file?") |
+| **API reference** | Generated from `///` comments |
+| **FAQ** | Answers to common questions |
+
+### 14.2 Community infrastructure
+
+| Platform | Purpose |
+|----------|---------|
+| **Discord/IRC** | Real-time help |
+| **Forum** | Long-form discussions |
+| **GitHub Discussions** | Q&A, feature requests |
+| **Blog** | Release notes, deep dives |
+
+### 14.3 Adoption hooks
+
+| Hook | Why it works |
+|------|--------------|
+| **"Otter is what C should have been"** | Appeals to C programmers tired of footguns |
+| **"Otter is what Rust would be without the borrow checker"** | Appeals to Rust programmers who want simplicity |
+| **"Otter binaries are 100 KB"** | Appeals to embedded/IoT developers |
+| **"Otter has zero runtime dependencies"** | Appeals to DevOps/platform engineers |
+
+---
+
+## 15. Timeline: What to Build When
+
+| Phase | Duration | Focus | Success criterion |
+|-------|----------|-------|-------------------|
+| **M0–M10** | 12–19 months | Language + compiler | Self-hosting works |
+| **M11** | 4–6 months | Adoption: fmt, test, LSP, installer | A stranger can install and use Otter in 5 minutes |
+| **M12** | 4–6 months | Ecosystem: package manager, registry, stdlib growth | 10 community-contributed packages exist |
+| **M13** | 3–4 months | Performance: escape analysis, SIMD, CTE | Allocation-heavy code runs within 10% of C |
+| **M14** | 2–3 months | Polish: tutorial, error messages, editor themes | "Learn Otter in 30 minutes" guide published |
+| **M15** | Ongoing | Maturity: stability guarantees, LTS releases | Backward compatibility promised |
+
+**Total time to a language people love:** ~2–3 years of focused work.
+
+---
+
+## 16. The One-Page Pitch
+
+> **Otter** is a systems language that compiles to native binaries with zero
+> runtime dependencies. It writes like Python, runs like C, and links like
+> nothing.
+>
+> - **Safe by default:** Integer overflow, division by zero, and null
+>   dereference are reported errors, not silent wrong answers.
+> - **Simple by design:** No borrow checker, no GC, no async runtime, no
+>   exceptions. Linear ownership + `defer` is enough.
+> - **Fast to ship:** One binary, no dependencies. Cross-compiles to any
+>   target clang supports, including WebAssembly.
+> - **C interop:** Call any C library with `extern "C"` and `unsafe` blocks.
+>
+> Install with one command. Compile in seconds. Ship a single binary.
+>
+> **Otter: Write like a scripting language, run like C, link like nothing.**
 
 ---
