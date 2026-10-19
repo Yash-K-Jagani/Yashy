@@ -10,6 +10,7 @@
 //! LLVM-type mapping), and `main` discovery (a program with no `fn main`
 //! must fail as a diagnostic here, not as a linker error 400 lines later).
 
+pub mod arena;
 pub mod expr_gen;
 pub mod faults;
 pub mod fn_gen;

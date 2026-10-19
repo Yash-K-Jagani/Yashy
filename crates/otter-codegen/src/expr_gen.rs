@@ -538,6 +538,9 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
+        "arena_new" => crate::arena::gen_arena_new(ctx, args, ty),
+        "arena_alloc" => crate::arena::gen_arena_alloc(ctx, args, ty),
+        "arena_free_all" => crate::arena::gen_arena_free_all(ctx, args),
         // `panic` never returns, so everything after it in the enclosing block
         // is dead. The call and its `unreachable` go into a block of their own
         // rather than into the current one: emitting `unreachable` here would

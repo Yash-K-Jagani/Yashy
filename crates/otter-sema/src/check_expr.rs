@@ -92,12 +92,32 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 27] = [
+        let builtins: [(&str, Vec<Type>, Type); 30] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
+            // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
+            // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
+            // `i64`s; `arena_free_all(arena)` releases every block at once.
+            // No per-allocation free, and no automatic release -- the program
+            // calls `arena_free_all` when it is done, or leaks until exit.
+            (
+                "arena_new",
+                vec![],
+                ptr(prim(TypeKind::I64)),
+            ),
+            (
+                "arena_alloc",
+                vec![ptr(prim(TypeKind::I64)), prim(TypeKind::I64)],
+                ptr(prim(TypeKind::I64)),
+            ),
+            (
+                "arena_free_all",
+                vec![ptr(prim(TypeKind::I64))],
+                prim(TypeKind::Unit),
+            ),
             // `len(string) -> i64` is the byte length. The master plan lists
             // string `len` in M6 alongside slice `len`; taking the string case
             // now costs nothing and is what a program printing text actually
@@ -1428,7 +1448,7 @@ impl<'src> Checker<'src> {
                                 return self.assert_cmp_call(&name, args, *span);
                             }
                             let mut arg_exprs = Vec::with_capacity(args.len());
-                            for (arg, param) in args.iter().zip(params.iter()) {
+                            for (i, (arg, param)) in args.iter().zip(params.iter()).enumerate() {
                                 let checked = self.check_expr_with_expected(arg, param)?;
                                 if !fits(param, &expr_ty(&checked)) {
                                     self.error(
@@ -1443,7 +1463,16 @@ impl<'src> Checker<'src> {
                                 // call site. An argument that is not a bare name
                                 // (a fresh `alloc(...)`, say) owns nothing yet and
                                 // is left alone.
-                                if matches!(linearity_of(&param.kind), Linearity::Linear) {
+                                //
+                                // `arena_alloc` is the exception: an arena is
+                                // reusable across many allocations, so its handle
+                                // is not consumed by `alloc`. Only
+                                // `arena_free_all` consumes the handle, which is
+                                // what makes a double free a type error.
+                                let consumes = !(name == "arena_alloc" && i == 0);
+                                if consumes
+                                    && matches!(linearity_of(&param.kind), Linearity::Linear)
+                                {
                                     if let Expr::Ident(path, arg_span) = arg {
                                         let arg_name = path.last().cloned().unwrap_or_default();
                                         if let Err(e) = self.scope.move_out(&arg_name, *arg_span) {
