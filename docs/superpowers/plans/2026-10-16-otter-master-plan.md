@@ -131,15 +131,15 @@ i8         otter_str_byte_at(otter_str*, i64);   // returns 0 out of range
 > from the struct, so measuring no longer scans, and an embedded NUL no longer
 > truncates.
 >
-> Cost, and the one thing still open: generated code releases a string the
-> runtime **built** the moment an operation has consumed it — a concatenation,
-> a comparison, `len`, a parser, `print_str` — so a program that formats a value
-> in a loop no longer grows without bound. What is still open is the reference a
-> *binding* holds: `var s = ...` keeps its string until the process exits,
-> because dropping it at the end of the scope is the half that needs scope-exit
-> tracking (and the retain that pairs with it). That is the remaining half of M3
-> Task 5; the representation, the two primitives, and the temporary release are
-> what it needs, and they are in place.
+> Cost. Generated code keeps the count balanced for what it can prove. A string
+> the runtime **built** is released the moment an operation has consumed it — a
+> concatenation, a comparison, `len`, a parser, `print_str` — and a string a
+> **binding** holds is retained on bind and released at the end of the scope that
+> owns it, after that scope's `defer`s. What is deliberately *not* balanced is a
+> string a user call returns (it may be a parameter the caller still owns, so it
+> is treated as borrowed), one stored in a struct field, and one dropped across a
+> `break` out of a nested block. Each of those leaks rather than risking a
+> use-after-free; see the M3–M4 plan's Task 5 "As built" notes.
 
 **Input (added with the M3 string operations, because a program that cannot read
 is not yet a program):**
@@ -301,7 +301,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | **Done in M4 Task 11 (first half).** `add`/`sub`/`mul` go through `llvm.s{add,sub,mul}.with.overflow.i64` — value and flag in one instruction — and `div`/`rem` test for a zero divisor *and* for `i64::MIN / -1` (where `srem` is undefined too) before emitting the operation in the fall-through block. A failing check branches to a cold block that calls `otter_panic_overflow`/`otter_panic_division` with the operator's symbol, both operands and the position the checker resolved into `FaultSite`. Negation is checked (`-i64::MIN` wraps to itself). The second half is in too: `wrapping_*` keeps the bare op, `checked_*` returns a real `Option[i64]` (a `select`, not a branch), and `saturating_*` clamps — `sadd.sat`/`ssub.sat` from LLVM, `smul.sat` by hand because LLVM does not implement it |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
-| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it. Still interim: a string a binding holds is not released at scope exit | M3 Task 5's second half: scope-exit release (retain per binding, release per scope and per reassignment); indexing a pointer in M6 |
+| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it, and a binding retains on bind and releases at the end of its scope (after that scope's `defer`s) | M3 Task 5's remaining interim: a string a user call returns, a struct-field string, and a string dropped across a `break` out of a nested block are leaked, not released; indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity

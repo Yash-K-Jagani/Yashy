@@ -689,12 +689,9 @@ motivated Task 5f) became tests of ownership: a 2,000-string build/release
 loop, and sixteen threads building and releasing without reading each other's
 bytes.
 
-*Still to come.* Nothing in generated code drops a reference *to a bound
-binding* yet, so a string stored in a local is still held until exit — the same
-interim, now short one representation change rather than two. The second half is
-scope-exit emission: a retain paired with each binding, a release paired with
-each scope exit and each reassignment, so that what a `var` holds is given back
-when its scope ends. It lands on top of this and turns the leak into a balance.
+*As built.* The release half landed in two parts, in the two commits that follow
+this one: the temporary release first, then the scope-exit release a binding
+needs.
 
 **As built (the temporary half, in the commit that follows).** The release half
 landed in the one part of it that is provably safe without scope tracking: a
@@ -721,12 +718,57 @@ the set. A literal — a static string, refcount -1 — and a name bound to a lo
 are never in the set, which is what keeps the release from dropping a reference
 the program still holds.
 
-What it buys is the common case: `print_str("i = ${i}\n")` in a loop builds a
-conversion and two concatenations per iteration and releases all three, where
-before they accumulated for the life of the process. The IR is three `release`
-calls inside the loop body, one after each consumer. What it does not buy is a
-bound string, and that is stated rather than hidden: the ledger and the README
-both say the scope-exit half is still open.
+What it buys is the common case: a `print_str` of an interpolated number in a
+loop builds a conversion and two concatenations per iteration and releases all
+three, where before they accumulated for the life of the process. The IR is three
+`release` calls inside the loop body, one after each consumer.
+
+**As built (the scope-exit half, in the commit that follows).** The second part is
+the one a *binding* needs, and it is where `retain` earns its place. A `string` is
+a **copy type**: `var b = a;` has to give the slot `b` a reference of its own,
+because overwriting `a` afterwards must not free what `b` still holds. That is the
+case that made `retain`-on-bind the safe design rather than a `move` that would
+have to prove no other binding aliases the value. So every `string` binding takes
+a reference and every binding gives it back:
+
+- A `const`/`var` whose value is a *temporary* takes the reference over — the name
+  leaves `owned_strings`, and no consumer will release it. Any other value (a
+  literal, whose retain is a no-op; a local; a user call's result) gets
+  `otter_str_retain`.
+- An assignment `s = e` builds `e` first, secures its reference, and *then*
+  releases what `s` held. That order is what makes `s = s + "..."` safe: dropping
+  the old value first would free the bytes the concatenation was about to read.
+- A `return` of a `string` is taken *before* the scope's locals are released, and
+  kept with `otter_str_retain` when it was one of them, so a helper that returns a
+  string built from a local hands the caller a live reference.
+- A scope releases its own locals on fall-through, and a
+  `return`/`break`/`continue` releases the innermost scope's before it branches —
+  always *after* that scope's `defer` bodies have run, because
+  `defer { print_str(s); }` reads `s` at exit and a `defer` takes no snapshot of a
+  copy type the way it does of a linear binding.
+
+The bookkeeping is a stack of slot lists, `FnCtx::scope_strings`, pushed and
+popped next to `FnCtx::defers`, so "the scope" means the same thing to both
+features — and the one place a deferred body and a release can disagree (which
+runs first) is settled by running the defers first.
+
+What it buys is the balance: `var acc = ""; while ... { acc = acc + "z"; }`
+releases the previous accumulator on every iteration instead of growing by one
+string per iteration for the life of the process. What it still does not buy is
+stated rather than hidden, and each item is a **leak, not a corruption**:
+
+- a `string` a *user call* returns is treated as borrowed, because a function may
+  return one of its parameters, whose reference the caller still owns; releasing
+  the result would be a use-after-free, so it leaks instead;
+- a `string` stored in a struct field, or read on the panic path, is not tracked;
+- a `break` out of a *doubly* nested block releases only the innermost scope, so
+  the scopes between it and the loop leak — the same reading of the same
+  limitation the `defer` list already has, where a `break` runs only the current
+  scope's defers.
+
+The rule the whole feature follows is that a reference is released only where the
+consumer provably does not keep it, and a leak is the failure mode chosen
+wherever that cannot be proved.
 
 ---
 

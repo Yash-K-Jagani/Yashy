@@ -1,0 +1,50 @@
+// String ownership, end to end: a reference a binding holds outlives the
+// expression that built it, is dropped at the end of the scope that owns it, and
+// is *not* dropped by an operation that merely reads it.
+//
+// This is a behavioural oracle for the refcounted `string`. If a value were
+// released too early one of these lines would be garbage or the process would
+// die; if a read dropped what the program still held, the alias line would
+// break. Nothing here inspects memory, so the test needs no allocator detail.
+
+fn bracket(text: string) -> string {
+    const wrapped = "[" + text;
+    return wrapped + "]";
+}
+
+fn main() {
+    // A binding keeps a reference of its own: `alias` is intact after `name` is
+    // overwritten, and neither is dropped until its scope ends.
+    const original = "A" + "B";
+    var alias = original;
+    var name = original;
+    name = name + "!";
+    print_str(alias + "\n");
+    print_str(name + "\n");
+
+    // A function that builds its result from a local returns a string that
+    // outlives the local.
+    print_str(bracket("x") + "\n");
+
+    // Accumulating in a loop drops each intermediate: the old value is released
+    // right after the replacement has been built from it.
+    var i = 0;
+    var acc = "";
+    while i < 3 {
+        acc = acc + "z";
+        i = i + 1;
+    }
+    print_str(acc + "\n");
+
+    // A deferred body reads a string local, so the release has to happen *after*
+    // the defers, not before them.
+    if true {
+        const inner = "in";
+        defer { print_str("deferred " + inner + "\n"); }
+        print_str(inner + "\n");
+    }
+
+    // A conversion's result can be bound, and is released with the scope.
+    const text = "n = " + str_from_i64(42);
+    print_str(text + "\n");
+}

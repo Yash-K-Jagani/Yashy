@@ -1,5 +1,6 @@
 //! String-operation lowering: `+` (concatenation), `==`/`!=` (byte equality),
-//! `len`, and the release of a temporary the operation consumed.
+//! `len`, and the two places a reference is dropped — a temporary an operation
+//! consumed, and a local at the end of the scope that owns it.
 //!
 //! A `string` value is a pointer to a refcounted `%otter_str`, so none of these
 //! is an instruction — each one is a call into the runtime half of ledger L1.
@@ -38,6 +39,9 @@ fn call_count(ir_text: &str, symbol: &str) -> usize {
 
 #[test]
 fn concat_is_one_call_and_does_not_touch_its_operands() {
+    // Two literals: neither is an owned temporary, so the concatenation releases
+    // neither. The module's one release is the *binding* — the concatenation's
+    // result was taken over by `s` and dropped when `s`'s scope ended.
     let ir_text = ir("fn main() { const s = \"Hello, \" + \"Otter!\"; print_str(s); }");
     assert_eq!(
         call_count(&ir_text, "@otter_str_concat"),
@@ -45,13 +49,13 @@ fn concat_is_one_call_and_does_not_touch_its_operands() {
         "one concat, one call:\n{ir_text}"
     );
     assert!(
-        ir_text.contains("call i8* @otter_str_concat(i8* "),
-        "both operands are `i8*` values:\n{ir_text}"
+        ir_text.contains("call i8* @otter_str_concat(i8* @.str."),
+        "a literal operand is addressed by its global:\n{ir_text}"
     );
     assert_eq!(
         call_count(&ir_text, "@otter_str_release"),
-        0,
-        "two literals are static strings, so there is nothing to release:\n{ir_text}"
+        1,
+        "the operands are static; only the binding is released:\n{ir_text}"
     );
 }
 
@@ -74,10 +78,10 @@ fn a_temporary_an_operation_built_is_released_when_consumed() {
 }
 
 #[test]
-fn a_bound_string_is_not_released_by_the_operation_that_read_it() {
-    // A name bound to a local belongs to that local: the runtime operation reads
-    // its bytes and keeps nothing, so it must not release a reference the
-    // program still holds. Only owned *temporaries* are released.
+fn a_bound_string_is_released_at_scope_exit_not_by_the_read() {
+    // `s` belongs to the local: the comparison and `print_str` read its bytes and
+    // keep nothing, so neither releases it. The one release in the module is the
+    // scope exit, and it comes after the last read.
     let ir_text = ir(
         "fn main() {\n\
          \x20   const s = \"x\" + \"y\";\n\
@@ -86,8 +90,42 @@ fn a_bound_string_is_not_released_by_the_operation_that_read_it() {
     );
     assert_eq!(
         call_count(&ir_text, "@otter_str_release"),
-        0,
-        "`s` is a local, not a temporary:\n{ir_text}"
+        1,
+        "one release, at scope exit:\n{ir_text}"
+    );
+    let release = ir_text
+        .find("call void @otter_str_release")
+        .expect("a scope-exit release");
+    let last_read = ir_text
+        .find("call void @otter_print_str")
+        .expect("the binding is read");
+    assert!(
+        last_read < release,
+        "the read comes before the release:\n{ir_text}"
+    );
+}
+
+#[test]
+fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
+    // `s = s + "x"` reads `s`, builds the replacement, and only then drops what
+    // `s` held. Dropping first would free the bytes the concatenation was about
+    // to read.
+    let ir_text = ir(
+        "fn main() {\n\
+         \x20   var s = \"a\";\n\
+         \x20   s = s + \"x\";\n\
+         \x20   print_str(s);\n\
+         }",
+    );
+    let concat = ir_text
+        .find("call i8* @otter_str_concat")
+        .expect("the replacement is built");
+    let release = ir_text
+        .find("call void @otter_str_release")
+        .expect("the old value is dropped");
+    assert!(
+        concat < release,
+        "the new value is built before the old is dropped:\n{ir_text}"
     );
 }
 

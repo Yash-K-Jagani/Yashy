@@ -126,6 +126,24 @@ pub struct FnCtx<'a> {
     /// keep the pointer: the concatenations, the comparisons, `len`, the
     /// parsers and `print_str`.
     owned_strings: HashSet<String>,
+    /// String locals that own a reference, one `Vec` per active scope,
+    /// innermost last, pushed and popped alongside [`FnCtx::defers`].
+    ///
+    /// Each entry is an `alloca` slot holding an owned `string`, and it is
+    /// released when its scope exits — on fall-through, and on a
+    /// `return`/`break`/`continue` from a statement in that scope. The release
+    /// happens *after* the scope's deferred bodies have run, because
+    /// `defer print_str(s)` reads `s` at exit and a `string` is a copy type, so
+    /// the deferred body is not given a snapshot of it the way a linear binding
+    /// is.
+    ///
+    /// This is why a *binding* is kept even though the temporary release would
+    /// have freed it: a slot's value outlives the expression that produced it,
+    /// so the reference has to belong to the slot and be dropped when the slot
+    /// goes away. A scope that exits without any statement to hang the release
+    /// on (a `break` from a doubly nested block) leaks, the same reading of the
+    /// same limitation the defer list has.
+    scope_strings: Vec<Vec<String>>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
     /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
@@ -150,6 +168,7 @@ impl<'a> FnCtx<'a> {
             loops: Vec::new(),
             defers: Vec::new(),
             owned_strings: HashSet::new(),
+            scope_strings: Vec::new(),
             unit_terminator: "ret void".to_string(),
             entry_point: false,
         }
@@ -173,6 +192,75 @@ impl<'a> FnCtx<'a> {
     pub(crate) fn release_owned(&mut self, name: &str) {
         if self.owned_strings.remove(name) {
             self.push(format!("call void @otter_str_release(i8* {name})"));
+        }
+    }
+
+    /// Whether `name` holds an owned reference. A `return` asks so it can tell a
+    /// string it is transferring from one it has to keep.
+    pub(crate) fn is_owned(&self, name: &str) -> bool {
+        self.owned_strings.contains(name)
+    }
+
+    /// Forget an owned reference because something else has taken it over: a
+    /// slot that stores a temporary's value now owns that reference, so no
+    /// consumer will release it.
+    pub(crate) fn forget_owned(&mut self, name: &str) {
+        self.owned_strings.remove(name);
+    }
+
+    /// Open a scope for string locals, pushed and popped alongside [`FnCtx::defers`].
+    pub(crate) fn open_string_scope(&mut self) {
+        self.scope_strings.push(Vec::new());
+    }
+
+    /// Record that `slot` holds an owned `string` in the innermost scope.
+    pub(crate) fn track_string_slot(&mut self, slot: &str) {
+        if let Some(scope) = self.scope_strings.last_mut() {
+            scope.push(slot.to_string());
+        }
+    }
+
+    /// Whether `slot` is a string local that owns a reference -- the test the
+    /// assignment lowering uses to decide whether the old value has to be
+    /// released. A parameter's slot is not one: its reference is the caller's.
+    pub(crate) fn is_tracked_string_slot(&self, slot: &str) -> bool {
+        self.scope_strings
+            .iter()
+            .any(|scope| scope.iter().any(|s| s == slot))
+    }
+
+    /// Release every string local of the innermost scope, innermost first, and
+    /// close it. Used where the scope exits on its own: the block fell through.
+    pub(crate) fn close_string_scope_released(&mut self) {
+        let Some(scope) = self.scope_strings.pop() else {
+            return;
+        };
+        for slot in scope.iter().rev() {
+            let loaded = self.tmp();
+            self.push(format!("{loaded} = load i8*, ptr {slot}"));
+            self.push(format!("call void @otter_str_release(i8* {loaded})"));
+        }
+    }
+
+    /// Close the innermost string scope without releasing it. Used where the
+    /// block was already terminated by the statement that exited it: a release
+    /// emitted after a terminator is not well-formed IR.
+    pub(crate) fn close_string_scope(&mut self) {
+        self.scope_strings.pop();
+    }
+
+    /// Release the innermost scope's string locals where a terminating statement
+    /// is about to branch, leaving the (now empty) scope for the block's own
+    /// close to pop. The scope's defers have already run.
+    pub(crate) fn release_current_string_scope(&mut self) {
+        let slots = match self.scope_strings.last_mut() {
+            Some(scope) => std::mem::take(scope),
+            None => return,
+        };
+        for slot in slots.iter().rev() {
+            let loaded = self.tmp();
+            self.push(format!("{loaded} = load i8*, ptr {slot}"));
+            self.push(format!("call void @otter_str_release(i8* {loaded})"));
         }
     }
 

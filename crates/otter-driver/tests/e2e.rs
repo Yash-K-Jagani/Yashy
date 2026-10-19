@@ -658,6 +658,21 @@ fn strings_concatenate_compare_and_measure() {
 }
 
 #[test]
+fn a_string_binding_owns_its_reference_until_the_scope_ends() {
+    // The refcounted representation, checked behaviourally: an alias survives its
+    // source being overwritten, a loop's intermediate strings are released each
+    // iteration, a function's result outlives the local it was built from, and a
+    // `defer` still sees a string local because the release happens after the
+    // defers. Garbage output or a crash here would mean a release landed too
+    // early; see `ownership.ot`.
+    let output = build_and_run("ownership");
+    assert_eq!(
+        stdout_of(&output),
+        "AB\nAB!\n[x]\nzzz\nin\ndeferred in\nn = 42\n"
+    );
+}
+
+#[test]
 fn string_interpolation_builds_the_same_text_as_the_written_out_form() {
     // `"n = ${n}"` must equal `"n = " + str_from_i64(n)`, because the checker
     // lowers the first into the second. This is also the end-to-end proof that

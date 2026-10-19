@@ -29,7 +29,7 @@
 
 use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, TypeKind};
 
-use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx};
+use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
 
@@ -123,23 +123,54 @@ fn capture_linear_locals(ctx: &mut FnCtx<'_>) -> Vec<(String, String, TypeKind)>
 /// Lower every statement of `block` into the current basic block, stopping at
 /// the first statement that terminates it.
 pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
-    // Each scope owns its own defer list, so a `defer` registers into the
-    // scope it is written in and only that scope's defers run at its exit.
+    // Each scope owns its own defer list and its own string locals, so a
+    // `defer` registers into the scope it is written in and only that scope's
+    // defers run (and only that scope's strings are released) at its exit.
     ctx.defers.push(Vec::new());
+    ctx.open_string_scope();
     for stmt in &block.stmts {
         let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {
             // The terminating statement (return/break/continue) already ran
-            // this scope's defers before branching, so the list is empty;
-            // popping keeps the stack honest for whatever scope is below.
+            // this scope's defers and released its string locals before
+            // branching, so both lists are empty; popping keeps the stacks
+            // honest for whatever scope is below.
             ctx.defers.pop();
+            ctx.close_string_scope();
             return flow;
         }
     }
-    // Fall-through: run this scope's defers, then close the scope.
+    // Fall-through: run this scope's defers -- which may read the string locals
+    // -- then release them and close the scope.
     run_defers(ctx);
     ctx.defers.pop();
+    ctx.close_string_scope_released();
     Flow::Fallthrough
+}
+
+/// Emit the terminator for a `return` with value `v`.
+///
+/// Split out of the `return` statement so the string case can lower the value
+/// early -- before the scope's locals are released -- and still share the
+/// truncation, `void`, and `Never` rules.
+fn emit_return(ctx: &mut FnCtx<'_>, v: &GenValue) {
+    let repr = repr_type(&ctx.ret_type);
+    if matches!(v.ty, TypeKind::Never) {
+        // The expression never produces a value, so the block that would have
+        // returned is unreachable. `unreachable` is the honest terminator for
+        // it: `ret i64 ` with no operand is not valid IR.
+        ctx.push("unreachable".to_string());
+    } else if ctx.entry_point && repr == "i64" {
+        // The entry point's signature is `i32`: truncate the Otter result to
+        // the width the operating system reads.
+        let narrowed = ctx.tmp();
+        ctx.push(format!("{narrowed} = trunc i64 {} to i32", v.value));
+        ctx.push(format!("ret i32 {narrowed}"));
+    } else if repr == "void" {
+        ctx.push("ret void");
+    } else {
+        ctx.push(format!("ret {repr} {}", v.value));
+    }
 }
 
 /// Lower one statement.
@@ -156,9 +187,30 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             Flow::Fallthrough
         }
         HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {
-            let slot = gen_expr_to_slot(ctx, init);
-            ctx.locals
-                .insert(name.clone(), (slot, expr_ty(init).kind.clone()));
+            let ty = expr_ty(init).kind.clone();
+            let slot = if matches!(ty, TypeKind::Str) {
+                // A `string` binding owns a reference: the slot holds one for as
+                // long as the scope lasts, and the scope releases it at exit.
+                // The value is either taken over (a temporary the runtime built)
+                // or kept (a literal, whose retain is a no-op; a local; a user
+                // call's result) -- never both, so the reference is counted once.
+                let value = gen_expr(ctx, init);
+                let slot = ctx.alloc_slot();
+                ctx.push_alloca(format!("{slot} = alloca i8*"));
+                if !value.value.is_empty() {
+                    if ctx.is_owned(&value.value) {
+                        ctx.forget_owned(&value.value);
+                    } else {
+                        ctx.push(format!("call i8* @otter_str_retain(i8* {})", value.value));
+                    }
+                    ctx.push(format!("store i8* {}, ptr {slot}", value.value));
+                    ctx.track_string_slot(&slot);
+                }
+                slot
+            } else {
+                gen_expr_to_slot(ctx, init)
+            };
+            ctx.locals.insert(name.clone(), (slot, ty));
             Flow::Fallthrough
         }
         HirStmt::Assign {
@@ -177,14 +229,16 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // which the project forbids.
             let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
             let repr = repr_type(&ty.kind);
+            let is_string = matches!(ty.kind, TypeKind::Str);
             // Overwriting a linear binding discards the pointer that was there,
             // so it is released first. `release_previous` is the checker's
             // verdict on whether that pointer was still owned: after
             // `dealloc(buf)` the slot still holds the address, but the address
             // was already freed, so freeing it again here would be a double
             // free. Only the checker knows the difference, which is why the
-            // flag is in the HIR rather than recomputed from the slot.
-            if *release_previous && repr != "void" {
+            // flag is in the HIR rather than recomputed from the slot. A
+            // `string` is a copy type with its own rule below, not a linear one.
+            if *release_previous && repr != "void" && !is_string {
                 if let Some(slot) = &slot {
                     let old = ctx.tmp();
                     ctx.push(format!("{old} = load {repr}, ptr {slot}"));
@@ -192,6 +246,25 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 }
             }
             let value = gen_expr(ctx, value);
+            if is_string && !value.value.is_empty() {
+                // The new reference is secured *before* the old one is dropped,
+                // so `s = s + "x"` reads the old value and the store that
+                // follows cannot leave the slot pointing at freed bytes.
+                if ctx.is_owned(&value.value) {
+                    ctx.forget_owned(&value.value);
+                } else {
+                    ctx.push(format!("call i8* @otter_str_retain(i8* {})", value.value));
+                }
+                // Dropping the old value is only right when this slot owns it.
+                // A parameter's reference is the caller's, so it is left alone.
+                if let Some(slot) = &slot {
+                    if ctx.is_tracked_string_slot(slot) {
+                        let old = ctx.tmp();
+                        ctx.push(format!("{old} = load i8*, ptr {slot}"));
+                        ctx.push(format!("call void @otter_str_release(i8* {old})"));
+                    }
+                }
+            }
             match slot {
                 Some(slot) if repr != "void" => {
                     ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
@@ -219,33 +292,38 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             Flow::Fallthrough
         }
         HirStmt::Return(value, _) => {
+            // A returned `string` is taken *before* the scope's locals are
+            // released: the block is leaving, and a local the `return` names is
+            // still in its slot. Only for a string return type, so every other
+            // function's semantics (and its IR) are unchanged.
+            let taken = match (value, matches!(ctx.ret_type, TypeKind::Str)) {
+                (Some(expr), true) => Some(gen_expr(ctx, expr)),
+                _ => None,
+            };
             // Defers for this scope run before the block is terminated, so
-            // they execute on the way out, not when the `defer` was reached.
+            // they execute on the way out, not when the `defer` was reached --
+            // and before the string locals below are released, so a deferred
+            // body still sees them.
             run_defers(ctx);
-            match value {
-                Some(expr) => {
-                    let v = gen_expr(ctx, expr);
-                    let repr = repr_type(&ctx.ret_type);
-                    if matches!(v.ty, TypeKind::Never) {
-                        // The expression never produces a value, so the block
-                        // that would have returned is unreachable. `unreachable`
-                        // is the honest terminator for it: `ret i64 ` with no
-                        // operand, which is what falling through to the `else`
-                        // below would emit, is not valid IR.
-                        ctx.push("unreachable".to_string());
-                    } else if ctx.entry_point && repr == "i64" {
-                        // The entry point's signature is `i32`: truncate the
-                        // Otter result to the width the operating system reads.
-                        let narrowed = ctx.tmp();
-                        ctx.push(format!("{narrowed} = trunc i64 {} to i32", v.value));
-                        ctx.push(format!("ret i32 {narrowed}"));
-                    } else if repr == "void" {
-                        ctx.push("ret void");
-                    } else {
-                        ctx.push(format!("ret {repr} {}", v.value));
-                    }
+            if let Some(taken) = &taken {
+                // The returned reference has to survive the release: a local's
+                // value is kept here and given to the caller, while a
+                // temporary's reference is transferred as-is.
+                if !ctx.is_owned(&taken.value) && !taken.value.is_empty() {
+                    ctx.push(format!(
+                        "call i8* @otter_str_retain(i8* {})",
+                        taken.value
+                    ));
                 }
-                None => {
+            }
+            ctx.release_current_string_scope();
+            match (value, taken) {
+                (Some(_), Some(v)) => emit_return(ctx, &v),
+                (Some(expr), None) => {
+                    let v = gen_expr(ctx, expr);
+                    emit_return(ctx, &v);
+                }
+                (None, _) => {
                     let terminator = ctx.unit_terminator.clone();
                     ctx.push(terminator);
                 }
@@ -288,6 +366,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         }
         HirStmt::Break(_) => {
             run_defers(ctx);
+            ctx.release_current_string_scope();
             match ctx.loops.last().cloned() {
                 Some((break_label, _)) => {
                     ctx.push(format!("br label %{break_label}"));
@@ -301,6 +380,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         }
         HirStmt::Continue(_) => {
             run_defers(ctx);
+            ctx.release_current_string_scope();
             match ctx.loops.last().cloned() {
                 Some((_, continue_label)) => {
                     ctx.push(format!("br label %{continue_label}"));
