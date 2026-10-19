@@ -646,7 +646,58 @@ git add crates/otter-runtime/
 git commit -m "feat(runtime): refcounted string primitives"
 ```
 
+**As built (the representation half, in `547e8e1`).** Task 5 landed in two
+halves because the representation change is what made the release half
+possible, and the representation is the part that touches every layer at once.
+
+*The layout.* `%otter_str` is `{ i64, i64, i64, i8* }` — refcount, length,
+capacity, data — one width for every count and a capacity beside the length.
+That is a deliberate step away from ledger L2's sketched `{ i32, i64, i8* }`:
+the `int` refcount would make overflow unreachable-by-construction only by
+making the struct's size depend on a second type rule, `long long` matches
+what the C side already uses for every other count, and the capacity is what
+a future `push`/slice will need to avoid re-measuring. One struct, one width,
+described once in `module.rs`, once in the header, once in `runtime.c`, and
+once in the Rust `OtterStr` the tests build — the tests then fail if any of
+the four drift.
+
+*Literals.* `intern_string` emits two globals per literal: the NUL-terminated
+bytes (`@.str.N.data`) and the `%otter_str` that points at them with refcount
+`-1`. `intern_bytes_ptr` returns the struct global itself, because a `string`
+value is a pointer to the struct and the global already is that pointer — the
+`getelementptr` the interim needed is gone. A static string is never freed, so
+`otter_str_retain` and `otter_str_release` are both no-ops on a literal, which
+is what makes the release half uniform.
+
+*No lowered program changed shape.* The runtime's entry points still take and
+return `i8*` in the IR (a pointer is a pointer), so `strings.rs`, `expr_gen.rs`
+and `faults.rs` emit the same calls; only `module.rs`'s literal emission and
+the four C/Rust sides of the layout moved. The print, panic and parser
+functions read bytes through `otter_str_data`, which is the one new place a
+`const char*` is demanded.
+
+*Tests.* `memory.c`/`strings.c` from the plan's Step 1 were not written: the
+runtime's C half is driven from Rust through the crate's `extern`
+declarations, which is the same contract the IR calls and the place a
+signature that drifts from the header already failed (`crates/otter-runtime/
+tests/strings.rs`). Those tests now build real `OtterStr` values, so they test
+the refcount and not just the bytes — a built string comes back with count 1,
+`retain` counts up and returns its argument, `release` walks to zero, and a
+static literal is not counted. The two tests that only made sense against the
+arena (an allocation-per-call smoke test, and the thread-local reasoning that
+motivated Task 5f) became tests of ownership: a 2,000-string build/release
+loop, and sixteen threads building and releasing without reading each other's
+bytes.
+
+*Still to come.* Nothing in generated code drops a reference yet, so a built
+string is still held until exit — the same interim, now short one representation
+change rather than two. The second half is emission: a retain paired with each
+binding, a release paired with each scope exit and each reassignment, and a
+release for each temporary the moment its consumer has taken it. It lands on
+top of this and turns the leak into a balance.
+
 ---
+
 
 ### Task 6: String types and operations in sema and codegen
 

@@ -103,29 +103,38 @@ i8*        otter_str_data(otter_str*);
 i8         otter_str_byte_at(otter_str*, i64);   // returns 0 out of range
 ```
 
-> **L1 revision, M3 interim: the string half ships in the M0–M2 representation.**
-> A `string` value is an `i8*` to NUL-terminated bytes, not an `otter_str*`, so
-> the six signatures above that mention `otter_str*` are not what M3 emits. What
-> M3 emits and the runtime defines is:
+> **L1 revision, M3 Task 5: the string half is now `otter_str*`, as the table
+> above shows.** The interim this note used to describe — a `string` value as a
+> bare `i8*` to NUL-terminated bytes, built in a never-freed per-thread arena —
+> is gone (`547e8e1`). What the runtime defines and the generated IR calls is the
+> table above with one revision: every count is `i64`/`long long` (one width, and
+> the width C already uses), and a `cap` sits beside `len` for the slicing work
+> M6 will want.
 >
 > ```c
-> i64         otter_str_len(i8*);
-> i64         otter_str_byte_at(i8*, i64);
-> i8*         otter_str_concat(i8*, i8*);
-> i8*         otter_str_from_i64(i64);
-> i8*         otter_str_from_f64(double);
-> i8*         otter_str_from_bool(i64);   // i64, not i1: C has no one-bit type
-> i1          otter_str_eq(i8*, i8*);
+> otter_str* otter_str_retain(otter_str*);
+> void       otter_str_release(otter_str*);
+> otter_str* otter_str_concat(const otter_str*, const otter_str*);
+> otter_str* otter_str_from_i64(i64);
+> otter_str* otter_str_from_f64(f64);
+> otter_str* otter_str_from_bool(i64);   // i64, not i1: C has no one-bit type
+> i64        otter_str_len(const otter_str*);
+> i64        otter_str_byte_at(const otter_str*, i64);
+> int        otter_str_eq(const otter_str*, const otter_str*);
 > ```
 >
-> The lengths are recovered with `strlen`, the results are built in one internal
-> arena **per thread** that is released at process exit, and nothing is retained
-> or released. (Per thread, not shared: an arena is an unsynchronized bump
-> pointer, so a shared one handed two threads the same block — see M3–M4 Task 5f.)
-> Cost: a built string is held until the program exits, and an embedded NUL byte
-> truncates. The `otter_str*` half of this table lands together with the
-> `%otter_str` retype below, in M3's remaining string task; until then a program
-> that builds strings is correct and simply does not give the memory back.
+> In the IR each of these is still spelled with `i8*` — an opaque pointer is an
+> opaque pointer — but the value it points at is the `%otter_str` in L2. A
+> literal is a *static* string, refcount `-1`, which makes both retain and
+> release a no-op on it; everything the runtime builds (concatenation, a
+> conversion, a line of input) comes back owned, refcount `1`. The lengths come
+> from the struct, so measuring no longer scans, and an embedded NUL no longer
+> truncates.
+>
+> Cost, and the one thing still open: generated code does not yet emit the
+> retain/release pairing, so a built string is still held until the process
+> exits. That is the remaining half of M3 Task 5; the representation and the two
+> primitives are what it needs, and they are in place.
 
 **Input (added with the M3 string operations, because a program that cannot read
 is not yet a program):**
@@ -138,7 +147,8 @@ f64  otter_parse_f64(i8*);
 
 These are compiler builtins (`read_line`, `parse_i64`, `parse_f64`) resolved like
 any other name, so M6's `io.readLine` replaces them rather than joining them. The
-line is built in the same never-freed string arena as every other produced string.
+line comes back as an owned string, like every other produced string, and the two
+parsers read their argument's bytes through `otter_str_data`.
 `otter_read_line` returns the empty string at end of input, which the language
 cannot currently distinguish from an empty line; the parsers reject trailing text
 (`parse_i64("12x")` is 0, not 12) and fold overflow into the same zero, so each
@@ -147,12 +157,13 @@ has exactly one contract and no in-between. Checked forms wait for M4's `panic`.
 **M4 (faults):**
 
 ```c
-void otter_panic(const char* message, const char* file, long long line, long long column);
+void otter_panic(const otter_str* message, const otter_str* file, long long line, long long column);
 ```
 
-As built (M3–M4 Task 9), the `msg_len` in the sketch above is gone: every string
-in Otter is already NUL-terminated `i8*`, and every other runtime call takes the
-pointer alone, so a length here would be the one ABI that reads a string two ways.
+As built (M3–M4 Task 9), the `msg_len` in the sketch above is gone: a `string`
+value is already length-carrying `otter_str*`, and `otter_panic` reads `message`
+and `file` through `otter_str_data`, so a length here would be the one ABI that
+reads a string two ways.
 The three position arguments are resolved by the **checker**, not the backend — it
 is the last stage holding the `SourceMap`, and the alternative was growing
 `emit_program`'s signature (and every test that calls it) for one call — and they
@@ -222,16 +233,20 @@ file.
 | M6 | `Map(Type, Type)` | `{ i8* }` — pointer to the opaque `otter_map` |
 | M5 | `CInt(i32) CUInt(i32) CFloat(i32) CVoid CPtr(Type) CSize` | C spellings, `i1..i64`, `double`, `void`, `i8*`, `i64` |
 
-**`Str` layout changes exactly once, in M3, and never again:**
+**`Str` layout changed once, in M3 Task 5, and does not change again:**
 
 ```llvm
-%otter_str = type { i32, i64, i8* }   ; refcount (atomic), length, data
+%otter_str = type { i64, i64, i64, i8* }   ; refcount, length, capacity, data
 ```
 
-M0–M2 uses `%otter_str = type { i32, i32, i8* }` with the first field always
-`1` and no refcount operations. M3 widens it to `i64` and adds the retain and
-release calls. **No milestone after M3 changes this layout** — which is why M3
-is a milestone boundary and not an incremental edit.
+M0–M2's `%otter_str = type { i32, i32, i8* }` was a placeholder that no
+generated code referenced. M3 Task 5 replaced it with the layout above: `-1` in
+the refcount means a static literal (never freed), `1` means owned, and
+`otter_str_retain`/`otter_str_release` move the count. Every count is `i64`
+rather than the `i32` sketched here originally, so one width describes the
+struct on both sides of a call, and `cap` is beside `len` for M6's slicing.
+**No milestone after M3 changes this layout** — which is why M3 is a milestone
+boundary and not an incremental edit.
 
 **A `Struct` is an aggregate value, laid out in declaration order:**
 
@@ -281,7 +296,7 @@ diff a reviewer can read rather than a silent behaviour shift.
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | **Done in M4 Task 11 (first half).** `add`/`sub`/`mul` go through `llvm.s{add,sub,mul}.with.overflow.i64` — value and flag in one instruction — and `div`/`rem` test for a zero divisor *and* for `i64::MIN / -1` (where `srem` is undefined too) before emitting the operation in the fall-through block. A failing check branches to a cold block that calls `otter_panic_overflow`/`otter_panic_division` with the operator's symbol, both operands and the position the checker resolved into `FaultSite`. Negation is checked (`-i64::MIN` wraps to itself). The second half is in too: `wrapping_*` keeps the bare op, `checked_*` returns a real `Option[i64]` (a `select`, not a branch), and `saturating_*` clamps — `sadd.sat`/`ssub.sat` from LLVM, `smul.sat` by hand because LLVM does not implement it |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
-| M0–M2 Task 3, updated in M3 | `Str` is an `i8*` to NUL-terminated bytes; `+`, `==`/`!=` and `len` are runtime calls, and a built string lives in one arena that is never freed (ledger L1's M3 note). Interpolation (M3–M4 Task 7) is lowered to exactly these calls, so it added no contract of its own | M3's remaining string task: length-prefixed `%otter_str` with retain/release; indexing a pointer in M6 |
+| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. Still interim: codegen does not yet emit the retain/release pairing, so a built string is held until exit | M3 Task 5's second half: emit the pairing (retain per binding, release per scope and per reassignment, release per temporary once consumed); indexing a pointer in M6 |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity
