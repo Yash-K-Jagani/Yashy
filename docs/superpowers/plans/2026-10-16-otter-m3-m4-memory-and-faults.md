@@ -445,8 +445,40 @@ non-struct base, and the literal's declaration order; one codegen test pinning
 `extractvalue %struct.P ..., 0` and `..., 1` with the aggregate spelled
 `{ i64, double }` from a literal written `y, x`.
 
-Not here: a struct behind a pointer (`*mut P`), `p.x = 1` on a live binding, and
-nested struct *mutation*. Reading a field of a value is the whole of this task.
+Not here: a struct behind a pointer (`*mut P`). Reading a field of a value is the
+whole of this task.
+
+**As built (the writing half, in a later commit).** `p.x = 1` and the nested
+`line.from.x = 2` were added on top, and they are the same shape read backwards:
+a struct value is an aggregate, so a write is a **read-modify-write** — load the
+binding's aggregate, replace the one field with `insertvalue`, store the whole
+value back. A nested chain rebuilds each aggregate on the way out, one
+`insertvalue` per level with an `extractvalue` for the level below, and the types
+for both come from the checker: it resolves each `.field` to a position and a type
+in a new `HirStmt::FieldAssign`, so code generation never looks a declaration up
+again. The compound form needed nothing: `p.x += 1` was already the assignment of
+the expanded `p.x = p.x + 1`, so it lowers through the same arm.
+
+The rules one level down are the binding's rules: the bottom of the chain has to
+be a `var` binding (a field of a `const` is as immutable as the `const`), every
+`.field` has to exist on the type the one before it produced, and the value has to
+fit the innermost field. Both spellings the parser can produce are taken apart by
+one helper, because `p.x` arrives as a single two-segment `Ident` while
+`move p.x` and a postfix `(expr).x` arrive as a `FieldAccess` chain.
+
+What is *not* released is deliberate: a struct's field references are not tracked,
+and `P { name: s }` stores `s`'s pointer without a retain, so dropping the old
+field on overwrite could drop a reference the aggregate does not own. The write
+leaks that reference rather than risk a double free, the same rule as everywhere
+else. A struct behind a pointer, and therefore a field write that needs a real
+address, is still M6's.
+
+Tests: `tests/programs/fields.ot` end to end (a simple write, the compound form, a
+nested chain whose sibling fields must survive, and replacing a whole struct
+field); eight sema tests pinning the root and the chain, a nested chain, the
+compound expansion, a field of a `const`, a wrong type, an unknown field, a
+non-struct base, and a call result; two codegen tests pinning the load
+/`insertvalue`/store shape and the one-insert-per-level rebuild.
 
 ### Task 5f: the string arena is per thread (a data race, fixed)
 

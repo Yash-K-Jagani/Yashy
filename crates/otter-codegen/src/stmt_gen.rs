@@ -148,6 +148,47 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     Flow::Fallthrough
 }
 
+/// Replace the field named by `steps` inside the aggregate `base` of type
+/// `aggregate`, returning the new aggregate value.
+///
+/// A single step is one `insertvalue`. A nested chain (`p.inner.x = v`) is the
+/// same shape repeated: `extractvalue` the sub-aggregate, rebuild it, then
+/// `insertvalue` the rebuilt one back. Every type along the way comes from
+/// `steps`, which the checker filled in from the declarations.
+///
+/// An empty chain cannot reach here -- the checker requires at least one field --
+/// and returning `base` unchanged keeps the module loadable if it somehow does.
+fn insert_field(
+    ctx: &mut FnCtx<'_>,
+    base: &str,
+    aggregate: &TypeKind,
+    steps: &[otter_sema::FieldStep],
+    value: &GenValue,
+) -> String {
+    let repr = repr_type(aggregate);
+    let Some(step) = steps.first() else {
+        return base.to_string();
+    };
+    let field_repr = repr_type(&step.ty.kind);
+    if steps.len() == 1 {
+        let updated = ctx.tmp();
+        ctx.push(format!(
+            "{updated} = insertvalue {repr} {base}, {field_repr} {}, {}",
+            value.value, step.index
+        ));
+        return updated;
+    }
+    let sub = ctx.tmp();
+    ctx.push(format!("{sub} = extractvalue {repr} {base}, {}", step.index));
+    let rebuilt = insert_field(ctx, &sub, &step.ty.kind, &steps[1..], value);
+    let updated = ctx.tmp();
+    ctx.push(format!(
+        "{updated} = insertvalue {repr} {base}, {field_repr} {rebuilt}, {}",
+        step.index
+    ));
+    updated
+}
+
 /// Emit the terminator for a `return` with value `v`.
 ///
 /// Split out of the `return` statement so the string case can lower the value
@@ -289,6 +330,35 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 ptr.value, idx.value
             ));
             ctx.push(format!("store i64 {}, ptr {addr}", val.value));
+            Flow::Fallthrough
+        }
+        HirStmt::FieldAssign {
+            root, steps, value, ..
+        } => {
+            // `p.x = v`: a struct value is an aggregate, not an address, so this
+            // is a read-modify-write -- load the binding's aggregate, replace the
+            // field with `insertvalue` (rebuilding the enclosing aggregates on
+            // the way out of a nested chain), and store the result back. The
+            // checker resolved `steps`, so no declaration is looked up twice.
+            //
+            // Nothing is released or retained here, on purpose: a struct's field
+            // references are not tracked, and `P { name: s }` stores `s`'s
+            // pointer *without* a retain, so dropping the old field would drop a
+            // reference the aggregate may not own. That is a leak, which is the
+            // failure mode chosen wherever ownership cannot be proved.
+            let value = gen_expr(ctx, value);
+            let slot = ctx.locals.get(root).cloned();
+            let Some((slot, root_ty)) = slot else {
+                ctx.push(format!(
+                    "; note: no slot for `{root}`, which the checker said owned the field"
+                ));
+                return Flow::Fallthrough;
+            };
+            let repr = repr_type(&root_ty);
+            let loaded = ctx.tmp();
+            ctx.push(format!("{loaded} = load {repr}, ptr {slot}"));
+            let updated = insert_field(ctx, &loaded, &root_ty, steps, &value);
+            ctx.push(format!("store {repr} {updated}, ptr {slot}"));
             Flow::Fallthrough
         }
         HirStmt::Return(value, _) => {

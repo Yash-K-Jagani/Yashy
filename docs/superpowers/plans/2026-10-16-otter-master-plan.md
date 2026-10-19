@@ -264,8 +264,10 @@ A literal is built with `insertvalue` into `undef` and a field is read with
 redeclaration rule — `define_named_type` keeps the first shape it is handed —
 is what makes the index mean one thing: a literal's fields reach the HIR in
 declaration order, so two literals of one struct written in different orders
-produce the same named type (M3–M4 Task 5e). A struct *behind* a pointer
-(`*mut P`, `p.x = 1`) does need an address, and is M6's.
+produce the same named type (M3–M4 Task 5e). Writing a field is the same
+read-modify-write shape — load the aggregate, replace the field, store it back —
+so `p.x = 1` needs no address either. What *does* need one is a struct behind a
+pointer (`*mut P`), which is M6's.
 
 ### L3 — Builtin function set
 

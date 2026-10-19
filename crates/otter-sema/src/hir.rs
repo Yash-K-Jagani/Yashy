@@ -109,6 +109,22 @@ pub struct HirBlock {
     pub span: Span,
 }
 
+/// One `.field` of a [`HirStmt::FieldAssign`] path: where the field sits in the
+/// aggregate it belongs to, and what type it is.
+///
+/// The type is what lets the backend rebuild the enclosing aggregates on the
+/// way out of a nested write (`p.inner.x = 1`): the `insertvalue` at each level
+/// names the aggregate it produces, and the level below names this field's type
+/// as the aggregate it started from. Both come from here rather than from a
+/// second lookup of the struct declaration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldStep {
+    /// Position in the owning aggregate's fields, in declaration order.
+    pub index: usize,
+    /// The field's type.
+    pub ty: Type,
+}
+
 /// A statement after type checking.
 ///
 /// Expression statements carry the inferred type; bindings carry mutability.
@@ -163,6 +179,23 @@ pub enum HirStmt {
         base: HirExpr,
         index: HirExpr,
         value: HirExpr,
+        span: Span,
+    },
+    /// `p.x = value;`, and `p.inner.x = value;` for a nested field.
+    ///
+    /// A struct value is an aggregate, not an address, so this is a
+    /// read-modify-write: the root binding's aggregate is loaded, the field is
+    /// replaced with `insertvalue` (rebuilding the enclosing aggregates on the
+    /// way out of a nested chain), and the result is stored back. The checker
+    /// has already resolved each `.field` to its position and type, which is
+    /// what [`FieldStep`] carries; `root` is the `var` binding at the bottom of
+    /// the chain, and it is the only thing the backend has to look up.
+    FieldAssign {
+        root: String,
+        /// The chain of fields from `root`, outermost first. Never empty.
+        steps: Vec<FieldStep>,
+        value: HirExpr,
+        ty: Type,
         span: Span,
     },
     Return(Option<HirExpr>, Span),

@@ -1367,6 +1367,95 @@ fn indexing_a_const_pointer_binding_is_an_error_for_assignment() {
     assert!(result.is_ok(), "reading through a pointer should type-check");
 }
 
+// -- field assignment ---------------------------------------------------------
+
+/// The declarations the field-assignment tests read against, spelled once so the
+/// sources and the diagnostics agree.
+const SHAPES: &str = "struct Point { x: i64, y: i64 }\nstruct Line { from: Point, to: Point }\n";
+
+#[test]
+fn a_field_assignment_carries_the_root_and_the_chain() {
+    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x = 3; }}");
+    let HirStmt::FieldAssign {
+        root,
+        steps,
+        value,
+        ..
+    } = statement_of(&src, "f", 1)
+    else {
+        panic!("expected a field assignment");
+    };
+    assert_eq!(root, "q");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].index, 0, "`x` is the first field declared");
+    assert_eq!(steps[0].ty.kind, TypeKind::I64);
+    assert_eq!(expr_ty(&value).kind, TypeKind::I64);
+}
+
+#[test]
+fn a_nested_field_assignment_carries_one_step_per_field() {
+    let src = format!("{SHAPES}fn f(l: Line) {{ var m = l; m.from.x = 1; }}");
+    let HirStmt::FieldAssign { steps, .. } = statement_of(&src, "f", 1) else {
+        panic!("expected a field assignment");
+    };
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].index, 0, "`from` is the first field declared");
+    assert_eq!(steps[1].index, 0, "`x` is the first field declared");
+    assert_eq!(steps[0].ty.kind, TypeKind::Struct("Point".to_string()));
+}
+
+#[test]
+fn a_compound_field_assignment_is_the_assignment_of_the_expanded_value() {
+    // `p.x += 1` is `p.x = p.x + 1`, so what reaches the backend is a field
+    // assignment whose value is the addition -- the checker never learns that
+    // `+=` exists.
+    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x += 1; }}");
+    let HirStmt::FieldAssign { value, .. } = statement_of(&src, "f", 1) else {
+        panic!("expected a field assignment");
+    };
+    assert!(
+        matches!(value, HirExpr::Binary { .. }),
+        "the value is the expanded addition, got {value:?}"
+    );
+}
+
+#[test]
+fn assigning_a_field_of_a_const_is_an_error() {
+    let src = format!("{SHAPES}fn f(p: Point) {{ const q = p; q.x = 3; }}");
+    assert_error(&src, "cannot assign to a field of `q`, which is immutable");
+}
+
+#[test]
+fn assigning_a_field_to_the_wrong_type_is_an_error() {
+    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x = \"one\"; }}");
+    assert_error(&src, "expected `i64`, found `string`");
+}
+
+#[test]
+fn assigning_a_field_that_does_not_exist_is_an_error() {
+    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.z = 1; }}");
+    assert_error(&src, "struct `Point` has no field `z`");
+}
+
+#[test]
+fn assigning_a_field_of_a_non_struct_is_an_error() {
+    assert_error(
+        "fn f(n: i64) { var m = n; m.x = 1; }",
+        "cannot access a field on `i64`",
+    );
+}
+
+#[test]
+fn assigning_through_a_call_result_is_an_error() {
+    // A field target has to bottom out in a binding: there is no address to
+    // write through in a temporary.
+    let src = format!("{SHAPES}fn g() -> Point {{ return Point {{ x: 1, y: 2 }}; }}\nfn f() {{ g().x = 3; }}");
+    assert_error(
+        &src,
+        "only a `var` binding or one of its fields can be assigned",
+    );
+}
+
 // -- checked arithmetic -------------------------------------------------------
 
 /// Whether the tree marks this operation as one that can fault at run time.

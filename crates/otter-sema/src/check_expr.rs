@@ -711,15 +711,26 @@ impl<'src> Checker<'src> {
                 span,
             } => {
                 // The parser left the target an expression on purpose, so the
-                // question "what may be assigned to?" is answered here. Today
-                // two shapes are assignable: a name bound by `var` in a scope
-                // that encloses this statement, and an index into a mutable
-                // `*mut i64` binding (`p[i] = v`). Fields become a further arm
-                // the day they exist.
+                // question "what may be assigned to?" is answered here. Three
+                // shapes are assignable: a name bound by `var` in a scope that
+                // encloses this statement, an index into a mutable `*mut i64`
+                // binding (`p[i] = v`), and a field of a `var` binding
+                // (`p.x = v`, `p.inner.x = v`).
                 //
-                // `p[i] = v` is checked before the name case because the
-                // target is not a bare name -- it is an index expression whose
-                // base must resolve to a mutable pointer binding.
+                // `p[i] = v` and `p.x = v` are checked before the name case
+                // because neither target is a bare name -- each is an access
+                // expression whose base has to resolve to a mutable binding.
+                if matches!(target, Expr::FieldAccess { .. }) {
+                    return self.check_field_assign(target, value, *span);
+                }
+                // A dotted name arrives as one `Ident` with several segments
+                // (`p.x`, `p.inner.x`), so a multi-segment path is a field
+                // target too; a one-segment one is the plain binding case below.
+                if let Expr::Ident(path, _) = target {
+                    if path.len() > 1 {
+                        return self.check_field_assign(target, value, *span);
+                    }
+                }
                 if let Expr::Index { base, index, span } = target {
                     let base = self.check_expr(base)?;
                     let base_ty = expr_ty(&base);
@@ -1890,6 +1901,132 @@ impl<'src> Checker<'src> {
             };
         }
         Some(current)
+    }
+
+    /// Check `p.x = v` and `p.inner.x = v`, the field-assignment form of
+    /// [`Stmt::Assign`].
+    ///
+    /// A field is a *place*, so the rules are the binding's rules one level
+    /// down: the bottom of the chain has to be a `var` binding (a field of a
+    /// `const` is as immutable as the `const`), every `.field` has to exist on
+    /// the type the one before it produced, and the value has to fit the
+    /// innermost field. What the checker resolves here -- each field's position
+    /// and type -- is what keeps code generation from looking the struct up a
+    /// second time.
+    ///
+    /// Returns `None` after reporting, like every other arm of `Stmt::Assign`.
+    fn check_field_assign(&mut self, target: &Expr, value: &Expr, span: Span) -> Option<HirStmt> {
+        let (root, names) = self.split_field_target(target)?;
+
+        // The bottom of the chain is an ordinary name: resolve it the way a bare
+        // `p` would be, and require it to be mutable.
+        let Some(binding) = self.scope.resolve(&root).cloned() else {
+            let _ = self.check_expr(value);
+            self.error(
+                otter_parser::exprs::expr_span(target),
+                format!("cannot find value `{root}` in this scope"),
+            );
+            return None;
+        };
+        if !binding.mutability.is_mutable() {
+            self.error(
+                otter_parser::exprs::expr_span(target),
+                format!("cannot assign to a field of `{root}`, which is immutable"),
+            );
+            return None;
+        }
+
+        // Walk the chain against the type each step produced. `steps` is what
+        // the backend rebuilds the aggregates from, so it is built here, where
+        // the declarations are known.
+        let mut steps: Vec<FieldStep> = Vec::new();
+        let mut aggregate = binding.ty.clone();
+        for (field, fspan) in &names {
+            let TypeKind::Struct(sname) = &aggregate.kind else {
+                self.error(*fspan, format!("cannot access a field on `{aggregate}`"));
+                return None;
+            };
+            if !self.structs.contains_key(sname) {
+                self.error(*fspan, format!("unknown struct `{sname}`"));
+                return None;
+            }
+            let resolved = self.structs.get(sname).and_then(|sig| {
+                sig.fields
+                    .iter()
+                    .position(|(name, _)| name == field)
+                    .map(|index| (index, sig.fields[index].1.clone()))
+            });
+            let (index, field_ty) = match resolved {
+                Some(found) => found,
+                None => {
+                    self.error(*fspan, format!("struct `{sname}` has no field `{field}`"));
+                    return None;
+                }
+            };
+            steps.push(FieldStep {
+                index,
+                ty: field_ty.clone(),
+            });
+            aggregate = field_ty;
+        }
+
+        let checked = self.check_expr_with_expected(value, &aggregate)?;
+        let found = expr_ty(&checked);
+        if !aggregate.eq_ignoring_span(&found) {
+            self.error(
+                expr_span(&checked),
+                format!("expected `{aggregate}`, found `{found}`"),
+            );
+        }
+        // A field of a linear type may not be overwritten with a bare name any
+        // more than a binding of one may: the same copy would be a second owner.
+        self.forbid_linear_copy(value, &checked);
+
+        Some(HirStmt::FieldAssign {
+            root,
+            steps,
+            value: checked,
+            ty: aggregate,
+            span,
+        })
+    }
+
+    /// Split an assignment target into the binding at the bottom of the chain and
+    /// the field names above it, **root-first**.
+    ///
+    /// Two spellings reach here for the same program text: `p.x` is usually one
+    /// [`Expr::Ident`] with two segments (the parser hands a dotted name over
+    /// whole), while `move p.x` and a postfix `(expr).x` produce an
+    /// [`Expr::FieldAccess`] chain. Both are taken apart here so the checker
+    /// above has one shape to work with.
+    ///
+    /// Returns `None` after reporting when the target is not a chain of fields
+    /// over a plain name.
+    fn split_field_target(&mut self, target: &Expr) -> Option<(String, Vec<(String, Span)>)> {
+        match target {
+            Expr::FieldAccess { base, field, span } => {
+                let (root, mut names) = self.split_field_target(base)?;
+                names.push((field.clone(), *span));
+                Some((root, names))
+            }
+            Expr::Ident(path, _) if path.len() > 1 => {
+                let mut segments = path.iter();
+                let root = segments.next()?.clone();
+                let span = otter_parser::exprs::expr_span(target);
+                let names = segments.map(|field| (field.clone(), span)).collect();
+                Some((root, names))
+            }
+            // A one-segment name: the bottom of a `FieldAccess` chain, reached
+            // when the chain was built by `move` or a postfix `.`.
+            Expr::Ident(path, _) => Some((path.last()?.clone(), Vec::new())),
+            other => {
+                self.error(
+                    otter_parser::exprs::expr_span(other),
+                    "only a `var` binding or one of its fields can be assigned",
+                );
+                None
+            }
+        }
     }
 
     /// The `string` an interpolated expression contributes, converting with the

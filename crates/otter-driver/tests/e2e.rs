@@ -791,6 +791,16 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
+fn a_struct_field_can_be_written_and_the_other_fields_survive() {
+    // A struct value is an aggregate, not an address, so each write rebuilds the
+    // whole value: `p.x = 10` must leave `p.y`, and `line.from.x = 100` must
+    // leave `from.y` and both of `to`'s fields. The output is the proof, because
+    // a lost field would print a wrong number rather than fail to compile.
+    let output = build_and_run("fields");
+    assert_eq!(stdout_of(&output), "10 2\n7\n102 7\n15\n");
+}
+
+#[test]
 fn defer_runs_at_scope_exit_and_sees_registration_time_values() {
     // Last registered first, and the deferred free releases the block that was
     // live when the `defer` was reached.

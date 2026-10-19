@@ -81,9 +81,10 @@ fn describe(o: Option[i64]) -> i64 {
 ```
 
 ```otter
-// A struct is a value: built with a literal and read field by field with `.`.
-// The layout follows the declaration order, so a literal may spell the fields
-// in any order and `p.x` still means the declared `x`.
+// A struct is a value: built with a literal, read field by field with `.`, and
+// written the same way on a `var`. The layout follows the declaration order, so
+// a literal may spell the fields in any order and `p.x` still means the declared
+// `x`.
 struct Point {
     x: i64,
     y: i64,
@@ -96,6 +97,14 @@ fn manhattan(p: Point) -> i64 {
 fn main() {
     const p = Point { y: 4, x: 3 };
     print_i64(manhattan(p));
+    print_str("\n");
+
+    // A field write is a read-modify-write of the whole value, so `y` survives
+    // it; `q.x += 1` is the same statement with the field read on the right.
+    var q = p;
+    q.x = 10;
+    q.y += 1;
+    print_i64(q.x + q.y);
     print_str("\n");
 }
 ```

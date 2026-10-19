@@ -78,7 +78,7 @@ fn lower_body(f: &otter_sema::HirFn) -> String {
         let _ = ctx.alloc_params(f);
         for stmt in &f.body.stmts {
             match stmt {
-                HirStmt::Const { name, init, .. } => {
+                HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {
                     let slot = gen_expr_to_slot(&mut ctx, init);
                     ctx.locals
                         .insert(name.clone(), (slot, expr_ty(init).kind.clone()));
@@ -86,10 +86,12 @@ fn lower_body(f: &otter_sema::HirFn) -> String {
                 HirStmt::Expr(expr, _, _) => {
                     let _ = gen_expr(&mut ctx, expr);
                 }
-                HirStmt::IndexAssign { .. } => {
+                HirStmt::IndexAssign { .. } | HirStmt::FieldAssign { .. } => {
                     let _ = gen_stmt(&mut ctx, stmt);
                 }
-                other => panic!("the harness only handles const, expr, and index assignment, got {other:?}"),
+                other => panic!(
+                    "the harness only handles const, var, expr, and the assigning statements, got {other:?}"
+                ),
             }
         }
         ctx.finish();
@@ -427,6 +429,56 @@ fn a_none_value_writes_only_the_tag() {
     assert!(
         !ir_text.contains("@None") && !ir_text.contains("call"),
         "`None` must be built, not called:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_field_assignment_is_a_read_modify_write() {
+    // A struct value is an aggregate, not an address, so `q.x = 1` loads the
+    // binding's aggregate, replaces the field with `insertvalue`, and stores the
+    // result back. The field's position comes from the checker, so the
+    // `insertvalue` names it rather than looking the declaration up again.
+    let ir_text = gen_body(
+        "struct Point { x: i64, y: i64 }\n\
+         fn f(p: Point) { var q = p; q.x = 1; }",
+    );
+    assert!(
+        ir_text.contains("load %struct.Point"),
+        "the aggregate is loaded from the binding's slot:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("insertvalue %struct.Point"),
+        "the field is replaced in the aggregate:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("store %struct.Point"),
+        "the rebuilt aggregate is stored back:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_nested_field_assignment_rebuilds_each_aggregate() {
+    // `m.from.x = 1` extracts the inner aggregate, replaces the field, and
+    // inserts the rebuilt inner value back into the outer one: one
+    // `insertvalue` per level, and an `extractvalue` for the level below.
+    let ir_text = gen_body(
+        "struct Point { x: i64, y: i64 }\n\
+         struct Line { from: Point, to: Point }\n\
+         fn f(l: Line) { var m = l; m.from.x = 1; }",
+    );
+    assert_eq!(
+        ir_text.matches("insertvalue %struct.Point").count(),
+        1,
+        "one insert at the inner level:\n{ir_text}"
+    );
+    assert_eq!(
+        ir_text.matches("insertvalue %struct.Line").count(),
+        1,
+        "one insert at the outer level:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("extractvalue %struct.Line"),
+        "the inner aggregate is read out of the outer one:\n{ir_text}"
     );
 }
 

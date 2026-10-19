@@ -1,0 +1,48 @@
+// Writing a struct field: `p.x = 1`, the nested `line.from.x = 2`, and the
+// compound `p.y += 5` that desugars to `p.y = p.y + 5`.
+//
+// A struct value is an aggregate, not an address, so a field write is a
+// read-modify-write: the binding's aggregate is loaded, the one field is
+// replaced, and the whole value is stored back. The program is written so that a
+// wrong rebuild shows up as a wrong number rather than as a crash: every other
+// field has to survive each write, and a nested write has to rebuild both the
+// inner and the outer aggregate.
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+struct Line {
+    from: Point,
+    to: Point,
+}
+
+fn main() {
+    var p = Point { x: 1, y: 2 };
+    p.x = 10;
+    print_i64(p.x);
+    print_str(" ");
+    print_i64(p.y);
+    print_str("\n");
+
+    // The compound form is the plain assignment of the expanded binary, so it
+    // reads the field it is about to write.
+    p.y += 5;
+    print_i64(p.y);
+    print_str("\n");
+
+    // A nested chain: only `from.x` changes, so `from.y` and both of `to`'s
+    // fields have to come out of the rebuild intact.
+    var line = Line { from: Point { x: 1, y: 2 }, to: Point { x: 3, y: 4 } };
+    line.from.x = 100;
+    print_i64(line.from.x + line.from.y);
+    print_str(" ");
+    print_i64(line.to.x + line.to.y);
+    print_str("\n");
+
+    // A whole struct field can be replaced with a value of the field's type.
+    line.to = Point { x: 7, y: 8 };
+    print_i64(line.to.x + line.to.y);
+    print_str("\n");
+}
