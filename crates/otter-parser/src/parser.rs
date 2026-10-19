@@ -36,7 +36,7 @@
 //! in it.
 
 use otter_common::{Diagnostic, DiagnosticBag, FileId, SourceMap, Span};
-use otter_lexer::{Token, TokenKind};
+use otter_lexer::{literal_as_i64, Token, TokenKind};
 
 use crate::ast::Program;
 use crate::error::{self, ParseError};
@@ -343,6 +343,39 @@ impl<'src> Parser<'src> {
             Some(text) => Ok(text.to_string()),
             None => Err(error::unreadable_text(span)),
         }
+    }
+
+    /// The `i64` an integer token stands for.
+    ///
+    /// # Errors
+    ///
+    /// The lexer's "integer literal does not fit an i64" when the digits do not
+    /// fit. A token carries no value, so this question gets asked wherever
+    /// integer digits are read, and the wrong answer is easy to write:
+    /// `text.parse::<i64>()` with a fallback of zero compiles
+    /// `9223372036854775808` into a silently wrong `0`. A wrong number that
+    /// looks like a right one is the worst thing a compiler can produce, so the
+    /// failure is a diagnostic here.
+    pub fn integer_literal(&self, span: Span) -> Result<i64, ParseError> {
+        literal_as_i64(self.source.file(self.file), span, self.file)
+            .map_err(|diagnostic| ParseError::new(diagnostic.span, diagnostic.message))
+    }
+
+    /// The `f64` a float token stands for.
+    ///
+    /// # Errors
+    ///
+    /// [`error::invalid_float_literal`] when the token's text does not parse as an
+    /// `f64`. The lexer only emits `F64` for `digits.digits`, which always
+    /// parses -- an absurd magnitude becomes an infinity rather than a failure --
+    /// so this is a guard and not a case with wording of its own. It is a guard
+    /// all the same: a `0.0` fallback would be the same silently wrong number the
+    /// integer form can produce, and being unreachable today is not a property
+    /// the next change to the lexer is obliged to keep.
+    pub fn float_literal(&self, span: Span) -> Result<f64, ParseError> {
+        self.text(span)?
+            .parse::<f64>()
+            .map_err(|_| error::invalid_float_literal(span))
     }
 
     /// Consumes an identifier and returns its name and span.

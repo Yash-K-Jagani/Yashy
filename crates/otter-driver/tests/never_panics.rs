@@ -150,6 +150,19 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
             "fn main() { const x = 999999999999999999999999999; }".to_string(),
         ),
         (
+            "integer literal wider than u64",
+            format!("fn main() {{ const x = {}; }}", "9".repeat(40)),
+        ),
+        (
+            "integer literal past i64 in a pattern",
+            "fn main() { switch 1 { case 999999999999999999999999999 { print_i64(1); } default { print_i64(2); } } }"
+                .to_string(),
+        ),
+        (
+            "the i64::MIN literal, which is the one negation that fits",
+            "fn main() { print_i64(-9223372036854775808); }".to_string(),
+        ),
+        (
             "float literal past f64",
             "fn main() { const x = 1e999; }".to_string(),
         ),

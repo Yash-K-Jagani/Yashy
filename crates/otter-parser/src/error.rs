@@ -183,6 +183,18 @@ pub fn unreadable_text(span: Span) -> ParseError {
     ParseError::new(span, "this could not be read as text from the source file")
 }
 
+/// A float literal whose text does not parse as an `f64`.
+///
+/// Unreachable while the lexer emits `F64` only for `digits.digits`, which
+/// `str::parse` always accepts -- an absurd magnitude becomes an infinity rather
+/// than a failure. It exists anyway so that the parser never has to answer the
+/// question with a fallback: `unwrap_or(0.0)` would compile a literal it could
+/// not read into a silently wrong number, which is the same bug the integer form
+/// had, and "unreachable today" is not a promise the lexer has made.
+pub fn invalid_float_literal(span: Span) -> ParseError {
+    ParseError::new(span, "the text is not a float literal")
+}
+
 /// The delimiter that closes `kind`, for the unclosed-delimiter message.
 ///
 /// `TokenKind::spelling` answers the same question for the tokens that have a
@@ -253,6 +265,7 @@ mod tests {
             item_expected(TokenKind::At, span),
             nested_too_deep(span),
             unreadable_text(span),
+            invalid_float_literal(span),
         ];
         for e in &diags {
             let d = e.to_diagnostic(file());

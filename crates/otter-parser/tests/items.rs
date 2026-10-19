@@ -1604,3 +1604,69 @@ fn an_interpolated_string_cannot_be_a_pattern() {
         all_messages(&diags)
     );
 }
+
+// -- integer literals that do not fit ----------------------------------------
+
+#[test]
+fn an_integer_literal_that_does_not_fit_an_i64_is_a_diagnostic_not_a_zero() {
+    // An `I64` token carries no value, so every reader of integer digits has to
+    // answer what out-of-range digits mean, and the tempting answer --
+    // `text.parse::<i64>().unwrap_or(0)` -- compiles `9223372036854775808` into a
+    // silently wrong `0`. That is the worst outcome a compiler has: a wrong
+    // answer that looks like a right one. The lexer answers the question once
+    // (`literal_as_i64`) and the parser asks it.
+    let src = "fn main() { print_i64(9223372036854775808); }";
+    let diags = parse_err(src);
+    assert!(
+        all_messages(&diags).contains("integer literal does not fit an i64"),
+        "expected the lexer's wording: {}",
+        all_messages(&diags)
+    );
+    assert_eq!(
+        diags[0].span,
+        span_of(src, "9223372036854775808"),
+        "the caret belongs under the digits"
+    );
+}
+
+#[test]
+fn an_integer_pattern_that_does_not_fit_is_a_diagnostic_too() {
+    // The same question is asked when a `case` arm's arm is a number, and it has
+    // the same wrong answer available: a pattern compiled to `0` matches a value
+    // the user never named.
+    let diags = parse_err("fn f() { switch 1 { case 99999999999999999999 { print_i64(1); } } }");
+    assert!(
+        all_messages(&diags).contains("integer literal does not fit an i64"),
+        "{}",
+        all_messages(&diags)
+    );
+}
+
+#[test]
+fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
+    // `-9223372036854775808` is the one integer a leading minus makes readable
+    // that the digits alone are not: they are one past `i64::MAX`, so the literal
+    // under the minus cannot stand on its own and `i64::MIN` would have no
+    // spelling at all. The fold is narrow -- the digits must be out of range *and*
+    // negate into range -- so `-5` is still a negation of `5`.
+    let src = "fn f() { const big = -9223372036854775808; const small = -5; }";
+    let prog = parse_ok(src);
+    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
+    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
+    match init {
+        Expr::Literal(Literal::I64(value), span) => {
+            assert_eq!(*value, i64::MIN);
+            assert_eq!(
+                *span,
+                span_of(src, "-9223372036854775808"),
+                "the span covers the minus, not just the digits"
+            );
+        }
+        other => panic!("expected a folded i64::MIN literal, got {other:?}"),
+    }
+    let Stmt::Const { init, .. } = &body.stmts[1] else { panic!("expected const") };
+    assert!(
+        matches!(init, Expr::Unary { op: UnOp::Neg, .. }),
+        "`-5` stays a negation: {init:?}"
+    );
+}

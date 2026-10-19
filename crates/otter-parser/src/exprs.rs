@@ -109,6 +109,26 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::Minus) {
             let minus_span = self.peek_span();
             self.advance();
+            // `-9223372036854775808` is the one integer a leading minus makes
+            // readable that the digits alone are not: the digits are one past
+            // `i64::MAX`, so the literal under the minus cannot stand on its own
+            // and `i64::MIN` would have no spelling at all. Folding the minus
+            // into the literal here is what gives it one. Every other
+            // out-of-range magnitude is left to `parse_primary`, which reports
+            // it; and a magnitude that fits stays a negation of that magnitude,
+            // because that is what the reader wrote.
+            if self.check(TokenKind::I64) {
+                let digits_span = self.peek_span();
+                if self.text(digits_span)?.parse::<i64>().is_err() {
+                    if let Ok(magnitude) = self.text(digits_span)?.parse::<u64>() {
+                        if magnitude == i64::MAX as u64 + 1 {
+                            self.advance();
+                            let span = cover(minus_span, digits_span);
+                            return Ok(Expr::Literal(Literal::I64(i64::MIN), span));
+                        }
+                    }
+                }
+            }
             let operand = self.parse_unary()?;
             let span = cover(minus_span, expr_span(&operand));
             return Ok(Expr::Unary { op: UnOp::Neg, operand: Box::new(operand), span });
@@ -238,14 +258,12 @@ impl<'src> Parser<'src> {
         match self.peek() {
             TokenKind::I64 => {
                 let tok = self.advance();
-                let text = self.text(tok.span).unwrap_or_default();
-                let val = text.parse::<i64>().unwrap_or(0);
+                let val = self.integer_literal(tok.span)?;
                 Ok(Expr::Literal(Literal::I64(val), tok.span))
             }
             TokenKind::F64 => {
                 let tok = self.advance();
-                let text = self.text(tok.span).unwrap_or_default();
-                let val = text.parse::<f64>().unwrap_or(0.0);
+                let val = self.float_literal(tok.span)?;
                 Ok(Expr::Literal(Literal::F64(val), tok.span))
             }
             TokenKind::Str => {

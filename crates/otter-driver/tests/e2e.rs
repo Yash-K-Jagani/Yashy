@@ -896,3 +896,101 @@ fn a_panic_prints_its_message_and_the_position_it_was_written_at() {
         "nothing after the panic may run:\n{stderr}"
     );
 }
+
+#[test]
+fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
+    // `9223372036854775808` is one past `i64::MAX` and a number a user can type by
+    // accident. Compiling it to `0` would be a wrong answer wearing the clothes of
+    // a right one, so the whole CLI is pinned here: the diagnostic names the
+    // literal and the caret sits under it, and nothing is emitted.
+    let dir = work_dir("huge-literal");
+    let source = dir.join("huge_literal.ot");
+    fs::write(
+        &source,
+        "fn main() {\n    print_i64(9223372036854775808);\n}\n",
+    )
+    .expect("write huge_literal.ot");
+
+    let exe = dir.join(format!("huge_literal{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+
+    assert_eq!(compile.status.code(), Some(1), "the literal cannot compile");
+    let stderr = stderr_of(&compile);
+    assert!(
+        stderr.contains("integer literal does not fit an i64"),
+        "the diagnostic must name the mistake:\n{stderr}"
+    );
+    // The caret is checked for position, not just for existence: it has to sit
+    // under the digits, and cover all nineteen of them. A caret one column off
+    // points at `(` and is worse than none.
+    let lines: Vec<&str> = stderr.lines().collect();
+    let underline = lines
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with('^') && trimmed.chars().all(|c| c == '^')
+        })
+        .unwrap_or_else(|| panic!("expected a caret line underlining the literal:\n{stderr}"));
+    let carets = lines[underline];
+    let source_line = lines[underline - 1];
+    let column = |line: &str| line.len() - line.trim_start().len();
+    assert_eq!(
+        column(carets),
+        source_line.find("9223372036854775808").unwrap_or(usize::MAX),
+        "the caret must start under the first digit:\n{stderr}"
+    );
+    assert_eq!(
+        carets.trim().len(),
+        "9223372036854775808".len(),
+        "one caret per digit:\n{stderr}"
+    );
+    assert!(
+        !exe.is_file(),
+        "a rejected program must not produce an executable at {}",
+        exe.display()
+    );
+}
+
+#[test]
+fn the_smallest_i64_can_be_written_and_printed() {
+    // `-9223372036854775808` is the one integer a leading minus makes readable
+    // that its digits alone are not: the digits are one past `i64::MAX`, so the
+    // literal under the minus cannot stand on its own and `i64::MIN` would have
+    // no spelling at all without the fold. It is also the value that makes
+    // `x / -1` a fault, so it has to be writable for that path to be testable.
+    let dir = work_dir("i64-min");
+    let source = dir.join("i64_min.ot");
+    fs::write(
+        &source,
+        "fn main() {\n    print_i64(-9223372036854775808);\n    print_str(\"\\n\");\n}\n",
+    )
+    .expect("write i64_min.ot");
+    let exe = dir.join(format!("i64_min{}", std::env::consts::EXE_SUFFIX));
+
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "compiling i64_min.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run(&exe);
+    assert_eq!(
+        stdout_of(&output),
+        "-9223372036854775808\n",
+        "the folded literal must survive to run time"
+    );
+    assert_eq!(output.status.code(), Some(0));
+}

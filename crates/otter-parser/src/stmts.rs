@@ -358,14 +358,12 @@ impl<'src> Parser<'src> {
         // Literal patterns
         if self.check(TokenKind::I64) {
             let tok = self.advance();
-            let text = self.text(tok.span).unwrap_or_default();
-            let val = text.parse::<i64>().unwrap_or(0);
+            let val = self.integer_literal(tok.span)?;
             return Ok(Pattern::Literal(Literal::I64(val), tok.span));
         }
         if self.check(TokenKind::F64) {
             let tok = self.advance();
-            let text = self.text(tok.span).unwrap_or_default();
-            let val = text.parse::<f64>().unwrap_or(0.0);
+            let val = self.float_literal(tok.span)?;
             return Ok(Pattern::Literal(Literal::F64(val), tok.span));
         }
         if self.check(TokenKind::True) {
