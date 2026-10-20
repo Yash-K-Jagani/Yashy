@@ -2,6 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: delivered, boxes historical.** This plan predates the As built
+> convention the later phase plans use, so its step boxes were never maintained
+> and stay as written. What is in the tree: every crate and golden file the
+> tasks name, the CLI and end-to-end programs (`hello.ot`, `option.ot`,
+> `result.ot`, `fib.ot`, `hanoi.ot`), both amendments (performance and
+> build-time rounds), the deterministic no-panic suite
+> (`crates/otter-driver/tests/never_panics.rs`), and the `cargo-fuzz` package
+> (`fuzz/`, two targets). One step is not done: Task 14 Step 6, the two
+> 120-second fuzz runs, needs `cargo +nightly fuzz` and only stable toolchains
+> are installed; the decision recorded for this project is that fuzzing is
+> outside the gate. The milestone's Definition of Done was verified at sign-off
+> and is re-verified by the current `cargo check --workspace --all-targets` and
+> `cargo test --workspace` runs.
+
 **Goal:** Build a working Rust compiler front-end and LLVM text-emission backend that compiles Otter programs — integers, floats, bools, strings, structs, enums, pattern matching, `Option`, `Result`, and control flow — to native binaries.
 
 **Architecture:** A Cargo workspace of seven crates, one per pipeline stage, with `otter-common` at the base owning byte spans and diagnostics. Source flows bytes → tokens → AST → typed HIR → LLVM IR text → `llc`/`clang` → native executable. Each crate is independently testable; `otter-sema` never emits code and `otter-codegen` never makes type decisions.

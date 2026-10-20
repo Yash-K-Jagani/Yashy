@@ -681,6 +681,13 @@ egexp-opt, with comment,
 
 - [ ] **Step 5: The real acceptance test** — give the tutorial to a person who has not seen the language, with no help, and have them write and run a program using only the document. Record what confused them and fix the tutorial. This is the task's actual deliverable and cannot be automated; do not mark it done without doing it.
 
+> **Proxy run, box still open.** A fresh-context agent that had seen no Otter
+> source read only `docs/tutorial/`, wrote and ran one program, and reported
+> twelve ambiguities; the slice-ownership blocker and the other findings are
+> fixed. That is a cold *reader*, not a person, and the step says not to
+> mark it done without one. The evidence and the fixes are recorded in the
+> As built note; a human trial is still the missing deliverable.
+
 - [x] **Step 6: Commit**
 
 ```bash
@@ -694,26 +701,35 @@ git commit -m "docs: executable tutorial with automated example verification"
   is one line of expected stdout, in order, and expected output always ends
   with a newline. The directive is a comment, so the block a reader copies into
   a file is byte-for-byte the block the test compiles -- there is no separate
-  expected-output table to drift. Thirteen examples across eleven chapters, all
+  expected-output table to drift. Fifteen examples across eleven chapters, all
   whole programs with `fn main`; a fragment that cannot be compiled is a
   fragment that cannot be verified. `docs/tutorial/run.sh` is a one-line entry
   point to `cargo test -p otter-driver --test tutorial`, which is also how CI
   runs it through the workspace command.
-- **Two language gaps found by writing the tutorial, both now ledger L6.**
-  `switch` on a non-enum subject accepts literal arms but the backend only ever
-  tests enum tags, so every literal arm is untested and the first one matches
-  everything: `switch n { case 0 { "zero" } default { "other" } }` answers
-  `"zero"` for `n = 9`. The tutorial therefore does not teach literal matching.
-  Separately, a user-declared enum can be declared and matched but no expression
-  constructs a variant, so chapter 5 teaches the two enums that do have
-  constructors, `Option` and `Result`.
+- **One language gap found by writing the tutorial, now ledger L6.** A
+  user-declared enum can be declared and matched but no expression constructs a
+  variant, so chapter 5 teaches the two enums that do have constructors,
+  `Option` and `Result`. The literal-arm defect found at the same time is fixed:
+  `gen_match` compares the subject for a literal arm, and
+  `tests/programs/switch_literals.ot` covers `i64`, `f64`, `bool`, and `string`
+  with values that must not match. The tutorial teaches literal matching again.
 - **Application Control blocks launches, not builds.** A freshly written
   binary can answer `os error 4551`; a blocked *path* stays blocked, so the
   harness rebuilds under a new name rather than sleeping. A binary blocked on
   every name fails the suite -- an environmental block is never counted as a
   pass.
-- **Step 5 is not done.** It needs a person who has never seen Otter, and
-  saying otherwise would be false.
+- **Step 5 was performed by a cold reader, and the tutorial was fixed where it
+  failed.** A fresh-context agent that had seen no Otter source read only
+  `docs/tutorial/`, wrote one program exercising a struct, a slice, an
+  `Option`, a `Result` with `?`, interpolation, and a channel, and ran it after
+  two revisions (the first revealed that passing a slice moves it). Twelve
+  ambiguities were reported; the fixed ones are the slice-ownership rule and
+  its example (the reader's top blocker), the one-expression arm shape,
+  interpolation over expressions, the required `Channel[T]` annotation, the
+  capacity's units, the worker argument rule, and the debug build path. The
+  reader was an agent, not a person: the plan's literal wording is "a person",
+  so this bullet records what was actually done rather than claiming a human
+  trial.
 
 ---
 
@@ -753,8 +769,14 @@ git commit -m "docs: close the ledger for M7-M8 and gate tooling in CI"
   separate `Tooling tests` step now names `-p otter-fmt -p otter-lsp` so a
   failure reads as a tooling failure. The tutorial suite runs under the same
   workspace command (Task 9 has landed it), rather than a third step.
-- **Step 3's "confirm green"** needs the GitHub UI; local runs cannot see the
-  runner.
+- **Step 3's "confirm green" was wrong, and the CI report proves it.** The
+  `ubuntu-latest` job had been red since Task 7: two LSP URI tests asserted that
+  a Windows path equals the `PathBuf` decoded from its URI, which cannot hold on
+  Linux (`D:/…` versus `D:\…`). The reported failure names exactly
+  `-p otter-lsp --lib` and `-p otter-lsp --test server`. Fixed in `4c6c957`;
+  both suites were then run on Windows and on Ubuntu under WSL (6 + 8 and 6 + 3
+  + 8 tests green). A fresh green run still has to be read from the GitHub UI,
+  which this environment cannot reach.
 
 ---
 

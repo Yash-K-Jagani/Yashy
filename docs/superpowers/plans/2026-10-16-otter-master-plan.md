@@ -570,13 +570,18 @@ Introduced in M3, unchanged until M10.
 ### L6 — Defects found while writing the tutorial
 
 The tutorial is executable, so writing it tested claims the golden files never
-did. Both entries below are real, reproducible, and not pinned by a test that
-expects the wrong answer; neither is taught by the tutorial.
+did. The entry below is real and reproducible; the tutorial does not teach the
+missing feature.
 
 | Found in | Defect | Evidence | Fix |
 |---|---|---|---|
-| M7–M8 Task 9 | **A literal `switch` arm is never tested.** `gen_match` derives one test per arm from the *variant tag*; a `HirPattern::Literal` arm yields no tag, so it becomes an untested arm. An untested arm is the fall-through target, so the first literal arm matches every value. Sema accepts the program and exhaustiveness is satisfied by `default`. | `switch n { case 0 { "zero" } default { "other" } }` prints `zero` for `n = 9` (tutorial harness, 05-patterns before the example was removed). | Give `gen_match` a second test kind: for `HirPattern::Literal(lit, _, ty)`, compare the subject to the literal (`icmp eq`/`fcmp oeq`/`icmp eq` on the `i8` for `bool`, `otter_str_eq` for `string`), and reserve the tag path for enum patterns. Add one e2e program with two literal arms, a default, and a non-matching value. |
-| M7–M8 Task 9 | **A user-declared enum has no constructor.** Sema declares the enum *name* as a binding of type `Enum(name)` and records its variants, but variant construction resolves through `Expr::Call`/`Expr::StructLit`, which look only at functions and structs. A program can therefore declare an enum and match it, but cannot make a value of it. | `enum E { A(i64) } fn main() { var x = E.A(1); }` → `cannot find function `E``; `A(1)` → `cannot find function `A``. | Resolve a dotted call path whose head names an enum (`Shape.Circle(2)`) in `check_expr`, lower it to an enum aggregate with the variant tag and payload, and add the corresponding pattern-side test. Until then the tutorial teaches `Option`/`Result`, which have constructors. |
+| M7–M8 Task 9 | **A user-declared enum has no constructor.** Sema declares the enum *name* as a binding of type `Enum(name)` and records its variants, but variant construction resolves through `Expr::Call`/`Expr::StructLit`, which look only at functions and structs. A program can therefore declare an enum and match it, but cannot make a value of it. Codegen also has no layout for one: `repr_type(Enum)` is an `i8` placeholder and `variant_tag` answers only for `Option`/`Result`, so enum matching is unreachable rather than merely wrong. | `enum E { A(i64) } fn main() { var x = E.A(1); }` reports *cannot find function* on `E`. | Resolve a dotted call path whose head names an enum (`Shape.Circle(2)`) in `check_expr`; give each enum an aggregate `{ i8, <payload per variant> }`, thread the enum table through `repr_type`/`variant_tag`/`variant_payload_index`, and add construction plus matching to the tutorial. Until then the tutorial teaches `Option`/`Result`, which have constructors and a representation. |
+
+The literal-arm defect this section used to record is fixed in the same change:
+`gen_match` now compares the subject for `HirPattern::Literal` (`icmp`, `fcmp
+oeq`, or `otter_str_eq` for `string`) instead of treating the arm as untested.
+`tests/programs/switch_literals.ot` covers all four literal types with values
+that must not match, and the tutorial teaches the form again.
 
 ---
 
