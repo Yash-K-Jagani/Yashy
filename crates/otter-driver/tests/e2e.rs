@@ -1865,3 +1865,29 @@ fn a_slice_literal_grows_and_is_freed_at_run_time() {
     assert_eq!(stdout_of(&output), "slices freed\n");
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn a_deferred_body_runs_at_its_own_scope_exit() {
+    // `defer_scope.ot` writes its `defer` before an `if`, a slice loop and a
+    // range loop. The deferred body must run exactly once, after "after\n", and
+    // not at the end of the `if` branch or of either iteration.
+    let output = build_and_run("defer_scope");
+    assert_eq!(stdout_of(&output), "if\n7 8 0 1 after\ndeferred\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn slice_operations_answer_in_options_and_iterate_in_order() {
+    // `slices_ops.ot` prints, in order: the length, the first and last
+    // elements, `None` for both ends of the range, the sum of every element, the
+    // count before a `break`, zero iterations of an empty slice, the length
+    // after three pushes made from inside the loop, two popped values, and the
+    // length that is left. The pushes inside the loop are the important ones:
+    // they prove the condition re-reads the header instead of caching it.
+    let output = build_and_run("slices_ops");
+    assert_eq!(
+        stdout_of(&output),
+        "4\n10\n40\n-1\n-1\n100\n1\n0\n4\n40\n30\n2\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+}

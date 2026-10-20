@@ -147,17 +147,29 @@ impl<'src> Parser<'src> {
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::For)?;
         // Range form: for <ident> in <expr> .. <expr> { }
+        // Slice form: for <ident> in <expr> { } -- the head is the same up to
+        // the token after the first expression.
         if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::In {
             let (name, _) = self.identifier()?;
             self.expect(TokenKind::In)?;
-            let start = self.parse_expr()?;
+            let first = self.parse_expr()?;
+            if !self.check(TokenKind::DotDot) {
+                let body = self.parse_block()?;
+                let body_span = body.span;
+                return Ok(Stmt::ForIn {
+                    name,
+                    iterable: first,
+                    body,
+                    span: cover(kw.span, body_span),
+                });
+            }
             self.expect(TokenKind::DotDot)?;
             let end = self.parse_expr()?;
             let body = self.parse_block()?;
             let body_span = body.span;
             return Ok(Stmt::ForRange {
                 name,
-                start,
+                start: first,
                 end,
                 body,
                 span: cover(kw.span, body_span),

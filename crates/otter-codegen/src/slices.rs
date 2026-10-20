@@ -1,4 +1,4 @@
-//! Slices: the literal, `push`, and `free_slice`.
+//! Slices: the literal, `push`, `pop`, indexing, `len`, and `free_slice`.
 //!
 //! A slice value is the three-word header `{ i8*, i64, i64 }` — data pointer,
 //! length, capacity — matching `otter_slice` in the runtime header. The header
@@ -102,8 +102,9 @@ fn binding_slot(ctx: &FnCtx<'_>, args: &[HirExpr]) -> Option<(String, TypeKind)>
 /// Lower `push(slice, value) -> ()`.
 ///
 /// The value is stored in a fresh slot and its address handed to the runtime,
-/// which copies `elem_size` bytes. That works for every element representation,
-/// including aggregates, without a second lowering path per type.
+/// which copies `elem_size` bytes. That is exact for every element the checker
+/// admits (numbers and `bool`); compound elements are refused until their real
+/// stride is known, so no aggregate copy can be under-sized here.
 pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
@@ -126,11 +127,131 @@ pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     unit()
 }
 
+/// Lower `len(slice) -> i64`.
+///
+/// The length is field 1 of the header value; no call is needed. A string
+/// length is still `otter_str_len` (see `strings::gen_str_len`).
+pub fn gen_len(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some(argument) = args.first() else {
+        return GenValue {
+            value: "0".to_string(),
+            ty: TypeKind::I64,
+        };
+    };
+    let header = gen_expr(ctx, argument);
+    let len = ctx.tmp();
+    ctx.push(format!(
+        "{len} = extractvalue {SLICE_REPR} {}, 1",
+        header.value
+    ));
+    GenValue {
+        value: len,
+        ty: TypeKind::I64,
+    }
+}
+
+/// Build `Option[element]` from a 0/1 flag and an initialized out slot.
+///
+/// The payload is loaded even on a miss. That is why every caller stores
+/// `zeroinitializer` into the slot first: the loaded value is then defined, and
+/// the tag is what says the payload must not be read.
+fn option_from_flag(
+    ctx: &mut FnCtx<'_>,
+    flag: &str,
+    out_slot: &str,
+    element: &TypeKind,
+    option_ty: &TypeKind,
+) -> GenValue {
+    let element_repr = repr_type(element);
+    let option_repr = repr_type(option_ty);
+    let tag = ctx.tmp();
+    ctx.push(format!("{tag} = trunc i64 {flag} to i8"));
+    let first = ctx.tmp();
+    ctx.push(format!(
+        "{first} = insertvalue {option_repr} undef, i8 {tag}, 0"
+    ));
+    let payload = ctx.tmp();
+    ctx.push(format!("{payload} = load {element_repr}, ptr {out_slot}"));
+    let done = ctx.tmp();
+    ctx.push(format!(
+        "{done} = insertvalue {option_repr} {first}, {element_repr} {payload}, 1"
+    ));
+    GenValue {
+        value: done,
+        ty: option_ty.clone(),
+    }
+}
+
+/// Lower `xs[index] -> Option[T]`.
+///
+/// The header is copied into a slot because `otter_slice_get` takes its
+/// address; the copy is a read-only snapshot, so a binding and a temporary take
+/// the same path. The runtime owns the bounds test: negative and out of range
+/// are `None`, never a fault or a wraparound.
+pub fn gen_index(
+    ctx: &mut FnCtx<'_>,
+    base: &HirExpr,
+    index: &HirExpr,
+    option_ty: &TypeKind,
+) -> GenValue {
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let header = gen_expr(ctx, base);
+    let position = gen_expr(ctx, index);
+    let header_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{header_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!(
+        "store {SLICE_REPR} {}, ptr {header_slot}",
+        header.value
+    ));
+    let element_repr = repr_type(&element.kind);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {element_repr}"));
+    ctx.push(format!(
+        "store {element_repr} zeroinitializer, ptr {out_slot}"
+    ));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_slice_get(ptr {header_slot}, i64 {}, ptr {out_slot}, i64 {})",
+        position.value,
+        size_of(&element.kind)
+    ));
+    option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower `pop(xs) -> Option[T]`.
+///
+/// Unlike indexing, this updates the binding's header in place: the runtime
+/// decrements `len` and copies the element it removed. The payload is owned by
+/// the caller because it no longer belongs to the slice.
+pub fn gen_pop(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    let Some((slot, _)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let element_repr = repr_type(&element.kind);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {element_repr}"));
+    ctx.push(format!(
+        "store {element_repr} zeroinitializer, ptr {out_slot}"
+    ));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_slice_pop(ptr {slot}, ptr {out_slot}, i64 {})",
+        size_of(&element.kind)
+    ));
+    option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
 /// Lower `free_slice(slice) -> ()`.
 ///
 /// The runtime frees the backing array and zeroes the header in the binding's
 /// slot. The checker has already moved the binding out, so the value cannot be
-/// read again.
+/// read again. Only numeric elements reach here, so nothing is released element
+/// by element.
 pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, _)) = binding_slot(ctx, args) else {
         return unit();

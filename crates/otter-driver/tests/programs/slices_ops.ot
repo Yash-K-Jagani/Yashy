@@ -1,0 +1,79 @@
+// The slice operations beyond the literal: length, indexing (always an
+// `Option`), `pop`, and iteration. Every printed line is a claim the runtime
+// can only satisfy if `get` bounds-checks, `pop` shrinks the header, and the
+// loop re-reads the header after a `push` grows the backing array.
+//
+// `show` answers -1 for `None`: `switch` arms are single expressions in this
+// milestone, so the two cases have to agree on one result type.
+fn show(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
+fn main() {
+    var xs = []i64 { 10, 20, 30 };
+    push(xs, 40);
+    print_i64(len(xs));
+    print_str("\n");
+
+    print_i64(show(xs[0]));
+    print_str("\n");
+    print_i64(show(xs[3]));
+    print_str("\n");
+    print_i64(show(xs[4]));
+    print_str("\n");
+    print_i64(show(xs[0 - 1]));
+    print_str("\n");
+
+    var sum = 0;
+    for value in xs {
+        sum = sum + value;
+    }
+    print_i64(sum);
+    print_str("\n");
+
+    var before = 0;
+    for value in xs {
+        if value == 20 {
+            break;
+        }
+        before = before + 1;
+    }
+    print_i64(before);
+    print_str("\n");
+
+    var empty = []i64 {};
+    var count = 0;
+    for value in empty {
+        count = count + 1;
+    }
+    print_i64(count);
+    print_str("\n");
+
+    // The loop must see a `push` that happens while it runs. A cached length or
+    // data pointer would stop after the first iteration (or read freed memory).
+    var growing = []i64 { 1 };
+    var pushed = 0;
+    for value in growing {
+        if pushed == 3 {
+            break;
+        }
+        push(growing, value + 1);
+        pushed = pushed + 1;
+    }
+    print_i64(len(growing));
+    print_str("\n");
+
+    print_i64(show(pop(xs)));
+    print_str("\n");
+    print_i64(show(pop(xs)));
+    print_str("\n");
+    print_i64(len(xs));
+    print_str("\n");
+
+    free_slice(empty);
+    free_slice(growing);
+    free_slice(xs);
+}

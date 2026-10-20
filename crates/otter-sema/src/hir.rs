@@ -240,6 +240,18 @@ pub enum HirStmt {
         body: HirBlock,
         span: Span,
     },
+    /// `for x in slice { .. }`: the loop variable takes each element in order.
+    ///
+    /// The backend keeps the iterable's header slot and re-reads length and data
+    /// every iteration, so a `push` in the body is visible to the next test. The
+    /// checker made sure the binding is not moved while the loop can still read
+    /// it.
+    ForIn {
+        name: String,
+        iterable: HirExpr,
+        body: HirBlock,
+        span: Span,
+    },
     ForC {
         init: Option<Box<HirStmt>>,
         cond: Option<HirExpr>,

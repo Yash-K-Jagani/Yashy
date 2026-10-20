@@ -141,3 +141,18 @@ fn a_slice_returns_its_backing_array() {
     assert_eq!(stdout, "slices freed\n");
     assert_no_leaks("slices", &output);
 }
+
+#[test]
+fn slice_operations_return_every_backing_array() {
+    // `slices_ops.ot` grows `growing` from one element to four inside the loop
+    // (three reallocations, each freeing the block it replaced), pops elements
+    // without allocating, and frees all three slices. A non-zero count here
+    // means a grow or a `free_slice` missed a block.
+    let output = build_and_run("slices_ops");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "4\n10\n40\n-1\n-1\n100\n1\n0\n4\n40\n30\n2\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("slices_ops", &output);
+}

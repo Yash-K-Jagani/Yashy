@@ -1,0 +1,24 @@
+// A `defer` belongs to the block it is written in, not to the first nested
+// block that happens to finish. The body runs once, when `main`'s block ends,
+// after every nested `if` and both loop forms have completed. Running it at the
+// end of the `if` branch or at the end of an iteration would print "deferred"
+// earlier and more than once.
+fn main() {
+    defer {
+        print_str("deferred\n");
+    }
+    if 1 == 1 {
+        print_str("if\n");
+    }
+    var xs = []i64 { 7, 8 };
+    for value in xs {
+        print_i64(value);
+        print_str(" ");
+    }
+    for i in 0..2 {
+        print_i64(i);
+        print_str(" ");
+    }
+    print_str("after\n");
+    free_slice(xs);
+}

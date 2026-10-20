@@ -142,7 +142,10 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
         }
     }
     // Fall-through: run this scope's defers -- which may read the string locals
-    // -- then release them and close the scope.
+    // -- then release them and close the scope. A caller that has just lowered a
+    // nested block must not run *its own* defers here: this function already did
+    // that for the block it was given, and doing it again from the `if` or loop
+    // would move the body to the end of the branch or of one iteration.
     run_defers(ctx);
     ctx.defers.pop();
     ctx.close_string_scope_released();
@@ -417,6 +420,12 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         HirStmt::ForRange {
             name, start, end, body, ..
         } => gen_for_range(ctx, name, start, end, body),
+        HirStmt::ForIn {
+            name,
+            iterable,
+            body,
+            ..
+        } => gen_for_in(ctx, name, iterable, body),
         HirStmt::ForC {
             init,
             cond,
@@ -503,7 +512,6 @@ fn gen_if(
 
     ctx.push(format!("{then_label}:"));
     if gen_block(ctx, then_block) == Flow::Fallthrough {
-        run_defers(ctx);
         ctx.push(format!("br label %{merge_label}"));
     }
 
@@ -574,7 +582,109 @@ fn gen_for_range(
         }
     }
     if flow == Flow::Fallthrough {
-        run_defers(ctx);
+        ctx.push(format!("br label %{inc_label}"));
+    }
+
+    ctx.push(format!("{inc_label}:"));
+    let previous = ctx.tmp();
+    ctx.push(format!("{previous} = load i64, ptr {index_slot}"));
+    let next = ctx.tmp();
+    ctx.push(format!("{next} = add i64 {previous}, 1"));
+    ctx.push(format!("store i64 {next}, ptr {index_slot}"));
+    ctx.push(format!("br label %{cond_label}"));
+
+    ctx.push(format!("{done_label}:"));
+    Flow::Fallthrough
+}
+
+/// Lower `for x in slice { .. }`.
+///
+/// The iterable is a binding (the checker requires it), so the loop can read the
+/// header through the binding's slot on every iteration. That is what makes a
+/// `push` in the body visible: a grow updates `len`, `cap` and `data` in that
+/// slot, and caching any of them before the loop would either stop early or
+/// read freed memory.
+///
+/// The element is copied into a fresh slot that the body sees as `name`. Element
+/// types the checker admits are numbers and `bool`, so the copy owns nothing and
+/// needs no retain/release at either end of the iteration.
+fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlock) -> Flow {
+    let HirExpr::Ident(path, _, _) = iterable else {
+        return Flow::Fallthrough;
+    };
+    let Some(binding) = path.last() else {
+        return Flow::Fallthrough;
+    };
+    let Some((slice_slot, slice_ty)) = ctx.locals.get(binding).cloned() else {
+        return Flow::Fallthrough;
+    };
+    let TypeKind::Slice(element) = &slice_ty else {
+        return Flow::Fallthrough;
+    };
+    let element_kind = element.kind.clone();
+    let element_repr = repr_type(&element_kind);
+    let slice_repr = repr_type(&slice_ty);
+
+    let index_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{index_slot} = alloca i64"));
+    ctx.push(format!("store i64 0, ptr {index_slot}"));
+
+    let cond_label = ctx.alloc_label_base() + "_cond";
+    let body_label = ctx.alloc_label_base() + "_body";
+    let inc_label = ctx.alloc_label_base() + "_inc";
+    let done_label = ctx.alloc_label_base() + "_done";
+
+    ctx.push(format!("br label %{cond_label}"));
+    ctx.push(format!("{cond_label}:"));
+    let len_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{len_ptr} = getelementptr {slice_repr}, ptr {slice_slot}, i32 0, i32 1"
+    ));
+    let len = ctx.tmp();
+    ctx.push(format!("{len} = load i64, ptr {len_ptr}"));
+    let current = ctx.tmp();
+    ctx.push(format!("{current} = load i64, ptr {index_slot}"));
+    let in_range = ctx.tmp();
+    ctx.push(format!("{in_range} = icmp slt i64 {current}, {len}"));
+    ctx.push(format!(
+        "br i1 {in_range}, label %{body_label}, label %{done_label}"
+    ));
+
+    ctx.push(format!("{body_label}:"));
+    let data_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{data_ptr} = getelementptr {slice_repr}, ptr {slice_slot}, i32 0, i32 0"
+    ));
+    let data = ctx.tmp();
+    ctx.push(format!("{data} = load i8*, ptr {data_ptr}"));
+    let position = ctx.tmp();
+    ctx.push(format!("{position} = load i64, ptr {index_slot}"));
+    let element_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{element_ptr} = getelementptr {element_repr}, ptr {data}, i64 {position}"
+    ));
+    let value = ctx.tmp();
+    ctx.push(format!("{value} = load {element_repr}, ptr {element_ptr}"));
+    let element_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{element_slot} = alloca {element_repr}"));
+    ctx.push(format!(
+        "store {element_repr} {value}, ptr {element_slot}"
+    ));
+    let shadowed = ctx
+        .locals
+        .insert(name.to_string(), (element_slot, element_kind));
+    ctx.loops.push((done_label.clone(), inc_label.clone()));
+    let flow = gen_block(ctx, body);
+    ctx.loops.pop();
+    match shadowed {
+        Some(previous) => {
+            ctx.locals.insert(name.to_string(), previous);
+        }
+        None => {
+            ctx.locals.remove(name);
+        }
+    }
+    if flow == Flow::Fallthrough {
         ctx.push(format!("br label %{inc_label}"));
     }
 
@@ -629,7 +739,6 @@ fn gen_for_c(
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
     if flow == Flow::Fallthrough {
-        run_defers(ctx);
         ctx.push(format!("br label %{inc_label}"));
     }
 

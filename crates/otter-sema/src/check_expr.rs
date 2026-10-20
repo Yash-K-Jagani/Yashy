@@ -75,6 +75,10 @@ pub struct Checker<'src> {
     /// dropping the call is dropping the *tree*, so that an argument with side
     /// effects is not lowered either.
     release: bool,
+    /// Names bound by an active `for x in slice` loop. Moving one of them while
+    /// the loop can still read its header would free the array the next
+    /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
+    iteration_borrows: Vec<String>,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -277,12 +281,27 @@ impl<'src> Checker<'src> {
             errors: Vec::new(),
             file,
             release: options.release,
+            iteration_borrows: Vec::new(),
             sm,
         }
     }
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push(TypeError::new(span, message));
+    }
+
+    /// Move `name` out of its binding, unless an enclosing `for-in` is reading
+    /// it. The loop re-reads the header every iteration, so a `free_slice` or
+    /// another linear transfer inside the body would leave it reading a header
+    /// whose array is gone.
+    fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
+        if self.iteration_borrows.iter().any(|borrowed| borrowed == name) {
+            return Err(TypeError::new(
+                span,
+                format!("cannot move `{name}` while it is being iterated"),
+            ));
+        }
+        self.scope.move_out(name, span)
     }
 
     /// A linear value may leave its binding only through `move`. Handing a live
@@ -910,6 +929,15 @@ impl<'src> Checker<'src> {
                 if let Expr::Index { base, index, span } = target {
                     let base = self.check_expr(base)?;
                     let base_ty = expr_ty(&base);
+                    if matches!(base_ty.kind, TypeKind::Slice(_)) {
+                        let _ = self.check_expr(value);
+                        self.error(
+                            *span,
+                            "cannot assign to a slice element: the slice does not \
+                             expose its storage; use `push` to append",
+                        );
+                        return None;
+                    }
                     let TypeKind::Ptr(pointee) = &base_ty.kind else {
                         let _ = self.check_expr(value);
                         self.error(*span, format!("cannot assign to index of `{}`", base_ty));
@@ -1107,6 +1135,64 @@ impl<'src> Checker<'src> {
                     name: name.clone(),
                     start: start_expr,
                     end: end_expr,
+                    body,
+                    span: *span,
+                })
+            }
+            Stmt::ForIn {
+                name,
+                iterable,
+                body,
+                span,
+            } => {
+                let binding = match iterable {
+                    Expr::Ident(path, _) if path.len() == 1 => {
+                        Some(path.last().cloned().unwrap_or_default())
+                    }
+                    _ => None,
+                };
+                let iterable_expr = match self.check_expr(iterable) {
+                    Some(checked) => checked,
+                    None => return None,
+                };
+                let iterable_ty = expr_ty(&iterable_expr);
+                let TypeKind::Slice(element) = &iterable_ty.kind else {
+                    self.error(
+                        *span,
+                        format!("`for` over a value must iterate a slice, found `{iterable_ty}`"),
+                    );
+                    return None;
+                };
+                let Some(binding) = binding else {
+                    self.error(
+                        *span,
+                        "`for` needs a slice binding to iterate, not a temporary or a field",
+                    );
+                    return None;
+                };
+                let element = (**element).clone();
+                if !slice_element_is_operable(&element.kind) {
+                    self.error(*span, unsupported_element_message(&element));
+                    return None;
+                }
+                self.scope.push();
+                let _ = self.scope.declare(
+                    name.clone(),
+                    Binding {
+                        ty: element,
+                        mutability: Mutability::Const,
+                        span: *span,
+                        ownership: Ownership::Live,
+                    },
+                );
+                self.iteration_borrows.push(binding);
+                let body = self.check_block_with_ret(body, ret);
+                self.iteration_borrows.pop();
+                self.scope.pop();
+                let body = body?;
+                Some(HirStmt::ForIn {
+                    name: name.clone(),
+                    iterable: iterable_expr,
                     body,
                     span: *span,
                 })
@@ -1501,13 +1587,14 @@ impl<'src> Checker<'src> {
         self.check_expr(expr)
     }
 
-    /// `push(slice, value)` and `free_slice(slice)`.
+    /// `push(slice, value)`, `pop(slice)` and `free_slice(slice)`.
     ///
-    /// These two cannot live in the fixed builtin table: their types mention
+    /// These three cannot live in the fixed builtin table: their types mention
     /// the slice's *element* type, and the table has no type parameters.
     /// `push` keeps the slice (it may reallocate the backing array, and the
-    /// header in the binding's slot is updated in place); `free_slice`
-    /// consumes it, so its receiver must be a binding and is moved out here.
+    /// header in the binding's slot is updated in place); `pop` also keeps it
+    /// and hands the last element out as an `Option`; `free_slice` consumes it,
+    /// so its receiver must be a binding and is moved out here.
     ///
     /// The outer `Option` says "this name is a slice builtin"; the inner one is
     /// the checked expression, `None` after a reported error.
@@ -1535,6 +1622,16 @@ impl<'src> Checker<'src> {
             );
             return Some(None);
         };
+        if path.len() != 1 {
+            // A field's slice header has no binding slot to update in place,
+            // and lowering looks the name up in the local map: allowing a
+            // projection here would make the call silently do nothing.
+            self.error(
+                *ident_span,
+                format!("`{name}` needs a slice binding, not a field access"),
+            );
+            return Some(None);
+        }
         let receiver = match self.check_expr(&args[0]) {
             Some(receiver) => receiver,
             None => return Some(None),
@@ -1550,7 +1647,7 @@ impl<'src> Checker<'src> {
         let element = (**element).clone();
         if name == "free_slice" {
             let binding = path.last().cloned().unwrap_or_default();
-            if let Err(error) = self.scope.move_out(&binding, *ident_span) {
+            if let Err(error) = self.move_out(&binding, *ident_span) {
                 self.error(error.span, error.message);
             }
             return Some(Some(HirExpr::Call {
@@ -1559,6 +1656,19 @@ impl<'src> Checker<'src> {
                 unsafe_call: false,
                 span,
                 ty: unit(span),
+            }));
+        }
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&receiver), unsupported_element_message(&element));
+            return Some(None);
+        }
+        if name == "pop" {
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: option(&element, span),
             }));
         }
         let value = match self.check_expr_with_expected(&args[1], &element) {
@@ -1570,6 +1680,7 @@ impl<'src> Checker<'src> {
                 expr_span(&value),
                 format!("expected `{element}`, found `{}`", expr_ty(&value)),
             );
+            return Some(None);
         }
         Some(Some(HirExpr::Call {
             callee: vec![name.to_string()],
@@ -1578,6 +1689,36 @@ impl<'src> Checker<'src> {
             span,
             ty: unit(span),
         }))
+    }
+
+    /// `len(slice) -> i64` and `len(string) -> i64`.
+    ///
+    /// The table declares only the string shape, so a slice would fail
+    /// argument matching. Checking the argument here is also what lets both
+    /// readings share one spelling without widening the table: the argument is
+    /// checked once, then the *type* decides whether this is a string length or
+    /// a header field.
+    fn check_len_builtin(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
+        if args.len() != 1 {
+            self.error(span, "`len` takes 1 argument");
+            return None;
+        }
+        let argument = self.check_expr(&args[0])?;
+        let ty = expr_ty(&argument);
+        if !matches!(ty.kind, TypeKind::Str | TypeKind::Slice(_)) {
+            self.error(
+                expr_span(&argument),
+                format!("`len` expects a string or a slice, found `{ty}`"),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["len".to_string()],
+            args: vec![argument],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::I64),
+        })
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Option<HirExpr> {
@@ -1702,7 +1843,7 @@ impl<'src> Checker<'src> {
                 if let Expr::Ident(path, ident_span) = inner.as_ref() {
                     if matches!(linearity_of(&ty.kind), Linearity::Linear) {
                         let name = path.last().cloned().unwrap_or_default();
-                        if let Err(e) = self.scope.move_out(&name, *ident_span) {
+                        if let Err(e) = self.move_out(&name, *ident_span) {
                             self.error(e.span, e.message);
                         }
                     }
@@ -1724,7 +1865,10 @@ impl<'src> Checker<'src> {
                     if let Some(constructed) = self.check_constructor(&name, args, *span, None)? {
                         return Some(constructed);
                     }
-                    if matches!(name.as_str(), "push" | "free_slice") {
+                    if name == "len" {
+                        return self.check_len_builtin(args, *span);
+                    }
+                    if matches!(name.as_str(), "push" | "free_slice" | "pop") {
                         return self.check_slice_builtin(&name, args, *span).flatten();
                     }
                 }
@@ -1786,7 +1930,7 @@ impl<'src> Checker<'src> {
                                 {
                                     if let Expr::Ident(path, arg_span) = arg {
                                         let arg_name = path.last().cloned().unwrap_or_default();
-                                        if let Err(e) = self.scope.move_out(&arg_name, *arg_span) {
+                                        if let Err(e) = self.move_out(&arg_name, *arg_span) {
                                             self.error(e.span, e.message);
                                         }
                                     }
@@ -2005,23 +2149,20 @@ impl<'src> Checker<'src> {
             }
             Expr::Index { base, index, span } => {
                 // `p[i]` reads (or, in an assignment target, writes) an
-                // element of a pointer. Otter has no arrays yet, so the base
-                // is always a `*mut i64` and the index an `i64`; the result
-                // is `i64`.
+                // element of a pointer, and always an `i64`. `xs[i]` reads an
+                // element of a slice and is *always* an `Option`: indexing
+                // never traps, and out of range including negative is `None`.
                 let base = self.check_expr(base)?;
                 let base_ty = expr_ty(&base);
-                let TypeKind::Ptr(pointee) = &base_ty.kind else {
-                    self.error(*span, format!("cannot index `{}`", base_ty));
-                    return None;
+                let (element, is_slice) = match &base_ty.kind {
+                    TypeKind::Ptr(pointee) => ((**pointee).clone(), false),
+                    TypeKind::Slice(element) => ((**element).clone(), true),
+                    _ => {
+                        self.error(*span, format!("cannot index `{base_ty}`"));
+                        return None;
+                    }
                 };
                 let index = self.check_expr(index)?;
-                if !matches!(pointee.kind, TypeKind::I64) {
-                    self.error(
-                        *span,
-                        format!("only `*mut i64` can be indexed, found `*mut {}`", pointee),
-                    );
-                    return None;
-                }
                 if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
                     self.error(
                         expr_span(&index),
@@ -2029,11 +2170,27 @@ impl<'src> Checker<'src> {
                     );
                     return None;
                 }
+                let ty = if is_slice {
+                    if !slice_element_is_operable(&element.kind) {
+                        self.error(*span, unsupported_element_message(&element));
+                        return None;
+                    }
+                    option(&element, *span)
+                } else {
+                    if !matches!(element.kind, TypeKind::I64) {
+                        self.error(
+                            *span,
+                            format!("only `*mut i64` can be indexed, found `*mut {element}`"),
+                        );
+                        return None;
+                    }
+                    prim(TypeKind::I64)
+                };
                 Some(HirExpr::Index {
                     base: Box::new(base),
                     index: Box::new(index),
                     span: *span,
-                    ty: prim(TypeKind::I64),
+                    ty,
                 })
             }
             Expr::FieldAccess { base, field, span } => {
@@ -2702,6 +2859,49 @@ fn i64_pair() -> Vec<Type> {
 /// stopping the program.
 fn option_i64() -> Type {
     prim(TypeKind::Option(Box::new(prim(TypeKind::I64))))
+}
+
+/// `Option[payload]`, with a real span for the diagnostic that points at it.
+fn option(payload: &Type, span: Span) -> Type {
+    Type {
+        kind: TypeKind::Option(Box::new(payload.clone())),
+        span,
+    }
+}
+
+/// Whether a slice of `kind` can be pushed to, indexed, popped and iterated in
+/// M6.
+///
+/// Only numbers and `bool` qualify. A compound element (`Option`, `Result`,
+/// a struct, an enum) needs its real layout as a stride, which
+/// `otter_codegen::ir::size_of` does not have, and a `string` element would
+/// need reference counting at every insertion and removal. Refusing those where
+/// they would be *used* keeps an empty `[]string {}` a legal value while no
+/// operation can copy a reference without owning it.
+fn slice_element_is_operable(kind: &TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::I64
+            | TypeKind::F64
+            | TypeKind::Bool
+            | TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+    )
+}
+
+/// The diagnostic for an element kind [`slice_element_is_operable`] rejects.
+fn unsupported_element_message(element: &Type) -> String {
+    if matches!(element.kind, TypeKind::Str) {
+        format!(
+            "a slice of `string` is not supported yet: `{element}` elements would need reference counting"
+        )
+    } else {
+        format!(
+            "a slice of `{element}` is not supported yet: only numbers and `bool` can be elements"
+        )
+    }
 }
 
 /// Whether a value of type `found` may stand where `expected` is wanted.

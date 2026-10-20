@@ -36,6 +36,103 @@ fn a_slice_literal_checks_every_element_against_its_written_type() {
 }
 
 #[test]
+fn len_reads_a_slice_and_a_string() {
+    check(
+        "fn main() { var xs = []i64 { 1, 2 }; var n: i64 = len(xs); \
+         var s = \"ab\"; var m: i64 = len(s); }",
+    )
+    .expect("`len` is the same spelling for both inputs");
+}
+
+#[test]
+fn len_rejects_a_number() {
+    assert_rejected("fn main() { var n = len(1); }", "expects a string or a slice");
+}
+
+#[test]
+fn indexing_a_slice_yields_an_option() {
+    check(
+        "fn main() { var xs = []i64 { 1 }; var first: Option[i64] = xs[0]; \
+         var missing: Option[i64] = xs[9]; }",
+    )
+    .expect("an index is always an Option, in and out of range");
+}
+
+#[test]
+fn a_slice_element_cannot_be_assigned() {
+    assert_rejected(
+        "fn main() { var xs = []i64 { 1 }; xs[0] = 2; }",
+        "cannot assign to a slice element",
+    );
+}
+
+#[test]
+fn pop_yields_the_element_in_an_option() {
+    check("fn main() { var xs = []i64 { 1 }; var last: Option[i64] = pop(xs); }")
+        .expect("`pop` hands the last element out or `None`");
+}
+
+#[test]
+fn pop_needs_a_slice_binding() {
+    assert_rejected(
+        "fn main() { var last = pop([]i64 { 1 }); }",
+        "needs a slice binding",
+    );
+}
+
+#[test]
+fn for_in_binds_the_element_type() {
+    check("fn main() { var xs = []i64 { 1 }; for x in xs { var y: i64 = x; } }")
+        .expect("the loop variable has the element type");
+}
+
+#[test]
+fn for_in_over_a_non_slice_is_rejected() {
+    assert_rejected("fn main() { for x in 1 { } }", "must iterate a slice");
+}
+
+#[test]
+fn for_in_over_a_temporary_is_rejected() {
+    assert_rejected(
+        "fn main() { for x in []i64 { 1 } { } }",
+        "slice binding",
+    );
+}
+
+#[test]
+fn moving_the_slice_while_iterating_is_rejected() {
+    assert_rejected(
+        "fn main() { var xs = []i64 { 1 }; for x in xs { free_slice(xs); } }",
+        "while it is being iterated",
+    );
+}
+
+#[test]
+fn iterating_a_slice_of_strings_is_rejected() {
+    assert_rejected(
+        "fn main() { var xs = []string {}; for x in xs { } }",
+        "not supported yet",
+    );
+}
+
+#[test]
+fn a_field_slice_cannot_be_used_where_a_binding_is_needed() {
+    // A slice field has no binding slot: `push` needs one to update the header
+    // in place. Lowering looks names up in the local map, so accepting a
+    // projection would make the call silently do nothing.
+    assert_rejected(
+        "struct S { items: []i64 }\n\
+         fn main() { var s = S { items: []i64 {} }; push(s.items, 1); }",
+        "not a field access",
+    );
+    assert_rejected(
+        "struct S { items: []i64 }\n\
+         fn main() { var s = S { items: []i64 {} }; for x in s.items { } }",
+        "not a temporary",
+    );
+}
+
+#[test]
 fn a_wrong_element_type_is_reported() {
     assert_rejected(
         r#"fn main() { var xs = []i64 { 1, "two" }; free_slice(xs); }"#,

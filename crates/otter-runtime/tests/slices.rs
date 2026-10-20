@@ -8,7 +8,9 @@
 use std::ffi::c_void;
 use std::ptr::null_mut;
 
-use otter_runtime::{otter_slice_free, otter_slice_push, OtterSlice};
+use otter_runtime::{
+    otter_slice_free, otter_slice_get, otter_slice_pop, otter_slice_push, OtterSlice,
+};
 
 /// The `i64` elements currently in `slice`.
 unsafe fn values(slice: &OtterSlice) -> Vec<i64> {
@@ -98,5 +100,91 @@ fn pushing_into_a_null_slice_is_ignored() {
             &value as *const i64 as *const c_void,
             8,
         );
+    }
+}
+
+unsafe fn sliced(values: &[i64]) -> OtterSlice {
+    let mut slice = OtterSlice::default();
+    for value in values {
+        otter_slice_push(&mut slice, value as *const i64 as *const c_void, 8);
+    }
+    slice
+}
+
+#[test]
+fn get_copies_an_element_that_is_in_range() {
+    unsafe {
+        let mut slice = sliced(&[10, 20, 30]);
+        let mut out = 0_i64;
+        let found = otter_slice_get(
+            &mut slice,
+            1,
+            &mut out as *mut i64 as *mut c_void,
+            8,
+        );
+        assert_eq!(found, 1);
+        assert_eq!(out, 20);
+        otter_slice_free(&mut slice);
+    }
+}
+
+#[test]
+fn get_is_none_for_negative_out_of_range_and_empty() {
+    unsafe {
+        let mut slice = sliced(&[10]);
+        for index in [-1_i64, 1, 100] {
+            let mut out = 0_i64;
+            let found = otter_slice_get(
+                &mut slice,
+                index,
+                &mut out as *mut i64 as *mut c_void,
+                8,
+            );
+            assert_eq!(found, 0, "index {index} is outside [0, len)");
+            assert_eq!(out, 0, "a miss does not overwrite the out slot");
+        }
+
+        let mut empty = OtterSlice::default();
+        let mut out = 0_i64;
+        assert_eq!(
+            otter_slice_get(&mut empty, 0, &mut out as *mut i64 as *mut c_void, 8),
+            0
+        );
+        assert_eq!(
+            otter_slice_get(null_mut(), 0, &mut out as *mut i64 as *mut c_void, 8),
+            0
+        );
+        otter_slice_free(&mut slice);
+    }
+}
+
+#[test]
+fn pop_takes_the_last_element_and_shrinks_the_slice() {
+    unsafe {
+        let mut slice = sliced(&[10, 20, 30]);
+        let mut out = 0_i64;
+        assert_eq!(
+            otter_slice_pop(&mut slice, &mut out as *mut i64 as *mut c_void, 8),
+            1
+        );
+        assert_eq!(out, 30);
+        assert_eq!(slice.len, 2);
+        assert_eq!(
+            otter_slice_pop(&mut slice, &mut out as *mut i64 as *mut c_void, 8),
+            1
+        );
+        assert_eq!(out, 20);
+        assert_eq!(
+            otter_slice_pop(&mut slice, &mut out as *mut i64 as *mut c_void, 8),
+            1
+        );
+        assert_eq!(out, 10);
+        assert_eq!(slice.len, 0);
+        assert_eq!(
+            otter_slice_pop(&mut slice, &mut out as *mut i64 as *mut c_void, 8),
+            0,
+            "an empty slice has nothing to pop"
+        );
+        otter_slice_free(&mut slice);
     }
 }

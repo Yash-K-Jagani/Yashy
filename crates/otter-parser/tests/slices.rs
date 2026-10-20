@@ -81,3 +81,44 @@ fn an_empty_slice_literal_is_still_typed() {
         other => panic!("expected a slice literal, got {other:?}"),
     }
 }
+
+fn statements(src: &str) -> Vec<Stmt> {
+    let program = parse(src);
+    let item = program.items.into_iter().next().expect("one item");
+    let Item::Fn { body, .. } = item else {
+        panic!("expected a function");
+    };
+    body.stmts
+}
+
+#[test]
+fn for_in_over_a_slice_binds_one_name() {
+    let stmts = statements("fn main() { var xs = []i64 { 1 }; for x in xs { print_i64(x); } }");
+    match &stmts[1] {
+        Stmt::ForIn {
+            name, iterable, ..
+        } => {
+            assert_eq!(name, "x");
+            assert!(
+                matches!(iterable, Expr::Ident(path, _) if path == &["xs".to_string()]),
+                "the iterable is the slice binding: {iterable:?}"
+            );
+        }
+        other => panic!("expected `for x in xs`, got {other:?}"),
+    }
+}
+
+#[test]
+fn for_in_still_reads_the_range_form() {
+    let stmts = statements("fn main() { for i in 0..3 { print_i64(i); } }");
+    match &stmts[0] {
+        Stmt::ForRange {
+            name, start, end, ..
+        } => {
+            assert_eq!(name, "i");
+            assert!(matches!(start, Expr::Literal(otter_parser::ast::Literal::I64(0), _)));
+            assert!(matches!(end, Expr::Literal(otter_parser::ast::Literal::I64(3), _)));
+        }
+        other => panic!("expected the range form, got {other:?}"),
+    }
+}

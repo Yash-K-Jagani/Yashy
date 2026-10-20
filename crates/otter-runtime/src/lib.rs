@@ -142,6 +142,27 @@ unsafe extern "C" {
     pub fn otter_slice_free(slice: *mut OtterSlice);
 }
 
+unsafe extern "C" {
+    /// Copies the element at `index` into `out` and returns 1, or returns 0
+    /// when `index` is outside `[0, len)`.
+    pub fn otter_slice_get(
+        slice: *mut OtterSlice,
+        index: c_longlong,
+        out: *mut c_void,
+        element_size: c_longlong,
+    ) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Removes and copies the last element, returning 1, or returns 0 when the
+    /// slice is empty.
+    pub fn otter_slice_pop(
+        slice: *mut OtterSlice,
+        out: *mut c_void,
+        element_size: c_longlong,
+    ) -> c_longlong;
+}
+
 // The string half of the contract. A `string` value is a pointer to an
 // `OtterStr` in both the IR and here, so Rust tests can drive the same linked
 // operations the generated code calls.

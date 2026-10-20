@@ -358,6 +358,20 @@ pub enum Stmt {
         body: Block,
         span: Span,
     },
+    /// `for x in slice { .. }` -- every element of a slice, in order.
+    ///
+    /// The same head as [`Stmt::ForRange`] without a `..` after the first
+    /// expression, so the parser decides between the two by one token. The
+    /// iterable must stay a *binding*: the loop reads the header each
+    /// iteration, which is what makes a `push` inside the body visible, and a
+    /// temporary has no stable header to read. The checker enforces that and
+    /// rejects moving the slice while the loop can still read it.
+    ForIn {
+        name: String,
+        iterable: Expr,
+        body: Block,
+        span: Span,
+    },
     /// `for i := 0; i < 10; step(i) { .. }`
     ///
     /// Each of the three parts is optional -- `for ;; { .. }` is legal -- so

@@ -224,6 +224,8 @@ impl Module {
         // The slice half of ledger L1's M6 block. Declared up front for the
         // same reason as the string set: an unused `declare` is legal IR.
         out.push_str("declare void @otter_slice_push(ptr, ptr, i64)\n");
+        out.push_str("declare i64 @otter_slice_get(ptr, i64, ptr, i64)\n");
+        out.push_str("declare i64 @otter_slice_pop(ptr, ptr, i64)\n");
         out.push_str("declare void @otter_slice_free(ptr)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every

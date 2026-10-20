@@ -83,6 +83,78 @@ fn freeing_a_slice_calls_the_runtime_with_the_binding() {
     );
 }
 
+#[test]
+fn len_of_a_slice_extracts_the_length_field() {
+    let ir = emit("fn main() { var xs = []i64 { 1, 2 }; print_i64(len(xs)); }");
+    assert!(
+        ir.contains("extractvalue { i8*, i64, i64 } %t") && ir.contains(", 1"),
+        "the length is field 1 of the header, with no call:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call i64 @otter_str_len"),
+        "a slice length is not a string length:\n{ir}"
+    );
+}
+
+#[test]
+fn indexing_calls_the_runtime_and_builds_an_option() {
+    let ir = emit(
+        "fn main() { var xs = []i64 { 7 }; \
+         var o = switch xs[0] { case Some(v) { v } case None { 0 } }; \
+         print_i64(o); }",
+    );
+    assert!(
+        ir.contains("call i64 @otter_slice_get(ptr") && ir.contains(", i64 8)"),
+        "`get` takes the header, the index and the element size:\n{ir}"
+    );
+    assert!(
+        ir.contains("insertvalue { i8, i64 } undef, i8"),
+        "the answer is an `Option[i64]` with its tag:\n{ir}"
+    );
+}
+
+#[test]
+fn a_negative_index_reaches_the_runtime_as_written() {
+    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs[0 - 1]; free_slice(xs); }");
+    assert!(
+        (ir.contains("sub i64 0, 1") || ir.contains("i64 -1"))
+            && ir.contains("@otter_slice_get"),
+        "the runtime decides whether a negative index is in range:\n{ir}"
+    );
+}
+
+#[test]
+fn pop_calls_the_runtime_with_the_binding() {
+    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = pop(xs); free_slice(xs); }");
+    assert!(
+        ir.contains("call i64 @otter_slice_pop(ptr %slot") && ir.contains(", i64 8)"),
+        "pop updates the header in place and copies the element out:\n{ir}"
+    );
+}
+
+#[test]
+fn for_in_branches_on_the_length_and_reloads_the_header() {
+    let ir = emit(
+        "fn main() { var xs = []i64 { 1 }; var s = 0; for x in xs { s = s + x; } print_i64(s); }",
+    );
+    let cond = ir
+        .split("_cond:")
+        .nth(1)
+        .unwrap_or_else(|| panic!("a loop condition block:\n{ir}"));
+    assert!(
+        cond.contains("load i64") && cond.contains("icmp slt i64"),
+        "the condition compares the index with the current length:\n{ir}"
+    );
+    let body = ir
+        .split("_body:")
+        .nth(1)
+        .unwrap_or_else(|| panic!("a loop body block:\n{ir}"));
+    assert!(
+        body.contains("getelementptr i64, ptr"),
+        "the body reloads the data pointer each iteration:\n{ir}"
+    );
+}
+
 /// Directory holding the `.ot` inputs and `.ll` expectations.
 fn golden_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden")
@@ -117,11 +189,11 @@ fn normalize_host_header(ir: &str) -> String {
         + "\n"
 }
 
-#[test]
-fn golden_slices_matches_the_pinned_contract() {
-    let input = read_lf_only(&golden_dir().join("slices.ot"));
+/// Compare (or, under `UPDATE_GOLDEN=1`, rewrite) one pinned program.
+fn golden_case(name: &str) {
+    let input = read_lf_only(&golden_dir().join(format!("{name}.ot")));
     let actual = normalize_host_header(&emit(&input));
-    let expected_path = golden_dir().join("slices.expected.ll");
+    let expected_path = golden_dir().join(format!("{name}.expected.ll"));
     if updating_goldens() {
         std::fs::write(&expected_path, &actual)
             .unwrap_or_else(|e| panic!("cannot write {}: {e}", expected_path.display()));
@@ -133,4 +205,14 @@ fn golden_slices_matches_the_pinned_contract() {
         "generated IR drifted from the pinned contract; \
          rerun with UPDATE_GOLDEN=1 only after checking the diff"
     );
+}
+
+#[test]
+fn golden_slices_matches_the_pinned_contract() {
+    golden_case("slices");
+}
+
+#[test]
+fn golden_slice_operations_match_the_pinned_contract() {
+    golden_case("slices_ops");
 }

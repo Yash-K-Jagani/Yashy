@@ -54,7 +54,7 @@ use std::collections::{HashMap, HashSet};
 
 use otter_common::Span;
 use otter_parser::ast::Literal;
-use otter_sema::{BinOp, FaultSite, HirExpr, HirFn, TypeKind, UnOp};
+use otter_sema::{expr_ty, BinOp, FaultSite, HirExpr, HirFn, TypeKind, UnOp};
 
 use crate::ir::repr_type;
 use crate::module::Module;
@@ -423,6 +423,10 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             }
         }
         HirExpr::Index { base, index, ty, .. } => {
+            if matches!(expr_ty(base).kind, TypeKind::Slice(_)) {
+                // `xs[i]` is an `Option`: the runtime bounds test decides.
+                return crate::slices::gen_index(ctx, base, index, &ty.kind);
+            }
             // `p[i]` reads an element of a `*mut i64`: getelementptr to the
             // element's address, then load.
             let ptr = gen_expr(ctx, base);
@@ -722,6 +726,7 @@ fn gen_call(
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
         "push" => crate::slices::gen_push(ctx, args),
+        "pop" => crate::slices::gen_pop(ctx, args, ty),
         "free_slice" => crate::slices::gen_free(ctx, args),
         "arena_new" => crate::arena::gen_arena_new(ctx, args, ty),
         "arena_alloc" => crate::arena::gen_arena_alloc(ctx, args, ty),
@@ -804,8 +809,19 @@ fn gen_call(
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
             crate::faults::gen_arithmetic_builtin(ctx, &name, &lowered, ty)
         }
-        // `len` is the byte length of a string today. M6 adds the slice case.
-        "len" => crate::strings::gen_str_len(ctx, args),
+        // `len` is the byte length of a string and the element count of a slice.
+        // The argument's checked type decides which; both are `i64`.
+        "len" => {
+            let is_slice = args
+                .first()
+                .map(|argument| matches!(expr_ty(argument).kind, TypeKind::Slice(_)))
+                .unwrap_or(false);
+            if is_slice {
+                crate::slices::gen_len(ctx, args)
+            } else {
+                crate::strings::gen_str_len(ctx, args)
+            }
+        }
         "byte_at" => crate::strings::gen_str_byte_at(ctx, args),
         // `str_from_bool` is the one conversion whose runtime signature is wider
         // than the language's type. C has no one-bit type, so

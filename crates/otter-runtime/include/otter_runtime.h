@@ -154,6 +154,18 @@ typedef struct otter_slice {
 void otter_slice_push(otter_slice *slice, const void *element, long long element_size);
 void otter_slice_free(otter_slice *slice);
 
+/* `otter_slice_get` copies the element at `index` into `out` and returns 1, or
+ * returns 0 and leaves `out` untouched when `index` is negative or at least
+ * `len`. `otter_slice_pop` is the same for the last element, after decrementing
+ * `len`; an empty slice returns 0. Both take the stride so the runtime stays
+ * independent of the element type. A null slice is a miss, not a crash.
+ *
+ * Indexing is how the language reads a slice, and it never traps: the 0/1
+ * answer becomes an `Option`, so "out of range" is a value rather than a
+ * process ending. */
+long long otter_slice_get(otter_slice *slice, long long index, void *out, long long element_size);
+long long otter_slice_pop(otter_slice *slice, void *out, long long element_size);
+
 /* ---- Diagnostics ----
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

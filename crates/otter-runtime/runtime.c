@@ -616,6 +616,48 @@ void otter_slice_free(otter_slice *slice) {
     slice->cap = 0;
 }
 
+/* ---- Slice access ------------------------------------------------------
+ *
+ *     declare i64 @otter_slice_get(ptr, i64, ptr, i64)
+ *     declare i64 @otter_slice_pop(ptr, ptr, i64)
+ *
+ * Both answer 0 or 1 and copy the element into `out` only on 1. `get` tests
+ * the index against `len` *signed*: a negative index is a miss, not the same
+ * address as `len + index`, which is the wraparound a C program would read by
+ * accident. `pop` decrements first, so the value it copies is the one that
+ * just left the slice and a second call cannot see it again.
+ *
+ * The runtime never traps and never writes on a miss. Generated code turns the
+ * flag into an `Option` tag, so "out of range" is a value the program can
+ * match, and the payload slot it loads from holds a zero the caller stored.
+ *
+ * A null slice, a null `out`, an empty slice and a non-positive stride are all
+ * the same miss. `slice->data` is null exactly when nothing was ever pushed,
+ * which `len == 0` already covers, but the check keeps the pointer arithmetic
+ * below free of a null base. */
+
+long long otter_slice_get(otter_slice *slice, long long index, void *out,
+                          long long element_size) {
+    if (slice == NULL || out == NULL || element_size <= 0 || index < 0 ||
+        index >= slice->len || slice->data == NULL) {
+        return 0;
+    }
+    memcpy(out, (const char *)slice->data + (size_t)(index * element_size),
+           (size_t)element_size);
+    return 1;
+}
+
+long long otter_slice_pop(otter_slice *slice, void *out, long long element_size) {
+    if (slice == NULL || out == NULL || element_size <= 0 || slice->len <= 0 ||
+        slice->data == NULL) {
+        return 0;
+    }
+    slice->len -= 1;
+    memcpy(out, (const char *)slice->data + (size_t)(slice->len * element_size),
+           (size_t)element_size);
+    return 1;
+}
+
 /* ---- Diagnostics -------------------------------------------------------
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)
