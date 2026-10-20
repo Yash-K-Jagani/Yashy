@@ -1,0 +1,21 @@
+// An arena is a bump allocator: many blocks, one release.
+//
+// The two allocations stay valid until `arena_free_all`, which is the whole
+// point -- `first` is not freed when `second` is handed out, and neither is
+// released by a `defer`. Writing and reading through pointer indices proves the
+// handle the backend passes is the handle the runtime built.
+fn main() {
+    var arena = arena_new();
+
+    var first = arena_alloc(arena, 4);
+    first[0] = 10;
+    first[3] = 32;
+
+    var second = arena_alloc(arena, 2);
+    second[0] = 5;
+
+    print_i64(first[0] + first[3] + second[0]);
+    print_str("\n");
+
+    arena_free_all(arena);
+}

@@ -1,0 +1,14 @@
+// Arena lowering: one handle, two allocations, one release.
+//
+// The handle is reused without being moved -- `arena_alloc` is the one builtin
+// that borrows it -- and `arena_free_all` consumes it, so the release is both
+// the last use and the only one. Nothing here is inserted by the backend: the
+// pinned contract is exactly the three calls the program wrote, plus the
+// element-count multiply for each allocation.
+
+fn main() {
+    var arena = arena_new();
+    var first = arena_alloc(arena, 4);
+    var second = arena_alloc(arena, 8);
+    arena_free_all(arena);
+}

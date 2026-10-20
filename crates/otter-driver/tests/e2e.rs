@@ -859,6 +859,36 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
 }
 
 #[test]
+fn a_manual_buffer_is_filled_and_summed_through_pointer_indexing() {
+    // `buffer.ot`: 1024 `i64`s written and read through `p[i]`, then released
+    // with a `defer` that is registered *after* the loops -- registering it
+    // moves `buf`, so it is the last use. `leaks.rs` asserts the allocation came
+    // back; this asserts the arithmetic was right.
+    let output = build_and_run("buffer");
+    assert_eq!(stdout_of(&output), "1047552\n");
+}
+
+#[test]
+fn a_string_built_in_a_loop_releases_its_previous_value() {
+    // `builder.ot`: a rebound accumulator and a fresh string per iteration. The
+    // lengths are the value check; `leaks.rs` is the ownership check.
+    let output = build_and_run("builder");
+    assert_eq!(stdout_of(&output), "100\n7\n");
+}
+
+#[test]
+fn an_arena_hands_out_blocks_that_all_survive_until_the_release() {
+    // `arena.ot`: two allocations from one handle, written and read through
+    // pointer indices, released in one call. The value proves the second
+    // allocation did not disturb the first; the golden IR proves the byte counts
+    // and the runtime tests prove the allocator, but only a link-and-run proves
+    // the two agree on the ABI.
+    let output = build_and_run("arena");
+    assert_eq!(stdout_of(&output), "47\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn a_double_free_is_a_compile_error_with_a_caret() {
     // Ownership is checked, not assumed: freeing the same binding twice never
     // reaches the backend, so the runtime's `otter_free` cannot be handed the
@@ -1250,6 +1280,147 @@ fn negating_the_smallest_i64_is_an_overflow() {
         stderr.contains("overflow-neg.ot:3:15:"),
         "and point at the negation:\n{stderr}"
     );
+}
+
+// --- end-to-end fault programs (M4 Task 13) --------------------------------
+//
+// The four programs below are the definition of done for M3-M4's fault half:
+// each exits with a diagnostic that names the source position and the failed
+// operation, and never as a signal or a hardware trap. They live in
+// `tests/programs` rather than as inline sources so the exact text the
+// diagnostic points at is part of the repository.
+//
+// The runtime's diagnostic format is `<file>:<line>:<column>: panic: <message>`
+// rather than the plan's sketched `error:` line plus a caret. A caret needs the
+// source text to underline, and the runtime is handed a path, a line and a
+// column -- not the file. Compile-time diagnostics still render a caret; a
+// runtime fault names the same position in the machine-readable form an editor
+// or a test can consume.
+
+#[test]
+fn division_by_zero_in_a_program_reports_the_position_and_exits_1() {
+    let (_dir, exe, compile) = build_program("divzero");
+    assert!(
+        compile.status.success(),
+        "compiling divzero.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run(&exe);
+    assert_eq!(
+        stdout_of(&output),
+        "5\n",
+        "the division before the fault must print, and nothing after may run"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a fault is an exit through the diagnostic path, not a signal: {:?}",
+        output.status
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("divzero.ot:11:12: panic: division by zero: 10 / 0"),
+        "the position, the operator and both operands belong in the message:\n{stderr}"
+    );
+}
+
+#[test]
+fn integer_overflow_does_not_wrap() {
+    // The first line is the largest `i64`; the faulting line is that plus one.
+    // If arithmetic wrapped, the last thing printed would be `i64::MIN`, which
+    // this asserts must not appear.
+    let (_dir, exe, compile) = build_program("overflow");
+    assert!(
+        compile.status.success(),
+        "compiling overflow.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "9223372036854775807\n");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("overflow.ot:11:15: panic: integer overflow: 9223372036854775807 + 1"),
+        "the message must name the operands and the position:\n{stderr}"
+    );
+    assert!(
+        !stdout_of(&output).contains("-9223372036854775808"),
+        "the operands must not have wrapped:\n{stderr}"
+    );
+}
+
+#[test]
+fn every_pending_defer_runs_before_a_panic_message_is_printed() {
+    // Four handlers across three nesting levels, innermost first and
+    // last-registered first within a scope. The message goes to stderr and the
+    // handler output to stdout, so the two streams cannot be compared by
+    // position in a captured `Output`; what proves the handlers ran before the
+    // panic is that they ran at all -- the panic is the next statement, and the
+    // program prints nothing else.
+    let (_dir, exe, compile) = build_program("cleanup");
+    assert!(
+        compile.status.success(),
+        "compiling cleanup.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run(&exe);
+    assert_eq!(
+        stdout_of(&output),
+        "inner\nmiddle 2\nmiddle 1\nouter\n",
+        "all four defers, innermost scope first and reverse registration order \
+         within a scope"
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr_of(&output).contains("cleanup.ot:30:13: panic: cleanup"),
+        "the panic its own position reaches stderr:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
+fn a_fault_deep_in_a_recursion_still_exits_through_the_diagnostic_path() {
+    // 5000 non-tail frames. Whether the stack is unwound is a separate question
+    // (it is not -- see Task 10); what this pins is that reaching the bottom
+    // with 5000 frames alive ends the process through the runtime, with status
+    // 1 and the message, rather than overflowing the C stack.
+    let (_dir, exe, compile) = build_program("deeprecurse");
+    assert!(
+        compile.status.success(),
+        "compiling deeprecurse.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a stack overflow is not a defined stop; this must be the runtime's exit: {:?}",
+        output.status
+    );
+    assert!(
+        stderr_of(&output).contains("deeprecurse.ot:10:9: panic: bottom reached"),
+        "the diagnostic from depth must reach stderr:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
+fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
+    // The language half of ledger L1's `otter_str_byte_at`, end to end. `"abc"`
+    // is the literal path (a static string, refcount -1) and `98` is `'b'`; the
+    // out-of-range index is an answer (`0`), not a fault.
+    let output = compile_and_run(
+        "byte-at",
+        "fn main() {\n\
+         \x20   print_i64(byte_at(\"abc\", 1));\n\
+         \x20   print_str(\"\\n\");\n\
+         \x20   print_i64(byte_at(\"abc\", 99));\n\
+         \x20   print_str(\"\\n\");\n\
+         }",
+    );
+    assert_eq!(stdout_of(&output), "98\n0\n");
+    assert_eq!(output.status.code(), Some(0));
 }
 
 #[test]

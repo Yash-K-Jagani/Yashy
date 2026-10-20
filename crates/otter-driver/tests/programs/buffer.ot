@@ -1,0 +1,34 @@
+// A manual buffer, end to end: allocate 1024 `i64`s, fill and sum them through
+// pointer indexing, and release the block with `defer`.
+//
+// The arithmetic is chosen so the answer is exact and checkable by hand:
+// `2 * (0 + 1 + ... + 1023)` is `1023 * 1024`, which is well inside `i64`.
+//
+// `defer` registers after the loops rather than before them because registering
+// it *moves* `buf` -- a deferred `dealloc(buf)` is a use at the point the
+// `defer` is reached, and ownership checking will not let the buffer be read
+// afterwards. Registering it last is the shape the ownership rule asks for; the
+// defer still runs at scope exit, after the output.
+fn main() {
+    var buf = alloc(1024);
+
+    var i = 0;
+    while i < 1024 {
+        buf[i] = i * 2;
+        i += 1;
+    }
+
+    var sum = 0;
+    i = 0;
+    while i < 1024 {
+        sum += buf[i];
+        i += 1;
+    }
+
+    defer {
+        dealloc(buf);
+    }
+
+    print_i64(sum);
+    print_str("\n");
+}

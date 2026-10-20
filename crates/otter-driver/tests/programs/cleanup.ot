@@ -1,0 +1,33 @@
+// Every pending `defer` runs before the panic ends the program, innermost scope
+// first and last-registered first within a scope.
+//
+// Four handlers across three nesting levels: the two registered in the
+// innermost block fire in reverse registration order, then the middle block's,
+// then `main`'s. The panic is in the same function as all four, which is the
+// part of unwinding that is implemented today: the generated fault block runs
+// the *panicking function's* open scopes' defers before calling the runtime.
+//
+// A deferred `print_str` is the observable proof. Nothing here allocates, so
+// there is no ownership question -- this program is about ordering only, and
+// the expected stdout is its whole assertion.
+fn main() {
+    defer {
+        print_str("outer\n");
+    }
+
+    if true {
+        defer {
+            print_str("middle 1\n");
+        }
+
+        if true {
+            defer {
+                print_str("middle 2\n");
+            }
+            defer {
+                print_str("inner\n");
+            }
+            panic("cleanup");
+        }
+    }
+}
