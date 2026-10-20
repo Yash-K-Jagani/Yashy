@@ -611,7 +611,9 @@ git commit -m "feat: slice operations and for-in iteration"
   all three slices return zero live allocations).
 - **Deferred.** `slice[a..b]` (Otter has no range expression yet and aliasing vs
   copying is unresolved) and `contains` are not implemented. `[]string` element
-  operations wait for slice destructors. `break`/`continue` nested inside a
+  operations landed with Task 10: the slice owns one reference per element, and
+  `pop` on a `[]string` stays refused (see that task's "As built").
+  `break`/`continue` nested inside a
   block still run only that block's defers (a pre-existing scope-unwinding gap,
   tracked with Task 10's unwinding limitation).
 
