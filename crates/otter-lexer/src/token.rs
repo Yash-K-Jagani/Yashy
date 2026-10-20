@@ -522,6 +522,18 @@ impl TokenKind {
     /// turn `fnx` into `fn` and leave the tail of the identifier unlexed,
     /// which is a bug the tests pin by lexing `fn fnx` and expecting two
     /// different kinds of token.
+    /// Every keyword, in the order [`TokenKind::keyword`] recognises them.
+    ///
+    /// The editor grammars are tested against this list
+    /// (`crates/otter-lsp/tests/grammar.rs` depends on this crate): adding a
+    /// keyword without a grammar entry fails that test, so keep the two in
+    /// step.
+    pub const KEYWORDS: [&'static str; 24] = [
+        "fn", "struct", "enum", "const", "var", "import", "extern", "unsafe", "defer", "return",
+        "break", "continue", "if", "else", "for", "while", "in", "switch", "case", "default", "as",
+        "move", "true", "false",
+    ];
+
     pub fn keyword(text: &str) -> Option<TokenKind> {
         Some(match text {
             "fn" => TokenKind::Fn,

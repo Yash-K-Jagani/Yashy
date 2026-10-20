@@ -1,0 +1,29 @@
+{
+  "name": "otter",
+  "displayName": "Otter",
+  "description": "Syntax highlighting for the Otter language",
+  "version": "0.1.0",
+  "publisher": "otter",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "otter",
+        "aliases": ["Otter", "otter"],
+        "extensions": [".ot"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "otter",
+        "scopeName": "source.otter",
+        "path": "./syntaxes/otter.tmLanguage.json"
+      }
+    ]
+  }
+}

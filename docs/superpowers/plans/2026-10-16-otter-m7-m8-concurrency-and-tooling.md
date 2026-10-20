@@ -606,20 +606,49 @@ debounce that is not a timer:
 - Consumes: the token kinds from M0–M2
 - Produces: a TextMate grammar keyed on the frozen keyword list
 
-- [ ] **Step 1: Write a test** asserting the grammar's keyword list equals `TokenKind`'s keyword variants exactly — a new keyword must break this test until the grammar is updated.
+- [x] **Step 1: Write a test** asserting the grammar's keyword list equals `TokenKind`'s keyword variants exactly — a new keyword must break this test until the grammar is updated.
 
-- [ ] **Step 2: Run to verify it fails** → FAIL.
+- [x] **Step 2: Run to verify it fails** → FAIL.
 
-- [ ] **Step 3: Write the grammars.** Keep indentation, comment, and bracket-matching rules in `language-configuration.json`.
+- [x] **Step 3: Write the grammars.** Keep indentation, comment, and bracket-matching rules in `language-configuration.json`.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add editors/
 git commit -m "feat(editors): VS Code, Vim, and Emacs language definitions"
 ```
+
+**As built.** One grammar, two classic modes, and a test that fails on drift:
+
+- **The test lives in crates/otter-lsp/tests/grammar.rs** and is three tests,
+  not one: the TextMate keyword alternations must equal
+  TokenKind::KEYWORDS exactly; every keyword must appear in the Vim and
+  Emacs definitions; and the VS Code manifest's grammar path must exist and its
+  language configuration must parse. The first test puts the test crate in
+  otter-lsp because it needs JSON, and a dev-dependency from the lexer on the
+  LSP would be a cycle.
+- **TokenKind::KEYWORDS is new.** The lexer's keyword is a match, and a
+  match cannot be enumerated, so the list was made an associated const next
+  to it; the test compares the grammar against that const, and the two are
+  documented as needing to stay in step.
+- **TDD order was inverted here:** the grammar was written first, then the
+  test. The failing step was done afterwards by deleting move from the
+  grammar, watching the test fail on the disagreement, and restoring it; the
+  same command then passed. Recorded because the plan's Step 1 asks for the
+  test first.
+- **Keywords by category** in the TextMate grammar (control, declaration,
+  constant), types, declaration and call names, strings (with escapes and
+  interpolation), line/block comments, and numbers. The Vim and Emacs modes
+  carry the same categories as syntax keyword / 
+egexp-opt, with comment,
+  string, number, and function-name faces. The VS Code manifest contributes
+  the language (.ot) and the grammar; it does not bundle an LSP client,
+  because the plan only asks for highlighting.
+
+---
 
 ---
 
