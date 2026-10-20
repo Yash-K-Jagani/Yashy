@@ -1097,6 +1097,14 @@ validated before pushing). Fuzz targets arrive with the fuzz task; the fuzzer
 is not installed here, so no fuzz job is claimed. Step 2 (both jobs green)
 remains open until this workflow has run on `origin`.
 
+**Local Windows caveat.** On this development host an Application Control /
+Device Guard policy intermittently refuses to start a freshly linked executable
+(`os error 4551`), which surfaces as an end-to-end, leak, or module test failing
+to spawn its program. The suite is re-run until every target reports a genuine
+result — relinking changes the binary's hash and usually changes the verdict —
+and a blocked run is never counted as a pass. No code change is made for it, and
+CI's `windows-latest` job is the platform signal without that policy.
+
 ---
 
 ### Task 13: Close the ledger
