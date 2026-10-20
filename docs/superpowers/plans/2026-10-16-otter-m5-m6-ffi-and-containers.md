@@ -498,15 +498,16 @@ git commit -m "feat: slices as linear values with a doubling backing array"
 ### Task 7: Slice operations and iteration
 
 **Files:**
-- Modify: `crates/otter-sema/src/builtins.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
 - Modify: `crates/otter-codegen/src/slices.rs`
 - Modify: `crates/otter-parser/src/stmts.rs` (`for x in slice`)
+- Modify: `crates/otter-runtime/runtime.c`, `include/otter_runtime.h`
 
 **Interfaces:**
 - Consumes: Task 6
-- Produces: `len(slice) -> i64`, `push`, `pop() -> Option[T]`, `slice[i64] -> Option[T]`, `slice[a..b] -> Slice[T]`, `contains`, and `for x in slice { }`
+- Produces: `len(slice) -> i64`, `pop() -> Option[T]`, `slice[i64] -> Option[T]`, and `for x in slice { }`; `slice[a..b]` and `contains` are deferred (see "As built").
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -528,20 +529,91 @@ fn for_in_over_a_slice_moved_while_iterating_is_rejected() {}
 fn break_inside_for_in_exits_the_loop() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `for x in slice` allocs a hidden index, loads the element each iteration, and re-reads `len` each time so a `push` inside the loop is visible. Moving the slice inside the body is a linearity error.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat: slice operations and for-in iteration"
 ```
+
+#### As built
+
+- **Syntax.** `for <ident> in <expr>` decides by one token after the
+  expression: `..` keeps the range form, anything else is the slice form and is
+  parsed as `Stmt::ForIn`. Both share the same head, so no new keyword was
+  needed. The parser has the two new tests (slice form binds one name; the range
+  form still reads `start`/`end`).
+- **Checking.** `len` is special-cased in the call arm rather than widened in
+  the builtin table: its argument is checked once and the *type* decides whether
+  it is `otter_str_len` or field 1 of a slice header. `push`, `pop`, and
+  `free_slice` share `check_slice_builtin`; `pop` keeps the receiver and yields
+  `Option[T]`, `free_slice` still moves it. `xs[i]` is `Option[T]` and `xs[i] =
+  v` reports "cannot assign to a slice element: the slice does not expose its
+  storage; use `push` to append". `for x in slice` requires an Ident iterable
+  (the loop re-reads that binding's header), binds the element as `const`, and
+  rejects a non-slice with "must iterate a slice".
+- **Bindings only.** `push`, `pop`, `free_slice`, and `for-in` reject a dotted
+  name (`s.items`) as well as a temporary. A field header has no slot to update
+  in place, and lowering resolves the name through the local map: accepting a
+  projection would make the call silently do nothing. The diagnostic is
+  "needs a slice binding, not a field access" (or "... not a temporary or a
+  field" for `for`).
+- **Borrow tracking.** `Checker::iteration_borrows` records the slice binding
+  while the body is checked, and `Checker::move_out` (now used by `free_slice`,
+  `move`, and passing a linear value to a function) reports "cannot move `xs`
+  while it is being iterated". A `push` is not a move and stays legal; the loop
+  sees it because it re-reads the header.
+- **Element restriction (deviation).** Slice *operations* accept numbers and
+  `bool` (`i64`, `f64`, the C widths, `usize`) only. `[]string` is still a legal
+  value (an empty literal, a parameter), but `push`/`pop`/indexing/`for-in` on
+  one report "a slice of `string` is not supported yet: ... would need reference
+  counting". A `string` element would have to be retained on extraction and
+  released on replacement; a compound element needs its real layout as a stride,
+  which `ir::size_of` does not have yet. Refusing at the operation, instead of
+  silently copying a reference, keeps ownership sound until slices learn
+  destructors.
+- **Codegen.** `len` is `extractvalue { i8*, i64, i64 } %header, 1` and emits
+  no call. `xs[i]` copies the header into a slot, zero-initializes an out slot,
+  calls `otter_slice_get(header, index, out, size)`, and builds `{ i8, T }` from
+  the 0/1 answer. `pop` calls `otter_slice_pop` with the *binding's* header so
+  the decrement is in place. `for-in` lowers to `cond/body/inc/done`: the
+  condition reloads `len` and the index, the body reloads `data`, GEPs to the
+  element, copies it into a fresh slot, and the loop-variable binding shadows and
+  restores whatever `name` meant before. No component is cached across
+  iterations, which is what the push-inside-the-loop test proves.
+- **Runtime.** `otter_slice_get` and `otter_slice_pop` take the stride, test the
+  index/`len` as signed (negative is a miss, never a wraparound), copy only on a
+  hit, and treat null slice/null out/empty/non-positive stride as the same miss.
+  `Module::finish` always declares both, so the nine older goldens each gained
+  exactly two lines; `golden/slices_ops.ot` joins `golden/slices.ot`.
+- **Existing `defer` defect fixed.** While testing iteration, a `defer` written
+  before an `if`/loop ran *inside* that nested block (once per iteration for a
+  loop): `gen_if`, `gen_for_range`, `gen_for_in`, and `gen_for_c` re-ran the
+  enclosing scope's defers after `gen_block` had already run and popped the
+  block's own. The calls were removal-only; `defer_scope.ot` pins the order
+  (nested blocks first, the deferred body once at the end).
+- **Tests as built.** Parser 5 in `tests/slices.rs` (2 new); sema 21 (13 new:
+  `len` on both types, `len` of a number, index in/out of range, element
+  assignment, `pop` typing and receiver, `for-in` element type, non-slice and
+  temporary iterables, a field slice used where a binding is required,
+  move-while-iterating, `[]string` rejection); codegen 11 in `tests/slices.rs`
+  (5 new plus the `slices_ops` golden) and runtime 8 (3 new: in-range copy, miss
+  cases including negative/null/empty, pop order and shrinking); driver e2e 2
+  (`slices_ops`, `defer_scope`) and leaks 1 (`slices_ops`: every reallocation and
+  all three slices return zero live allocations).
+- **Deferred.** `slice[a..b]` (Otter has no range expression yet and aliasing vs
+  copying is unresolved) and `contains` are not implemented. `[]string` element
+  operations wait for slice destructors. `break`/`continue` nested inside a
+  block still run only that block's defers (a pre-existing scope-unwinding gap,
+  tracked with Task 10's unwinding limitation).
 
 ---
 
