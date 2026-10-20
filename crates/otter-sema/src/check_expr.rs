@@ -678,6 +678,14 @@ impl<'src> Checker<'src> {
                         ),
                     ));
                 }
+                if matches!(element.kind, TypeKind::Str) {
+                    return Err(TypeError::new(
+                        element.span,
+                        "a channel cannot carry `string` yet: a slot copy would share one \
+                         refcount between the sender and the receiver"
+                            .to_string(),
+                    ));
+                }
                 Ok(Type {
                     kind: TypeKind::Channel(Box::new(element)),
                     span: *span,

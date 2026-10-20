@@ -102,6 +102,12 @@ fn channel_element_type_is_fixed_at_creation() {
         "fn main() { var c = chan_new(4); }",
         "cannot infer the channel's element type",
     );
+    // A string slot would be one pointer with one refcount, shared by sender
+    // and receiver with no owner; the first release would dangle the other.
+    assert_rejected(
+        "fn main() { var c: Channel[string] = chan_new(1); }",
+        "cannot carry `string`",
+    );
 }
 
 #[test]
