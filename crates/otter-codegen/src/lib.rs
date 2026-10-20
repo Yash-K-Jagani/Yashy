@@ -19,6 +19,7 @@ pub mod ir;
 pub mod memory;
 pub mod module;
 pub mod patterns;
+pub mod slices;
 pub mod stmt_gen;
 pub mod strings;
 

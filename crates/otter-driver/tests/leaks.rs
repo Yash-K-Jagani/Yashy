@@ -128,3 +128,16 @@ fn built_strings_return_every_reference() {
     );
     assert_no_leaks("builder", &output);
 }
+
+#[test]
+fn a_slice_returns_its_backing_array() {
+    // `slices.ot` starts with a two-element literal and pushes twice. The
+    // second push grows the array from two elements to four: the runtime
+    // allocates the larger block, copies, and frees the first one. `free_slice`
+    // then releases the surviving block, so the reported live count is zero
+    // only if both blocks came back exactly once.
+    let output = build_and_run("slices");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "slices freed\n");
+    assert_no_leaks("slices", &output);
+}

@@ -360,6 +360,17 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// A slice literal, already checked against its written element type.
+    ///
+    /// `elem_ty` is the element type the source named, not inferred from the
+    /// elements, so the backend can size the backing array and store each
+    /// element without asking what an empty literal means.
+    SliceLit {
+        elem_ty: Type,
+        elements: Vec<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
     FieldAccess {
         base: Box<HirExpr>,
         field: String,
@@ -412,6 +423,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Move(_, span, _) => *span,
         HirExpr::Call { span, .. } => *span,
         HirExpr::StructLit { span, .. } => *span,
+        HirExpr::SliceLit { span, .. } => *span,
         HirExpr::FieldAccess { span, .. } => *span,
         HirExpr::Index { span, .. } => *span,
         HirExpr::Cast { span, .. } => *span,
@@ -430,6 +442,7 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Move(_, _, ty) => ty.clone(),
         HirExpr::Call { ty, .. } => ty.clone(),
         HirExpr::StructLit { ty, .. } => ty.clone(),
+        HirExpr::SliceLit { ty, .. } => ty.clone(),
         HirExpr::FieldAccess { ty, .. } => ty.clone(),
         HirExpr::Index { ty, .. } => ty.clone(),
         HirExpr::Cast { ty, .. } => ty.clone(),

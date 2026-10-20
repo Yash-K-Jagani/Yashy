@@ -1853,3 +1853,15 @@ fn libc_is_reachable_from_otter() {
     );
     assert_eq!(stdout_of(&output), "hello from C\n5\n");
 }
+
+#[test]
+fn a_slice_literal_grows_and_is_freed_at_run_time() {
+    // `slices.ot`: a two-element literal, two pushes (the second grows the
+    // backing array, which the runtime implements by allocating, copying and
+    // freeing the old block), then one `free_slice`. Only a link-and-run shows
+    // the generated header and `otter_slice` agree; `leaks.rs` proves the
+    // reallocation handed the old block back.
+    let output = build_and_run("slices");
+    assert_eq!(stdout_of(&output), "slices freed\n");
+    assert_eq!(output.status.code(), Some(0));
+}

@@ -597,6 +597,24 @@ impl<'src> Checker<'src> {
                     })
                 }
             }
+            TypeExpr::Slice(element, span) => {
+                let inner = self.resolve_type_in(element, allow_c)?;
+                if matches!(
+                    inner.kind,
+                    TypeKind::Unit | TypeKind::Never | TypeKind::CVoid
+                ) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "a slice cannot hold `{inner}`: its elements would have no size"
+                        ),
+                    ));
+                }
+                Ok(Type {
+                    kind: TypeKind::Slice(Box::new(inner)),
+                    span: *span,
+                })
+            }
             TypeExpr::Tuple(_, span) => Err(TypeError::new(
                 *span,
                 "tuple types are not value types in M0-M2".to_string(),
@@ -1483,6 +1501,85 @@ impl<'src> Checker<'src> {
         self.check_expr(expr)
     }
 
+    /// `push(slice, value)` and `free_slice(slice)`.
+    ///
+    /// These two cannot live in the fixed builtin table: their types mention
+    /// the slice's *element* type, and the table has no type parameters.
+    /// `push` keeps the slice (it may reallocate the backing array, and the
+    /// header in the binding's slot is updated in place); `free_slice`
+    /// consumes it, so its receiver must be a binding and is moved out here.
+    ///
+    /// The outer `Option` says "this name is a slice builtin"; the inner one is
+    /// the checked expression, `None` after a reported error.
+    fn check_slice_builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let arity = if name == "push" { 2 } else { 1 };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{name}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        let Expr::Ident(path, ident_span) = &args[0] else {
+            self.error(
+                span,
+                format!("`{name}` needs a slice binding, not a temporary"),
+            );
+            return Some(None);
+        };
+        let receiver = match self.check_expr(&args[0]) {
+            Some(receiver) => receiver,
+            None => return Some(None),
+        };
+        let receiver_ty = expr_ty(&receiver);
+        let TypeKind::Slice(element) = &receiver_ty.kind else {
+            self.error(
+                expr_span(&receiver),
+                format!("`{name}` expects a slice, found `{receiver_ty}`"),
+            );
+            return Some(None);
+        };
+        let element = (**element).clone();
+        if name == "free_slice" {
+            let binding = path.last().cloned().unwrap_or_default();
+            if let Err(error) = self.scope.move_out(&binding, *ident_span) {
+                self.error(error.span, error.message);
+            }
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: unit(span),
+            }));
+        }
+        let value = match self.check_expr_with_expected(&args[1], &element) {
+            Some(value) => value,
+            None => return Some(None),
+        };
+        if !fits(&element, &expr_ty(&value)) {
+            self.error(
+                expr_span(&value),
+                format!("expected `{element}`, found `{}`", expr_ty(&value)),
+            );
+        }
+        Some(Some(HirExpr::Call {
+            callee: vec![name.to_string()],
+            args: vec![receiver, value],
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        }))
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<HirExpr> {
         match expr {
             Expr::Literal(Literal::I64(v), span) => Some(HirExpr::Literal(
@@ -1626,6 +1723,9 @@ impl<'src> Checker<'src> {
                 if callee.len() == 1 {
                     if let Some(constructed) = self.check_constructor(&name, args, *span, None)? {
                         return Some(constructed);
+                    }
+                    if matches!(name.as_str(), "push" | "free_slice") {
+                        return self.check_slice_builtin(&name, args, *span).flatten();
                     }
                 }
                 // The callee is resolved *before* the arguments are checked,
@@ -1856,6 +1956,52 @@ impl<'src> Checker<'src> {
                         None
                     }
                 }
+            }
+            Expr::SliceLit {
+                elem,
+                elements,
+                span,
+            } => {
+                let elem_ty = match self.resolve_type_in(elem, false) {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        self.error(error.span, error.message);
+                        return None;
+                    }
+                };
+                if matches!(
+                    elem_ty.kind,
+                    TypeKind::Unit | TypeKind::Never | TypeKind::CVoid
+                ) {
+                    self.error(
+                        *span,
+                        format!(
+                            "a slice cannot hold `{elem_ty}`: its elements would have no size"
+                        ),
+                    );
+                    return None;
+                }
+                let mut checked = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let value = self.check_expr_with_expected(element, &elem_ty)?;
+                    if !fits(&elem_ty, &expr_ty(&value)) {
+                        self.error(
+                            expr_span(&value),
+                            format!("expected `{elem_ty}`, found `{}`", expr_ty(&value)),
+                        );
+                    }
+                    checked.push(value);
+                }
+                let slice_ty = Type {
+                    kind: TypeKind::Slice(Box::new(elem_ty.clone())),
+                    span: *span,
+                };
+                Some(HirExpr::SliceLit {
+                    elem_ty,
+                    elements: checked,
+                    span: *span,
+                    ty: slice_ty,
+                })
             }
             Expr::Index { base, index, span } => {
                 // `p[i]` reads (or, in an assignment target, writes) an
@@ -2690,6 +2836,7 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             pointee: Box::new(type_to_expr(pointee)),
             span,
         },
+        TypeKind::Slice(element) => TypeExpr::Slice(Box::new(type_to_expr(element)), span),
         TypeKind::CInt(width) => TypeExpr::Name(format!("i{width}"), span),
         TypeKind::CUInt(width) => TypeExpr::Name(format!("u{width}"), span),
         TypeKind::CFloat(width) => TypeExpr::Name(format!("f{width}"), span),
@@ -2812,6 +2959,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Name(_, span) => *span,
         TypeExpr::Option(_, span) => *span,
         TypeExpr::Ptr { span, .. } => *span,
+        TypeExpr::Slice(_, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,

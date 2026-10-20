@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -567,6 +568,52 @@ double otter_parse_f64(const otter_str *s) {
         return 0.0;
     }
     return value;
+}
+
+/* ---- Slices ----
+ *
+ * See the header for the contract. Two decisions are worth spelling out here:
+ *
+ * - Growth doubles from a capacity of four. Starting at four avoids a malloc
+ *   per element for the common one-at-a-time build, and doubling keeps the
+ *   total copy work linear.
+ * - A failed grow leaves the slice exactly as it was. There is no error channel
+ *   in the ABI, and faking one by aborting would make an allocation failure
+ *   look like a language fault; the caller sees the element simply not arrive.
+ */
+void otter_slice_push(otter_slice *slice, const void *element, long long element_size) {
+    if (slice == NULL || element == NULL || element_size <= 0) {
+        return;
+    }
+    if (slice->len >= slice->cap) {
+        long long cap = slice->cap > 0 ? slice->cap * 2 : 4;
+        if (cap > LLONG_MAX / element_size) {
+            return;
+        }
+        char *data = (char *)otter_alloc(cap * element_size, 8);
+        if (data == NULL) {
+            return;
+        }
+        if (slice->len > 0 && slice->data != NULL) {
+            memcpy(data, slice->data, (size_t)(slice->len * element_size));
+        }
+        otter_free(slice->data);
+        slice->data = data;
+        slice->cap = cap;
+    }
+    memcpy((char *)slice->data + (size_t)(slice->len * element_size), element,
+           (size_t)element_size);
+    slice->len += 1;
+}
+
+void otter_slice_free(otter_slice *slice) {
+    if (slice == NULL) {
+        return;
+    }
+    otter_free(slice->data);
+    slice->data = NULL;
+    slice->len = 0;
+    slice->cap = 0;
 }
 
 /* ---- Diagnostics -------------------------------------------------------

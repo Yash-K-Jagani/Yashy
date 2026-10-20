@@ -221,6 +221,10 @@ impl Module {
         out.push_str("declare i8* @otter_arena_new()\n");
         out.push_str("declare i8* @otter_arena_alloc(i8*, i64, i64)\n");
         out.push_str("declare void @otter_arena_free_all(i8*)\n");
+        // The slice half of ledger L1's M6 block. Declared up front for the
+        // same reason as the string set: an unused `declare` is legal IR.
+        out.push_str("declare void @otter_slice_push(ptr, ptr, i64)\n");
+        out.push_str("declare void @otter_slice_free(ptr)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.

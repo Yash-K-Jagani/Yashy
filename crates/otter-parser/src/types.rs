@@ -63,8 +63,26 @@ impl<'src> Parser<'src> {
             TokenKind::LParen => self.parse_paren_type(),
             TokenKind::Ident => self.parse_named_type(),
             TokenKind::Star => self.parse_pointer_type(),
+            TokenKind::LBracket => self.parse_slice_type(),
             _ => Err(self.type_expected_error()),
         }
+    }
+
+    /// `[]T` — a slice. The brackets are empty; the element type follows.
+    ///
+    /// A non-empty bracket pair in type position is a future fixed-size array,
+    /// not a spelling of this type, so it is rejected here rather than read as
+    /// something else.
+    fn parse_slice_type(&mut self) -> Result<TypeExpr, ParseError> {
+        let open = self.expect(TokenKind::LBracket)?;
+        let _ = self.push_open(TokenKind::LBracket, open.span)?;
+        let close = self.expect(TokenKind::RBracket)?;
+        self.close_open(TokenKind::RBracket);
+        let element = self.parse_type_expr()?;
+        Ok(TypeExpr::Slice(
+            Box::new(element),
+            cover(open.span, close.span),
+        ))
     }
 
     /// `*T`, `*mut T`, or `*const T`.

@@ -244,6 +244,12 @@ pub enum TypeExpr {
         pointee: Box<TypeExpr>,
         span: Span,
     },
+    /// `[]T` — a growable, linearly owned sequence of `T`.
+    ///
+    /// The element type is written, never inferred: `[]T { ... }` names `T`
+    /// before any element is seen, so an empty literal has a type and the
+    /// checker never has to guess.
+    Slice(Box<TypeExpr>, Span),
     /// `Option[T]`
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`
@@ -494,6 +500,14 @@ pub enum Expr {
     FieldAccess {
         base: Box<Expr>,
         field: String,
+        span: Span,
+    },
+    /// `[]T { a, b }` — a slice literal. The element type is explicit, so the
+    /// literal is checked without inference and an empty `[]T {}` still has a
+    /// type.
+    SliceLit {
+        elem: Box<TypeExpr>,
+        elements: Vec<Expr>,
         span: Span,
     },
     /// `p[i]` -- reading (or, in an assignment target, writing) an element of

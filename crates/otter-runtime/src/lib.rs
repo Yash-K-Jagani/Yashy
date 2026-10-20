@@ -110,6 +110,38 @@ unsafe extern "C" {
     pub fn otter_arena_free_all(arena: *mut c_void);
 }
 
+/// The runtime's slice header, as C lays it out:
+/// `struct otter_slice { void *data; long long len; long long cap; }`.
+///
+/// This is also the IR shape `{ i8*, i64, i64 }`, so a Rust test can build a
+/// header and drive the same `push`/`free` the generated code calls.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OtterSlice {
+    /// The backing array, or null when empty.
+    pub data: *mut c_void,
+    /// Elements in use.
+    pub len: c_longlong,
+    /// Elements the allocation can hold before the next grow.
+    pub cap: c_longlong,
+}
+
+unsafe extern "C" {
+    /// Appends `element_size` bytes from `element` to `slice`, growing the
+    /// backing array (from 0 to 4, then doubling) when it is full. A failed
+    /// grow leaves the slice unchanged.
+    pub fn otter_slice_push(
+        slice: *mut OtterSlice,
+        element: *const c_void,
+        element_size: c_longlong,
+    );
+}
+
+unsafe extern "C" {
+    /// Releases `slice`'s backing array and zeroes the header. Tolerates null.
+    pub fn otter_slice_free(slice: *mut OtterSlice);
+}
+
 // The string half of the contract. A `string` value is a pointer to an
 // `OtterStr` in both the IR and here, so Rust tests can drive the same linked
 // operations the generated code calls.

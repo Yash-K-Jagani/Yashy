@@ -127,6 +127,33 @@ double otter_parse_f64(const otter_str *s);
 otter_str *otter_str_retain(otter_str *s);
 void otter_str_release(otter_str *s);
 
+/* ---- Slices ----
+ *
+ *     declare void @otter_slice_push({ i8*, i64, i64 }*, i8*, i64)
+ *     declare void @otter_slice_free({ i8*, i64, i64 }*)
+ *
+ * A slice value is three words -- data pointer, length, capacity -- and the
+ * generated header has exactly the layout of `otter_slice`. The header is
+ * passed by pointer because `push` may reallocate the backing array and must
+ * update the length and capacity in the caller's binding. `element_size` is the
+ * element's stride in bytes; it is a compile-time constant at every call site.
+ *
+ * `push` grows from 0 to 4 elements and then doubles, copies the old bytes, and
+ * frees the old block with `otter_free`, so a slice owns exactly one live block
+ * at a time (which keeps the leak report meaningful). `otter_slice_free`
+ * releases that block and zeroes the header; a null data pointer is fine.
+ *
+ * Neither function reports an allocation failure: the runtime has no way to
+ * return one from `push`, and `otter_alloc` already yields NULL. A failed push
+ * leaves the slice unchanged, which is the only state a caller could observe. */
+typedef struct otter_slice {
+    void *data;
+    long long len;
+    long long cap;
+} otter_slice;
+void otter_slice_push(otter_slice *slice, const void *element, long long element_size);
+void otter_slice_free(otter_slice *slice);
+
 /* ---- Diagnostics ----
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

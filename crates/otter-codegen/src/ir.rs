@@ -44,6 +44,7 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::CFloat(_) => "double".to_string(),
         TypeKind::CSize => "i64".to_string(),
         TypeKind::CVoid => "void".to_string(),
+        TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
         | TypeKind::Struct(_)
@@ -87,7 +88,44 @@ pub fn repr_type(t: &TypeKind) -> String {
         TypeKind::Struct(name) => format!("%struct.{name}"),
         TypeKind::Enum(_) => "i8".to_string(),
         TypeKind::Func(_, _) => "void".to_string(),
+        TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         other => llvm_type_string(other),
+    }
+}
+
+/// The number of bytes one value of `kind` occupies in memory.
+///
+/// This is the stride a slice uses for its elements and the size the literal
+/// allocates. Scalars, strings, pointers and other slices are exact. `Option`,
+/// `Result`, structs and enums fall back to one machine word: their real layout
+/// needs the declaration table (an `Option[i64]` is two words, a struct is the
+/// sum of its fields under LLVM's alignment rules), and M6's programs only slice
+/// `i64`, `string` and other slices. A slice of a declared type needs that
+/// layout work and is recorded as a limitation rather than silently sized
+/// wrong in a test.
+pub fn size_of(kind: &TypeKind) -> u64 {
+    match kind {
+        TypeKind::Bool | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
+        TypeKind::CInt(16) | TypeKind::CUInt(16) => 2,
+        TypeKind::CInt(32) | TypeKind::CUInt(32) | TypeKind::CFloat(32) => 4,
+        TypeKind::I64
+        | TypeKind::F64
+        | TypeKind::CSize
+        | TypeKind::CFloat(_)
+        | TypeKind::Str
+        | TypeKind::Ptr(_)
+        | TypeKind::CPtr(_) => 8,
+        TypeKind::Slice(_) => 24,
+        TypeKind::Option(_)
+        | TypeKind::Result(_, _)
+        | TypeKind::Struct(_)
+        | TypeKind::Enum(_) => 8,
+        TypeKind::Unit
+        | TypeKind::Never
+        | TypeKind::CVoid
+        | TypeKind::Func(_, _) => 0,
+        // Widths the checker never constructs; one word is the harmless answer.
+        TypeKind::CInt(_) | TypeKind::CUInt(_) => 8,
     }
 }
 

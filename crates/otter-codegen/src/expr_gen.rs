@@ -401,6 +401,12 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::StructLit {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
+        HirExpr::SliceLit {
+            elem_ty,
+            elements,
+            ty,
+            ..
+        } => crate::slices::gen_literal(ctx, &elem_ty.kind, elements, &ty.kind),
         // A struct value is an aggregate, so reading one field of it is
         // `extractvalue` -- no address, no alloca, no GEP. The index was resolved
         // against the declaration order in the checker (see `HirExpr::FieldAccess`).
@@ -715,6 +721,8 @@ fn gen_call(
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
+        "push" => crate::slices::gen_push(ctx, args),
+        "free_slice" => crate::slices::gen_free(ctx, args),
         "arena_new" => crate::arena::gen_arena_new(ctx, args, ty),
         "arena_alloc" => crate::arena::gen_arena_alloc(ctx, args, ty),
         "arena_free_all" => crate::arena::gen_arena_free_all(ctx, args),

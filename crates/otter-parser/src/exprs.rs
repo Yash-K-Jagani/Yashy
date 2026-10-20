@@ -288,6 +288,31 @@ impl<'src> Parser<'src> {
                 let tok = self.advance();
                 Ok(Expr::Literal(Literal::Bool(false), tok.span))
             }
+            TokenKind::LBracket => {
+                // `[]T { a, b }`. The brackets are empty and the element type
+                // follows, so an empty literal is typed without inference.
+                let open = self.advance();
+                let _ = self.push_open(TokenKind::LBracket, open.span)?;
+                let _ = self.expect(TokenKind::RBracket)?;
+                self.close_open(TokenKind::RBracket);
+                let elem = self.parse_type_expr()?;
+                let brace = self.expect(TokenKind::LBrace)?;
+                let _ = self.push_open(TokenKind::LBrace, brace.span)?;
+                let mut elements = Vec::new();
+                while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                    elements.push(self.parse_expr()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let close = self.expect(TokenKind::RBrace)?;
+                self.close_open(TokenKind::RBrace);
+                Ok(Expr::SliceLit {
+                    elem: Box::new(elem),
+                    elements,
+                    span: cover(open.span, close.span),
+                })
+            }
             TokenKind::Switch => {
                 // switch expression
                 let kw = self.advance();
@@ -601,6 +626,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Move(_, span) => *span,
         Expr::Call { span, .. } => *span,
         Expr::StructLit { span, .. } => *span,
+        Expr::SliceLit { span, .. } => *span,
         Expr::FieldAccess { span, .. } => *span,
         Expr::Index { span, .. } => *span,
         Expr::Interp { span, .. } => *span,
@@ -615,6 +641,7 @@ pub(crate) fn ty_span(ty: &TypeExpr) -> Span {
         TypeExpr::Name(_, span)
         | TypeExpr::Option(_, span)
         | TypeExpr::Ptr { span, .. }
+        | TypeExpr::Slice(_, span)
         | TypeExpr::Unit(span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Tuple(_, span) => *span,

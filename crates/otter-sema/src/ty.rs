@@ -24,6 +24,13 @@ pub enum TypeKind {
     Enum(String),
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
+    /// A growable, linearly owned sequence of the element type, written `[]T`.
+    ///
+    /// Linear for the same reason a raw pointer is: exactly one binding owns
+    /// the backing array, and `free_slice` gives it up. The element type is
+    /// part of the type, so `[]i64` and `[]string` are different types even
+    /// though both lower to the same three-word header.
+    Slice(Box<Type>),
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
     /// [`crate::ownership`]): at most one binding owns it at a time.
     Ptr(Box<Type>),
@@ -90,6 +97,7 @@ impl std::fmt::Display for Type {
             TypeKind::Enum(name) => write!(f, "{name}"),
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
+            TypeKind::Slice(element) => write!(f, "[]{element}"),
             TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
             TypeKind::CInt(width) => write!(f, "i{width}"),
             TypeKind::CUInt(width) => write!(f, "u{width}"),
