@@ -35,7 +35,7 @@ use otter_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
 use otter_runtime::{RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME};
-use otter_sema::{check_program_with, CheckOptions};
+use otter_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 
 use crate::toolchain::Toolchain;
 
@@ -353,6 +353,71 @@ pub struct BuildOptions {
     pub release: bool,
 }
 
+/// The libraries this program asks for, as linker flags.
+///
+/// An `extern "C" link "m"` block is the source language's way of saying "this
+/// binding lives in libm", and the driver is the only place that turns it into
+/// a `-l` flag: the backend never sees a linker command line. Each library is
+/// named once even when several blocks need it, in source order, so the command
+/// a build failure quotes is the one a user wrote.
+pub fn link_directives(hir: &HirProgram) -> Vec<String> {
+    let mut flags: Vec<String> = Vec::new();
+    for item in &hir.items {
+        if let HirItem::Extern(block) = item {
+            if let Some(library) = &block.link {
+                let flag = format!("-l{library}");
+                if !flags.contains(&flag) {
+                    flags.push(flag);
+                }
+            }
+        }
+    }
+    flags
+}
+
+/// The libraries a platform needs whether or not a program names them.
+///
+/// The runtime only uses stdio, but on Linux a link pulls in libm for a program
+/// that calls `sqrt` and the thread runtime for one that does not use threads
+/// at all; naming them costs nothing when unused. Windows folds all of this
+/// into the CRT, which `clang` links by default, so there is nothing to add.
+/// Every flag here is deduplicated against [`link_directives`], so `link "m"`
+/// does not produce `-lm -lm`.
+pub fn platform_library_flags() -> Vec<&'static str> {
+    if cfg!(windows) {
+        Vec::new()
+    } else {
+        vec!["-lpthread", "-ldl", "-lm"]
+    }
+}
+
+/// The library named by a linker's "cannot find" message, if this output
+/// contains one.
+///
+/// The two spellings are GNU `ld` (`cannot find -lfoo`) and LLD/Clang
+/// (`unable to find library -lfoo`), which are the two linkers an Otter build
+/// can reach on a supported host. Naming the library turns "linking failed"
+/// into a message that says which `link` directive to fix or install.
+fn missing_library(stderr: &str) -> Option<String> {
+    const MARKERS: [&str; 2] = ["unable to find library -l", "cannot find -l"];
+    for line in stderr.lines() {
+        for marker in MARKERS {
+            let Some(index) = line.find(marker) else {
+                continue;
+            };
+            let rest = line.get(index + marker.len()..).unwrap_or("");
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+'))
+                .collect();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
 /// Compile `source` to a native executable at `out`.
 ///
 /// `entry_name` is the path reported in diagnostics and in the IR's
@@ -469,13 +534,18 @@ pub fn compile_to_binary(
     }
     args.push("-o".to_string());
     args.push(display(out));
-    if !cfg!(windows) {
-        // The runtime only needs stdio, but a Linux link of a freestanding
-        // object may still pull in libm and the thread runtime.
-        args.push("-lpthread".to_string());
-        args.push("-ldl".to_string());
-        args.push("-lm".to_string());
+    // Libraries last, after every object on the command line: GNU `ld` resolves
+    // a symbol from the archives to its right, so `-lm` before the object that
+    // calls `sqrt` would not find it. The `link` directives come first so a
+    // failure quotes the user's intent before the platform defaults.
+    let mut libraries = link_directives(&hir);
+    for flag in platform_library_flags() {
+        let flag = flag.to_string();
+        if !libraries.contains(&flag) {
+            libraries.push(flag);
+        }
     }
+    args.extend(libraries);
     run_tool(toolchain, &args, entry_name, "compiling the program")?;
 
     Ok(())
@@ -511,6 +581,17 @@ fn run_tool(
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let summary = first_meaningful_line(&stderr).unwrap_or("no output from the tool");
+    if let Some(library) = missing_library(&stderr) {
+        return Err(vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "`{}` failed while {what}: the linker cannot find the library `{library}`. \
+                 A `link \"{library}\"` directive (or a platform default) asked for it; \
+                 install it or link a library that exists.",
+                toolchain.llc.display()
+            ),
+        )]);
+    }
     Err(vec![toolchain_diagnostic(
         entry_name,
         format!("`{}` failed while {what}: {summary}", toolchain.llc.display()),
@@ -584,8 +665,8 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, fnv1a, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
-        FNV_OFFSET_BASIS,
+        cached_runtime_object, fnv1a, missing_library, platform_library_flags, runtime_cache_dir,
+        runtime_cache_key, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
     use std::fs;
@@ -767,5 +848,44 @@ mod tests {
         assert_eq!(object, None);
 
         let _ = fs::remove_file(&in_the_way);
+    }
+
+    #[test]
+    fn a_missing_library_is_named_from_the_linker_message() {
+        // The two linkers an Otter build reaches spell it differently; both
+        // messages have to turn into the library's name, not the whole line.
+        assert_eq!(
+            missing_library("ld.lld: error: unable to find library -lm"),
+            Some("m".to_string())
+        );
+        assert_eq!(
+            missing_library("/usr/bin/ld: cannot find -lfoo: No such file or directory"),
+            Some("foo".to_string())
+        );
+        assert_eq!(
+            missing_library("error: undefined reference to `sqrt'"),
+            None,
+            "an undefined symbol is not a missing library"
+        );
+        assert_eq!(
+            missing_library("ld: cannot find -l\n"),
+            None,
+            "a truncated message must not claim an empty library"
+        );
+    }
+
+    #[test]
+    fn the_platform_defaults_cover_libm_and_are_empty_on_windows() {
+        // sqrt needs libm on Linux and is in the CRT on Windows; `link \"m\"`
+        // is deduplicated against these, so `-lm` must be here on the platform
+        // that needs it and absent on the one that does not.
+        let flags = platform_library_flags();
+        if cfg!(windows) {
+            assert!(flags.is_empty(), "the Windows CRT needs no flag: {flags:?}");
+        } else {
+            assert!(flags.contains(&"-lm"));
+            assert!(flags.contains(&"-lpthread"));
+            assert!(flags.contains(&"-ldl"));
+        }
     }
 }
