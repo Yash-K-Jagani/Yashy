@@ -620,17 +620,21 @@ git commit -m "feat: slice operations and for-in iteration"
 ### Task 8: Maps
 
 **Files:**
-- Create: `crates/otter-runtime/hashmap.c`, modify `include/otter_runtime.h`
-- Modify: `crates/otter-parser/src/exprs.rs` (`map[K]V`)
-- Modify: `crates/otter-sema/src/ty.rs`, `builtins.rs`
-- Create: `crates/otter-codegen/src/maps.rs`
+- Create: `crates/otter-runtime/hashmap.c`; modify `include/otter_runtime.h`,
+  `runtime.c` (`otter_str_hash`), `build.rs`, and `src/lib.rs` (the embedded
+  sources and the Rust-side declarations)
+- Modify: `crates/otter-parser/src/ast.rs`, `types.rs` (`map[K]V`)
+- Modify: `crates/otter-sema/src/ty.rs`, `check_expr.rs`, `ownership.rs`
+- Create: `crates/otter-codegen/src/maps.rs`; modify `ir.rs`, `module.rs`,
+  `expr_gen.rs`, `slices.rs` (share `option_from_flag`)
+- Modify: `crates/otter-driver/src/pipeline.rs` (two cached runtime objects)
 - Create: `crates/otter-codegen/tests/golden/maps.ot`, `tests/golden/maps.expected.ll`
 
 **Interfaces:**
 - Consumes: ledger L1 `otter_map_*`
-- Produces: `TypeKind::Map(Box<TypeKind>, Box<TypeKind>)`; `map_new`, `map_get(K) -> Option[V]`, `map_insert(K, V)`, `map_remove(K) -> Option[V]`, `map_len(map) -> i64`, `map_free`
+- Produces: `TypeKind::Map(Box<Type>, Box<Type>)`; `map_new`, `map_get(K) -> Option[V]`, `map_insert(K, V)`, `map_remove(K) -> Option[V]`, `map_len(map) -> i64`, `map_free`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -657,20 +661,76 @@ fn keys_are_compared_by_value_not_by_pointer() {}
 fn a_map_is_linear_and_frees_once() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 An open-addressing table in C taking function pointers for hash and equality, so codegen emits small Otter-visible thunks per key type. Grow at 70% load. `map_get` returns an `Option` by writing into an out-parameter and returning a presence flag.
 
-- [ ] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
+- [x] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat: string and value keyed maps over an open-addressing runtime table"
 ```
+
+**As built.**
+
+- **One table, a key-kind tag instead of function pointers.** `hashmap.c` keeps
+  the three parallel byte arrays (`states` / `keys` / `values`) and a `key_size`
+  / `value_size` stride, so one C implementation serves every scalar type.
+  `otter_map_new(i64 key_kind, i64 key_size, i64 value_size)` records the kind
+  once — `0` = `i64` (splitmix64 over the eight bytes), `1` = `bool`, `2` =
+  `string` (`otter_str_hash`, FNV-1a, added to `runtime.c`) — instead of taking
+  hash/equality function pointers. Generated code therefore emits no thunks: the
+  whole ABI is `i8*` plus slots. Probing is linear, tombstones keep chains
+  correct after removals, and the table rehashes into a fresh array once
+  occupied + tombstoned entries reach 70% of capacity.
+- **Ownership.** A `string` key is a handle: `insert` retains it, an overwrite
+  keeps the stored key (no second retain), `remove` and `free` release exactly
+  one reference. A failed allocation leaves the table unchanged; `insert`
+  reports nothing, the same rule `push` follows.
+- **The type and its restrictions.** `map[K]V` is parsed by name only when
+  `map` is directly followed by `[`, so an ordinary type named `map` still
+  resolves by name. `TypeKind::Map` is linear like a slice (one binding owns the
+  table) and lowers to `i8*`. Keys are restricted to `i64`, `bool`, and
+  `string` — the kinds the runtime can hash — and values to numbers and `bool`,
+  because an owned value would need a destructor on removal. Both restrictions
+  are diagnostics at the type expression's own span.
+- **`map_new` is inferred, never guessed.** It takes no arguments, so it is only
+  typed when the surrounding binding annotation, parameter, or return type is a
+  `map[K]V`; `var m = map_new();` is "cannot infer the map's key and value
+  types". `map_get`/`map_remove` answer `Option[V]`; `map_len` is `i64`;
+  `insert`/`free` are `()`. All five take the map as their first argument and
+  require a plain binding — not a temporary, not a field — because `map_free`
+  moves the binding and lowering looks it up by name. `len(map)` stays an error;
+  the spelling is `map_len`.
+- **Inference plumbing changed.** The `var`/`const` annotation used to be
+  resolved with `.ok()`, silently dropping an invalid annotation's diagnostic
+  and then complaining about the initializer instead. It now reports the type
+  error and stops, which is what makes the key/value restrictions visible.
+- **Two runtime objects.** The driver embeds and writes both `runtime.c` and
+  `hashmap.c`, caches one object per source under a single key that hashes both,
+  and passes both to the link (or compiles both as inputs when the cache is
+  unusable).
+- **Tests as built.** Parser 4 in `tests/maps.rs` (key/value shape, nested map
+  value, `Option` key, bare `map` stays a name); sema 12 (three key kinds,
+  inference from a parameter and a binding, missing inference, unhashable key,
+  owned value, move on `free`, linear copy, `Option` results, wrong key, wrong
+  value, temporary/field receivers, `len` rejection); codegen 9
+  (`tests/maps.rs`: key kinds and strides, insert slots, lookup flag → `Option`,
+  remove, length, free, and the `maps` golden); runtime 10 (empty, insert/get,
+  miss leaves the out slot alone, overwrite, remove twice, bool keys,
+  content-equal string keys with retain counts, overwrite keeps one reference,
+  1000-entry growth with removals, null/invalid tables); driver e2e 1 (`maps`)
+  and leaks 1 (`maps_heap`: 200 built string keys, zero live allocations).
+- **Goldens.** `golden/maps.{ot,expected.ll}` added; the ten existing goldens
+  gained exactly the six `declare`s and nothing else.
+- **Deferred.** `map[K]V` values with ownership (strings, slices, maps),
+  user-supplied hash/equality, iteration over a map, and a literal form
+  (`map[K]V { ... }`) are not implemented. `len` does not measure a map.
 
 ---
 
