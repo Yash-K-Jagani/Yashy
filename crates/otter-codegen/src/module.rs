@@ -6,6 +6,10 @@
 //! "No LLVM build dependency" constraint), so the only structure the
 //! backend needs is "the lines so far, in order".
 
+use std::collections::HashMap;
+
+use otter_sema::HirExternDecl;
+
 /// A module under construction.
 pub struct Module {
     /// The body lines accumulated by `push`, in emission order.
@@ -28,6 +32,9 @@ pub struct Module {
     fp_contract: bool,
     /// The index the next `%tN` temporary will use.
     next_value: u32,
+    /// C declarations by name, so a call can tell an extern callee from a user
+    /// function and apply the boundary rules (spec §8.1).
+    externs: HashMap<String, HirExternDecl>,
 }
 
 impl Module {
@@ -40,7 +47,22 @@ impl Module {
             source_filename: "main.ot".to_string(),
             fp_contract: false,
             next_value: 0,
+            externs: HashMap::new(),
         }
+    }
+
+    /// Record a C declaration for this module's call sites.
+    ///
+    /// Emission of the `declare` itself is `gen_extern_decl`'s job; this is the
+    /// lookup table the call lowering needs, and it is separate because a
+    /// backend test may lower a call without going through `emit_program`.
+    pub fn add_extern_decl(&mut self, decl: HirExternDecl) {
+        self.externs.insert(decl.name.clone(), decl);
+    }
+
+    /// The C declaration named `name`, when the program declared one.
+    pub fn extern_decl(&self, name: &str) -> Option<&HirExternDecl> {
+        self.externs.get(name)
     }
 
     /// Allow floating-point contraction in this module.
@@ -214,6 +236,10 @@ impl Module {
         // release half is emitted wherever an owned temporary is consumed.
         out.push_str("declare i8* @otter_str_retain(i8*)\n");
         out.push_str("declare void @otter_str_release(i8*)\n");
+        // The C boundary (spec §8.1, M5 Task 3). `cstr` allocates a copy for a
+        // safe call; `ptr` lends the string's own bytes to an `unsafe` one.
+        out.push_str("declare i8* @otter_str_cstr(i8*)\n");
+        out.push_str("declare i8* @otter_str_ptr(i8*)\n");
         // Input (ledger L1's input additions). Declared up front for the same
         // reason as the string set.
         out.push_str("declare i8* @otter_read_line()\n");

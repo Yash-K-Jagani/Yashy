@@ -13,6 +13,7 @@
 pub mod arena;
 pub mod expr_gen;
 pub mod faults;
+pub mod ffi;
 pub mod fn_gen;
 pub mod ir;
 pub mod memory;
@@ -22,6 +23,7 @@ pub mod stmt_gen;
 pub mod strings;
 
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
+pub use ffi::gen_ffi_call;
 pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
@@ -77,6 +79,18 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
+    // Declarations first: every function body may call a C function declared
+    // later in the file, and a `declare` before the first `define` is the shape
+    // LLVM expects. The table is also what tells the call lowering that a name
+    // is extern rather than a user function.
+    for item in &hir.items {
+        if let HirItem::Extern(block) = item {
+            for decl in &block.decls {
+                gen_extern_decl(&mut module, decl);
+                module.add_extern_decl(decl.clone());
+            }
+        }
+    }
     for item in &hir.items {
         match item {
             HirItem::Fn(f) => {
@@ -89,14 +103,10 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
                     gen_fn(&mut module, f);
                 }
             }
-            // A C declaration contributes a `declare` and nothing else. The
-            // library name is the driver's business (Task 4); the backend must
-            // not invent a body for a function it cannot see.
-            HirItem::Extern(block) => {
-                for decl in &block.decls {
-                    gen_extern_decl(&mut module, decl);
-                }
-            }
+            // Handled in the pre-pass above: a C declaration contributes a
+            // `declare` and nothing else. The backend must not invent a body
+            // for a function it cannot see.
+            HirItem::Extern(_) => {}
             HirItem::Struct(_) | HirItem::Enum(_) | HirItem::Import(_) => {}
         }
     }

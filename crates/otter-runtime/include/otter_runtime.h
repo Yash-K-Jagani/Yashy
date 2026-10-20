@@ -99,6 +99,18 @@ otter_str *otter_str_from_f64(double value);
 otter_str *otter_str_from_bool(long long value);
 int otter_str_eq(const otter_str *a, const otter_str *b);
 
+/* The C boundary (spec §8.1). `otter_str_cstr` returns a fresh, owned,
+ * NUL-terminated copy of the bytes, allocated with `otter_alloc` so the caller
+ * frees it with `otter_free`. `otter_str_ptr` returns the string's own data
+ * pointer and transfers nothing: it is only for an `unsafe` call, which tells
+ * the compiler C may keep the pointer after returning.
+ *
+ *     declare i8* @otter_str_cstr(i8*)
+ *     declare i8* @otter_str_ptr(i8*)
+ */
+char *otter_str_cstr(const otter_str *s);
+const char *otter_str_ptr(const otter_str *s);
+
 /* Reads one line from standard input without its terminator, as a string the
  * caller *owns* (refcount 1); returns the empty string at end of input. The
  * parsers return zero when their argument is not a number (see the input

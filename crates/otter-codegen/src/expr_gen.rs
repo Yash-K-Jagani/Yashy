@@ -392,8 +392,12 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         } => gen_unary(ctx, *op, operand, fault.as_ref()),
         HirExpr::Move(inner, _, ty) => crate::memory::gen_move(ctx, inner, &ty.kind),
         HirExpr::Call {
-            callee, args, ty, ..
-        } => gen_call(ctx, callee, args, &ty.kind),
+            callee,
+            args,
+            unsafe_call,
+            ty,
+            ..
+        } => gen_call(ctx, callee, args, &ty.kind, *unsafe_call),
         HirExpr::StructLit {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
@@ -697,7 +701,13 @@ fn gen_unary(
 
 /// Lower a call: the three runtime builtins, the `Option`/`Result`
 /// constructors, and user functions.
-fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeKind) -> GenValue {
+fn gen_call(
+    ctx: &mut FnCtx<'_>,
+    callee: &[String],
+    args: &[HirExpr],
+    ty: &TypeKind,
+    unsafe_call: bool,
+) -> GenValue {
     let name = callee.last().cloned().unwrap_or_default();
     match name.as_str() {
         // `alloc` and `dealloc` are calls to the runtime's heap (ledger L1),
@@ -878,6 +888,18 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
             }
         }
         _ => {
+            // A C declaration is not a user function: its arguments may be
+            // copied and its temporaries freed, which needs the lowered values
+            // rather than the expression tree. The checker has already put the
+            // declaration in scope under this name.
+            if let Some(decl) = ctx.module.extern_decl(&name).cloned() {
+                let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+                let value = crate::ffi::gen_ffi_call(ctx, &decl, &lowered, unsafe_call);
+                return GenValue {
+                    value,
+                    ty: ty.clone(),
+                };
+            }
             // Builtins whose runtime symbol is the `otter_`-prefixed name and
             // whose arguments and result need no reshaping: only the name
             // differs, so the common path handles them.

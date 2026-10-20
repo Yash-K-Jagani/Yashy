@@ -106,3 +106,20 @@ fn a_duplicate_extern_name_is_a_duplicate_definition() {
         "duplicate definition",
     );
 }
+
+#[test]
+fn a_raw_pointer_argument_requires_an_unsafe_call() {
+    // A pointer cannot be copied into a fresh buffer, so the call site has to
+    // say that it is lending C the address and whatever it names.
+    let program = |call: &str| {
+        format!(
+            r#"extern "C" {{
+                   unsafe fn malloc() -> *mut u8;
+                   unsafe fn touch(p: *mut u8) -> void;
+               }}
+               fn main() {{ const p = malloc(); {call} }}"#
+        )
+    };
+    assert_rejected(&program("touch(p);"), "requires an `unsafe` call");
+    check(&program("unsafe touch(p);")).expect("an unsafe call may lend the pointer");
+}

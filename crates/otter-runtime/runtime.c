@@ -366,6 +366,29 @@ static const char *otter_str_data(const otter_str *s) {
     return s == NULL ? "" : s->data;
 }
 
+/* A fresh, NUL-terminated copy for a safe C call. The copy is made with
+ * `otter_alloc`, so it obeys the same alignment and accounting rules as every
+ * other heap value and the caller frees it with `otter_free`. C may keep this
+ * pointer for as long as it likes; it owns nothing of Otter's. */
+char *otter_str_cstr(const otter_str *s) {
+    size_t len = s == NULL ? 0 : (size_t)s->len;
+    char *copy = (char *)otter_alloc((long long)(len + 1), 1);
+    if (copy == NULL) {
+        return NULL;
+    }
+    if (len > 0) {
+        memcpy(copy, s->data, len);
+    }
+    copy[len] = '\0';
+    return copy;
+}
+
+/* The string's own bytes, for an `unsafe` call. The pointer is valid for as
+ * long as the string is alive, which is exactly the promise `unsafe` waives. */
+const char *otter_str_ptr(const otter_str *s) {
+    return otter_str_data(s);
+}
+
 /* Keeps a reference to `s`: the refcount goes up by one. A static string
  * (refcount -1) is untouched, because it is never freed and has no count to
  * keep. Returns `s` so a caller can write `x = otter_str_retain(x)`. */

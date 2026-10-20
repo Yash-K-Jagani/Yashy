@@ -22,7 +22,7 @@
 //! fallible lookup returns `Result` or `Option`; every error becomes a
 //! [`TypeError`], and every [`TypeError`] becomes a [`otter_common::Diagnostic`].
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
@@ -64,6 +64,9 @@ pub struct Checker<'src> {
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
+    /// Names declared inside an `extern` block. A call to one of these follows
+    /// the FFI boundary rules, which user functions do not (spec §8.1).
+    externs: HashSet<String>,
     errors: Vec<TypeError>,
     file: FileId,
     /// Whether this is a release build, in which a `debug_assert` compiles away.
@@ -270,6 +273,7 @@ impl<'src> Checker<'src> {
             structs: HashMap::new(),
             enums: HashMap::new(),
             fns: HashMap::new(),
+            externs: HashSet::new(),
             errors: Vec::new(),
             file,
             release: options.release,
@@ -441,6 +445,7 @@ impl<'src> Checker<'src> {
                             self.error(e.span, e.message);
                         }
                         self.fns.insert(decl.name.clone(), sig);
+                        self.externs.insert(decl.name.clone());
                     }
                 }
                 Item::Import { .. } => {}
@@ -1686,6 +1691,25 @@ impl<'src> Checker<'src> {
                                     }
                                 }
                                 arg_exprs.push(checked);
+                            }
+                            // A raw pointer is an address, so there is nothing
+                            // to copy at the boundary: C may keep or free what
+                            // it names. The call site must say `unsafe`, which
+                            // is what makes that risk visible where it is taken.
+                            if self.externs.contains(&name) && !*unsafe_call {
+                                for checked in &arg_exprs {
+                                    let arg_ty = expr_ty(checked);
+                                    if matches!(linearity_of(&arg_ty.kind), Linearity::Linear) {
+                                        self.error(
+                                            expr_span(checked),
+                                            format!(
+                                                "passing `{arg_ty}` to `{name}` (an `extern` \
+                                                 function) requires an `unsafe` call: C may keep \
+                                                 or free the pointer"
+                                            ),
+                                        );
+                                    }
+                                }
                             }
                             // `panic` and `assert` are sugar in the same way
                             // interpolation is: the position they report is a
