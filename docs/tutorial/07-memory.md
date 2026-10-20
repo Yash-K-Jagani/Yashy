@@ -31,11 +31,15 @@ Three rules make this safe without a garbage collector:
   sees the values that were live when the `defer` was reached. That is what
   makes `dealloc(owned)` run at the end of `main` even though the line appears
   before the last statement.
-- **A pointer is linear.** It cannot be copied, so it cannot be freed twice;
-  it must be moved into a `defer` or passed to `dealloc`.
+- **A pointer is linear.** It cannot be copied, so it cannot be freed twice.
+  Using it after it is moved is a compile error. Not freeing it is not: the
+  checker tracks ownership, not reachability, so a forgotten `dealloc` or
+  `free_slice` is a leak rather than a diagnostic.
 
-The same ownership applies to strings, slices, maps, channels, and structs that
-contain them. A type that owns memory is linear by construction, not by
-convention.
+The same ownership applies to strings, slices, maps, and channels. A struct is
+the exception: its owning fields are not released at scope exit in this
+milestone, and a struct that holds one can still be copied, so an owning field
+is leaked rather than freed (chapter 4 states the consequence). Ledger L4
+schedules the replacement for M9.
 
 Continue to [08-strings](08-strings.md).

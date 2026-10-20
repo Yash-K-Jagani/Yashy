@@ -47,9 +47,28 @@ checks because the parameter's type says which `Option` is meant.
 no exception unwinding; chapter 6 shows `?`, which propagates an `Err` to the
 caller.
 
-Matching a literal value (`case 0`) is on the language's roadmap, but the
-backend does not test it yet, so this guide does not teach it. The shapes this
-guide does match are `Option` and `Result`.
+A `switch` may also compare literals. The subject has infinitely many values in
+that case, so a `default` arm is required to make the match exhaustive:
+
+```otter
+fn classify(n: i64) -> string {
+    return switch n {
+        case 0 { "zero" }
+        case 1 { "one" }
+        default { "many" }
+    };
+}
+
+fn main() {
+    print_str(classify(0) + " " + classify(1) + " " + classify(9) + "\n");
+    // => zero one many
+}
+```
+
+Literal arms work for `i64`, `f64`, `bool`, and `string`; a `string` compares
+contents, not identity. They bind nothing and always need a `default`, and a
+literal cannot match an enum subject, because the literal's type and the enum's
+type differ.
 
 The language also has user-declared enums, matched the same way, but a program
 in this milestone can only *match* one: constructing a variant with a payload

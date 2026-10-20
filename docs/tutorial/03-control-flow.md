@@ -48,8 +48,10 @@ fn main() {
 `for n in 0..5` walks the half-open range 0, 1, 2, 3, 4. The same form walks a
 slice element by element (chapter 9).
 
-`switch` chooses by shape, not by equality; chapter 5 covers it. A switch arm
-is a single expression, which is why examples that need several statements
-collect into a slice or call a function.
+`switch` chooses by shape, not by equality; chapter 5 covers it. In statement
+and expression position alike, an arm's body is one expression, optionally
+followed by `;`; a second statement is a parse error, which is why an arm that
+needs several statements calls a function. The switch must cover every shape --
+or end in `default` -- in either position.
 
 Continue to [04-structs](04-structs.md).

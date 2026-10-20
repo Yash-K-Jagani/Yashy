@@ -36,13 +36,24 @@ fn main() {
 ```
 
 `chan_new(1)` makes a channel that holds one value at a time, so a sender
-blocks when the slot is full and a receiver blocks when it is empty. With room
-for one value, each send waits for the matching receive, and the loop drains the
-channel as the producer fills it.
-`chan_recv` answers `Option[T]`: it is `None` only when the channel is closed
-and empty, which is how a consumer knows to stop. A channel element must be
-copyable -- `i64`, `bool`, `f64`, a pointer-free struct -- and `string` is
-refused, because the runtime copies elements and a string needs a retain.
+blocks when the slot is full and a receiver blocks when it is empty. The
+argument is a capacity in elements, not bytes. With room for one value, each
+send waits for the matching receive, and the loop drains the channel as the
+producer fills it.
+
+The type annotation on the binding is required:
+`var results: Channel[i64] = chan_new(1);`. `chan_new` takes only a capacity, so
+there is no element type to infer from the call; the annotation is what says
+what the channel carries. `chan_recv` answers `Option[T]`: it is `None` only when
+the channel is closed and empty, which is how a consumer knows to stop. A
+channel element must be copyable -- `i64`, `bool`, `f64`, a pointer-free struct
+-- and `string` is refused, because the runtime copies elements and a string
+needs a retain.
+
+A spawned worker returns nothing (the result comes back through the channel)
+and its parameters are the arguments after the function name, in order:
+`thread_spawn(worker, results)` calls `worker(results)`. The handle
+`thread_spawn` returns is an `i64`, and `thread_join(handle)` takes it.
 
 A channel and a mutex are linear: each is freed exactly once. A spawned worker
 *borrows* a channel argument, so the parent frees it after `thread_join`, never

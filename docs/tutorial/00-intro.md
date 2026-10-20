@@ -25,7 +25,8 @@ cargo build --release
 ```
 
 Then compile a program and run it (`target/release/otter.exe` and `hello.exe` on
-Windows; `./hello` on Linux and macOS):
+Windows; `./hello` on Linux and macOS). A debug build works the same way and
+compiles faster: `cargo build`, then `target/debug/otter`:
 
 ```text
 target/release/otter build hello.ot
