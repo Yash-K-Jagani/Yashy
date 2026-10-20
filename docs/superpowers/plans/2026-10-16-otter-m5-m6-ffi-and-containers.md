@@ -749,7 +749,7 @@ git commit -m "feat: string and value keyed maps over an open-addressing runtime
   - An import cycle is an error naming the cycle
   - Per-file modules: two files importing the same module get one definition, not two
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -774,20 +774,73 @@ fn a_name_defined_in_two_modules_is_an_ambiguity_error() {}
 fn otter_path_overrides_the_default_root() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL — `import` is still rejected.
+- [x] **Step 2: Run to verify they fail** → FAIL — `import` is still rejected.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Topologically order modules, type-check each once, and merge their exported names into one root scope. Reject a name defined twice.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "feat: module resolution, OTTER_PATH, and cycle detection"
 ```
+
+**As built.**
+
+- **One source map, many files.** The driver's CLI now builds a single
+  `SourceMap` for the whole program and the loader adds each imported file to it
+  as it reads that file. The entry point is still file id zero, because it is
+  added first; dependencies get later ids even though they precede the entry in
+  the module list. `render` therefore takes the map the diagnostics were
+  produced against instead of rebuilding a one-file map, which is what lets a
+  caret point into the module that made the mistake.
+- **The loader** (`crates/otter-driver/src/modules.rs`) walks the import graph
+  depth-first. `resolve_import(spec, from, roots)` tries, per root,
+  `<root>/a/b/c.ot` and then `<root>/a/b/c/mod.ot`, and its failure message lists
+  every candidate it tried. `module_roots(entry)` is `OTTER_PATH` split on `;`
+  (Windows) or `:` (elsewhere) when it has a non-empty entry, and the entry
+  file's directory otherwise — the variable *replaces* the default, so a build
+  can be pinned. An empty `OTTER_PATH` counts as unset.
+- **De-duplication and cycles.** Files are keyed by canonical path, so the same
+  module reached by three importers is read, parsed and defined once. A path
+  that is still on the loader's stack is a cycle, reported as
+  `import cycle: a.ot -> b.ot -> a.ot` at the `import` that closed it. Loading is
+  recursive, so a chain deeper than 64 modules is refused with a stack-safety
+  diagnostic rather than left to overflow.
+- **Checking an import graph.** `Checker::check_modules` takes
+  `&[(FileId, &Program)]`, declares every module's items before any body is
+  read, then checks each module with `self.file` set to that module. Errors are
+  stored with the file that was current when they were reported
+  (`Vec<(FileId, TypeError)>`), which is the whole of the multi-file support in
+  sema; `check_program` and `check_program_with` are now one-module wrappers.
+  `check_modules_with` is the public entry point.
+- **Ambiguity is the existing duplicate error.** All top-level names share one
+  root scope, so a `fn thing` in two modules is `duplicate definition of `thing``
+  at the second module's definition — the same message and caret a redefinition
+  in one file gets.
+- **Pipeline split.** `compile_hir(hir, entry_name, out, toolchain, options)` is
+  the emit-and-link half, `load_and_check(map, entry_path, source, release)` is
+  load + parse + check, and `compile_to_binary` remains the single-file
+  convenience it always was (implemented on top of `compile_hir`). The CLI uses
+  the two halves directly so `check` and `--emit-ir` work without an LLVM
+  toolchain and share the map with `render`.
+- **Tests as built.** Ten in `crates/otter-driver/tests/modules.rs`: the seven
+  named above plus `a_module_search_prefers_the_flat_file_then_the_directory`
+  (direct `resolve_import` unit test and shape order),
+  `check_accepts_a_multi_file_program_without_building_it` (the `check`
+  subcommand resolves imports and writes no executable), and
+  `an_error_in_a_module_names_the_module_not_the_entry_point` (a returning
+  `string` from `-> i64` names `lib/broken.ot`, never `main.ot:2`).
+- **Deferred.** There is no `pub`/private visibility — every top-level name is
+  exported and a collision is an error; imports are not re-exported; a reference
+  is always unqualified (`seven()`, never `lib.util.seven`); a module is
+  resolved against the search roots, not relative to its importer, unless the
+  importer's directory is itself a root; and module-level initialization order
+  does not exist (there are no top-level statements).
 
 ---
 
