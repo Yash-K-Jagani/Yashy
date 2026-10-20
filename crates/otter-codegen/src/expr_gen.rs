@@ -560,7 +560,7 @@ fn zero_of(ty: &TypeKind, _ctx: &mut FnCtx<'_>) -> GenValue {
 
 /// Lower a literal. Strings are interned as globals and decay to their data
 /// pointer (see [`repr_type`]).
-fn gen_literal(ctx: &mut FnCtx<'_>, lit: &Literal, ty: &TypeKind) -> GenValue {
+pub(crate) fn gen_literal(ctx: &mut FnCtx<'_>, lit: &Literal, ty: &TypeKind) -> GenValue {
     match lit {
         Literal::I64(v) => GenValue {
             value: v.to_string(),

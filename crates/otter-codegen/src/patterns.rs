@@ -32,10 +32,34 @@
 //! abort. Sema has already rejected that program, so the fallback exists only
 //! so codegen can never panic.
 
+use otter_parser::ast::Literal;
 use otter_sema::{HirPattern, HirSwitchArm, TypeKind};
 
-use crate::expr_gen::{gen_expr, FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, gen_literal, FnCtx, GenValue};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
+
+/// What one arm tests, when it tests anything.
+///
+/// A variant arm tests the scrutinee's tag; a literal arm compares the
+/// scrutinee itself. They are one enum rather than two parallel tables so an
+/// arm can never get a tag test and a literal test at once.
+enum Test {
+    Tag(u8),
+    Literal(Literal),
+}
+
+/// The test an arm performs, or `None` for an arm that matches everything.
+fn test_for(arm: &HirSwitchArm, subject: &TypeKind) -> Option<Test> {
+    if arm.is_default {
+        return None;
+    }
+    if let HirPattern::Literal(literal, _) = &arm.pattern {
+        return Some(Test::Literal(literal.clone()));
+    }
+    pattern_variant_name(&arm.pattern)
+        .and_then(|name| variant_tag(subject, name))
+        .map(Test::Tag)
+}
 
 /// Lower a `switch` on `subject` against `arms`. Returns the name of the
 /// result alloca slot, or `""` when the result type is `()`.
@@ -55,17 +79,9 @@ pub fn gen_match(
     };
     let result_done = ctx.alloc_label_base() + "_result";
 
-    // The tag each arm tests against, or `None` when the arm has no test.
-    let tests: Vec<Option<u8>> = arms
+    let tests: Vec<Option<Test>> = arms
         .iter()
-        .map(|arm| {
-            if arm.is_default {
-                None
-            } else {
-                pattern_variant_name(&arm.pattern)
-                    .and_then(|name| variant_tag(&subject.ty, name))
-            }
-        })
+        .map(|arm| test_for(arm, &subject.ty))
         .collect();
     let arm_labels: Vec<String> = arms
         .iter()
@@ -81,22 +97,53 @@ pub fn gen_match(
     // later one opens the block the previous test branched to.
     let mut opened = false;
     for (index, test) in tests.iter().enumerate() {
-        let Some(tag) = test else { continue };
+        let Some(test) = test else { continue };
         if opened {
             ctx.push(format!("{}:", test_labels[index]));
         }
         opened = true;
 
-        let subject_repr = repr_type(&subject.ty);
-        let tag_field = ctx.tmp();
-        ctx.push(format!(
-            "{tag_field} = extractvalue {subject_repr} {}, 0",
-            subject.value
-        ));
-        let is_match = ctx.tmp();
-        // The compared operand is a bare integer: modern LLVM has no typed
-        // constants, so `i8 0` here is a parse error ("expected value token").
-        ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, {tag}"));
+        // Each branch allocates its temps in the order the pinned goldens
+        // record: the tag extraction first, then the comparison.
+        let is_match = match test {
+            Test::Tag(tag) => {
+                let subject_repr = repr_type(&subject.ty);
+                let tag_field = ctx.tmp();
+                ctx.push(format!(
+                    "{tag_field} = extractvalue {subject_repr} {}, 0",
+                    subject.value
+                ));
+                let is_match = ctx.tmp();
+                // The compared operand is a bare integer: modern LLVM has no
+                // typed constants, so `i8 0` here is a parse error ("expected
+                // value token").
+                ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, {tag}"));
+                is_match
+            }
+            Test::Literal(literal) => {
+                let value = gen_literal(ctx, literal, &subject.ty);
+                let is_match = ctx.tmp();
+                if matches!(subject.ty, TypeKind::Str) {
+                    ctx.push(format!(
+                        "{is_match} = call i1 @otter_str_eq(i8* {}, i8* {})",
+                        subject.value, value.value
+                    ));
+                } else if matches!(subject.ty, TypeKind::F64) {
+                    ctx.push(format!(
+                        "{is_match} = fcmp oeq double {}, {}",
+                        subject.value, value.value
+                    ));
+                } else {
+                    ctx.push(format!(
+                        "{is_match} = icmp eq {} {}, {}",
+                        repr_type(&subject.ty),
+                        subject.value,
+                        value.value
+                    ));
+                }
+                is_match
+            }
+        };
 
         let next = next_test(&tests, index)
             .map(|next| test_labels[next].clone())
@@ -136,8 +183,8 @@ pub fn gen_match(
     result_slot
 }
 
-/// The index of the next arm that tests a tag, after `from`.
-fn next_test(tests: &[Option<u8>], from: usize) -> Option<usize> {
+/// The index of the next arm that tests anything, after `from`.
+fn next_test(tests: &[Option<Test>], from: usize) -> Option<usize> {
     tests
         .iter()
         .enumerate()

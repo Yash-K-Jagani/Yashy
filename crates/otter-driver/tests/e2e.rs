@@ -1217,6 +1217,18 @@ fn a_switch_arm_may_end_with_a_semicolon() {
 }
 
 #[test]
+fn literal_switch_arms_compare_the_subject() {
+    // Every arm here has a value that must not match. That is the half the
+    // original lowering got wrong: a literal arm had no test, so the first one
+    // was the fall-through and everything matched it.
+    let output = build_and_run("switch_literals");
+    assert_eq!(
+        stdout_of(&output),
+        "zero one many\nanimal shout other\none and a half other\nyes no\n"
+    );
+}
+
+#[test]
 fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // Integer arithmetic is checked. The alternative is a wrapped number that
     // looks exactly like an answer, and a language with no exceptions has
