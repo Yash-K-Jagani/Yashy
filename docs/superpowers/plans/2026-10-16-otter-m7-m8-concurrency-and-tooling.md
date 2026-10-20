@@ -519,7 +519,7 @@ git commit -m "feat(fmt): comment-preserving formatter, and format the stdlib wi
 - Consumes: lexer, parser, sema, `otter-common` diagnostics
 - Produces: LSP over stdio with `textDocument/didOpen`, `didChange`, `didSave`; `textDocument/publishDiagnostics`; semantic tokens for keywords, types, functions, strings, numbers, comments; `textDocument/definition`, `hover`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -543,20 +543,56 @@ fn the_server_survives_a_file_that_does_not_parse() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Reuse the existing crates directly; no new compiler logic. Debounce diagnostics so typing stays responsive.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-lsp/
 git commit -m "feat(lsp): diagnostics, hover, definition, and semantic tokens"
 ```
+
+**As built.** A dependency-free server that reuses the build pipeline, and a
+debounce that is not a timer:
+
+- **No new compiler logic.** `didOpen`/`didChange` pass the buffer to
+  `otter-driver::load`, which parses it and every import (the loader adds the
+  entry itself, so an unsaved buffer is checked without touching disk), then
+  `check_modules_with` type-checks the graph. Diagnostics are the compiler's
+  own, spans and all, converted to LSP ranges with a line index that counts
+  UTF-16 units.
+- **A hand-written JSON module and framing.** The workspace has no
+  dependencies, and LSP needs a small subset of JSON, so `json.rs` parses and
+  prints it (with `\uXXXX` and surrogate pairs), and `serve` speaks
+  `Content-Length` frames over any `BufRead`/`Write`. The tests drive the real
+  server through an in-memory pipe, so the framing is what is tested.
+- **Semantic tokens** come from the lexer, plus a gap scan for comments (the
+  lexer skips them). Keywords, declared types (`i64`, `string`, `Option`, …),
+  call/declaration names, strings, numbers, and comments are the six legend
+  entries. A block comment is split per line, because an LSP token may not
+  cross one.
+- **Hover** shows a builtin's signature from a ten-entry table (the checker
+  owns the authoritative list; a builtin outside the table falls through to
+  the user-function path), or the source of `fn name` up to its body.
+  **Definition** resolves through the module loader and jumps to the `Ident`
+  after the matching `fn`, so it lands in an imported file.
+- **Step 1's tests became seven** (a URI round-trip test was added). The first
+  one caught a real bug: adding the entry to the `SourceMap` before `load`
+  added it again, so every diagnostic was in file 1 and the entry filter
+  dropped it, and the "clears the diagnostic" test passed for the wrong
+  reason. The loader now owns the entry, and the tests assert a non-empty
+  first publish.
+- **The plan's debounce is not implemented.** Publishing is synchronous and
+  one analysis per change. A real debounce needs a timer thread or an async
+  runtime; with full-document sync the editor decides how often to send, and
+  this server answers each state once. Recorded as a deviation rather than
+  claimed.
 
 ---
 

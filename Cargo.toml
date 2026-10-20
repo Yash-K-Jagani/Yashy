@@ -9,6 +9,7 @@ members = [
     "crates/otter-driver",
     "crates/otter-runtime",
     "crates/otter-fmt",
+    "crates/otter-lsp",
 ]
 
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.
