@@ -982,7 +982,7 @@ git commit -m "feat(stdlib): io, string, math, os and alloc modules"
 - Consumes: everything
 - Produces: two multi-file programs proving the language is now general purpose
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -997,16 +997,58 @@ fn a_word_count_program_works_on_a_multi_line_input() {}
 fn both_programs_leak_nothing() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → not observed: the programs were
+  built and run before the tests, so these two never had a red state (see
+  "As built").
 
-- [ ] **Step 3: Write the programs and run them** → PASS.
+- [x] **Step 3: Write the programs and run them** → PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "test: multi-file end-to-end programs using containers"
 ```
+
+**As built.**
+
+- **Two programs, four files.** `json_count.ot` imports `json_keys.ot`;
+  `wc.ot` imports `wc_words.ot`. Both helpers sit beside the entry in
+  `tests/programs`, so the default root (the entry's directory) finds them and no
+  `OTTER_PATH` is involved: this is the multi-file claim, tested end to end.
+- **Input is standard input, not a path.** Neither program can receive a
+  filename (`os.args` is deferred), so both read lines until `read_line` answers
+  empty, which is how end of input presents. The test harnesses pipe the text and
+  close the write end. Line-oriented input is also why `wc`'s word rule never has
+  to consider a newline: `read_line` already stripped it.
+- **`json_count`** accumulates every line in an `[]string`, asks `key_of` for the
+  bytes between the first two double quotes, and counts *distinct* keys in a
+  `map[string]i64`. Three lines with two repeated keys print `3` and `2`. A line
+  with no quoted pair yields an empty key and is skipped, and so is a genuinely
+  empty JSON key (`"": 1`); the trade is stated in the program. This is not a
+  JSON parser: it is the container proof the milestone asked for.
+- **`wc`** prints `lines words bytes`. A word is a run of bytes that is not a
+  space, tab, or carriage return, counted by a single pass with an `inside` flag
+  rather than by splitting (which would allocate a slice per line for no
+  benefit). The byte count adds one per line for the newline `read_line`
+  removed, so a file without a final newline counts one byte more than `wc -c`;
+  the program says so.
+- **Ownership.** `push` retains each line; the slice releases every element and
+  its array in `free_slice`. `key_of` returns a fresh string bound per iteration,
+  which the loop body releases; the map retains the key it stores, and
+  `map_free` releases the retained keys, the table, and the slots. Both programs
+  report `0 live allocations`.
+- **Tests as built.** `e2e.rs` gained
+  `a_multi_file_program_counts_json_keys` and
+  `a_word_count_program_works_on_a_multi_line_input`, plus a
+  `build_and_run_with_input` helper over the existing `run_with_input`.
+  `leaks.rs` gained `both_container_programs_leak_nothing` and was refactored so
+  building (`build`) and running (`run_program(exe, input)`) are separate, with
+  the Device Guard caveat in one `start_failure` helper instead of duplicated.
+  Expected outputs are `3\n2\n` and `2 4 24\n`.
+- **Step order.** The programs were built and run by hand before the tests were
+  written, so Step 2's FAIL was not observed for these two; the tests passed on
+  their first run. Recorded rather than backfilled.
 
 ---
 
