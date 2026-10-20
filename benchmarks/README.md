@@ -415,9 +415,9 @@ Methodology, beyond the shared rules above:
 ### Results
 
 `ns/op` tables, Windows x86-64, same machine and toolchains as the scalar
-results. Each row is the better of two passes; a missing row was blocked by
-Application Control (Device Guard) and is reported as such by the script
-rather than timed.
+results. Each row is the better of the three passes above; a missing row was
+blocked by Application Control (Device Guard) and is reported as such by the
+script rather than timed.
 
 #### FFI — 100,000,000 `getpid` calls
 

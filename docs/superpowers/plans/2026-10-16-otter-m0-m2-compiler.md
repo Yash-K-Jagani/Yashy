@@ -1577,9 +1577,11 @@ end-to-end program is the one that would have caught this.
 recursive `fib`, an integer loop with a branch, and an `f64` dependency chain —
 each written in Otter, C, Rust, Go, JavaScript and Python, plus `run.ps1`, which
 builds and times all of them (Otter at *both* `-O0` and `-O2`, so the effect of
-change 1 is measured rather than asserted). Methodology, caveats and the results
-live in `benchmarks/README.md`; the remaining improvement work is listed in
-`docs/performance-improvements.md`.
+change 1 is measured rather than asserted). Since M8, `benchmarks/features/` and
+`run-features.ps1` add a second suite for FFI, slices, maps, enums, channels and
+mutexes, compared with the nearest built-in equivalent. Methodology, caveats and
+the results for both live in `benchmarks/README.md`; the remaining improvement
+work is listed in `docs/performance-improvements.md`.
 
 *What the numbers show:* Otter's scalar code matches C and Rust compiled by the
 same backend, because it is the same backend. The front end — everything this
