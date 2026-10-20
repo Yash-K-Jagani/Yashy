@@ -8,6 +8,7 @@ members = [
     "crates/otter-codegen",
     "crates/otter-driver",
     "crates/otter-runtime",
+    "crates/otter-fmt",
 ]
 
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.

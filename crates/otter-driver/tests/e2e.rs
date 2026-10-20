@@ -2103,3 +2103,50 @@ fn the_concurrent_programs_are_deterministic_across_ten_runs() {
         );
     }
 }
+
+
+// --- M8: the formatter's command line ---------------------------------------------
+
+#[test]
+fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
+    // `-w` is the only part of `otter fmt` a library test cannot prove: that a
+    // good file is replaced with the canonical text, and a file that does not
+    // parse is left byte for byte as it was.
+    let dir = work_dir("fmt-cli");
+
+    let messy = dir.join("messy.ot");
+    fs::write(&messy, "fn  main( ){print_str(\"hi\") ;}\n")
+        .expect("the test file must be writable");
+    let output = Command::new(otter())
+        .arg("fmt")
+        .arg("-w")
+        .arg(&messy)
+        .output()
+        .expect("the otter CLI must be runnable");
+    assert!(
+        output.status.success(),
+        "fmt -w failed:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(
+        fs::read_to_string(&messy).expect("the formatted file must be readable"),
+        "fn main() {\n    print_str(\"hi\");\n}\n"
+    );
+
+    let broken = dir.join("broken.ot");
+    fs::write(&broken, "fn main( {\n").expect("the test file must be writable");
+    let output = Command::new(otter())
+        .arg("fmt")
+        .arg("-w")
+        .arg(&broken)
+        .output()
+        .expect("the otter CLI must be runnable");
+    assert!(
+        !output.status.success(),
+        "a file that does not parse must fail"
+    );
+    assert_eq!(
+        fs::read_to_string(&broken).expect("the untouched file must be readable"),
+        "fn main( {\n"
+    );
+}

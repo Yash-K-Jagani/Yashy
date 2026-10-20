@@ -1,0 +1,8 @@
+// Literal text is never rewritten, including interpolation interiors.
+fn main() {
+    var x = 1;
+    var s = "value: ${x +  1} and a tab:\t";
+    var t = "a // not a comment, and a /* not one either */";
+    print_str(s);
+    print_str(t);
+}

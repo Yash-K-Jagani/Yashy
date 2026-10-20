@@ -3,10 +3,11 @@
 //! ```text
 //! otter build <file.ot> [-o <out>] [--emit-ir] [--cpu <tier>] [--fast-math] [--release]
 //! otter check <file.ot>
+//! otter fmt [-w] <files...>
 //! otter version
 //! ```
 //!
-//! Argument parsing is hand-rolled on purpose: three subcommands and a handful
+//! Argument parsing is hand-rolled on purpose: four subcommands and a handful
 //! of flags do not need a parser generator, and every dependency in this
 //! workspace is one more thing between a user and a compiler that builds
 //! offline.
@@ -24,10 +25,12 @@ const USAGE: &str = "\
 usage:
   otter build <file.ot> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
   otter check <file.ot>
+  otter fmt [-w] <files...>
   otter version
 
   build   compile a program to a native executable
   check   lex, parse and type-check without emitting anything
+  fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
                portable (default), x86-64-v2, x86-64-v3, x86-64-v4, native
@@ -56,6 +59,7 @@ fn main() -> ExitCode {
         }
         "build" => build(rest),
         "check" => check(rest),
+        "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
             exit_code(EXIT_COMPILE_ERROR)
@@ -230,6 +234,68 @@ fn read_source(input: &Path) -> Result<String, ExitCode> {
         eprintln!("error: cannot read {}: {error}", input.display());
         exit_code(EXIT_COMPILE_ERROR)
     })
+}
+
+/// `otter fmt [-w] <files...>`.
+///
+/// Without `-w` the formatted text goes to standard output, so a file can be
+/// inspected before it is replaced. With `-w` a file is written in place, and
+/// only when it parsed: an unformattable file is left exactly as it was.
+fn fmt(args: &[String]) -> ExitCode {
+    let mut write = false;
+    let mut files: Vec<PathBuf> = Vec::new();
+    for argument in args {
+        match argument.as_str() {
+            "-w" | "--write" => write = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown flag `{other}` for `fmt`"));
+            }
+            other => files.push(PathBuf::from(other)),
+        }
+    }
+    if files.is_empty() {
+        return usage_error("`fmt` needs at least one source file");
+    }
+
+    let mut failed = false;
+    for path in &files {
+        let source = match read_source(path) {
+            Ok(source) => source,
+            Err(_) => {
+                failed = true;
+                continue;
+            }
+        };
+        match otter_fmt::format(&source) {
+            Ok(formatted) => {
+                if write {
+                    if formatted != source {
+                        if let Err(error) = std::fs::write(path, &formatted) {
+                            eprintln!("error: cannot write {}: {error}", path.display());
+                            failed = true;
+                        }
+                    }
+                } else {
+                    print!("{formatted}");
+                }
+            }
+            Err(diagnostics) => {
+                // `format` reports against its own one-file map, where the
+                // source is file 0; a map built here with one file puts it at
+                // the same index, so the carets land on the right bytes.
+                let mut sources = SourceMap::new();
+                let _ = sources.add_file(path.display().to_string(), source.clone());
+                render(&sources, &diagnostics);
+                failed = true;
+            }
+        }
+    }
+
+    if failed {
+        exit_code(EXIT_COMPILE_ERROR)
+    } else {
+        exit_code(EXIT_OK)
+    }
 }
 
 /// Render each diagnostic with its source line and caret, to stderr.

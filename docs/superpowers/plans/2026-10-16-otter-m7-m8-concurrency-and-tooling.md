@@ -421,7 +421,7 @@ All four pass locally: the pool prints `49995000`, ping-pong prints
 
 **Hard requirement: the formatter is comment- and whitespace-preserving.** It reprints from a token stream carrying comments, not from the AST — a formatter that drops comments is worse than no formatter, because people stop trusting it. Print the AST's *structure* onto the token stream's *whitespace*.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -451,22 +451,61 @@ fn formatting_preserves_meaning() {
 fn an_unparseable_file_is_reported_and_left_unmodified() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Lexer with comment capture; printer walking the AST and emitting canonical spacing and indentation; token fallback for anything the printer does not own.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Format the entire stdlib** and commit the result — the formatter's first real user is Otter's own source.
+- [x] **Step 5: Format the entire stdlib** and commit the result — the formatter's first real user is Otter's own source.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/otter-fmt/ crates/otter-driver/src/main.rs crates/otter-stdlib/
 git commit -m "feat(fmt): comment-preserving formatter, and format the stdlib with it"
 ```
+
+**As built.** A token-and-gap printer, seven tests, and one CLI test:
+
+- **The printer walks tokens and the gaps between them, not the AST.** The
+  lexer has no comment capture, but it does give every token a span, and the
+  spans tile the file: every byte between two tokens is whitespace or a
+  comment. Reading comments out of those gaps is exact (a `//` inside a string
+  is inside a token, never a gap) and needs no comment re-attachment heuristics.
+  Every token is then printed from its own source span, so a `"${x +  1}"`, an
+  escape, or an identifier is byte-for-byte what the author wrote. `format`
+  still parses first, so a file that does not parse is reported instead of
+  reformatted.
+- **Spacing is a rule table over token kinds, plus one text check.**
+  `*mut i64` is a pointer spelling, but `mut` is an identifier rather than a
+  keyword, so the pair is recognised by text. Punctuation that binds (`;`, `,`,
+  `)`, `]`, `.`, `:`, `..`) takes no space before; `(`, `[`, `.`, `..`, `!`
+  take none after; a call or subscript stays attached to its name; `[]i64`,
+  `map[K]V`, and `{}` print as written.
+- **Shape.** A `{` opens a line and indents, a `}` starts its own line and
+  dedents, `;` ends a line, a top-level item is followed by one blank line,
+  and source blank lines collapse to one. `} else` keeps the source's choice
+  when nothing separates the two. Comments are either standalone (own line,
+  current indent) or trailing (same line, one space); a line comment always
+  ends its line. Slice and struct literals therefore print multi-line, which is
+  the one style consequence of not walking the AST.
+- **Seven tests, not six.** The six the plan named exist; the seventh pins
+  `{}` collapsing to one pair even when the source split it. A CLI test in
+  `crates/otter-driver/tests/e2e.rs` adds the part the library cannot prove:
+  `-w` replaces a good file with the canonical text and leaves a broken file
+  byte for byte as it was.
+- **Step 5 produced no stdlib diff.** Formatting the five stdlib files first
+  exposed four real spacing bugs — `buffer[index]= 0` (the `]` rule shadowed
+  `=`), `0.5 *(x)` and `->[]string` (the bracket rules), `result *base` (that
+  `(Star, Mut)` arm was an identifier binding pattern, because `mut` is not a
+  token kind, so it matched every right-hand side), and `{\n}` not collapsing.
+  After the fixes the five files are already canonical, so the commit carries
+  the formatter, not a reformat of the stdlib.
+- **`cargo test -p otter-fmt --lib` is Device-Guard blocked on this machine**
+  (os error 4551, the environmental block); the integration suite is 7/7.
 
 ---
 

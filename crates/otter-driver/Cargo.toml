@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 otter-common = { path = "../otter-common" }
 otter-codegen = { path = "../otter-codegen" }
+otter-fmt = { path = "../otter-fmt" }
 otter-lexer = { path = "../otter-lexer" }
 otter-parser = { path = "../otter-parser" }
 otter-sema = { path = "../otter-sema" }

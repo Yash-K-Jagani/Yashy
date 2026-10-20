@@ -1,0 +1,12 @@
+// A line comment at the top of the file.
+/* A block comment before any code. */
+fn main() {
+    // Standalone line comment.
+    var x = 1; // Trailing line comment.
+    var y = x + 1; /* Trailing block comment. */
+    /* Standalone block comment. */
+    /* A nested /* block */ comment. */
+    print_i64(y);
+    // A comment just before the closing brace.
+}
+// A comment after the last item.

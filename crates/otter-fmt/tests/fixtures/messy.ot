@@ -1,0 +1,19 @@
+// Arithmetic, a little control flow, and a comment in each position the
+// formatter has to keep.
+fn  add( a:i64,b : i64 )->i64{return a+b;}
+
+
+fn main(){
+// A standalone line comment.
+var total=0;
+   var i= 0;
+ while i<10{
+ total += add(i,2) ; // a trailing line comment
+ i+=1;
+ }
+  /* A block comment
+       with a second line. */
+ if total>50{print_str("big");}else{ print_str("small") ; }
+ print_i64(total);
+print_str("\n");
+}
