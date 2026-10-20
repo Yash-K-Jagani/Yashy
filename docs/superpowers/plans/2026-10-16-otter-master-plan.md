@@ -355,7 +355,10 @@ file.
 > pointer, matching `otter_slice`; `Map` and `Slice` are both linear (L5).
 > `i64`/`f64` are `I64`/`F64` rather than C variants, so a C `int64_t` and an
 > Otter `i64` meet without a cast; `usize` is `CSize` and lowers as `i64` on the
-> two platforms Otter targets.
+> two platforms Otter targets. Cost of the two table corrections: none to the
+> emitted IR — no program ever contained the wrapper struct or a negative width —
+> and the benefit is that the table now agrees with the `declare` lines every
+> golden file carries.
 
 **`Str` layout changed once, in M3 Task 5, and does not change again:**
 
