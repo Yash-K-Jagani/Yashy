@@ -85,6 +85,7 @@ fn split(text: string, separator: string) -> []string {
 
 // Whether `needle` sits at `start` in `text`, read as bytes. Internal to this
 // module; `byte_at` is bounds-safe, so a short `text` simply does not match.
+// Ownership: pure; neither argument is consumed.
 fn string_matches_at(text: string, start: i64, needle: string) -> bool {
     var needle_len = len(needle);
     var offset = 0;
@@ -98,6 +99,7 @@ fn string_matches_at(text: string, start: i64, needle: string) -> bool {
 }
 
 // ASCII whitespace: space, tab, carriage return, newline. Internal.
+// Ownership: pure; a number owns nothing.
 fn string_is_space(byte: i64) -> bool {
     return byte == 32 || byte == 9 || byte == 13 || byte == 10;
 }

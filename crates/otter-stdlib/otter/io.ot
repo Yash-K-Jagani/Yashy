@@ -18,16 +18,19 @@ fn print(text: string) {
     print_str(text);
 }
 
+// Ownership: `text` is borrowed; printing does not release it.
 fn println(text: string) {
     print_str(text);
     print_str("\n");
 }
 
+// Ownership: none; a number owns nothing.
 fn println_i64(value: i64) {
     print_i64(value);
     print_str("\n");
 }
 
+// Ownership: none; a number owns nothing.
 fn println_f64(value: f64) {
     print_f64(value);
     print_str("\n");

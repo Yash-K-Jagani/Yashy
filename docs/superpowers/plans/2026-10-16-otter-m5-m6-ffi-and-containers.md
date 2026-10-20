@@ -944,6 +944,9 @@ git commit -m "feat(stdlib): io, string, math, os and alloc modules"
   the iteration in Otter: 32 steps from `guess = x`, a panic on a negative
   argument. `pow` is repeated checked multiplication with a non-negative
   exponent; `abs(i64::MIN)` panics like every other checked subtraction.
+- **Every export carries an ownership comment**, including the pure functions
+  (`// Ownership: pure; the result is a number.`) and the two internal helpers in
+  `string.ot`, because every top-level name is callable in the flat scope.
 - **Tests as built.** Runtime `tests/files.rs` (5): a slice clamps each bound;
   a file round-trips a body containing a NUL; a missing file and a null path
   read empty and a null path cannot be written; an unset variable reads empty;
