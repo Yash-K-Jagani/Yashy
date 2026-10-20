@@ -12,6 +12,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 /// The `otter` binary cargo built for this test run.
 fn otter() -> &'static str {
@@ -77,6 +78,58 @@ fn run(exe: &Path) -> Output {
 
 fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// How long a concurrent program may run before the test calls it hung.
+///
+/// The programs finish in about a second; the bound only has to be longer than
+/// the slowest CI machine, because its job is to turn a lost wakeup into a
+/// failure instead of a stuck test run.
+const CONCURRENT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Run a built executable, killing it if it outlives `timeout`.
+///
+/// A concurrent program that loses a wakeup blocks in a channel call forever,
+/// so a plain [`Command::output`] would hang the whole test binary. Polling
+/// and killing keeps the failure attached to this test and names the timeout.
+fn run_with_timeout(exe: &Path, timeout: Duration) -> Output {
+    use std::process::Stdio;
+
+    let mut child = Command::new(exe)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|error| {
+            panic!(
+                "the compiled executable at {} must start: {error}",
+                exe.display()
+            )
+        });
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return child
+                    .wait_with_output()
+                    .expect("the built executable must be waitable");
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let output = child
+                        .wait_with_output()
+                        .expect("the killed executable must be waitable");
+                    panic!(
+                        "{} did not terminate within {timeout:?}; stderr:\n{}",
+                        exe.display(),
+                        stderr_of(&output)
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("waiting for {} failed: {error}", exe.display()),
+        }
+    }
 }
 
 /// Run a built executable with `input` on its standard input.
@@ -1951,4 +2004,102 @@ fn a_word_count_program_works_on_a_multi_line_input() {
     // boundary rule, which is the part worth reading twice.
     let output = build_and_run_with_input("wc", "hello world\nsecond line\n");
     assert_eq!(stdout_of(&output), "2 4 24\n");
+}
+
+// --- M7: concurrency end to end -------------------------------------------------
+//
+// These four are the only tests that run more than one OS thread through the
+// whole pipeline: two of them prove an exact answer, one proves that closing a
+// channel releases a blocked sender rather than hanging, and one repeats a
+// concurrent program to catch an answer that is only right sometimes.
+
+#[test]
+fn a_task_pool_computes_a_correct_sum() {
+    // Eight workers, 10_000 jobs, one answer that cannot depend on scheduling:
+    // 0 + 1 + ... + 9999.
+    let (_dir, exe, compile) = build_program("pool");
+    assert!(
+        compile.status.success(),
+        "compiling pool.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "pool exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "49995000\n");
+}
+
+#[test]
+fn a_ping_pong_between_two_threads_terminates() {
+    // 10_000 alternating round trips over two capacity-one channels. A lost
+    // wakeup on either condition variable would deadlock the join, which is
+    // what the timeout turns into a test failure.
+    let (_dir, exe, compile) = build_program("pingpong");
+    assert!(
+        compile.status.success(),
+        "compiling pingpong.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "pingpong exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "pingpong ok\n");
+}
+
+#[test]
+fn closing_a_channel_unblocks_a_sender() {
+    // The producer's second send to the capacity-one `slot` blocks until the
+    // main thread closes that channel; close must answer 0 and let the send
+    // return. The join is the proof that it did.
+    let (_dir, exe, compile) = build_program("close_sender");
+    assert!(
+        compile.status.success(),
+        "compiling close_sender.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "close_sender exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "full\nunblocked\n");
+}
+
+#[test]
+fn the_concurrent_programs_are_deterministic_across_ten_runs() {
+    // A worker pool is the shape where a race shows up as an occasionally
+    // wrong sum, so one successful run proves little. Ten runs of the same
+    // binary must print the same bytes every time.
+    let (_dir, exe, compile) = build_program("pool");
+    assert!(
+        compile.status.success(),
+        "compiling pool.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let first = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        first.status.success(),
+        "the first pool run exited with {:?}",
+        first.status.code()
+    );
+    for run_number in 1..10 {
+        let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+        assert!(
+            output.status.success(),
+            "pool run {run_number} exited with {:?}",
+            output.status.code()
+        );
+        assert_eq!(
+            stdout_of(&output),
+            stdout_of(&first),
+            "pool run {run_number} printed a different answer"
+        );
+    }
 }

@@ -1,0 +1,88 @@
+// A fixed pool of workers over a fixed job list, end to end.
+//
+// Eight workers read from one job channel and write to one result channel. Each
+// worker takes exactly 1250 jobs, so the pool needs no shutdown message: the
+// parent sends 10_000 jobs and every worker's own count runs out at the same
+// moment.
+//
+// The result channel holds every answer (10_000 slots, 80 KiB), so a worker
+// never blocks on it; the job channel holds 64, so the parent blocks there
+// while the workers catch up. That ordering is what makes the pipeline safe
+// in both directions: the parent can send all the work before it starts
+// collecting, and no worker can fill the result channel and stall with jobs
+// still queued.
+//
+// Every job answers exactly once, so the sum is the same no matter which
+// worker took which job or in what order the results arrived. That is what
+// makes the output assertable: 0 + 1 + ... + 9999 = 49_995_000.
+//
+// The switch arms are single expressions -- the grammar has no block arms yet
+// -- so collecting a payload is a `push` into a slice, and the sum is taken
+// once the loop is done.
+fn worker(jobs: Channel[i64], results: Channel[i64]) {
+    var taken = 0;
+    while taken < 1250 {
+        switch chan_recv(jobs) {
+            case Some(n) {
+                chan_send(results, n);
+            }
+            case None {
+                // The parent never closes the job channel, so this is a
+                // should-not-happen marker that would poison the sum.
+                chan_send(results, -1);
+            }
+        }
+        taken += 1;
+    }
+}
+
+fn main() {
+    var jobs: Channel[i64] = chan_new(64);
+    var results: Channel[i64] = chan_new(10000);
+
+    var handles = []i64 { };
+    var w = 0;
+    while w < 8 {
+        push(handles, thread_spawn(worker, jobs, results));
+        w += 1;
+    }
+
+    var sent = 0;
+    while sent < 10000 {
+        chan_send(jobs, sent);
+        sent += 1;
+    }
+
+    var collected = []i64 { };
+    var received = 0;
+    while received < 10000 {
+        switch chan_recv(results) {
+            case Some(n) {
+                push(collected, n);
+            }
+            case None {
+                // The result channel is never closed; poison the sum if a
+                // worker answered nothing at all.
+                push(collected, -1);
+            }
+        }
+        received += 1;
+    }
+
+    for h in handles {
+        thread_join(h);
+    }
+
+    var total = 0;
+    for n in collected {
+        total += n;
+    }
+
+    free_slice(collected);
+    free_slice(handles);
+    chan_free(results);
+    chan_free(jobs);
+
+    print_i64(total);
+    print_str("\n");
+}

@@ -341,7 +341,7 @@ it:
 - Consumes: Tasks 1–4
 - Produces: two concurrent programs with deterministic asserted output
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -361,16 +361,50 @@ fn closing_a_channel_unblocks_a_sender() {}
 fn the_concurrent_programs_are_deterministic_across_ten_runs() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Write the programs and run them** → PASS.
+- [x] **Step 3: Write the programs and run them** → PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "test: concurrent end-to-end programs"
 ```
+
+**As built.** Four tests, three programs, and two shapes the language forced:
+
+- **Switch arms are single expressions, so the programs collect instead of
+  accumulate.** `case Some(n) { ... }` accepts exactly one expression, and
+  assignment is a statement, so `total += n` cannot appear in an arm. Both
+  programs therefore `push` the payload into a slice and take the sum (or the
+  order check) after the loop. This is the one place the program shapes were
+  chosen by the grammar rather than the algorithm; block arm bodies would let
+  them read more naturally.
+- **Workers terminate by counting, not by a closed channel.** The pool's eight
+  workers each take exactly 1250 jobs and the echo thread answers exactly
+  10,000 times, so no worker ever needs the `None` arm to stop. A close-driven
+  exit would need that arm to set a flag, which is again a multi-statement
+  body. `close_sender.ot` covers the close-releases-a-blocked-sender behaviour
+  directly instead: the producer blocks on a capacity-one channel, the parent
+  closes it, and the join proves the send returned.
+- **A third program, `close_sender.ot`, backs the sender test.** The plan's
+  file list named only `pool.ot` and `pingpong.ot`; the third program is the
+  smallest way to exercise a blocked sender without a timeout-dependent race.
+- **The pool pipelines instead of alternating.** The first version sent one job
+  and received one result per iteration; it was correct but paid a pair of
+  context switches per job (2.6 s). The shipped version gives the result
+  channel all 10,000 slots and lets the job channel's 64 slots be the only
+  backpressure, which completes in about 0.4 s. Both directions are safe: a
+  worker can never fill the result channel, and the parent blocks only on a
+  full job channel.
+- **A hung program fails instead of hanging the suite.** `run_with_timeout`
+  polls the child, kills it after 60 seconds, and panics with its stderr, so a
+  lost wakeup is attached to the test that caused it. The determinism test runs
+  the same compiled pool binary ten times and requires identical bytes.
+
+All four pass locally: the pool prints `49995000`, ping-pong prints
+`pingpong ok`, close prints `full` then `unblocked`, and ten pool runs agree.
 
 ---
 

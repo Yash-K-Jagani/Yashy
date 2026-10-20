@@ -1,0 +1,35 @@
+// Closing a channel releases a sender that is blocked on it.
+//
+// `slot` holds one value, so the producer's second send to it cannot complete
+// until somebody receives -- and nobody ever does. The producer proves it got
+// that far by sending on `full`, which wakes the main thread; the main thread
+// then closes `slot` instead of draining it, and the blocked send must answer
+// false rather than hang. The join is the proof.
+fn producer(slot: Channel[i64], full: Channel[i64]) {
+    chan_send(slot, 1);
+    // The slot is now full: this send is the signal that the next one blocks.
+    chan_send(full, 1);
+    chan_send(slot, 2);
+}
+
+fn main() {
+    var slot: Channel[i64] = chan_new(1);
+    var full: Channel[i64] = chan_new(1);
+    var handle = thread_spawn(producer, slot, full);
+
+    switch chan_recv(full) {
+        case Some(n) {
+            print_str("full\n");
+        }
+        case None {
+            print_str("empty\n");
+        }
+    }
+
+    chan_close(slot);
+    thread_join(handle);
+    chan_free(full);
+    chan_free(slot);
+
+    print_str("unblocked\n");
+}
