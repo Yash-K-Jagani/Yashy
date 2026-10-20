@@ -663,22 +663,49 @@ egexp-opt, with comment,
 - Consumes: the completed language
 - Produces: every code block in the tutorial is extracted, compiled, and run by `tutorial.rs`, so documentation cannot rot
 
-- [ ] **Step 1: Write the failing test** that walks the tutorial directory, extracts ```otter blocks, compiles and runs each, and asserts the expected output comment matches.
+- [x] **Step 1: Write the failing test** that walks the tutorial directory, extracts ```otter blocks, compiles and runs each, and asserts the expected output comment matches.
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Write the tutorial**, teaching the shape of the language in the order a reader needs it. Explain the no-null and no-exceptions decisions where a reader will wonder about them.
+- [x] **Step 3: Write the tutorial**, teaching the shape of the language in the order a reader needs it. Explain the no-null and no-exceptions decisions where a reader will wonder about them.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
 - [ ] **Step 5: The real acceptance test** — give the tutorial to a person who has not seen the language, with no help, and have them write and run a program using only the document. Record what confused them and fix the tutorial. This is the task's actual deliverable and cannot be automated; do not mark it done without doing it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/tutorial/ crates/otter-driver/tests/tutorial.rs
 git commit -m "docs: executable tutorial with automated example verification"
 ```
+
+**As built.**
+
+- **The output convention is a comment inside the block.** A line `// => text`
+  is one line of expected stdout, in order, and expected output always ends
+  with a newline. The directive is a comment, so the block a reader copies into
+  a file is byte-for-byte the block the test compiles -- there is no separate
+  expected-output table to drift. Thirteen examples across eleven chapters, all
+  whole programs with `fn main`; a fragment that cannot be compiled is a
+  fragment that cannot be verified. `docs/tutorial/run.sh` is a one-line entry
+  point to `cargo test -p otter-driver --test tutorial`, which is also how CI
+  runs it through the workspace command.
+- **Two language gaps found by writing the tutorial, both now ledger L6.**
+  `switch` on a non-enum subject accepts literal arms but the backend only ever
+  tests enum tags, so every literal arm is untested and the first one matches
+  everything: `switch n { case 0 { "zero" } default { "other" } }` answers
+  `"zero"` for `n = 9`. The tutorial therefore does not teach literal matching.
+  Separately, a user-declared enum can be declared and matched but no expression
+  constructs a variant, so chapter 5 teaches the two enums that do have
+  constructors, `Option` and `Result`.
+- **Application Control blocks launches, not builds.** A freshly written
+  binary can answer `os error 4551`; a blocked *path* stays blocked, so the
+  harness rebuilds under a new name rather than sleeping. A binary blocked on
+  every name fails the suite -- an environmental block is never counted as a
+  pass.
+- **Step 5 is not done.** It needs a person who has never seen Otter, and
+  saying otherwise would be false.
 
 ---
 
@@ -716,12 +743,10 @@ git commit -m "docs: close the ledger for M7-M8 and gate tooling in CI"
   refusal of `Channel[string]`.
 - **CI** already ran `cargo test --workspace`, which covers every crate; a
   separate `Tooling tests` step now names `-p otter-fmt -p otter-lsp` so a
-  failure reads as a tooling failure. The tutorial suite, when it lands, runs
-  under the same workspace command rather than a third step.
-- **The tutorial test does not exist yet**, so Step 2 is only partly done:
-  CI gates the formatter and the server now, and will gate the tutorial through
-  the workspace command as soon as Task 9 lands it. Step 3's "confirm green"
-  needs the GitHub UI; local runs cannot see the runner.
+  failure reads as a tooling failure. The tutorial suite runs under the same
+  workspace command (Task 9 has landed it), rather than a third step.
+- **Step 3's "confirm green"** needs the GitHub UI; local runs cannot see the
+  runner.
 
 ---
 

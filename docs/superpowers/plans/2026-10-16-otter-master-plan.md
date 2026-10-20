@@ -567,6 +567,17 @@ Introduced in M3, unchanged until M10.
   `push`. `pop` on a `[]string` is refused because the removed handle would have
   no owner, which is a checker rule, not a runtime one.
 
+### L6 — Defects found while writing the tutorial
+
+The tutorial is executable, so writing it tested claims the golden files never
+did. Both entries below are real, reproducible, and not pinned by a test that
+expects the wrong answer; neither is taught by the tutorial.
+
+| Found in | Defect | Evidence | Fix |
+|---|---|---|---|
+| M7–M8 Task 9 | **A literal `switch` arm is never tested.** `gen_match` derives one test per arm from the *variant tag*; a `HirPattern::Literal` arm yields no tag, so it becomes an untested arm. An untested arm is the fall-through target, so the first literal arm matches every value. Sema accepts the program and exhaustiveness is satisfied by `default`. | `switch n { case 0 { "zero" } default { "other" } }` prints `zero` for `n = 9` (tutorial harness, 05-patterns before the example was removed). | Give `gen_match` a second test kind: for `HirPattern::Literal(lit, _, ty)`, compare the subject to the literal (`icmp eq`/`fcmp oeq`/`icmp eq` on the `i8` for `bool`, `otter_str_eq` for `string`), and reserve the tag path for enum patterns. Add one e2e program with two literal arms, a default, and a non-matching value. |
+| M7–M8 Task 9 | **A user-declared enum has no constructor.** Sema declares the enum *name* as a binding of type `Enum(name)` and records its variants, but variant construction resolves through `Expr::Call`/`Expr::StructLit`, which look only at functions and structs. A program can therefore declare an enum and match it, but cannot make a value of it. | `enum E { A(i64) } fn main() { var x = E.A(1); }` → `cannot find function `E``; `A(1)` → `cannot find function `A``. | Resolve a dotted call path whose head names an enum (`Shape.Circle(2)`) in `check_expr`, lower it to an enum aggregate with the variant tag and payload, and add the corresponding pattern-side test. Until then the tutorial teaches `Option`/`Result`, which have constructors. |
+
 ---
 
 ## Global Constraints
