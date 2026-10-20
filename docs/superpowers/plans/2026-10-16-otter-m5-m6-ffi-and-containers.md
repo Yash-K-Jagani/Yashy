@@ -328,6 +328,14 @@ GNU's `cannot find -lfoo` or LLD's `unable to find library -lfoo` now produces a
 diagnostic that names the library and says a `link` directive or a platform
 default asked for it; `missing_library` parses both spellings.
 
+**As built (MSVC):** the one link flag a program cannot write portably is
+`-lm`: Linux needs it, and Windows keeps the math functions in the CRT, so MSVC
+has no `m.lib` to resolve it against. The driver therefore drops `-lm` from the
+link line on the `*-windows-msvc` target only; `link_directives` still reports
+the directive, so diagnostics keep quoting what the source asked for, and the
+GNU target (which links MinGW's stub) is unchanged. The Windows CI job is MSVC
+because its Rust host is, so this is the leg that needs it.
+
 `toolchain.rs` needed no change: the library flags are a link-line concern and
 live in `pipeline.rs`. On this host the execution test was blocked by
 Application Control once, then passed after a clean relink (Device Guard blocks

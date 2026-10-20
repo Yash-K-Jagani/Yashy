@@ -45,6 +45,16 @@ jobs:
           }
           clang --version
 
+      # rustc finds the MSVC linker on its own (through vswhere), but clang's
+      # driver looks for `link.exe` on PATH. The Windows runner does not load the
+      # Visual Studio environment into a plain step, so without this every
+      # `otter build` fails at the link while the Rust tests themselves link
+      # fine. This is also why the failure shows up only in the suites that
+      # compile an Otter program.
+      - name: Load the MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Check
         run: cargo check --workspace --all-targets
 

@@ -622,6 +622,16 @@ pub fn compile_hir(
     // calls `sqrt` would not find it. The `link` directives come first so a
     // failure quotes the user's intent before the platform defaults.
     let mut libraries = link_directives(hir);
+    // On Windows the math functions live in the CRT: there is no separate `m`
+    // library to name, and MSVC has no `m.lib` for `-lm` to resolve against.
+    // Dropping the flag here is what lets one source file say `link "m"` for
+    // Linux's sake and still link against the Windows CRT. GNU's `-lm` resolves
+    // to a stub for the same CRT functions, so only the MSVC target needs this.
+    // The directive is kept in [`link_directives`] unchanged, so diagnostics
+    // still quote it.
+    if cfg!(all(windows, target_env = "msvc")) {
+        libraries.retain(|flag| flag != "-lm");
+    }
     for flag in platform_library_flags() {
         let flag = flag.to_string();
         if !libraries.contains(&flag) {
