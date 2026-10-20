@@ -252,7 +252,7 @@ join, so the pinned IR covers every M7 call shape in one file.
 - Consumes: M3 Task 6's `otter_str_retain`/`release`; spec §5.6
 - Produces: `otter_str_retain_atomic`, `otter_str_release_atomic` (separate symbols, because the spec promises the non-atomic path stays free for unshared strings); `pub fn string_needs_atomic_refcount(fn_name: &str) -> bool` — true when the binding is reachable from a `Thread.spawn` argument
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -278,20 +278,56 @@ fn concurrent_retain_and_release_do_not_double_free() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Inter-procedural reachability is too much for this milestone. Use a simple, conservative, documented rule: a `string` binding inside a function reachable from a `Thread.spawn` body uses atomic refcounts; everything else uses plain ones. Record the approximation in a comment — it is a performance choice, not a correctness one, since atomic refcounts are always correct.
 
-- [ ] **Step 4: Run to verify they pass** → PASS, including the stress test run repeatedly.
+- [x] **Step 4: Run to verify they pass** → PASS, including the stress test run repeatedly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat: atomic string refcounts for thread-reachable bindings"
 ```
+
+**As built.** The atomic pair exists as its own two symbols and the stress test
+runs real threads, but the *rule* changed shape, and one planned test went with
+it:
+
+- **The choice is per program, not per function.** `string_needs_atomic_refcount(
+  fn_name)` needs an interprocedural answer this milestone does not have: a
+  string can reach a thread through an argument, through a slice it was pushed
+  into, or through any call that passes it along, so the set of "shared"
+  bindings is not local to a function. The checker therefore records one bit —
+  `HirProgram::uses_threads`, set by any `thread_spawn` — and the backend
+  picks the pair once, in `Module::set_atomic_strings`. A program with no
+  spawn keeps M3's plain path, which is the spec §5.6 promise; a program with
+  one spawn pays atomics on every string operation, shared or not. That is a
+  performance approximation, never a correctness one: atomics are always
+  correct, and nothing shared stays plain.
+- **`a_string_built_inside_a_thread_body_is_not_atomic` is not kept.** Under
+  the program-level rule a thread body's private strings *are* atomic, so the
+  old expectation would pin the wrong contract. The replacement,
+  `a_program_with_a_spawn_uses_atomic_refcounts_everywhere`, pins the rule that
+  actually ships, alongside the unchanged plain-path test.
+- **The stress test lives in the runtime, not in codegen.**
+  `otter-codegen/tests/racy_strings.rs` keeps the four symbol-choice tests, but
+  a codegen test only reads IR text and cannot retain and release on eight OS
+  threads. `otter-runtime/tests/racy_strings.c` (built by `racy_strings.rs`
+  with the same compiler as the thread suite) runs 8 × 100,000 balanced
+  retain/release pairs on one shared string and asserts the count comes back
+  to 1.
+- **`otter_str_refcount` is new.** The plan asks the stress test to "assert the
+  refcount returns to 1", and the struct is opaque outside the runtime, so the
+  count is exposed by one read-only accessor.
+- **The atomic pair uses the compiler's `__atomic_*` builtins**, with an
+  `_InterlockedIncrement64`/`_InterlockedDecrement64` fallback under
+  `_MSC_VER`, matching how `otter_count_add` already handles the two
+  compilers. The increment is relaxed; the final decrement is acq_rel so the
+  freeing thread sees the other owners' last accesses.
 
 ---
 

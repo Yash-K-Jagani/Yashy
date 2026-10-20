@@ -91,10 +91,7 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
             // releases it after the body returns. A static literal ignores the
             // retain, which is exactly why releasing it is always safe.
             let retained = ctx.tmp();
-            ctx.push(format!(
-                "{retained} = call i8* @otter_str_retain(i8* {})",
-                value.value
-            ));
+            ctx.push_str_retain_into(&retained, &value.value);
             retained
         } else {
             value.value.clone()
@@ -108,6 +105,7 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
     // entry that matches their own bytes.
     let index = ctx.module.next_thread_entry();
     let entry = format!("otter_thread_entry_{index}");
+    let release = ctx.string_release_symbol();
     let mut lines = Vec::new();
     lines.push(format!("define void @{entry}(i8* %raw) {{"));
     lines.push("entry:".to_string());
@@ -128,7 +126,7 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
     }
     lines.push(format!("  call void @{name}({})", call_args.join(", ")));
     for value in strings {
-        lines.push(format!("  call void @otter_str_release(i8* {value})"));
+        lines.push(format!("  call void @{release}(i8* {value})"));
     }
     lines.push("  ret void".to_string());
     lines.push("}".to_string());
@@ -216,8 +214,8 @@ pub fn gen_chan_new(ctx: &mut FnCtx<'_>, args: &[HirExpr], ty: &TypeKind) -> Gen
 /// Lower `chan_send(c, value) -> bool`.
 ///
 /// The runtime copies the element out of a slot, so the value is spilled
-/// first. A full channel answers 0 without blocking, and that 0 is the
-/// function's `false`.
+/// first. A full channel blocks the sender; the 0 answer means the channel was
+/// closed, and that 0 is the function's `false`.
 pub fn gen_chan_send(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let (Some(receiver), Some(value)) = (args.first(), args.get(1)) else {
         return unit();

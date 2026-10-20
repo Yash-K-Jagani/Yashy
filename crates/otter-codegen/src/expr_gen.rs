@@ -108,6 +108,13 @@ pub struct FnCtx<'a> {
     /// first, which is what makes `defer` useful on the fault path even though
     /// the process still ends.
     pub defers: Vec<Vec<crate::stmt_gen::Deferred>>,
+    /// Whether this function's string refcounts are atomic.
+    ///
+    /// Read from the module at construction; see
+    /// [`Module::set_atomic_strings`](crate::Module::set_atomic_strings). A
+    /// program with one spawn uses the atomic pair in every function, because
+    /// any string in it can reach the thread.
+    pub atomic_strings: bool,
     /// SSA names that hold an **owned** `string` reference: one the runtime
     /// produced, that no binding has taken over and no consumer has released.
     ///
@@ -165,6 +172,7 @@ pub struct FnCtx<'a> {
 impl<'a> FnCtx<'a> {
     /// A context for one function, borrowing the shared module.
     pub fn new(module: &'a mut Module, ret_type: TypeKind) -> Self {
+        let atomic_strings = module.atomic_strings();
         Self {
             module,
             ret_type,
@@ -180,7 +188,48 @@ impl<'a> FnCtx<'a> {
             unit_terminator: "ret void".to_string(),
             entry_point: false,
             lowering_defers: false,
+            atomic_strings,
         }
+    }
+
+    /// The retain symbol this function calls: plain, or the atomic pair when
+    /// the module contains a spawn.
+    pub(crate) fn string_retain_symbol(&self) -> &'static str {
+        if self.atomic_strings {
+            "otter_str_retain_atomic"
+        } else {
+            "otter_str_retain"
+        }
+    }
+
+    /// The release symbol this function calls; the other half of
+    /// [`FnCtx::string_retain_symbol`].
+    pub(crate) fn string_release_symbol(&self) -> &'static str {
+        if self.atomic_strings {
+            "otter_str_release_atomic"
+        } else {
+            "otter_str_release"
+        }
+    }
+
+    /// Emit `otter_str_retain` (or its atomic form) for `value` and keep the
+    /// result nowhere: the caller's own reference count is what changed.
+    pub(crate) fn push_str_retain(&mut self, value: &str) {
+        let symbol = self.string_retain_symbol();
+        self.push(format!("call i8* @{symbol}(i8* {value})"));
+    }
+
+    /// Emit `otter_str_release` (or its atomic form) for `value`.
+    pub(crate) fn push_str_release(&mut self, value: &str) {
+        let symbol = self.string_release_symbol();
+        self.push(format!("call void @{symbol}(i8* {value})"));
+    }
+
+    /// Emit a retain whose result is bound to `dest`, for the places that keep
+    /// the retained pointer rather than only bumping the count.
+    pub(crate) fn push_str_retain_into(&mut self, dest: &str, value: &str) {
+        let symbol = self.string_retain_symbol();
+        self.push(format!("{dest} = call i8* @{symbol}(i8* {value})"));
     }
 
     /// Record that `name` holds an owned `string` reference, so a consumer owes
@@ -200,7 +249,8 @@ impl<'a> FnCtx<'a> {
     /// keeps this from dropping a reference the program still holds.
     pub(crate) fn release_owned(&mut self, name: &str) {
         if self.owned_strings.remove(name) {
-            self.push(format!("call void @otter_str_release(i8* {name})"));
+            let symbol = self.string_release_symbol();
+            self.push(format!("call void @{symbol}(i8* {name})"));
         }
     }
 
@@ -247,7 +297,7 @@ impl<'a> FnCtx<'a> {
         for slot in scope.iter().rev() {
             let loaded = self.tmp();
             self.push(format!("{loaded} = load i8*, ptr {slot}"));
-            self.push(format!("call void @otter_str_release(i8* {loaded})"));
+            self.push_str_release(&loaded);
         }
     }
 
@@ -269,7 +319,7 @@ impl<'a> FnCtx<'a> {
         for slot in slots.iter().rev() {
             let loaded = self.tmp();
             self.push(format!("{loaded} = load i8*, ptr {slot}"));
-            self.push(format!("call void @otter_str_release(i8* {loaded})"));
+            self.push_str_release(&loaded);
         }
     }
 

@@ -82,6 +82,11 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
+    // One spawn is enough: the checker recorded that the program can share a
+    // string with a thread, so every retain/release in the module is atomic.
+    // This has to be set before the first `define` is emitted, because the
+    // choice is read when each function's `FnCtx` is built.
+    module.set_atomic_strings(hir.uses_threads);
     // Declarations first: every function body may call a C function declared
     // later in the file, and a `declare` before the first `define` is the shape
     // LLVM expects. The table is also what tells the call lowering that a name

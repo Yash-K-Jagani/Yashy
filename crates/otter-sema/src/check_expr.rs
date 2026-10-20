@@ -82,6 +82,13 @@ pub struct Checker<'src> {
     /// dropping the call is dropping the *tree*, so that an argument with side
     /// effects is not lowered either.
     release: bool,
+    /// Whether any `thread_spawn` call was checked.
+    ///
+    /// Codegen uses this one bit to pick the atomic reference-count pair for
+    /// the whole program: once a thread exists, a string built anywhere in the
+    /// program can reach it through an argument or a call, and a per-binding
+    /// answer would need the alias analysis this milestone does not have.
+    uses_threads: bool,
     /// Names bound by an active `for x in slice` loop. Moving one of them while
     /// the loop can still read its header would free the array the next
     /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
@@ -315,6 +322,7 @@ impl<'src> Checker<'src> {
             errors: Vec::new(),
             file,
             release: options.release,
+            uses_threads: false,
             iteration_borrows: Vec::new(),
             sm,
         }
@@ -400,7 +408,10 @@ impl<'src> Checker<'src> {
             }
         }
         if self.errors.is_empty() {
-            Ok(HirProgram { items })
+            Ok(HirProgram {
+                items,
+                uses_threads: self.uses_threads,
+            })
         } else {
             let diagnostics = self
                 .errors
@@ -2066,6 +2077,9 @@ impl<'src> Checker<'src> {
         args: &[Expr],
         span: Span,
     ) -> Option<Option<HirExpr>> {
+        if name == "thread_spawn" {
+            self.uses_threads = true;
+        }
         let checked = match name {
             "thread_spawn" => self.check_thread_spawn(args, span),
             "thread_join" => self.check_thread_join(args, span),

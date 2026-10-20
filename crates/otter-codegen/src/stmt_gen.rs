@@ -246,7 +246,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     if ctx.is_owned(&value.value) {
                         ctx.forget_owned(&value.value);
                     } else {
-                        ctx.push(format!("call i8* @otter_str_retain(i8* {})", value.value));
+                        ctx.push_str_retain(&value.value);
                     }
                     ctx.push(format!("store i8* {}, ptr {slot}", value.value));
                     ctx.track_string_slot(&slot);
@@ -298,7 +298,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 if ctx.is_owned(&value.value) {
                     ctx.forget_owned(&value.value);
                 } else {
-                    ctx.push(format!("call i8* @otter_str_retain(i8* {})", value.value));
+                    ctx.push_str_retain(&value.value);
                 }
                 // Dropping the old value is only right when this slot owns it.
                 // A parameter's reference is the caller's, so it is left alone.
@@ -306,7 +306,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     if ctx.is_tracked_string_slot(slot) {
                         let old = ctx.tmp();
                         ctx.push(format!("{old} = load i8*, ptr {slot}"));
-                        ctx.push(format!("call void @otter_str_release(i8* {old})"));
+                        ctx.push_str_release(&old);
                     }
                 }
             }
@@ -384,10 +384,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 // value is kept here and given to the caller, while a
                 // temporary's reference is transferred as-is.
                 if !ctx.is_owned(&taken.value) && !taken.value.is_empty() {
-                    ctx.push(format!(
-                        "call i8* @otter_str_retain(i8* {})",
-                        taken.value
-                    ));
+                    ctx.push_str_retain(&taken.value);
                 }
             }
             ctx.release_current_string_scope();

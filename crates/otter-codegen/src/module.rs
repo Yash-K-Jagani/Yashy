@@ -41,6 +41,13 @@ pub struct Module {
     /// synthesized per `thread_spawn` site, so the argument struct's shape is
     /// already known when the entry is written.
     next_thread_entry: u32,
+    /// Whether string refcounts in this module are atomic.
+    ///
+    /// Set once, from the checked program's "any spawn?" bit; see
+    /// `HirProgram::uses_threads`. Kept on the module because every function's
+    /// [`FnCtx`](crate::FnCtx) is built from it and the answer must not differ
+    /// between two functions in one module.
+    atomic_strings: bool,
     /// C declarations by name, so a call can tell an extern callee from a user
     /// function and apply the boundary rules (spec §8.1).
     externs: HashMap<String, HirExternDecl>,
@@ -58,6 +65,7 @@ impl Module {
             next_value: 0,
             synthesized: Vec::new(),
             next_thread_entry: 0,
+            atomic_strings: false,
             externs: HashMap::new(),
         }
     }
@@ -195,6 +203,21 @@ impl Module {
         index
     }
 
+    /// Choose the reference-count pair every string operation in this module
+    /// uses.
+    ///
+    /// Called once, before any function is emitted: a program that spawns a
+    /// thread can share a string with it from anywhere, so the whole module
+    /// pays for atomics; a program with no spawn keeps M3's plain calls.
+    pub fn set_atomic_strings(&mut self, atomic: bool) {
+        self.atomic_strings = atomic;
+    }
+
+    /// Whether this module uses the atomic reference-count pair.
+    pub fn atomic_strings(&self) -> bool {
+        self.atomic_strings
+    }
+
     /// Queue a complete `define` block for emission after the checked
     /// functions.
     pub fn add_synthesized_function(&mut self, lines: Vec<String>) {
@@ -295,6 +318,11 @@ impl Module {
         // release half is emitted wherever an owned temporary is consumed.
         out.push_str("declare i8* @otter_str_retain(i8*)\n");
         out.push_str("declare void @otter_str_release(i8*)\n");
+        // The atomic pair (M7 Task 4). Separate symbols rather than one
+        // function with a flag: a program with no thread keeps the plain path,
+        // which the spec promises stays free of locks.
+        out.push_str("declare i8* @otter_str_retain_atomic(i8*)\n");
+        out.push_str("declare void @otter_str_release_atomic(i8*)\n");
         // The C boundary (spec §8.1, M5 Task 3). `cstr` allocates a copy for a
         // safe call; `ptr` lends the string's own bytes to an `unsafe` one.
         out.push_str("declare i8* @otter_str_cstr(i8*)\n");

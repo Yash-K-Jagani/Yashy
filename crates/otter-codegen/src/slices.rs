@@ -65,10 +65,7 @@ pub fn gen_literal(
                 ctx.forget_owned(&value.value);
             } else if !value.value.is_empty() {
                 let retained = ctx.tmp();
-                ctx.push(format!(
-                    "{retained} = call i8* @otter_str_retain(i8* {})",
-                    value.value
-                ));
+                ctx.push_str_retain_into(&retained, &value.value);
                 value.value = retained;
             }
         }
@@ -141,10 +138,7 @@ pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
             ctx.forget_owned(&value.value);
         } else if !value.value.is_empty() {
             let retained = ctx.tmp();
-            ctx.push(format!(
-                "{retained} = call i8* @otter_str_retain(i8* {})",
-                value.value
-            ));
+            ctx.push_str_retain_into(&retained, &value.value);
             value.value = retained;
         }
     }

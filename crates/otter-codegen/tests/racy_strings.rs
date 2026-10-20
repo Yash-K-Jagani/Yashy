@@ -48,9 +48,9 @@ fn a_string_never_shared_across_threads_uses_the_plain_retain() {
     // call is the shape under test), and the scope exit releases it.
     let ir = emit("fn main() { var s: string = \"a\"; print_str(s); }");
     assert!(ir.contains("call i8* @otter_str_retain(i8*"), "{ir}");
-    assert!(!ir.contains("@otter_str_retain_atomic"), "{ir}");
+    assert!(!ir.contains("call i8* @otter_str_retain_atomic("), "{ir}");
     assert!(ir.contains("call void @otter_str_release(i8*"), "{ir}");
-    assert!(!ir.contains("@otter_str_release_atomic"), "{ir}");
+    assert!(!ir.contains("call void @otter_str_release_atomic("), "{ir}");
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn a_string_passed_to_spawn_uses_the_atomic_retain() {
          }",
     );
     assert!(ir.contains("call i8* @otter_str_retain_atomic(i8*"), "{ir}");
-    assert!(!ir.contains("call i8* @otter_str_retain(i8*"), "{ir}");
+    assert!(!ir.contains("call i8* @otter_str_retain("), "{ir}");
 }
 
 #[test]
@@ -85,8 +85,8 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
     );
     assert!(ir.contains("call i8* @otter_str_retain_atomic(i8*"), "{ir}");
     assert!(ir.contains("call void @otter_str_release_atomic(i8*"), "{ir}");
-    assert!(!ir.contains("call i8* @otter_str_retain(i8*"), "{ir}");
-    assert!(!ir.contains("call void @otter_str_release(i8*"), "{ir}");
+    assert!(!ir.contains("call i8* @otter_str_retain("), "{ir}");
+    assert!(!ir.contains("call void @otter_str_release("), "{ir}");
 }
 
 #[test]

@@ -18,6 +18,13 @@ use crate::ty::{Mutability, Type};
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirProgram {
     pub items: Vec<HirItem>,
+    /// Whether the program contains a `thread_spawn` call.
+    ///
+    /// The backend reads this to choose the atomic string refcount pair. It is
+    /// one bit for the whole program rather than a per-function answer: once a
+    /// thread exists, any string can cross into it, and proving which ones
+    /// cannot is interprocedural analysis this milestone does not attempt.
+    pub uses_threads: bool,
 }
 
 /// A top-level item after type checking.

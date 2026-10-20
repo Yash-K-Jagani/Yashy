@@ -427,6 +427,63 @@ void otter_str_release(otter_str *s) {
     }
 }
 
+/* The atomic pair (M7 Task 4). A string handed to a spawned thread has owners
+ * on two threads, so the count has to be updated atomically: a plain
+ * read-modify-write lets two releases each see the old count, and the loser
+ * frees bytes the winner still holds.
+ *
+ * The increment is relaxed -- it cannot be the last reference, so it orders
+ * nothing -- and the decrement is acq_rel, so the thread that frees the string
+ * sees every other thread's accesses through it. Both are separate symbols
+ * rather than a flag on the plain pair: a program with no threads keeps the
+ * lock-free dereference path the spec promises (A5.6).
+ */
+#if defined(_MSC_VER)
+otter_str *otter_str_retain_atomic(otter_str *s) {
+    if (s != NULL && s->refcount > 0) {
+        _InterlockedIncrement64(&s->refcount);
+    }
+    return s;
+}
+
+void otter_str_release_atomic(otter_str *s) {
+    if (s == NULL || s->refcount <= 0) {
+        return;
+    }
+    if (_InterlockedDecrement64(&s->refcount) == 0) {
+        free(s->data);
+        free(s);
+        otter_count_add(&otter_live_allocations, -1);
+    }
+}
+#else
+otter_str *otter_str_retain_atomic(otter_str *s) {
+    if (s != NULL && __atomic_load_n(&s->refcount, __ATOMIC_RELAXED) > 0) {
+        __atomic_add_fetch(&s->refcount, 1, __ATOMIC_RELAXED);
+    }
+    return s;
+}
+
+void otter_str_release_atomic(otter_str *s) {
+    if (s == NULL || __atomic_load_n(&s->refcount, __ATOMIC_RELAXED) <= 0) {
+        return;
+    }
+    if (__atomic_sub_fetch(&s->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
+        free(s->data);
+        free(s);
+        otter_count_add(&otter_live_allocations, -1);
+    }
+}
+#endif
+
+/* The current count: 1 for a live owned string, -1 for a static literal, 0 for
+ * NULL. Kept off the language's surface; the runtime's concurrency test uses it
+ * to check that eight threads' worth of balanced retain/release left the count
+ * where it started. */
+long long otter_str_refcount(const otter_str *s) {
+    return s == NULL ? 0 : s->refcount;
+}
+
 long long otter_str_len(const otter_str *s) {
     return s == NULL ? 0 : s->len;
 }

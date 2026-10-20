@@ -146,6 +146,17 @@ otter_str *otter_getenv(const char *name);
 otter_str *otter_str_retain(otter_str *s);
 void otter_str_release(otter_str *s);
 
+/* The atomic pair, for a string that can be shared with a spawned thread.
+ * Same contract as the plain pair; the count is updated with atomic
+ * operations, so concurrent retains and releases neither lose an update nor
+ * free the bytes while another thread still holds a reference. */
+otter_str *otter_str_retain_atomic(otter_str *s);
+void otter_str_release_atomic(otter_str *s);
+
+/* The current reference count: 1 for a live owned string, -1 for a static
+ * literal, 0 for NULL. For the runtime's own concurrency test. */
+long long otter_str_refcount(const otter_str *s);
+
 /* ---- Slices ----
  *
  *     declare void @otter_slice_push({ i8*, i64, i64 }*, i8*, i64)
