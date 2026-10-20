@@ -1210,6 +1210,11 @@ git add crates/
 git commit -m "feat(codegen): panic with source location"
 ```
 
+> **Unchecked on purpose.** This sketch describes `HirStmt::Panic` and a
+> `panic.rs`; the delivered design is a `Never`-typed builtin call lowered by
+> the ordinary call path (see the status and "What was built" above). The
+> [ ] boxes record the sketch, not the tree.
+
 ---
 
 ### Task 10: Unwinding, and `defer` on the unwind path
