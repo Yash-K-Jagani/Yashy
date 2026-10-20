@@ -137,15 +137,28 @@ pub fn variant_needs_a_field(span: Span, enum_name: &str, variant_name: &str) ->
     )
 }
 
-/// An `extern` block, which is a real keyword in M0-M2 and not yet a feature.
+/// An `extern` declaration without the mandatory `unsafe` marker.
 ///
-/// The variant exists in the AST so that M5 adds a case rather than changing a
-/// contract four stages code against. Until then the honest answer to an
-/// `extern` block is that the parser has not been taught to read one -- and
-/// saying *when* it will be is the difference between a user filing a bug and
-/// a user moving on to the next item in their file.
-pub fn extern_arrives_in_m5(span: Span) -> ParseError {
-    ParseError::new(span, "`extern` blocks arrive in M5")
+/// Every declaration crosses the FFI trust boundary, so the marker is not
+/// optional and is caught while the declaration is read: a program that forgot
+/// it has no business reaching the type checker.
+pub fn extern_declaration_needs_unsafe(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "an `extern` declaration must be marked `unsafe`: C code may keep or free \
+         any value it is given",
+    )
+}
+
+/// An `extern` block with no declarations.
+///
+/// A block that declares nothing links nothing and was almost certainly
+/// unfinished; accepting it would leave the reader believing the FFI was set up.
+pub fn extern_block_needs_a_declaration(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "an `extern` block must declare at least one function",
+    )
 }
 
 /// A token that cannot begin an item.
@@ -153,7 +166,7 @@ pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(
         span,
         format!(
-            "expected an item: `import`, `struct`, `enum`, or `fn`, found {}",
+            "expected an item: `import`, `struct`, `enum`, `fn`, or `extern`, found {}",
 
             found.describe()
         ),
@@ -261,7 +274,8 @@ mod tests {
             struct_needs_a_field(span, "S"),
             enum_needs_a_variant(span, "E"),
             variant_needs_a_field(span, "E", "A"),
-            extern_arrives_in_m5(span),
+            extern_declaration_needs_unsafe(span),
+            extern_block_needs_a_declaration(span),
             item_expected(TokenKind::At, span),
             nested_too_deep(span),
             unreadable_text(span),
@@ -298,10 +312,12 @@ mod tests {
         assert!(import_needs_a_path(Span::SYNTHETIC)
             .message
             .contains("import std.io;"));
-        assert_eq!(
-            extern_arrives_in_m5(Span::SYNTHETIC).message,
-            "`extern` blocks arrive in M5"
-        );
+        assert!(extern_declaration_needs_unsafe(Span::SYNTHETIC)
+            .message
+            .contains("unsafe"));
+        assert!(extern_block_needs_a_declaration(Span::SYNTHETIC)
+            .message
+            .contains("at least one"));
         assert!(item_expected(TokenKind::At, Span::SYNTHETIC)
             .message
             .contains("@"));

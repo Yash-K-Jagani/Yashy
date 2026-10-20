@@ -22,7 +22,7 @@ pub mod stmt_gen;
 pub mod strings;
 
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
-pub use fn_gen::{fn_return_repr, gen_fn, gen_main};
+pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
 pub use module::Module;
@@ -78,14 +78,26 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
     for item in &hir.items {
-        if let HirItem::Fn(f) = item {
-            // The entry point is the one function whose signature the operating
-            // system dictates, so it is emitted through its own path.
-            if f.name == "main" {
-                gen_main(&mut module, f);
-            } else {
-                gen_fn(&mut module, f);
+        match item {
+            HirItem::Fn(f) => {
+                // The entry point is the one function whose signature the
+                // operating system dictates, so it is emitted through its own
+                // path.
+                if f.name == "main" {
+                    gen_main(&mut module, f);
+                } else {
+                    gen_fn(&mut module, f);
+                }
             }
+            // A C declaration contributes a `declare` and nothing else. The
+            // library name is the driver's business (Task 4); the backend must
+            // not invent a body for a function it cannot see.
+            HirItem::Extern(block) => {
+                for decl in &block.decls {
+                    gen_extern_decl(&mut module, decl);
+                }
+            }
+            HirItem::Struct(_) | HirItem::Enum(_) | HirItem::Import(_) => {}
         }
     }
     module.finish()

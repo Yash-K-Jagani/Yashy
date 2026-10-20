@@ -39,19 +39,17 @@
 //! [`FieldDef`] is still the field of a **struct**, where a name is always
 //! written and always present.
 //!
-//! # `extern` is rejected, not ignored
+//! # `extern` blocks
 //!
-//! [`Item::Extern`] exists so that M5 adds a case rather than changing a
-//! contract four stages code against. Until then an `extern` block is a
-//! diagnostic naming the milestone it arrives in -- see
-//! [`error::extern_arrives_in_m5`]. Silently skipping it would be worse: a
-//! program whose FFI declarations vanished would compile, link against nothing,
-//! and fail at run time instead of at the `extern` keyword.
+//! [`Item::Extern`] is read from M5 on: an ABI string, an optional library to
+//! link, and one or more declarations. Every declaration must say `unsafe`, so
+//! a forgotten marker is a parse diagnostic at the declaration rather than a
+//! type-checking rule that has to remember which functions came from C.
 
 use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::{FieldDef, Item, Param, VariantDef, VariantField};
+use crate::ast::{ExternDecl, FieldDef, Item, Param, VariantDef, VariantField};
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
 
@@ -60,9 +58,7 @@ impl<'src> Parser<'src> {
     ///
     /// # Errors
     ///
-    /// A [`ParseError`] for a token that cannot begin an item -- and that
-    /// includes `extern`, which is a keyword the language has and this milestone
-    /// does not read yet.
+    /// A [`ParseError`] for a token that cannot begin an item.
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
         let kind = self.peek();
         match kind {
@@ -70,7 +66,7 @@ impl<'src> Parser<'src> {
             TokenKind::Struct => self.parse_struct(),
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Fn => self.parse_fn(),
-            TokenKind::Extern => Err(error::extern_arrives_in_m5(self.peek_span())),
+            TokenKind::Extern => self.parse_extern(),
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
     }
@@ -301,16 +297,7 @@ impl<'src> Parser<'src> {
 
         let open = self.expect(TokenKind::LParen)?;
         let _ = self.push_open(TokenKind::LParen, open.span)?;
-        let mut params = Vec::new();
-        while !self.check(TokenKind::RParen) {
-            params.push(self.parse_param()?);
-            if !self.eat(TokenKind::Comma) {
-                break;
-            }
-        }
-        // The `)` is consumed and the stack unwound, but the item's span runs to
-        // the body's closing `}` rather than to here.
-        self.expect(TokenKind::RParen)?;
+        let (params, _) = self.parse_params_after_open()?;
         self.close_open(TokenKind::RParen);
 
         let ret = if self.eat(TokenKind::Arrow) {
@@ -348,6 +335,146 @@ impl<'src> Parser<'src> {
             span: cover(name_span, ty_span(&ty)),
             ty,
         })
+    }
+
+    /// The parameter list of a function or an `extern` declaration, once its `(`
+    /// has been consumed and pushed.
+    ///
+    /// Consumes the closing `)` but does not pop it: the caller owns the
+    /// delimiter stack so that an unclosed `(` is reported against the item that
+    /// opened it.
+    fn parse_params_after_open(&mut self) -> Result<(Vec<Param>, Span), ParseError> {
+        let mut params = Vec::new();
+        while !self.check(TokenKind::RParen) {
+            params.push(self.parse_param()?);
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let close = self.expect(TokenKind::RParen)?;
+        Ok((params, close.span))
+    }
+
+    /// `extern "C" link "m" { unsafe fn puts(s: *const u8) -> i32; }`
+    ///
+    /// Both the braced block and the single-declaration form are accepted:
+    /// `extern "C" unsafe fn puts(s: *const u8) -> i32;`. The AST has one shape
+    /// for both — a list of declarations — so a single declaration is a
+    /// one-element list, not a second variant.
+    fn parse_extern(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Extern)?;
+
+        let abi = if self.check(TokenKind::Str) {
+            Some(self.extern_string("ABI")?)
+        } else {
+            None
+        };
+        let link = if self.at_word("link") {
+            self.advance();
+            Some(self.extern_string("library name")?)
+        } else {
+            None
+        };
+
+        if self.check(TokenKind::LBrace) {
+            let open = self.expect(TokenKind::LBrace)?;
+            let _ = self.push_open(TokenKind::LBrace, open.span)?;
+            let mut decls = Vec::new();
+            while !self.check(TokenKind::RBrace) && !self.check(TokenKind::Eof) {
+                decls.push(self.parse_extern_decl()?);
+            }
+            let close = self.expect(TokenKind::RBrace)?;
+            self.close_open(TokenKind::RBrace);
+            if decls.is_empty() {
+                return Err(error::extern_block_needs_a_declaration(cover(
+                    keyword.span,
+                    close.span,
+                )));
+            }
+            Ok(Item::Extern {
+                abi,
+                link,
+                decls,
+                span: cover(keyword.span, close.span),
+            })
+        } else {
+            let decl = self.parse_extern_decl()?;
+            let span = cover(keyword.span, decl.span);
+            Ok(Item::Extern {
+                abi,
+                link,
+                decls: vec![decl],
+                span,
+            })
+        }
+    }
+
+    /// One declaration: `unsafe fn name(params) -> ret;`.
+    ///
+    /// The `unsafe` marker is required, not optional. It is checked before the
+    /// `fn` is read so the diagnostic points at the declaration the user forgot
+    /// it on.
+    fn parse_extern_decl(&mut self) -> Result<ExternDecl, ParseError> {
+        let start = self.peek_span();
+        if !self.check(TokenKind::Unsafe) {
+            return Err(error::extern_declaration_needs_unsafe(start));
+        }
+        self.advance();
+        self.expect(TokenKind::Fn)?;
+        let (name, _) = self.identifier()?;
+
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let (params, _) = self.parse_params_after_open()?;
+        self.close_open(TokenKind::RParen);
+
+        let ret = if self.eat(TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        let semicolon = self.expect(TokenKind::Semi)?;
+        Ok(ExternDecl {
+            name,
+            params,
+            ret,
+            span: cover(start, semicolon.span),
+        })
+    }
+
+    /// One string literal in an `extern` header: the ABI or a library name.
+    fn extern_string(&mut self, what: &str) -> Result<String, ParseError> {
+        let token = self.expect(TokenKind::Str)?;
+        let raw = self.text(token.span)?;
+        let decoded = otter_lexer::StringLit::decode(&raw).map_err(|_| {
+            self.error(
+                token.span,
+                format!("the {what} must be a valid string literal"),
+            )
+        })?;
+        if decoded.value.is_empty() {
+            return Err(self.error(token.span, format!("the {what} must not be empty")));
+        }
+        if decoded.value.contains("${") {
+            return Err(self.error(
+                token.span,
+                format!("the {what} must be a plain string, not an interpolation"),
+            ));
+        }
+        Ok(decoded.value)
+    }
+
+    /// True when the next token is the identifier `word`.
+    ///
+    /// `link` is not a keyword, so it has to be recognised by its text. Reading
+    /// the text through the same span the lexer gave the token avoids any second
+    /// opinion about what an identifier is.
+    fn at_word(&self, word: &str) -> bool {
+        self.check(TokenKind::Ident)
+            && self
+                .text(self.peek_span())
+                .map(|text| text == word)
+                .unwrap_or(false)
     }
 }
 

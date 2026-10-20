@@ -413,7 +413,70 @@ impl<'src> Checker<'src> {
                         },
                     );
                 }
-                Item::Import { .. } | Item::Extern { .. } => {}
+                Item::Extern { decls, .. } => {
+                    for decl in decls {
+                        let param_tys: Vec<Type> = decl
+                            .params
+                            .iter()
+                            .map(|p| self.resolve_or_report_in(&p.ty, decl.span, true, false))
+                            .collect();
+                        let ret_ty = match &decl.ret {
+                            Some(ty) => self.resolve_or_report_in(ty, decl.span, true, true),
+                            None => prim(TypeKind::Unit),
+                        };
+                        let sig = FnSig {
+                            params: param_tys.clone(),
+                            ret: ret_ty.clone(),
+                        };
+                        let binding = Binding {
+                            ty: Type {
+                                kind: TypeKind::Func(param_tys, Box::new(ret_ty)),
+                                span: decl.span,
+                            },
+                            mutability: Mutability::Const,
+                            span: decl.span,
+                            ownership: Ownership::Live,
+                        };
+                        if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
+                            self.error(e.span, e.message);
+                        }
+                        self.fns.insert(decl.name.clone(), sig);
+                    }
+                }
+                Item::Import { .. } => {}
+            }
+        }
+    }
+
+    /// Resolve a type in a declaration, with the FFI edge's context rules.
+    ///
+    /// `allow_c` turns on the C spellings; `is_return` turns on `void`. The two
+    /// are separate because a `void` return is the one place the type is legal,
+    /// and a parameter list needs to say so even when it is otherwise full of C
+    /// types: `extern fn f(x: void)` is the mistake this catches.
+    fn resolve_or_report_in(
+        &mut self,
+        ty: &TypeExpr,
+        fallback_span: Span,
+        allow_c: bool,
+        is_return: bool,
+    ) -> Type {
+        match self.resolve_type_in(ty, allow_c) {
+            Ok(resolved) => {
+                if !is_return && is_void_value(&resolved.kind) {
+                    self.error(
+                        type_expr_span(ty),
+                        "`void` is only allowed as the return type of an `extern` declaration"
+                            .to_string(),
+                    );
+                    never(fallback_span)
+                } else {
+                    resolved
+                }
+            }
+            Err(e) => {
+                self.error(e.span, e.message);
+                never(fallback_span)
             }
         }
     }
@@ -641,7 +704,40 @@ impl<'src> Checker<'src> {
                 path: path.clone(),
                 span: *span,
             })),
-            Item::Extern { .. } => None,
+            Item::Extern {
+                abi,
+                link,
+                decls,
+                span,
+            } => Some(HirItem::Extern(HirExternBlock {
+                abi: abi.clone(),
+                link: link.clone(),
+                decls: decls
+                    .iter()
+                    .map(|decl| HirExternDecl {
+                        name: decl.name.clone(),
+                        params: decl
+                            .params
+                            .iter()
+                            .map(|p| HirParam {
+                                name: p.name.clone(),
+                                ty: self
+                                    .resolve_type_in(&p.ty, true)
+                                    .unwrap_or_else(|_| never(p.span)),
+                                span: p.span,
+                            })
+                            .collect(),
+                        ret: match &decl.ret {
+                            Some(ty) => {
+                                self.resolve_type_in(ty, true).unwrap_or_else(|_| never(decl.span))
+                            }
+                            None => prim(TypeKind::Unit),
+                        },
+                        span: decl.span,
+                    })
+                    .collect(),
+                span: *span,
+            })),
         }
     }
 
@@ -2442,7 +2538,38 @@ fn option_i64() -> Type {
 /// stand in for any return type, and a diverging argument stand in for any
 /// parameter. Everything else has to match exactly, so this widens nothing else.
 fn fits(expected: &Type, found: &Type) -> bool {
-    expected.eq_ignoring_span(found) || matches!(found.kind, TypeKind::Never)
+    expected.eq_ignoring_span(found)
+        || matches!(found.kind, TypeKind::Never)
+        || ffi_string_fits(expected, found)
+}
+
+/// Whether a `string` may stand where a C string pointer is wanted.
+///
+/// This is the FFI boundary's one deliberate coercion: `*const u8` and `*mut u8`
+/// describe a NUL-terminated C string, and Otter's `string` is the value a
+/// program has. Codegen copies the bytes before the call (Task 3), so no Otter
+/// reference escapes. Only the two byte types qualify; a `*const i64` is a
+/// pointer to machine words, not text.
+fn ffi_string_fits(expected: &Type, found: &Type) -> bool {
+    matches!(found.kind, TypeKind::Str)
+        && matches!(
+            &expected.kind,
+            TypeKind::CPtr(inner)
+                if matches!(inner.kind, TypeKind::CUInt(8) | TypeKind::CInt(8))
+        )
+}
+
+/// Whether a type is `void` in value position.
+///
+/// Pointers to `void` are not: `void*` is the C spelling of "untyped pointer",
+/// and it is a perfectly good parameter type.
+fn is_void_value(kind: &TypeKind) -> bool {
+    match kind {
+        TypeKind::CVoid => true,
+        TypeKind::Option(inner) => is_void_value(&inner.kind),
+        TypeKind::Result(ok, err) => is_void_value(&ok.kind) || is_void_value(&err.kind),
+        _ => false,
+    }
 }
 
 /// Fold one `switch` arm's body type into the type every arm has to agree on.
@@ -2637,7 +2764,6 @@ fn binop_symbol(op: BinOp) -> &'static str {
 }
 
 /// The span of an AST type expression.
-#[allow(dead_code)]
 fn type_expr_span(ty: &TypeExpr) -> Span {
     match ty {
         TypeExpr::Name(_, span) => *span,

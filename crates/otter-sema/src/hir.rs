@@ -27,6 +27,7 @@ pub enum HirItem {
     Enum(HirEnum),
     Fn(HirFn),
     Import(HirImport),
+    Extern(HirExternBlock),
 }
 
 /// A `struct` item: its name and its named fields, in declaration order.
@@ -99,6 +100,32 @@ pub struct HirParam {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirImport {
     pub path: Vec<String>,
+    pub span: Span,
+}
+
+/// An `extern` block after type checking.
+///
+/// `abi` and `link` are carried through unchanged: the ABI says how to call the
+/// declarations and the library says what the driver must link against. Neither
+/// is interpreted by the checker.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HirExternBlock {
+    pub abi: Option<String>,
+    pub link: Option<String>,
+    pub decls: Vec<HirExternDecl>,
+    pub span: Span,
+}
+
+/// One C function declaration: a name, checked parameter types, a return type.
+///
+/// There is no body and no `unsafe` flag: the parser already required the
+/// marker, so a declaration that reaches the HIR is a declaration the user
+/// accepted the FFI risk for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HirExternDecl {
+    pub name: String,
+    pub params: Vec<HirParam>,
+    pub ret: Type,
     pub span: Span,
 }
 

@@ -1,0 +1,7 @@
+extern "C" link "m" {
+    unsafe fn puts(s: *const u8) -> i32;
+    unsafe fn strlen(s: *const u8) -> usize;
+}
+
+fn main() {
+}

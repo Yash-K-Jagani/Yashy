@@ -15,7 +15,7 @@
 //! on every path has already emitted its `ret`, and a body that falls through
 //! emits `ret void` or `ret <zero>` for its return type.
 
-use otter_sema::{HirFn, TypeKind};
+use otter_sema::{HirExternDecl, HirFn, TypeKind};
 
 use crate::ir::repr_type;
 use crate::module::Module;
@@ -34,6 +34,22 @@ pub fn fn_return_repr(kind: &TypeKind) -> String {
 /// Emit `f` — its signature, its parameter spills, its body — into `module`.
 pub fn gen_fn(module: &mut Module, f: &HirFn) {
     gen_fn_impl(module, f, false);
+}
+
+/// Emit one C function declaration as an LLVM `declare`.
+///
+/// A `declare` is the whole contract: the symbol name, the return type and the
+/// parameter types. Emitting a `define` here would be wrong in a way that links
+/// — an empty body would silently replace the C function — so this function has
+/// no path that produces a body.
+pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
+    let params: Vec<String> = d.params.iter().map(|p| repr_type(&p.ty.kind)).collect();
+    let ret = fn_return_repr(&d.ret.kind);
+    module.push(format!(
+        "declare {ret} @{}({})",
+        d.name,
+        params.join(", ")
+    ));
 }
 
 /// Emit `f` as the program's entry point.

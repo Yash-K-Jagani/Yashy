@@ -320,39 +320,38 @@ fn struct_requires_at_least_one_named_field() {
 }
 
 #[test]
-fn extern_blocks_are_rejected_with_a_message_that_says_when_they_arrive() {
-    // `Item::Extern` exists in the AST so M5 adds a case rather than changing a
-    // contract four stages code against. Until then the parser must say no --
-    // and say *when* it will stop saying no, because "expected an item" for a
-    // keyword the language has would read as "Otter has no extern".
+fn extern_blocks_are_parsed_in_both_their_spellings() {
+    // A block with an ABI and a library, and the single-declaration form. The
+    // AST has one shape for both: a list of declarations.
     for src in [
-        "extern",
-        "extern \"C\" { }",
-        "extern \"C\" link \"m\" { unsafe fn puts(s: string) -> i64; }",
+        r#"extern "C" { unsafe fn puts(s: string) -> i64; }"#,
+        r#"extern "C" link "m" { unsafe fn puts(s: string) -> i64; }"#,
+        r#"extern "C" unsafe fn puts(s: string) -> i64;"#,
     ] {
-        let diags = parse_err(src);
-        // The first diagnostic is the one about the block. Recovery skips
-        // forward to the next token that can begin an item, and inside a real
-        // `extern` block that is the declaration after it -- which is then
-        // rejected in its own right, and is entitled to its own diagnostic.
-        let first = match diags.first() {
-            Some(d) => d,
-            None => panic!("there must be a diagnostic"),
-        };
-        assert!(
-            first.message.contains("M5"),
-            "{src:?}: the message must name the milestone: {}",
-            first.message
-        );
-        assert_eq!(
-            first.span,
-            Span::new(0, 6),
-            "{src:?}: the caret goes on the `extern` keyword"
-        );
-        for d in &diags {
-            assert!(d.is_error(), "{src:?}: {}", d.message);
+        let program = parse_ok(src);
+        match program.items.first() {
+            Some(Item::Extern { decls, .. }) => {
+                assert_eq!(decls.len(), 1, "{src:?}: one declaration");
+            }
+            other => panic!("{src:?}: expected an extern item, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn a_bare_extern_keyword_is_an_error_not_a_panic() {
+    let diags = parse_err("extern");
+    let first = diags.first().expect("there must be a diagnostic");
+    assert!(
+        first.is_error(),
+        "the diagnostic must be an error: {}",
+        first.message
+    );
+    assert!(
+        first.message.contains("unsafe"),
+        "the header is missing its declaration, which must be `unsafe`: {}",
+        first.message
+    );
 }
 
 // -- spans -----------------------------------------------------------------

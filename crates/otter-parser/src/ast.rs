@@ -105,10 +105,9 @@ pub enum Item {
     /// because a block may name an ABI and no library, a library and no ABI, or
     /// both. Each declaration under the block is an [`ExternDecl`].
     ///
-    /// This variant is **declared but never constructed yet**: `parse_program`
-    /// rejects an `extern` block with a diagnostic saying the feature arrives
-    /// in M5. It is here so that M5 adds a variant rather than changing this
-    /// one, which four later stages code against.
+    /// This variant is read from M5 on. `abi`, `link` and `decls` are whatever
+    /// the source wrote; the checker is what rejects a declaration that is not
+    /// `unsafe` and resolves the C types.
     Extern {
         abi: Option<String>,
         link: Option<String>,
