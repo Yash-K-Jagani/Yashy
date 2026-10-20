@@ -419,6 +419,26 @@ long long otter_str_len(const otter_str *s) {
     return s == NULL ? 0 : s->len;
 }
 
+/* Takes the bytes in `[start, end)` as a new string. `start` is clamped to 0,
+ * `end` to the length, and an inverted range is empty; none of those is an
+ * error, so a caller cannot index out of bounds through this. */
+otter_str *otter_str_slice(const otter_str *s, long long start, long long end) {
+    long long len = s == NULL ? 0 : s->len;
+    if (start < 0) {
+        start = 0;
+    }
+    if (end > len) {
+        end = len;
+    }
+    if (end < start) {
+        end = start;
+    }
+    if (s == NULL) {
+        return otter_str_new("", 0);
+    }
+    return otter_str_new(s->data + start, (size_t)(end - start));
+}
+
 long long otter_str_byte_at(const otter_str *s, long long index) {
     if (s == NULL || index < 0 || index >= s->len) {
         return 0;
@@ -542,6 +562,80 @@ otter_str *otter_read_line(void) {
     otter_str *line = otter_str_new(buffer, length);
     free(buffer);
     return line;
+}
+
+/* ---- Files and the environment ----------------------------------------
+ *
+ * `read_file` returns the whole file as an owned string, or the empty string
+ * when it cannot be opened or read; `write_file` reports 1 for success and 0
+ * for failure. A failure is a value rather than a fault because a missing file
+ * is an ordinary thing for a program to handle, and the language has no
+ * `Result` in a builtin's signature yet. The empty string is also what an empty
+ * file reads as, so a caller that must tell them apart checks `write_file`'s
+ * sibling contract -- there is no way to distinguish them in M6, and that is
+ * recorded as a limitation in the plan.
+ *
+ * `ftell` returns a C `long`: 32 bits on Windows, 64 elsewhere. A file larger
+ * than that reads as the empty string rather than being truncated.
+ */
+
+otter_str *otter_read_file(const char *path) {
+    if (path == NULL) {
+        return otter_str_new("", 0);
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return otter_str_new("", 0);
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return otter_str_new("", 0);
+    }
+    long size = ftell(file);
+    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return otter_str_new("", 0);
+    }
+    otter_str *contents = otter_str_new(NULL, (size_t)size);
+    if (contents == NULL) {
+        fclose(file);
+        return otter_str_new("", 0);
+    }
+    size_t got = size == 0 ? 0 : fread(contents->data, 1, (size_t)size, file);
+    fclose(file);
+    if (got != (size_t)size) {
+        /* A short read would hand back half a file as if it were whole. */
+        otter_str_release(contents);
+        return otter_str_new("", 0);
+    }
+    return contents;
+}
+
+long long otter_write_file(const char *path, const char *bytes, long long len) {
+    if (path == NULL || len < 0) {
+        return 0;
+    }
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return 0;
+    }
+    size_t written = len == 0 ? 0 : fwrite(bytes, 1, (size_t)len, file);
+    int closed = fclose(file);
+    return written == (size_t)len && closed == 0 ? 1 : 0;
+}
+
+/* The environment value, or the empty string when the name is unset. An empty
+ * variable and an unset one read the same in M6 for the same reason a missing
+ * file does: no `Option` in a builtin's signature. */
+otter_str *otter_getenv(const char *name) {
+    if (name == NULL) {
+        return otter_str_new("", 0);
+    }
+    const char *value = getenv(name);
+    if (value == NULL) {
+        return otter_str_new("", 0);
+    }
+    return otter_str_new(value, strlen(value));
 }
 
 /* Whether only whitespace is left in `s` -- the second half of "the whole

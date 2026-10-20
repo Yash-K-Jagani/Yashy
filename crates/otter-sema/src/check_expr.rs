@@ -106,7 +106,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 31] = [
+        let builtins: [(&str, Vec<Type>, Type); 35] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -149,6 +149,18 @@ impl<'src> Checker<'src> {
                 vec![prim(TypeKind::Str), prim(TypeKind::I64)],
                 prim(TypeKind::I64),
             ),
+            // `str_slice(s, start, end) -> string` is the bytes in `[start, end)`
+            // as a new owned string. The bounds are clamped by the runtime
+            // (negative start is 0, an end past the length is the length, an
+            // inverted range is empty), so a program cannot get a fault out of
+            // arithmetic on indices -- the same "one answer instead of a check"
+            // rule `byte_at` follows. The stdlib's `trim` and `split` are built
+            // on it.
+            (
+                "str_slice",
+                vec![prim(TypeKind::Str), prim(TypeKind::I64), prim(TypeKind::I64)],
+                prim(TypeKind::Str),
+            ),
 
             // Input. `read_line` yields a `string` (empty at end of input);
             // `parse_i64`/`parse_f64` yield zero when their argument is not a
@@ -157,6 +169,20 @@ impl<'src> Checker<'src> {
             ("read_line", vec![], prim(TypeKind::Str)),
             ("parse_i64", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
             ("parse_f64", vec![prim(TypeKind::Str)], prim(TypeKind::F64)),
+            // Files and the environment (M6 Task 10). `read_file` yields the
+            // whole file as a fresh owned string, or the empty string when it
+            // cannot be read; `write_file` reports 1 for success and 0 for
+            // failure; `getenv` yields the variable's value, or the empty string
+            // when it is unset. The ambiguities are deliberate and documented in
+            // the plan: a builtin's signature cannot spell `Result` yet, and an
+            // empty file (or an empty variable) is a legitimate value.
+            ("read_file", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            (
+                "write_file",
+                vec![prim(TypeKind::Str), prim(TypeKind::Str)],
+                prim(TypeKind::I64),
+            ),
+            ("getenv", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
             // Out the other way: a number as text, so a program can build a
             // string that *contains* one (`"count = " + str_from_i64(n)`).
             // Without these the runtime's conversions existed and nothing could
@@ -678,7 +704,7 @@ impl<'src> Checker<'src> {
                         ),
                     ));
                 }
-                if !slice_element_is_operable(&value.kind) {
+                if !map_value_is_supported(&value.kind) {
                     return Err(TypeError::new(
                         value.span,
                         format!(
@@ -3165,6 +3191,13 @@ fn option(payload: &Type, span: Span) -> Type {
 /// handle, the same shallow copy a struct field makes. `pop` is refused for
 /// strings because the removed handle would leave the slice with nothing that
 /// releases it (see `check_slice_builtin`).
+/// Whether a slice may hold values of this kind.
+///
+/// A slice is storing elements it will free as one block, and (for `string`) one
+/// reference per element, so the runtime only needs to know the stride and
+/// whether the elements are handles. `string` joined the set with M6 Task 10;
+/// the element operations that are still missing (`pop`) are refused at the call
+/// site, not here.
 fn slice_element_is_operable(kind: &TypeKind) -> bool {
     matches!(
         kind,
@@ -3172,6 +3205,26 @@ fn slice_element_is_operable(kind: &TypeKind) -> bool {
             | TypeKind::F64
             | TypeKind::Bool
             | TypeKind::Str
+            | TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+    )
+}
+
+/// Whether a map value can be stored by value.
+///
+/// Numbers and `bool` are plain machine words. A `string` is *not* accepted:
+/// the M6 map would have to retain the handle on insert and release it on
+/// overwrite, removal, and free, and it does none of those. Slice elements
+/// gained exactly that treatment in Task 10; map values did not, so the
+/// restriction stands rather than shipping a dangling reference.
+fn map_value_is_supported(kind: &TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::I64
+            | TypeKind::F64
+            | TypeKind::Bool
             | TypeKind::CInt(_)
             | TypeKind::CUInt(_)
             | TypeKind::CFloat(_)

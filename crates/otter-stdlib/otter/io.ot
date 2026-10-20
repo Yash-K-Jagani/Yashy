@@ -1,0 +1,34 @@
+// Text output (M6 Task 10).
+//
+// `print_str` and `read_line` are builtins: they are in scope in every file,
+// imported or not, because Otter's modules share one root scope (the plan's
+// Task 9 rule). What this module adds is the newline spelling a report wants,
+// and the number forms that keep a caller from writing the conversion by hand.
+//
+// The file half of I/O is built in too: `read_file(path)` answers with the whole
+// file (empty on failure), and `write_file(path, body)` answers 1 or 0. They are
+// documented here because this is the module a reader looks in for them; there is
+// no wrapper, because a wrapper would have to use the same name and the names
+// live in one scope.
+//
+// Ownership: none of these consume their argument. `print_str` copies the bytes
+// and keeps no pointer.
+
+fn print(text: string) {
+    print_str(text);
+}
+
+fn println(text: string) {
+    print_str(text);
+    print_str("\n");
+}
+
+fn println_i64(value: i64) {
+    print_i64(value);
+    print_str("\n");
+}
+
+fn println_f64(value: f64) {
+    print_f64(value);
+    print_str("\n");
+}

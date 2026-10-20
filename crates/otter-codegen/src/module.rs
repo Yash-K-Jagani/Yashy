@@ -255,11 +255,20 @@ impl Module {
         // safe call; `ptr` lends the string's own bytes to an `unsafe` one.
         out.push_str("declare i8* @otter_str_cstr(i8*)\n");
         out.push_str("declare i8* @otter_str_ptr(i8*)\n");
+        // The substring builtin (M6 Task 10). Declared with the string set: the
+        // stdlib's `trim` and `split` are written on top of it.
+        out.push_str("declare i8* @otter_str_slice(i8*, i64, i64)\n");
         // Input (ledger L1's input additions). Declared up front for the same
         // reason as the string set.
         out.push_str("declare i8* @otter_read_line()\n");
         out.push_str("declare i64 @otter_parse_i64(i8*)\n");
         out.push_str("declare double @otter_parse_f64(i8*)\n");
+        // Files and the environment (M6 Task 10). Declared up front for the same
+        // reason; `read_file`/`getenv` return an owned string, `write_file`
+        // reports 1/0 and is handed the text's pointer and length separately.
+        out.push_str("declare i8* @otter_read_file(i8*)\n");
+        out.push_str("declare i64 @otter_write_file(i8*, i8*, i64)\n");
+        out.push_str("declare i8* @otter_getenv(i8*)\n");
         // The diagnostic path (M4). Declared up front like the rest, so a
         // program that starts panicking does not change every golden file
         // again; an unused `declare` is legal IR.

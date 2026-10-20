@@ -94,6 +94,10 @@ void otter_arena_free_all(otter_arena *arena);
 long long otter_str_len(const otter_str *s);
 long long otter_str_byte_at(const otter_str *s, long long index);
 otter_str *otter_str_concat(const otter_str *a, const otter_str *b);
+
+/* The bytes in `[start, end)` as a new owned string. The range is clamped:
+ * `start < 0` is 0, `end > len` is the length, and an inverted range is empty. */
+otter_str *otter_str_slice(const otter_str *s, long long start, long long end);
 otter_str *otter_str_from_i64(long long value);
 otter_str *otter_str_from_f64(double value);
 otter_str *otter_str_from_bool(long long value);
@@ -122,6 +126,17 @@ const char *otter_str_ptr(const otter_str *s);
 otter_str *otter_read_line(void);
 long long otter_parse_i64(const otter_str *s);
 double otter_parse_f64(const otter_str *s);
+
+/* ---- Files and the environment ----------------------------------------
+ *
+ * `otter_read_file` returns the file's bytes as an owned string, or the empty
+ * string on failure (the empty string is also an empty file). `otter_write_file`
+ * writes exactly `len` bytes and returns 1 on success, 0 on failure.
+ * `otter_getenv` returns the value as an owned string, or the empty string when
+ * the name is unset. Every `otter_str*` these return is owned: release it. */
+otter_str *otter_read_file(const char *path);
+long long otter_write_file(const char *path, const char *bytes, long long len);
+otter_str *otter_getenv(const char *name);
 
 /* Reference counting. `otter_str_retain` adds one to the count and returns its
  * argument; `otter_str_release` drops one and frees the string when the count

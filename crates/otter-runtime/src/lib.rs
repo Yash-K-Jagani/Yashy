@@ -244,6 +244,16 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// The bytes in `[start, end)` as a fresh owned string. The range is
+    /// clamped; an inverted range is empty and null is empty.
+    pub fn otter_str_slice(
+        s: *const OtterStr,
+        start: c_longlong,
+        end: c_longlong,
+    ) -> *mut OtterStr;
+}
+
+unsafe extern "C" {
     /// `value` in decimal, as a fresh owned string.
     pub fn otter_str_from_i64(value: c_longlong) -> *mut OtterStr;
 }
@@ -274,6 +284,22 @@ unsafe extern "C" {
 
     /// The floating-point number `s` denotes, or zero when it denotes none.
     pub fn otter_parse_f64(s: *const OtterStr) -> c_double;
+
+    /// The whole file at `path` as a fresh owned string, or `""` when it cannot
+    /// be opened or read. `path` is a NUL-terminated C string.
+    pub fn otter_read_file(path: *const c_char) -> *mut OtterStr;
+
+    /// Writes exactly `len` bytes from `bytes` to `path`, returning 1 on success
+    /// and 0 on failure. Both `path` and `bytes` are C pointers.
+    pub fn otter_write_file(
+        path: *const c_char,
+        bytes: *const c_char,
+        len: c_longlong,
+    ) -> c_longlong;
+
+    /// The value of the environment variable `name` as a fresh owned string, or
+    /// `""` when it is unset.
+    pub fn otter_getenv(name: *const c_char) -> *mut OtterStr;
 
     /// Adds one to `s`'s reference count and returns `s`. A no-op on a static
     /// string (refcount -1).

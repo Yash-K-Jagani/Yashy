@@ -934,17 +934,18 @@ fn gen_call(
             // whose arguments and result need no reshaping: only the name
             // differs, so the common path handles them.
             match name.as_str() {
-                "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64" => {
-                    let value = gen_plain_call(ctx, &format!("otter_{name}"), args, ty);
-                    // `read_line` and the two conversions hand back a string the
-                    // runtime built, so the result is owned; the parsers return a
-                    // number and own nothing.
-                    if matches!(ty, TypeKind::Str) {
-                        ctx.mark_owned(&value.value);
-                    }
-                    value
+                "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64"
+                | "str_slice" => gen_borrowed_call(ctx, &format!("otter_{name}"), args, ty),
+                // These three cross the C boundary: a `string` argument becomes a
+                // NUL-terminated copy for the callee, and the copy is freed when
+                // the call returns. `write_file` additionally lends the text's
+                // bytes, because a file body is not a C string (it may contain a
+                // NUL) and its length is passed beside the pointer.
+                "read_file" | "getenv" => {
+                    crate::ffi::gen_cstr_string_builtin(ctx, &format!("otter_{name}"), args, ty)
                 }
-                _ => gen_plain_call(ctx, &name, args, ty),
+                "write_file" => crate::ffi::gen_write_file(ctx, args, ty),
+                _ => gen_borrowed_call(ctx, &name, args, ty),
             }
         }
     }
@@ -1199,6 +1200,20 @@ fn unit() -> GenValue {
 /// whole lowering.
 fn gen_plain_call(ctx: &mut FnCtx<'_>, symbol: &str, args: &[HirExpr], ty: &TypeKind) -> GenValue {
     let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+    gen_lowered_call(ctx, symbol, &lowered, ty)
+}
+
+/// Emit one call from arguments that are already lowered.
+///
+/// The callee's return type decides whether the call produces a value at all; a
+/// `void` result is an empty [`GenValue`], which every consumer already treats as
+/// "nothing to use".
+fn gen_lowered_call(
+    ctx: &mut FnCtx<'_>,
+    symbol: &str,
+    lowered: &[GenValue],
+    ty: &TypeKind,
+) -> GenValue {
     let arg_list: Vec<String> = lowered
         .iter()
         .map(|v| format!("{} {}", repr_type(&v.ty), v.value))
@@ -1220,6 +1235,35 @@ fn gen_plain_call(ctx: &mut FnCtx<'_>, symbol: &str, args: &[HirExpr], ty: &Type
         value: tmp,
         ty: ty.clone(),
     }
+}
+
+/// Lower a call whose `string` arguments are **borrowed**: a function the program
+/// wrote, or one of the reading builtins (`parse_i64`, `str_slice`, ...).
+///
+/// The callee may not free an argument, so a temporary the caller owns is
+/// released once the call returns, exactly as `print_str`'s argument is. A
+/// `string` result is marked owned: `return` retains a local on the way out (see
+/// `gen_return`) and the runtime built ones are fresh, so either way the caller
+/// holds one reference and a binding takes it over instead of retaining a second
+/// time.
+///
+/// Externs do not come through here: they have their own boundary rules in
+/// [`crate::ffi::gen_ffi_call`].
+fn gen_borrowed_call(
+    ctx: &mut FnCtx<'_>,
+    symbol: &str,
+    args: &[HirExpr],
+    ty: &TypeKind,
+) -> GenValue {
+    let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+    let value = gen_lowered_call(ctx, symbol, &lowered, ty);
+    for argument in &lowered {
+        ctx.release_owned(&argument.value);
+    }
+    if matches!(ty, TypeKind::Str) {
+        ctx.mark_owned(&value.value);
+    }
+    value
 }
 
 /// Lower `expr?`: test the Result tag, propagate on `Err`, unwrap on `Ok`.

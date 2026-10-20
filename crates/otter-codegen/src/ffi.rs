@@ -19,9 +19,9 @@
 //! Slices do not exist yet (M6); when they do, their elements are copied here
 //! the same way, with their length.
 
-use otter_sema::{HirExternDecl, TypeKind};
+use otter_sema::{HirExternDecl, HirExpr, TypeKind};
 
-use crate::expr_gen::{FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, FnCtx, GenValue};
 use crate::fn_gen::fn_return_repr;
 use crate::ir::repr_type;
 
@@ -100,4 +100,109 @@ pub fn gen_ffi_call(
     }
 
     result
+}
+
+/// Lower a builtin whose every argument is a `string` C wants to read:
+/// `read_file(path)` and `getenv(name)`.
+///
+/// The conversion is the safe-call half of [`gen_ffi_call`]: one
+/// `otter_str_cstr` copy per argument, the call, then the copy is freed and any
+/// temporary string it consumed is released. The result is always an owned
+/// `string` the runtime built, so it is marked as such -- a binding takes the
+/// reference over and a temporary is released when its consumer is done.
+///
+/// The symbols return the empty string rather than a null on failure, so there is
+/// no flag to test here: the builtin's contract is "the text, or nothing", and
+/// the plan records that as the M6 limitation it is.
+pub fn gen_cstr_string_builtin(
+    ctx: &mut FnCtx<'_>,
+    symbol: &str,
+    args: &[HirExpr],
+    ty: &TypeKind,
+) -> GenValue {
+    let mut operands = Vec::new();
+    let mut copies: Vec<String> = Vec::new();
+    let mut consumed: Vec<String> = Vec::new();
+    for arg in args {
+        let value = gen_expr(ctx, arg);
+        let copy = ctx.tmp();
+        ctx.push(format!(
+            "{copy} = call i8* @otter_str_cstr(i8* {})",
+            value.value
+        ));
+        copies.push(copy.clone());
+        consumed.push(value.value);
+        operands.push(format!("i8* {copy}"));
+    }
+    if operands.is_empty() {
+        // The checker guarantees one argument; a short list is a bug here, and a
+        // null string is the harmless answer that keeps the IR well formed.
+        return GenValue {
+            value: "null".to_string(),
+            ty: ty.clone(),
+        };
+    }
+
+    let result = ctx.tmp();
+    ctx.push(format!(
+        "{result} = call i8* @{symbol}({})",
+        operands.join(", ")
+    ));
+    for copy in &copies {
+        ctx.push(format!("call void @otter_free(i8* {copy})"));
+    }
+    for value in &consumed {
+        ctx.release_owned(value);
+    }
+    ctx.mark_owned(&result);
+    GenValue {
+        value: result,
+        ty: ty.clone(),
+    }
+}
+
+/// Lower `write_file(path, text) -> i64`.
+///
+/// The path is copied to a C string, but the text is **lent**: a file body is a
+/// byte range that may contain a NUL, so it crosses as `(pointer, length)` and
+/// the callee must not keep either. The length comes from `otter_str_len` and the
+/// pointer from `otter_str_ptr`, which is the same borrow an `unsafe` extern call
+/// makes -- safe here because the runtime writes the bytes before it returns.
+pub fn gen_write_file(ctx: &mut FnCtx<'_>, args: &[HirExpr], ty: &TypeKind) -> GenValue {
+    let (Some(path_expr), Some(text_expr)) = (args.first(), args.get(1)) else {
+        return GenValue {
+            value: "0".to_string(),
+            ty: ty.clone(),
+        };
+    };
+    let path = gen_expr(ctx, path_expr);
+    let text = gen_expr(ctx, text_expr);
+
+    let path_copy = ctx.tmp();
+    ctx.push(format!(
+        "{path_copy} = call i8* @otter_str_cstr(i8* {})",
+        path.value
+    ));
+    let bytes = ctx.tmp();
+    ctx.push(format!(
+        "{bytes} = call i8* @otter_str_ptr(i8* {})",
+        text.value
+    ));
+    let len = ctx.tmp();
+    ctx.push(format!(
+        "{len} = call i64 @otter_str_len(i8* {})",
+        text.value
+    ));
+
+    let result = ctx.tmp();
+    ctx.push(format!(
+        "{result} = call i64 @otter_write_file(i8* {path_copy}, i8* {bytes}, i64 {len})"
+    ));
+    ctx.push(format!("call void @otter_free(i8* {path_copy})"));
+    ctx.release_owned(&path.value);
+    ctx.release_owned(&text.value);
+    GenValue {
+        value: result,
+        ty: ty.clone(),
+    }
 }
