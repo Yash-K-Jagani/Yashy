@@ -397,7 +397,7 @@ wrong-signature rejection (asserting the `i32` mismatch is named) and the
 - Consumes: ledger L1 `otter_slice`, ledger L2 M6 row
 - Produces: `TypeKind::Slice(Box<TypeKind>)`; `pub fn gen_slice_literal(ctx: &mut FnCtx, elems: &[GenValue]) -> String`; `pub fn gen_slice_push(ctx: &mut FnCtx, slice_slot: &str, elem: &GenValue) -> ()`; `linearity_of` gains its `Slice` arm
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -424,20 +424,74 @@ fn an_empty_slice_literal_is_valid() {}
 fn a_slice_of_slices_is_linear_at_both_levels() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `{ i8*, i64, i64 }` exactly matching `otter_slice`. `otter_slice_push` reallocs with a doubling policy when `len == cap`. Indexing yields `Option[T]`, never a trap — Review Focus item 4.
 
-- [ ] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
+- [x] **Step 4: Run to verify they pass** → PASS. Added and read the golden file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat: slices as linear values with a doubling backing array"
 ```
+
+**As built:**
+
+- **Syntax.** `TypeExpr::Slice(Box<TypeExpr>, Span)` in `ast.rs`; the type
+  grammar in `types.rs` reads `[` `]` then the element type (a non-empty pair
+  is reserved for a future fixed-size array and is not read as a slice). The
+  value spelling `[]T { a, b }` is parsed at primary position in `exprs.rs`;
+  the element type is written, never inferred, so `[]T {}` is typed and legal.
+- **Checked type.** `TypeKind::Slice(Box<Type>)`, `Display` prints `[]{T}`, and
+  `linearity_of` gained exactly the promised `Slice` arm. A slice is rejected
+  as a value type when its element is `()`, `!`, or `void` — such an element has
+  no size, and the diagnostic fires both for a written `[]()` and for a literal
+  `[]() { }`.
+- **Builtins.** `push` and `free_slice` cannot live in the fixed 31-entry
+  `builtins` table: their types mention the element type, and the table has no
+  type parameters. Both are special-cased in the `Call` arm before name
+  resolution, after the `Option`/`Result` constructors. Their receiver must be
+  an identifier, because codegen passes the binding's slot address:
+  `push(slice, value)` checks `value` against the element type and keeps the
+  slice; `free_slice(slice)` moves the binding out, so a second call is a
+  move error. This is the callable spelling the plan's "frees once" needed.
+- **Lowering.** `crates/otter-codegen/src/slices.rs`:
+  `gen_literal` allocates `count * elem_size` through `otter_alloc`, stores each
+  element with a `getelementptr`, and builds the header with three
+  `insertvalue`s; an empty literal allocates nothing and is `{ null, 0, 0 }`.
+  `gen_push` stores the value in a fresh slot and calls
+  `otter_slice_push(slot, &temp, elem_size)`; `gen_free` calls
+  `otter_slice_free(slot)` without touching the header again (the runtime
+  zeroes it). `Module::finish` always declares both symbols, as it already did
+  for the string and arena sets, so all eight older goldens gained exactly
+  those two lines.
+- **Representation and element size.** `repr_type(TypeKind::Slice) =
+  "{ i8*, i64, i64 }"` and `ir::size_of` gives exact strides for scalars,
+  `string` (8), pointers (8), and slices (24). `Option`/`Result`/struct/enum
+  elements fall back to one word: their real layout needs the declaration table,
+  and M6's programs slice `i64`, `string`, and other slices. That limitation is
+  documented at `size_of` and must be lifted before a slice of a declared type
+  is supported.
+- **Runtime.** `otter_slice` and the two functions are declared in the header;
+  `otter_slice_push` grows 0 -> 4 -> double, copies with `memcpy`, frees the old
+  block through `otter_free`, and leaves the slice unchanged on a failed
+  allocation (there is no error channel in the ABI, and aborting would disguise
+  an allocation failure as a language fault). `otter_slice_free` tolerates null
+  and zeroes the header, so a freed slice can be reused.
+- **Tests.** Parser 3 (`tests/slices.rs`), sema 9 (`tests/slices.rs`: literal
+  element check, linearity at both levels, push keeps, free moves, `push` needs
+  a slice, zero-sized element), codegen 5 (`tests/slices.rs`: allocation and
+  stores, empty literal, push call shape, free call, golden) plus
+  `golden/slices.ot`/`slices.expected.ll`; runtime 5 (`tests/slices.rs`: first
+  push, doubling with preservation, free/reuse, null cases); driver e2e 1
+  (`slices.ot` builds, runs, prints and exits 0) and leaks 1 (the grow's old
+  block and the final block both come back: zero live allocations).
+- **Deferred.** Indexing a slice still reports "cannot index `[]i64`" until
+  Task 7 gives it `Option[T]`, `len`, `pop`, and `for`.
 
 ---
 
