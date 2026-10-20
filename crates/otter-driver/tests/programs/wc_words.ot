@@ -1,0 +1,26 @@
+// Word counting for `wc.ot`: a word is a run of bytes that are not a space, a
+// tab, or a carriage return. The newline is already gone -- `read_line` strips
+// it -- so the separators here are the ones that can survive on a line.
+//
+// Ownership: pure; nothing is allocated and no argument is consumed.
+
+fn count_words(line: string) -> i64 {
+    var words = 0;
+    var inside = false;
+    var index = 0;
+    var length = len(line);
+    while index < length {
+        // 32 space, 9 tab, 13 carriage return, in ASCII.
+        var byte = byte_at(line, index);
+        if byte == 32 || byte == 9 || byte == 13 {
+            inside = false;
+        } else {
+            if !inside {
+                words = words + 1;
+                inside = true;
+            }
+        }
+        index = index + 1;
+    }
+    return words;
+}

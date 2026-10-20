@@ -45,8 +45,8 @@ fn work_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Build `name.ot` and run it with the leak report enabled.
-fn build_and_run(name: &str) -> Output {
+/// Build `name.ot` and return the work directory and the executable.
+fn build(name: &str) -> (PathBuf, PathBuf) {
     let dir = work_dir(name);
     let source = programs_dir().join(format!("{name}.ot"));
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
@@ -62,26 +62,74 @@ fn build_and_run(name: &str) -> Output {
         "compiling {name}.ot failed:\n{}",
         String::from_utf8_lossy(&compile.stderr)
     );
+    (dir, exe)
+}
 
-    Command::new(&exe)
-        .env("OTTER_LEAK_REPORT", "1")
+/// The error a program that refuses to start should report, with the Device
+/// Guard caveat when that is what happened.
+fn start_failure(exe: &Path, error: &std::io::Error) -> String {
+    // The same Device Guard caveat as `e2e.rs`: a freshly linked executable can
+    // be blocked by content policy, which is an environment result rather than a
+    // compiler defect.
+    let policy = error.to_string().contains("blocked")
+        || error.to_string().contains("Application Control")
+        || error.raw_os_error() == Some(4551);
+    let hint = if policy {
+        "\n\nthe operating system refused to start the binary: an \
+         Application Control / Device Guard policy blocked it. Rebuilding \
+         produces a different binary (the linker stamps a timestamp)."
+    } else {
+        ""
+    };
+    format!(
+        "the executable at {} must be runnable: {error}{hint}",
+        exe.display()
+    )
+}
+
+/// Run a built program with the leak report enabled, optionally feeding standard
+/// input. The write end is closed before waiting, so a read-until-EOF loop ends
+/// instead of blocking on a pipe nobody will write to again.
+fn run_program(exe: &Path, input: Option<&str>) -> Output {
+    let mut command = Command::new(exe);
+    command.env("OTTER_LEAK_REPORT", "1");
+    if let Some(input) = input {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)));
+        child
+            .stdin
+            .as_mut()
+            .expect("standard input was piped")
+            .write_all(input.as_bytes())
+            .expect("writing the program's input must succeed");
+        drop(child.stdin.take());
+        return child
+            .wait_with_output()
+            .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)));
+    }
+    command
         .output()
-        .unwrap_or_else(|error| {
-            // The same Device Guard caveat as `e2e.rs`: a freshly linked
-            // executable can be blocked by content policy, which is an
-            // environment result rather than a compiler defect.
-            let policy = error.to_string().contains("blocked")
-                || error.to_string().contains("Application Control")
-                || error.raw_os_error() == Some(4551);
-            let hint = if policy {
-                "\n\nthe operating system refused to start the binary: an \
-                 Application Control / Device Guard policy blocked it. Rebuilding \
-                 produces a different binary (the linker stamps a timestamp)."
-            } else {
-                ""
-            };
-            panic!("the executable at {} must be runnable: {error}{hint}", exe.display())
-        })
+        .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)))
+}
+
+/// Build `name.ot` and run it with the leak report enabled.
+fn build_and_run(name: &str) -> Output {
+    let (_dir, exe) = build(name);
+    run_program(&exe, None)
+}
+
+/// Build `name.ot` and run it with `input` on standard input and the leak report
+/// enabled.
+fn build_and_run_with_input(name: &str, input: &str) -> Output {
+    let (_dir, exe) = build(name);
+    run_program(&exe, Some(input))
 }
 
 /// Assert the program exited zero and reported no live allocations.
@@ -185,4 +233,30 @@ fn a_string_slice_releases_every_element() {
         "the sum of the decimal lengths of 0..99:\n{stdout}"
     );
     assert_no_leaks("string_slices_heap", &output);
+}
+
+#[test]
+fn both_container_programs_leak_nothing() {
+    // The two M6 showcase programs, with the report armed. `json_count` builds a
+    // `[]string` of lines and a `map[string]i64` of keys; `wc` loops over lines
+    // and counts. Both must release the slice, the map (including the key
+    // references the map retained), and every intermediate string.
+    let json = build_and_run_with_input(
+        "json_count",
+        "{\"name\": \"otter\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&json.stdout),
+        "3\n2\n",
+        "three keys seen, two distinct"
+    );
+    assert_no_leaks("json_count", &json);
+
+    let wc = build_and_run_with_input("wc", "hello world\nsecond line\n");
+    assert_eq!(
+        String::from_utf8_lossy(&wc.stdout),
+        "2 4 24\n",
+        "two lines, four words, twenty-four bytes"
+    );
+    assert_no_leaks("wc", &wc);
 }

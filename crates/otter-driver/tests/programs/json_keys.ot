@@ -1,0 +1,26 @@
+// The key half of `json_count.ot`: the text between the first two double quotes
+// on a line, or the empty string when the line has fewer than two.
+//
+// This is deliberately not a JSON parser. `json_count` is the container proof --
+// a slice of strings, a map, and a loop over real input -- not a standards
+// exercise, so the only syntax it knows is "a quoted run of bytes".
+//
+// Ownership: the result is a fresh string; `line` is not consumed.
+
+fn key_of(line: string) -> string {
+    var open = -1;
+    var index = 0;
+    var length = len(line);
+    while index < length {
+        // 34 is the double quote in ASCII.
+        if byte_at(line, index) == 34 {
+            if open < 0 {
+                open = index;
+            } else {
+                return str_slice(line, open + 1, index);
+            }
+        }
+        index = index + 1;
+    }
+    return str_slice(line, 0, 0);
+}

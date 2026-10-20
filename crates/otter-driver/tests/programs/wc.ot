@@ -1,0 +1,30 @@
+// Lines, words, and bytes over standard input, in the shape of `wc`.
+//
+// `read_line` strips the terminator, so the byte count adds one per line for the
+// newline it removed. A last line without a newline still gets one in the count;
+// that matches the common case (a text file ends with a newline) and is the one
+// place this program differs from `wc -c`, which counts what is really there.
+//
+// The word half is `count_words` in `wc_words.ot`, found beside this file.
+
+import wc_words;
+
+fn main() {
+    var lines = 0;
+    var words = 0;
+    var bytes = 0;
+    var line = read_line();
+    while len(line) > 0 {
+        lines = lines + 1;
+        words = words + count_words(line);
+        bytes = bytes + len(line) + 1;
+        line = read_line();
+    }
+
+    print_i64(lines);
+    print_str(" ");
+    print_i64(words);
+    print_str(" ");
+    print_i64(bytes);
+    print_str("\n");
+}

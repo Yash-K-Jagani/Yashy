@@ -1913,3 +1913,42 @@ fn a_string_slice_can_be_built_iterated_and_freed() {
     assert_eq!(stdout_of(&output), "alpha\nbeta\ngamma\n42\n");
     assert_eq!(output.status.code(), Some(0));
 }
+
+/// Build `name.ot` and run it with `input` on standard input.
+fn build_and_run_with_input(name: &str, input: &str) -> Output {
+    let (_dir, exe, compile) = build_program(name);
+    assert!(
+        compile.status.success(),
+        "compiling {name}.ot failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_input(&exe, input);
+    assert!(
+        output.status.success(),
+        "{name} exited with {:?}\nstderr:\n{}",
+        output.status.code(),
+        stderr_of(&output)
+    );
+    output
+}
+
+#[test]
+fn a_multi_file_program_counts_json_keys() {
+    // `json_count.ot` and `json_keys.ot`: the entry feeds every line into a
+    // `[]string`, the module slices the quoted run out of each line, and a
+    // `map[string]i64` deduplicates. Three lines, three keys, two distinct.
+    let output = build_and_run_with_input(
+        "json_count",
+        "{\"name\": \"otter\"}\n{\"age\": 3}\n{\"name\": \"again\"}\n",
+    );
+    assert_eq!(stdout_of(&output), "3\n2\n");
+}
+
+#[test]
+fn a_word_count_program_works_on_a_multi_line_input() {
+    // `wc.ot` and `wc_words.ot`: two lines, four words, and 24 bytes counting
+    // the two newlines `read_line` removed. The helper module owns the word
+    // boundary rule, which is the part worth reading twice.
+    let output = build_and_run_with_input("wc", "hello world\nsecond line\n");
+    assert_eq!(stdout_of(&output), "2 4 24\n");
+}
