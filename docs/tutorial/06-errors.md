@@ -1,8 +1,16 @@
 # 6. Errors without exceptions
 
+## What you will learn
+
+- How a function reports failure in its return type.
+- What `?` does to an `Ok` and to an `Err`.
+- How to report an error to a user without unwinding the stack.
+- Which part of the `?` rule this build enforces, and which part it does not.
+
 A function that can fail returns `Result[T, E]`: `Ok(value)` or `Err(error)`.
 There is no exception stack and no hidden unwinding. `?` propagates an `Err`
-to the caller, and the caller's signature already promises it can happen.
+to the caller, and the function's return type is supposed to say so. This build
+enforces only part of that promise; the section below shows exactly where.
 
 ```otter
 fn half(n: i64) -> Result[i64, string] {
@@ -38,8 +46,90 @@ fn main() {
 `Err("odd")`; the `?` returns that `Err` from `quarter` immediately. No line
 after a failed `?` runs.
 
-`?` is only legal in a function whose return type is a `Result` with the same
-error type. That is the whole mechanism: a function cannot fail silently, and a
-caller cannot ignore the possibility without matching it.
+The signature is the contract. A caller reading `Result[i64, string]` knows
+that the call can fail and what an error looks like. This is the trade for
+losing exception unwinding: the failure is visible where the function is
+declared, not only where it happens to be thrown.
+
+## The shape of a result
+
+| Expression | Type | What it means |
+|---|---|---|
+| `Ok(v)` | `Result[T, E]` | Success carrying `v`. |
+| `Err(e)` | `Result[T, E]` | Failure carrying `e`. |
+| `f(x)?` | `T` | `v` if `f` returned `Ok(v)`; returns `Err(e)` from the enclosing function otherwise. |
+| `switch r { case Ok(v) ... case Err(e) ... }` | depends on arms | The only way to read both sides. |
+| `f(x)` used as a statement | `Result[T, E]`, then discarded | Allowed today; the value is dropped. |
+
+`?` is only legal on an expression whose type is a `Result`; applying it to an
+`i64` reports ``error: `?` can only be used on a `Result`, not `i64` ``. On an
+`Option`, the same message names `Option[i64]`: there is no `?` for `Option` in
+this build.
+
+## The rule, and what is checked
+
+The intended rule is: `?` belongs in a function whose return type is a `Result`
+with the same error type. The `Err` it produces has to fit the caller's
+signature, or the caller could not handle it.
+
+This build checks the first half only. It verifies that the operand is a
+`Result`; it does not verify that the enclosing function returns a `Result`, or
+that the error types match. A `?` in an `i64` function compiles, and if the
+call actually returns `Err`, the generated code reaches an `unreachable` and the
+process dies with no message. The same happens when the error types differ:
+
+```text
+fn bad(n: i64) -> i64 {
+    return half(n)?;   // compiles; dies on the Err path
+}
+```
+
+Treat the rule as one you enforce while writing. Until the checker catches it,
+a `?` outside a matching `Result` function is a latent crash, not a reported
+mistake.
+
+For the same reason, a bare call to a `Result`-returning function is accepted
+as a statement: `half(3);` compiles and the `Err` is discarded. The type makes
+the possibility visible, but the compiler does not force you to look at it. If
+the result matters, match it or pass it to a function that takes a `Result`.
+
+## Common mistakes
+
+- **Giving `Err` the wrong payload.** `return Err(1);` in a
+  `Result[i64, string]` function reports
+  ``error: expected `string`, found `i64` ``. Construct the error the signature
+  promises.
+- **Applying `?` to a number.** `const x = 3?;` reports
+  ``error: `?` can only be used on a `Result`, not `i64` ``.
+- **Using `?` in a function that does not return a `Result`.** It compiles, and
+  the error path dies without a message. Change the function's return type to
+  `Result[...]`, or match the result instead.
+- **Mixing the error types of two `?` calls.** A `?` on `Result[i64, bool]`
+  inside a `Result[i64, string]` function is accepted, but the `Err` path is
+  unreachable and the program dies. Keep one error type through the chain.
+- **Ignoring a result.** `half(3);` compiles and drops the `Err`. If the caller
+  should report it, match it and print the message, as `report` does.
+
+## Try it
+
+1. Write `fn parse_positive(text: string) -> Result[i64, string]` that uses
+   `parse_i64`, then rejects a value less than or equal to zero with `Err`.
+   Call it with `"12"`, `"0"`, and `"abc"`. Hint: `parse_i64` returns `0` for
+   text that is not a number, so `0` needs its own error message.
+
+2. Rewrite `quarter` so that the two `?` calls are separate `switch`
+   statements instead. Keep the same output. Hint: the `Err` arm must return
+   the error from `quarter`; the `Ok` arm continues with the payload.
+
+## How it works
+
+`Result` is an ordinary enum with two variants. Its IR value is a tag plus
+enough space for the larger payload, the same layout chapter 5 describes. `?`
+tests the tag: an `Ok` extracts the payload and continues, and an `Err` returns
+the whole `Result` value from the enclosing function. That return is a direct
+`ret` only when the checker's function-return type has the same representation
+as the operand; otherwise the generator has no value of the right shape to
+return and emits `unreachable`. That is the implementation behind the
+limitation above, not a separate rule.
 
 Continue to [07-memory](07-memory.md).

@@ -1,9 +1,15 @@
 # 5. Matching
 
+## What you will learn
+
+- How `switch` reads a value by shape and binds its parts.
+- Why every enum arm must be present, and when `default` is required.
+- How `Option`, `Result`, and your own enums are the same mechanism.
+- How to write and match the three kinds of enum variant.
+
 `switch` matches a value against shapes. An arm binds what it names and
 evaluates one expression. In expression position the switch *is* that
-expression, so it can be returned directly. Every shape must be covered: a
-missing arm is a compile error, not a runtime `default`.
+expression, so it can be returned; every shape must be covered.
 
 The two shapes every program meets are `Option[T]` and `Result[T, E]`:
 
@@ -39,13 +45,17 @@ fn main() {
 ```
 
 `Option[T]` means "a `T` or nothing": `Some(value)` or `None`. There is no
-`null` and no uninitialized value. If a function can return nothing, its return
-type says `Option[T]` and the caller must handle `None`. `describe(None)` type
-checks because the parameter's type says which `Option` is meant.
+`null`. If a function can return nothing, its type says `Option[T]` and the
+caller must handle `None`; `describe(None)` checks because the parameter's type
+supplies the payload.
 
 `Result[T, E]` means "a `T` or an error": `Ok(value)` or `Err(error)`. There is
-no exception unwinding; chapter 6 shows `?`, which propagates an `Err` to the
-caller.
+no exception unwinding; chapter 6 shows `?`, which propagates an `Err`.
+
+Exhaustiveness is the point, not a formality. If a `switch` could fall through
+an unhandled `None`, the program would need a default value for a `T` it does
+not have. Requiring the arm turns "I forgot the empty case" into a compile
+error, the same job `null` checks do elsewhere.
 
 A `switch` may also compare literals. The subject has infinitely many values in
 that case, so a `default` arm is required to make the match exhaustive:
@@ -112,13 +122,63 @@ and `Shape.Point` for a variant with no payload. A payload's type comes from
 the declaration, so `Shape.Circle(2)` is a type error: the field is `f64`.
 
 Arm shapes follow the variant's shape. A positional payload binds by position:
-`case Circle(r)`. A named payload binds by name, and the pattern always names
-*every* field as `field: binding`: `case Rect { w: w, h: h }`. A unit variant
-is just `case Point`. The switch must cover every variant, exactly as it must
-cover `Some` and `None`; `default` is accepted as the catch-all for the
-remaining ones.
+`case Circle(r)`. A named payload binds by name, and the pattern names *every*
+field as `field: binding`: `case Rect { w: w, h: h }`. A unit variant is
+`case Point`. The switch must cover every variant, exactly as it must cover
+`Some` and `None`; `default` catches the rest.
 
-`Option` and `Result` are ordinary enums too, with constructors the language
-supplies. The tutorial's own enums are declared the same way.
+`Option` and `Result` are ordinary enums too, with supplied constructors.
+
+## Patterns at a glance
+
+| Pattern | Used for | Binds | Example |
+|---|---|---|---|
+| `case Some(n)` | Positional payload. | `n` is the payload value. | `Option[i64]` |
+| `case None` | Unit variant. | Nothing. | `Option[i64]` |
+| `case Ok(v)` / `case Err(e)` | `Result` payloads. | The success or error value. | `Result[i64, string]` |
+| `case Circle(r)` | A user variant with one positional field. | `r`. | `Shape` |
+| `case Rect { w: w, h: h }` | Named fields; every field is written. | `w` and `h`. | `Shape` |
+| `case Point` | A variant with no payload. | Nothing. | `Shape` |
+| `case 0` / `default` | Literal arms. | Nothing; `default` is required. | `i64`, `f64`, `bool`, `string` |
+
+The `field: binding` spelling is not optional shorthand. `case Rect { w, h }`
+is a parse error at the comma, because the parser is looking for `:` after the
+first name. Writing both halves shows which field binds to which local name.
+
+## Common mistakes
+
+- **Leaving out `None`.** A switch over `Option` with only `Some` reports
+  ``error: switch is not exhaustive: missing case `None` ``. Add the arm.
+- **Using literal arms without `default`.** `switch n { case 0 { ... } }`
+  reports ``error: switch over a non-enum type is not exhaustive: add a `default` arm``.
+  A number has too many possible values to list.
+- **Writing `case Rect { w, h }`.** The parser reports
+  ``error: expected `}`, found `,` ``. Write `case Rect { w: w, h: h }`.
+- **Passing the wrong payload type.** `Shape.Circle(2)` reports
+  ``error: expected `f64`, found `i64` ``. Write `2.0`.
+- **Writing `const x = None;` with no context.** The checker reports
+  ``error: cannot infer the payload type of `None` ``. Annotate the binding or
+  pass `None` where the expected type is known.
+
+## Try it
+
+1. Add `Square(f64)` to `Shape` and update `area`, then call it with each
+   variant and print the four results. Hint: the compiler names the missing arm.
+
+2. Write `fn describe_result(r: Result[i64, string]) -> string` that returns a
+   sentence for both `Ok` and `Err`. Call it with a successful division and
+   with a division by zero. Hint: both arms must be `string`; use
+   `str_from_i64` on the success value.
+
+## How it works
+
+An enum is a tag plus the payload space of its largest variant. The compiler
+emits one LLVM struct per enum: an `i8` tag in field 0, followed by every
+variant's fields flattened in declaration order. The tag is the variant's
+index; a payload field's position is 1 plus the number of payload fields
+declared before it. Matching
+compares the tag, branches to the arm, and extracts the fields the pattern
+names. Literal arms lower to an integer, float, or string comparison.
+`Option` and `Result` use the same layout and matching code.
 
 Continue to [06-errors](06-errors.md).

@@ -1,5 +1,12 @@
 # 2. Values and variables
 
+## What you will learn
+
+- The four scalar types and the operators each one supports.
+- How `const` and `var` differ, and why there is no `let`.
+- Why mixed arithmetic needs an explicit `as` cast.
+- How a value becomes text, and when arithmetic stops the program.
+
 The scalar types are `i64`, `f64`, `bool`, and `string`. `const` binds a name
 once and never rebinds; `var` binds a name that can be assigned again.
 Assignment operators like `+=` are shorthand for the expanded form.
@@ -36,6 +43,97 @@ Two things to notice:
   claims output that does not depend on it.
 
 There are no implicit truthiness rules: a condition is a `bool`, not an
-integer.
+integer. A language that accepted `if n` would have to decide whether `0` means
+false, and every reader would have to remember the answer. Requiring `n != 0`
+puts the decision in the program.
+
+## Types and operators
+
+`i64` is the only integer type. `f64` is the only floating type. Integer
+literals such as `3` are `i64`; a fractional literal such as `0.5` is `f64`.
+`bool` has `true` and `false`, and `string` is a counted sequence of bytes.
+
+| Type | Literal | Operators | Notes |
+|---|---|---|---|
+| `i64` | `42`, `-7` | `+ - * / %`, comparisons | Checked; a fault stops the program. |
+| `f64` | `0.5`, `-2.0` | `+ - * / %`, comparisons | No implicit `i64` operand. |
+| `bool` | `true`, `false` | `&& \|\| !`, `== !=` | Conditions must be `bool`. |
+| `string` | `"text"` | `+`, `== !=` | `+` concatenates; no ordering. |
+
+Both operands of an arithmetic or comparison operator must have the same type.
+`total as f64` and `value as i64` are the two numeric casts. Casting `f64` to
+`i64` truncates toward zero: `3.9 as i64` is `3`, and `-3.9 as i64` is `-3`.
+There is no cast from `string` to a number; `parse_i64` exists for that.
+
+`&&` and `||` take two `bool`s and produce a `bool`. They are not
+short-circuiting in this build: both operands are evaluated before the operator
+runs. That matters when the right side has a side effect or can fault. Write
+nested `if` statements when the second test is only safe after the first:
+
+```text
+if n != 0 {
+    if 10 / n > 1 {
+        print_str("large\n");
+    }
+}
+```
+
+The one-liner `if n != 0 && 10 / n > 1` divides by zero when `n` is `0`, even
+though the left side is false.
+
+## Faults, not wrapping
+
+Integer arithmetic is checked. Overflow, division by zero, and the smallest
+`i64` divided by `-1` stop the program with a message and exit status 1 rather
+than wrapping silently. The message names the position and the operands:
+
+```text
+main.ot:3:15: panic: integer overflow: 9223372036854775807 + 1
+```
+
+Remainder follows the same truncation as division: `-7 / 2` is `-3`, and
+`-7 % 2` is `-1`. The sign of the remainder is the sign of the dividend.
+
+If wrapping is what the program means, say so with `wrapping_add`,
+`wrapping_sub` or `wrapping_mul`. `checked_*` returns an `Option[i64]` instead,
+and `saturating_*` clamps at the ends of the type. There is no wrapping
+division: a wrapped quotient is not the quotient of anything.
+
+## Common mistakes
+
+- **Assigning to a `const`.** `const n = 3; n = 4;` reports
+  ``error: cannot assign to `n`, which is immutable``. Use `var n = 3;`.
+- **Mixing `i64` and `f64` in one expression.** `x + 1.5` where `x` is `i64`
+  reports ``error: cannot apply `+` to `i64` and `f64` ``. Cast one side:
+  `x as f64 + 1.5`.
+- **Interpolating a struct or enum.** `"${p}"` reports
+  ``error: cannot interpolate a `Point` into a string: only `string`, `i64`, `f64` and `bool` have a text form``.
+  Print the fields instead.
+- **Relying on `&&` to guard a fault.** As above, the right operand still
+  runs. The program stops with `panic: division by zero: 10 / 0` even when the
+  left operand is false.
+- **Declaring a `var` without a value.** `var x;` reports
+  ``error: expected `=`, found `;` ``. A binding is initialized when it is
+  created; there is no uninitialized local.
+
+## Try it
+
+1. Compute the average of three `i64` values as an `f64`, then print it rounded
+   down to an `i64`. Hint: cast the sum to `f64` before dividing, and cast the
+   result back after.
+
+2. Swap two `var` bindings without a third variable. Hint: `+` and `-` work,
+   but only if the intermediate values stay inside `i64`. Then try it with a
+   temporary `const` and decide which version you would rather read.
+
+## How it works
+
+Interpolation is not a runtime feature. The checker rewrites each `${expr}`
+into a call to `str_from_i64`, `str_from_f64` or `str_from_bool` (a `string`
+needs no call) and joins the pieces with `+`, so the typed tree has no
+interpolation node left. Checked arithmetic lowers to LLVM's overflow
+intrinsics, with a branch to a cold block that reports the operands and ends the
+process. `&&` and `||` lower to LLVM's `and` and `or` on `i1`, which is exactly
+why both sides are evaluated.
 
 Continue to [03-control-flow](03-control-flow.md).
