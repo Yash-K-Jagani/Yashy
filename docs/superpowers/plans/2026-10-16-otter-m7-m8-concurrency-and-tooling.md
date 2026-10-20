@@ -582,12 +582,20 @@ debounce that is not a timer:
   the user-function path), or the source of `fn name` up to its body.
   **Definition** resolves through the module loader and jumps to the `Ident`
   after the matching `fn`, so it lands in an imported file.
-- **Step 1's tests became seven** (a URI round-trip test was added). The first
-  one caught a real bug: adding the entry to the `SourceMap` before `load`
-  added it again, so every diagnostic was in file 1 and the entry filter
-  dropped it, and the "clears the diagnostic" test passed for the wrong
-  reason. The loader now owns the entry, and the tests assert a non-empty
-  first publish.
+- **Step 1's tests became eight** (a URI test was added, and later split into
+  a Windows-character test and a host-native round trip). The first one caught a
+  real bug: adding the entry to the `SourceMap` before `load` added it again, so
+  every diagnostic was in file 1 and the entry filter dropped it, and the
+  "clears the diagnostic" test passed for the wrong reason. The loader now owns
+  the entry, and the tests assert a non-empty first publish.
+- **Two URI tests were wrong on Linux, and CI said so.** They asserted that a
+  Windows path equals the `PathBuf` decoded from its URI, which can hold only
+  where `\` and `/` are both separators: on `ubuntu-latest` the decoded path is
+  `D:/…` and the original is `D:\…`. The assertion now compares the decoded
+  characters (the URI's contract) and a second test round-trips a host-native
+  temporary path (the host's contract), so the Windows spelling stays pinned and
+  Linux is green. The `ubuntu-latest` job was red from this task until the fix,
+  not from the tutorial.
 - **The plan's debounce is not implemented.** Publishing is synchronous and
   one analysis per change. A real debounce needs a timer thread or an async
   runtime; with full-document sync the editor decides how often to send, and

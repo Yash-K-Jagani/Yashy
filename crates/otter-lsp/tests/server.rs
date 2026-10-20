@@ -298,7 +298,20 @@ fn the_server_survives_a_file_that_does_not_parse() {
 }
 
 #[test]
-fn a_uri_round_trips_through_a_path() {
+fn a_uri_keeps_a_windows_paths_characters() {
     let path = PathBuf::from(r"D:\Otter\examples\main.ot");
+    let decoded = otter_lsp::uri_to_path(&path_to_uri(&path));
+    assert_eq!(
+        decoded.to_string_lossy().replace('\\', "/"),
+        "D:/Otter/examples/main.ot"
+    );
+}
+
+#[test]
+fn a_native_path_round_trips_through_a_uri() {
+    let path = std::env::temp_dir()
+        .join("otter lsp")
+        .join("examples")
+        .join("main.ot");
     assert_eq!(otter_lsp::uri_to_path(&path_to_uri(&path)), path);
 }

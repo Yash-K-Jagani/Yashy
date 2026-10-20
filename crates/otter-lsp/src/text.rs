@@ -150,10 +150,24 @@ mod tests {
     }
 
     #[test]
-    fn a_windows_uri_round_trips() {
+    fn a_windows_path_becomes_a_uri() {
         let path = PathBuf::from(r"D:\Otter dir\main.ot");
         let uri = path_to_uri(&path);
         assert_eq!(uri, "file:///D:/Otter%20dir/main.ot");
+        // Decoding gives back the same characters. Which separator the host's
+        // `Path` spells them with is the host's business, not the URI's: on
+        // Unix a Windows path is not a path at all, so only the characters can
+        // be compared.
+        assert_eq!(
+            uri_to_path(&uri).to_string_lossy().replace('\\', "/"),
+            "D:/Otter dir/main.ot"
+        );
+    }
+
+    #[test]
+    fn a_native_path_round_trips() {
+        let path = std::env::temp_dir().join("otter lsp").join("main.ot");
+        let uri = path_to_uri(&path);
         assert_eq!(uri_to_path(&uri), path);
     }
 }
