@@ -1833,3 +1833,23 @@ fn the_release_flag_reaches_the_ir_dump() {
         "and keeps `assert`:\n{release}"
     );
 }
+
+#[test]
+fn libc_is_reachable_from_otter() {
+    // The whole FFI chain in one program: declaration, copied string argument,
+    // `usize` cast in and out, a linear C pointer through `malloc`/`free`, and
+    // a link directive for the platform that keeps libm separate.
+    let (_dir, exe, built) = build_program("libc");
+    assert!(
+        built.status.success(),
+        "libc.ot must build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let output = run(&exe);
+    assert!(
+        output.status.success(),
+        "libc.ot must exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(stdout_of(&output), "hello from C\n5\n");
+}

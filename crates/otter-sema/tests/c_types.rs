@@ -87,3 +87,16 @@ fn an_otter_pointer_is_still_an_otter_pointer() {
     // code: an owning, linear pointer. Only `*const`/bare pointers are new.
     check("fn f(x: *mut i64) {}").expect("an owning pointer is ordinary Otter code");
 }
+
+#[test]
+fn a_c_numeric_type_is_allowed_as_a_cast_target() {
+    // `as` is the one place outside an `extern` block where a C spelling is
+    // legal: it is how an Otter program produces the `usize` `malloc` wants.
+    check(r#"fn main() { const n = 64 as usize; print_i64(n as i64); }"#)
+        .expect("an explicit cast may name a C type");
+}
+
+#[test]
+fn a_c_non_numeric_type_is_not_a_cast_target() {
+    assert_rejected(r#"fn main() { const x = 1 as *mut u8; }"#, "cannot cast");
+}

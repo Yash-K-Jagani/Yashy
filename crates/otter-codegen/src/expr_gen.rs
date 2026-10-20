@@ -1281,26 +1281,81 @@ fn gen_struct_lit(
 
 /// Lower a cast. The sema whitelist (Task 8) permits only primitive
 /// conversions: `i64` <-> `f64`, and `bool` <-> `i64`.
+/// The bit width of an integer-like kind, or `None` for anything else.
+///
+/// `bool` counts as a one-bit unsigned integer: casting it to `i64` zero-extends,
+/// which is the same instruction `zext` gives for any unsigned source.
+fn integer_width(kind: &TypeKind) -> Option<u32> {
+    match kind {
+        TypeKind::Bool => Some(1),
+        TypeKind::I64 | TypeKind::CSize => Some(64),
+        TypeKind::CInt(width) | TypeKind::CUInt(width) => Some(*width),
+        _ => None,
+    }
+}
+
+/// Whether a kind's machine value is signed, which decides `sext` vs `zext`,
+/// `sitofp` vs `uitofp`, and `fptosi` vs `fptoui`.
+fn is_signed_integer(kind: &TypeKind) -> bool {
+    matches!(kind, TypeKind::I64 | TypeKind::CInt(_))
+}
+
+/// The bit width of a floating-point kind, or `None` for anything else.
+fn float_width(kind: &TypeKind) -> Option<u32> {
+    match kind {
+        TypeKind::F64 => Some(64),
+        TypeKind::CFloat(width) => Some(*width),
+        _ => None,
+    }
+}
+
 fn gen_cast(ctx: &mut FnCtx<'_>, expr: &HirExpr, target: &TypeKind) -> GenValue {
     let value = gen_expr(ctx, expr);
     let from = repr_type(&value.ty);
     let to = repr_type(target);
+    // Two kinds can share a representation (`i64` and `usize` both lower to
+    // `i64`); the conversion is then a type-level one and no instruction is
+    // needed.
     if from == to {
         return GenValue {
             value: value.value,
             ty: target.clone(),
         };
     }
-    let op = match (from.as_str(), to.as_str()) {
-        ("i64", "double") => "sitofp",
-        ("double", "i64") => "fptosi",
-        ("i1", "i64") => "zext",
-        ("i1", "double") => "uitofp",
-        ("i64", "i1") => "trunc",
+    let source_int = integer_width(&value.ty);
+    let source_float = float_width(&value.ty);
+    let target_int = integer_width(target);
+    let target_float = float_width(target);
+    let op = match (source_int, source_float, target_int, target_float) {
+        (Some(from_bits), _, Some(to_bits), _) if from_bits > to_bits => "trunc",
+        (Some(_), _, Some(_), _) => {
+            if is_signed_integer(&value.ty) {
+                "sext"
+            } else {
+                "zext"
+            }
+        }
+        (Some(_), _, _, Some(_)) => {
+            if is_signed_integer(&value.ty) {
+                "sitofp"
+            } else {
+                "uitofp"
+            }
+        }
+        (_, Some(_), Some(_), _) => {
+            if is_signed_integer(target) {
+                "fptosi"
+            } else {
+                "fptoui"
+            }
+        }
+        (_, Some(from_bits), _, Some(to_bits)) if from_bits < to_bits => "fpext",
+        (_, Some(_), _, Some(_)) => "fptrunc",
         _ => {
-            ctx.push(format!(
-                "; TODO(Task 12): cast {from} to {to} (unsupported at M0-M2)"
-            ));
+            // The checker only admits numeric-to-numeric casts, so this is
+            // unreachable for a checked program. A comment and the original
+            // value keep a malformed HIR from becoming an invalid module.
+            ctx.push(format!("; unsupported cast {from} to {to}"));
             return value;
         }
     };

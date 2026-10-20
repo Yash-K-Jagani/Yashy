@@ -1,0 +1,21 @@
+// The C boundary, exercised end to end: a line of output through `puts`, a
+// length through `strlen` (whose `usize` result needs an explicit cast), and a
+// heap block through `malloc`/`free` (whose `usize` argument does too).
+//
+// `puts` copies the string argument, so the literal's storage is never handed
+// to C. `free` is an `unsafe` call because a pointer crosses unchanged.
+extern "C" link "m" {
+    unsafe fn puts(s: *const u8) -> i32;
+    unsafe fn strlen(s: *const u8) -> usize;
+    unsafe fn malloc(n: usize) -> *mut u8;
+    unsafe fn free(p: *mut u8) -> void;
+}
+
+fn main() {
+    puts("hello from C");
+    print_i64(strlen("hello") as i64);
+    print_str("\n");
+
+    const buffer = malloc(64 as usize);
+    unsafe free(buffer);
+}

@@ -123,3 +123,14 @@ fn a_raw_pointer_argument_requires_an_unsafe_call() {
     assert_rejected(&program("touch(p);"), "requires an `unsafe` call");
     check(&program("unsafe touch(p);")).expect("an unsafe call may lend the pointer");
 }
+
+#[test]
+fn a_wrong_signature_is_caught_by_otter_not_c() {
+    // C would hand `i32` to a variadic printf and print garbage; Otter's
+    // checker refuses the mismatch at the call site, before anything is linked.
+    assert_rejected(
+        r#"extern "C" { unsafe fn strlen(s: *const u8) -> i32; }
+           fn main() { print_i64(strlen("hi")); }"#,
+        "i32",
+    );
+}

@@ -517,7 +517,8 @@ impl<'src> Checker<'src> {
 
     /// Resolve a type expression, optionally allowing the C spellings.
     ///
-    /// `allow_c` is true only inside an `extern` declaration. It changes two
+    /// `allow_c` is true inside an `extern` declaration and in an `as` target,
+    /// where the user is naming a C type for an explicit conversion. It changes two
     /// things: the FFI-only names (`i32`, `usize`, `void`, ...) resolve instead
     /// of being rejected, and `*T` / `*mut T` / `*const T` all resolve to
     /// [`TypeKind::CPtr`] instead of an owning Otter pointer.
@@ -1974,7 +1975,11 @@ impl<'src> Checker<'src> {
             }
             Expr::Cast { expr, ty, span } => {
                 let inner = self.check_expr(expr)?;
-                let target = self.resolve_type(ty).ok()?;
+                // A cast target may name a C type: `malloc` takes a `usize`,
+                // and the only way an Otter program can produce one is to say
+                // so. This is also the one place a C spelling is legal outside
+                // an `extern` block, because the conversion is explicit.
+                let target = self.resolve_or_report_in(ty, *span, true, false);
                 let source = expr_ty(&inner);
                 if !is_numeric(&source) || !is_numeric(&target) || source.eq_ignoring_span(&target)
                 {
@@ -2699,9 +2704,23 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
     }
 }
 
-/// True for the numeric primitives: `i64` and `f64`.
+/// True for the numeric primitives: `i64` and `f64`, plus the C numeric kinds.
+///
+/// The C kinds are numeric only in an `as` target and in values that came back
+/// from an `extern` call, which is exactly where they are useful: `malloc`
+/// wants a `usize`, `strlen` returns one, and narrowing to `u8` is how a
+/// program reaches a `char` parameter. Equality still governs arithmetic, so a
+/// `i32` and an `i64` need an explicit cast rather than silently widening.
 fn is_numeric(ty: &Type) -> bool {
-    matches!(ty.kind, TypeKind::I64 | TypeKind::F64)
+    matches!(
+        ty.kind,
+        TypeKind::I64
+            | TypeKind::F64
+            | TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+    )
 }
 
 /// Compute the result type of a binary operator, reporting a message when
