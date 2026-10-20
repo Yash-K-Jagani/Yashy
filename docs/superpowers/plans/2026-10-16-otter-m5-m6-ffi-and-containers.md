@@ -97,7 +97,9 @@ and each is pinned by a test rather than left to prose:
   accepts them anywhere so a diagnostic can point at the type; `resolve_type`
   rejects FFI-only names and pointers with a message naming `extern`, while
   `resolve_type_in(.., allow_c = true)` is the path Task 2's `extern` checker
-  uses. `void` as a *parameter* is therefore also rejected today as "C type
+  uses. Task 5 added one more legal position: an `as` target, because that is
+  the only way ordinary code can produce the `usize` that `malloc` takes.
+  `void` as a *parameter* is therefore also rejected today as "C type
   outside extern"; the return-only rule is enforced where declarations are
   checked (Task 2), because that is the first point at which a `void` return
   is legal at all.
@@ -340,36 +342,46 @@ link failure, and CI has no such policy.
 **Files:**
 - Create: `crates/otter-driver/tests/programs/libc.ot`
 - Modify: `crates/otter-driver/tests/e2e.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs` (`is_numeric`, cast targets)
+- Modify: `crates/otter-codegen/src/expr_gen.rs` (`gen_cast`)
+- Create: `crates/otter-codegen/tests/c_casts.rs`
 
 **Interfaces:**
 - Consumes: Tasks 1–4
-- Produces: an end-to-end program calling `puts`, `strlen`, and `malloc`/`free` through `extern`
+- Produces: an end-to-end program calling `puts`, `strlen`, and `malloc`/`free` through `extern`; an `as` that converts between every C numeric width
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-```rust
-#[test]
-fn libc_is_reachable_from_otter() {
-    // Prints a line via puts and prints the length strlen returns.
-}
+`libc.ot` prints a line through `puts`, prints `strlen("hello")` after an
+explicit `as i64`, and allocates/frees a block through `malloc(64 as usize)`.
+The wrong-signature case is a sema test, not an e2e one: the point is that the
+program never reaches the linker, so there is nothing to execute.
 
-#[test]
-fn a_wrong_signature_against_a_real_c_function_is_a_type_error() {
-    // Declaring strlen as returning i32 and printing it still links; the point
-    // is that Otter's checker, not C's, catches the mismatch.
-}
-```
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 3: Write the program and run it** → PASS.
 
-- [ ] **Step 3: Write the program and run it** → PASS.
+The gap Task 2 recorded closes here: `is_numeric` now accepts every C numeric
+kind, and an `as` target is the one place outside `extern` where a C spelling
+is legal. `gen_cast` was a five-entry table of exact `repr` string pairs; it is
+now a width/signedness matrix covering `trunc`, `sext`/`zext`,
+`sitofp`/`uitofp`, `fptosi`/`fptoui`, and `fpext`/`fptrunc`. `i64` and `usize`
+share a representation, so that cast is type-level only.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "test: end-to-end libc interop"
 ```
+
+**As built:** the program was verified on this host — it built, ran, and printed
+`hello from C\n5\n`, which covers the Task 3 string copy, Task 4 `link "m"` on a
+platform where it is redundant, and both cast directions. Cast IR is pinned
+separately in `crates/otter-codegen/tests/c_casts.rs` (2 tests, signed and
+unsigned widening, narrowing, int↔float). The sema suite grew by two: the
+wrong-signature rejection (asserting the `i32` mismatch is named) and the
+`as`-target legality/`*mut`-target rejection in `tests/c_types.rs`.
 
 ---
 
