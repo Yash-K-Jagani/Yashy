@@ -8,19 +8,22 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M2 are complete, and M3 is in progress.** Otter lexes,
-parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
-`struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
-`if`/`while`/`for`/`switch`, `defer`, and `?` propagation. A program can read its input
-(`read_line`, `parse_i64`), put a value inside a string — including with
-interpolation, `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`),
-and stop itself with `panic("...")`, which reports the position it was written at
-and exits with a failure status. The assertions — `assert(cond)`,
-`assert_eq(a, b)`, `assert_ne(a, b)` — are the same fault path with a test in
-front of it, and they quote the expression that failed back in the message;
-`debug_assert` is the one `--release` compiles away. A program can choose its
-exit status by returning `i64` from `main`, or by calling `os.exit(code)` from
-anywhere.
+**Status: milestones M0–M4 are complete.** Otter lexes, parses, type-checks and
+compiles programs with `i64`, `f64`, `bool`, `string`, `struct` (with field
+access), `enum`, `Option<T>`, `Result<T, E>`, `if`/`while`/`for`/`switch`,
+`defer`, and `?` propagation. A program can read its input (`read_line`,
+`parse_i64`), put a value inside a string — including with interpolation,
+`"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
+pointer indexing), and stop itself with `panic("...")`, which reports the
+position it was written at and exits with a failure status. Integer arithmetic
+is checked, with `wrapping_*`/`checked_*`/`saturating_*` as the named opt-outs.
+The assertions — `assert(cond)`, `assert_eq(a, b)`, `assert_ne(a, b)` — are the
+same fault path with a test in front of it, and they quote the expression that
+failed back in the message; `debug_assert` is the one `--release` compiles away.
+A program can choose its exit status by returning `i64` from `main`, or by
+calling `os.exit(code)` from anywhere. Faults and `defer` cleanup run for the
+panicking function's scopes; full stack unwinding is the one M4 item the host
+toolchain blocks (see [Roadmap](#roadmap)).
 C interop, collections, concurrency and the
 standard library are later milestones; see [Roadmap](#roadmap).
 
@@ -125,16 +128,53 @@ fn main() {
 //     dealloc(buf);
 //     dealloc(buf);   // error: value `buf` has already been moved
 //
-// Reading a pointer's elements needs indexing, which arrives with slices in M6;
-// until then a pointer can be allocated, moved, and freed.
+// Reading and writing a pointer's elements is `p[i]`, and `alloc(n)` counts
+// elements rather than bytes. `defer` releases the block on every exit from the
+// scope, including a panic in this same function.
 fn main() {
-    var buf = alloc(16);
+    var buf = alloc(4);
     defer {
         dealloc(buf);
     }
-    print_str("memory ok\n");
+    for i in 0..4 {
+        buf[i] = i * 2;
+    }
+    print_i64(buf[0] + buf[3]);   // 6
+    print_str("\n");
 }
 ```
+
+```otter
+// An arena is many allocations with one release. `arena_alloc` is the one
+// builtin that borrows a linear handle instead of consuming it, so the same
+// arena serves every block; `arena_free_all` consumes it, which is why a second
+// free is a type error rather than a double free.
+fn main() {
+    var arena = arena_new();
+
+    var first = arena_alloc(arena, 4);
+    var second = arena_alloc(arena, 4);
+    first[0] = 20;
+    second[0] = 22;
+
+    print_i64(first[0] + second[0]);
+    print_str("\n");
+    arena_free_all(arena);
+}
+```
+
+Set `OTTER_LEAK_REPORT=1` to have the runtime print the allocations still live
+when the process exits:
+
+```console
+$ OTTER_LEAK_REPORT=1 ./buffer
+1047552
+otter: leak report: 0 live allocations
+```
+
+Arena blocks are deliberately not counted: an arena is one allocation with one
+release, so counting its bump blocks individually would report a leak for
+correct code. The manual buffer and the string builder above both report zero.
 
 ```otter
 // Strings are values: `+` concatenates, `len` counts bytes, and `==`/`!=`
@@ -468,7 +508,7 @@ The workspace is one crate per pipeline stage:
 | `otter-sema` | name resolution, type inference, exhaustiveness checking |
 | `otter-codegen` | typed AST to textual LLVM IR |
 | `otter-driver` | CLI, pipeline orchestration, toolchain detection |
-| `otter-runtime` | the C shim: print helpers, and later allocation and threads |
+| `otter-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, fault diagnostics, and later threads |
 
 The compiler never panics on malformed input; that is an acceptance criterion,
 not an aspiration, and it has its own test suite
@@ -487,8 +527,8 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 🚧 | Heap, strings and input in progress: `alloc`/`dealloc`, `move`, linear ownership, `defer`, `+` / `len` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_i64` / `str_from_f64` / `str_from_bool`, and string interpolation (`"n = ${n}"`). A `string` is now a length-prefixed refcounted value (`%otter_str`, `{ refcount, len, cap, data }`): a literal is a static string with refcount -1, and everything built — concatenation, a conversion, a line of input — comes back owned. Both halves of the release are in: a temporary is dropped the moment an operation has consumed it, and a string a binding holds is kept with `otter_str_retain` and dropped at the end of the scope that owns it — after that scope's `defer`s have run. Still to come: a string a *user call returns*, one stored in a struct field, or one dropped across a `break` out of a nested block is leaked rather than released; M4 adds `defer` on the unwind path |
-| M4 🚧 | Faults: `panic("...")` is in — it reports `file:line:col` and exits with a failure status, and `!` (the type of an expression that produces no value) lets it stand in for a `return` or a `switch` arm. Integer arithmetic is checked too: overflow, division by zero and `i64::MIN / -1` report both operands and the position instead of wrapping, with `wrapping_*`, `checked_*` and `saturating_*` as the named opt-outs. The assertions are in: `assert(cond)`, `assert_eq(a, b)` and `assert_ne(a, b)` quote the expression that failed and, for the comparison forms, both values; `debug_assert` is the one `--release` compiles out. Exit codes are in: `main` returning `i64` is the process status (the `i32` the specification names is Otter's `i64`, truncated to the C `int`), and `os.exit(code)` ends the program with a chosen status from anywhere. `defer` now runs on the panic path for the panicking function's scopes (innermost first), before the process ends. Still to come: full stack unwinding (callers' defers and stack traces), which needs landing pads and `invoke` |
+| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and `+` / `len` / `byte_at` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%otter_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
+| M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `i64::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `i64`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
 | M5 | `extern` C FFI and the runtime, on Windows and Linux |
 | M6 | Slices, maps, modules, multi-file builds |
 | M7 | Threads, channels, mutexes |

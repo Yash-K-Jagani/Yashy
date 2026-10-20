@@ -242,7 +242,7 @@ git commit -m "feat(codegen): allocation, deallocation, and move lowering"
 - Consumes: `memory.rs` from Task 3, ledger L1 arena symbols
 - Produces: `pub fn gen_arena_new`, `gen_arena_alloc`, `gen_arena_free_all` mirroring the alloc trio, plus `Arena` as a pointer type in `otter-sema`'s builtin table with methods `alloc(i64) -> *mut u8` and `free()`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -257,22 +257,42 @@ fn arena_free_all_is_not_called_automatically() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Arena values are ordinary pointer-typed bindings. `arena.free()` calls `otter_arena_free_all` once; the sema marks the arena binding as moved afterwards so a second `free` is an error rather than a double free.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Golden file** — generate, read, confirm one `arena_new` per `Arena.new()`.
+- [x] **Step 5: Golden file** — generate, read, confirm one `arena_new` per `Arena.new()`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/otter-codegen/
 git commit -m "feat(codegen): arena allocation"
 ```
+
+**As built.** Three spellings moved, and one behaviour is worth stating:
+
+- `Arena.new()`, `arena.alloc(n)` and `arena.free()` became `arena_new()`,
+  `arena_alloc(arena, n)` and `arena_free_all(arena)`. Otter has no method-call
+  syntax at this milestone (that is M6's module/method work), so a method table
+  would have been an interface no program could reach. The names are free
+  functions in the builtin table, exactly like `alloc`/`dealloc`.
+- `*mut u8` became `*mut i64`, for the same reason as `alloc`: no byte type and
+  no pointer cast yet, so a byte pointer would be unusable.
+- `arena_alloc` is the one builtin whose first parameter does **not** consume a
+  linear argument: an arena is reused for many allocations. `arena_free_all`
+  does consume it, so a second free is the checker's "already been moved"
+  diagnostic rather than a double free at run time
+  (`freeing_an_arena_twice_is_a_type_error`).
+- Tests: five in `crates/otter-codegen/tests/arena.rs` plus
+  `tests/golden/arena.ot`/`arena.expected.ll` (one `arena_new`, two
+  `arena_alloc` with the element-count multiply, one `arena_free_all`), the
+  runtime's three allocator tests in `crates/otter-runtime/tests/memory.rs`, and
+  the end-to-end `arena.ot` whose `47` proves the two blocks coexist.
 
 ---
 
@@ -659,19 +679,19 @@ Not here: interpolation itself (Task 7, now delivered).
   - `typedef struct otter_str { int refcount; int64_t len; char* data; } otter_str;` in the header, matching ledger L2's `{ i32, i64, i8* }`
   - `i64 otter_str_count(otter_str*)` — test-only introspection so a refcount-balance test can assert exact counts rather than guessing
 
-- [ ] **Step 1: Write the failing C tests**
+- [x] **Step 1: Write the failing C tests**
 
 `strings.c`: create from bytes, assert `len` and contents; retain twice then release twice and assert `otter_str_count` returns 1 in between; release to zero and assert the allocation was actually freed (via a malloc interposer or by running under a leak check); concat two strings and assert contents; `otter_str_from_i64(-42)` yields `"-42"`; `otter_str_from_bool(1)` yields `"true"`.
 
-- [ ] **Step 2: Run to verify they fail** → FAIL — symbols missing.
+- [x] **Step 2: Run to verify they fail** → FAIL — symbols missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `otter_str_new` copies the bytes and sets `refcount = 1`. `otter_str_release` decrements and frees when it reaches zero; it must tolerate a null pointer. `otter_str_concat` allocates a fresh string, so the result is a new owner and the operands are untouched. The three `from_*` converters format into a bounded stack buffer then allocate.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-runtime/
@@ -825,7 +845,7 @@ wherever that cannot be proved.
   - `pub fn gen_str_release(ctx: &mut FnCtx, str_value: &str) -> ()`
   - `Module::finish` emits `%otter_str = type { i32, i64, i8* }` — **the layout change from ledger L2, made exactly here**
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -860,28 +880,64 @@ fn the_otter_str_layout_changed_exactly_once() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement sema method dispatch**
+- [x] **Step 3: Implement sema method dispatch**
 
 Add the methods table to the root scope. `len`, `byte_at`, `concat`, `to_i64` are ordinary pure methods; `retain` and `release` are builtin verbs. A `string` binding is a *copy* type at the language level but every assignment emits a retain and every scope exit a release — this is the compiler's job, and the linearity checker deliberately does **not** apply to strings (ledger L5 lists only `Ptr` and, later, `Slice`).
 
-- [ ] **Step 4: Implement codegen**
+- [x] **Step 4: Implement codegen**
 
 Change the `%otter_str` type. Emit a retain after every assignment or argument copy and a release at every scope exit, in reverse declaration order. Interprocedurally, a function returning a `string` transfers ownership to the caller and must not release it.
 
-- [ ] **Step 5: Regenerate `ops.expected.ll` and read it**
+- [x] **Step 5: Regenerate `ops.expected.ll` and read it**
 
 The M0–M2 `ops.ot` golden file now compiles differently because the `Str` layout changed. Regenerate, then **read the whole diff** and confirm the only changes are the layout line and the new global. Ledger L4 says this is a milestone boundary — the diff must look exactly like that.
 
-- [ ] **Step 6: Add and read `strings.expected.ll`**
+- [x] **Step 6: Add and read `strings.expected.ll`**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/otter-sema/ crates/otter-codegen/
 git commit -m "feat: refcounted strings, retype %otter_str, retain/release balancing"
 ```
+
+**As built.** The operations shipped; the *method table* did not, and the
+substitution is deliberate:
+
+- There is no method-call syntax at this milestone, so `s.len()`, `s.byte_at(i)`,
+  `s.to_i64()`, `s.retain()` and `s.release()` are not spellable and a
+  `StringMethods` table would have been unreachable. The same operations are free
+  functions, like every other builtin in L3:
+  - `len(s)` — a runtime call, `i64` (`gen_str_len`).
+  - `byte_at(s, i)` — a runtime call, `i64`, `0` out of range (`gen_str_byte_at`).
+    Added after the fact: `otter_str_byte_at` was declared in every module and
+    called by nothing, so L1 had a symbol with no language surface. This is the
+    one operation the method spelling did not have an equivalent for.
+  - `s1 + s2` — concatenation; `s1 == s2` / `!=` — byte equality (`strings.rs`).
+  - `parse_i64(s)` / `parse_f64(s)` instead of `to_i64()`; the runtime parsers
+    fold "not a number" and overflow to `0`, so there is no `Option` to match on
+    yet. Checked parsing is a later milestone's shape, not a missing case here.
+  - `retain`/`release` are **not** language builtins on purpose. The compiler
+    balances references where it can prove the consumer does not keep the value
+    (Task 5's temporary and scope-exit halves); a user-callable `release` would
+    hand every program a use-after-free and buy nothing the compiler does not
+    already do.
+- `gen_string_literal` is not a thing: a literal is a static `%otter_str` global
+  with refcount `-1` (`module.rs`), not an `otter_str_new` call. That is Task 5's
+  representation and it is what makes retain/release uniform.
+- `%otter_str` is `{ i64, i64, i64, i8* }`, not the sketch's `{ i32, i64, i8* }`
+  — one width for every count and a `cap` for M6's slicing (ledger L2's M3
+  revision).
+- Tests: twelve in `crates/otter-codegen/tests/string_ops.rs` (one per operator,
+  ownership of temporaries, `byte_at`), the layout/ops golden,
+  `crates/otter-runtime/tests/strings.rs` for every runtime entry point, the
+  interpolation tests (Task 7), and the end-to-end `strings.ot`,
+  `builder.ot`/`buffer.ot` (Task 8) and `byte_at` programs. There is no
+  `strings.expected.ll`: the per-operator contract is asserted directly in
+  `string_ops.rs`, and the whole-module golden that pins the layout is
+  `ops.expected.ll`.
 
 ---
 
@@ -979,24 +1035,52 @@ git commit -m "feat: string interpolation"
 - Consumes: everything above plus the M0–M2 driver
 - Produces: two end-to-end programs and a leak-detection harness
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `buffer.ot` fills a manual `*mut i64` of 1024 elements in a loop and sums it, releasing with `defer`. `builder.ot` builds a string 100 times in a loop by concatenation into a fresh string each time. Both print their result.
 
 `tests/leaks.rs` runs each program under a leak check: on Linux via `valgrind --leak-check=full --error-exitcode=9`, on Windows via the CRT debug allocator in a debug build. The test asserts exit code 0 and no leak report. **Skip with a printed notice, not a silent pass, if no checker is installed.**
 
-- [ ] **Step 2: Run to verify they fail** → FAIL — programs do not compile yet.
+- [x] **Step 2: Run to verify they fail** → FAIL — programs do not compile yet.
 
-- [ ] **Step 3: Write the programs and run them**
+- [x] **Step 3: Write the programs and run them**
 
 Run: `cargo test -p otter-driver` → PASS, with both programs printing their expected values.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "test: end-to-end memory programs with leak detection"
 ```
+
+**As built.** The leak checker is in the runtime, not an external tool. Neither
+`valgrind` nor a debug CRT is available on this host, and both would have to be
+installed by every contributor; instead `runtime.c` keeps a live-allocation
+counter and, when `OTTER_LEAK_REPORT=1` is set, an `atexit` handler prints
+
+```
+otter: leak report: N live allocations
+```
+
+to `stderr`. The count covers manual `alloc`/`dealloc` and every refcounted
+string (`otter_str_new`/`otter_str_release`); **arena blocks are deliberately
+uncounted**, because an arena is one allocation with one `arena_free_all` and
+counting its bump blocks individually would report a leak for correct code.
+`leaks.rs` runs each program with the variable set and requires the exact
+`0 live allocations`, so a skip is impossible: the report always runs. A
+`defer` that frees the buffer and the scope-exit release of every built string
+are what bring it to zero.
+
+The programs are `buffer.ot` (1024 elements written and read through `p[i]`,
+printing `1047552`) and `builder.ot` (a rebound string accumulator, printing
+`100` and `7`). `e2e.rs` pins the values; `leaks.rs` pins the ownership. Both
+are also the programs that exposed the compiler-panic defect fixed alongside
+this task: a `defer` after checked arithmetic used to pop every registered
+scope. The regression tests are
+`a_defer_after_checked_arithmetic_still_registers_and_runs` and
+`a_fault_inside_a_deferred_body_does_not_re_enter_the_fault_lowering` in
+`crates/otter-codegen/tests/memory.rs`.
 
 ---
 
@@ -1146,6 +1230,45 @@ git commit -m "feat(codegen): panic with source location"
 > `Vec<Vec<Deferred>>`, one level per active scope) instead of being threaded
 > through `gen_block`/`gen_stmt` by hand, which is what made running it from the
 > fault block possible at all.
+>
+> **As built (second half): not delivered, and blocked by the toolchain.** The
+> remaining half was attempted and cannot land on the supported build hosts
+> without adding a dependency the master plan forbids. A cleanup landing pad is
+> Itanium ABI: the module must declare a personality routine
+> (`__gxx_personality_v0`), every potentially-panicking call becomes an
+> `invoke`, and the unwinder that drives the two phases must exist at link time.
+> On this host `clang` targets `x86_64-pc-windows-gnu` — the Rust host triple
+> here is also `x86_64-pc-windows-gnu` — and the link fails with
+> `ld.lld: error: undefined symbol: __gxx_personality_v0`. The symbol lives in
+> `libstdc++`/`libunwind`, neither of which the project ships or assumes, and a
+> personality routine is not something the C shim can stub: it *is* the
+> two-phase unwinder.
+>
+> Shipping or vendoring libunwind would make a C++ runtime a mandatory build
+> dependency on every platform, which is precisely the class of requirement the
+> master plan rules out ("no LLVM build dependency", "assume no MSVC", a
+> contributor can `cargo build` with no extra toolchain). Faking the golden file
+> would pin IR that cannot link.
+>
+> What that leaves, stated plainly:
+> - **Delivered:** `defer` bodies in the **panicking function**'s open scopes run,
+>   innermost scope first and reverse registration order within a scope, before
+>   the diagnostic (`cleanup.ot`, `every_pending_defer_runs_before_a_panic_message_is_printed`).
+>   Every fault and every `exit` leaves through `exit(1)`, so an Otter program
+>   cannot segfault on a division by zero or an overflow at any depth
+>   (`deeprecurse.ot`).
+> - **Not delivered:** a `defer` in a **calling** function does not run when a
+>   callee panics, and there is no stack trace. This is the M3-M4 interim
+>   recorded in ledger L4, not a silent gap.
+> - **Definition of Done:** "deep recursion panics with a caret diagnostic and
+>   every pending `defer` runs on the way out" holds for the panicking function's
+>   scopes; "integer overflow panics" holds. The remaining cross-frame cleanup is
+>   the seam this task owns, and it reopens the moment a host unwinder is part of
+>   the supported toolchain.
+>
+> Steps 1-7 below stay unchecked on purpose: they describe the landing-pad
+> design, which is not in the tree. Ticking them would claim the golden
+> `unwind.expected.ll` exists.
 
 **Files:**
 - Create: `crates/otter-codegen/src/unwind.rs`
@@ -1297,7 +1420,7 @@ git commit -m "feat(codegen): unwind landing pads and defer cleanup on unwind"
 - Consumes: `gen_panic_block` from Task 9; ledger L3 M4 builtins; ledger L4's arithmetic row
 - Produces: `pub fn gen_checked_binary(ctx: &mut FnCtx, op: BinOp, lhs: &GenValue, rhs: &GenValue, span: Span) -> String` and `pub fn gen_wrapping_binary(...)`, `gen_saturating_binary(...)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -1335,24 +1458,38 @@ fn comparison_and_logical_operators_are_unchanged() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL — `sdiv` is still bare.
+- [x] **Step 2: Run to verify they fail** → FAIL — `sdiv` is still bare.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Emit the operation into a temp, then `icmp` the temp against the operand to detect wraparound, then `br i1` to the panic block. `Div` checks the divisor for zero first. `checked_*` returns a real `Option` rather than a branch. Modulo follows the same rule as division.
 
-- [ ] **Step 4: Regenerate and read `ops.expected.ll`**
+- [x] **Step 4: Regenerate and read `ops.expected.ll`**
 
 This is the ledger L4 arithmetic replacement. The diff must be exactly the added checks; if the bare `add` opcodes changed shape, something else moved.
 
-- [ ] **Step 5: Run to verify they pass** → PASS.
+- [x] **Step 5: Run to verify they pass** → PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping contract"
 ```
+
+**As built (files and tests).** No `crates/otter-sema/src/builtins.rs` was
+created: the builtin table lives in `check_expr.rs` and every entry in it is a
+name plus arity plus types, so a second file would only have been a second place
+to look. `tests/golden/checked.ot` and `checked.expected.ll` exist and are
+reviewed. The tests named in the sketch are in `crates/otter-codegen/tests/
+expr_gen.rs` (`integer_addition_is_checked_before_it_adds`,
+`the_division_itself_is_emitted_behind_the_check`,
+`wrapping_arithmetic_is_the_bare_operation_and_nothing_else`,
+`checked_arithmetic_answers_with_an_option_instead_of_a_branch`,
+`saturating_*`, `negating_an_integer_checks_for_the_smallest_one`), and the
+end-to-end opt-out behaviour is in `crates/otter-driver/tests/e2e.rs`
+(`the_arithmetic_opt_outs_do_what_their_names_say`,
+`integer_overflow_does_not_wrap`).
 
 ---
 
@@ -1418,7 +1555,7 @@ git commit -m "feat: checked integer arithmetic replacing the M0-M2 wrapping con
 > operand with a side effect runs exactly once, passing *and* failing, and that
 > a release build drops a `debug_assert` while keeping an `assert`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -1444,15 +1581,15 @@ fn main_returning_i32_sets_the_process_exit_status() {}
 fn os_exit_is_never_returning() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `assert` carries the original expression source text, recovered from the span against the source map, so the runtime message reads `assertion failed: x > 0`. `main` becomes a real `i32`-returning C `main` that calls the user's body and returns its value, or `0`.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
@@ -1471,7 +1608,7 @@ git commit -m "feat: assert, debug_assert, exit codes"
 - Consumes: everything above
 - Produces: four fault programs with asserted stderr and exit codes
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -1501,18 +1638,56 @@ fn a_fault_deep_in_a_recursion_unwinds_the_whole_stack() {
 fn a_successful_program_still_exits_zero_and_leaks_nothing() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL — programs abort instead of unwinding.
+- [x] **Step 2: Run to verify they fail** → FAIL — programs abort instead of unwinding.
 
-- [ ] **Step 3: Write the programs and run them**
+- [x] **Step 3: Write the programs and run them**
 
 Run: `cargo test -p otter-driver` → PASS. Then run each compiled binary by hand and **read the actual stderr** — a passing assertion on a substring can still hide a garbled caret.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "test: end-to-end fault, unwind, and cleanup programs"
 ```
+
+**As built.** Four programs, seven tests (the arithmetic faults were already
+covered inline, so the new tests add the program-shaped cases), and three
+deviations from the sketch:
+
+- **The diagnostic has no caret.** The runtime is handed a path, a line and a
+  column — not the source text — so it cannot underline one. It prints
+  `<file>:<line>:<column>: panic: <message>`, e.g.
+  `divzero.ot:11:12: panic: division by zero: 10 / 0`. Compile-time diagnostics
+  still render a caret; a run-time fault names the same position in the form an
+  editor or a test can consume. The plan's "error:" wording predates Task 9's
+  format.
+- **`deeprecurse.ot` does not unwind the whole stack**, because Task 10's
+  second half is blocked (see there). The test is therefore
+  `a_fault_deep_in_a_recursion_still_exits_through_the_diagnostic_path`: it pins
+  status 1 and the message at 5000 frames, not cross-frame cleanup. A stack
+  overflow would show as a signal or `0xC00000FD`, which the status assertion
+  excludes.
+- **`a_successful_program_still_exits_zero_and_leaks_nothing`** is not a fifth
+  test: its value half is the `buffer`/`builder` e2e pair and its ownership half
+  is `crates/otter-driver/tests/leaks.rs`, both from Task 8.
+
+What each program proves, with the exact assertion:
+
+| Program | stdout | stderr contains | status |
+|---|---|---|---|
+| `divzero.ot` | `5\n` | `divzero.ot:11:12: panic: division by zero: 10 / 0` | 1 |
+| `overflow.ot` | `9223372036854775807\n` | `overflow.ot:11:15: panic: integer overflow: 9223372036854775807 + 1` | 1 |
+| `cleanup.ot` | `inner\nmiddle 2\nmiddle 1\nouter\n` | `cleanup.ot:30:13: panic: cleanup` | 1 |
+| `deeprecurse.ot` | (empty) | `deeprecurse.ot:10:9: panic: bottom reached` | 1 |
+
+`cleanup.ot`'s four defers span three nesting levels but all live in `main`, the
+panicking function — which is exactly the scope of the implemented unwind path.
+Cross-stream ordering is not asserted: the handlers write to `stdout` and the
+panic to `stderr`, and a captured `Output` has no interleaving.
+
+The overflow program prints `i64::MAX` before adding one and asserts that
+`i64::MIN` never appears on stdout, so a wrap cannot pass as an answer.
 
 ---
 
@@ -1524,3 +1699,34 @@ git commit -m "test: end-to-end fault, unwind, and cleanup programs"
 - `ops.expected.ll`'s M0–M2 diff has been reviewed as a whole and contains only the `%otter_str` layout change and the added arithmetic checks.
 - The M0–M2 end-to-end programs still compile and produce identical output.
 - `cargo test --workspace` passes with no warnings; 120 seconds of fuzzing per target finds no panic.
+
+**Status at completion (as built).** Every bullet is met in the form the
+remaining tasks were able to build; the differences are recorded rather than
+rounded up:
+
+- **Leaks.** There is no external checker to install: the runtime counts live
+  allocations and prints `otter: leak report: N live allocations` at exit when
+  `OTTER_LEAK_REPORT=1`. `buffer.ot` and `builder.ot` both report `0 live
+  allocations` (Task 8).
+- **Faults.** Each of the four programs exits 1 through the runtime, never a
+  signal, and prints `<program>.ot:<line>:<column>: panic: <message>`; the caret
+  is compile-time only (Task 13). `defer`s registered in the **panicking
+  function**'s open scopes run first, innermost and reverse registration; defers
+  in *calling* functions do not, because full unwinding is blocked by the
+  toolchain (Task 10's second note). `deeprecurse.ot` reaches 5000 frames and
+  still exits through the diagnostic path.
+- **Ledgers.** L1–L5 were reconciled in the master plan: the `%otter_str`
+  layout and `otter_panic` signature as implemented, `byte_at` as a free
+  function, the arena spelling (`arena_new`/`arena_alloc`/`arena_free_all`),
+  and the leak report as a runtime facility that generated code never calls.
+- **Goldens.** `ops.expected.ll`'s M0–M2 diff is the layout change; the
+  arithmetic checks are pinned by `checked.expected.ll` and the fault programs.
+  `arena.expected.ll` was added with Task 4 and read.
+- **M0–M2 programs.** The full workspace suite compiles and runs them; no output
+  changed.
+- **Workspace.** `cargo check --workspace --all-targets` is warning-free and
+  `cargo test --workspace --no-fail-fast` passes. `clippy` is blocked by this
+  host's Application Control policy, and `cargo-fuzz`/nightly are not installed,
+  so the 120-second fuzz run is **not** claimed: the malformed-input suites
+  (`never_panics.rs` and the parser/checker fuzz-shaped tests) are what ran
+  here.

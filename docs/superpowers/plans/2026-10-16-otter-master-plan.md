@@ -174,11 +174,17 @@ is the last stage holding the `SourceMap`, and the alternative was growing
 `emit_program`'s signature (and every test that calls it) for one call — and they
 arrive as ordinary literal arguments.
 
-`otter_panic` does **not** unwind, and so does not run `defer` bodies yet: it
-writes one `stderr` line and exits with status 1. That is a stated limitation
-rather than a hidden one, and it is the seam the M3–M4 plan's Task 10 replaces
-with the throw that generated cleanup landing pads catch. No stack trace is
-printed for the same reason; it arrives with the unwinding machinery.
+`otter_panic` does **not** unwind: it writes one `stderr` line and exits with
+status 1. What runs before it is the **generated fault block**, which emits the
+panicking function's open scopes' `defer` bodies (innermost first, reverse
+registration order within a scope) and then calls `otter_panic`. `defer`s
+registered in *calling* functions do not run, and no stack trace is printed:
+both need the two-phase unwinder and cleanup landing pads. That half is
+**blocked by the supported toolchain**, not deferred by choice — a landing pad
+needs `__gxx_personality_v0`, which on the `x86_64-pc-windows-gnu` host is
+undefined at link and would require shipping libunwind/libstdc++ (see the
+M3–M4 plan's Task 10). The interim is stated rather than hidden, and it is the
+seam the unwinding work attaches to when a host unwinder is available.
 
 `otter_assert_failed` is not written, and as M4 Task 12 was built it is not
 needed: an assertion is a `panic` behind a test, so `assert`,
@@ -187,6 +193,18 @@ nothing new is declared.
 
 Checked arithmetic is **not** a runtime call. M4 emits the compare and the
 conditional branch to an inline panic block in generated code (see L4).
+
+**A leak report, for tests (not an ABI symbol):**
+
+`runtime.c` keeps a count of live `alloc`/string allocations and, when
+`OTTER_LEAK_REPORT=1` is set, prints `otter: leak report: N live allocations` to
+`stderr` from an `atexit` handler. The arming function is `static`
+(`otter_leak_arm`, called by the allocator and the string constructor), so it
+adds nothing to the generated-code ABI; a program cannot call it. Arena blocks
+are deliberately uncounted: an arena is one allocation with one
+`arena_free_all`, and counting its bump blocks would report a leak for correct
+code. The M3–M4 end-to-end memory tests read this report instead of requiring
+`valgrind` or a debug CRT on every contributor's machine.
 
 **M6 (containers):**
 
@@ -277,7 +295,7 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | Milestone | Builtins |
 |---|---|
 | M0–M2 | `print_str(string)`, `print_i64(i64)`, `print_f64(f64)` |
-| M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `Arena.new()`, `arena.alloc(i64) -> *mut i64`, `arena.free()`, `len(string)`, string constructors and accessors from L1 |
+| M3 | `alloc(i64) -> *mut i64`, `dealloc(*mut i64)`, `arena_new() -> *mut i64`, `arena_alloc(*mut i64, i64) -> *mut i64`, `arena_free_all(*mut i64)`, `len(string)`, `byte_at(string, i64) -> i64`, string constructors and accessors from L1 |
 | M3, as built ahead of the row above | `read_line() -> string`, `parse_i64(string) -> i64`, `parse_f64(string) -> f64`, `str_from_i64(i64) -> string`, `str_from_f64(f64) -> string`, `str_from_bool(bool) -> string` (L1's input and conversion notes) |
 | M4, as built ahead of the row below | `panic(string) -> !` (M3–M4 Task 9). `!` and not `()`: a panic produces no value, so it can stand in for a value of any type — a `return`, a `switch` arm — without letting a program use one. The call carries the file, line and column the checker resolved, and ends the process with status 1 |
 | M4, as built ahead of the row below | `assert(bool)`, `assert_eq`/`assert_ne` over the four types with an equality (M3-M4 Task 12, first half). One `assert_eq` name rather than one per type: the comparison forms are built in the checker, so the table's declared `i64` pair is never consulted and exists to reserve the name. `assert_ne` is the same lowering with the predicate inverted. `debug_assert(bool)` and the `--release` build mode that drops it: the checker deletes the call, so the condition is still checked but nothing is lowered. `exit(i64)` (the `!`-typed `os.exit`) ends the process with a chosen status, flushing both streams first. `main` returning `i64` is the exit status, truncated to the C `int` |
@@ -293,6 +311,21 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 > M6's `Slice`; nothing else moves, because `Ptr(_)` is `i8*` in the IR whatever
 > the pointee type is.
 
+> **L3 revision, M3 Task 4/6: the arena and `byte_at` spellings.** `Arena.new()`,
+> `arena.alloc(n)` and `arena.free()` became `arena_new()`, `arena_alloc(arena,
+> n)` and `arena_free_all(arena)`. Otter has no method-call syntax at this
+> milestone, so a method table would have named operations no program could
+> spell; the free functions are the same three calls with the handle explicit.
+> Cost: a program repeats the handle, and M6 may add the method forms as sugar
+> over these names without changing the runtime.
+>
+> `byte_at(string, i64) -> i64` is the language half of L1's
+> `otter_str_byte_at`: 0 out of range, so a byte lookup has one answer rather
+> than a fault. It is a free function for the same reason. `to_i64()` from the
+> M3–M4 plan's method sketch is `parse_i64(string) -> i64` here, which folds
+> failure to 0; a checked form that returns `Option` is a later milestone's
+> operation.
+
 ### L4 — Codegen contracts that later milestones replace
 
 These are the interim behaviours pinned by golden files. Each is deliberately
@@ -302,8 +335,8 @@ diff a reviewer can read rather than a silent behaviour shift.
 | Pinned in | Interim behaviour | Replaced by |
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | **Done in M4 Task 11 (first half).** `add`/`sub`/`mul` go through `llvm.s{add,sub,mul}.with.overflow.i64` — value and flag in one instruction — and `div`/`rem` test for a zero divisor *and* for `i64::MIN / -1` (where `srem` is undefined too) before emitting the operation in the fall-through block. A failing check branches to a cold block that calls `otter_panic_overflow`/`otter_panic_division` with the operator's symbol, both operands and the position the checker resolved into `FaultSite`. Negation is checked (`-i64::MIN` wraps to itself). The second half is in too: `wrapping_*` keeps the bare op, `checked_*` returns a real `Option[i64]` (a `select`, not a branch), and `saturating_*` clamps — `sadd.sat`/`ssub.sat` from LLVM, `smul.sat` by hand because LLVM does not implement it |
-| M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | M4: landing pad with `cleanup`, so defers also run on unwind |
-| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it, and a binding retains on bind and releases at the end of its scope (after that scope's `defer`s) | M3 Task 5's remaining interim: a string a user call returns, a struct-field string, and a string dropped across a `break` out of a nested block are leaked, not released; indexing a pointer in M6 |
+| M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | **M4, partially.** The panic/exit/fault block runs the **panicking function's** open scopes' defers (innermost first) before `otter_panic`, and a `return`/`break`/`continue` runs only the current scope's, as before. Cross-frame cleanup — a `defer` in a caller running when a callee panics — is **not** delivered: cleanup landing pads need `__gxx_personality_v0`, undefined at link on the `x86_64-pc-windows-gnu` host, so shipping them would add libunwind/libstdc++ as a mandatory dependency. See the M3–M4 plan's Task 10; there is no stack trace for the same reason |
+| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it, and a binding retains on bind and releases at the end of its scope (after that scope's `defer`s) | M3 Task 5's remaining interim: a string a user call returns, a struct-field string, and a string dropped across a `break` out of a nested block are leaked, not released. These are leaks, not corruptions; escape analysis (M9) may narrow them, and M6's slicing keeps the same owner rules |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity
@@ -404,8 +437,10 @@ owning task with a test. A reviewer of any phase should read this list first.
 
 1. **A `defer` that does not run when its scope exits early.** Every `return`,
    `break`, and `continue` inside a scope with a pending `defer` must run it.
-   M3 Task 3. After M4 this extends to panics, and that is the test M4 Task 3
-   exists for.
+   M3 Task 3. After M4 a panic runs the **panicking function's** open scopes'
+   defers, innermost first (M4 Task 10, first half). A `defer` in a *calling*
+   function still does not run on a panic — the unwinding half is blocked by the
+   host toolchain and is the standing exception (M3–M4 Task 10, second half).
 2. **A double free or use-after-free from a missed or duplicated `move`.**
    M3 Task 2's linearity checker must reject re-reading a moved binding, and M3
    Task 3's golden IR must show the move as a bitwise copy plus a register
@@ -430,7 +465,7 @@ owning task with a test. A reviewer of any phase should read this list first.
 | Phase | Proof it works |
 |---|---|
 | M0–M2 | `hello world`, Fibonacci, `Option` matching, `Result` propagation, and recursion each compile to native binaries with correct output |
-| M3–M4 | a string builder and a manual buffer run clean; deep recursion panics with a caret diagnostic and every pending `defer` runs on the way out; integer overflow panics |
+| M3–M4 | a string builder and a manual buffer run clean with the leak report at zero; deep recursion exits through a positioned fault diagnostic and the panicking function's pending `defer`s run first; integer overflow panics instead of wrapping |
 | M5–M6 | a C library is called from Otter; slices, maps, multi-file modules, and the `io`/`string`/`math` stdlib modules work |
 | M7–M8 | a parallel task pool produces correct results; a stranger can write and run a program using only the tutorial; `otter fmt` is idempotent |
 | M9–M10 | the benchmark suite shows fewer allocations than M3 with identical output; the Otter-written compiler passes the Rust compiler's own test suite |
