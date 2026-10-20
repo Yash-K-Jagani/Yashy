@@ -23,6 +23,7 @@ pub mod patterns;
 pub mod slices;
 pub mod stmt_gen;
 pub mod strings;
+pub mod threads;
 
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use ffi::gen_ffi_call;
@@ -110,6 +111,14 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
             // for a function it cannot see.
             HirItem::Extern(_) => {}
             HirItem::Struct(_) | HirItem::Enum(_) | HirItem::Import(_) => {}
+        }
+    }
+    // Synthetic entries are complete `define` blocks that lowering queued
+    // while the checked functions were still open; they can only be appended
+    // once every one of those has closed.
+    for function in module.take_synthesized_functions() {
+        for line in function {
+            module.push(line);
         }
     }
     module.finish()

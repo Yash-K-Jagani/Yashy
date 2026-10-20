@@ -32,6 +32,15 @@ pub struct Module {
     fp_contract: bool,
     /// The index the next `%tN` temporary will use.
     next_value: u32,
+    /// Functions the lowering synthesized, in creation order. They cannot be
+    /// appended to `lines` while the function that wanted them is still being
+    /// emitted, so they are queued here and flushed after every checked
+    /// function has closed.
+    synthesized: Vec<Vec<String>>,
+    /// The index the next `@otter_thread_entry_N` will use. One entry is
+    /// synthesized per `thread_spawn` site, so the argument struct's shape is
+    /// already known when the entry is written.
+    next_thread_entry: u32,
     /// C declarations by name, so a call can tell an extern callee from a user
     /// function and apply the boundary rules (spec §8.1).
     externs: HashMap<String, HirExternDecl>,
@@ -47,6 +56,8 @@ impl Module {
             source_filename: "main.ot".to_string(),
             fp_contract: false,
             next_value: 0,
+            synthesized: Vec::new(),
+            next_thread_entry: 0,
             externs: HashMap::new(),
         }
     }
@@ -177,6 +188,24 @@ impl Module {
         name
     }
 
+    /// The next thread-entry index, for `@otter_thread_entry_N`.
+    pub fn next_thread_entry(&mut self) -> u32 {
+        let index = self.next_thread_entry;
+        self.next_thread_entry += 1;
+        index
+    }
+
+    /// Queue a complete `define` block for emission after the checked
+    /// functions.
+    pub fn add_synthesized_function(&mut self, lines: Vec<String>) {
+        self.synthesized.push(lines);
+    }
+
+    /// Take every queued function, leaving the queue empty.
+    pub fn take_synthesized_functions(&mut self) -> Vec<Vec<String>> {
+        std::mem::take(&mut self.synthesized)
+    }
+
     /// Intern `bytes` and return the operand that names its **static**
     /// `otter_str` global: the global itself, since a `string` value is a
     /// pointer to the struct and `@.str.N` is already that pointer.
@@ -236,6 +265,21 @@ impl Module {
         out.push_str("declare i64 @otter_map_get(i8*, ptr, ptr)\n");
         out.push_str("declare i64 @otter_map_remove(i8*, ptr, ptr)\n");
         out.push_str("declare i64 @otter_map_len(i8*)\n");
+        // Threads, mutexes and channels (M7). The entry is a function pointer,
+        // so the spawn call hands the runtime its synthesized entry directly;
+        // the argument block is a byte copy whose size the caller computes from
+        // the struct's own layout.
+        out.push_str("declare i32 @otter_thread_spawn(i8*, i8*, i64)\n");
+        out.push_str("declare i32 @otter_thread_join(i32)\n");
+        out.push_str("declare i8* @otter_mutex_new()\n");
+        out.push_str("declare void @otter_mutex_lock(i8*)\n");
+        out.push_str("declare void @otter_mutex_unlock(i8*)\n");
+        out.push_str("declare void @otter_mutex_free(i8*)\n");
+        out.push_str("declare i8* @otter_chan_new(i64)\n");
+        out.push_str("declare i8 @otter_chan_send(i8*, i8*, i64)\n");
+        out.push_str("declare i8 @otter_chan_recv(i8*, i8*, i64)\n");
+        out.push_str("declare void @otter_chan_close(i8*)\n");
+        out.push_str("declare void @otter_chan_free(i8*)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.

@@ -734,6 +734,24 @@ fn gen_call(
         "map_remove" => crate::maps::gen_remove(ctx, args, ty),
         "map_len" => crate::maps::gen_len(ctx, args),
         "map_free" => crate::maps::gen_free(ctx, args),
+        // Threads, mutexes and channels (M7). `thread_spawn` is the only one
+        // that synthesizes a function; the rest are one runtime call each.
+        "thread_spawn" => {
+            let Some((body, rest)) = args.split_first() else {
+                return unit();
+            };
+            crate::threads::gen_thread_spawn(ctx, body, rest)
+        }
+        "thread_join" => crate::threads::gen_thread_join(ctx, args),
+        "mutex_new" => crate::threads::gen_mutex_new(ctx),
+        "mutex_lock" => crate::threads::gen_mutex_call(ctx, args, "otter_mutex_lock"),
+        "mutex_unlock" => crate::threads::gen_mutex_call(ctx, args, "otter_mutex_unlock"),
+        "mutex_free" => crate::threads::gen_mutex_call(ctx, args, "otter_mutex_free"),
+        "chan_new" => crate::threads::gen_chan_new(ctx, args, ty),
+        "chan_send" => crate::threads::gen_chan_send(ctx, args),
+        "chan_recv" => crate::threads::gen_chan_recv(ctx, args, ty),
+        "chan_close" => crate::threads::gen_chan_call(ctx, args, "otter_chan_close"),
+        "chan_free" => crate::threads::gen_chan_call(ctx, args, "otter_chan_free"),
         "arena_new" => crate::arena::gen_arena_new(ctx, args, ty),
         "arena_alloc" => crate::arena::gen_arena_alloc(ctx, args, ty),
         "arena_free_all" => crate::arena::gen_arena_free_all(ctx, args),

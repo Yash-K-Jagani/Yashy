@@ -149,9 +149,10 @@ language, recorded here so the next task has one surface to implement:
 - **Channel elements are copies only for now.** A slot is a byte copy, so a
   linear element would give the body and the parent one allocation; `[]i64`,
   `map[K]V`, pointers and handles are rejected at `Channel[T]`, with a
-  diagnostic naming the reason. Numbers, `bool`, C widths and strings are
-  accepted (a string slot is a pointer, so this is a documented data-race
-  hazard for the program to avoid until M8's tooling can see it).
+  diagnostic naming the reason. Numbers, `bool` and structs built from them are
+  accepted. A `string` is rejected too: its slot would be one pointer with one
+  refcount, shared by sender and receiver with no site that owns either, so the
+  first release would dangle the other side.
 - **Spawn arguments follow their type.** A `string` is shared by retain (atomic
   once Task 4 lands), a `Mutex` or `Channel` is *borrowed* (the parent frees it
   after the join), and a linear container or pointer is rejected with "cannot
@@ -173,7 +174,7 @@ language, recorded here so the next task has one surface to implement:
 - Consumes: Task 2, ledger L1 M7 symbols
 - Produces: `pub fn gen_thread_spawn(ctx: &mut FnCtx, body: &HirExpr, args: &[GenValue]) -> String`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -192,20 +193,51 @@ fn join_emits_a_blocking_call() {}
 fn a_locked_mutex_makes_lock_block() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Lower a closure-free spawn by synthesising a `@otter_thread_entry_N` function per spawn site, taking a pointer to a struct of copied arguments.
 
-- [ ] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
+- [x] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-codegen/
 git commit -m "feat(codegen): thread spawn, join, and channel lowering"
 ```
+
+**As built.** The plan's shape held — one synthesized `@otter_thread_entry_N`
+per spawn site — with five decisions worth recording:
+
+- **The argument struct is a literal LLVM struct, and its size comes from
+  LLVM.** The call site passes `getelementptr` of a null pointer as the size
+  (`ptrtoint ptr %size_gep to i64`), the classic `sizeof`, rather than summing
+  `size_of`: `{ i8, i64 }` has padding, and `size_of` reports 8 for every
+  aggregate. The same helper sizes a channel slot, which is what makes
+  `Channel[Option[i64]]` copy the right number of bytes.
+- **A string argument is retained by the caller and released by the entry.**
+  The copy in the struct is a pointer, so the thread takes its own reference
+  before the body and drops it after. The calls are the plain
+  `otter_str_retain`/`release` for now; Task 4 makes this pair atomic and
+  proves it.
+- **Synthesized functions are queued, not appended.** A `define` cannot be
+  opened inside another `define`, so `Module` holds them
+  (`add_synthesized_function`) and `emit_program` flushes them after every
+  checked function has closed. The entry may therefore call a body that is
+  defined above or below it; LLVM resolves symbols at link time.
+- **`thread_join` narrows and discards.** The handle is `i64` in the checker,
+  the runtime takes `i32`, and the runtime's own status is not a program
+  outcome: the call is emitted for its blocking effect and its result dropped.
+- **All eleven M7 runtime symbols are declared up front**, beside the slice and
+  map sets, so a program that starts using one does not rewrite every golden
+  file a second time. This did rewrite them once: every `.expected.ll` gained
+  the same eleven `declare` lines, which is the diff the goldens show.
+
+The golden input `tests/golden/threads.ot` exercises a mutex, a channel send
+and receive (including the `Option` arm), a close, a free, and one spawn and
+join, so the pinned IR covers every M7 call shape in one file.
 
 ---
 
