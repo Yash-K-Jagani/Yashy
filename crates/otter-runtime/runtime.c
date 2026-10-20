@@ -71,6 +71,71 @@ void otter_print_f64(double value) {
     printf("%.17g", value);
 }
 
+/* ---- Live-allocation accounting --------------------------------------
+ *
+ * The two surfaces the compiler inserts ownership for are manual `alloc` /
+ * `dealloc` and refcounted strings. Both go through `malloc`/`free` in this
+ * file, so the runtime can count what is still live without a malloc
+ * interposer or a debug CRT -- and that is what makes the leak tests runnable
+ * on any machine the compiler itself runs on.
+ *
+ * Set `OTTER_LEAK_REPORT` to anything other than an empty string or `0` and
+ * the runtime prints one line to stderr at process exit:
+ *
+ *     otter: leak report: 0 live allocations
+ *
+ * Exit is what makes the report cover the paths that matter: returning from
+ * `main`, `otter_exit`, and the `exit` a panic takes all run `atexit`
+ * handlers post-`main`, which is the only place "the program is over" is
+ * known.
+ *
+ * Only whole allocations are counted, not bytes. A leak test asks "did every
+ * block come back?", and a count answers exactly that; a byte total would
+ * need the requested size stored beside every block, which is a change to the
+ * allocator for a number nothing asserts. The arena's blocks are deliberately
+ * not counted: an arena is released all at once by `arena_free_all`, and a
+ * program that never calls it leaks by contract rather than by accident.
+ *
+ * The counters are updated with the platform's atomic add because
+ * `otter_alloc` and strings are safe to use from any thread; the report
+ * itself runs once, at exit, on the thread that called `exit`. */
+
+static volatile long long otter_live_allocations = 0;
+static int otter_leak_report_armed = 0;
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+static void otter_count_add(volatile long long *counter, long long delta) {
+    (void)_InterlockedExchangeAdd64(counter, delta);
+}
+#else
+static void otter_count_add(volatile long long *counter, long long delta) {
+    (void)__sync_add_and_fetch(counter, delta);
+}
+#endif
+
+static void otter_leak_report_at_exit(void) {
+    fprintf(stderr, "otter: leak report: %lld live allocations\n", otter_live_allocations);
+    fflush(stderr);
+}
+
+/* Registers the report the first time anything countable is allocated. Doing it
+ * lazily rather than from a constructor keeps the C side free of per-compiler
+ * startup attributes; a program that allocates nothing has nothing to report.
+ * The first allocation in a program is on its main thread in every case the
+ * language can express today, so the unguarded flag is not a race worth a lock
+ * on the allocation path. */
+static void otter_leak_arm(void) {
+    if (otter_leak_report_armed) {
+        return;
+    }
+    otter_leak_report_armed = 1;
+    const char *requested = getenv("OTTER_LEAK_REPORT");
+    if (requested != NULL && requested[0] != '\0' && requested[0] != '0') {
+        (void)atexit(otter_leak_report_at_exit);
+    }
+}
+
 /* ---- Heap allocation -------------------------------------------------
  *
  * `otter_alloc` over-allocates by one pointer plus up to `align - 1` bytes so
@@ -101,6 +166,7 @@ static size_t otter_normalise_align(long long align) {
 }
 
 void *otter_alloc(long long size, long long align) {
+    otter_leak_arm();
     size_t alignment = otter_normalise_align(align);
     size_t wanted = size > 0 ? (size_t)size : 1;
     size_t total = wanted + alignment + sizeof(void *);
@@ -116,6 +182,7 @@ void *otter_alloc(long long size, long long align) {
     uintptr_t base = (uintptr_t)raw + sizeof(void *);
     uintptr_t aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
     ((void **)aligned)[-1] = raw;
+    otter_count_add(&otter_live_allocations, 1);
     return (void *)aligned;
 }
 
@@ -124,6 +191,7 @@ void otter_free(void *ptr) {
         return;
     }
     free(((void **)ptr)[-1]);
+    otter_count_add(&otter_live_allocations, -1);
 }
 
 /* ---- Arenas ----------------------------------------------------------
@@ -272,6 +340,7 @@ struct otter_str {
 
 /* Creates a new owned string from `len` bytes at `bytes`. */
 static otter_str *otter_str_new(const char *bytes, size_t len) {
+    otter_leak_arm();
     otter_str *s = (otter_str *)malloc(sizeof(otter_str));
     if (s == NULL) {
         return NULL;
@@ -288,6 +357,7 @@ static otter_str *otter_str_new(const char *bytes, size_t len) {
         memcpy(s->data, bytes, len);
     }
     s->data[len] = '\0';
+    otter_count_add(&otter_live_allocations, 1);
     return s;
 }
 
@@ -317,6 +387,7 @@ void otter_str_release(otter_str *s) {
     if (s->refcount == 0) {
         free(s->data);
         free(s);
+        otter_count_add(&otter_live_allocations, -1);
     }
 }
 
@@ -484,13 +555,15 @@ double otter_parse_f64(const otter_str *s) {
  * failure status. It never returns, so generated code puts `unreachable` after
  * every call.
  *
- * It does **not** unwind, and so a `defer` body does **not** run before a panic.
- * This is M4's first half: the plan's next task replaces this body with a throw
- * that generated landing pads catch, and the deferred calls move onto that path.
- * Until then the process dies. The limitation is stated rather than hidden, and
- * dying is the honest reading of the alternative -- before `panic` existed a
- * program with an unrecoverable condition printed a wrong answer and exited
- * zero, which is worse than either.
+ * It does **not** unwind. The generated code runs the `defer` bodies registered
+ * in the *panicking function's* open scopes before it calls this, so that
+ * function's cleanup happens; a `defer` registered in a caller does not run,
+ * because there are no landing pads yet. That is M4's first half: the plan's
+ * next task replaces this body with a throw that generated landing pads catch,
+ * and the deferred calls move onto that path. Until then the process dies. The
+ * limitation is stated rather than hidden, and dying is the honest reading of
+ * the alternative -- before `panic` existed a program with an unrecoverable
+ * condition printed a wrong answer and exited zero, which is worse than either.
  *
  * `stdout` is flushed first, so a program that printed before it panicked does
  * not lose that output to a buffer that would never be flushed. `exit` is used
@@ -562,7 +635,8 @@ void otter_exit(long long code) {
  *
  * Neither unwinds; both end the process, exactly as `otter_panic` does and for
  * the same reasons (`stdout` flushed first, `exit` rather than `abort`). The
- * statement that a `defer` body does not run before a fault is about all three. */
+ * same statement about the panicking function's own `defer` bodies applies to
+ * all three: they run before the runtime call, and a caller's do not. */
 
 static void otter_fault(
     const char *what,

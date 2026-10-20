@@ -174,6 +174,20 @@ fn len_is_a_runtime_call_and_yields_i64() {
 }
 
 #[test]
+fn byte_at_is_a_runtime_call_and_yields_i64() {
+    // `byte_at` exists so the runtime's `otter_str_byte_at` (ledger L1) is
+    // reachable from Otter: a declared symbol nothing calls is a contract with
+    // no implementation behind it in practice. Out-of-range answers zero, which
+    // the runtime test pins; this pins the call and the type.
+    let ir_text = ir("fn main() { print_i64(byte_at(\"abc\", 1)); }");
+    assert_eq!(call_count(&ir_text, "@otter_str_byte_at"), 1, "{ir_text}");
+    assert!(
+        ir_text.contains("call i64 @otter_str_byte_at(i8* ") && ir_text.contains(", i64 1)"),
+        "the byte is an `i64` and the index is passed through:\n{ir_text}"
+    );
+}
+
+#[test]
 fn a_string_operation_result_can_be_bound_and_reassigned() {
     // The result of a runtime call is an ordinary `string` value: it can be
     // stored in a slot, loaded back, and stored again.

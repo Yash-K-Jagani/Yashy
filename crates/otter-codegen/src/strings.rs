@@ -70,6 +70,36 @@ pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenVa
     }
 }
 
+/// Lower `byte_at(s, i)`: the byte at `i`, or 0 when `i` is out of range.
+///
+/// A byte string, so the value is a byte and not a character: `byte_at("é", 0)`
+/// is `0xC3`. Out of range is an answer rather than a fault, matching the
+/// runtime (ledger L1). The string is read and nothing is kept, so a temporary
+/// is consumed.
+pub fn gen_str_byte_at(ctx: &mut FnCtx<'_>, args: &[otter_sema::HirExpr]) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let index = args
+        .get(1)
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "0".to_string());
+    let byte = ctx.tmp();
+    ctx.push(format!(
+        "{byte} = call i64 @otter_str_byte_at(i8* {value}, i64 {index})"
+    ));
+    ctx.release_owned(&value);
+    GenValue {
+        value: byte,
+        ty: TypeKind::I64,
+    }
+}
+
 /// Lower `len(s)`: the byte length of a string.
 ///
 /// Bytes, not characters: an Otter string is a byte string, so `len("é")` is 2.

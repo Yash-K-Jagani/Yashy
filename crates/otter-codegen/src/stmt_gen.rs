@@ -76,6 +76,7 @@ pub enum Flow {
 /// anything twice, and copying every integer in scope at every `defer` would
 /// cost a load and a store per binding per registration — much more than the
 /// rule is worth inside a loop.
+#[derive(Clone)]
 pub struct Deferred {
     /// The body, as written.
     pub body: HirBlock,
@@ -655,7 +656,43 @@ pub fn run_defers(ctx: &mut FnCtx<'_>) {
     let Some(defers) = ctx.defers.last_mut() else {
         return;
     };
-    let mut pending = std::mem::take(defers);
+    let pending = std::mem::take(defers);
+    lower_defers(ctx, pending);
+}
+
+/// Run every pending deferred body in every active scope, innermost first.
+/// Used on the panic/exit/fault path, where no scope exits normally and every
+/// defer that was registered must still fire.
+///
+/// Unlike [`run_defers`], this does **not** consume [`crate::FnCtx::defers`].
+/// The fault block it emits into is a *second* path through code that is still
+/// being lowered, so the scope stack must survive the call: a `defer` written
+/// after a checked operation has to register into the scope that is still open.
+/// The cost is that a fault site in a scope with pending defers also emits those
+/// bodies into its cold block, which runs only when the process is already
+/// ending.
+///
+/// Re-entry is refused. While a deferred body is being lowered, a fault *inside*
+/// it sets [`crate::FnCtx::lowering_defers`], so it does not try to emit the same
+/// bodies again — which would not terminate. Its fault reaches the runtime
+/// directly, the same "a `defer` that panics during unwinding aborts" rule the
+/// design states.
+pub fn run_all_scopes_defers(ctx: &mut FnCtx<'_>) {
+    if ctx.lowering_defers {
+        return;
+    }
+    let levels: Vec<Vec<Deferred>> = ctx.defers.iter().rev().cloned().collect();
+    for pending in levels {
+        lower_defers(ctx, pending);
+    }
+}
+
+/// Lower `pending` (already taken out of whichever scope owns it), last
+/// registered first, plus any bodies those bodies themselves defer.
+///
+/// Split out of [`run_defers`] so the fault path can lower a *clone* of a
+/// scope's list while leaving the compile-time stack untouched.
+fn lower_defers(ctx: &mut FnCtx<'_>, mut pending: Vec<Deferred>) {
     while let Some(deferred) = pending.pop() {
         // Install the captured slots for the duration of this body.
         let mut restore: Vec<(String, Option<(String, TypeKind)>)> = Vec::new();
@@ -666,10 +703,15 @@ pub fn run_defers(ctx: &mut FnCtx<'_>) {
             restore.push((name.clone(), previous));
         }
 
+        // A fault in this body must not re-enter the fault lowering; see
+        // [`run_all_scopes_defers`].
+        let was_lowering = ctx.lowering_defers;
+        ctx.lowering_defers = true;
         ctx.defers.push(Vec::new());
         let _ = gen_block(ctx, &deferred.body);
         run_defers(ctx);
         ctx.defers.pop();
+        ctx.lowering_defers = was_lowering;
 
         for (name, previous) in restore {
             match previous {
@@ -681,15 +723,5 @@ pub fn run_defers(ctx: &mut FnCtx<'_>) {
                 }
             }
         }
-    }
-}
-
-/// Run every pending deferred body in every active scope, innermost first, then
-/// clear them all. Used on the panic/exit path, where no scope exits normally
-/// and every defer that was registered must still fire.
-pub fn run_all_scopes_defers(ctx: &mut FnCtx<'_>) {
-    while !ctx.defers.is_empty() {
-        run_defers(ctx);
-        ctx.defers.pop();
     }
 }

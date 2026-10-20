@@ -256,6 +256,55 @@ fn a_defer_inside_a_loop_snapshots_once_per_iteration() {
     );
 }
 
+#[test]
+fn a_defer_after_checked_arithmetic_still_registers_and_runs() {
+    // Checked arithmetic is the default, so almost every function lowers a fault
+    // block before its first `defer`. That block includes the pending deferred
+    // bodies (they must fire if the process is ending there); emitting them used
+    // to *consume* the compile-time scope stack, so a `defer` written after a
+    // checked operation panicked the compiler with "a scope is always active".
+    // The scope stack now survives the fault block.
+    let ir_text = gen_body(
+        "fn f() {\n\
+         \x20   var i = 0;\n\
+         \x20   while i < 2 { i += 1; }\n\
+         \x20   defer { print_str(\"done\\n\"); }\n\
+         \x20   print_str(\"ok\\n\");\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("@otter_panic_overflow"),
+        "the loop's `i += 1` must still be a checked add:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("done"),
+        "the deferred body must reach the module, not be lost with the stack:\n{ir_text}"
+    );
+    assert!(
+        ir_text.matches("@otter_print_str").count() >= 2,
+        "the deferred print and the body's print must both be lowered:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_fault_inside_a_deferred_body_does_not_re_enter_the_fault_lowering() {
+    // The fault block of the division includes the pending defers -- including
+    // the very body being lowered, if re-entry were allowed. The guard makes the
+    // body's own fault go straight to the runtime, so lowering terminates. This
+    // test hanging (or overflowing the compiler's stack) is the failure it
+    // guards against.
+    let ir_text = gen_body(
+        "fn f(x: i64) {\n\
+         \x20   defer { print_i64(10 / x); }\n\
+         \x20   print_str(\"ok\\n\");\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("@otter_panic_division"),
+        "the deferred division must carry its fault check:\n{ir_text}"
+    );
+}
+
 // --- golden IR ---------------------------------------------------------------
 
 fn golden_dir() -> PathBuf {

@@ -92,7 +92,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 30] = [
+        let builtins: [(&str, Vec<Type>, Type); 31] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -123,6 +123,19 @@ impl<'src> Checker<'src> {
             // now costs nothing and is what a program printing text actually
             // needs. M6 widens the same name to slices.
             ("len", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
+            // `byte_at(string, i) -> i64` is the byte at `i`, or 0 when `i` is
+            // negative or past the end (ledger L1). A free function rather than
+            // the sketched `s.byte_at(i)`: there is no method-call syntax yet,
+            // and the runtime symbol already had the semantics. Returning 0
+            // rather than faulting is deliberate -- the byte type does not exist
+            // yet, so a program inspects bytes as integers, and "out of range"
+            // has one answer instead of a check every caller must remember.
+            (
+                "byte_at",
+                vec![prim(TypeKind::Str), prim(TypeKind::I64)],
+                prim(TypeKind::I64),
+            ),
+
             // Input. `read_line` yields a `string` (empty at end of input);
             // `parse_i64`/`parse_f64` yield zero when their argument is not a
             // number. A program that can print but not read is a report

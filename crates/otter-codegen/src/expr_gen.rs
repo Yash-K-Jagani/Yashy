@@ -152,6 +152,14 @@ pub struct FnCtx<'a> {
     /// the return type the C runtime expects and an `i64` result is truncated
     /// to match it.
     pub entry_point: bool,
+    /// Whether a deferred body is currently being lowered.
+    ///
+    /// A fault *inside* a deferred body would otherwise ask the fault lowering
+    /// to emit that same body again, which does not terminate. Set around the
+    /// body in `stmt_gen::lower_defers` and read by
+    /// `stmt_gen::run_all_scopes_defers`, so a fault in a deferred body goes
+    /// straight to the runtime.
+    pub(crate) lowering_defers: bool,
 }
 
 impl<'a> FnCtx<'a> {
@@ -171,6 +179,7 @@ impl<'a> FnCtx<'a> {
             scope_strings: Vec::new(),
             unit_terminator: "ret void".to_string(),
             entry_point: false,
+            lowering_defers: false,
         }
     }
 
@@ -777,6 +786,7 @@ fn gen_call(ctx: &mut FnCtx<'_>, callee: &[String], args: &[HirExpr], ty: &TypeK
         }
         // `len` is the byte length of a string today. M6 adds the slice case.
         "len" => crate::strings::gen_str_len(ctx, args),
+        "byte_at" => crate::strings::gen_str_byte_at(ctx, args),
         // `str_from_bool` is the one conversion whose runtime signature is wider
         // than the language's type. C has no one-bit type, so
         // `otter_str_from_bool` takes an `i64` and the header argues the case;
