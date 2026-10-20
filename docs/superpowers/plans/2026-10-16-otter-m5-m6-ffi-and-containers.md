@@ -858,7 +858,7 @@ git commit -m "feat: module resolution, OTTER_PATH, and cycle detection"
 
 **Every exported stdlib function documents its ownership in a comment directly above it** — which function releases which allocation. Users copy this code.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -887,20 +887,88 @@ fn the_stdlib_leaks_nothing_under_the_leak_checker() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Write the stdlib in Otter itself, compiled by the compiler being built. That is the first real proof the language is usable, so write it plainly.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-stdlib/ crates/otter-driver/
 git commit -m "feat(stdlib): io, string, math, os and alloc modules"
 ```
+
+**As built.**
+
+- **One flat namespace, so no dotted names.** Task 9 put every module's items in
+  one root scope. `io.println` is therefore a name the checker cannot spell: the
+  call is `println(text)`, and the module a file imports does not qualify it. The
+  library keeps the plan's *functions*, not the plan's *paths*:
+  `io.ot` exports `print`, `println`, `println_i64`, `println_f64`; `string.ot`
+  exports `concat`, `contains`, `starts_with`, `trim`, `split`; `math.ot`
+  exports `abs`, `min`, `max`, `pow`, `sqrt`; `alloc.ot` exports `alloc_zeroed`
+  and `alloc_one`; `os.ot` exports `exit_with`. Qualified access is recorded
+  with Task 9's other one-scope deferrals.
+- **Builtins keep their own names.** `read_file`, `write_file` and `getenv` are
+  runtime-backed builtins, available to every program without an import, so no
+  module may also define them. `io.ot`'s header documents the file pair and
+  `os.ot`'s documents `getenv`; wrapping them would have required a second name
+  for the same function.
+- **Ownership at the boundary.** `read_file(path)` answers with a fresh owned
+  string (the empty string on failure, which is also an empty file);
+  `write_file(path, body)` copies only the path to a C string, lends the body's
+  bytes with its length (a body may contain a NUL, a C string may not), frees
+  the path copy, and answers 1 or 0; `getenv(name)` answers with a fresh owned
+  string, or the empty string when unset. `str_slice(s, start, end)` clamps both
+  bounds and an inverted range is empty, so index arithmetic cannot fault. The
+  ambiguities are the signatures' honest limit, not an oversight: a builtin
+  cannot spell `Result` until aggregate return values carry string ownership
+  (see Deferred).
+- **A call now has ownership rules for borrowed arguments.** Writing the library
+  exposed a general gap: a `string` temporary passed to a function the program
+  wrote was never released, and a `string` a user function returned was not
+  marked owned, so `println(trim(x))` leaked the trimmed text.
+  `gen_borrowed_call` lowers the arguments once, releases any owned temporary
+  after the call (the callee borrows it), and marks a `string` result owned (the
+  callee's `return` already retains a local on the way out). The reading builtins
+  (`parse_i64`, `str_slice`, ...) go through it too, which closes the same leak
+  for them. Every golden's IR is unchanged except for the four new `declare`
+  lines.
+- **`sqrt` is Newton's method.** An `extern` declaration's name *is* the symbol
+  it calls (M5 Task 2), so a wrapper named `sqrt` cannot sit beside an
+  `extern fn sqrt`. Rather than add a link-name attribute, `math.ot` implements
+  the iteration in Otter: 32 steps from `guess = x`, a panic on a negative
+  argument. `pow` is repeated checked multiplication with a non-negative
+  exponent; `abs(i64::MIN)` panics like every other checked subtraction.
+- **Tests as built.** Runtime `tests/files.rs` (5): a slice clamps each bound;
+  a file round-trips a body containing a NUL; a missing file and a null path
+  read empty and a null path cannot be written; an unset variable reads empty;
+  a set variable is an owned string with refcount 1. Sema `tests/stdlib.rs` (5):
+  the four signatures and their argument type errors. Codegen
+  `tests/stdlib.rs` (4): one path copy for `read_file`, one for `getenv`, the
+  body lent (not copied) with its length for `write_file`, and `str_slice` taken
+  over rather than retained. Driver `tests/stdlib.rs` (3): all five modules
+  check together (which is also the collision test), the full report matches
+  byte for byte with `0 live allocations`, and a file round trip writes, reads,
+  splits and frees, matching `line one/line two/` and releasing everything.
+  `tests/e2e.rs` also gained `string_slices` and `tests/leaks.rs` the matching
+  heap witness for the string-element slices this task needed.
+- **Deferred.** `os.args()` needs `main` to receive `argc/argv`; `main` is
+  emitted as `i32 @main()`, and changing the entry signature is a change every
+  program pays for, so it waits for a spec decision. `io.read_line() ->
+  Result[string, string]` waits for aggregate string ownership: a `case Some(s)`
+  binding is untracked, so a payload the aggregate owns has no releaser yet.
+  A `!` return type cannot be *declared* (`exit_with` is `()` and still never
+  returns). `trim`/`split` are byte-oriented, not character-oriented. The stdlib
+  is not discovered automatically: a program finds it through `OTTER_PATH`, and
+  the driver tests point that at `crates/otter-stdlib/otter`.
+- **Limitations carried forward.** Cross-frame unwinding and a `break` nested in
+  a block (only that block's defers run) are unchanged from Task 7 and remain
+  the Task 10 review items.
 
 ---
 
