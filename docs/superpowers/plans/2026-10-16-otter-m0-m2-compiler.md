@@ -9,10 +9,13 @@
 > `result.ot`, `fib.ot`, `hanoi.ot`), both amendments (performance and
 > build-time rounds), the deterministic no-panic suite
 > (`crates/otter-driver/tests/never_panics.rs`), and the `cargo-fuzz` package
-> (`fuzz/`, two targets). One step is not done: Task 14 Step 6, the two
-> 120-second fuzz runs, needs `cargo +nightly fuzz` and only stable toolchains
-> are installed; the decision recorded for this project is that fuzzing is
-> outside the gate. The milestone's Definition of Done was verified at sign-off
+> (`fuzz/`, two targets). Task 14 Step 6's two 120-second runs were carried out
+> under WSL Ubuntu with nightly and `cargo-fuzz` 0.13.2: 92,570 executions for
+> `lex_parse` and 54,561 for `check`, no crashes in either. They were run there
+> because on this Windows host Application Control blocks the build scripts
+> `cargo install cargo-fuzz` compiles (`os error 4551`), not because the targets
+> are platform-specific. Fuzzing remains outside the `cargo test` gate: it is a
+> Task 14 exercise, not a per-commit check. The milestone's Definition of Done was verified at sign-off
 > and is re-verified by the current `cargo check --workspace --all-targets` and
 > `cargo test --workspace` runs.
 
@@ -1490,11 +1493,18 @@ Expected: PASS.
 
 `fuzz_targets/lex_parse.rs` takes arbitrary bytes, converts lossily to a `String`, and calls `tokenize` then, on success, `parse_program`. `fuzz_targets/check.rs` runs `check_program` on the parsed AST. Both discard results; they exist to find panics. The `Cargo.toml` declares `cargo-fuzz = true` and depends on the three crates plus `libfuzzer-sys`.
 
-- [ ] **Step 6: Run the fuzzers briefly**
+- [x] **Step 6: Run the fuzzers briefly**
 
 Run: `cargo +nightly fuzz run lex_parse -- -max_total_time=120`
 Then: `cargo +nightly fuzz run check -- -max_total_time=120`
 Expected: no crashes. On any crash, fix the panic and re-run.
+
+> **As built.** Run under WSL Ubuntu with `nightly-x86_64-unknown-linux-gnu`
+> and `cargo-fuzz` 0.13.2: `lex_parse` completed 92,570 executions in 124 s and
+> `check` 54,561 in 123 s, with no crash in either. The Windows host could not
+> build `cargo-fuzz` because Application Control blocks the build scripts it
+> compiles (4551); the targets themselves are platform-neutral, and both were
+> also exercised on Windows through `crates/otter-driver/tests/never_panics.rs`.
 
 - [ ] **Step 7: Commit the corpus**
 
