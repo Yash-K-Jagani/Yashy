@@ -573,7 +573,10 @@ The runtime rows are measured by `benchmarks/run.ps1`, which rebuilds every row
 whenever the compiler's output could change. `--cpu` and `--fast-math` are extra
 arguments on the `clang` command line and nothing else — they cannot change a
 portable build — so the portable rows move only with run-to-run variation, and the
-tiered and fused rows are this run's measurement. See
+tiered and fused rows are this run's measurement. The feature rows are measured
+by `benchmarks/run-features.ps1` with the same warm-up and minimum rule; that
+script refuses a row whose output does not match the number every language is
+expected to print. See
 [`docs/performance-improvements.md`](docs/performance-improvements.md) for the
 round-by-round record, including the changes that were measured and *not* made.
 
