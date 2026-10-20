@@ -1,0 +1,22 @@
+// Growing a slice by `push`, then summing it.
+//
+// Nothing is preallocated: the runtime doubles the backing array when it fills,
+// so this measures the growth policy and the copy each time it triggers, not a
+// pre-sized buffer. The C, Go and Rust rows append to a dynamic array too.
+fn main() {
+    const n = 10000000;
+    var xs = []i64 {};
+    var i = 0;
+    while i < n {
+        push(xs, i);
+        i = wrapping_add(i, 1);
+    }
+
+    var sum = 0;
+    for x in xs {
+        sum = wrapping_add(sum, x);
+    }
+    print_i64(sum);
+    print_str("\n");
+    free_slice(xs);
+}

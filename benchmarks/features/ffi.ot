@@ -1,0 +1,22 @@
+// 100 million calls to libc's getpid.
+//
+// `getpid` is deliberately opaque: the compiler cannot fold it, hoist it out
+// of the loop, or delete it, because it has no declaration saying the call is
+// pure. That keeps every iteration a real boundary crossing. The printed
+// number is just proof the loop ran 100 million times; the time is the calls.
+extern "C" {
+    unsafe fn getpid() -> i32;
+}
+
+fn main() {
+    const n = 100000000;
+    var i = 0;
+    var sum = 0;
+    while i < n {
+        const pid = getpid();
+        sum = wrapping_add(sum, 1);
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}

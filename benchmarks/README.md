@@ -1,15 +1,20 @@
 # Otter benchmarks
 
-Three small programs, written in six languages, used to answer two questions:
+Two suites live here:
 
-1. **How fast is the code Otter produces?** — the runtime table.
-2. **How fast does Otter compile it?** — the compile-time table.
+- **Scalar** (`run.ps1`) — `fib`, `loop` and `float`, written in six languages,
+  answering **how fast is the code Otter produces** and **how fast does Otter
+  compile it**.
+- **Features** (`run-features.ps1`) — FFI, slices, maps, enums, channels and
+  mutexes, answering **what each language feature costs** against the same idea
+  in a language that has it built in.
 
-Everything here is reproducible with one command. Run it from the repository
-root after `cargo build --release --workspace`:
+Everything is reproducible from the repository root after
+`cargo build --release --workspace`:
 
 ```powershell
-pwsh benchmarks/run.ps1
+pwsh benchmarks/run.ps1            # the scalar suite
+pwsh benchmarks/run-features.ps1   # the feature suite
 ```
 
 ## The programs
@@ -47,6 +52,28 @@ bit-identical results. The rows that do not are those built for a wider one:
 same only under `--fast-math`. That turns two roundings into one and moves the
 last six digits. Those rows are labelled, and they are discussed below.
 
+### The feature programs
+
+These run under `run-features.ps1` and are not part of the scalar table. Each
+one exercises one language feature end to end; the rows are the languages that
+have a comparable standard-library primitive.
+
+| Program | Workload | Compared with |
+|---|---|---|
+| `ffi` | 100,000,000 calls to libc's `getpid` | C, clang and gcc |
+| `slice` | 10,000,000 appends to a growable array, then a sum | C (`realloc`), Go `append`, Rust `Vec` |
+| `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
+| `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
+| `threads` | 200,000 channel round trips between two threads | Go channels |
+| `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
+
+There is no C row for `map`: C has no hash map in its standard library, and a
+hand-written one would measure the author of that C file rather than Otter.
+There is likewise no C row for `threads` and `mutex`: the portable C answer is
+pthreads on Linux and the Win32 API on Windows, so a single source would not be
+the same program on both. Go is the comparison there, with the caveat that a
+goroutine is not an OS thread.
+
 ## What the comparison does and does not mean
 
 It means: **for scalar arithmetic and function calls, Otter's output is
@@ -61,12 +88,12 @@ It does not mean "Otter is as fast as C". Read the caveats:
   which is a real and useful measurement, but it is not a claim that
   `otter-codegen` contains optimization passes — it contains none. Otter's
   advantage, where it has one, is that it hands LLVM clean, fully-typed IR.
-- **Nothing allocates.** None of these benchmarks allocates. The language has had
-  a heap since M3 (`alloc`/`dealloc`, `defer`, string values), but no benchmark
-  here uses it, and there are still no collections and no bounds checks. So the
-  set exercises none of the costs a real program pays: allocation, deallocation,
-  string handling, bounds checks. It is a lower bound on the work to come, not a
-  preview of it.
+- **The scalar suite does not allocate; the feature suite does.** `fib`, `loop`
+  and `float` still measure arithmetic and calls only, so that table remains a
+  lower bound rather than a preview of a real program. Slices, maps, strings and
+  threads are measured separately under [Feature
+  benchmarks](#feature-benchmarks), where allocation *is* the workload. The two
+  tables answer different questions and are not comparable row for row.
 - **Otter's arithmetic is checked, and the others' is not.** `a + b` in Otter
   reports an integer overflow at the position it happened and ends the program; in
   C, Rust, Go, Node and Python it wraps. That is a difference in what the program
@@ -159,6 +186,10 @@ cargo build --release --workspace
 pwsh benchmarks/run.ps1                 # default: 5 native runs, 3 interpreted
 pwsh benchmarks/run.ps1 -Runs 9         # more samples
 pwsh benchmarks/run.ps1 -SkipBuild      # re-time existing binaries
+
+pwsh benchmarks/run-features.ps1         # feature suite, 5 runs x 2 passes
+pwsh benchmarks/run-features.ps1 -Runs 9 # more samples
+pwsh benchmarks/run-features.ps1 -SkipBuild
 ```
 
 Tested with clang 23.1.3, gcc 16.2.0 (MSYS2 UCRT64), rustc 1.99.1, go 1.27.0,
@@ -346,6 +377,137 @@ build); the runtime object is cached in a content-addressed directory now, so th
 first build on a machine pays for filling that cache and every build after it
 does not. The front end — everything this repository implements — is 25 ms of the
 256.
+
+## Feature benchmarks
+
+The scalar table answers "how fast is the arithmetic?"; this one answers "what
+does a feature cost?". Every row runs the same algorithm and must print the
+same expected number — the harness throws on a mismatch, so a wrong hash, a
+lost update, or a broken slice growth becomes a failed run rather than a fast
+row.
+
+Methodology, beyond the shared rules above:
+
+- **9 runs, 3 passes** in the published run (the script defaults to 5 × 2),
+  one warm-up, minimum wins. These programs are short, so the same clock-state
+  caveat applies; a row measured in a bad window gets two more chances. The
+  first draft of these numbers was taken with 5 × 2 and the channel row moved
+  by almost 2× between runs — the reason this table uses more samples.
+- **No preallocation** in any slice or map row. Otter's `map_new()` and
+  `[]i64 {}` start empty; Go's `make(map)` and `Vec::new()` do too, and the C
+  slice doubles from four elements like the Otter runtime does.
+- **The implementations are not the same code.** Otter's map is an
+  open-addressed table with linear probing that grows at 70% occupancy; Go's
+  map and Rust's `HashMap` have their own layouts and hash functions. Otter's
+  slice grows by doubling from four; Go and Rust use their own growth
+  policies. The row measures each language's implementation, not an algorithm
+  race.
+- **Threads are not goroutines.** Otter spawns an OS thread and blocks on
+  condition variables; Go multiplexes a goroutine onto its runtime scheduler.
+  The comparison is useful as a cost check, not as a claim that the two are the
+  same mechanism. Mutex rows differ too: Otter takes the OS mutex immediately,
+  while Go's `sync.Mutex` spins briefly before parking.
+- **`ns/op` counts the unit in the `Workload` column**: one C call, one slice
+  element, one map insert-or-lookup, one enum iteration, one channel round
+  trip, or one lock/unlock pair. Compare rows within a benchmark, not across
+  benchmarks.
+
+### Results
+
+`ns/op` tables, Windows x86-64, same machine and toolchains as the scalar
+results. Each row is the better of two passes; a missing row was blocked by
+Application Control (Device Guard) and is reported as such by the script
+rather than timed.
+
+#### FFI — 100,000,000 `getpid` calls
+
+| Language | min ms | median ms | ns/call |
+|---|---:|---:|---:|
+| C (clang -O2) | 237.0 | 247.4 | 2.37 |
+| C (gcc -O2) | 239.6 | 249.6 | 2.40 |
+| Otter -O2 | 247.8 | 267.7 | 2.48 |
+
+`getpid` is opaque to the optimizer, so every iteration is a real call; the
+loop cannot be folded away, which an earlier draft using `llabs` was. Otter is
+4.6% behind clang and 3.4% behind gcc, all in the same band. There is no thunk
+or wrapper in that path: an `extern` call is lowered as an ordinary LLVM call,
+with the C ABI's argument and return conventions.
+
+#### Slices — 10,000,000 appends, then a sum
+
+| Language | min ms | median ms | ns/element |
+|---|---:|---:|---:|
+| C (clang -O2) | 141.1 | 143.8 | 14.11 |
+| C (gcc -O2) | 143.3 | 146.1 | 14.33 |
+| Rust (rustc -O) | 159.4 | 165.6 | 15.94 |
+| Otter -O2 | 207.2 | 218.9 | 20.72 |
+| Go (go build) | 258.2 | 294.8 | 25.82 |
+
+Otter's `push` is an out-of-line runtime call: check capacity, maybe grow and
+copy, then `memcpy` the element. The C loop inlines the common case and only
+calls `realloc` every doubling, and Rust's `Vec::push` inlines its fast path;
+that is the 1.5× gap to C and 1.3× to Rust. Go's `append` is slower here than
+Otter's push, despite the same doubling idea. The 10,000,000-element array is
+about 80 MB, so allocation and the growth copies are part of the measurement,
+not background noise.
+
+#### Maps — 1,000,000 inserts and 1,000,000 lookups
+
+| Language | min ms | median ms | ns/operation |
+|---|---:|---:|---:|
+| Rust (rustc -O) | 281.5 | 321.1 | 140.75 |
+| Otter -O2 | 322.1 | 329.9 | 161.05 |
+| Go (go build) | 370.7 | 420.0 | 185.35 |
+
+Otter's map is an open-addressed table with linear probing that grows at 70%
+occupancy; Rust and Go have their own layouts and hash functions. On this
+integer-key workload Otter is 14% behind Rust and 15% ahead of Go. Nothing is
+preallocated: the inserts include every rehash. A `string`-key workload would
+measure the hash function and key retention instead, so this table is about
+`i64` keys only.
+
+#### Enums — 50,000,000 constructions and matches
+
+| Language | min ms | median ms | ns/iteration |
+|---|---:|---:|---:|
+| C (clang -O2) | 101.2 | 130.2 | 2.02 |
+| C (gcc -O2) | 120.4 | 129.4 | 2.41 |
+| Otter -O2 | 150.1 | 166.6 | 3.00 |
+
+Both sides build a 16-byte tagged value and switch on the tag. Otter's enum is
+`{ i8, i64 }` with the tag in field 0 and the payload in field 1; the C struct
+uses an `int` tag. The 1.5× gap is LLVM's handling of the aggregate through the
+two calls, not a different data representation: the value does not allocate and
+the match has no fallback path.
+
+#### Channels — 200,000 round trips
+
+| Language | min ms | median ms | ns/round trip |
+|---|---:|---:|---:|
+| Otter -O2 | 179.3 | 253.0 | 896.5 |
+| Go (go build) | 296.2 | 318.1 | 1481.0 |
+
+One capacity-one channel in each direction, so the two sides alternate strictly
+and every send waits for the matching receive. Otter pays for two condition
+variables and an OS thread; Go pays for a goroutine wakeup in its scheduler.
+The minimum and median disagree by 40% on the Otter row, which is scheduling
+noise, not a bimodal implementation — the earlier 5 × 2 run had Otter at
+1822 ns and Go at 1764 ns on the same binaries. Treat this row as "the same
+order", not as a scheduler comparison.
+
+#### Mutexes — 1,000,000 contended lock/unlock pairs
+
+| Language | min ms | median ms | ns/pair |
+|---|---:|---:|---:|
+| Go (go build) | 65.6 | 67.4 | 65.60 |
+| Otter -O2 | 73.5 | 84.5 | 73.50 |
+
+Four threads and four goroutines, an empty critical section, one million pairs
+in total. Otter takes the OS mutex immediately; Go's `sync.Mutex` spins briefly
+before parking. The 12% gap is what that difference and the lock implementation
+cost under contention. A shared counter cannot be written in Otter user code
+yet: a `*mut` may not cross a thread boundary, so the runtime's own C test
+covers that case.
 
 When these numbers change, update this file and the `Speed` section of the
 top-level `README.md` in the same commit, so the two cannot drift.

@@ -1,0 +1,213 @@
+<#
+.SYNOPSIS
+  Build and time the language-feature benchmarks: FFI, slices, maps, enums,
+  channels and mutexes.
+
+.DESCRIPTION
+  The scalar suite (run.ps1) answers "how fast is the arithmetic Otter emits?".
+  This suite answers a different question: "what does each language feature
+  cost, and how does it compare with the same idea written in another
+  language?". Every row runs the same algorithm with the same input and the
+  same output; where a feature has no comparable standard-library equivalent
+  (a C hash map, a user-level shared pointer across threads) the row is
+  omitted and the README says why.
+
+  Programs are built at -O2. Otter's binary is benchmarks/build/features/*;
+  the C rows use the same target triple Otter passes to clang, and gcc, rustc
+  and go build themselves as usual.
+
+  Timing is the minimum of N runs after one untimed warm-up, and each table is
+  measured in two passes; the better of the two minima is reported. This is the
+  same methodology as run.ps1, and it exists for the same reason: the machine's
+  clock varies between windows. A blocked binary produces no output and is
+  marked BLOCKED rather than being timed as a suspiciously fast row.
+
+.PARAMETER Runs
+  Timed runs per binary, after one untimed warm-up. Default 5.
+
+.PARAMETER Passes
+  Full passes over the suite. The best minimum per row wins. Default 2.
+
+.PARAMETER SkipBuild
+  Reuse the binaries already in benchmarks/build/features.
+
+.EXAMPLE
+  pwsh benchmarks/run-features.ps1
+  pwsh benchmarks/run-features.ps1 -Runs 3 -Passes 1
+#>
+param(
+    [int]$Runs = 5,
+    [int]$Passes = 2,
+    [switch]$SkipBuild
+)
+
+$ErrorActionPreference = 'Continue'
+
+$bench = $PSScriptRoot
+$root = Split-Path -Parent $bench
+$features = Join-Path $bench 'features'
+$build = Join-Path $bench 'build\features'
+$otter = Join-Path $root 'target\release\otter.exe'
+$exe = '.exe'
+
+# One workload per feature. `Work` is the number of operations the printed
+# number is divided by; for the map it counts both the insert and the lookup,
+# and for the mutex it counts lock/unlock pairs. `Expected` is the output every
+# language must print -- a wrong hash, a lost update, or a slice growth bug
+# shows up as a mismatch instead of a speed number.
+$workloads = @(
+    @{ Name = 'ffi';     Work = 100000000; Unit = 'call';       Expected = '100000000'; Source = 'ffi.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'ffi.ot'; Out = 'ffi-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'ffi.c';  Out = 'ffi-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'ffi.c';  Out = 'ffi-gcc' }
+       ) },
+    @{ Name = 'slice';   Work = 10000000;  Unit = 'element';    Expected = '49999995000000';   Source = 'slice.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'slice.ot'; Out = 'slice-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'slice.c'; Out = 'slice-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'slice.c'; Out = 'slice-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'slice.go'; Out = 'slice-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'slice.rs'; Out = 'slice-rust' }
+       ) },
+    @{ Name = 'map';     Work = 2000000;    Unit = 'operation'; Expected = '1499998500000';    Source = 'map.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map.ot'; Out = 'map-otter' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map.go'; Out = 'map-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map.rs'; Out = 'map-rust' }
+       ) },
+    @{ Name = 'enum';    Work = 50000000;  Unit = 'iteration';  Expected = '1250000008333333'; Source = 'enum.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'enum.ot'; Out = 'enum-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'enum.c'; Out = 'enum-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'enum.c'; Out = 'enum-gcc' }
+       ) },
+    @{ Name = 'threads'; Work = 200000;    Unit = 'round trip'; Expected = '20000100000';      Source = 'threads.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'threads.ot'; Out = 'threads-otter' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'threads.go'; Out = 'threads-go' }
+       ) },
+    @{ Name = 'mutex';   Work = 1000000;   Unit = 'lock pair';  Expected = '1000000';          Source = 'mutex.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'mutex.ot'; Out = 'mutex-otter' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'mutex.go'; Out = 'mutex-go' }
+       ) }
+)
+
+New-Item -ItemType Directory -Force -Path $build | Out-Null
+
+# The C rows must target the same triple Otter does; on a machine with no MSVC
+# CRT a bare clang picks the MSVC triple and cannot find stdio.h. Read the
+# triple out of Otter's own IR so the two cannot drift.
+$clangTarget = @()
+if (Test-Path $otter) {
+    $triple = & $otter build (Join-Path $features 'ffi.ot') --emit-ir 2>$null |
+        Select-String -Pattern '^target triple = ' |
+        ForEach-Object { ($_.Line -split '"')[1] }
+    if ($triple -like '*windows*') {
+        $clangTarget = @("--target=$triple")
+    }
+}
+
+function Invoke-Tool {
+    param([string]$Exe, [string[]]$Arguments, [string]$Step)
+    $output = (& $Exe @Arguments 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Step failed (exit $LASTEXITCODE):`n$Exe $($Arguments -join ' ')`n$output"
+    }
+}
+
+function Build-All {
+    if (-not (Test-Path $otter)) {
+        throw "no release binary at $otter - run: cargo build --release --workspace"
+    }
+    foreach ($workload in $workloads) {
+        foreach ($program in $workload.Programs) {
+            $src = Join-Path $features $program.Src
+            $out = Join-Path $build "$($program.Out)$exe"
+            switch ($program.Kind) {
+                'otter' { Invoke-Tool $otter @('build', $src, '-o', $out) "otter build $($program.Src)" }
+                'clang' { Invoke-Tool 'clang' ($clangTarget + @('-O2', $src, '-o', $out)) "clang $($program.Src)" }
+                'gcc'   { Invoke-Tool 'gcc' @('-O2', $src, '-o', $out) "gcc $($program.Src)" }
+                'rust'  { Invoke-Tool 'rustc' @('-O', $src, '-o', $out) "rustc $($program.Src)" }
+                'go'    { Invoke-Tool 'go' @('build', '-o', $out, $src) "go build $($program.Src)" }
+                default { throw "unknown build kind: $($program.Kind)" }
+            }
+        }
+    }
+}
+
+function Measure-Runs {
+    param([string]$Path, [string[]]$Arguments, [int]$Count)
+    $warm = (& $Path @Arguments 2>$null) -join ''
+    if ([string]::IsNullOrWhiteSpace($warm)) {
+        return [pscustomobject]@{ Min = $null; Median = $null; Output = ''; Blocked = $true }
+    }
+    $times = New-Object System.Collections.Generic.List[double]
+    $last = ''
+    for ($i = 0; $i -lt $Count; $i++) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $last = (& $Path @Arguments 2>$null) -join ''
+        $sw.Stop()
+        $times.Add($sw.Elapsed.TotalMilliseconds)
+    }
+    $sorted = @($times | Sort-Object)
+    [pscustomobject]@{
+        Min     = [math]::Round($sorted[0], 1)
+        Median  = [math]::Round($sorted[[int][math]::Floor($sorted.Count / 2)], 1)
+        Output  = $last.Trim()
+        Blocked = $false
+    }
+}
+
+if (-not $SkipBuild) {
+    Write-Host 'building feature benchmarks...'
+    Build-All
+}
+
+$rows = @{}
+for ($pass = 1; $pass -le $Passes; $pass++) {
+    Write-Host "pass $pass of $Passes..."
+    foreach ($workload in $workloads) {
+        foreach ($program in $workload.Programs) {
+            $path = Join-Path $build "$($program.Out)$exe"
+            if (-not (Test-Path $path)) {
+                throw "missing binary $path - run without -SkipBuild"
+            }
+            $result = Measure-Runs $path @() $Runs
+            $key = "$($workload.Name)|$($program.Lang)"
+            if ($result.Blocked) {
+                Write-Warning "$($workload.Name) / $($program.Lang): BLOCKED (no output)"
+            } elseif ($result.Output -ne $workload.Expected) {
+                throw "$($workload.Name) / $($program.Lang) printed '$($result.Output)', expected '$($workload.Expected)'"
+            }
+            $ns = if ($result.Blocked) { $null } else {
+                [math]::Round(($result.Min * 1e6) / $workload.Work, 3)
+            }
+            $row = [pscustomobject]@{
+                Benchmark = $workload.Name
+                Language  = $program.Lang
+                MinMs     = $result.Min
+                MedianMs  = $result.Median
+                NsPerOp   = $ns
+                Unit      = $workload.Unit
+                Output    = $result.Output
+                Blocked   = $result.Blocked
+            }
+            if (-not $rows.ContainsKey($key) -or ($result.Blocked -eq $false -and
+                    ($rows[$key].Blocked -or $result.Min -lt $rows[$key].MinMs))) {
+                $rows[$key] = $row
+            }
+        }
+    }
+}
+
+Write-Host ''
+Write-Host "== feature runtime (best of $Runs runs x $Passes passes) =="
+$rows.Values | Sort-Object Benchmark, NsPerOp |
+    Format-Table Benchmark, Language, MinMs, MedianMs, NsPerOp, Unit, Output -AutoSize
+
+if ($rows.Values | Where-Object { $_.Blocked }) {
+    Write-Host 'Some rows were blocked by Application Control (Device Guard); rebuild them under a new path.'
+}
+Write-Host 'done.'

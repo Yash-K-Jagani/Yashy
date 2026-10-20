@@ -1,0 +1,32 @@
+// One million integer keys inserted, then looked up.
+//
+// Every key is distinct, so the table grows to its full size and every lookup
+// has to find a real entry. The saved value is `3 * key`, which makes a wrong
+// lookup visible in the printed sum rather than merely slow.
+fn main() {
+    const n = 1000000;
+    var m: map[i64]i64 = map_new();
+    var i = 0;
+    while i < n {
+        map_insert(m, i, i * 3);
+        i = wrapping_add(i, 1);
+    }
+
+    var sum = 0;
+    var j = 0;
+    while j < n {
+        sum = wrapping_add(sum, switch map_get(m, j) {
+            case Some(v) {
+                v
+            }
+            case None {
+                0
+            }
+        });
+        j = wrapping_add(j, 1);
+    }
+
+    print_i64(sum);
+    print_str("\n");
+    map_free(m);
+}

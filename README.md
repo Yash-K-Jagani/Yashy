@@ -537,6 +537,36 @@ on older CPUs, `--fast-math` gives up exact floating-point results. The portable
 default is the row the other languages are compared against in the three tables at
 the top, and it is already in C's band.
 
+### What the features cost
+
+The tables above measure arithmetic and calls. Six more programs, in
+[`benchmarks/features/`](benchmarks/features), measure the features that make a
+program rather than a loop: FFI, slices, maps, enums, channels and mutexes.
+Each is compared with the nearest built-in equivalent in another language, not
+with an identical source file, and each row must print the same expected
+number — a wrong hash or a lost update fails the run instead of becoming a fast
+row. Times are milliseconds, lower is better, and the ratio is Otter's time
+divided by the comparison's, so below 1.0 means Otter was faster. Published
+numbers are 9 runs over 3 passes at `-O2` on the same machine as the tables
+above.
+
+| Feature | Otter | Fastest comparison | Otter / comparison |
+|---|---:|---:|---:|
+| FFI, 100,000,000 `getpid` calls | 248 ms | C (clang) 237 ms | 1.05× |
+| Slices, 10,000,000 appends | 207 ms | C (clang) 141 ms | 1.47× |
+| Maps, 1,000,000 inserts + lookups | 322 ms | Rust 282 ms | 1.14× |
+| Enums, 50,000,000 builds + matches | 150 ms | C (clang) 101 ms | 1.48× |
+| Channels, 200,000 round trips | 179 ms | Go 296 ms | 0.61× |
+| Mutexes, 1,000,000 lock pairs | 74 ms | Go 66 ms | 1.12× |
+
+Read these as cost checks, not a scoreboard. Otter's `push` is an out-of-line
+runtime call; C's `realloc` loop inlines the common path. Otter's map is an
+open-addressed table; Rust's `HashMap` and Go's map use their own layouts.
+Otter's threads are OS threads and its channels block on condition variables;
+Go's goroutine is multiplexed by the Go scheduler. The full workload sizes,
+methodology and caveats are in
+[`benchmarks/README.md`](benchmarks/README.md#feature-benchmarks).
+
 ### What the numbers do not prove
 
 The runtime rows are measured by `benchmarks/run.ps1`, which rebuilds every row
@@ -554,13 +584,15 @@ by 2.5×, because the check is what stops the loop from vectorising. See [what t
 check costs](#what-the-check-costs). Either way the cost is now measured rather
 than a surprise, which is what the numbers were for.
 
-These benchmarks exercise scalar arithmetic and function calls; they exercise
-none of the costs a real program pays — no heap, no collections, no string
-operations — so they are a lower bound on the work to come, not a preview of it.
-They are also a fixed algorithm in each language, which is what makes them
-comparable and what makes them narrow: `fib` measures call overhead and little
-else. Measured on one machine: ratios should be stable, absolute times will not
-be.
+These benchmarks exercise scalar arithmetic and function calls; they do not
+exercise heap allocation, collections, strings or threads. Those have their own
+suite under [Feature benchmarks](benchmarks/README.md#feature-benchmarks),
+which measures the cost of each feature against a comparable built-in
+equivalent. It is a cost check per feature, not a second scalar comparison.
+The scalar programs are also a fixed algorithm in each language, which is what
+makes them comparable and what makes them narrow: `fib` measures call overhead
+and little else. Measured on one machine: ratios should be stable, absolute
+times will not be.
 
 The benchmark suite exists in part because it caught two real compiler bugs that
 the test suite could not: `f64` `+`, `-` and `*` were lowering to LLVM's
