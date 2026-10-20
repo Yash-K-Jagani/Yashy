@@ -8,7 +8,25 @@
 
 use std::collections::HashMap;
 
-use otter_sema::HirExternDecl;
+use otter_sema::{HirExternDecl, TypeKind};
+
+/// One variant of a user-declared enum, as the backend needs it.
+///
+/// The field list is flattened in source order and carries the LLVM
+/// representation of each payload field, because the aggregate layout is
+/// `{ i8, <variant 0 fields>, <variant 1 fields>, ... }`. A unit variant has no
+/// fields and contributes no struct members, but it still consumes a tag, so
+/// the variant's *index* is its tag and its first *field* is found by counting
+/// the fields of the variants before it.
+#[derive(Clone, Debug)]
+pub struct VariantRepr {
+    /// The variant's source name, which is what a pattern spells.
+    pub name: String,
+    /// The payload fields in source order: `(field name, LLVM repr)`. The name
+    /// is `None` for a positional field and `Some` for a named one, which is
+    /// what lets a `case Rect { w, h }` pattern find its field.
+    pub fields: Vec<(Option<String>, String)>,
+}
 
 /// A module under construction.
 pub struct Module {
@@ -25,6 +43,10 @@ pub struct Module {
     /// because a `%struct.X = type { … }` line inside a `define` block is not
     /// valid LLVM IR.
     named_types: Vec<(String, Vec<String>)>,
+    /// User-declared enums by name, in declaration order. This is the table
+    /// the tag and payload lookups need: the pattern side is handed only a
+    /// variant's spelling, so the declaration order has to come from here.
+    enums: HashMap<String, Vec<VariantRepr>>,
     /// The `source_filename` the driver wants reported in the header.
     source_filename: String,
     /// Whether floating-point multiply-add contraction is allowed; see
@@ -60,6 +82,7 @@ impl Module {
             lines: Vec::new(),
             strings: Vec::new(),
             named_types: Vec::new(),
+            enums: HashMap::new(),
             source_filename: "main.ot".to_string(),
             fp_contract: false,
             next_value: 0,
@@ -115,6 +138,35 @@ impl Module {
     pub fn define_named_type(&mut self, name: &str, fields: Vec<String>) {
         if !self.named_types.iter().any(|(n, _)| n == name) {
             self.named_types.push((name.to_string(), fields));
+        }
+    }
+
+    /// Define a user enum's aggregate type and record its variants.
+    ///
+    /// The layout is `{ i8, <variant 0 payload>, <variant 1 payload>, … }`,
+    /// flattened in declaration order. A unit variant contributes no members
+    /// but still owns a tag, so the tag is the variant's index while a
+    /// payload's first member is found by counting the fields before it.
+    /// Defining the name twice is a no-op, matching [`Self::define_named_type`].
+    pub fn define_enum(&mut self, name: &str, variants: Vec<VariantRepr>) {
+        if self.enums.contains_key(name) {
+            return;
+        }
+        let mut fields = vec!["i8".to_string()];
+        for variant in &variants {
+            for (_, repr) in &variant.fields {
+                fields.push(repr.clone());
+            }
+        }
+        self.define_named_type(&format!("%enum.{name}"), fields);
+        self.enums.insert(name.to_string(), variants);
+    }
+
+    /// The variants of the enum `ty` names, or `None` when `ty` is not one.
+    pub fn enum_variants(&self, ty: &TypeKind) -> Option<&[VariantRepr]> {
+        match ty {
+            TypeKind::Enum(name) => self.enums.get(name).map(Vec::as_slice),
+            _ => None,
         }
     }
 

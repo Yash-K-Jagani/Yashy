@@ -1711,6 +1711,228 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// `Enum.Variant(args)` for a user-declared enum.
+    ///
+    /// The outer `Option` says "the callee is an enum constructor" and the
+    /// inner one is the checked expression, `None` after a reported error. A
+    /// two-segment callee whose head is not an enum falls through to the
+    /// ordinary call path, which reports an unknown function as it always did.
+    fn check_enum_call(
+        &mut self,
+        callee: &[String],
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        if callee.len() != 2 {
+            return None;
+        }
+        let sig = self.enums.get(&callee[0])?.clone();
+        let variant = sig.variants.iter().find(|v| v.name == callee[1])?.clone();
+        let enum_name = callee[0].clone();
+        let variant_name = callee[1].clone();
+        if variant
+            .fields
+            .iter()
+            .any(|f| matches!(f, VariantField::Named { .. }))
+        {
+            self.error(
+                span,
+                format!(
+                    "variant `{variant_name}` of `{enum_name}` has named fields; \
+                     write `{enum_name}.{variant_name} {{ ... }}`"
+                ),
+            );
+            return Some(None);
+        }
+        if variant.fields.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "variant `{variant_name}` of `{enum_name}` takes {} field{}, found {}",
+                    variant.fields.len(),
+                    if variant.fields.len() == 1 { "" } else { "s" },
+                    args.len()
+                ),
+            );
+            return Some(None);
+        }
+        let mut checked = Vec::with_capacity(args.len());
+        for (arg, field) in args.iter().zip(variant.fields.iter()) {
+            let expected = match self.resolve_type(field.ty()) {
+                Ok(ty) => ty,
+                Err(e) => {
+                    self.error(e.span, e.message);
+                    return Some(None);
+                }
+            };
+            let value = match self.check_expr_with_expected(arg, &expected) {
+                Some(value) => value,
+                None => return Some(None),
+            };
+            if !fits(&expected, &expr_ty(&value)) {
+                self.error(
+                    expr_span(&value),
+                    format!("expected `{expected}`, found `{}`", expr_ty(&value)),
+                );
+            }
+            // A payload of linear type takes ownership, exactly as a function
+            // parameter does, so a bare name is moved out at the construction
+            // site. `Shape.Box(buf)` and `dealloc(buf)` agree about who owns it.
+            if matches!(linearity_of(&expected.kind), Linearity::Linear) {
+                if let Expr::Ident(path, arg_span) = arg {
+                    let arg_name = path.last().cloned().unwrap_or_default();
+                    if let Err(e) = self.move_out(&arg_name, *arg_span) {
+                        self.error(e.span, e.message);
+                    }
+                }
+            }
+            checked.push(value);
+        }
+        Some(Some(HirExpr::Call {
+            callee: callee.to_vec(),
+            args: checked,
+            unsafe_call: false,
+            span,
+            ty: Type {
+                kind: TypeKind::Enum(enum_name),
+                span,
+            },
+        }))
+    }
+
+    /// `Enum.Variant` for a variant with no payload.
+    ///
+    /// A dotted name is otherwise a field chain; an enum has no fields, so a
+    /// two-segment name whose head is an enum can only be construction.
+    fn check_enum_path(&mut self, path: &[String], span: Span) -> Option<Option<HirExpr>> {
+        if path.len() != 2 {
+            return None;
+        }
+        let sig = self.enums.get(&path[0])?.clone();
+        let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
+        if !variant.fields.is_empty() {
+            self.error(
+                span,
+                format!(
+                    "variant `{}` of `{}` takes {} field{}; construct it with `{}.{}(...)`",
+                    path[1],
+                    path[0],
+                    variant.fields.len(),
+                    if variant.fields.len() == 1 { "" } else { "s" },
+                    path[0],
+                    path[1]
+                ),
+            );
+            return Some(None);
+        }
+        Some(Some(HirExpr::Call {
+            callee: path.to_vec(),
+            args: Vec::new(),
+            unsafe_call: false,
+            span,
+            ty: Type {
+                kind: TypeKind::Enum(path[0].clone()),
+                span,
+            },
+        }))
+    }
+
+    /// `Enum.Variant { field: value, ... }` for a variant with named fields.
+    ///
+    /// Fields are checked by name and lowered in declaration order, for the
+    /// same reason a struct literal is: the layout must not depend on the order
+    /// a particular literal happened to spell.
+    fn check_enum_struct_lit(
+        &mut self,
+        path: &[String],
+        fields: &[(String, Expr, Span)],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        if path.len() != 2 {
+            return None;
+        }
+        let sig = self.enums.get(&path[0])?.clone();
+        let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
+        let enum_name = path[0].clone();
+        let variant_name = path[1].clone();
+        if variant
+            .fields
+            .iter()
+            .any(|f| matches!(f, VariantField::Positional { .. }))
+        {
+            self.error(
+                span,
+                format!(
+                    "variant `{variant_name}` of `{enum_name}` takes positional fields; \
+                     write `{enum_name}.{variant_name}(...)`"
+                ),
+            );
+            return Some(None);
+        }
+        let mut written: Vec<(String, HirExpr)> = Vec::new();
+        for (field_name, value, field_span) in fields {
+            let Some(expected) = variant.fields.iter().find(|f| match f {
+                VariantField::Named { name, .. } => name == field_name,
+                VariantField::Positional { .. } => false,
+            }) else {
+                self.error(
+                    *field_span,
+                    format!("unknown field `{field_name}` in variant `{variant_name}`"),
+                );
+                let _ = self.check_expr(value);
+                continue;
+            };
+            let expected = match self.resolve_type(expected.ty()) {
+                Ok(ty) => ty,
+                Err(e) => {
+                    self.error(e.span, e.message);
+                    return Some(None);
+                }
+            };
+            let value = match self.check_expr_with_expected(value, &expected) {
+                Some(value) => value,
+                None => return Some(None),
+            };
+            if !fits(&expected, &expr_ty(&value)) {
+                self.error(
+                    expr_span(&value),
+                    format!("expected `{expected}`, found `{}`", expr_ty(&value)),
+                );
+            }
+            written.push((field_name.clone(), value));
+        }
+        for field in &variant.fields {
+            let VariantField::Named { name, .. } = field else {
+                continue;
+            };
+            if !written.iter().any(|(written_name, _)| written_name == name) {
+                self.error(
+                    span,
+                    format!("missing field `{name}` in variant `{variant_name}`"),
+                );
+            }
+        }
+        let mut ordered = Vec::new();
+        for field in &variant.fields {
+            let VariantField::Named { name, .. } = field else {
+                continue;
+            };
+            if let Some((_, value)) = written.iter().find(|(n, _)| n == name) {
+                ordered.push(value.clone());
+            }
+        }
+        Some(Some(HirExpr::Call {
+            callee: path.to_vec(),
+            args: ordered,
+            unsafe_call: false,
+            span,
+            ty: Type {
+                kind: TypeKind::Enum(enum_name),
+                span,
+            },
+        }))
+    }
+
     /// Like [`check_expr`], but the context's expected type is known: the
     /// `return` type of the enclosing function (or a `const` annotation).
     ///
@@ -2474,6 +2696,14 @@ impl<'src> Checker<'src> {
                 if path.len() == 1 && path.first().map(String::as_str) == Some("None") {
                     return self.check_constructor("None", &[], *span, None)?;
                 }
+                // `Color.Red` is a unit variant's constructor. An enum has no
+                // fields, so a two-segment name whose head names one cannot be
+                // anything else.
+                if path.len() == 2 {
+                    if let Some(constructed) = self.check_enum_path(path, *span) {
+                        return constructed;
+                    }
+                }
                 // A dotted name is a chain of field accesses: `p.x`, `a.b.c`.
                 // The parser produces one `Ident` for the whole dotted name (see
                 // its `x`, `std.io.puts`), so the decision lands here, where the
@@ -2577,6 +2807,15 @@ impl<'src> Checker<'src> {
                 unsafe_call,
                 span,
             } => {
+                // `Enum.Variant(args)` constructs a user enum. Checked first:
+                // the ordinary path resolves only the last segment, so `A` in
+                // `Shape.Circle(...)` would otherwise be reported as an unknown
+                // function and `Shape` as an unknown value.
+                if callee.len() == 2 {
+                    if let Some(constructed) = self.check_enum_call(callee, args, *span) {
+                        return constructed;
+                    }
+                }
                 let name = callee.last().cloned().unwrap_or_default();
                 // `None`, `Some(x)`, `Ok(v)` and `Err(e)` are value
                 // constructors, not calls. They resolve by name and arity,
@@ -2773,6 +3012,12 @@ impl<'src> Checker<'src> {
                 }
             }
             Expr::StructLit { path, fields, span } => {
+                // `Shape.Rect { w, h }` constructs a variant with named fields.
+                if path.len() == 2 {
+                    if let Some(constructed) = self.check_enum_struct_lit(path, fields, *span) {
+                        return constructed;
+                    }
+                }
                 let name = path.last().cloned().unwrap_or_default();
                 let sig = self.structs.get(&name).cloned();
                 match sig {

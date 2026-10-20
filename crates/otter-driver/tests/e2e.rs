@@ -1229,6 +1229,21 @@ fn literal_switch_arms_compare_the_subject() {
 }
 
 #[test]
+fn user_enums_construct_bind_and_match() {
+    // The tag is the variant's declaration index, but payloads are packed
+    // after it with no gaps, so tag and field index agree only when every
+    // earlier variant carried exactly one field. `Message` declares its unit
+    // variant first specifically to break that coincidence, and `Rect` writes
+    // its named payload out of order to prove the layout comes from the
+    // declaration.
+    let output = build_and_run("enums");
+    assert_eq!(
+        stdout_of(&output),
+        "12\n12\n0\nhi\ncount\nnothing\n7\n5\n0\n"
+    );
+}
+
+#[test]
 fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // Integer arithmetic is checked. The alternative is a wrapped number that
     // looks exactly like an answer, and a language with no exceptions has

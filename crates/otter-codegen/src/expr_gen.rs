@@ -761,6 +761,53 @@ fn gen_unary(
 
 /// Lower a call: the three runtime builtins, the `Option`/`Result`
 /// constructors, and user functions.
+/// Lower `Enum.Variant(args)` for a user-declared enum.
+///
+/// The checker has already matched the arguments to the variant's fields and
+/// ordered them; the backend only needs the tag and where the payload starts.
+/// `None` means "not an enum construction", so the ordinary call path can
+/// report an unknown callee exactly as before.
+fn gen_enum_ctor(
+    ctx: &mut FnCtx<'_>,
+    callee: &[String],
+    args: &[HirExpr],
+    ty: &TypeKind,
+) -> Option<GenValue> {
+    let TypeKind::Enum(enum_name) = ty else {
+        return None;
+    };
+    if callee.len() != 2 || &callee[0] != enum_name {
+        return None;
+    }
+    let variants = ctx.module.enum_variants(ty)?.to_vec();
+    let tag = u8::try_from(variants.iter().position(|v| v.name == callee[1])?).ok()?;
+    let mut field = 1u32;
+    for variant in &variants {
+        if variant.name == callee[1] {
+            break;
+        }
+        field += variant.fields.len() as u32;
+    }
+    let repr = repr_type(ty);
+    let mut acc = ctx.tmp();
+    ctx.push(format!("{acc} = insertvalue {repr} undef, i8 {tag}, 0"));
+    for (offset, arg) in args.iter().enumerate() {
+        let value = gen_expr(ctx, arg);
+        let next = ctx.tmp();
+        ctx.push(format!(
+            "{next} = insertvalue {repr} {acc}, {} {}, {}",
+            repr_type(&value.ty),
+            value.value,
+            field + offset as u32
+        ));
+        acc = next;
+    }
+    Some(GenValue {
+        value: acc,
+        ty: ty.clone(),
+    })
+}
+
 fn gen_call(
     ctx: &mut FnCtx<'_>,
     callee: &[String],
@@ -768,6 +815,9 @@ fn gen_call(
     ty: &TypeKind,
     unsafe_call: bool,
 ) -> GenValue {
+    if let Some(constructed) = gen_enum_ctor(ctx, callee, args, ty) {
+        return constructed;
+    }
     let name = callee.last().cloned().unwrap_or_default();
     match name.as_str() {
         // `alloc` and `dealloc` are calls to the runtime's heap (ledger L1),

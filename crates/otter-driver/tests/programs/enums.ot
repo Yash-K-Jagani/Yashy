@@ -1,0 +1,81 @@
+// User-declared enums: construction, matching, and payload extraction.
+//
+// `Shape` covers the three variant shapes (positional, named, unit) and a
+// named payload written out of declaration order. `Message` puts a unit
+// variant *first*, so a payload that assumed tag == payload index would read
+// the wrong field: `Text` is tag 1 but payload field 1, `Count` is tag 2 but
+// payload field 2, and `Nothing` owns tag 0 with no payload at all. `Item`
+// makes the payload a struct, so the variant carries an aggregate and a
+// binding on it still supports field access.
+struct Pair {
+    left: i64,
+    right: i64,
+}
+
+enum Shape {
+    Circle(f64),
+    Rect { w: f64, h: f64 },
+    Point,
+}
+
+enum Message {
+    Nothing,
+    Text(string),
+    Count(i64),
+}
+
+enum Item {
+    Nothing,
+    Two(Pair),
+    Number(i64),
+}
+
+fn area(s: Shape) -> f64 {
+    return switch s {
+        case Circle(r) { 3.0 * r * r }
+        case Rect { w: w, h: h } { w * h }
+        case Point { 0.0 }
+    };
+}
+
+fn label(m: Message) -> string {
+    return switch m {
+        case Text(t) { t }
+        case Count(n) { "count" }
+        case Nothing { "nothing" }
+    };
+}
+
+fn total(item: Item) -> i64 {
+    return switch item {
+        case Two(p) { p.left + p.right }
+        case Number(n) { n }
+        case Nothing { 0 }
+    };
+}
+
+fn main() {
+    const c = Shape.Circle(2.0);
+    const r = Shape.Rect { h: 3.0, w: 4.0 };
+    const p = Shape.Point;
+    print_f64(area(c));
+    print_str("\n");
+    print_f64(area(r));
+    print_str("\n");
+    print_f64(area(p));
+    print_str("\n");
+
+    print_str(label(Message.Text("hi")));
+    print_str("\n");
+    print_str(label(Message.Count(7)));
+    print_str("\n");
+    print_str(label(Message.Nothing));
+    print_str("\n");
+
+    print_i64(total(Item.Two(Pair { right: 3, left: 4 })));
+    print_str("\n");
+    print_i64(total(Item.Number(5)));
+    print_str("\n");
+    print_i64(total(Item.Nothing));
+    print_str("\n");
+}

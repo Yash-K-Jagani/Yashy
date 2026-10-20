@@ -178,8 +178,8 @@ pub(crate) fn gen_arithmetic_builtin(
             // The tag and the payload index come from the tree's own layout of
             // `Option`, rather than being written down twice; the fallbacks are
             // the values that layout has today.
-            let tag = variant_tag(ty, "Some").unwrap_or(1);
-            let field = variant_payload_index(ty, "Some").unwrap_or(1);
+            let tag = variant_tag(ty, "Some", None).unwrap_or(1);
+            let field = variant_payload_index(ty, "Some", None).unwrap_or(1);
             let repr = repr_type(ty);
             let some = ctx.tmp();
             ctx.push(format!("{some} = insertvalue {repr} undef, i8 {tag}, 0"));

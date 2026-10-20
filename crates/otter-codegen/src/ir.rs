@@ -8,6 +8,8 @@
 
 use otter_sema::TypeKind;
 
+use crate::module::VariantRepr;
+
 /// The LLVM IR type for a checked Otter type.
 ///
 /// The five primitive cases are the whole M0–M2 mapping:
@@ -74,11 +76,9 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
 ///   both halves keep their own representation with no bit-punning; the
 ///   matching arm reads field 1 (`Ok`, tag 0) or field 2 (`Err`, tag 1).
 ///
-/// Struct and enum values are not represented yet: Task 12 threads the
-/// declaration table they need. Until then `Struct` renders as its named
-/// `%struct.Name` type (usable by `StructLit`), and `Enum` renders as a
-/// placeholder `i8` tag — no M0–M2 test path can construct an enum value,
-/// so the placeholder cannot be reached by a passing program.
+/// A struct renders as its named `%struct.Name` type and a user enum as its
+/// named `%enum.Name` type; both definitions are emitted once per module from
+/// the declarations, so the body only ever names them.
 pub fn repr_type(t: &TypeKind) -> String {
     match t {
         TypeKind::Str => "i8*".to_string(),
@@ -91,7 +91,7 @@ pub fn repr_type(t: &TypeKind) -> String {
             )
         }
         TypeKind::Struct(name) => format!("%struct.{name}"),
-        TypeKind::Enum(_) => "i8".to_string(),
+        TypeKind::Enum(name) => format!("%enum.{name}"),
         TypeKind::Func(_, _) => "void".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Map(_, _) => "i8*".to_string(),
@@ -138,11 +138,16 @@ pub fn size_of(kind: &TypeKind) -> u64 {
     }
 }
 
-/// The tag constant for a variant pattern of a scrutinee type, at M0–M2.
+/// The tag constant for a variant pattern of a scrutinee type.
 ///
-/// `Option`: `None` = 0, `Some` = 1. `Result`: `Ok` = 0, `Err` = 1. User
-/// enums arrive with Task 12 and are not represented here yet.
-pub fn variant_tag(scrutinee: &TypeKind, variant: &str) -> Option<u8> {
+/// `Option`: `None` = 0, `Some` = 1. `Result`: `Ok` = 0, `Err` = 1. A user
+/// enum's tag is the variant's index in declaration order, which is why the
+/// caller passes the enum's variant table: a pattern carries only the name.
+pub fn variant_tag(
+    scrutinee: &TypeKind,
+    variant: &str,
+    user: Option<&[VariantRepr]>,
+) -> Option<u8> {
     match scrutinee {
         TypeKind::Option(_) => match variant {
             "None" => Some(0),
@@ -154,19 +159,93 @@ pub fn variant_tag(scrutinee: &TypeKind, variant: &str) -> Option<u8> {
             "Err" => Some(1),
             _ => None,
         },
+        TypeKind::Enum(_) => user?
+            .iter()
+            .position(|v| v.name == variant)
+            .and_then(|index| u8::try_from(index).ok()),
         _ => None,
     }
 }
 
-/// The payload field index for a variant of a scrutinee type, at M0–M2.
+/// The first payload field index for a variant of a scrutinee type.
 ///
 /// `Option` stores its single payload at field 1; `Result` stores `Ok`'s at
-/// field 1 and `Err`'s at field 2 (see [`repr_type`]).
-pub fn variant_payload_index(scrutinee: &TypeKind, variant: &str) -> Option<u32> {
+/// field 1 and `Err`'s at field 2 (see [`repr_type`]). A user enum flattens
+/// every variant's fields after the tag, so the index is one plus the fields
+/// of the variants declared before it. A unit variant has no payload.
+pub fn variant_payload_index(
+    scrutinee: &TypeKind,
+    variant: &str,
+    user: Option<&[VariantRepr]>,
+) -> Option<u32> {
     match scrutinee {
         TypeKind::Option(_) if variant == "Some" => Some(1),
         TypeKind::Result(_, _) if variant == "Ok" => Some(1),
         TypeKind::Result(_, _) if variant == "Err" => Some(2),
+        TypeKind::Enum(_) => {
+            let mut index = 1u32;
+            for declared in user? {
+                if declared.name == variant {
+                    return if declared.fields.is_empty() {
+                        None
+                    } else {
+                        Some(index)
+                    };
+                }
+                index += declared.fields.len() as u32;
+            }
+            None
+        }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unit variant first, then one positional field, then two named ones.
+    /// This is the case where a variant's tag and its payload's first field
+    /// index differ, which is the whole reason the two lookups are separate.
+    fn table() -> Vec<VariantRepr> {
+        vec![
+            VariantRepr {
+                name: "Empty".to_string(),
+                fields: Vec::new(),
+            },
+            VariantRepr {
+                name: "One".to_string(),
+                fields: vec![(None, "i64".to_string())],
+            },
+            VariantRepr {
+                name: "Pair".to_string(),
+                fields: vec![
+                    (Some("left".to_string()), "i64".to_string()),
+                    (Some("right".to_string()), "i64".to_string()),
+                ],
+            },
+        ]
+    }
+
+    #[test]
+    fn an_enums_tag_is_its_declaration_index_and_its_payload_starts_after_the_gaps() {
+        let ty = TypeKind::Enum("E".to_string());
+        let declared = table();
+        assert_eq!(repr_type(&ty), "%enum.E");
+        assert_eq!(variant_tag(&ty, "Empty", Some(&declared)), Some(0));
+        assert_eq!(variant_tag(&ty, "One", Some(&declared)), Some(1));
+        assert_eq!(variant_tag(&ty, "Pair", Some(&declared)), Some(2));
+        assert_eq!(variant_payload_index(&ty, "Empty", Some(&declared)), None);
+        assert_eq!(variant_payload_index(&ty, "One", Some(&declared)), Some(1));
+        // `Pair` is tag 2 and its first field is field 2 as well because the
+        // variants before it contribute one field each. The distinguishing case
+        // is a *later* variant: `Last` is tag 3, after four payload fields.
+        let mut four = declared;
+        four.push(VariantRepr {
+            name: "Last".to_string(),
+            fields: vec![(None, "i8".to_string())],
+        });
+        assert_eq!(variant_tag(&ty, "Last", Some(&four)), Some(3));
+        assert_eq!(variant_payload_index(&ty, "Last", Some(&four)), Some(4));
     }
 }

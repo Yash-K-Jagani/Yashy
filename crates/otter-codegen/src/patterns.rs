@@ -49,15 +49,16 @@ enum Test {
 }
 
 /// The test an arm performs, or `None` for an arm that matches everything.
-fn test_for(arm: &HirSwitchArm, subject: &TypeKind) -> Option<Test> {
+fn test_for(ctx: &FnCtx<'_>, arm: &HirSwitchArm, subject: &TypeKind) -> Option<Test> {
     if arm.is_default {
         return None;
     }
     if let HirPattern::Literal(literal, _) = &arm.pattern {
         return Some(Test::Literal(literal.clone()));
     }
+    let user = ctx.module.enum_variants(subject);
     pattern_variant_name(&arm.pattern)
-        .and_then(|name| variant_tag(subject, name))
+        .and_then(|name| variant_tag(subject, name, user))
         .map(Test::Tag)
 }
 
@@ -81,7 +82,7 @@ pub fn gen_match(
 
     let tests: Vec<Option<Test>> = arms
         .iter()
-        .map(|arm| test_for(arm, &subject.ty))
+        .map(|arm| test_for(ctx, arm, &subject.ty))
         .collect();
     let arm_labels: Vec<String> = arms
         .iter()
@@ -221,8 +222,10 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
             ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
         }
         HirPattern::TupleVariant { args, .. } => {
-            let start = pattern_variant_name(pattern)
-                .and_then(|name| variant_payload_index(&subject.ty, name));
+            let start = pattern_variant_name(pattern).and_then(|name| {
+                let user = ctx.module.enum_variants(&subject.ty);
+                variant_payload_index(&subject.ty, name, user)
+            });
             let subject_repr = repr_type(&subject.ty);
             for (offset, arg) in args.iter().enumerate() {
                 let index = match start {
@@ -244,7 +247,55 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
             }
         }
         HirPattern::UnitVariant { .. } => {} // no payload
-        HirPattern::StructVariant { .. } => {} // Task 12 threads the field table
+        HirPattern::StructVariant { fields, .. } => {
+            // A named payload is flattened into the enum's aggregate in source
+            // order, so a field's index is its position in its own variant
+            // plus the fields every earlier variant contributed.
+            let Some(variant_name) = pattern_variant_name(pattern) else {
+                return;
+            };
+            let Some(variants) = ctx
+                .module
+                .enum_variants(&subject.ty)
+                .map(<[_]>::to_vec)
+            else {
+                return;
+            };
+            let mut start = 1u32;
+            let mut declared_fields = None;
+            for declared in &variants {
+                if declared.name == variant_name {
+                    declared_fields = Some(declared.fields.clone());
+                    break;
+                }
+                start += declared.fields.len() as u32;
+            }
+            let Some(declared_fields) = declared_fields else {
+                return;
+            };
+            let subject_repr = repr_type(&subject.ty);
+            for (field_name, subpattern, _) in fields {
+                let Some(offset) = declared_fields
+                    .iter()
+                    .position(|(name, _)| name.as_deref() == Some(field_name.as_str()))
+                else {
+                    continue;
+                };
+                let payload = ctx.tmp();
+                ctx.push(format!(
+                    "{payload} = extractvalue {subject_repr} {}, {}",
+                    subject.value,
+                    start + offset as u32
+                ));
+                if let HirPattern::Binding { name, ty, .. } = subpattern {
+                    let slot = ctx.alloc_slot();
+                    let repr = repr_type(&ty.kind);
+                    ctx.push_alloca(format!("{slot} = alloca {repr}"));
+                    ctx.push(format!("store {repr} {payload}, ptr {slot}"));
+                    ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+                }
+            }
+        }
         HirPattern::Literal(_, _) => {} // literal arms bind nothing
     }
 }

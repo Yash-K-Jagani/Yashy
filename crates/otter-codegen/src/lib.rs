@@ -30,7 +30,7 @@ pub use ffi::gen_ffi_call;
 pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
-pub use module::Module;
+pub use module::{Module, VariantRepr};
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_all_scopes_defers, run_defers, Flow};
 
@@ -97,6 +97,40 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
                 gen_extern_decl(&mut module, decl);
                 module.add_extern_decl(decl.clone());
             }
+        }
+    }
+    // Named type definitions are emitted once, before any body. A struct or
+    // enum used only as another type's payload may never be the subject of a
+    // literal, so waiting for a literal to define it would leave an unknown
+    // type in the module. These come from the *declarations*, not from the
+    // values, so a field's layout cannot depend on which literal was lowered
+    // first.
+    for item in &hir.items {
+        match item {
+            HirItem::Struct(s) => {
+                let fields = s
+                    .fields
+                    .iter()
+                    .map(|f| repr_type(&f.ty.kind))
+                    .collect();
+                module.define_named_type(&format!("%struct.{}", s.name), fields);
+            }
+            HirItem::Enum(e) => {
+                let variants = e
+                    .variants
+                    .iter()
+                    .map(|v| VariantRepr {
+                        name: v.name.clone(),
+                        fields: v
+                            .fields
+                            .iter()
+                            .map(|f| (f.name.clone(), repr_type(&f.ty.kind)))
+                            .collect(),
+                    })
+                    .collect();
+                module.define_enum(&e.name, variants);
+            }
+            HirItem::Fn(_) | HirItem::Import(_) | HirItem::Extern(_) => {}
         }
     }
     for item in &hir.items {
