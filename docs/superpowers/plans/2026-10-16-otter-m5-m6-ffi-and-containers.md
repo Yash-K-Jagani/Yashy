@@ -34,7 +34,7 @@
 - Consumes: ledger L2 M5 row
 - Produces: `TypeKind::CInt(u32)`, `CUInt(u32)`, `CFloat(u32)`, `CVoid`, `CPtr(TypeKind)`, `CSize`; spellings `i8 i16 i32 i64`, `u8 u16 u32 u64`, `f32 f64`, `*T`, `*mut T`, `*const T`, `usize`, `void`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -63,20 +63,54 @@ fn llvm_widths_match_the_declaration() {
 fn void_appears_only_as_a_return_type() {}
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Extend `TypeExpr` with a `CName`/`CPtr`/`CVoid` family and `TypeKind` to match. `linearity_of` returns `Linear` for `CPtr` to a non-void type — a C pointer is still linear.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser/ crates/otter-sema/ crates/otter-codegen/
 git commit -m "feat(ffi): C type spellings in the type grammar"
 ```
+
+**As built (commit `4fbc8cb`).** Three decisions were made while implementing,
+and each is pinned by a test rather than left to prose:
+
+- **`i64` and `f64` are not new kinds.** `TypeKind::from_c_spelling` maps them
+  to the existing `I64`/`F64`; only `i8 i16 i32 u8 u16 u32 u64 f32 usize void`
+  add `CInt`/`CUInt`/`CFloat`/`CSize`/`CVoid`. Two kinds for one machine value
+  would make every boundary call a cast that checks nothing. This supersedes
+  the plan's `f64 -> CFloat(64)` sketch on purpose.
+- **Pointer mutability is in the AST.** `TypeExpr::Ptr` now carries
+  `PtrKind::{Bare, Mut, Const}`, so `*u8`, `*mut u8` and `*const u8` are three
+  parse results. `parse_type_expr` reaches the bare spelling by finishing the
+  named pointee it has already started, since `const` is a keyword token and
+  the cursor cannot rewind. Outside an `extern` declaration only `Mut`
+  resolves (to the old owning `TypeKind::Ptr`); the other two are diagnostics
+  naming `extern`.
+- **C spellings are rejected by the checker, not the parser.** The parser
+  accepts them anywhere so a diagnostic can point at the type; `resolve_type`
+  rejects FFI-only names and pointers with a message naming `extern`, while
+  `resolve_type_in(.., allow_c = true)` is the path Task 2's `extern` checker
+  uses. `void` as a *parameter* is therefore also rejected today as "C type
+  outside extern"; the return-only rule is enforced where declarations are
+  checked (Task 2), because that is the first point at which a `void` return
+  is legal at all.
+
+`CPtr` is linear in `linearity_of`, like `Ptr`: C code may keep the pointer or
+free what it points at, and the checker cannot see across the boundary. LLVM
+widths are pinned one at a time in `crates/otter-codegen/tests/c_types.rs`;
+`CInt(64)` and `CFloat(64)` still lower correctly even though the checker
+never constructs them.
+
+Tests: `crates/otter-parser/tests/types.rs` (3),
+`crates/otter-sema/tests/c_types.rs` (5),
+`crates/otter-codegen/tests/c_types.rs` (2).
 
 ---
 
@@ -603,6 +637,28 @@ git commit -m "test: multi-file end-to-end programs using containers"
 git add .github/
 git commit -m "ci: Windows and Linux matrix for the full workspace"
 ```
+
+**As built so far (commit `ef3230a`).** The workflow landed *before* Task 1,
+not at Task 12: the definition of done requires Windows and Linux from M5
+onward, and no workflow existed, so waiting would have deferred the first
+platform signal until after every implementation task. It runs, on
+`windows-latest` and `ubuntu-latest`:
+
+```text
+cargo check --workspace --all-targets
+cargo test --workspace --no-fail-fast
+```
+
+It installs LLVM on Linux and verifies `clang` on Windows before the suite,
+because the driver shells out to `clang` for every end-to-end test.
+
+Deliberately **not** in it yet: `cargo fmt --check` (rustfmt is not a gate in
+this repository by standing decision, so a formatting failure would report
+style rather than correctness) and `cargo clippy -- -D warnings` (blocked on
+this development host by Application Control, so the workflow could not be
+validated before pushing). Fuzz targets arrive with the fuzz task; the fuzzer
+is not installed here, so no fuzz job is claimed. Step 2 (both jobs green)
+remains open until this workflow has run on `origin`.
 
 ---
 
