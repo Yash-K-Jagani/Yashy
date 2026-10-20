@@ -127,7 +127,7 @@ Tests: `crates/otter-parser/tests/types.rs` (3),
 - Consumes: Task 1
 - Produces: `Item::Extern { abi: Option<String>, link: Option<String>, decls: Vec<ExternDecl>, span }` — `abi` is `"C"`, `link` is the library such as `"m"`; `ExternDecl { name, params, ret, span }`; `pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) -> ()` emitting `declare`. `unsafe` is **required** on every declaration — an `extern fn` without it is a diagnostic, per spec §8.1 — and because it is mandatory, `ExternDecl` carries no `unsafe` flag: there is nothing to store.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -155,20 +155,61 @@ fn a_link_directive_records_the_library_name() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Parse `extern "C" [link "name"] [unsafe] fn name(...)`. Reject a missing `unsafe`. Emit `declare` into the module. Predeclare each in the root scope.
 
-- [ ] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
+- [x] **Step 4: Run to verify they pass** → PASS. Add and read the golden file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/
 git commit -m "feat(ffi): extern C declarations with a mandatory unsafe marker"
 ```
+
+**As built.** The parser accepts the braced block *and* the single-declaration
+form (`extern "C" unsafe fn puts(s: *const u8) -> i32;`); both produce the same
+`Item::Extern` with a declaration list, because the AST already had one shape
+for both. `const`-style keyword handling is not involved here, but `link` is an
+identifier rather than a keyword and is recognised by its token text.
+
+`unsafe` is enforced by `parse_extern_decl` before `fn` is read, so the caret is
+on the declaration that omitted it. `extern_block_needs_a_declaration` rejects
+a braced block with nothing in it; a single declaration is always non-empty by
+construction.
+
+The HIR gained `HirItem::Extern(HirExternBlock)` and
+`HirExternDecl { name, params, ret, span }`. The block carries `abi` and `link`
+through unchanged; Task 4's driver is the only consumer of `link`. Every
+declaration is predeclared in the root scope and in `fns`, so calls resolve
+exactly like user functions and a name collision is the existing "duplicate
+definition" diagnostic.
+
+Two boundary rules landed with the declarations:
+
+- **`void` is legal only as a return type.** `resolve_or_report_in(.., allow_c,
+  is_return)` rejects a `void` parameter (and `Option[void]`); `void*` remains a
+  legal parameter, because a pointer to void is not a void value.
+- **A `string` may stand where `*const u8` / `*mut u8` is wanted.** This is the
+  one FFI coercion, in `ffi_string_fits`; it is what makes `strlen("hi")` type
+  check. The copy itself is Task 3, so the HIR argument is still the `Str`
+  value.
+
+Codegen emits `declare <ret> @name(<params>)` through `gen_extern_decl` and
+nothing else. The golden (`tests/golden/extern.expected.ll`) pins two libc
+declarations and an empty `main`; the *call* IR is deliberately not pinned here
+because today's `string` value is a pointer to the `%otter_str` header, which is
+not a C string. Task 3's copy is what changes that, and its own golden owns the
+call shape.
+
+Known gap, deferred to Task 5: a C scalar parameter (`i32`, `usize`) cannot yet
+be given a value, because `as` does not know the C numeric kinds and ordinary
+Otter code cannot declare one. The libc program needs `malloc`'s `usize`, so
+Task 5 extends `is_numeric` and the cast lowering rather than smuggling an
+implicit conversion into this task.
 
 ---
 
