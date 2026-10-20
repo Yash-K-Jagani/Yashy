@@ -217,46 +217,69 @@ implicit conversion into this task.
 
 **Files:**
 - Create: `crates/otter-codegen/src/ffi.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `src/module.rs`, `src/lib.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs` (the `unsafe` rule on pointer arguments)
+- Modify: `crates/otter-runtime/runtime.c`, `include/otter_runtime.h` (the copy and the lend)
+- Create: `crates/otter-codegen/tests/ffi.rs` (replaces the sketch below)
 - Create: `crates/otter-codegen/tests/golden/ffi_copy.ot`, `tests/golden/ffi_copy.expected.ll`
 
 **Interfaces:**
 - Consumes: Task 2
-- Produces: `pub fn gen_ffi_call(ctx: &mut FnCtx, decl: &HirExternDecl, args: &[GenValue]) -> String` — copies each `string` and `Slice` argument into temporary runtime-owned storage before the call, and copies an out-parameter result back
+- Produces: `pub fn gen_ffi_call(ctx: &mut FnCtx, decl: &HirExternDecl, args: &[GenValue], unsafe_call: bool) -> String` — copies each `string` argument into temporary runtime-owned storage before the call, frees it after, and leaves raw pointers alone
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-```rust
-#[test]
-fn a_string_argument_to_an_extern_call_is_copied_not_passed_by_pointer() {
-    // The IR must show a copy into a temp before the call. This is spec §8.1's
-    // "crossing the boundary copies".
-}
+The four tests landed in `crates/otter-codegen/tests/ffi.rs`: the string is
+copied before the call and the header pointer never crosses; the temporary is
+freed after the call; an `unsafe` call lends the bytes and frees nothing; a raw
+pointer is passed as itself (a hand-built lowering context, because producing a
+C pointer needs `malloc`'s `usize` cast, which is Task 5). The slice test is
+deferred with the slice type itself (M6): there is no `Slice` in `TypeKind` yet,
+so writing the test now would pin a shape the language does not have.
 
-#[test]
-fn a_slice_argument_is_copied_with_its_length() {}
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-#[test]
-fn a_raw_pointer_argument_is_passed_unchanged_and_requires_an_unsafe_call() {}
+- [x] **Step 3: Implement**
 
-#[test]
-fn the_temporary_is_released_after_the_call() {}
-```
+An `unsafe` marker on the *call site* is required to bypass copying. Without it, string arguments are copied and C cannot retain them. Three pieces:
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+1. **The runtime copy.** `otter_str_cstr` (`runtime.c`) allocates a fresh
+   NUL-terminated buffer with `otter_alloc`, so the existing leak accounting and
+   `otter_free` apply unchanged. `otter_str_ptr` returns the string's own data
+   pointer and is the `unsafe` lend.
+2. **The lowering.** `gen_ffi_call` copies each `string` argument whose
+   parameter is a `CPtr`, makes the call, then frees the copies and releases any
+   temporary strings it consumed. Under `unsafe` it calls `otter_str_ptr`
+   instead and frees nothing: the pointer may now belong to C. Raw pointers and
+   numbers cross as their machine values.
+3. **The rule.** The checker records extern names and rejects a call that
+   passes a linear (raw-pointer) argument without `unsafe`, at the argument's
+   span, because C may keep or free what the pointer names. A `string` is not
+   linear, so `strlen("hi")` stays safe.
 
-- [ ] **Step 3: Implement**
+`emit_program` now walks extern blocks in a pre-pass: all `declare`s come before
+the first `define`, and each declaration is recorded in `Module` so a call site
+can tell an extern callee from a user function. The two new runtime declares
+appear in every golden (the header is fixed), which is the only golden churn.
 
-An `unsafe` marker on the *call site* is required to bypass copying. Without it, string and slice arguments are copied and C cannot retain them.
+- [x] **Step 4: Run to verify they pass** → PASS. Codegen 5 (`tests/ffi.rs`,
+including the `ffi_copy` golden), sema 8 (`tests/externs.rs`), all other golden
+files updated by exactly two `declare` lines each.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
-
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add crates/otter-codegen/
+git add crates/otter-codegen/ crates/otter-sema/ crates/otter-runtime/
 git commit -m "feat(ffi): copy string and slice arguments at the C boundary"
 ```
+
+**As built:** the produced signature gained `unsafe_call: bool`; the plan's
+`gen_ffi_call` could not know which mode the call site asked for. Slices and
+out-parameter copy-back are not implemented — both need the slice type (M6
+Tasks 6–7); today's out-parameter mechanism is a raw pointer, which passes
+unchanged and requires `unsafe`. The commit message above is kept for the
+record; the actual commit says `feat(ffi): copy string arguments at the C
+boundary` because "slice" would claim work not in it.
 
 ---
 
