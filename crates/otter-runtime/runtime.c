@@ -631,6 +631,30 @@ void otter_slice_free(otter_slice *slice) {
     slice->cap = 0;
 }
 
+/* Releases every element of a `[]string`, then the array itself.
+ *
+ * A slice of strings owns one reference per element: `push` and the literal
+ * retain each handle, and this is the only place that drops them. A static
+ * string has a zero refcount, so `otter_str_release` leaves it alone and
+ * `[]string { "a", "b" }` costs nothing to free. The header is zeroed exactly
+ * as `otter_slice_free` does, so a second free through a stale header is a
+ * no-op rather than a double free. */
+void otter_slice_free_strings(otter_slice *slice) {
+    if (slice == NULL) {
+        return;
+    }
+    if (slice->data != NULL) {
+        otter_str **elements = (otter_str **)slice->data;
+        for (long long index = 0; index < slice->len; index++) {
+            otter_str_release(elements[index]);
+        }
+    }
+    otter_free(slice->data);
+    slice->data = NULL;
+    slice->len = 0;
+    slice->cap = 0;
+}
+
 /* ---- Slice access ------------------------------------------------------
  *
  *     declare i64 @otter_slice_get(ptr, i64, ptr, i64)

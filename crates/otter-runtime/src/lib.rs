@@ -149,6 +149,12 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// Releases every `string` handle a `[]string` owns, then the array, and
+    /// zeroes the header. Tolerates null; static strings are not freed.
+    pub fn otter_slice_free_strings(slice: *mut OtterSlice);
+}
+
+unsafe extern "C" {
     /// Copies the element at `index` into `out` and returns 1, or returns 0
     /// when `index` is outside `[0, len)`.
     pub fn otter_slice_get(

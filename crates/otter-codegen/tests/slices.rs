@@ -216,3 +216,34 @@ fn golden_slices_matches_the_pinned_contract() {
 fn golden_slice_operations_match_the_pinned_contract() {
     golden_case("slices_ops");
 }
+
+#[test]
+fn a_string_literal_element_is_retained_by_the_slice() {
+    let ir = emit("fn main() { var xs = []string { \"a\" }; push(xs, \"b\"); free_slice(xs); }");
+    assert_eq!(
+        ir.matches("call i8* @otter_str_retain").count(),
+        2,
+        "the literal element and the pushed element each get one reference:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @otter_slice_free_strings(ptr"),
+        "a `[]string` is freed element by element:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call void @otter_slice_free(ptr"),
+        "the plain free would leak every element's reference:\n{ir}"
+    );
+}
+
+#[test]
+fn a_string_temporary_pushed_into_a_slice_transfers_its_reference() {
+    let ir = emit("fn main() { var xs = []string {}; push(xs, \"a\" + \"b\"); free_slice(xs); }");
+    assert!(
+        !ir.contains("call i8* @otter_str_retain"),
+        "a concatenation already owns a reference; retaining again would leak one:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @otter_slice_free_strings(ptr"),
+        "the transferred reference is released when the slice is:\n{ir}"
+    );
+}

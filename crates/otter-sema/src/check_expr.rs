@@ -1742,6 +1742,18 @@ impl<'src> Checker<'src> {
             return Some(None);
         }
         if name == "pop" {
+            // A `string` element is a reference the *slice* owns. Removing the
+            // last one would leave the returned handle as the only owner, and
+            // an `Option[string]` binding is not tracked for release yet, so
+            // popping would leak the string. Reading through the index or a
+            // `for-in` borrows instead, which is why those are allowed.
+            if matches!(element.kind, TypeKind::Str) {
+                self.error(
+                    expr_span(&receiver),
+                    "popping a `string` is not supported yet: the slice owns the reference, and a removed element would be handed out unowned",
+                );
+                return Some(None);
+            }
             return Some(Some(HirExpr::Call {
                 callee: vec![name.to_string()],
                 args: vec![receiver],
@@ -3145,18 +3157,21 @@ fn option(payload: &Type, span: Span) -> Type {
 /// Whether a slice of `kind` can be pushed to, indexed, popped and iterated in
 /// M6.
 ///
-/// Only numbers and `bool` qualify. A compound element (`Option`, `Result`,
-/// a struct, an enum) needs its real layout as a stride, which
-/// `otter_codegen::ir::size_of` does not have, and a `string` element would
-/// need reference counting at every insertion and removal. Refusing those where
-/// they would be *used* keeps an empty `[]string {}` a legal value while no
-/// operation can copy a reference without owning it.
+/// Numbers, `bool`, and `string` qualify. A compound element (`Option`,
+/// `Result`, a struct, an enum) needs its real layout as a stride, which
+/// `otter_codegen::ir::size_of` does not have. A `string` element is a
+/// reference the slice owns: `push` and a literal retain it, `free_slice`
+/// releases each element, and reading one (index or `for-in`) *borrows* the
+/// handle, the same shallow copy a struct field makes. `pop` is refused for
+/// strings because the removed handle would leave the slice with nothing that
+/// releases it (see `check_slice_builtin`).
 fn slice_element_is_operable(kind: &TypeKind) -> bool {
     matches!(
         kind,
         TypeKind::I64
             | TypeKind::F64
             | TypeKind::Bool
+            | TypeKind::Str
             | TypeKind::CInt(_)
             | TypeKind::CUInt(_)
             | TypeKind::CFloat(_)
@@ -3176,15 +3191,7 @@ fn map_key_is_supported(kind: &TypeKind) -> bool {
 
 /// The diagnostic for an element kind [`slice_element_is_operable`] rejects.
 fn unsupported_element_message(element: &Type) -> String {
-    if matches!(element.kind, TypeKind::Str) {
-        format!(
-            "a slice of `string` is not supported yet: `{element}` elements would need reference counting"
-        )
-    } else {
-        format!(
-            "a slice of `{element}` is not supported yet: only numbers and `bool` can be elements"
-        )
-    }
+    format!("a slice of `{element}` is not supported yet: only numbers, `bool` and `string` can be elements")
 }
 
 /// Whether a value of type `found` may stand where `expected` is wanted.

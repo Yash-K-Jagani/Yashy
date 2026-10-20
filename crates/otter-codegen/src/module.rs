@@ -227,6 +227,7 @@ impl Module {
         out.push_str("declare i64 @otter_slice_get(ptr, i64, ptr, i64)\n");
         out.push_str("declare i64 @otter_slice_pop(ptr, ptr, i64)\n");
         out.push_str("declare void @otter_slice_free(ptr)\n");
+        out.push_str("declare void @otter_slice_free_strings(ptr)\n");
         // The map half of ledger L1's M6 block. An unused `declare` is legal
         // IR, so these are always present for the same reason as the slices.
         out.push_str("declare i8* @otter_map_new(i64, i64, i64)\n");

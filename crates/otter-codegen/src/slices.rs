@@ -31,6 +31,10 @@ fn unit() -> GenValue {
 /// `insertvalue`s that build the header. An empty literal allocates nothing and
 /// is the null header, so `[]T {}` is a valid value of every slice type and its
 /// first `push` starts from capacity zero.
+///
+/// A `string` element is retained by the slice: a local or literal is borrowed
+/// and gets a new reference, while a temporary result (`a + b`) already owns
+/// one and transfers it. The slice releases every element in `free_slice`.
 pub fn gen_literal(
     ctx: &mut FnCtx<'_>,
     elem_ty: &TypeKind,
@@ -40,6 +44,7 @@ pub fn gen_literal(
     let elem_repr = repr_type(elem_ty);
     let elem_size = size_of(elem_ty);
     let count = elements.len();
+    let is_string = matches!(elem_ty, TypeKind::Str);
 
     let data = if count == 0 || elem_size == 0 {
         "null".to_string()
@@ -54,7 +59,19 @@ pub fn gen_literal(
     };
 
     for (index, element) in elements.iter().enumerate() {
-        let value = gen_expr(ctx, element);
+        let mut value = gen_expr(ctx, element);
+        if is_string {
+            if ctx.is_owned(&value.value) {
+                ctx.forget_owned(&value.value);
+            } else if !value.value.is_empty() {
+                let retained = ctx.tmp();
+                ctx.push(format!(
+                    "{retained} = call i8* @otter_str_retain(i8* {})",
+                    value.value
+                ));
+                value.value = retained;
+            }
+        }
         let address = ctx.tmp();
         ctx.push(format!(
             "{address} = getelementptr {elem_repr}, ptr {data}, i64 {index}"
@@ -103,8 +120,11 @@ fn binding_slot(ctx: &FnCtx<'_>, args: &[HirExpr]) -> Option<(String, TypeKind)>
 ///
 /// The value is stored in a fresh slot and its address handed to the runtime,
 /// which copies `elem_size` bytes. That is exact for every element the checker
-/// admits (numbers and `bool`); compound elements are refused until their real
-/// stride is known, so no aggregate copy can be under-sized here.
+/// admits (numbers, `bool`, and the `string` handle). A `string` is retained
+/// first -- or, when it is a temporary, its reference is transferred -- so the
+/// slice owns one reference to every element it holds. Compound elements are
+/// refused until their real stride is known, so no aggregate copy can be
+/// under-sized here.
 pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
@@ -115,7 +135,19 @@ pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some(value_expr) = args.get(1) else {
         return unit();
     };
-    let value = gen_expr(ctx, value_expr);
+    let mut value = gen_expr(ctx, value_expr);
+    if matches!(element.kind, TypeKind::Str) {
+        if ctx.is_owned(&value.value) {
+            ctx.forget_owned(&value.value);
+        } else if !value.value.is_empty() {
+            let retained = ctx.tmp();
+            ctx.push(format!(
+                "{retained} = call i8* @otter_str_retain(i8* {})",
+                value.value
+            ));
+            value.value = retained;
+        }
+    }
     let elem_repr = repr_type(&element.kind);
     let elem_size = size_of(&element.kind);
     let temp = ctx.alloc_slot();
@@ -250,12 +282,23 @@ pub fn gen_pop(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> G
 ///
 /// The runtime frees the backing array and zeroes the header in the binding's
 /// slot. The checker has already moved the binding out, so the value cannot be
-/// read again. Only numeric elements reach here, so nothing is released element
-/// by element.
+/// read again. A `[]string` goes through `otter_slice_free_strings`, which
+/// releases each element before freeing the array: those references belong to
+/// the slice, not to the binding that held the header.
 pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
-    let Some((slot, _)) = binding_slot(ctx, args) else {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
     };
-    ctx.push(format!("call void @otter_slice_free(ptr {slot})"));
+    let strings = match &ty {
+        TypeKind::Slice(element) => matches!(element.kind, TypeKind::Str),
+        _ => false,
+    };
+    if strings {
+        ctx.push(format!(
+            "call void @otter_slice_free_strings(ptr {slot})"
+        ));
+    } else {
+        ctx.push(format!("call void @otter_slice_free(ptr {slot})"));
+    }
     unit()
 }

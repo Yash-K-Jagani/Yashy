@@ -1902,3 +1902,14 @@ fn maps_insert_overwrite_remove_and_measure() {
     assert_eq!(stdout_of(&output), "5\n3\nnone\n1\n");
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn a_string_slice_can_be_built_iterated_and_freed() {
+    // `string_slices.ot` starts from a two-element literal, pushes a third
+    // literal and a freshly built number, then prints all four in order. The
+    // elements are handles the slice retains, so the iteration prints text that
+    // is still owned while `free_slice` takes the references back.
+    let output = build_and_run("string_slices");
+    assert_eq!(stdout_of(&output), "alpha\nbeta\ngamma\n42\n");
+    assert_eq!(output.status.code(), Some(0));
+}

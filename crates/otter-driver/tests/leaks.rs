@@ -172,3 +172,17 @@ fn a_map_releases_every_key_it_retained() {
     );
     assert_no_leaks("maps_heap", &output);
 }
+
+#[test]
+fn a_string_slice_releases_every_element() {
+    // `string_slices_heap.ot` pushes one hundred freshly built strings. The
+    // slice owns a reference to each, so `free_slice` must release all hundred
+    // and the backing array: anything less shows up as a live allocation.
+    let output = build_and_run("string_slices_heap");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "190\n",
+        "the sum of the decimal lengths of 0..99:\n{stdout}"
+    );
+    assert_no_leaks("string_slices_heap", &output);
+}

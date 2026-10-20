@@ -1,0 +1,14 @@
+// A `[]string` owns one reference per element: a literal retains what it is
+// given, `push` retains a borrowed value (or takes over a temporary), and
+// `free_slice` releases every element before the backing array.
+
+fn main() {
+    var words = []string { "alpha", "beta" };
+    push(words, "gamma");
+    push(words, str_from_i64(42));
+    for word in words {
+        print_str(word);
+        print_str("\n");
+    }
+    free_slice(words);
+}

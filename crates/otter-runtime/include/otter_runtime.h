@@ -158,6 +158,12 @@ typedef struct otter_slice {
 void otter_slice_push(otter_slice *slice, const void *element, long long element_size);
 void otter_slice_free(otter_slice *slice);
 
+/* Frees a `[]string`: each element is an `otter_str*` the slice owns, so every
+ * handle is released before the backing array is. A static string is left
+ * alone by `otter_str_release`, and a null slice is a no-op. The header is
+ * zeroed, like `otter_slice_free`. */
+void otter_slice_free_strings(otter_slice *slice);
+
 /* `otter_slice_get` copies the element at `index` into `out` and returns 1, or
  * returns 0 and leaves `out` untouched when `index` is negative or at least
  * `len`. `otter_slice_pop` is the same for the last element, after decrementing

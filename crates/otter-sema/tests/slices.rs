@@ -108,10 +108,25 @@ fn moving_the_slice_while_iterating_is_rejected() {
 }
 
 #[test]
-fn iterating_a_slice_of_strings_is_rejected() {
+fn a_slice_of_strings_can_be_built_and_iterated() {
+    check(
+        "fn main() { var xs = []string { \"a\", \"b\" }; push(xs, \"c\"); \
+         for x in xs { print_str(x); } free_slice(xs); }",
+    )
+    .expect("a `[]string` owns its elements: a literal and push retain, free releases");
+}
+
+#[test]
+fn indexing_a_string_slice_yields_an_option_of_string() {
+    check("fn main() { var xs = []string { \"a\" }; var first: Option[string] = xs[0]; }")
+        .expect("an index borrows the element and a miss is `None`");
+}
+
+#[test]
+fn popping_a_string_slice_is_rejected() {
     assert_rejected(
-        "fn main() { var xs = []string {}; for x in xs { } }",
-        "not supported yet",
+        "fn main() { var xs = []string { \"a\" }; var last = pop(xs); }",
+        "popping a `string` is not supported yet",
     );
 }
 

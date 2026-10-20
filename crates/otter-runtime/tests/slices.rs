@@ -9,7 +9,8 @@ use std::ffi::c_void;
 use std::ptr::null_mut;
 
 use otter_runtime::{
-    otter_slice_free, otter_slice_get, otter_slice_pop, otter_slice_push, OtterSlice,
+    otter_slice_free, otter_slice_free_strings, otter_slice_get, otter_slice_pop, otter_slice_push,
+    otter_str_from_i64, otter_str_release, otter_str_retain, OtterStr, OtterSlice,
 };
 
 /// The `i64` elements currently in `slice`.
@@ -186,5 +187,52 @@ fn pop_takes_the_last_element_and_shrinks_the_slice() {
             "an empty slice has nothing to pop"
         );
         otter_slice_free(&mut slice);
+    }
+}
+
+/// Push one `string` handle the way generated code does: the slice retains it.
+unsafe fn push_string(slice: &mut OtterSlice, handle: *mut OtterStr) {
+    let retained = otter_str_retain(handle);
+    otter_slice_push(
+        slice,
+        &retained as *const *mut OtterStr as *const c_void,
+        std::mem::size_of::<*mut OtterStr>() as i64,
+    );
+}
+
+#[test]
+fn freeing_a_string_slice_releases_every_element() {
+    unsafe {
+        let mut slice = OtterSlice::default();
+        let first = otter_str_from_i64(1);
+        let second = otter_str_from_i64(2);
+        assert_eq!((*first).refcount, 1, "the caller owns one reference");
+        push_string(&mut slice, first);
+        push_string(&mut slice, second);
+        assert_eq!((*first).refcount, 2, "the slice owns a second reference");
+
+        otter_slice_free_strings(&mut slice);
+
+        assert_eq!(
+            (*first).refcount,
+            1,
+            "freeing the slice drops the slice's reference"
+        );
+        assert_eq!((*second).refcount, 1);
+        assert!(slice.data.is_null(), "the header is zeroed");
+        assert_eq!((slice.len, slice.cap), (0, 0));
+
+        otter_str_release(first);
+        otter_str_release(second);
+    }
+}
+
+#[test]
+fn freeing_a_string_slice_tolerates_null_and_empty() {
+    unsafe {
+        otter_slice_free_strings(null_mut());
+        let mut slice = OtterSlice::default();
+        otter_slice_free_strings(&mut slice);
+        assert!(slice.data.is_null());
     }
 }
