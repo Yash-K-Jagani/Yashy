@@ -39,8 +39,9 @@ use otter_runtime::{
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
     RUNTIME_SOURCE_NAME,
 };
-use otter_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
+use otter_sema::{check_modules_with, check_program_with, CheckOptions, HirItem, HirProgram};
 
+use crate::modules;
 use crate::toolchain::Toolchain;
 
 /// The `clang` optimization level applied to the generated IR.
@@ -444,7 +445,10 @@ fn missing_library(stderr: &str) -> Option<String> {
 ///
 /// Every diagnostic refers to file id **zero** of a fresh [`SourceMap`], which
 /// is `entry_name`'s text. A caller that wants to render them builds its own
-/// map by adding the same source first — the driver's CLI does exactly that.
+/// map by adding the same source first. This function does **not** resolve
+/// imports: it is the one-file convenience, and a program that imports another
+/// file should go through [`load_and_check`] and [`compile_hir`], the way the
+/// CLI does.
 ///
 /// Returns `Err` with every diagnostic of the first failing stage; on success,
 /// `Ok(())` and no output at all (the caller decides what to print).
@@ -458,17 +462,62 @@ pub fn compile_to_binary(
     let mut sources = SourceMap::new();
     let file = sources.add_file(entry_name, source.to_string());
 
-    let tokens = Lexer::new(source).tokenize()?;
+    let tokens = Lexer::with_file(source, file).tokenize()?;
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser.parse_program()?;
-    let hir = check_program_with(&program, &sources, file, CheckOptions { release: options.release })?;
+    let hir = check_program_with(
+        &program,
+        &sources,
+        file,
+        CheckOptions {
+            release: options.release,
+        },
+    )?;
 
+    compile_hir(&hir, entry_name, out, toolchain, options)
+}
+
+/// Load the entry point and its imports, then type-check the whole graph.
+///
+/// `sources` is filled with one file per module as the loader reads them. The
+/// caller keeps it: every diagnostic names the module it belongs to, so
+/// rendering needs the same map, not a new one built from the entry's text.
+///
+/// The entry point is file id zero. The returned [`HirProgram`] holds every
+/// module's items in dependency order with the entry point last, which is the
+/// order code generation emits them in.
+pub fn load_and_check(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+) -> Result<HirProgram, Vec<Diagnostic>> {
+    let modules = modules::load(sources, entry_path, entry_source)?;
+    let programs: Vec<(FileId, &otter_parser::ast::Program)> = modules
+        .iter()
+        .map(|module| (module.file, &module.program))
+        .collect();
+    check_modules_with(&programs, sources, CheckOptions { release })
+}
+
+/// Emit and link an already-checked program.
+///
+/// This is the half of the pipeline that needs an LLVM toolchain. Everything
+/// above it is pure Rust, which is what lets `otter check` and `--emit-ir` run
+/// on a machine that cannot produce a binary.
+pub fn compile_hir(
+    hir: &HirProgram,
+    entry_name: &str,
+    out: &Path,
+    toolchain: &Toolchain,
+    options: BuildOptions,
+) -> Result<(), Vec<Diagnostic>> {
     if let Err(diagnostic) = check_main_exists(&hir.items) {
         return Err(vec![diagnostic]);
     }
 
     let ir_text = emit_program(
-        &hir,
+        hir,
         entry_name,
         CodegenOptions {
             fp_contract: options.fast_math,
@@ -572,7 +621,7 @@ pub fn compile_to_binary(
     // a symbol from the archives to its right, so `-lm` before the object that
     // calls `sqrt` would not find it. The `link` directives come first so a
     // failure quotes the user's intent before the platform defaults.
-    let mut libraries = link_directives(&hir);
+    let mut libraries = link_directives(hir);
     for flag in platform_library_flags() {
         let flag = flag.to_string();
         if !libraries.contains(&flag) {

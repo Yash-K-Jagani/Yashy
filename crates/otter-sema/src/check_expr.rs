@@ -67,7 +67,14 @@ pub struct Checker<'src> {
     /// Names declared inside an `extern` block. A call to one of these follows
     /// the FFI boundary rules, which user functions do not (spec §8.1).
     externs: HashSet<String>,
-    errors: Vec<TypeError>,
+    /// Every error found, with the file it belongs to. A single-file check has
+    /// one file and an import graph has several, so the file is recorded at the
+    /// moment the error is reported rather than taken from `self.file` at the
+    /// end.
+    errors: Vec<(FileId, TypeError)>,
+    /// The file currently being declared or checked. It is what `panic` and
+    /// `assert` turn a span into a position with, and it moves from module to
+    /// module as [`Checker::check_modules`] walks the graph.
     file: FileId,
     /// Whether this is a release build, in which a `debug_assert` compiles away.
     ///
@@ -287,7 +294,7 @@ impl<'src> Checker<'src> {
     }
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
-        self.errors.push(TypeError::new(span, message));
+        self.errors.push((self.file, TypeError::new(span, message)));
     }
 
     /// Move `name` out of its binding, unless an enclosing `for-in` is reading
@@ -332,21 +339,46 @@ impl<'src> Checker<'src> {
         &mut self,
         ast: &otter_parser::ast::Program,
     ) -> Result<HirProgram, Vec<Diagnostic>> {
-        self.declare_items(&ast.items);
+        let file = self.file;
+        self.check_modules(&[(file, ast)])
+    }
+
+    /// Check a whole import graph, in the order the driver loaded it.
+    ///
+    /// Every module's items are declared before any body is read, so a module
+    /// can call a function another module defines regardless of which one comes
+    /// first in the list (the loader orders dependencies before the entry, but
+    /// mutual recursion through *types* would still need the two passes). Names
+    /// share one root scope, so defining `Point` in two modules is the same
+    /// duplicate-definition error as defining it twice in one file.
+    ///
+    /// `self.file` moves to each module before its items are touched, which is
+    /// what makes a diagnostic -- and the file/line a `panic` reports -- name
+    /// the module the mistake is in rather than the entry point.
+    pub fn check_modules(
+        &mut self,
+        modules: &[(FileId, &otter_parser::ast::Program)],
+    ) -> Result<HirProgram, Vec<Diagnostic>> {
+        for (file, ast) in modules {
+            self.file = *file;
+            self.declare_items(&ast.items);
+        }
         let mut items = Vec::new();
-        for item in &ast.items {
-            if let Some(hir) = self.check_item(item) {
-                items.push(hir);
+        for (file, ast) in modules {
+            self.file = *file;
+            for item in &ast.items {
+                if let Some(hir) = self.check_item(item) {
+                    items.push(hir);
+                }
             }
         }
         if self.errors.is_empty() {
             Ok(HirProgram { items })
         } else {
-            let file = self.file;
             let diagnostics = self
                 .errors
                 .drain(..)
-                .map(|e| e.into_diagnostic(file))
+                .map(|(file, e)| e.into_diagnostic(file))
                 .collect();
             Err(diagnostics)
         }
@@ -3053,6 +3085,25 @@ pub fn check_program_with(
 ) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut checker = Checker::new(sm, file, options);
     checker.check_program(ast)
+}
+
+/// The public entry point for checking an import graph.
+///
+/// Each `(file, program)` pair is one module, with spans that index that
+/// module's own text; the loader produces the list with dependencies before the
+/// entry point. All the modules share one root scope, so the result behaves
+/// like a single program whose items were written in this order.
+pub fn check_modules_with(
+    modules: &[(FileId, &otter_parser::ast::Program)],
+    sm: &SourceMap,
+    options: CheckOptions,
+) -> Result<HirProgram, Vec<Diagnostic>> {
+    let first = modules
+        .first()
+        .map(|(file, _)| *file)
+        .unwrap_or(FileId::from_index(0));
+    let mut checker = Checker::new(sm, first, options);
+    checker.check_modules(modules)
 }
 
 /// A primitive type at a synthetic span.

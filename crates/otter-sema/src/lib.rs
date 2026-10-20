@@ -13,7 +13,7 @@ pub mod ownership;
 pub mod scope;
 pub mod ty;
 
-pub use check_expr::{check_program, check_program_with, CheckOptions};
+pub use check_expr::{check_modules_with, check_program, check_program_with, CheckOptions};
 pub use check_pat::check_pattern;
 pub use error::TypeError;
 pub use exhaustive::{is_exhaustive, missing_cases};

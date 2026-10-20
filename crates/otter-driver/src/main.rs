@@ -18,10 +18,7 @@ use std::process::ExitCode;
 
 use otter_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use otter_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
-use otter_driver::{compile_to_binary, detect, BuildOptions, CpuTarget, OptLevel};
-use otter_lexer::Lexer;
-use otter_parser::Parser;
-use otter_sema::{check_program_with, CheckOptions, HirProgram};
+use otter_driver::{compile_hir, detect, load_and_check, BuildOptions, CpuTarget, OptLevel};
 
 const USAGE: &str = "\
 usage:
@@ -156,22 +153,28 @@ fn build(args: &[String]) -> ExitCode {
     };
     let entry = input.to_string_lossy().into_owned();
 
+    // One map for the whole program: the loader adds every imported file to it
+    // as it reads that file, so a diagnostic from a module renders against the
+    // module's own text. The entry point is file id zero.
+    let mut sources = SourceMap::new();
+    let hir = match load_and_check(&mut sources, &input, source, release) {
+        Ok(hir) => hir,
+        Err(diagnostics) => return render(&sources, &diagnostics),
+    };
+
     // `--emit-ir` is a pure front-end operation, so it deliberately does not
     // require an LLVM toolchain: dumping IR is exactly what you want to do on a
     // machine where the backend cannot run yet.
     if emit_ir {
-        return match front_end(&source, &entry, release) {
-            Ok(hir) => match check_main_exists(&hir.items) {
-                Ok(()) => {
-                    let options = CodegenOptions {
-                        fp_contract: fast_math,
-                    };
-                    print!("{}", emit_program(&hir, &entry, options));
-                    exit_code(EXIT_OK)
-                }
-                Err(diagnostic) => render(&source, &entry, &[diagnostic]),
-            },
-            Err(diagnostics) => render(&source, &entry, &diagnostics),
+        return match check_main_exists(&hir.items) {
+            Ok(()) => {
+                let options = CodegenOptions {
+                    fp_contract: fast_math,
+                };
+                print!("{}", emit_program(&hir, &entry, options));
+                exit_code(EXIT_OK)
+            }
+            Err(diagnostic) => render(&sources, &[diagnostic]),
         };
     }
 
@@ -190,9 +193,9 @@ fn build(args: &[String]) -> ExitCode {
         fast_math,
         release,
     };
-    match compile_to_binary(&source, &entry, &output, &toolchain, options) {
+    match compile_hir(&hir, &entry, &output, &toolchain, options) {
         Ok(()) => exit_code(EXIT_OK),
-        Err(diagnostics) => render(&source, &entry, &diagnostics),
+        Err(diagnostics) => render(&sources, &diagnostics),
     }
 }
 
@@ -212,31 +215,14 @@ fn check(args: &[String]) -> ExitCode {
         Ok(source) => source,
         Err(code) => return code,
     };
-    let entry = input.to_string_lossy().into_owned();
     // `check` reports the same diagnostics in either build mode -- a release
     // build still checks a `debug_assert`'s condition, it only declines to
     // lower it -- so there is no `--release` here to accept and ignore.
-    match front_end(&source, &entry, false) {
-        Ok(_) => exit_code(EXIT_OK),
-        Err(diagnostics) => render(&source, &entry, &diagnostics),
-    }
-}
-
-/// Lex, parse and type-check `source`.
-///
-/// The first failing stage returns its diagnostics; a stage is never run on
-/// input the previous one rejected.
-fn front_end(
-    source: &str,
-    entry: &str,
-    release: bool,
-) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
-    let file = sources.add_file(entry, source.to_string());
-    let tokens = Lexer::new(source).tokenize()?;
-    let mut parser = Parser::new(tokens, &sources, file);
-    let program = parser.parse_program()?;
-    check_program_with(&program, &sources, file, CheckOptions { release })
+    match load_and_check(&mut sources, &input, source, false) {
+        Ok(_) => exit_code(EXIT_OK),
+        Err(diagnostics) => render(&sources, &diagnostics),
+    }
 }
 
 fn read_source(input: &Path) -> Result<String, ExitCode> {
@@ -247,12 +233,11 @@ fn read_source(input: &Path) -> Result<String, ExitCode> {
 }
 
 /// Render each diagnostic with its source line and caret, to stderr.
-fn render(source: &str, entry: &str, diagnostics: &[Diagnostic]) -> ExitCode {
-    // The diagnostics name file id zero of a fresh map, which is `entry`'s
-    // text; adding it here in the same position is what makes the carets line
-    // up with what the user wrote.
-    let mut sources = SourceMap::new();
-    let _ = sources.add_file(entry, source.to_string());
+///
+/// `sources` is the map the diagnostics were produced against, so a diagnostic
+/// from an imported module names that module and points into its text. Building
+/// a fresh map here would put every caret in the entry file.
+fn render(sources: &SourceMap, diagnostics: &[Diagnostic]) -> ExitCode {
     for diagnostic in diagnostics {
         eprint!("{}", sources.render(diagnostic));
     }
