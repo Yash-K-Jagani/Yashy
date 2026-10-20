@@ -38,6 +38,7 @@ version = "0.1.0"
 dependencies = [
  "otter-codegen",
  "otter-common",
+ "otter-fmt",
  "otter-lexer",
  "otter-parser",
  "otter-runtime",
@@ -45,10 +46,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "otter-fmt"
+version = "0.1.0"
+dependencies = [
+ "otter-common",
+ "otter-lexer",
+ "otter-parser",
+]
+
+[[package]]
 name = "otter-lexer"
 version = "0.1.0"
 dependencies = [
  "otter-common",
+]
+
+[[package]]
+name = "otter-lsp"
+version = "0.1.0"
+dependencies = [
+ "otter-common",
+ "otter-driver",
+ "otter-lexer",
+ "otter-parser",
+ "otter-sema",
 ]
 
 [[package]]
