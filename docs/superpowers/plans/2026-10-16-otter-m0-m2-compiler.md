@@ -166,6 +166,16 @@ Expected: FAIL — `otter_driver` is not a library and `detect_with` does not ex
 Run: `cargo test -p otter-driver`
 Expected: PASS.
 
+**As built (M6, CI):** `CANDIDATES` probes `clang` before `llc`. The M1 design
+assembled with `llc` and linked with `clang`, but the merged IR + C + link
+invocation added later in `pipeline.rs` needs a C driver: `llc` rejects the
+runtime sources, `-I`, `-o`, and the library flags. A machine with both must
+therefore hand the command to `clang`; `llc` stays a candidate so `check` and
+`--emit-ir` work where only `llc` is installed, and the "not found" message
+still names both. This is exactly what the Linux CI job exercised: it installs
+`llvm` as well as `clang`, so detection picked `llc` and every suite that builds
+a program failed at the link line.
+
 - [ ] **Step 7: Install LLVM and verify end to end**
 
 Run: `winget install LLVM.LLVM`

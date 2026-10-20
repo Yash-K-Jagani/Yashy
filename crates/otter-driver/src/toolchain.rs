@@ -9,17 +9,22 @@ pub const LLC_ENV_VAR: &str = "OTTER_LLC";
 
 /// The binaries we know how to drive, in preference order.
 ///
-/// `clang` is accepted because `clang -x ir` does the same job as `llc`.
-const CANDIDATES: [&str; 2] = ["llc", "clang"];
+/// `clang` comes first because the pipeline's single invocation compiles the C
+/// runtime sources, assembles the IR, and links an executable; only a C driver
+/// can do that. `llc` turns IR into an object and nothing else, so a machine
+/// that has both must not hand the link line to `llc`. It stays a candidate so
+/// `check` and `--emit-ir` still work on a machine with `llc` and no `clang`,
+/// and so the "no toolchain" message can name both.
+const CANDIDATES: [&str; 2] = ["clang", "llc"];
 
 /// A located LLVM toolchain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toolchain {
-    /// Path to the `llc`-or-`clang` executable to invoke.
+    /// Path to the selected executable.
     ///
-    /// The field is named for `llc` because that is the preferred tool, but on
-    /// a machine that ships only `clang` it holds the `clang` path. Read
-    /// [`Toolchain::found`] to know which binary this actually is.
+    /// The field is named for `llc`, the original backend, and is kept for the
+    /// public surface's sake; it now usually holds `clang`. Read
+    /// [`Toolchain::found`] to know which candidate this is.
     pub llc: PathBuf,
 
     /// Which candidate was selected: `"llc"` or `"clang"`.
@@ -65,7 +70,7 @@ where
     }
 
     Err(format!(
-        "no LLVM toolchain found: Otter needs `llc` or `clang` to turn IR into a binary. \
+        "no LLVM toolchain found: Otter needs `clang` to compile the runtime and link a binary. \
          Set {LLC_ENV_VAR} to the executable, or put it on PATH. {} Tried: {}",
         install_hint(),
         tried.join("; ")
@@ -99,8 +104,7 @@ fn probe_environment(name: &str) -> Option<PathBuf> {
 ///
 /// A `OTTER_LLC` that does not point at a real file is ignored rather than
 /// fatal: the search continues with `which(name)` for the *same* candidate, so
-/// a stale override degrades to the `PATH` lookup instead of demoting `llc` to
-/// `clang` without saying so.
+/// a stale override degrades to the `PATH` lookup instead of skipping `llc`.
 fn probe_environment_with(
     name: &str,
     env_value: Option<&OsStr>,
@@ -193,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn llc_wins_when_both_candidates_resolve() {
+    fn clang_wins_when_both_candidates_resolve() {
         // Distinct existing paths per name, and the assertion names the exact
         // path, so reversing CANDIDATES makes this fail rather than pass.
         let llc = an_existing_file();
@@ -210,8 +214,11 @@ mod tests {
             Ok(toolchain) => toolchain,
             Err(message) => panic!("both candidates resolve, so this must succeed: {message}"),
         };
-        assert_eq!(toolchain.llc, llc, "llc must win over clang");
-        assert_eq!(toolchain.found, "llc");
+        assert_eq!(
+            toolchain.llc, clang,
+            "clang must win: the link line needs a C driver"
+        );
+        assert_eq!(toolchain.found, "clang");
     }
 
     #[test]

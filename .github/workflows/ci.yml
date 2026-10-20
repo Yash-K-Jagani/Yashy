@@ -24,8 +24,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # The driver compiles IR with `llc` or `clang` and links with `clang`.
-      # Ubuntu runners do not guarantee either on PATH, so install both there.
+      # The driver compiles and links with `clang`; `llc` is only a fallback
+      # for `check` and `--emit-ir`. Ubuntu runners do not guarantee either on
+      # PATH. Installing `llvm` as well as `clang` is deliberate: it puts `llc`
+      # on PATH, which is exactly the machine shape where detection must not
+      # hand a link line to `llc`.
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux'
         run: |
