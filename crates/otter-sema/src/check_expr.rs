@@ -280,10 +280,11 @@ impl<'src> Checker<'src> {
             // exit *of the operating system*, not of the program's own control
             // flow, and the qualification is the documentation.
             //
-            // There is no module system yet, so a call is resolved by its last
-            // segment like every other: `os.exit` reaches this entry as `exit`.
-            // Both spellings therefore work, and the checker cannot tell them
-            // apart -- which is recorded here rather than silently relied on.
+            // Modules exist (M6 Task 9), but references are unqualified: a call
+            // is resolved by its last segment like every other name, so
+            // `os.exit` reaches this entry as `exit`. Both spellings therefore
+            // work, and the checker cannot tell them apart -- which is recorded
+            // here rather than silently relied on.
             //
             // The type is `!`: exiting produces no value, and the same argument
             // that lets `panic` stand in a `return` position applies. Taking an

@@ -223,6 +223,95 @@ i64        otter_map_len(otter_map*);
 void       otter_map_free(otter_map*);
 ```
 
+> **L1 revision, M5–M6 (Tasks 6–10): the container and FFI symbols as built.**
+> The sketch above is the contract M6 started from; this is what the runtime and
+> the generated IR actually use. Every divergence is a signature the code needed,
+> not a rename.
+>
+> ```c
+> /* M5, the FFI boundary */
+> char*              otter_str_cstr(const otter_str*);  /* fresh copy, NUL-terminated */
+> const char*        otter_str_ptr(const otter_str*);   /* borrowed bytes, NUL-terminated */
+> unsigned long long otter_str_hash(const otter_str*);  /* FNV-1a over len bytes */
+> void               otter_exit(long long code);        /* flush stdout/stderr, exit */
+> void otter_panic_overflow(const otter_str* op, long long lhs, long long rhs,
+>                           const otter_str* file, long long line, long long column);
+> void otter_panic_division(const otter_str* op, long long lhs, long long rhs,
+>                           const otter_str* file, long long line, long long column);
+>
+> /* M6, slices as built */
+> void      otter_slice_push(otter_slice*, const void* element, long long element_size);
+> void      otter_slice_free(otter_slice*);
+> void      otter_slice_free_strings(otter_slice*);
+> long long otter_slice_get(otter_slice*, long long index, void* out, long long element_size);
+> long long otter_slice_pop(otter_slice*, void* out, long long element_size);
+>
+> /* M6, maps as built (hashmap.c) */
+> otter_map* otter_map_new(long long key_kind, long long key_size, long long value_size);
+> void       otter_map_free(otter_map*);
+> void       otter_map_insert(otter_map*, const void* key, const void* value);
+> long long  otter_map_get(const otter_map*, const void* key, void* out);
+> long long  otter_map_remove(otter_map*, const void* key, void* out);
+> long long  otter_map_len(const otter_map*);
+>
+> /* M6 Task 10, the strings and files the stdlib needs */
+> otter_str* otter_str_slice(const otter_str*, long long start, long long end);
+> otter_str* otter_read_file(const char* path);
+> long long  otter_write_file(const char* path, const char* bytes, long long len);
+> otter_str* otter_getenv(const char* name);
+> ```
+>
+> - **`otter_slice_reserve` is not written.** `push` grows the array itself
+>   (0 -> 4 -> double), so the only reason to expose reserve was a caller that
+>   knows the final length; no M6 program does. Cost: a future bulk append pays
+>   the doubling copies, and adding reserve later is a new symbol, not a change
+>   to this one.
+> - **`otter_slice_get` and `otter_slice_pop` are new**, and both answer 1/0
+>   with the element written to `out` and the slot pre-zeroed by the caller.
+>   That is the runtime half of `slice[i] -> Option[T]`: a bounds miss is a
+>   `None`, not a fault. `pop` is not offered for `[]string` (the removed handle
+>   would have no owner), which the checker refuses.
+> - **`otter_slice_free_strings` is the element-aware free.** `free_slice`
+>   dispatches on the element kind: plain `otter_slice_free` for numbers and
+>   `bool`, `otter_slice_free_strings` for `string`, which releases every
+>   element reference and then the array. One symbol would have needed a kind
+>   argument and a branch per free; two names make the call site say which
+>   ownership it discharges.
+> - **`otter_map_new` takes a key kind, not hash/equality function pointers.**
+>   M6 has no first-class functions, so no program could produce the `hash_fn`
+>   and `eq_fn` the sketch takes. The runtime owns three key kinds -- 0 `i64`
+>   (splitmix64), 1 `bool`, 2 `string` (FNV-1a with content equality) -- and the
+>   code generator passes the constant. Cost: a new key type is a runtime
+>   change, where the sketch would have made it a program concern.
+> - **`otter_map_remove` writes the removed value and answers 1/0**, where the
+>   sketch returned `void`. `map_remove` is `Option[V]` in the language, and a
+>   void removal cannot build the payload. `otter_map_get` has the same shape for
+>   the same reason.
+> - **Map semantics as built:** open addressing with linear probing over
+>   powers-of-two capacity; growth at `(len + tombstones + 1) * 10 >= cap * 7`;
+>   all memory through `otter_alloc`/`otter_free`; insert copies the key and
+>   value; a `string` key is retained on insert and released on remove, free, and
+>   overwrite of the same key; a null map is tolerated by get/remove/len/free, so
+>   a moved-out binding cannot fault a destructor.
+> - **`otter_str_hash`, `otter_str_cstr`, `otter_str_ptr`** are the M5 boundary
+>   symbols: the first is only called by `hashmap.c` (generated code never calls
+>   it), the second allocates a copy the caller frees, the third lends the bytes
+>   of a string the program still owns. `otter_exit` and the two overflow
+>   panics are the M4 control-flow symbols that were never written into L1; their
+>   first argument is the operator or message, and the position arrives as three
+>   literals the checker resolved, exactly like `otter_panic`.
+> - **`write_file` takes a length** because a `string` may contain a NUL; a
+>   C-string body would truncate. `read_file` and `getenv` answer with a fresh
+>   owned string and use the empty string for both "empty" and "failed", because
+>   a builtin cannot spell `Result` until aggregate string payloads are tracked.
+>   `otter_str_slice` clamps both bounds (negative to 0, past the end to the
+>   length, inverted to empty), so index arithmetic can be wrong without faulting.
+> - **Two translation units, not one.** `runtime.c` holds M0–M5 and the slice;
+>   `hashmap.c` holds the map. The driver embeds and compiles both, caches an
+>   object per source keyed by its hash, and links them after the program object.
+>   Cost: one more file to keep in sync with the header, and one more `declare`
+>   for each map symbol in every program's IR.
+
 **M7 (concurrency):**
 
 ```c
@@ -253,8 +342,20 @@ file.
 | M0–M2 | `I64 F64 Bool Str Unit Struct Enum Option Result Func Never` | see plan L-equivalent in `otter-codegen::ir` |
 | M3 | `Ptr(Type)` | `i8*` — a raw pointer to an LLVMLayout of the pointee |
 | M6 | `Slice(Type)` | `{ i8*, i64, i64 }` matching `otter_slice` |
-| M6 | `Map(Type, Type)` | `{ i8* }` — pointer to the opaque `otter_map` |
-| M5 | `CInt(i32) CUInt(i32) CFloat(i32) CVoid CPtr(Type) CSize` | C spellings, `i1..i64`, `double`, `void`, `i8*`, `i64` |
+| M6 | `Map(Type, Type)` | `i8*` — the opaque `otter_map*` itself, not a wrapper struct |
+| M5 | `CInt(u32) CUInt(u32) CFloat(u32) CVoid CPtr(Type) CSize` | C spellings, `i1..i64`, `double`, `void`, `i8*`, `i64` |
+
+> **L2 revision, M5–M6: widths are `u32`, and a map is one pointer.** The
+> `i32` in the M5 row was the sketch; the variants carry a bit width in a `u32`
+> because a negative or 2³²-wide C type does not exist and `as` casts have to
+> compare the width as a number. `Map` is emitted as the bare `i8*` a
+> `otter_map*` already is: a one-field `{ i8* }` aggregate would have made every
+> map pass and return by value for no representation gain, and the runtime
+> functions take a pointer. `Slice` stays `{ i8*, i64, i64 }` and is passed by
+> pointer, matching `otter_slice`; `Map` and `Slice` are both linear (L5).
+> `i64`/`f64` are `I64`/`F64` rather than C variants, so a C `int64_t` and an
+> Otter `i64` meet without a cast; `usize` is `CSize` and lowers as `i64` on the
+> two platforms Otter targets.
 
 **`Str` layout changed once, in M3 Task 5, and does not change again:**
 
@@ -301,7 +402,26 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 | M4, as built ahead of the row below | `assert(bool)`, `assert_eq`/`assert_ne` over the four types with an equality (M3-M4 Task 12, first half). One `assert_eq` name rather than one per type: the comparison forms are built in the checker, so the table's declared `i64` pair is never consulted and exists to reserve the name. `assert_ne` is the same lowering with the predicate inverted. `debug_assert(bool)` and the `--release` build mode that drops it: the checker deletes the call, so the condition is still checked but nothing is lowered. `exit(i64)` (the `!`-typed `os.exit`) ends the process with a chosen status, flushing both streams first. `main` returning `i64` is the exit status, truncated to the C `int` |
 | M4 | `wrapping_add/sub/mul(i64,i64)`, `checked_add/sub/mul(i64,i64) -> Option[i64]`, `saturating_add/sub/mul(i64,i64)` |
 | M6 | `len(slice) -> i64`, `slice_push`, `map_new/get/insert/remove/len`, string `len`, indexing |
+| M6, as built (Tasks 6–10) | `push(slice, elem)`, `pop(slice) -> Option[T]`, `free_slice(slice)`, `len` over `string` and `[]T`, `slice[i] -> Option[T]` as indexing syntax; `map_new()`, `map_insert(map, k, v)`, `map_get`/`map_remove -> Option[V]`, `map_len(map)`, `map_free(map)`; `str_slice(s, start, end) -> string`, `read_file(string) -> string`, `write_file(string, string) -> i64`, `getenv(string) -> string` |
 | M7 | `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock/unlock`, `Channel.new(i64)`, `chan.send/recv/close` |
+
+> **L3 revision, M6: the names and arities as built.** `slice_push` is
+> `push(slice, elem)`, a receiver-first free function: there is no method
+> syntax, and the short name is unambiguous in the single root scope. `pop` and
+> `free_slice` are the other two operations the milestone needed; `pop` is
+> refused for `[]string` because a removed handle would have no owner to release
+> it. `slice[i]` is syntax rather than a builtin name, and it always yields
+> `Option[T]`, so a miss cannot be mistaken for an element that happens to be
+> zero. `map_new` takes **no** arguments and is typed by its binding annotation
+> or expected type, where the sketch's constructor had no spelling for key and
+> value kinds except extra arguments. `map_insert` answers `()`, `map_get` and
+> `map_remove` answer `Option[V]`, and `map_free` consumes the binding.
+> `len(map)` is deliberately rejected: `map_len(map)` says which container is
+> measured, and `len` dispatches only on `string` and `[]T`. Keys are `i64`,
+> `bool`, or `string`; values are numbers and `bool`, because an owned value
+> would need a release on removal that the map runtime does not perform. The
+> four Task 10 builtins are real declarations in the root scope, so a module
+> cannot redefine them.
 
 > **L3 revision, M3: `alloc`/`dealloc` are over `*mut i64`, not `*mut u8`.**
 > Otter has no `u8`, and M3 has neither indexing nor pointer casts, so a byte
@@ -336,15 +456,16 @@ diff a reviewer can read rather than a silent behaviour shift.
 |---|---|---|
 | M0–M2 Task 11 | `Add Sub Mul` emit `add/sub/mul` with `nsw`/`nuw` omitted; `Div Rem` emit bare `sdiv`/`srem` with no zero check | **Done in M4 Task 11 (first half).** `add`/`sub`/`mul` go through `llvm.s{add,sub,mul}.with.overflow.i64` — value and flag in one instruction — and `div`/`rem` test for a zero divisor *and* for `i64::MIN / -1` (where `srem` is undefined too) before emitting the operation in the fall-through block. A failing check branches to a cold block that calls `otter_panic_overflow`/`otter_panic_division` with the operator's symbol, both operands and the position the checker resolved into `FaultSite`. Negation is checked (`-i64::MIN` wraps to itself). The second half is in too: `wrapping_*` keeps the bare op, `checked_*` returns a real `Option[i64]` (a `select`, not a branch), and `saturating_*` clamps — `sadd.sat`/`ssub.sat` from LLVM, `smul.sat` by hand because LLVM does not implement it |
 | M0–M2 Task 12 | `defer` lowers statically — reverse-order emission before each scope exit, and it captures the linear bindings in scope at registration (M3–M4 Task 5c) | **M4, partially.** The panic/exit/fault block runs the **panicking function's** open scopes' defers (innermost first) before `otter_panic`, and a `return`/`break`/`continue` runs only the current scope's, as before. Cross-frame cleanup — a `defer` in a caller running when a callee panics — is **not** delivered: cleanup landing pads need `__gxx_personality_v0`, undefined at link on the `x86_64-pc-windows-gnu` host, so shipping them would add libunwind/libstdc++ as a mandatory dependency. See the M3–M4 plan's Task 10; there is no stack trace for the same reason |
-| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it, and a binding retains on bind and releases at the end of its scope (after that scope's `defer`s) | M3 Task 5's remaining interim: a string a user call returns, a struct-field string, and a string dropped across a `break` out of a nested block are leaked, not released. These are leaks, not corruptions; escape analysis (M9) may narrow them, and M6's slicing keeps the same owner rules |
+| M0-M2 Task 3, updated in M3 Task 5 | `Str` is an `otter_str*` (spelled `i8*` in the IR): a literal is a static string with refcount -1, and `+`, `==`/`!=` and `len` are runtime calls over it. Interpolation (M3-M4 Task 7) is lowered to exactly these calls, so it added no contract of its own. A temporary the runtime built is released when an operation consumes it, and a binding retains on bind and releases at the end of its scope (after that scope's `defer`s) | **Partly replaced in M6 Task 10.** A `string` a user function returns is now **owned**, not borrowed: `return` retains a local on the way out, so marking the result owned is correct. A `string` temporary passed to a user function (or to a reading builtin: `parse_i64`, `str_slice`, ...) is released by the caller after the call, because the callee borrows it. What remains interim: a string stored in a struct field and a string dropped across a `break` out of a nested block are leaked, not released. These are leaks, not corruptions; escape analysis (M9) may narrow them, and slice elements follow the same rules (`push` retains, `free_slice` dispatches to `otter_slice_free_strings`) |
 | M3 | every `alloc` is explicit, but overwriting a live linear binding elides the *free* the source never spells (see L5) | M9: escape analysis removes provably non-escaping allocations |
 
 ### L5 — Ownership and linearity
 
 Introduced in M3, unchanged until M10.
 
-- A binding whose type is `Ptr(T)` or `Slice(T)` is **linear**: it has at most
-  one live owner.
+- A binding whose type is `Ptr(T)`, `Slice(T)`, `Map(K, V)`, or `CPtr(T)` is
+  **linear**: it has at most one live owner. The container kinds were added in
+  M6 and the C pointer in M5; the rule is unchanged.
 - `move x` transfers ownership; `x` is dead afterwards and any read is an
   error.
 - Assigning a linear binding to another name without `move` is an error.
@@ -373,6 +494,16 @@ Introduced in M3, unchanged until M10.
   capture covers **linear** bindings only: a deferred body that reads a
   copy-typed binding still sees its exit-time value, which cannot free anything
   twice and avoids a load and a store per binding per registration.
+- `Slice` and `Map` are linear for the same reason as a pointer: one binding owns
+  the backing storage. `free_slice` and `map_free` **consume** the binding, so a
+  second call is the ordinary "use of moved value" error, and every other
+  operation borrows: `slice[i]`, `for x in slice`, `push`, `len`, `map_insert`,
+  `map_get`, `map_remove`, `map_len`. A `for x in slice` loop re-reads the slice
+  header each iteration, so moving the iterated binding inside the loop is
+  rejected rather than left to free the array mid-loop. Index assignment
+  (`slice[i] = v`) is not a form the checker accepts; a slice is built by
+  `push`. `pop` on a `[]string` is refused because the removed handle would have
+  no owner, which is a checker rule, not a runtime one.
 
 ---
 

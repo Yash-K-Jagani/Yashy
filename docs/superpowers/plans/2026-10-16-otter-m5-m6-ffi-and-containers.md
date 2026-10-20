@@ -1061,11 +1061,11 @@ git commit -m "test: multi-file end-to-end programs using containers"
 - Consumes: the whole workspace test suite
 - Produces: a CI matrix of `windows-latest` and `ubuntu-latest` running `cargo test --workspace`
 
-- [ ] **Step 1: Write the workflow** with `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`, and the 120-second fuzz targets.
+- [x] **Step 1: Write the workflow** with `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`, and the 120-second fuzz targets. → written with `check` + `test` only; the three excluded jobs and why are in "As built" below.
 
-- [ ] **Step 2: Push and confirm both jobs are green** before marking M5–M6 done.
+- [ ] **Step 2: Push and confirm both jobs are green** before marking M5–M6 done. → **open.** The workflow is pushed and runs on every push, but this host has no `gh` and the repository's Actions API is not readable without credentials, so the two job conclusions cannot be observed from here. This must be confirmed in the GitHub UI before M5–M6 is called done; nothing else in this task is.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add .github/
@@ -1105,16 +1105,63 @@ remains open until this workflow has run on `origin`.
 - Consumes: the whole M5–M6 implementation
 - Produces: L1, L2, L3 and L5 updated to match reality
 
-- [ ] **Step 1: Compare the ledger against the code** — every runtime symbol, every `TypeKind` variant, every builtin.
+- [x] **Step 1: Compare the ledger against the code** — every runtime symbol, every `TypeKind` variant, every builtin.
 
-- [ ] **Step 2: Write every divergence into the master plan in this commit**, not later.
+- [x] **Step 2: Write every divergence into the master plan in this commit**, not later.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-10-16-otter-master-plan.md
 git commit -m "docs: close the interface ledger for M5-M6"
 ```
+
+**As built.** The audit walked three inventories against the ledger: the 42
+`otter_*` symbols the code generator declares (all present in
+`otter_runtime.h`; the only unmatched name is the `otter_sema` crate in a
+comment), every `TypeKind` variant in `otter-sema::ty`, and every name the
+checker predeclares or intercepts (`check_expr.rs`'s 35-entry table plus the
+container names handled in `check_call`).
+
+- **L1** gained one revision block for all of M5–M6. The divergences it records:
+  `otter_slice_reserve` was never written (no caller knows a final length; `push`
+  doubles); `otter_slice_get` and `otter_slice_pop` were added, both answering
+  1/0 with a caller-pre-zeroed out slot, because `slice[i]` and `pop` are
+  `Option[T]`; `otter_slice_free_strings` was added so `free_slice` can
+  discharge a `[]string`'s element references; `otter_map_new` takes a key
+  *kind* instead of `hash_fn`/`eq_fn` pointers (M6 has no first-class
+  functions); `otter_map_remove` writes the old value and answers 1/0 instead of
+  returning `void` (the language's removal is `Option[V]`); the map lives in a
+  second translation unit, `hashmap.c`; and the M4 control-flow symbols
+  (`otter_exit`, `otter_panic_overflow`, `otter_panic_division`) that L1 had
+  never listed are now written down.
+- **L2**: `Map` lowers to the bare `i8*` of the opaque `otter_map*`, not the
+  sketched `{ i8* }` wrapper; the C-width variants carry a `u32` bit width, not
+  the sketched `i32`. Both corrected in the table with a note, along with the
+  `i64`/`f64`/`usize` spellings.
+- **L3**: a new "M6, as built" row and note. `slice_push` is
+  `push(slice, elem)`; `pop`/`free_slice` are new; `slice[i]` is syntax always
+  yielding `Option[T]`, not a builtin name; `map_new` takes no arguments and is
+  typed by context; `map_free` exists and consumes; `len(map)` is rejected in
+  favour of `map_len`; keys are `i64`/`bool`/`string` and values are numbers and
+  `bool`. The four Task 10 builtins (`str_slice`, `read_file`, `write_file`,
+  `getenv`) are listed as real root-scope declarations.
+- **L4**: the string-ownership row's remaining interim was stale. M6 Task 10 made
+  a user function's `string` result **owned** and made the caller release owned
+  temporaries passed to a user function or a reading builtin. The row now says
+  that, and keeps the two leaks that remain (a string in a struct field, a string
+  dropped across a `break` out of a nested block).
+- **L5**: the linear set now names `Map(K, V)` and `CPtr(T)` beside `Ptr` and
+  `Slice`, and a new bullet records that `free_slice`/`map_free` consume while
+  index, `for`-in, `push`, `len`, and the map operations borrow; that the
+  iterated binding cannot be moved inside its own `for`-in; that index
+  assignment is not a form; and that `pop` on `[]string` is refused by the
+  checker.
+- **One stale code comment fixed with the audit**: the `exit` builtin's comment
+  claimed there was no module system. Modules exist (M6 Task 9) but references
+  are unqualified, so `os.exit` still reaches the entry as `exit`; the comment now
+  says that instead.
+- **Not changed**: the M7 rows, which no M5–M6 code implements.
 
 ---
 
