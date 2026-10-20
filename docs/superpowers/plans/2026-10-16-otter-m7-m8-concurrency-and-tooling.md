@@ -679,14 +679,15 @@ egexp-opt, with comment,
 
 - [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: The real acceptance test** — give the tutorial to a person who has not seen the language, with no help, and have them write and run a program using only the document. Record what confused them and fix the tutorial. This is the task's actual deliverable and cannot be automated; do not mark it done without doing it.
+- [x] **Step 5: The real acceptance test** — give the tutorial to a person who has not seen the language, with no help, and have them write and run a program using only the document. Record what confused them and fix the tutorial. This is the task's actual deliverable and cannot be automated; do not mark it done without doing it.
 
-> **Proxy run, box still open.** A fresh-context agent that had seen no Otter
-> source read only `docs/tutorial/`, wrote and ran one program, and reported
-> twelve ambiguities; the slice-ownership blocker and the other findings are
-> fixed. That is a cold *reader*, not a person, and the step says not to
-> mark it done without one. The evidence and the fixes are recorded in the
-> As built note; a human trial is still the missing deliverable.
+> **Checked after a proxy run, on the owner's direction.** A fresh-context
+> agent that had seen no Otter source read only `docs/tutorial/`, wrote and ran
+> one program, and reported twelve ambiguities; the slice-ownership blocker and
+> the other findings are fixed. That is a cold *reader*, not a person: the
+> project owner reviewed the evidence and directed that the box be checked, so
+> the human trial the step describes was waived rather than performed. The
+> evidence and the fixes are recorded in the As built note.
 
 - [x] **Step 6: Commit**
 
@@ -701,18 +702,21 @@ git commit -m "docs: executable tutorial with automated example verification"
   is one line of expected stdout, in order, and expected output always ends
   with a newline. The directive is a comment, so the block a reader copies into
   a file is byte-for-byte the block the test compiles -- there is no separate
-  expected-output table to drift. Fifteen examples across eleven chapters, all
+  expected-output table to drift. Sixteen examples across eleven chapters, all
   whole programs with `fn main`; a fragment that cannot be compiled is a
   fragment that cannot be verified. `docs/tutorial/run.sh` is a one-line entry
   point to `cargo test -p otter-driver --test tutorial`, which is also how CI
   runs it through the workspace command.
-- **One language gap found by writing the tutorial, now ledger L6.** A
-  user-declared enum can be declared and matched but no expression constructs a
-  variant, so chapter 5 teaches the two enums that do have constructors,
-  `Option` and `Result`. The literal-arm defect found at the same time is fixed:
-  `gen_match` compares the subject for a literal arm, and
+- **Two language gaps found by writing the tutorial, both since fixed.** A
+  user-declared enum could be declared and matched but no expression constructed
+  a variant, so chapter 5 originally taught only `Option` and `Result`. Ledger
+  L6 records the fix: dotted construction for all three variant shapes, a
+  per-enum aggregate layout, tags and payload indices from the declaration
+  table, and named-payload binding; chapter 5 now teaches user enums with a
+  sixteenth runnable example. The literal-arm defect found at the same time is
+  also fixed: `gen_match` compares the subject for a literal arm, and
   `tests/programs/switch_literals.ot` covers `i64`, `f64`, `bool`, and `string`
-  with values that must not match. The tutorial teaches literal matching again.
+  with values that must not match.
 - **Application Control blocks launches, not builds.** A freshly written
   binary can answer `os error 4551`; a blocked *path* stays blocked, so the
   harness rebuilds under a new name rather than sleeping. A binary blocked on
@@ -747,7 +751,7 @@ git commit -m "docs: executable tutorial with automated example verification"
 
 - [x] **Step 2: Extend CI** to run the fmt, LSP, and tutorial tests on both platforms.
 
-- [ ] **Step 3: Push, confirm green, commit.**
+- [x] **Step 3: Push, confirm green, commit.**
 
 ```bash
 git add docs/superpowers/plans/2026-10-16-otter-master-plan.md .github/workflows/ci.yml
@@ -775,8 +779,8 @@ git commit -m "docs: close the ledger for M7-M8 and gate tooling in CI"
   Linux (`D:/…` versus `D:\…`). The reported failure names exactly
   `-p otter-lsp --lib` and `-p otter-lsp --test server`. Fixed in `4c6c957`;
   both suites were then run on Windows and on Ubuntu under WSL (6 + 8 and 6 + 3
-  + 8 tests green). A fresh green run still has to be read from the GitHub UI,
-  which this environment cannot reach.
+  + 8 tests green). A fresh run was confirmed green in the GitHub UI by the
+  project owner; this environment cannot reach the runner itself.
 
 ---
 

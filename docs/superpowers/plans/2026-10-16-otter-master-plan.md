@@ -570,12 +570,19 @@ Introduced in M3, unchanged until M10.
 ### L6 — Defects found while writing the tutorial
 
 The tutorial is executable, so writing it tested claims the golden files never
-did. The entry below is real and reproducible; the tutorial does not teach the
-missing feature.
+did. Both entries below were real and reproducible; both are now fixed, and the
+tutorial teaches the fixed features.
 
 | Found in | Defect | Evidence | Fix |
 |---|---|---|---|
-| M7–M8 Task 9 | **A user-declared enum has no constructor.** Sema declares the enum *name* as a binding of type `Enum(name)` and records its variants, but variant construction resolves through `Expr::Call`/`Expr::StructLit`, which look only at functions and structs. A program can therefore declare an enum and match it, but cannot make a value of it. Codegen also has no layout for one: `repr_type(Enum)` is an `i8` placeholder and `variant_tag` answers only for `Option`/`Result`, so enum matching is unreachable rather than merely wrong. | `enum E { A(i64) } fn main() { var x = E.A(1); }` reports *cannot find function* on `E`. | Resolve a dotted call path whose head names an enum (`Shape.Circle(2)`) in `check_expr`; give each enum an aggregate `{ i8, <payload per variant> }`, thread the enum table through `repr_type`/`variant_tag`/`variant_payload_index`, and add construction plus matching to the tutorial. Until then the tutorial teaches `Option`/`Result`, which have constructors and a representation. |
+| M7-M8 Task 9 | **A user-declared enum had no constructor.** Sema declared the enum *name* as a binding of type `Enum(name)` and recorded its variants, but variant construction resolved through `Expr::Call`/`Expr::StructLit`, which look only at functions and structs. A program could declare an enum and match it, but could not make a value of it. Codegen had no layout either: `repr_type(Enum)` was an `i8` placeholder and `variant_tag` answered only for `Option`/`Result`, so enum matching was unreachable rather than merely wrong. | `enum E { A(i64) } fn main() { var x = E.A(1); }` reported *cannot find function* on `E`. | **Fixed.** Sema resolves a dotted call path whose head names an enum (`Shape.Circle(2)`), a unit variant as a dotted name (`Shape.Point`), and a named payload as a dotted struct literal (`Shape.Rect { w: 1.0, h: 2.0 }`), checking arity, field names, and field types; a linear payload is moved out at the construction site, as a parameter is. The backend defines `%enum.Name = type { i8, <each variant's fields flattened in declaration order> }` once per module and emits every declared struct and enum before any body, so a type used only as a payload does not depend on a literal being lowered. Construction lowers to `insertvalue`, and `variant_tag` / `variant_payload_index` take the enum's variant table: a tag is the declaration index while a payload's first field is that index plus the fields declared before it. `StructVariant` patterns bind their named fields. `tests/programs/enums.ot` and `user_enums_construct_bind_and_match` cover all three variant shapes, a leading unit variant (so tag and field index differ), a struct payload, and a named payload written out of order. The tutorial's chapter 5 teaches the form. |
+
+The enum fix keeps the same ownership rule a struct field already had: an
+owning payload (a slice) is moved *in* at the construction site, but the enum
+value itself is copyable, so copying the enum copies the pointer. That is the
+L4 copyability limitation applied to a new container, not a new defect, and it
+is why the tutorial's enum example carries only `f64`, `string`, `i64`, and a
+struct of `i64`.
 
 The literal-arm defect this section used to record is fixed in the same change:
 `gen_match` now compares the subject for `HirPattern::Literal` (`icmp`, `fcmp

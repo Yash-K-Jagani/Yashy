@@ -70,10 +70,55 @@ contents, not identity. They bind nothing and always need a `default`, and a
 literal cannot match an enum subject, because the literal's type and the enum's
 type differ.
 
-The language also has user-declared enums, matched the same way, but a program
-in this milestone can only *match* one: constructing a variant with a payload
-is not implemented yet. `Option` and `Result` are the two enums the language
-provides constructors for, and they cover every "missing" and "failed" case a
-program in the tutorial needs.
+## Your own enums
+
+An enum declares a fixed set of variants. A variant may carry no payload, one
+or more positional fields, or named fields:
+
+```otter
+enum Shape {
+    Circle(f64),
+    Rect { w: f64, h: f64 },
+    Point,
+}
+
+fn area(shape: Shape) -> f64 {
+    return switch shape {
+        case Circle(r) { 3.0 * r * r }
+        case Rect { w: w, h: h } { w * h }
+        case Point { 0.0 }
+    };
+}
+
+fn main() {
+    const circle = Shape.Circle(2.0);
+    const rect = Shape.Rect { w: 3.0, h: 4.0 };
+    const point = Shape.Point;
+    print_f64(area(circle));
+    print_str("\n");
+    print_f64(area(rect));
+    print_str("\n");
+    print_f64(area(point));
+    print_str("\n");
+    // => 12
+    // => 12
+    // => 0
+}
+```
+
+Construction spells the enum, then the variant: `Shape.Circle(2.0)` for
+positional fields, `Shape.Rect { w: 3.0, h: 4.0 }` for named ones (any order),
+and `Shape.Point` for a variant with no payload. A payload's type comes from
+the declaration, so `Shape.Circle(2)` is a type error: the field is `f64`.
+
+Arm shapes follow the variant's shape. A positional payload binds by position:
+`case Circle(r)`. A named payload binds by name, and the pattern always names
+*every* field as `field: binding`: `case Rect { w: w, h: h }`. A unit variant
+is just `case Point`. The switch must cover every variant, exactly as it must
+cover `Some` and `None`; `default` is accepted as the catch-all for the
+remaining ones.
+
+`Option` and `Result` are ordinary enums too, with constructors the language
+supplies. The tutorial's own enums are declared the same way.
 
 Continue to [06-errors](06-errors.md).

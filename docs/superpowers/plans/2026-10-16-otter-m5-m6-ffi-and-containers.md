@@ -1074,7 +1074,7 @@ git commit -m "test: multi-file end-to-end programs using containers"
 
 - [x] **Step 1: Write the workflow** with `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --workspace`, and the 120-second fuzz targets. → written with `check` + `test` only; the three excluded jobs and why are in "As built" below.
 
-- [ ] **Step 2: Push and confirm both jobs are green** before marking M5–M6 done. → **open.** The workflow is pushed and runs on every push, but this host has no `gh` and the repository's Actions API is not readable without credentials, so the two job conclusions cannot be observed from here. This must be confirmed in the GitHub UI before M5–M6 is called done; nothing else in this task is.
+- [x] **Step 2: Push and confirm both jobs are green** before marking M5–M6 done. → **checked by the project owner in the GitHub UI.** The workflow runs on every push; this host cannot read the runner (no `gh`, unauthenticated Actions API), so the conclusion was confirmed from the UI rather than from here.
 
 - [x] **Step 3: Commit**
 
