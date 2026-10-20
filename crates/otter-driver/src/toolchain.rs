@@ -87,7 +87,7 @@ fn install_hint() -> &'static str {
     } else if cfg!(target_os = "macos") {
         "Install it with `brew install llvm`."
     } else {
-        "Install it with your package manager, e.g. `apt install llvm clang`."
+        "Install it with your package manager, e.g. `apt install clang`."
     }
 }
 
