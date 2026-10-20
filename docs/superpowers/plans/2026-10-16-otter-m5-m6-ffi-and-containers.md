@@ -1105,6 +1105,28 @@ validated before pushing). Fuzz targets arrive with the fuzz task; the fuzzer
 is not installed here, so no fuzz job is claimed. Step 2 (both jobs green)
 remains open until this workflow has run on `origin`.
 
+**As built (the first real runs).** The workflow's first run found two
+platform-only defects that no local run could see: this host has `clang` but no
+`llc`, and its Rust host is GNU rather than MSVC.
+
+- *Linux selected `llc`.* The job installs `llvm` as well as `clang`, so
+  detection preferred `llc`. The pipeline's single invocation compiles the C
+  runtime, assembles the IR and links, which `llc` cannot do — it rejects `.c`
+  sources, `-I`, `-o` and the library flags. Detection now probes `clang` first
+  (`toolchain.rs`), keeping `llc` as the fallback for `check`/`--emit-ir`; the
+  M0–M2 plan records the change.
+- *Windows had no MSVC environment.* The runner's Rust host is MSVC, so the
+  compiler emitted MSVC IR, but clang finds `link.exe` and the Windows SDK only
+  through the Visual Studio environment, which a plain step does not load. The
+  workflow now loads it with `ilammy/msvc-dev-cmd`, and the driver drops `-lm`
+  on the MSVC target, where there is no `m.lib` and the math functions live in
+  the CRT.
+
+Both fixes were reproduced against the CI shape locally: an Ubuntu box with
+clang 18 *and* `llc` 18 on `PATH` runs `e2e` 73/73, `leaks` 7/7, `link` 5/5,
+`modules` 10/10, `stdlib` 3/3, `toolchain` 1/1 and `never_panics` 4/4. Step 2 is
+confirmed in the GitHub UI when the next push's two jobs are green.
+
 **Local Windows caveat.** On this development host an Application Control /
 Device Guard policy intermittently refuses to start a freshly linked executable
 (`os error 4551`), which surfaces as an end-to-end, leak, or module test failing
