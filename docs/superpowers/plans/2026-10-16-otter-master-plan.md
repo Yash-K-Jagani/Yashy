@@ -330,6 +330,37 @@ void         otter_chan_close(otter_chan*);
 void         otter_chan_free(otter_chan*);
 ```
 
+> **L1 revision, M7: the symbols as built, and the two the sketch was missing.**
+> Every signature above is unchanged, but four behaviours the sketch left open
+> were fixed by the implementation, and string refcounts needed two symbols the
+> sketch did not have:
+>
+> - **`otter_thread_spawn` takes a typed entry point.** The generated
+>   `@otter_thread_entry_N` for each spawn site has the signature
+>   `void (i8*)`, and `arg` points at a literal LLVM struct holding that site's
+>   arguments; `arg_size` is how large a copy the runtime must make, because the
+>   caller's stack frame is gone by the time the thread starts.
+> - **The thread handle is a table index, not a system handle**, and a join
+>   frees the slot. `otter_thread_join` answers the thread's exit status as 0
+>   and does not propagate it; `thread_join` in the language returns `()`.
+> - **`otter_chan_new` clamps `capacity < 1` to 1**, and **a full channel blocks
+>   the sender** (mutex plus a not-full and a not-empty condition variable over a
+>   ring). `chan_send` on a closed channel answers 0; `chan_recv` answers 0 for
+>   closed-and-empty and 1 with the element otherwise, which is what
+>   `Option[T]` needs.
+> - **`otter_str_retain_atomic` / `otter_str_release_atomic` are new.** Any
+>   module that contains a `thread_spawn` routes *every* string retain and
+>   release through the atomic pair, because a string may cross a thread
+>   boundary through a spawn argument or a captured binding and a
+>   non-interprocedural checker cannot prove which does. The cost is atomic
+>   instructions in single-threaded string code in the same module; the
+>   alternative is a data race.
+> - **`Mutex` and `Channel(T)` are `i8*` in codegen**, like maps: the runtime
+>   type is already a pointer with no fields the language can see, so a
+>   one-field aggregate would only add by-value copies. Both are linear in the
+>   checker; a `Channel` element must be copyable, so a linear element or a
+>   `string` is refused rather than half-supported.
+
 ### L2 — Type representation
 
 `TypeKind` in `otter-sema::ty` grows by variant. Each addition changes LLVM
@@ -448,6 +479,34 @@ Each milestone adds to it. Sema predeclares all of these in the root scope.
 > M3–M4 plan's method sketch is `parse_i64(string) -> i64` here, which folds
 > failure to 0; a checked form that returns `Option` is a later milestone's
 > operation.
+
+> **L3 revision, M7: the concurrency builtins as built, and the row's spelling.**
+> The `Thread.spawn(fn, args)` row is a sketch of a method form Otter still does
+> not have. As built, all twelve operations are checker-intercepted free
+> functions:
+>
+> ```text
+> thread_spawn(body, args...) -> i64      thread_join(i64)
+> mutex_new() -> Mutex                    mutex_lock(Mutex) / mutex_unlock(Mutex) / mutex_free(Mutex)
+> chan_new(i64) -> Channel[T]             chan_send(Channel[T], T) -> i64
+> chan_recv(Channel[T]) -> Option[T]      chan_close(Channel[T]) / chan_free(Channel[T])
+> ```
+>
+> - **Handles are `i64` at source level.** The runtime's thread handle and
+>   channel send status are `i32`, truncated at the call boundary; `i64` keeps
+>   one integer type across the language instead of introducing a `usize`-like
+>   spelling that only these names use.
+> - **`channel` is a constructed type**, spelled `Channel[T]` in a type
+>   position and inferred from `chan_new` at the call site. It is linear, so it
+>   must be freed exactly once; `Mutex` is linear for the same reason.
+> - **`chan_send` answers 1 or 0**, not `Result`: 0 means the channel was
+>   closed, and a full channel *blocks* instead of answering 0. `chan_recv`
+>   answers `Option[T]`, which is how a closed-and-empty channel ends a
+>   consumer loop.
+> - **`string` is not a channel element.** The runtime copies elements, so an
+>   element that needs a retain/release pair would be leaked or double-freed;
+>   the checker refuses `Channel[string]` (and every linear element) with a
+>   diagnostic rather than shipping a channel that owns nothing.
 
 ### L4 — Codegen contracts that later milestones replace
 

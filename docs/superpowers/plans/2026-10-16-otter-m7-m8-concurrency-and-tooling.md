@@ -692,9 +692,9 @@ git commit -m "docs: executable tutorial with automated example verification"
 - Consumes: the whole M7–M8 implementation
 - Produces: ledger L1/L3 updated; CI also gating on `cargo test -p otter-fmt` and `-p otter-lsp` and running the tutorial test
 
-- [ ] **Step 1: Reconcile the ledger with the code.**
+- [x] **Step 1: Reconcile the ledger with the code.**
 
-- [ ] **Step 2: Extend CI** to run the fmt, LSP, and tutorial tests on both platforms.
+- [x] **Step 2: Extend CI** to run the fmt, LSP, and tutorial tests on both platforms.
 
 - [ ] **Step 3: Push, confirm green, commit.**
 
@@ -702,6 +702,26 @@ git commit -m "docs: executable tutorial with automated example verification"
 git add docs/superpowers/plans/2026-10-16-otter-master-plan.md .github/workflows/ci.yml
 git commit -m "docs: close the ledger for M7-M8 and gate tooling in CI"
 ```
+
+**As built.** L1, L2, and L3 are reconciled; CI names the tooling suites.
+
+- **L1** gained an M7 revision note under the concurrency block: the typed
+  thread entry, the table-index handle, the channel's clamp and blocking
+  semantics, the two atomic string symbols, and why `Mutex`/`Channel` are bare
+  `i8*`.
+- **L2**'s note is folded into the same place: `Mutex` and `Channel(T)` are
+  pointer representations, linear in the checker, with copy-only elements.
+- **L3** gained the twelve concurrency builtins as built, the `i64` handle
+  decision, the `Channel[T]` spelling, the `Option`-returning receive, and the
+  refusal of `Channel[string]`.
+- **CI** already ran `cargo test --workspace`, which covers every crate; a
+  separate `Tooling tests` step now names `-p otter-fmt -p otter-lsp` so a
+  failure reads as a tooling failure. The tutorial suite, when it lands, runs
+  under the same workspace command rather than a third step.
+- **The tutorial test does not exist yet**, so Step 2 is only partly done:
+  CI gates the formatter and the server now, and will gate the tutorial through
+  the workspace command as soon as Task 9 lands it. Step 3's "confirm green"
+  needs the GitHub UI; local runs cannot see the runner.
 
 ---
 

@@ -63,3 +63,9 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --no-fail-fast
+
+      # The workspace command already runs both, but naming them puts a
+      # formatting or language-server failure in its own step instead of
+      # buried in a driver suite's output.
+      - name: Tooling tests
+        run: cargo test -p otter-fmt -p otter-lsp
