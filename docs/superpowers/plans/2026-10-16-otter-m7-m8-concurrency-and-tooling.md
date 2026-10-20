@@ -51,6 +51,34 @@ git add crates/otter-runtime/
 git commit -m "feat(runtime): threads, mutexes, and bounded channels"
 ```
 
+**As built.** Five decisions are worth recording:
+
+- **The C suite is built by a Rust harness.** Cargo has no C test target, so
+  `tests/threads.rs` compiles `tests/threads.c` with the compiler `cc` discovers
+  for `build.rs` and runs the result. `build.rs` passes Cargo's `TARGET` and
+  `HOST` through as `OTTER_TARGET`/`OTTER_HOST`, and the test supplies
+  `OPT_LEVEL`, because `cc` expects a build script's environment and this runs
+  outside one.
+- **The entry parameter is typed.** The header spells the first argument
+  `otter_thread_entry` (`void (*)(void *)`) rather than the ledger's `i8*`. The
+  two declarations are ABI-identical on every target Otter supports, and the
+  typed one lets the C test pass a function without a cast. Generated IR keeps
+  the ledger's `i8*` declaration.
+- **A thread handle is a table index, not a pointer squeezed into an `i32`.**
+  `pthread_t` is a pointer on macOS, so `spawn` returns `index + 1` into a
+  growable table of records, and the trampoline holds its own record, which
+  stays put when the pointer array moves. `join` waits, frees the copied
+  argument and the record, then clears the slot; the index is therefore reused
+  rather than the table growing with every spawn. A second join, and a handle
+  that `spawn` never returned, both answer 1.
+- **A capacity below 1 is a one-slot channel.** Zero-capacity rendezvous is a
+  different primitive, and a ring cannot model it without an extra handshake;
+  clamping is the only answer that cannot deadlock.
+- **Runtime plumbing is not leak-counted.** Mutexes, channels and thread
+  records use `malloc`/`free`, so the leak report stays about `alloc`/`dealloc`
+  and strings, whose ownership the compiler inserts. A channel a program forgets
+  to free is a forgotten handle, like a `Mutex`, not a string leak.
+
 ---
 
 ### Task 2: Thread builtins in sema

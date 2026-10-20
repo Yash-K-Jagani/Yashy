@@ -226,6 +226,65 @@ long long otter_map_get(const otter_map *map, const void *key, void *out);
 long long otter_map_remove(otter_map *map, const void *key, void *out);
 long long otter_map_len(const otter_map *map);
 
+/* ---- Threads, mutexes and channels ------------------------------------
+ *
+ *     declare i32 @otter_thread_spawn(i8*, i8*, i64)
+ *     declare i32 @otter_thread_join(i32)
+ *     declare i8* @otter_mutex_new()
+ *     declare void @otter_mutex_lock(i8*)
+ *     declare void @otter_mutex_unlock(i8*)
+ *     declare void @otter_mutex_free(i8*)
+ *     declare i8* @otter_chan_new(i64)
+ *     declare i8 @otter_chan_send(i8*, i8*, i64)
+ *     declare i8 @otter_chan_recv(i8*, i8*, i64)
+ *     declare void @otter_chan_close(i8*)
+ *     declare void @otter_chan_free(i8*)
+ *
+ * `otter_thread_spawn` copies `arg_size` bytes of `arg` into storage the new
+ * thread owns, because the spawning frame may be gone before the thread starts.
+ * The entry receives a pointer to that copy and must not keep it after it
+ * returns. The handle is a positive index, or 0 when the thread could not be
+ * created; it must be joined exactly once, and joining waits for the body and
+ * releases the copy. A second join of the same handle answers 1, as does a
+ * handle that was never returned by `spawn`.
+ *
+ * A mutex and a channel are opaque handles. Freeing either while another thread
+ * still holds, waits for, or sends on it is a use-after-free, exactly as it
+ * would be for a string: the language's linear typing is what rules it out.
+ *
+ * A channel is a bounded queue of fixed-size slots. The slot size is fixed by
+ * the first send or receive; a later call with a different size answers 0
+ * instead of overwriting a slot, which can only mean the checker and the
+ * runtime disagree. `send` blocks while the channel is full and answers 1 when
+ * the slot was queued, 0 when the channel is closed. `recv` blocks while the
+ * channel is empty and answers 1 when a slot was copied out; it answers 0 only
+ * once the channel is closed *and* drained, so a close never discards a value
+ * that was already sent. `close` never blocks, wakes every waiter, and may be
+ * called more than once. A capacity below 1 is treated as 1: a zero-capacity
+ * rendezvous needs a handshake this ring does not model, and treating it as a
+ * one-slot channel is the only answer that cannot deadlock.
+ */
+typedef struct otter_mutex otter_mutex;
+typedef struct otter_chan otter_chan;
+
+/* The C spelling of the entry point. Generated code passes the same pointer as
+ * an `i8*`; a function pointer and an object pointer share one representation
+ * on every target Otter supports, so the two declarations are ABI-identical. */
+typedef void (*otter_thread_entry)(void *argument);
+int otter_thread_spawn(otter_thread_entry entry, const void *arg, long long arg_size);
+int otter_thread_join(int handle);
+
+otter_mutex *otter_mutex_new(void);
+void otter_mutex_lock(otter_mutex *mutex);
+void otter_mutex_unlock(otter_mutex *mutex);
+void otter_mutex_free(otter_mutex *mutex);
+
+otter_chan *otter_chan_new(long long capacity);
+char otter_chan_send(otter_chan *chan, const void *item, long long size);
+char otter_chan_recv(otter_chan *chan, void *out_item, long long size);
+void otter_chan_close(otter_chan *chan);
+void otter_chan_free(otter_chan *chan);
+
 /* ---- Diagnostics ----
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

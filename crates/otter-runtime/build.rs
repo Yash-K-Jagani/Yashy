@@ -7,6 +7,19 @@ fn main() {
     println!("cargo:rerun-if-changed=hashmap.c");
     println!("cargo:rerun-if-changed=include/otter_runtime.h");
 
+    // `tests/threads.rs` compiles `tests/threads.c` at test time with `cc`,
+    // which expects the environment a build script gets. Cargo sets `TARGET`
+    // and `HOST` for this script but not for the test binary, and the triple is
+    // the one piece a `cfg!` cannot reconstruct, so pass it through.
+    println!(
+        "cargo:rustc-env=OTTER_TARGET={}",
+        std::env::var("TARGET").expect("Cargo sets TARGET for build scripts")
+    );
+    println!(
+        "cargo:rustc-env=OTTER_HOST={}",
+        std::env::var("HOST").expect("Cargo sets HOST for build scripts")
+    );
+
     cc::Build::new()
         .file("runtime.c")
         .file("hashmap.c")

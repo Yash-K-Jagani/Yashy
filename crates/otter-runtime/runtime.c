@@ -11,6 +11,18 @@
 #if defined(_WIN32)
 #include <fcntl.h>
 #include <io.h>
+/* SRW locks and condition variables are Vista-era, and `_beginthreadex` is
+ * the CRT's thread entry point: the body calls `printf` and `malloc`, so the
+ * CRT is entitled to per-thread state that `CreateThread` would not set up. */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <process.h>
+#include <windows.h>
+#else
+#include <pthread.h>
 #endif
 
 /* `otter_str_data`, defined with the string type further down, gives the bytes
@@ -940,3 +952,467 @@ void otter_panic_division(
         column
     );
 }
+
+/* ---- Threads, mutexes and channels ------------------------------------
+ *
+ * Three OS abstractions behind one ABI, so generated code and the C tests see
+ * the same surface on POSIX and Windows:
+ *
+ * - a thread is a `pthread_t`, or a handle from `_beginthreadex`;
+ * - a mutex is a `pthread_mutex_t`, or an `SRWLOCK`;
+ * - a channel is one lock and two condition variables, whichever pair the
+ *   platform provides.
+ *
+ * Neither lock is recursive, which is the semantics `Mutex` promises: a thread
+ * that locks twice blocks itself, and no amount of runtime cleverness can tell
+ * that apart from a legitimate second thread.
+ *
+ * These objects are plumbing, not language values, so they use `malloc`/`free`
+ * directly and are not counted in the leak report. That report answers "did
+ * every `alloc` and every string come back?"; a channel a program forgets to
+ * free is a forgotten handle like a `Mutex`, not a string leak.
+ */
+
+#if defined(_WIN32)
+typedef SRWLOCK otter_os_lock;
+typedef CONDITION_VARIABLE otter_os_cond;
+
+static int otter_os_lock_init(otter_os_lock *lock) {
+    InitializeSRWLock(lock);
+    return 1;
+}
+
+static void otter_os_lock_destroy(otter_os_lock *lock) {
+    (void)lock; /* SRW locks have no destructor. */
+}
+
+static void otter_os_lock_acquire(otter_os_lock *lock) {
+    AcquireSRWLockExclusive(lock);
+}
+
+static void otter_os_lock_release(otter_os_lock *lock) {
+    ReleaseSRWLockExclusive(lock);
+}
+
+static int otter_os_cond_init(otter_os_cond *cond) {
+    InitializeConditionVariable(cond);
+    return 1;
+}
+
+static void otter_os_cond_destroy(otter_os_cond *cond) {
+    (void)cond;
+}
+
+static void otter_os_cond_wait(otter_os_cond *cond, otter_os_lock *lock) {
+    /* INFINITE and no flags: the wait result only says whether the lock was
+     * reacquired, and a close is signalled through `closed`, not through it. */
+    (void)SleepConditionVariableSRW(cond, lock, INFINITE, 0);
+}
+
+static void otter_os_cond_signal(otter_os_cond *cond) {
+    WakeConditionVariable(cond);
+}
+
+static void otter_os_cond_broadcast(otter_os_cond *cond) {
+    WakeAllConditionVariable(cond);
+}
+#else
+typedef pthread_mutex_t otter_os_lock;
+typedef pthread_cond_t otter_os_cond;
+
+static int otter_os_lock_init(otter_os_lock *lock) {
+    return pthread_mutex_init(lock, NULL) == 0;
+}
+
+static void otter_os_lock_destroy(otter_os_lock *lock) {
+    (void)pthread_mutex_destroy(lock);
+}
+
+static void otter_os_lock_acquire(otter_os_lock *lock) {
+    (void)pthread_mutex_lock(lock);
+}
+
+static void otter_os_lock_release(otter_os_lock *lock) {
+    (void)pthread_mutex_unlock(lock);
+}
+
+static int otter_os_cond_init(otter_os_cond *cond) {
+    return pthread_cond_init(cond, NULL) == 0;
+}
+
+static void otter_os_cond_destroy(otter_os_cond *cond) {
+    (void)pthread_cond_destroy(cond);
+}
+
+static void otter_os_cond_wait(otter_os_cond *cond, otter_os_lock *lock) {
+    (void)pthread_cond_wait(cond, lock);
+}
+
+static void otter_os_cond_signal(otter_os_cond *cond) {
+    (void)pthread_cond_signal(cond);
+}
+
+static void otter_os_cond_broadcast(otter_os_cond *cond) {
+    (void)pthread_cond_broadcast(cond);
+}
+#endif
+
+/* ---- Mutexes ---------------------------------------------------------- */
+
+struct otter_mutex {
+    otter_os_lock lock;
+};
+
+otter_mutex *otter_mutex_new(void) {
+    otter_mutex *mutex = (otter_mutex *)malloc(sizeof *mutex);
+    if (mutex == NULL) {
+        return NULL;
+    }
+    if (!otter_os_lock_init(&mutex->lock)) {
+        free(mutex);
+        return NULL;
+    }
+    return mutex;
+}
+
+void otter_mutex_lock(otter_mutex *mutex) {
+    if (mutex != NULL) {
+        otter_os_lock_acquire(&mutex->lock);
+    }
+}
+
+void otter_mutex_unlock(otter_mutex *mutex) {
+    if (mutex != NULL) {
+        otter_os_lock_release(&mutex->lock);
+    }
+}
+
+void otter_mutex_free(otter_mutex *mutex) {
+    if (mutex == NULL) {
+        return;
+    }
+    otter_os_lock_destroy(&mutex->lock);
+    free(mutex);
+}
+
+/* ---- Threads ----------------------------------------------------------
+ *
+ * The handle is an index into a table of records, not a `pthread_t` squeezed
+ * into an `i32`: `pthread_t` is a pointer on macOS, so truncating one would be
+ * wrong by construction. The table is a growable array of pointers, which keeps
+ * a record at a stable address when the array itself moves, and lets the
+ * trampoline hold its record for the whole life of the thread.
+ *
+ * A slot is NULL when free. A join clears the slot only after the thread has
+ * finished and the record is gone, so a program that spawns in a loop reuses
+ * indices instead of growing the table without bound.
+ */
+
+typedef struct otter_thread_record {
+    otter_thread_entry body;
+    void *arg;   /* the owned copy handed to `body` */
+    int joining; /* a join has claimed this record */
+#if defined(_WIN32)
+    HANDLE native;
+#else
+    pthread_t native;
+#endif
+} otter_thread_record;
+
+static otter_thread_record **otter_thread_slots = NULL;
+static long long otter_thread_slot_count = 0;
+
+/* Static, because a spawn may be a program's first runtime call and a lazily
+ * initialised lock would need one itself. The table is never destroyed, so the
+ * static lock never needs a matching destroy. */
+static otter_os_lock otter_thread_slots_lock =
+#if defined(_WIN32)
+    SRWLOCK_INIT;
+#else
+    PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+#if defined(_WIN32)
+static unsigned __stdcall otter_thread_trampoline(void *raw) {
+#else
+static void *otter_thread_trampoline(void *raw) {
+#endif
+    otter_thread_record *record = (otter_thread_record *)raw;
+    record->body(record->arg);
+#if defined(_WIN32)
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+int otter_thread_spawn(otter_thread_entry entry, const void *arg, long long arg_size) {
+    if (entry == NULL) {
+        return 0;
+    }
+
+    /* The caller's frame may be gone before the thread is scheduled, so the
+     * argument is copied now. A null argument or a zero size means "no
+     * argument" and the entry receives NULL. */
+    void *copy = NULL;
+    if (arg != NULL && arg_size > 0) {
+        copy = malloc((size_t)arg_size);
+        if (copy == NULL) {
+            return 0;
+        }
+        memcpy(copy, arg, (size_t)arg_size);
+    }
+
+    otter_thread_record *record = (otter_thread_record *)malloc(sizeof *record);
+    if (record == NULL) {
+        free(copy);
+        return 0;
+    }
+    record->body = entry;
+    record->arg = copy;
+    record->joining = 0;
+
+    otter_os_lock_acquire(&otter_thread_slots_lock);
+    long long index = -1;
+    for (long long i = 0; i < otter_thread_slot_count; i++) {
+        if (otter_thread_slots[i] == NULL) {
+            index = i;
+            break;
+        }
+    }
+    if (index < 0) {
+        long long grown_to = otter_thread_slot_count == 0 ? 8 : otter_thread_slot_count * 2;
+        otter_thread_record **grown = (otter_thread_record **)realloc(
+            otter_thread_slots,
+            (size_t)grown_to * sizeof *grown
+        );
+        if (grown == NULL) {
+            otter_os_lock_release(&otter_thread_slots_lock);
+            free(record);
+            free(copy);
+            return 0;
+        }
+        for (long long i = otter_thread_slot_count; i < grown_to; i++) {
+            grown[i] = NULL;
+        }
+        otter_thread_slots = grown;
+        index = otter_thread_slot_count;
+        otter_thread_slot_count = grown_to;
+    }
+    /* The record is visible before the thread exists, because the handle is not
+     * returned until after creation and a join cannot name it before then. */
+    otter_thread_slots[index] = record;
+    otter_os_lock_release(&otter_thread_slots_lock);
+
+#if defined(_WIN32)
+    unsigned thread_id = 0;
+    uintptr_t native =
+        _beginthreadex(NULL, 0, otter_thread_trampoline, record, 0, &thread_id);
+    int created = native != 0;
+    if (created) {
+        record->native = (HANDLE)native;
+    }
+#else
+    int created = pthread_create(&record->native, NULL, otter_thread_trampoline, record) == 0;
+#endif
+
+    if (!created) {
+        otter_os_lock_acquire(&otter_thread_slots_lock);
+        otter_thread_slots[index] = NULL;
+        otter_os_lock_release(&otter_thread_slots_lock);
+        free(record);
+        free(copy);
+        return 0;
+    }
+    return (int)(index + 1);
+}
+
+int otter_thread_join(int handle) {
+    if (handle <= 0) {
+        return 1;
+    }
+    long long index = (long long)handle - 1;
+
+    otter_os_lock_acquire(&otter_thread_slots_lock);
+    if (index >= otter_thread_slot_count || otter_thread_slots[index] == NULL) {
+        otter_os_lock_release(&otter_thread_slots_lock);
+        return 1;
+    }
+    otter_thread_record *record = otter_thread_slots[index];
+    if (record->joining) {
+        otter_os_lock_release(&otter_thread_slots_lock);
+        return 1;
+    }
+    record->joining = 1;
+    otter_os_lock_release(&otter_thread_slots_lock);
+
+    /* The body has returned before these can release its argument. */
+#if defined(_WIN32)
+    (void)WaitForSingleObject(record->native, INFINITE);
+    (void)CloseHandle(record->native);
+#else
+    (void)pthread_join(record->native, NULL);
+#endif
+    free(record->arg);
+
+    otter_os_lock_acquire(&otter_thread_slots_lock);
+    otter_thread_slots[index] = NULL;
+    otter_os_lock_release(&otter_thread_slots_lock);
+    free(record);
+    return 0;
+}
+
+/* ---- Channels ---------------------------------------------------------
+ *
+ * A ring of `capacity` slots, each `slot_size` bytes. The size is not known to
+ * `chan_new` -- the ABI passes it with every send and receive, because the
+ * element type is a compile-time fact at the call site -- so the first send or
+ * receive fixes it and allocates the ring. Every later call must agree; a
+ * mismatch answers 0 rather than writing past a slot, and can only mean the
+ * checker and the runtime disagree about the element type.
+ *
+ * A closed channel keeps its queued values: receivers drain first and see 0
+ * afterwards. Senders see 0 immediately, including one that was blocked on a
+ * full channel when the close arrived, which is the case the close exists to
+ * unblock.
+ */
+
+struct otter_chan {
+    otter_os_lock lock;
+    otter_os_cond not_empty;
+    otter_os_cond not_full;
+    long long capacity;
+    long long slot_size; /* 0 until the first send or receive fixes it */
+    unsigned char *slots;
+    long long head;
+    long long count;
+    int closed;
+};
+
+otter_chan *otter_chan_new(long long capacity) {
+    if (capacity < 1) {
+        capacity = 1;
+    }
+    otter_chan *chan = (otter_chan *)malloc(sizeof *chan);
+    if (chan == NULL) {
+        return NULL;
+    }
+    if (!otter_os_lock_init(&chan->lock)) {
+        free(chan);
+        return NULL;
+    }
+    if (!otter_os_cond_init(&chan->not_empty)) {
+        otter_os_lock_destroy(&chan->lock);
+        free(chan);
+        return NULL;
+    }
+    if (!otter_os_cond_init(&chan->not_full)) {
+        otter_os_cond_destroy(&chan->not_empty);
+        otter_os_lock_destroy(&chan->lock);
+        free(chan);
+        return NULL;
+    }
+    chan->capacity = capacity;
+    chan->slot_size = 0;
+    chan->slots = NULL;
+    chan->head = 0;
+    chan->count = 0;
+    chan->closed = 0;
+    return chan;
+}
+
+/* Allocates the ring on first use and checks the size on every call. Called
+ * with the channel locked. */
+static int otter_chan_reserve(otter_chan *chan, long long size) {
+    if (chan->slot_size == 0) {
+        if ((unsigned long long)chan->capacity > SIZE_MAX / (unsigned long long)size) {
+            return 0;
+        }
+        size_t bytes = (size_t)chan->capacity * (size_t)size;
+        unsigned char *slots = (unsigned char *)malloc(bytes);
+        if (slots == NULL) {
+            return 0;
+        }
+        chan->slots = slots;
+        chan->slot_size = size;
+        return 1;
+    }
+    return chan->slot_size == size;
+}
+
+char otter_chan_send(otter_chan *chan, const void *item, long long size) {
+    if (chan == NULL || item == NULL || size <= 0) {
+        return 0;
+    }
+
+    otter_os_lock_acquire(&chan->lock);
+    while (chan->count == chan->capacity && !chan->closed) {
+        otter_os_cond_wait(&chan->not_full, &chan->lock);
+    }
+    if (chan->closed) {
+        otter_os_lock_release(&chan->lock);
+        return 0;
+    }
+    if (!otter_chan_reserve(chan, size)) {
+        otter_os_lock_release(&chan->lock);
+        return 0;
+    }
+
+    long long tail = (chan->head + chan->count) % chan->capacity;
+    memcpy(chan->slots + tail * chan->slot_size, item, (size_t)chan->slot_size);
+    chan->count++;
+    otter_os_cond_signal(&chan->not_empty);
+    otter_os_lock_release(&chan->lock);
+    return 1;
+}
+
+char otter_chan_recv(otter_chan *chan, void *out_item, long long size) {
+    if (chan == NULL || out_item == NULL || size <= 0) {
+        return 0;
+    }
+
+    otter_os_lock_acquire(&chan->lock);
+    while (chan->count == 0 && !chan->closed) {
+        otter_os_cond_wait(&chan->not_empty, &chan->lock);
+    }
+    if (chan->count == 0) {
+        /* Closed and drained. Queued values are never discarded by a close, so
+         * this is the only state in which a receive reports "no value". */
+        otter_os_lock_release(&chan->lock);
+        return 0;
+    }
+    if (!otter_chan_reserve(chan, size)) {
+        otter_os_lock_release(&chan->lock);
+        return 0;
+    }
+
+    memcpy(out_item, chan->slots + chan->head * chan->slot_size, (size_t)chan->slot_size);
+    chan->head = (chan->head + 1) % chan->capacity;
+    chan->count--;
+    otter_os_cond_signal(&chan->not_full);
+    otter_os_lock_release(&chan->lock);
+    return 1;
+}
+
+void otter_chan_close(otter_chan *chan) {
+    if (chan == NULL) {
+        return;
+    }
+    otter_os_lock_acquire(&chan->lock);
+    chan->closed = 1;
+    otter_os_cond_broadcast(&chan->not_empty);
+    otter_os_cond_broadcast(&chan->not_full);
+    otter_os_lock_release(&chan->lock);
+}
+
+void otter_chan_free(otter_chan *chan) {
+    if (chan == NULL) {
+        return;
+    }
+    otter_os_cond_destroy(&chan->not_full);
+    otter_os_cond_destroy(&chan->not_empty);
+    otter_os_lock_destroy(&chan->lock);
+    free(chan->slots);
+    free(chan);
+}
+
