@@ -32,19 +32,19 @@
 - Consumes: ledger L1 M7 half
 - Produces: `otter_thread_spawn`, `otter_thread_join`, `otter_mutex_*`, `otter_chan_*`
 
-- [ ] **Step 1: Write the failing C tests**
+- [x] **Step 1: Write the failing C tests**
 
 `threads.c`: spawn 4 threads each incrementing a shared counter under a mutex, join all, assert the total. Spawn 8 threads sending 1000 integers each over a buffered channel of capacity 16, drain on the main thread, assert the sum. Close a channel while a sender is blocked and assert the sender unblocks.
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `pthread_create`/`CreateThread` behind one signature. Channels are a bounded ring buffer of byte slots with a mutex and two condition variables. `otter_chan_send` on a closed channel returns 0 rather than blocking forever — a closed channel is the one case that must not hang.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-runtime/
@@ -92,7 +92,7 @@ git commit -m "feat(runtime): threads, mutexes, and bounded channels"
 - Consumes: ledger L3 M7 row
 - Produces: `Thread.spawn(fn, args) -> i32`, `thread_join(i32)`, `Mutex.new()`, `mutex.lock()`, `mutex.unlock()`, `Channel.new(i64)`, `chan.send(T) -> bool`, `chan.recv() -> Option[T]`, `chan.close()`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -115,20 +115,50 @@ fn recv_yields_an_option_not_a_blocking_value() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Declare the builtins and the handle types as linear (ledger L5). A `Mutex` and `Channel` are opaque pointers from the language's side.
 
-- [ ] **Step 4: Run to verify they pass** → PASS.
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/
 git commit -m "feat(sema): thread, mutex and channel builtins"
 ```
+
+**As built.** The plan's spellings and types met three facts in the existing
+language, recorded here so the next task has one surface to implement:
+
+- **Flat names, not method syntax.** `Thread.spawn(fn, args)`, `Mutex.new()` and
+  `mutex.lock()` are spelled `thread_spawn`, `mutex_new`, `mutex_lock`,
+  `chan_new`, `chan_send`, `chan_recv`, `chan_close` and `chan_free`. Otter has
+  no method-call syntax, as the M6 revision already recorded for
+  `Arena.new()`; a dotted callee would name a function no program could define.
+- **The handle is `i64` at the source level.** The ledger's ABI is `i32`, but
+  ordinary Otter code cannot spell a C width (`i32` is `extern`-only), so
+  `thread_spawn` is typed `i64` and codegen truncates to `i32` at the call.
+  The source value is only ever handed back to `thread_join` or forgotten.
+- **`Mutex` is `TypeKind::Mutex`; `Channel[T]` is `TypeKind::Channel(T)`.** Both
+  lower to `i8*` and both are linear, per L5. `Channel[T]` needed a parser
+  variant (`TypeExpr::Channel`) beside `Option[T]`, because it is written with
+  brackets and has no element to infer from.
+- **Channel elements are copies only for now.** A slot is a byte copy, so a
+  linear element would give the body and the parent one allocation; `[]i64`,
+  `map[K]V`, pointers and handles are rejected at `Channel[T]`, with a
+  diagnostic naming the reason. Numbers, `bool`, C widths and strings are
+  accepted (a string slot is a pointer, so this is a documented data-race
+  hazard for the program to avoid until M8's tooling can see it).
+- **Spawn arguments follow their type.** A `string` is shared by retain (atomic
+  once Task 4 lands), a `Mutex` or `Channel` is *borrowed* (the parent frees it
+  after the join), and a linear container or pointer is rejected with "cannot
+  cross a thread boundary yet". The body must return `()`: there is no caller
+  to hand a value back to, and dropping a linear one silently would leak it.
+- **All M7 builtins are checker-intercepted**, like `push` and `map_*`: the
+  fixed table has no type parameters, and `thread_spawn` has no fixed arity.
 
 ---
 

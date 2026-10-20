@@ -33,6 +33,9 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::Ptr(_) | TypeKind::CPtr(_) => "i8*".to_string(),
         // A map value is the runtime's opaque table pointer.
         TypeKind::Map(_, _) => "i8*".to_string(),
+        // Mutex and channel handles are runtime pointers with no visible
+        // fields either.
+        TypeKind::Mutex | TypeKind::Channel(_) => "i8*".to_string(),
         TypeKind::CInt(width) | TypeKind::CUInt(width) => match width {
             8 => "i8".to_string(),
             16 => "i16".to_string(),
@@ -118,7 +121,9 @@ pub fn size_of(kind: &TypeKind) -> u64 {
         | TypeKind::Str
         | TypeKind::Ptr(_)
         | TypeKind::CPtr(_)
-        | TypeKind::Map(_, _) => 8,
+        | TypeKind::Map(_, _)
+        | TypeKind::Mutex
+        | TypeKind::Channel(_) => 8,
         TypeKind::Slice(_) => 24,
         TypeKind::Option(_)
         | TypeKind::Result(_, _)

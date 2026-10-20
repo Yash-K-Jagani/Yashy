@@ -37,6 +37,7 @@ pub fn linearity_of(ty: &TypeKind) -> Linearity {
         TypeKind::Ptr(_) | TypeKind::CPtr(_) | TypeKind::Slice(_) | TypeKind::Map(_, _) => {
             Linearity::Linear
         }
+        TypeKind::Mutex | TypeKind::Channel(_) => Linearity::Linear,
         _ => Linearity::Copy,
     }
 }

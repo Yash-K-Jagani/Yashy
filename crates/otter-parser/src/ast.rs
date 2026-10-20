@@ -259,6 +259,12 @@ pub enum TypeExpr {
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`
     Result(Box<TypeExpr>, Box<TypeExpr>, Span),
+    /// `Channel[T]` - a bounded queue of `T`, handled by the runtime.
+    ///
+    /// The element type is written, never inferred: `chan_new` has nothing in
+    /// its arguments to infer from, so the binding's annotation is what fixes
+    /// the channel, exactly as `map[K]V` does for `map_new`.
+    Channel(Box<TypeExpr>, Span),
     /// A parenthesised list of types, as in `(i64, f64)`.
     ///
     /// **Never empty.** `()` is [`TypeExpr::Unit`], always, and a parser that

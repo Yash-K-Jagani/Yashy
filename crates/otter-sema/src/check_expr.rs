@@ -617,6 +617,13 @@ impl<'src> Checker<'src> {
                     "bool" => Some(TypeKind::Bool),
                     "string" => Some(TypeKind::Str),
                     "()" => Some(TypeKind::Unit),
+                    "Mutex" => Some(TypeKind::Mutex),
+                    "Channel" => {
+                        return Err(TypeError::new(
+                            *span,
+                            "`Channel` takes an element type, as in `Channel[i64]`".to_string(),
+                        ))
+                    }
                     _ => {
                         if let Some(kind) = TypeKind::from_c_spelling(name) {
                             Some(kind)
@@ -646,6 +653,33 @@ impl<'src> Checker<'src> {
                 let err = self.resolve_type_in(err, allow_c)?;
                 Ok(Type {
                     kind: TypeKind::Result(Box::new(ok), Box::new(err)),
+                    span: *span,
+                })
+            }
+            TypeExpr::Channel(element, span) => {
+                let element = self.resolve_type_in(element, allow_c)?;
+                if matches!(
+                    element.kind,
+                    TypeKind::Unit | TypeKind::Never | TypeKind::CVoid
+                ) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "a channel cannot carry `{element}`: its slots would have no size"
+                        ),
+                    ));
+                }
+                if linearity_of(&element.kind) == Linearity::Linear {
+                    return Err(TypeError::new(
+                        element.span,
+                        format!(
+                            "a channel cannot carry `{element}` yet: the runtime copies each \
+                             value into a slot, so an owned value would have two owners"
+                        ),
+                    ));
+                }
+                Ok(Type {
+                    kind: TypeKind::Channel(Box::new(element)),
                     span: *span,
                 })
             }
@@ -1683,6 +1717,9 @@ impl<'src> Checker<'src> {
                 if name == "map_new" {
                     return self.check_map_new(args, *span, Some(expected));
                 }
+                if name == "chan_new" {
+                    return self.check_chan_new(args, *span, Some(expected));
+                }
             }
         }
         if let Expr::Ident(path, span) = expr {
@@ -2005,6 +2042,384 @@ impl<'src> Checker<'src> {
         }))
     }
 
+    /// The M7 builtins: threads, mutexes and channels.
+    ///
+    /// They are intercepted rather than declared in the fixed table for the
+    /// same reason the slice and map builtins are. `thread_spawn` has no fixed
+    /// arity -- its remaining arguments are the body's own parameters -- and
+    /// every channel operation needs the element type that `Channel[T]` carries
+    /// in the receiver's binding.
+    ///
+    /// The outer `Option` says "this name is a thread builtin"; the inner one
+    /// is the checked expression, `None` after a reported error.
+    fn check_thread_builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let checked = match name {
+            "thread_spawn" => self.check_thread_spawn(args, span),
+            "thread_join" => self.check_thread_join(args, span),
+            "mutex_new" | "mutex_lock" | "mutex_unlock" | "mutex_free" => {
+                self.check_mutex_builtin(name, args, span)
+            }
+            "chan_new" => self.check_chan_new(args, span, None),
+            _ => self.check_chan_builtin(name, args, span),
+        };
+        Some(checked)
+    }
+
+    /// `thread_spawn(body, args...)`.
+    ///
+    /// The first argument names an ordinary function, and the rest are checked
+    /// against its parameters exactly as a direct call's arguments would be.
+    /// The body must return `()`: a thread has no caller to hand a value back
+    /// to, and silently dropping one (a linear value especially) would be a
+    /// leak the source never spelled.
+    ///
+    /// Arguments are copied into the thread's entry record:
+    ///
+    /// - a `string` is retained for the thread, which drops its reference when
+    ///   the body returns (the atomic form once Task 4 lands);
+    /// - a `Mutex` or `Channel` is *borrowed*: the parent keeps the binding and
+    ///   must free it only after the join, which is the whole point of sharing
+    ///   a handle with a thread;
+    /// - a linear container or pointer is rejected for now, because the byte
+    ///   copy would leave the body and the parent both owning it.
+    fn check_thread_spawn(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
+        let (first, rest) = match args.split_first() {
+            Some(parts) => parts,
+            None => {
+                self.error(span, "`thread_spawn` takes a function and its arguments");
+                return None;
+            }
+        };
+        let Expr::Ident(path, ident_span) = first else {
+            self.error(
+                span,
+                "`thread_spawn` needs a function as its first argument, not a temporary",
+            );
+            return None;
+        };
+        if path.len() != 1 {
+            self.error(
+                *ident_span,
+                "`thread_spawn` needs a function name, not a field access",
+            );
+            return None;
+        }
+        let body_name = path.last().cloned().unwrap_or_default();
+        let Some(body_ty) = self.scope.resolve(&body_name).map(|binding| binding.ty.clone()) else {
+            self.error(
+                *ident_span,
+                format!("`thread_spawn` needs a function, `{body_name}` is not declared"),
+            );
+            return None;
+        };
+        let TypeKind::Func(params, ret) = &body_ty.kind else {
+            self.error(
+                *ident_span,
+                format!("`thread_spawn` needs a function, `{body_name}` is `{body_ty}`"),
+            );
+            return None;
+        };
+        if !matches!(ret.kind, TypeKind::Unit | TypeKind::Never) {
+            self.error(
+                *ident_span,
+                format!("a thread body must return `()`; `{body_name}` returns `{ret}`"),
+            );
+            return None;
+        }
+        if params.len() != rest.len() {
+            self.error(
+                span,
+                format!(
+                    "expected {} arguments, found {}",
+                    params.len(),
+                    rest.len()
+                ),
+            );
+            return None;
+        }
+
+        let params = params.clone();
+        let mut checked = Vec::with_capacity(args.len());
+        checked.push(HirExpr::Ident(vec![body_name], *ident_span, body_ty));
+        for (argument, parameter) in rest.iter().zip(params.iter()) {
+            let value = self.check_expr_with_expected(argument, parameter)?;
+            let found = expr_ty(&value);
+            if !fits(parameter, &found) {
+                self.error(
+                    expr_span(&value),
+                    format!("expected `{parameter}`, found `{found}`"),
+                );
+                return None;
+            }
+            if linearity_of(&parameter.kind) == Linearity::Linear
+                && !matches!(parameter.kind, TypeKind::Mutex | TypeKind::Channel(_))
+            {
+                self.error(
+                    expr_span(&value),
+                    format!(
+                        "a `{parameter}` argument cannot cross a thread boundary yet: the \
+                         runtime copies the value, so the body and the parent would both own it"
+                    ),
+                );
+                return None;
+            }
+            checked.push(value);
+        }
+
+        Some(HirExpr::Call {
+            callee: vec!["thread_spawn".to_string()],
+            args: checked,
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::I64),
+        })
+    }
+
+    /// `thread_join(handle)`.
+    ///
+    /// The handle is an `i64` at the source level even though the runtime ABI
+    /// is `i32`: ordinary Otter code cannot spell a C width, and a handle is
+    /// only ever handed back to `thread_join` or forgotten.
+    fn check_thread_join(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
+        if args.len() != 1 {
+            self.error(
+                span,
+                format!("`thread_join` takes 1 argument, found {}", args.len()),
+            );
+            return None;
+        }
+        let handle = self.check_expr(&args[0])?;
+        let found = expr_ty(&handle);
+        if !fits(&prim(TypeKind::I64), &found) {
+            self.error(
+                expr_span(&handle),
+                format!("expected `i64`, found `{found}`"),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["thread_join".to_string()],
+            args: vec![handle],
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        })
+    }
+
+    /// `mutex_new()`, `mutex_lock(m)`, `mutex_unlock(m)` and `mutex_free(m)`.
+    ///
+    /// The receiver must be a plain binding: `mutex_free` moves it, and a
+    /// temporary handle would leak. Locking and unlocking borrow, so the same
+    /// binding can be locked, unlocked and later freed.
+    fn check_mutex_builtin(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
+        if name == "mutex_new" {
+            if !args.is_empty() {
+                self.error(
+                    span,
+                    format!("`mutex_new` takes no arguments, found {}", args.len()),
+                );
+                return None;
+            }
+            return Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: Vec::new(),
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::Mutex),
+            });
+        }
+
+        if args.len() != 1 {
+            self.error(
+                span,
+                format!("`{name}` takes 1 argument, found {}", args.len()),
+            );
+            return None;
+        }
+        let Expr::Ident(path, ident_span) = &args[0] else {
+            self.error(
+                span,
+                format!("`{name}` needs a mutex binding, not a temporary"),
+            );
+            return None;
+        };
+        if path.len() != 1 {
+            self.error(
+                *ident_span,
+                format!("`{name}` needs a mutex binding, not a field access"),
+            );
+            return None;
+        }
+        let receiver = self.check_expr(&args[0])?;
+        let found = expr_ty(&receiver);
+        if !matches!(found.kind, TypeKind::Mutex) {
+            self.error(
+                expr_span(&receiver),
+                format!("`{name}` expects a Mutex, found `{found}`"),
+            );
+            return None;
+        }
+        if name == "mutex_free" {
+            let binding = path.last().cloned().unwrap_or_default();
+            if let Err(error) = self.move_out(&binding, *ident_span) {
+                self.error(error.span, error.message);
+            }
+        }
+        Some(HirExpr::Call {
+            callee: vec![name.to_string()],
+            args: vec![receiver],
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        })
+    }
+
+    /// `chan_new(capacity)` - the element type comes from the binding's
+    /// `Channel[T]` annotation, exactly as `map_new`'s key and value do.
+    fn check_chan_new(
+        &mut self,
+        args: &[Expr],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Option<HirExpr> {
+        if args.len() != 1 {
+            self.error(
+                span,
+                format!(
+                    "`chan_new` takes 1 argument (the capacity), found {}",
+                    args.len()
+                ),
+            );
+            return None;
+        }
+        let capacity = self.check_expr_with_expected(&args[0], &prim(TypeKind::I64))?;
+        let found = expr_ty(&capacity);
+        if !fits(&prim(TypeKind::I64), &found) {
+            self.error(
+                expr_span(&capacity),
+                format!("expected `i64`, found `{found}`"),
+            );
+            return None;
+        }
+        let Some(expected) = expected else {
+            self.error(
+                span,
+                "cannot infer the channel's element type: write `var c: Channel[i64] = chan_new(4)`",
+            );
+            return None;
+        };
+        if !matches!(expected.kind, TypeKind::Channel(_)) {
+            self.error(
+                span,
+                format!("`chan_new` needs a `Channel[T]` annotation, found `{expected}`"),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["chan_new".to_string()],
+            args: vec![capacity],
+            unsafe_call: false,
+            span,
+            ty: expected.clone(),
+        })
+    }
+
+    /// `chan_send(c, value)`, `chan_recv(c)`, `chan_close(c)` and
+    /// `chan_free(c)`. Only `chan_free` consumes the handle.
+    fn check_chan_builtin(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
+        let arity = if name == "chan_send" { 2 } else { 1 };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{name}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return None;
+        }
+        let Expr::Ident(path, ident_span) = &args[0] else {
+            self.error(
+                span,
+                format!("`{name}` needs a channel binding, not a temporary"),
+            );
+            return None;
+        };
+        if path.len() != 1 {
+            self.error(
+                *ident_span,
+                format!("`{name}` needs a channel binding, not a field access"),
+            );
+            return None;
+        }
+        let receiver = self.check_expr(&args[0])?;
+        let found = expr_ty(&receiver);
+        let TypeKind::Channel(element) = &found.kind else {
+            self.error(
+                expr_span(&receiver),
+                format!("`{name}` expects a channel, found `{found}`"),
+            );
+            return None;
+        };
+        let element = (**element).clone();
+
+        if name == "chan_free" {
+            let binding = path.last().cloned().unwrap_or_default();
+            if let Err(error) = self.move_out(&binding, *ident_span) {
+                self.error(error.span, error.message);
+            }
+            return Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: unit(span),
+            });
+        }
+        if name == "chan_close" {
+            return Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: unit(span),
+            });
+        }
+        if name == "chan_recv" {
+            let ty = option(&element, span);
+            return Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty,
+            });
+        }
+
+        // `chan_send`
+        let value = self.check_expr_with_expected(&args[1], &element)?;
+        let value_ty = expr_ty(&value);
+        if !fits(&element, &value_ty) {
+            self.error(
+                expr_span(&value),
+                format!("expected `{element}`, found `{value_ty}`"),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec![name.to_string()],
+            args: vec![receiver, value],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Bool),
+        })
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Option<HirExpr> {
         match expr {
             Expr::Literal(Literal::I64(v), span) => Some(HirExpr::Literal(
@@ -2163,6 +2578,22 @@ impl<'src> Checker<'src> {
                         "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free"
                     ) {
                         return self.check_map_builtin(&name, args, *span).flatten();
+                    }
+                    if matches!(
+                        name.as_str(),
+                        "thread_spawn"
+                            | "thread_join"
+                            | "mutex_new"
+                            | "mutex_lock"
+                            | "mutex_unlock"
+                            | "mutex_free"
+                            | "chan_new"
+                            | "chan_send"
+                            | "chan_recv"
+                            | "chan_close"
+                            | "chan_free"
+                    ) {
+                        return self.check_thread_builtin(&name, args, *span).flatten();
                     }
                 }
                 // The callee is resolved *before* the arguments are checked,
@@ -3386,6 +3817,8 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             Box::new(type_to_expr(value)),
             span,
         ),
+        TypeKind::Mutex => TypeExpr::Name("Mutex".to_string(), span),
+        TypeKind::Channel(element) => TypeExpr::Channel(Box::new(type_to_expr(element)), span),
         TypeKind::CInt(width) => TypeExpr::Name(format!("i{width}"), span),
         TypeKind::CUInt(width) => TypeExpr::Name(format!("u{width}"), span),
         TypeKind::CFloat(width) => TypeExpr::Name(format!("f{width}"), span),
@@ -3511,6 +3944,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Slice(_, span) => *span,
         TypeExpr::Map(_, _, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
+        TypeExpr::Channel(_, span) => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,
     }

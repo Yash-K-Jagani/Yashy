@@ -227,6 +227,15 @@ impl<'src> Parser<'src> {
                     cover(start, self.previous_span()),
                 ))
             }
+            "Channel" => {
+                self.open_bracket()?;
+                let element = self.parse_type_expr()?;
+                self.close_bracket()?;
+                Ok(TypeExpr::Channel(
+                    Box::new(element),
+                    cover(start, self.previous_span()),
+                ))
+            }
             // `map[K]V` - the key in brackets, the value after them. The two
             // types sit on opposite sides of the `]`, so this cannot reuse the
             // `Option[..]` shape.

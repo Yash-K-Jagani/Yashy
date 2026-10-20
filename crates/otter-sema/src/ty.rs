@@ -40,6 +40,19 @@ pub enum TypeKind {
     /// `string`; values are restricted to numbers and `bool` for now, because
     /// an owned value would need a destructor on removal.
     Map(Box<Type>, Box<Type>),
+    /// A mutex handle, written `Mutex`.
+    ///
+    /// Linear, because the runtime handle has to be freed exactly once and
+    /// copying it would let two owners free the same lock. The runtime never
+    /// hands the handle's internals back, so generated code sees one opaque
+    /// pointer.
+    Mutex,
+    /// A bounded channel of `T`, written `Channel[T]`.
+    ///
+    /// Linear like a mutex: the binding owns the channel, and `chan_free` gives
+    /// it up. A spawned thread receives a *borrowed* handle, which is the one
+    /// way a handle reaches a second thread without a copy.
+    Channel(Box<Type>),
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
     /// [`crate::ownership`]): at most one binding owns it at a time.
     Ptr(Box<Type>),
@@ -108,6 +121,8 @@ impl std::fmt::Display for Type {
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
             TypeKind::Slice(element) => write!(f, "[]{element}"),
             TypeKind::Map(key, value) => write!(f, "map[{key}]{value}"),
+            TypeKind::Mutex => write!(f, "Mutex"),
+            TypeKind::Channel(element) => write!(f, "Channel[{element}]"),
             TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
             TypeKind::CInt(width) => write!(f, "i{width}"),
             TypeKind::CUInt(width) => write!(f, "u{width}"),
