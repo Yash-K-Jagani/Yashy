@@ -227,6 +227,14 @@ impl Module {
         out.push_str("declare i64 @otter_slice_get(ptr, i64, ptr, i64)\n");
         out.push_str("declare i64 @otter_slice_pop(ptr, ptr, i64)\n");
         out.push_str("declare void @otter_slice_free(ptr)\n");
+        // The map half of ledger L1's M6 block. An unused `declare` is legal
+        // IR, so these are always present for the same reason as the slices.
+        out.push_str("declare i8* @otter_map_new(i64, i64, i64)\n");
+        out.push_str("declare void @otter_map_free(i8*)\n");
+        out.push_str("declare void @otter_map_insert(i8*, ptr, ptr)\n");
+        out.push_str("declare i64 @otter_map_get(i8*, ptr, ptr)\n");
+        out.push_str("declare i64 @otter_map_remove(i8*, ptr, ptr)\n");
+        out.push_str("declare i64 @otter_map_len(i8*)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.

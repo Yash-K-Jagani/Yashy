@@ -156,3 +156,19 @@ fn slice_operations_return_every_backing_array() {
     );
     assert_no_leaks("slices_ops", &output);
 }
+
+#[test]
+fn a_map_releases_every_key_it_retained() {
+    // `maps_heap.ot` builds two hundred string keys, inserts each one, and lets
+    // the binding go at the end of its iteration. The table's own reference is
+    // what keeps each key alive, and `map_free` must drop exactly those two
+    // hundred. A non-zero count means a key was retained and never released, or
+    // retained twice on an overwrite.
+    let output = build_and_run("maps_heap");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "150\n200\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("maps_heap", &output);
+}

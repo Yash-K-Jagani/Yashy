@@ -13,17 +13,18 @@
 //!
 //! # Where the runtime comes from
 //!
-//! The runtime is the *runtime C source*, [`RUNTIME_C_SOURCE`], embedded in the
-//! compiler binary: there is no library search path to configure and the
-//! runtime is always the one this compiler was built and tested with.
+//! The runtime is the *runtime C sources*, [`RUNTIME_C_SOURCE`] and
+//! [`HASHMAP_C_SOURCE`], embedded in the compiler binary: there is no library
+//! search path to configure and the runtime is always the one this compiler was
+//! built and tested with.
 //!
-//! At link time the driver needs that source as an object file. Compiling it
-//! costs about 135 ms of a 400 ms build, and its bytes never change between
-//! builds, so the object is cached — see `cached_runtime_object`. The cache
-//! is keyed on the exact bytes it was built from, so it cannot go stale: a
-//! changed runtime is a different key and a different object. When the cache
-//! cannot be used for any reason, the driver falls back to compiling the source
-//! as part of the link, which is what it did before there was a cache.
+//! At link time the driver needs those sources as object files. Compiling them
+//! costs a fraction of a build and their bytes never change between builds, so
+//! each object is cached — see `cached_runtime_object`. The cache is keyed on
+//! the exact bytes both were built from, so it cannot go stale: a changed
+//! runtime is a different key and a different object. When the cache cannot be
+//! used for any reason, the driver falls back to compiling the sources as part
+//! of the link, which is what it did before there was a cache.
 
 use std::env;
 use std::fs;
@@ -34,7 +35,10 @@ use otter_codegen::{check_main_exists, emit_program, host_target_triple, Codegen
 use otter_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::Parser;
-use otter_runtime::{RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME};
+use otter_runtime::{
+    HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
+    RUNTIME_SOURCE_NAME,
+};
 use otter_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 
 use crate::toolchain::Toolchain;
@@ -252,6 +256,7 @@ fn fnv1a(state: &mut u64, bytes: &[u8]) {
 fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
+    fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
     fnv1a(&mut state, RUNTIME_HEADER.as_bytes());
     fnv1a(&mut state, triple.as_bytes());
     fnv1a(&mut state, opt.flag().as_bytes());
@@ -265,14 +270,19 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     state
 }
 
-/// The runtime, compiled to an object file that can be reused across builds.
+/// One runtime source, compiled to an object file that can be reused across
+/// builds.
 ///
 /// Returns the object's path, leaving it in `cache_dir` for the next build to
 /// find, or `None` when the cache cannot be used — an unwritable directory, a
-/// toolchain that refuses to compile the runtime on its own. `None` is not an
-/// error: the caller compiles the runtime source as part of the link, which is
-/// slower and exactly as correct. A cache is only ever an optimization, so
-/// nothing about it is allowed to fail a build.
+/// toolchain that refuses to compile the source on its own. `None` is not an
+/// error: the caller compiles the source as part of the link, which is slower
+/// and exactly as correct. A cache is only ever an optimization, so nothing
+/// about it is allowed to fail a build.
+///
+/// The runtime is two sources (`runtime.c` and `hashmap.c`) and the caller asks
+/// for one object each, under a different `stem`. They share `cache_key`, which
+/// hashes both sources, so the pair can never be half-stale.
 ///
 /// The object is written to a staged name and renamed into place, so a build
 /// interrupted mid-compile cannot leave a truncated object that the next build
@@ -281,27 +291,31 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
 /// destination already there and keeps it.
 fn cached_runtime_object(
     cache_dir: &Path,
-    runtime_source: &Path,
-    runtime_dir: &Path,
+    source: &Path,
+    stem: &str,
+    include_dir: &Path,
+    cache_key: u64,
     target: &str,
     opt: OptLevel,
     toolchain: &Toolchain,
 ) -> Option<PathBuf> {
-    let key = runtime_cache_key(&toolchain.llc, target, opt);
-    let object = cache_dir.join(format!("otter-runtime-{key:016x}.o"));
+    let object = cache_dir.join(format!("otter-{stem}-{cache_key:016x}.o"));
     if object.is_file() {
         return Some(object);
     }
     fs::create_dir_all(cache_dir).ok()?;
 
-    let staged = cache_dir.join(format!("otter-runtime-{key:016x}.{}.tmp", std::process::id()));
+    let staged = cache_dir.join(format!(
+        "otter-{stem}-{cache_key:016x}.{}.tmp",
+        std::process::id()
+    ));
     let status = Command::new(&toolchain.llc)
         .args([
             "-c".to_string(),
-            display(runtime_source),
+            display(source),
             "-o".to_string(),
             display(&staged),
-            format!("-I{}", display(runtime_dir)),
+            format!("-I{}", display(include_dir)),
             format!("--target={target}"),
             opt.flag().to_string(),
         ])
@@ -475,8 +489,10 @@ pub fn compile_to_binary(
             .unwrap_or_else(|| "out".to_string())
     ));
     let runtime_source = runtime_dir.join(RUNTIME_SOURCE_NAME);
+    let hashmap_source = runtime_dir.join(HASHMAP_SOURCE_NAME);
     ensure_dir(&runtime_dir, entry_name)?;
     write_or_report(&runtime_source, RUNTIME_C_SOURCE.as_bytes(), entry_name)?;
+    write_or_report(&hashmap_source, HASHMAP_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(
         &runtime_dir.join(RUNTIME_HEADER_NAME),
         RUNTIME_HEADER.as_bytes(),
@@ -511,24 +527,42 @@ pub fn compile_to_binary(
     // flag reaches the compiler only when a cached object is available; on the
     // fallback path, where there is no cache to keep portable, the runtime is
     // compiled by this same invocation and takes the flag with it.
-    let runtime_object = runtime_cache_dir().and_then(|cache_dir| {
-        cached_runtime_object(
+    let runtime_objects = runtime_cache_dir().and_then(|cache_dir| {
+        let key = runtime_cache_key(&toolchain.llc, target, options.opt);
+        let runtime = cached_runtime_object(
             &cache_dir,
             &runtime_source,
+            "runtime",
             &runtime_dir,
+            key,
             target,
             options.opt,
             toolchain,
-        )
+        )?;
+        let hashmap = cached_runtime_object(
+            &cache_dir,
+            &hashmap_source,
+            "hashmap",
+            &runtime_dir,
+            key,
+            target,
+            options.opt,
+            toolchain,
+        )?;
+        Some((runtime, hashmap))
     });
 
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
     args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
     args.push(display(&ir_path));
-    match &runtime_object {
-        Some(object) => args.push(display(object)),
+    match &runtime_objects {
+        Some((runtime, hashmap)) => {
+            args.push(display(runtime));
+            args.push(display(hashmap));
+        }
         None => {
             args.push(display(&runtime_source));
+            args.push(display(&hashmap_source));
             args.push(format!("-I{}", display(&runtime_dir)));
         }
     }
@@ -840,7 +874,9 @@ mod tests {
         let object = cached_runtime_object(
             &in_the_way,
             &in_the_way.join("runtime.c"),
+            "runtime",
             &in_the_way,
+            0,
             "x86_64-pc-windows-gnu",
             OptLevel::Full,
             &fake_toolchain(&in_the_way.join("clang")),

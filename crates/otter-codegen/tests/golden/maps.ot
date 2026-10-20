@@ -1,0 +1,11 @@
+fn main() {
+    var counts: map[string]i64 = map_new();
+    map_insert(counts, "a", 1);
+    map_insert(counts, "b", 2);
+    var found = map_get(counts, "a");
+    var removed = map_remove(counts, "b");
+    var n = map_len(counts);
+    print_i64(n);
+    print_str("\n");
+    map_free(counts);
+}

@@ -250,6 +250,11 @@ pub enum TypeExpr {
     /// before any element is seen, so an empty literal has a type and the
     /// checker never has to guess.
     Slice(Box<TypeExpr>, Span),
+    /// `map[K]V` — a linearly owned table from `K` to `V`.
+    ///
+    /// Not a generic spelling: `map` is recognised only when it is directly
+    /// followed by `[`, so an ordinary type named `map` still resolves by name.
+    Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     /// `Option[T]`
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`

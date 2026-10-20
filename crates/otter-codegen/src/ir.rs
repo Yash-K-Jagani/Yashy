@@ -31,6 +31,8 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         // exists in Otter's checker (a `*mut i64` is not a `*mut f64`) but not
         // in the IR, which is why `llvm_type_string` ignores the inner type.
         TypeKind::Ptr(_) | TypeKind::CPtr(_) => "i8*".to_string(),
+        // A map value is the runtime's opaque table pointer.
+        TypeKind::Map(_, _) => "i8*".to_string(),
         TypeKind::CInt(width) | TypeKind::CUInt(width) => match width {
             8 => "i8".to_string(),
             16 => "i16".to_string(),
@@ -89,6 +91,7 @@ pub fn repr_type(t: &TypeKind) -> String {
         TypeKind::Enum(_) => "i8".to_string(),
         TypeKind::Func(_, _) => "void".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
+        TypeKind::Map(_, _) => "i8*".to_string(),
         other => llvm_type_string(other),
     }
 }
@@ -114,7 +117,8 @@ pub fn size_of(kind: &TypeKind) -> u64 {
         | TypeKind::CFloat(_)
         | TypeKind::Str
         | TypeKind::Ptr(_)
-        | TypeKind::CPtr(_) => 8,
+        | TypeKind::CPtr(_)
+        | TypeKind::Map(_, _) => 8,
         TypeKind::Slice(_) => 24,
         TypeKind::Option(_)
         | TypeKind::Result(_, _)

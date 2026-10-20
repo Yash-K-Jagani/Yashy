@@ -1,0 +1,27 @@
+// Maps, end to end: insert, overwrite, lookup, remove, and measure.
+//
+// The keys are `string`, so this also exercises content hashing: `"apple"`
+// inserted three times is one entry, and the value is the last one written.
+// Every arm prints a witness, and `map_get`/`map_remove` answer in an `Option[]`
+// rather than failing, so a missing key has its own line.
+
+fn report(found: Option[i64]) {
+    switch found {
+        case Some(v) { print_i64(v); }
+        case None { print_str("none"); }
+    }
+    print_str("\n");
+}
+
+fn main() {
+    var counts: map[string]i64 = map_new();
+    map_insert(counts, "apple", 2);
+    map_insert(counts, "pear", 3);
+    map_insert(counts, "apple", 5);
+    report(map_get(counts, "apple"));
+    report(map_remove(counts, "pear"));
+    report(map_get(counts, "pear"));
+    print_i64(map_len(counts));
+    print_str("\n");
+    map_free(counts);
+}

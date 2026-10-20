@@ -48,6 +48,9 @@ pub struct OtterStr {
 /// by.
 pub const RUNTIME_C_SOURCE: &str = include_str!("../runtime.c");
 
+/// The map runtime, a separate translation unit that includes the same header.
+pub const HASHMAP_C_SOURCE: &str = include_str!("../hashmap.c");
+
 /// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
 pub const RUNTIME_HEADER: &str = include_str!("../include/otter_runtime.h");
 
@@ -56,6 +59,9 @@ pub const RUNTIME_HEADER_NAME: &str = "otter_runtime.h";
 
 /// The source file's file name, used when the driver writes it to disk.
 pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";
+
+/// The map source's file name, used when the driver writes it to disk.
+pub const HASHMAP_SOURCE_NAME: &str = "hashmap.c";
 
 // The IR says `i64`. If a target ever gave `long long` a different width, the
 // generated IR and the compiled runtime would disagree silently, so refuse to
@@ -161,6 +167,52 @@ unsafe extern "C" {
         out: *mut c_void,
         element_size: c_longlong,
     ) -> c_longlong;
+}
+
+/// The map's table, opaque to Rust as it is to generated code.
+///
+/// The fields live in `hashmap.c`; a test only ever holds the pointer.
+#[repr(C)]
+pub struct OtterMap {
+    _private: [u8; 0],
+}
+
+unsafe extern "C" {
+    /// Creates an empty table. `key_kind` is 0 for `i64`, 1 for `bool`, 2 for
+    /// `string`. Nothing is allocated until the first insert.
+    pub fn otter_map_new(
+        key_kind: c_longlong,
+        key_size: c_longlong,
+        value_size: c_longlong,
+    ) -> *mut OtterMap;
+}
+
+unsafe extern "C" {
+    /// Frees the table, releasing every retained string key. Tolerates null.
+    pub fn otter_map_free(map: *mut OtterMap);
+}
+
+unsafe extern "C" {
+    /// Copies `key` and `value` into the table, replacing the value when the key
+    /// is already present. A string key is retained.
+    pub fn otter_map_insert(map: *mut OtterMap, key: *const c_void, value: *const c_void);
+}
+
+unsafe extern "C" {
+    /// Copies the value for `key` into `out` and returns 1, or returns 0 when
+    /// the key is missing.
+    pub fn otter_map_get(map: *const OtterMap, key: *const c_void, out: *mut c_void) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Copies the value for `key` into `out`, removes the entry, and returns 1;
+    /// returns 0 when the key is missing.
+    pub fn otter_map_remove(map: *mut OtterMap, key: *const c_void, out: *mut c_void) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// The number of live entries. Null is zero.
+    pub fn otter_map_len(map: *const OtterMap) -> c_longlong;
 }
 
 // The string half of the contract. A `string` value is a pointer to an

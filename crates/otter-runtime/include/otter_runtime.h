@@ -99,6 +99,10 @@ otter_str *otter_str_from_f64(double value);
 otter_str *otter_str_from_bool(long long value);
 int otter_str_eq(const otter_str *a, const otter_str *b);
 
+/* Content hash used by the map runtime for `string` keys (FNV-1a). A null
+ * string hashes like the empty string; generated code never calls this. */
+unsigned long long otter_str_hash(const otter_str *s);
+
 /* The C boundary (spec §8.1). `otter_str_cstr` returns a fresh, owned,
  * NUL-terminated copy of the bytes, allocated with `otter_alloc` so the caller
  * frees it with `otter_free`. `otter_str_ptr` returns the string's own data
@@ -165,6 +169,41 @@ void otter_slice_free(otter_slice *slice);
  * process ending. */
 long long otter_slice_get(otter_slice *slice, long long index, void *out, long long element_size);
 long long otter_slice_pop(otter_slice *slice, void *out, long long element_size);
+
+/* ---- Maps ----
+ *
+ *     declare i8* @otter_map_new(i64, i64, i64)
+ *     declare void @otter_map_free(i8*)
+ *     declare void @otter_map_insert(i8*, ptr, ptr)
+ *     declare i64 @otter_map_get(i8*, ptr, ptr)
+ *     declare i64 @otter_map_remove(i8*, ptr, ptr)
+ *     declare i64 @otter_map_len(i8*)
+ *
+ * A map value is an opaque pointer to an open-addressing table. `map_new`
+ * records the *key kind* once -- 0 = `i64`, 1 = `bool`, 2 = `string` -- plus
+ * the two element strides, and every later call is just the table, a key slot
+ * and a value slot. The table allocates its arrays on the first insert.
+ *
+ * `otter_map_insert` copies the key and the value. A `string` key is a handle:
+ * the table retains it, so the map owns its own reference and the caller's
+ * binding is untouched. Overwriting an existing key keeps the stored key (and
+ * its reference) and replaces only the value. `otter_map_remove` copies the
+ * value out, releases a stored string key, and leaves a tombstone so probing
+ * stays correct; `otter_map_free` releases every string key and every array.
+ *
+ * `get` and `remove` return 1 with the value in `out`, or 0 and leave `out`
+ * alone. The caller always zeroes `out` first, so the bytes behind a 0 are
+ * defined even though they must not be read.
+ *
+ * `insert` reports nothing, like `push`: on a failed allocation the table is
+ * left unchanged, which is the only state the caller could observe. */
+typedef struct otter_map otter_map;
+otter_map *otter_map_new(long long key_kind, long long key_size, long long value_size);
+void otter_map_free(otter_map *map);
+void otter_map_insert(otter_map *map, const void *key, const void *value);
+long long otter_map_get(const otter_map *map, const void *key, void *out);
+long long otter_map_remove(otter_map *map, const void *key, void *out);
+long long otter_map_len(const otter_map *map);
 
 /* ---- Diagnostics ----
  *

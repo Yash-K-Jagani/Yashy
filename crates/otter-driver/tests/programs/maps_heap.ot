@@ -1,0 +1,27 @@
+// Maps that own their keys: every key is a built string, the table retains it,
+// and `map_free` releases it.
+//
+// The leak report at exit is the assertion. A non-zero count means the table
+// kept a reference it never dropped, or retained a key twice; both are the kind
+// of bug a program with only literal keys cannot show, because a literal is
+// static and is never freed either way.
+
+fn main() {
+    var m: map[string]i64 = map_new();
+    var i = 0;
+    while i < 200 {
+        var key = str_from_i64(i);
+        map_insert(m, key, i);
+        i = i + 1;
+    }
+    var probe = str_from_i64(150);
+    var found = map_get(m, probe);
+    switch found {
+        case Some(v) { print_i64(v); }
+        case None { print_str("missing"); }
+    }
+    print_str("\n");
+    print_i64(map_len(m));
+    print_str("\n");
+    map_free(m);
+}

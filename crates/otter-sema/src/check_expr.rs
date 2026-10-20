@@ -634,6 +634,32 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
+            TypeExpr::Map(key, value, span) => {
+                let key = self.resolve_type_in(key, allow_c)?;
+                let value = self.resolve_type_in(value, allow_c)?;
+                if !map_key_is_supported(&key.kind) {
+                    return Err(TypeError::new(
+                        key.span,
+                        format!(
+                            "a map key must be `i64`, `bool`, or `string`, found `{key}`: \
+                             those are the kinds the runtime can hash"
+                        ),
+                    ));
+                }
+                if !slice_element_is_operable(&value.kind) {
+                    return Err(TypeError::new(
+                        value.span,
+                        format!(
+                            "a map value must be a number or `bool` for now, found `{value}`: \
+                             an owned value would need a destructor on removal"
+                        ),
+                    ));
+                }
+                Ok(Type {
+                    kind: TypeKind::Map(Box::new(key), Box::new(value)),
+                    span: *span,
+                })
+            }
             TypeExpr::Tuple(_, span) => Err(TypeError::new(
                 *span,
                 "tuple types are not value types in M0-M2".to_string(),
@@ -823,7 +849,16 @@ impl<'src> Checker<'src> {
                 // leaves a constructor with nothing to infer from — `const x:
                 // Option[i64] = None;` was reported as an ambiguous `None`
                 // rather than typed by its own annotation.
-                let declared = ty.as_ref().and_then(|t| self.resolve_type(t).ok());
+                let declared = match ty {
+                    Some(annotation) => match self.resolve_type(annotation) {
+                        Ok(declared) => Some(declared),
+                        Err(error) => {
+                            self.error(error.span, error.message);
+                            return None;
+                        }
+                    },
+                    None => None,
+                };
                 let init_expr = match &declared {
                     Some(declared) => self.check_expr_with_expected(init, declared)?,
                     None => self.check_expr(init)?,
@@ -865,7 +900,16 @@ impl<'src> Checker<'src> {
             } => {
                 // Same ordering as `Stmt::Const` above: the annotation is the
                 // initializer's expected type.
-                let declared = ty.as_ref().and_then(|t| self.resolve_type(t).ok());
+                let declared = match ty {
+                    Some(annotation) => match self.resolve_type(annotation) {
+                        Ok(declared) => Some(declared),
+                        Err(error) => {
+                            self.error(error.span, error.message);
+                            return None;
+                        }
+                    },
+                    None => None,
+                };
                 let init_expr = match &declared {
                     Some(declared) => self.check_expr_with_expected(init, declared)?,
                     None => self.check_expr(init)?,
@@ -1577,6 +1621,9 @@ impl<'src> Checker<'src> {
                 if matches!(name.as_str(), "None" | "Some" | "Ok" | "Err") {
                     return self.check_constructor(&name, args, *span, Some(expected))?;
                 }
+                if name == "map_new" {
+                    return self.check_map_new(args, *span, Some(expected));
+                }
             }
         }
         if let Expr::Ident(path, span) = expr {
@@ -1719,6 +1766,172 @@ impl<'src> Checker<'src> {
             span,
             ty: prim(TypeKind::I64),
         })
+    }
+
+    /// `map_new()` — the empty table's key and value types come from context.
+    ///
+    /// There is no argument to infer from, so the call is only typed when the
+    /// surrounding annotation, parameter, or return type is already a
+    /// `map[K]V`. That keeps `var m = map_new();` an error instead of guessing
+    /// a key type the rest of the program may not agree with.
+    fn check_map_new(
+        &mut self,
+        args: &[Expr],
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Option<HirExpr> {
+        if !args.is_empty() {
+            self.error(
+                span,
+                format!("`map_new` takes no arguments, found {}", args.len()),
+            );
+            return None;
+        }
+        let Some(expected) = expected else {
+            self.error(
+                span,
+                "cannot infer the map's key and value types: write `var m: map[K]V = map_new()`",
+            );
+            return None;
+        };
+        if !matches!(expected.kind, TypeKind::Map(_, _)) {
+            self.error(
+                span,
+                format!("`map_new` needs a `map[K]V` annotation, found `{expected}`"),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["map_new".to_string()],
+            args: Vec::new(),
+            unsafe_call: false,
+            span,
+            ty: expected.clone(),
+        })
+    }
+
+    /// Check `map_get`, `map_insert`, `map_remove`, `map_len`, and `map_free`.
+    ///
+    /// Every one takes the map as its first argument, so the key and value
+    /// types are known before the other arguments are checked. The receiver
+    /// must be a plain binding: `map_free` moves it and the other operations
+    /// look it up by name in lowering, so a temporary or a field would either
+    /// leak or silently do nothing.
+    ///
+    /// The outer `Option` says "this name is a map builtin"; the inner one is
+    /// the checked expression, `None` after a reported error.
+    fn check_map_builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let arity = match name {
+            "map_insert" => 3,
+            "map_get" | "map_remove" => 2,
+            _ => 1,
+        };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{name}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        let Expr::Ident(path, ident_span) = &args[0] else {
+            self.error(
+                span,
+                format!("`{name}` needs a map binding, not a temporary"),
+            );
+            return Some(None);
+        };
+        if path.len() != 1 {
+            self.error(
+                *ident_span,
+                format!("`{name}` needs a map binding, not a field access"),
+            );
+            return Some(None);
+        }
+        let receiver = match self.check_expr(&args[0]) {
+            Some(receiver) => receiver,
+            None => return Some(None),
+        };
+        let receiver_ty = expr_ty(&receiver);
+        let TypeKind::Map(key, value) = &receiver_ty.kind else {
+            self.error(
+                expr_span(&receiver),
+                format!("`{name}` expects a map, found `{receiver_ty}`"),
+            );
+            return Some(None);
+        };
+        let key = (**key).clone();
+        let value = (**value).clone();
+
+        if name == "map_free" {
+            let binding = path.last().cloned().unwrap_or_default();
+            if let Err(error) = self.move_out(&binding, *ident_span) {
+                self.error(error.span, error.message);
+            }
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: unit(span),
+            }));
+        }
+        if name == "map_len" {
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::I64),
+            }));
+        }
+
+        let key_expr = match self.check_expr_with_expected(&args[1], &key) {
+            Some(key_expr) => key_expr,
+            None => return Some(None),
+        };
+        if !fits(&key, &expr_ty(&key_expr)) {
+            self.error(
+                expr_span(&key_expr),
+                format!("expected `{key}`, found `{}`", expr_ty(&key_expr)),
+            );
+            return Some(None);
+        }
+        if name == "map_get" || name == "map_remove" {
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver, key_expr],
+                unsafe_call: false,
+                span,
+                ty: option(&value, span),
+            }));
+        }
+        // `map_insert`
+        let value_expr = match self.check_expr_with_expected(&args[2], &value) {
+            Some(value_expr) => value_expr,
+            None => return Some(None),
+        };
+        if !fits(&value, &expr_ty(&value_expr)) {
+            self.error(
+                expr_span(&value_expr),
+                format!("expected `{value}`, found `{}`", expr_ty(&value_expr)),
+            );
+            return Some(None);
+        }
+        Some(Some(HirExpr::Call {
+            callee: vec![name.to_string()],
+            args: vec![receiver, key_expr, value_expr],
+            unsafe_call: false,
+            span,
+            ty: unit(span),
+        }))
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Option<HirExpr> {
@@ -1870,6 +2083,15 @@ impl<'src> Checker<'src> {
                     }
                     if matches!(name.as_str(), "push" | "free_slice" | "pop") {
                         return self.check_slice_builtin(&name, args, *span).flatten();
+                    }
+                    if name == "map_new" {
+                        return self.check_map_new(args, *span, None);
+                    }
+                    if matches!(
+                        name.as_str(),
+                        "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free"
+                    ) {
+                        return self.check_map_builtin(&name, args, *span).flatten();
                     }
                 }
                 // The callee is resolved *before* the arguments are checked,
@@ -2891,6 +3113,16 @@ fn slice_element_is_operable(kind: &TypeKind) -> bool {
     )
 }
 
+/// Whether a map key can be hashed and compared by the runtime.
+///
+/// The key travels as a machine word, so the runtime needs to know how to read
+/// it: `i64` bytes, a `bool` byte, or a `string` handle it hashes by content.
+/// Anything else would need a user-supplied hash and equality, which M6 does
+/// not have.
+fn map_key_is_supported(kind: &TypeKind) -> bool {
+    matches!(kind, TypeKind::I64 | TypeKind::Bool | TypeKind::Str)
+}
+
 /// The diagnostic for an element kind [`slice_element_is_operable`] rejects.
 fn unsupported_element_message(element: &Type) -> String {
     if matches!(element.kind, TypeKind::Str) {
@@ -3037,6 +3269,11 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             span,
         },
         TypeKind::Slice(element) => TypeExpr::Slice(Box::new(type_to_expr(element)), span),
+        TypeKind::Map(key, value) => TypeExpr::Map(
+            Box::new(type_to_expr(key)),
+            Box::new(type_to_expr(value)),
+            span,
+        ),
         TypeKind::CInt(width) => TypeExpr::Name(format!("i{width}"), span),
         TypeKind::CUInt(width) => TypeExpr::Name(format!("u{width}"), span),
         TypeKind::CFloat(width) => TypeExpr::Name(format!("f{width}"), span),
@@ -3160,6 +3397,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Option(_, span) => *span,
         TypeExpr::Ptr { span, .. } => *span,
         TypeExpr::Slice(_, span) => *span,
+        TypeExpr::Map(_, _, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,

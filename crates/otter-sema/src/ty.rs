@@ -31,6 +31,15 @@ pub enum TypeKind {
     /// part of the type, so `[]i64` and `[]string` are different types even
     /// though both lower to the same three-word header.
     Slice(Box<Type>),
+    /// A linearly owned table from a key type to a value type, written
+    /// `map[K]V`.
+    ///
+    /// Linear like a slice: the binding owns the table, `map_free` gives it
+    /// up, and `map_insert`/`map_get` borrow it. The runtime hashes and
+    /// compares keys by kind, so the key is restricted to `i64`, `bool`, and
+    /// `string`; values are restricted to numbers and `bool` for now, because
+    /// an owned value would need a destructor on removal.
+    Map(Box<Type>, Box<Type>),
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
     /// [`crate::ownership`]): at most one binding owns it at a time.
     Ptr(Box<Type>),
@@ -98,6 +107,7 @@ impl std::fmt::Display for Type {
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
             TypeKind::Slice(element) => write!(f, "[]{element}"),
+            TypeKind::Map(key, value) => write!(f, "map[{key}]{value}"),
             TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
             TypeKind::CInt(width) => write!(f, "i{width}"),
             TypeKind::CUInt(width) => write!(f, "u{width}"),

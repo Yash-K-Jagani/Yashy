@@ -227,6 +227,20 @@ impl<'src> Parser<'src> {
                     cover(start, self.previous_span()),
                 ))
             }
+            // `map[K]V` - the key in brackets, the value after them. The two
+            // types sit on opposite sides of the `]`, so this cannot reuse the
+            // `Option[..]` shape.
+            "map" => {
+                self.open_bracket()?;
+                let key = self.parse_type_expr()?;
+                self.close_bracket()?;
+                let value = self.parse_type_expr()?;
+                Ok(TypeExpr::Map(
+                    Box::new(key),
+                    Box::new(value),
+                    cover(start, self.previous_span()),
+                ))
+            }
             other => Err(self.error(
                 self.peek_span(),
                 format!("`{other}` is not a generic type: Otter has no generics"),

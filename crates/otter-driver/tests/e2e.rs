@@ -1891,3 +1891,14 @@ fn slice_operations_answer_in_options_and_iterate_in_order() {
     );
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn maps_insert_overwrite_remove_and_measure() {
+    // `maps.ot` inserts "apple" twice (the second value wins), removes "pear",
+    // then asks for "pear" again: a removed key is indistinguishable from one
+    // that was never there, which is what `Option` is for. The final count is
+    // one, and every line is a separate witness.
+    let output = build_and_run("maps");
+    assert_eq!(stdout_of(&output), "5\n3\nnone\n1\n");
+    assert_eq!(output.status.code(), Some(0));
+}

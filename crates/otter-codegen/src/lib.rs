@@ -16,6 +16,7 @@ pub mod faults;
 pub mod ffi;
 pub mod fn_gen;
 pub mod ir;
+pub mod maps;
 pub mod memory;
 pub mod module;
 pub mod patterns;

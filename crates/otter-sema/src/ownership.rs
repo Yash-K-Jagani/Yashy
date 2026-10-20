@@ -34,7 +34,9 @@ pub enum Linearity {
 /// after that.
 pub fn linearity_of(ty: &TypeKind) -> Linearity {
     match ty {
-        TypeKind::Ptr(_) | TypeKind::CPtr(_) | TypeKind::Slice(_) => Linearity::Linear,
+        TypeKind::Ptr(_) | TypeKind::CPtr(_) | TypeKind::Slice(_) | TypeKind::Map(_, _) => {
+            Linearity::Linear
+        }
         _ => Linearity::Copy,
     }
 }

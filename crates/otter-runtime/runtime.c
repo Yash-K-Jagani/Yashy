@@ -452,6 +452,21 @@ int otter_str_eq(const otter_str *a, const otter_str *b) {
     return a->len == 0 || memcmp(a->data, b->data, (size_t)a->len) == 0;
 }
 
+unsigned long long otter_str_hash(const otter_str *s) {
+    /* FNV-1a over the bytes. The map runtime calls this through the header;
+     * generated code never does. A null string hashes like the empty one, which
+     * makes a map lookup with a missing string a miss rather than a crash. */
+    unsigned long long hash = 14695981039346656037ULL;
+    if (s == NULL || s->data == NULL) {
+        return hash;
+    }
+    for (long long i = 0; i < s->len; i++) {
+        hash ^= (unsigned char)s->data[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
 otter_str *otter_str_from_i64(long long value) {
     char buffer[32];
     int written = snprintf(buffer, sizeof(buffer), "%lld", value);

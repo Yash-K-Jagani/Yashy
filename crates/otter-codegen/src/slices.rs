@@ -155,7 +155,7 @@ pub fn gen_len(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
 /// The payload is loaded even on a miss. That is why every caller stores
 /// `zeroinitializer` into the slot first: the loaded value is then defined, and
 /// the tag is what says the payload must not be read.
-fn option_from_flag(
+pub(crate) fn option_from_flag(
     ctx: &mut FnCtx<'_>,
     flag: &str,
     out_slot: &str,
