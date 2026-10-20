@@ -292,39 +292,46 @@ boundary` because "slice" would claim work not in it.
 
 **Interfaces:**
 - Consumes: M0–M2 driver, Task 2's link directives
-- Produces: `pub fn link_directives(hir: &HirProgram) -> Vec<String>`; platform-specific library flags; a test that builds and runs the same program on both platforms
+- Produces: `pub fn link_directives(hir: &HirProgram) -> Vec<String>`; `pub fn platform_library_flags() -> Vec<&'static str>`; platform-specific library flags; a test that builds and runs the same program on both platforms
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-```rust
-#[test]
-fn a_link_directive_adds_the_library_flag() {}
+`crates/otter-driver/tests/link.rs` covers four directive shapes (one
+library, no directive, the same library twice, two libraries in source order)
+and one execution test, `the_same_program_produces_identical_output_on_both_platforms`,
+which calls `sqrt` with no `link` directive and pins the exact bytes `%.17g`
+prints. Unit tests in `pipeline.rs` cover the linker-message parser and the
+platform flag list.
 
-#[test]
-fn math_functions_link_without_an_explicit_directive() {
-    // sqrt needs libm on Linux, is folded into the CRT on Windows.
-}
+- [x] **Step 2: Run to verify they fail** → FAIL.
 
-#[test]
-fn the_same_program_produces_identical_output_on_both_platforms() {
-    // Runs only on the host; the CI matrix covers the other.
-}
-```
+- [x] **Step 3: Implement**
 
-- [ ] **Step 2: Run to verify they fail** → FAIL.
+Collect directives, append platform defaults (`-lm -lpthread -ldl` on Linux, nothing on Windows because the CRT is linked by default), and pass them to the linker. Report a clear diagnostic naming the library when linking fails for that reason.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 4: Run to verify they pass** → PASS.
 
-Collect directives, append platform defaults (`-lm -lpthread -ldl` on Linux, the CRT on Windows), and pass them to the linker. Report a clear diagnostic naming the library when linking fails for that reason.
-
-- [ ] **Step 4: Run to verify they pass** → PASS.
-
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-driver/
 git commit -m "feat(driver): link directives and platform library flags"
 ```
+
+**As built:** `link_directives` returns `-l<name>` flags in source order with
+one flag per library; `platform_library_flags` is deduplicated against them, so
+`link "m"` on Linux still passes `-lm` once. All libraries are appended after
+the objects (GNU `ld` resolves rightward). A link failure whose output contains
+GNU's `cannot find -lfoo` or LLD's `unable to find library -lfoo` now produces a
+diagnostic that names the library and says a `link` directive or a platform
+default asked for it; `missing_library` parses both spellings.
+
+`toolchain.rs` needed no change: the library flags are a link-line concern and
+live in `pipeline.rs`. On this host the execution test was blocked by
+Application Control once, then passed after a clean relink (Device Guard blocks
+by content hash, so a rebuilt test binary gets a fresh verdict); the test skips
+its execution assertion, with a message, only for a policy block, never for a
+link failure, and CI has no such policy.
 
 ---
 
