@@ -210,17 +210,41 @@ pub struct ExternDecl {
     pub span: Span,
 }
 
+/// The mutability a pointer spelling asks for.
+///
+/// `Bare` is `*T`, the C spelling that does not say. It is kept distinct from
+/// `Mut` rather than folded into it so the parser records what was written;
+/// the checker is what decides that both mean the same machine pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PtrKind {
+    /// `*T`
+    Bare,
+    /// `*mut T`
+    Mut,
+    /// `*const T`
+    Const,
+}
+
 /// A type as the source wrote it.
 ///
 /// These six forms are the whole type grammar. It gained `Ptr` with the memory
-/// model in M3; slices and maps arrive in M6, and adding a variant is additive
-/// for the parser and a recompile for everyone else.
+/// model in M3 and the C pointer spellings in M5; slices and maps arrive in
+/// M6, and adding a variant is additive for the parser and a recompile for
+/// everyone else.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeExpr {
     /// A named type, primitive or declared: `i64`, `f64`, `P`.
     Name(String, Span),
-    /// `*mut T` — a raw, owning pointer to `T`.
-    Ptr(Box<TypeExpr>, Span),
+    /// A pointer: `*T`, `*mut T`, or `*const T`.
+    ///
+    /// Outside an `extern` declaration only `*mut T` is meaningful — it is
+    /// Otter's owning pointer — and the checker rejects the other two. Inside
+    /// one, all three are C pointers.
+    Ptr {
+        kind: PtrKind,
+        pointee: Box<TypeExpr>,
+        span: Span,
+    },
     /// `Option[T]`
     Option(Box<TypeExpr>, Span),
     /// `Result[T, E]`

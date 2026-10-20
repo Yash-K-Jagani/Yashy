@@ -27,6 +27,26 @@ pub enum TypeKind {
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
     /// [`crate::ownership`]): at most one binding owns it at a time.
     Ptr(Box<Type>),
+    /// A signed C integer of the given bit width: `i8`, `i16`, `i32`.
+    ///
+    /// `i64` does not appear here: it is the same type as [`TypeKind::I64`],
+    /// so a C `int64_t` and an Otter `i64` meet without a cast.
+    CInt(u32),
+    /// An unsigned C integer: `u8`, `u16`, `u32`, `u64`.
+    CUInt(u32),
+    /// A C floating-point type of the given bit width: `f32`.
+    ///
+    /// `f64` is [`TypeKind::F64`], for the same reason `i64` is.
+    CFloat(u32),
+    /// C `void`. Only legal as an `extern` declaration's return type.
+    CVoid,
+    /// A C pointer: `*T`, `*mut T`, or `*const T` inside an `extern`
+    /// declaration. Linear, because C code may keep or free what it points at
+    /// and the checker cannot see across the boundary.
+    CPtr(Box<Type>),
+    /// C `size_t`, spelled `usize`. An unsigned machine word; lowered as `i64`
+    /// on the platforms Otter targets.
+    CSize,
     /// A function value type. First-class functions do not exist in M0-M2;
     /// this is the type of builtin and user function signatures as they are
     /// tracked during checking.
@@ -71,6 +91,12 @@ impl std::fmt::Display for Type {
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
             TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
+            TypeKind::CInt(width) => write!(f, "i{width}"),
+            TypeKind::CUInt(width) => write!(f, "u{width}"),
+            TypeKind::CFloat(width) => write!(f, "f{width}"),
+            TypeKind::CVoid => write!(f, "void"),
+            TypeKind::CPtr(pointee) => write!(f, "*{pointee}"),
+            TypeKind::CSize => write!(f, "usize"),
             TypeKind::Func(params, ret) => {
                 write!(f, "(")?;
                 let mut first = true;
@@ -85,6 +111,45 @@ impl std::fmt::Display for Type {
             }
             TypeKind::Never => write!(f, "!"),
         }
+    }
+}
+
+impl TypeKind {
+    /// The type a C spelling names, or `None` when the word is not one of the
+    /// spellings the FFI edge adds.
+    ///
+    /// The widths Otter already had keep their own kinds: `i64` is
+    /// [`TypeKind::I64`] and `f64` is [`TypeKind::F64`], not `CInt(64)` /
+    /// `CFloat(64)`. A C `int64_t` and an Otter `i64` are the same machine
+    /// value, and two kinds for it would turn every boundary into a cast
+    /// without adding a single check.
+    pub fn from_c_spelling(name: &str) -> Option<TypeKind> {
+        Some(match name {
+            "i8" => TypeKind::CInt(8),
+            "i16" => TypeKind::CInt(16),
+            "i32" => TypeKind::CInt(32),
+            "i64" => TypeKind::I64,
+            "u8" => TypeKind::CUInt(8),
+            "u16" => TypeKind::CUInt(16),
+            "u32" => TypeKind::CUInt(32),
+            "u64" => TypeKind::CUInt(64),
+            "f32" => TypeKind::CFloat(32),
+            "f64" => TypeKind::F64,
+            "usize" => TypeKind::CSize,
+            "void" => TypeKind::CVoid,
+            _ => return None,
+        })
+    }
+
+    /// Whether `name` may appear only inside an `extern` declaration.
+    ///
+    /// `i64` and `f64` are deliberately absent: they are ordinary Otter types
+    /// that the FFI edge happens to spell the same way.
+    pub fn is_c_only_spelling(name: &str) -> bool {
+        matches!(
+            name,
+            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "u64" | "f32" | "usize" | "void"
+        )
     }
 }
 

@@ -28,16 +28,17 @@
 //! inventing a path type here would be a contract change five stages code
 //! against.
 
+use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::TypeExpr;
+use crate::ast::{PtrKind, TypeExpr};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
 impl<'src> Parser<'src> {
     /// Parses one type, in any position a type can appear.
     ///
-    /// The whole type grammar, in five forms:
+    /// The whole type grammar:
     ///
     /// ```text
     /// type    := `(` `)`                    -- the unit type
@@ -45,6 +46,7 @@ impl<'src> Parser<'src> {
     ///          | name                       -- `i64`, `f64`, `Point`, `pkg.Thing`
     ///          | `Option` `[` type `]`
     ///          | `Result` `[` type `,` type `]`
+    ///          | `*` [`mut` | `const`] type -- a pointer
     /// name    := ident (`.` ident)*
     /// ```
     ///
@@ -65,25 +67,56 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// `*mut T` -- a raw owning pointer to `T`.
+    /// `*T`, `*mut T`, or `*const T`.
     ///
-    /// Only `mut` is accepted after the `*`. `*const T` does not exist in M3:
-    /// there are no shared references, so spelling one would promise a
-    /// guarantee the language cannot keep.
+    /// `*mut T` is Otter's owning pointer and predates the FFI edge. `*const T`
+    /// and the bare `*T` arrive with C interop; only the checker, which knows
+    /// whether the type was written inside an `extern` declaration, can say
+    /// whether any of them is a C pointer.
     fn parse_pointer_type(&mut self) -> Result<TypeExpr, ParseError> {
         let star = self.expect(TokenKind::Star)?;
-        let (word, word_span) = self.identifier()?;
-        if word != "mut" {
-            return Err(self.error(
-                word_span,
-                format!("expected `mut` after `*` in a pointer type, found `{word}`"),
-            ));
-        }
+        let kind = match self.peek() {
+            // `const` is a keyword, not an identifier, so it is the one
+            // mutability word that never reaches `identifier()`.
+            TokenKind::Const => {
+                self.advance();
+                PtrKind::Const
+            }
+            TokenKind::Ident => {
+                let (word, word_span) = self.identifier()?;
+                match word.as_str() {
+                    "mut" => PtrKind::Mut,
+                    "const" => PtrKind::Const,
+                    // `*i8` is a bare pointer: the word we just read was the
+                    // start of the pointee's name, not a mutability keyword.
+                    // Finish that name here (it may be dotted or generic) rather
+                    // than trying to rewind a cursor that cannot rewind.
+                    other => {
+                        let pointee = self.finish_named_type(other.to_string(), word_span)?;
+                        return Ok(TypeExpr::Ptr {
+                            kind: PtrKind::Bare,
+                            pointee: Box::new(pointee),
+                            span: cover(star.span, self.previous_span()),
+                        });
+                    }
+                }
+            }
+            _ => {
+                return Err(self.error(
+                    self.peek_span(),
+                    format!(
+                        "expected `mut`, `const`, or a type after `*`, found {}",
+                        self.peek().describe()
+                    ),
+                ))
+            }
+        };
         let pointee = self.parse_type_expr()?;
-        Ok(TypeExpr::Ptr(
-            Box::new(pointee),
-            cover(star.span, self.previous_span()),
-        ))
+        Ok(TypeExpr::Ptr {
+            kind,
+            pointee: Box::new(pointee),
+            span: cover(star.span, self.previous_span()),
+        })
     }
 
     /// `()` or `(T, U)`.
@@ -119,6 +152,15 @@ impl<'src> Parser<'src> {
     /// A named type, and the two generic spellings that hang off one.
     fn parse_named_type(&mut self) -> Result<TypeExpr, ParseError> {
         let (first, start) = self.identifier()?;
+        self.finish_named_type(first, start)
+    }
+
+    /// The rest of a named type once its first segment has been read.
+    ///
+    /// Split from [`Parser::parse_named_type`] because a bare pointer
+    /// (`*u8`) consumes the first segment of its pointee before it knows the
+    /// word was not `mut` or `const`.
+    fn finish_named_type(&mut self, first: String, start: Span) -> Result<TypeExpr, ParseError> {
         let mut spelled = first;
         let mut end = start;
 
@@ -202,7 +244,7 @@ impl<'src> Parser<'src> {
         self.error(
             self.peek_span(),
             format!(
-                "expected a type: an identifier, `Option[..]`, `Result[.., ..]`, `(..)` or `()`, found {}",
+                "expected a type: an identifier, `Option[..]`, `Result[.., ..]`, `(..)`, `()`, or a pointer, found {}",
                 self.peek().describe()
             ),
         )

@@ -28,11 +28,13 @@ pub enum Linearity {
 
 /// Classify a type by whether it can be copied.
 ///
-/// `Ptr` is the only linear type today. M6 adds `Slice` — the one arm the design
-/// promises — and nothing else becomes linear after that.
+/// `Ptr` and `CPtr` are linear: the first owns an Otter allocation, the second
+/// points at memory the checker cannot see across the C boundary. M6 adds
+/// `Slice` — the one arm the design promises — and nothing else becomes linear
+/// after that.
 pub fn linearity_of(ty: &TypeKind) -> Linearity {
     match ty {
-        TypeKind::Ptr(_) => Linearity::Linear,
+        TypeKind::Ptr(_) | TypeKind::CPtr(_) => Linearity::Linear,
         _ => Linearity::Copy,
     }
 }

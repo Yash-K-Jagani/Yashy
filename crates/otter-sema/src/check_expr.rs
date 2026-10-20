@@ -26,8 +26,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
-    BinOp, Block, Expr, InterpPart, Item, Literal, Param, Pattern, Stmt, StringLit, SwitchArm,
-    TypeExpr, VariantDef, VariantField,
+    BinOp, Block, Expr, InterpPart, Item, Literal, Param, Pattern, PtrKind, Stmt, StringLit,
+    SwitchArm, TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -439,17 +439,41 @@ impl<'src> Checker<'src> {
     /// Resolve a type expression to a concrete type. `Option[T]` and
     /// `Result[T, E]` are resolved structurally, because their shape is
     /// self-describing and they need no scope entry.
+    ///
+    /// C-only spellings are rejected here: ordinary Otter code writes `i64`,
+    /// never `i32`. An `extern` declaration resolves through
+    /// [`CheckCtx::resolve_type_in`] with `allow_c` set.
     fn resolve_type(&self, ty: &TypeExpr) -> Result<Type, TypeError> {
+        self.resolve_type_in(ty, false)
+    }
+
+    /// Resolve a type expression, optionally allowing the C spellings.
+    ///
+    /// `allow_c` is true only inside an `extern` declaration. It changes two
+    /// things: the FFI-only names (`i32`, `usize`, `void`, ...) resolve instead
+    /// of being rejected, and `*T` / `*mut T` / `*const T` all resolve to
+    /// [`TypeKind::CPtr`] instead of an owning Otter pointer.
+    fn resolve_type_in(&self, ty: &TypeExpr, allow_c: bool) -> Result<Type, TypeError> {
         match ty {
             TypeExpr::Name(name, span) => {
+                if !allow_c && TypeKind::is_c_only_spelling(name) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "`{name}` is a C type and is only allowed in an `extern` \
+                             declaration; ordinary Otter code uses `i64`, `f64`, `bool`, \
+                             or `string`"
+                        ),
+                    ));
+                }
                 let kind = match name.as_str() {
-                    "i64" => Some(TypeKind::I64),
-                    "f64" => Some(TypeKind::F64),
                     "bool" => Some(TypeKind::Bool),
                     "string" => Some(TypeKind::Str),
                     "()" => Some(TypeKind::Unit),
                     _ => {
-                        if self.structs.contains_key(name) {
+                        if let Some(kind) = TypeKind::from_c_spelling(name) {
+                            Some(kind)
+                        } else if self.structs.contains_key(name) {
                             Some(TypeKind::Struct(name.clone()))
                         } else if self.enums.contains_key(name) {
                             Some(TypeKind::Enum(name.clone()))
@@ -464,26 +488,45 @@ impl<'src> Checker<'src> {
                 }
             }
             TypeExpr::Option(inner, span) => {
-                let inner = self.resolve_type(inner)?;
+                let inner = self.resolve_type_in(inner, allow_c)?;
                 Ok(Type {
                     kind: TypeKind::Option(Box::new(inner)),
                     span: *span,
                 })
             }
             TypeExpr::Result(ok, err, span) => {
-                let ok = self.resolve_type(ok)?;
-                let err = self.resolve_type(err)?;
+                let ok = self.resolve_type_in(ok, allow_c)?;
+                let err = self.resolve_type_in(err, allow_c)?;
                 Ok(Type {
                     kind: TypeKind::Result(Box::new(ok), Box::new(err)),
                     span: *span,
                 })
             }
-            TypeExpr::Ptr(inner, span) => {
-                let inner = self.resolve_type(inner)?;
-                Ok(Type {
-                    kind: TypeKind::Ptr(Box::new(inner)),
-                    span: *span,
-                })
+            TypeExpr::Ptr {
+                kind,
+                pointee,
+                span,
+            } => {
+                if !allow_c && *kind != PtrKind::Mut {
+                    return Err(TypeError::new(
+                        *span,
+                        "`*const T` and `*T` are C pointer spellings and are only allowed in \
+                         an `extern` declaration; ordinary Otter code writes `*mut T`"
+                            .to_string(),
+                    ));
+                }
+                let inner = self.resolve_type_in(pointee, allow_c)?;
+                if allow_c {
+                    Ok(Type {
+                        kind: TypeKind::CPtr(Box::new(inner)),
+                        span: *span,
+                    })
+                } else {
+                    Ok(Type {
+                        kind: TypeKind::Ptr(Box::new(inner)),
+                        span: *span,
+                    })
+                }
             }
             TypeExpr::Tuple(_, span) => Err(TypeError::new(
                 *span,
@@ -2486,7 +2529,21 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             Box::new(type_to_expr(err)),
             span,
         ),
-        TypeKind::Ptr(pointee) => TypeExpr::Ptr(Box::new(type_to_expr(pointee)), span),
+        TypeKind::Ptr(pointee) => TypeExpr::Ptr {
+            kind: PtrKind::Mut,
+            pointee: Box::new(type_to_expr(pointee)),
+            span,
+        },
+        TypeKind::CInt(width) => TypeExpr::Name(format!("i{width}"), span),
+        TypeKind::CUInt(width) => TypeExpr::Name(format!("u{width}"), span),
+        TypeKind::CFloat(width) => TypeExpr::Name(format!("f{width}"), span),
+        TypeKind::CVoid => TypeExpr::Name("void".to_string(), span),
+        TypeKind::CPtr(pointee) => TypeExpr::Ptr {
+            kind: PtrKind::Bare,
+            pointee: Box::new(type_to_expr(pointee)),
+            span,
+        },
+        TypeKind::CSize => TypeExpr::Name("usize".to_string(), span),
         TypeKind::Func(_, _) | TypeKind::Never => TypeExpr::Unit(span),
     }
 }
@@ -2585,7 +2642,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
     match ty {
         TypeExpr::Name(_, span) => *span,
         TypeExpr::Option(_, span) => *span,
-        TypeExpr::Ptr(_, span) => *span,
+        TypeExpr::Ptr { span, .. } => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,

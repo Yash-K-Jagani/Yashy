@@ -484,6 +484,8 @@ fn zero_of(ty: &TypeKind, _ctx: &mut FnCtx<'_>) -> GenValue {
         "double" => "0.0".to_string(),
         "i1" => "false".to_string(),
         other if other.ends_with('*') => "null".to_string(),
+        "float" => "0.0".to_string(),
+        other if other.starts_with('i') => "0".to_string(),
         _ => "undef".to_string(),
     };
     GenValue {

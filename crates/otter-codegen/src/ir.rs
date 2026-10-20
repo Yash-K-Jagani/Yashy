@@ -30,7 +30,20 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         // Every pointer is `i8*` under LLVM's opaque pointers: the pointee type
         // exists in Otter's checker (a `*mut i64` is not a `*mut f64`) but not
         // in the IR, which is why `llvm_type_string` ignores the inner type.
-        TypeKind::Ptr(_) => "i8*".to_string(),
+        TypeKind::Ptr(_) | TypeKind::CPtr(_) => "i8*".to_string(),
+        TypeKind::CInt(width) | TypeKind::CUInt(width) => match width {
+            8 => "i8".to_string(),
+            16 => "i16".to_string(),
+            32 => "i32".to_string(),
+            // 64 and anything the checker never constructs: `i64` is the only
+            // width left that Otter can represent, and a silent fallback keeps
+            // a bad width from becoming an LLVM parse error.
+            _ => "i64".to_string(),
+        },
+        TypeKind::CFloat(32) => "float".to_string(),
+        TypeKind::CFloat(_) => "double".to_string(),
+        TypeKind::CSize => "i64".to_string(),
+        TypeKind::CVoid => "void".to_string(),
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
         | TypeKind::Struct(_)
