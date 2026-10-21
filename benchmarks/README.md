@@ -5,7 +5,7 @@ Two suites live here:
 - **Scalar** (`run.ps1`) — `fib`, `loop` and `float`, written in six languages,
   answering **how fast is the code Otter produces** and **how fast does Otter
   compile it**.
-- **Features** (`run-features.ps1`) — FFI, slices, maps, enums, channels and
+- **Features** (`run-features.ps1`) — FFI, arrays, maps, enums, channels and
   mutexes, answering **what each language feature costs** against the same idea
   in a language that has it built in.
 
@@ -61,7 +61,7 @@ have a comparable standard-library primitive.
 | Program | Workload | Compared with |
 |---|---|---|
 | `ffi` | 100,000,000 calls to libc's `getpid` | C, clang and gcc |
-| `slice` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
+| `array` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
@@ -90,7 +90,7 @@ It does not mean "Otter is as fast as C". Read the caveats:
   advantage, where it has one, is that it hands LLVM clean, fully-typed IR.
 - **The scalar suite does not allocate; the feature suite does.** `fib`, `loop`
   and `float` still measure arithmetic and calls only, so that table remains a
-  lower bound rather than a preview of a real program. Slices, maps, strings and
+  lower bound rather than a preview of a real program. Arrays, maps, strings and
   threads are measured separately under [Feature
   benchmarks](#feature-benchmarks), where allocation *is* the workload. The two
   tables answer different questions and are not comparable row for row.
@@ -383,7 +383,7 @@ does not. The front end — everything this repository implements — is 25 ms o
 The scalar table answers "how fast is the arithmetic?"; this one answers "what
 does a feature cost?". Every row runs the same algorithm and must print the
 same expected number — the harness throws on a mismatch, so a wrong hash, a
-lost update, or a broken slice growth becomes a failed run rather than a fast
+lost update, or a broken array growth becomes a failed run rather than a fast
 row.
 
 Methodology, beyond the shared rules above:
@@ -393,13 +393,13 @@ Methodology, beyond the shared rules above:
   caveat applies; a row measured in a bad window gets two more chances. The
   first draft of these numbers was taken with 5 × 2 and the channel row moved
   by almost 2× between runs — the reason this table uses more samples.
-- **No preallocation** in any slice or map row. Otter's `map_new()` and
+- **No preallocation** in any array or map row. Otter's `map_new()` and
   `[]i64 {}` start empty; Go's `make(map)` and `Vec::new()` do too, and the C
-  slice doubles from four elements like the Otter runtime does.
+  array doubles from four elements like the Otter runtime does.
 - **The implementations are not the same code.** Otter's map is an
   open-addressed table with linear probing that grows at 70% occupancy; Go's
   map and Rust's `HashMap` have their own layouts and hash functions. Otter's
-  slice grows by doubling from four; Go and Rust use their own growth
+  array grows by doubling from four; Go and Rust use their own growth
   policies. The row measures each language's implementation, not an algorithm
   race.
 - **Threads are not goroutines.** Otter spawns an OS thread and blocks on
@@ -407,7 +407,7 @@ Methodology, beyond the shared rules above:
   The comparison is useful as a cost check, not as a claim that the two are the
   same mechanism. Mutex rows differ too: Otter takes the OS mutex immediately,
   while Go's `sync.Mutex` spins briefly before parking.
-- **`ns/op` counts the unit in the `Workload` column**: one C call, one slice
+- **`ns/op` counts the unit in the `Workload` column**: one C call, one array
   element, one map insert-or-lookup, one enum iteration, one channel round
   trip, or one lock/unlock pair. Compare rows within a benchmark, not across
   benchmarks.
@@ -433,7 +433,7 @@ loop cannot be folded away, which an earlier draft using `llabs` was. Otter is
 or wrapper in that path: an `extern` call is lowered as an ordinary LLVM call,
 with the C ABI's argument and return conventions.
 
-#### Slices — 10,000,000 appends, a sum, then query, edit, search, and copy methods
+#### Arrays — 10,000,000 appends, a sum, then query, edit, search, and copy methods
 
 | Language | min ms | median ms | ns/element |
 |---|---:|---:|---:|
@@ -452,7 +452,7 @@ about 80 MB, so allocation and the growth copies are part of the measurement,
 not background noise.
 
 The trailing query/edit/search/extend/copy calls are outside the timed loop.
-They keep the M12 array method path and the new slice runtime entry points in a
+They keep the M12 array method path and the new array runtime entry points in a
 benchmark that is built and run with the rest of the suite; they do not change
 the growth numbers. A final string-method pass covers `trim`, case conversion,
 `replace`, `slice`, `repeat`, `split`, `lines`, `contains`, `starts_with`,

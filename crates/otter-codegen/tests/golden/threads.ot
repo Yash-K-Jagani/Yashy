@@ -4,15 +4,15 @@ fn work(n: i64) {
 
 fn main() {
     var m: Mutex = mutex_new();
-    mutex_lock(m);
-    mutex_unlock(m);
-    mutex_free(m);
+    m.lock();
+    m.unlock();
+    m.free();
 
     var c: Channel[i64] = chan_new(2);
-    if chan_send(c, 1) {
+    if c.send(1) {
         print_i64(1);
     }
-    switch chan_recv(c) {
+    switch c.recv() {
         case Some(n) {
             print_i64(n)
         }
@@ -20,8 +20,8 @@ fn main() {
             print_i64(0)
         }
     }
-    chan_close(c);
-    chan_free(c);
+    c.close();
+    c.free();
 
     var h: i64 = thread_spawn(work, 7);
     thread_join(h);

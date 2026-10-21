@@ -19,8 +19,8 @@ import json_keys;
 fn main() {
     var lines = []string {};
     var line = read_line();
-    while len(line) > 0 {
-        push(lines, line);
+    while line.len() > 0 {
+        lines.push(line);
         line = read_line();
     }
 
@@ -31,17 +31,17 @@ fn main() {
         // A line with no quoted pair yields an empty key, which is not a key
         // this program counts. An empty JSON key (`"": 1`) is skipped too; the
         // trade is documented rather than hidden behind an `Option`.
-        if len(key) > 0 {
-            map_insert(keys, key, 1);
+        if key.len() > 0 {
+            keys.insert(key, 1);
             seen = seen + 1;
         }
     }
 
     print_i64(seen);
     print_str("\n");
-    print_i64(map_len(keys));
+    print_i64(keys.len());
     print_str("\n");
 
-    free_slice(lines);
-    map_free(keys);
+    lines.free();
+    keys.free();
 }

@@ -1,5 +1,5 @@
 // Every element is a freshly built string, so the leak report proves that
-// `free_slice` releases the elements' references and not only the backing
+// `free` releases the elements' references and not only the backing
 // array. The total is the sum of the decimal lengths of 0..99, which also
 // proves the values survived the pushes and the iteration.
 
@@ -7,14 +7,14 @@ fn main() {
     var numbers = []string {};
     var i = 0;
     while i < 100 {
-        push(numbers, str_from_i64(i));
+        numbers.push(str_from_i64(i));
         i = i + 1;
     }
     var total = 0;
     for number in numbers {
-        total = total + len(number);
+        total = total + number.len();
     }
     print_i64(total);
     print_str("\n");
-    free_slice(numbers);
+    numbers.free();
 }

@@ -1,5 +1,5 @@
-// Receiver-first builtins called in method position. `xs.len()` is
-// `len(xs)`, `xs.push(3)` is `push(xs, 3)`, and `xs.free()` is `free_slice(xs)`.
+// The array surface is methods now. `xs.len()` counts, `xs.push(3)` appends,
+// and `xs.free()` releases the backing array.
 // The method spelling is the one the M12 surface will keep.
 
 fn main() {

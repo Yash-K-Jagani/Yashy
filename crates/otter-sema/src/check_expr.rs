@@ -113,7 +113,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ot`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 35] = [
+        let builtins: [(&str, Vec<Type>, Type); 30] = [
             ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
@@ -139,43 +139,13 @@ impl<'src> Checker<'src> {
                 vec![ptr(prim(TypeKind::I64))],
                 prim(TypeKind::Unit),
             ),
-            // `len(string) -> i64` is the byte length. The master plan lists
-            // string `len` in M6 alongside slice `len`; taking the string case
-            // now costs nothing and is what a program printing text actually
-            // needs. M6 widens the same name to slices.
-            ("len", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
-            // `byte_at(string, i) -> i64` is the byte at `i`, or 0 when `i` is
-            // negative or past the end (ledger L1). A free function rather than
-            // the sketched `s.byte_at(i)`: there is no method-call syntax yet,
-            // and the runtime symbol already had the semantics. Returning 0
-            // rather than faulting is deliberate -- the byte type does not exist
-            // yet, so a program inspects bytes as integers, and "out of range"
-            // has one answer instead of a check every caller must remember.
-            (
-                "byte_at",
-                vec![prim(TypeKind::Str), prim(TypeKind::I64)],
-                prim(TypeKind::I64),
-            ),
-            // `str_slice(s, start, end) -> string` is the bytes in `[start, end)`
-            // as a new owned string. The bounds are clamped by the runtime
-            // (negative start is 0, an end past the length is the length, an
-            // inverted range is empty), so a program cannot get a fault out of
-            // arithmetic on indices -- the same "one answer instead of a check"
-            // rule `byte_at` follows. The stdlib's `trim` and `split` are built
-            // on it.
-            (
-                "str_slice",
-                vec![prim(TypeKind::Str), prim(TypeKind::I64), prim(TypeKind::I64)],
-                prim(TypeKind::Str),
-            ),
-
-            // Input. `read_line` yields a `string` (empty at end of input);
-            // `parse_i64`/`parse_f64` yield zero when their argument is not a
-            // number. A program that can print but not read is a report
-            // generator; these three lines are what make it a program.
+            // Input. `read_line` yields a `string` (empty at end of input).
+            // `parse_i64` and `parse_f64` are methods now: they lower to the
+            // same runtime entry points, but the public spelling is
+            // `s.parse_i64()` / `s.parse_f64()`. A program that can print but
+            // not read is a report generator; this line is what makes it a
+            // program.
             ("read_line", vec![], prim(TypeKind::Str)),
-            ("parse_i64", vec![prim(TypeKind::Str)], prim(TypeKind::I64)),
-            ("parse_f64", vec![prim(TypeKind::Str)], prim(TypeKind::F64)),
             // Files and the environment (M6 Task 10). `read_file` yields the
             // whole file as a fresh owned string, or the empty string when it
             // cannot be read; `write_file` reports 1 for success and 0 for
@@ -737,7 +707,7 @@ impl<'src> Checker<'src> {
                     return Err(TypeError::new(
                         *span,
                         format!(
-                            "a slice cannot hold `{inner}`: its elements would have no size"
+                            "an array cannot hold `{inner}`: its elements would have no size"
                         ),
                     ));
                 }
@@ -1095,7 +1065,7 @@ impl<'src> Checker<'src> {
                         let _ = self.check_expr(value);
                         self.error(
                             *span,
-                            "cannot assign to a slice element: the slice does not \
+                            "cannot assign to an array element: an array does not \
                              expose its storage; use the `set` method",
                         );
                         return None;
@@ -1321,14 +1291,14 @@ impl<'src> Checker<'src> {
                 let TypeKind::Slice(element) = &iterable_ty.kind else {
                     self.error(
                         *span,
-                        format!("`for` over a value must iterate a slice, found `{iterable_ty}`"),
+                        format!("`for` over a value must iterate an array, found `{iterable_ty}`"),
                     );
                     return None;
                 };
                 let Some(binding) = binding else {
                     self.error(
                         *span,
-                        "`for` needs a slice binding to iterate, not a temporary or a field",
+                        "`for` needs an array binding to iterate, not a temporary or a field",
                     );
                     return None;
                 };
@@ -1977,17 +1947,6 @@ impl<'src> Checker<'src> {
         self.check_expr(expr)
     }
 
-    /// `push(slice, value)`, `pop(slice)` and `free_slice(slice)`.
-    ///
-    /// These three cannot live in the fixed builtin table: their types mention
-    /// the slice's *element* type, and the table has no type parameters.
-    /// `push` keeps the slice (it may reallocate the backing array, and the
-    /// header in the binding's slot is updated in place); `pop` also keeps it
-    /// and hands the last element out as an `Option`; `free_slice` consumes it,
-    /// so its receiver must be a binding and is moved out here.
-    ///
-    /// The outer `Option` says "this name is a slice builtin"; the inner one is
-    /// the checked expression, `None` after a reported error.
     /// Rewrite `receiver.method(args)` into the receiver-first builtin
     /// `builtin(receiver, args)` and check that.
     ///
@@ -2028,13 +1987,57 @@ impl<'src> Checker<'src> {
         let mut call_args = Vec::with_capacity(args.len().saturating_add(1));
         call_args.push(Expr::Ident(vec![receiver.clone()], span));
         call_args.extend(args.iter().cloned());
-        let synthetic = Expr::Call {
-            callee: vec![builtin.to_string()],
-            args: call_args,
-            unsafe_call: false,
-            span,
+        // The method layer still lowers to the receiver-first runtime calls,
+        // but it does not go back through `Expr::Call`: the old free-function
+        // spellings now report a migration error, and the method form must not
+        // report one against itself. Calling the check helpers directly keeps
+        // the runtime contract and skips the public spelling.
+        let checked = match builtin {
+            "len" => self.check_len_builtin(&call_args, span),
+            "push" | "pop" | "free_slice" => {
+                self.check_slice_builtin(builtin, &call_args, span).flatten()
+            }
+            "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free" => {
+                self.check_map_builtin(builtin, &call_args, span).flatten()
+            }
+            "chan_send" | "chan_recv" | "chan_close" | "chan_free" | "mutex_lock"
+            | "mutex_unlock" | "mutex_free" => {
+                self.check_thread_builtin(builtin, &call_args, span).flatten()
+            }
+            _ => None,
         };
-        Some(self.check_expr(&synthetic))
+        Some(checked)
+    }
+
+    /// Report an old free-function spelling and show its method form.
+    ///
+    /// The receiver is quoted from the caller's own source rather than named
+    /// generically, so the hint is a line the caller can paste back. An
+    /// argument-less call has no receiver to quote; the message then names the
+    /// method without pretending to know one.
+    fn report_old_builtin(&mut self, name: &str, method: &str, args: &[Expr], span: Span) {
+        let Some(receiver) = args.first() else {
+            self.error(
+                span,
+                format!(
+                    "`{name}` has moved to method syntax: call `.{method}()` on the receiver"
+                ),
+            );
+            return;
+        };
+        let receiver_text = self.snippet_text(otter_parser::exprs::expr_span(receiver));
+        let rest: Vec<String> = args
+            .iter()
+            .skip(1)
+            .map(|arg| self.snippet_text(otter_parser::exprs::expr_span(arg)))
+            .collect();
+        let arguments = format!("({})", rest.join(", "));
+        self.error(
+            span,
+            format!(
+                "`{name}` has moved to method syntax: write `{receiver_text}.{method}{arguments}`"
+            ),
+        );
     }
 
     /// String methods. The read-only helpers reuse the existing string
@@ -2070,34 +2073,92 @@ impl<'src> Checker<'src> {
             return Some(None);
         }
         let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
-        let synthetic = |name: &str, call_args: Vec<Expr>| Expr::Call {
-            callee: vec![name.to_string()],
-            args: call_args,
-            unsafe_call: false,
-            span,
-        };
         match method {
-            "len" => Some(self.check_expr(&synthetic("len", vec![receiver_expr()]))),
-            "byte_at" => Some(self.check_expr(&synthetic(
-                "byte_at",
-                vec![receiver_expr(), args[0].clone()],
-            ))),
-            "slice" => Some(self.check_expr(&synthetic(
-                "str_slice",
-                vec![receiver_expr(), args[0].clone(), args[1].clone()],
-            ))),
-            "parse_i64" => Some(self.check_expr(&synthetic("parse_i64", vec![receiver_expr()]))),
-            "parse_f64" => Some(self.check_expr(&synthetic("parse_f64", vec![receiver_expr()]))),
+            "len" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["len".to_string()],
+                    args: vec![receiver_checked],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::I64),
+                }))
+            }
+            "byte_at" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                let Some(index) = self.check_i64_argument(&args[0]) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["byte_at".to_string()],
+                    args: vec![receiver_checked, index],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::I64),
+                }))
+            }
+            "slice" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                let Some(start) = self.check_i64_argument(&args[0]) else {
+                    return Some(None);
+                };
+                let Some(end) = self.check_i64_argument(&args[1]) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["str_slice".to_string()],
+                    args: vec![receiver_checked, start, end],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::Str),
+                }))
+            }
+            "parse_i64" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["parse_i64".to_string()],
+                    args: vec![receiver_checked],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::I64),
+                }))
+            }
+            "parse_f64" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["parse_f64".to_string()],
+                    args: vec![receiver_checked],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::F64),
+                }))
+            }
             "is_empty" => {
-                let len = synthetic("len", vec![receiver_expr()]);
-                let zero = Expr::Literal(Literal::I64(0), span);
-                let comparison = Expr::Binary {
+                let Some(len) = self.check_len_builtin(&[receiver_expr()], span) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Binary {
                     op: BinOp::Eq,
                     lhs: Box::new(len),
-                    rhs: Box::new(zero),
+                    rhs: Box::new(HirExpr::Literal(
+                        Literal::I64(0),
+                        span,
+                        prim(TypeKind::I64),
+                    )),
                     span,
-                };
-                Some(self.check_expr(&comparison))
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                }))
             }
             _ => {
                 let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
@@ -2257,20 +2318,21 @@ impl<'src> Checker<'src> {
         }
         match method {
             "is_empty" => {
-                let len = Expr::Call {
-                    callee: vec!["len".to_string()],
-                    args: vec![receiver_expr()],
-                    unsafe_call: false,
-                    span,
+                let Some(len) = self.check_len_builtin(&[receiver_expr()], span) else {
+                    return Some(None);
                 };
-                let zero = Expr::Literal(Literal::I64(0), span);
-                let empty = Expr::Binary {
+                Some(Some(HirExpr::Binary {
                     op: BinOp::Eq,
                     lhs: Box::new(len),
-                    rhs: Box::new(zero),
+                    rhs: Box::new(HirExpr::Literal(
+                        Literal::I64(0),
+                        span,
+                        prim(TypeKind::I64),
+                    )),
                     span,
-                };
-                Some(self.check_expr(&empty))
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                }))
             }
             "get" => {
                 let index = Expr::Index {
@@ -2289,25 +2351,39 @@ impl<'src> Checker<'src> {
                 Some(self.check_expr(&index))
             }
             "last" => {
-                let len = Expr::Call {
+                let Some((receiver_checked, receiver_ty)) =
+                    self.check_array_receiver(receiver, span)
+                else {
+                    return Some(None);
+                };
+                let TypeKind::Slice(element) = receiver_ty.kind else {
+                    return Some(None);
+                };
+                let len = HirExpr::Call {
                     callee: vec!["len".to_string()],
-                    args: vec![receiver_expr()],
+                    args: vec![receiver_checked.clone()],
                     unsafe_call: false,
                     span,
+                    ty: prim(TypeKind::I64),
                 };
-                let one = Expr::Literal(Literal::I64(1), span);
-                let index = Expr::Binary {
+                let index = HirExpr::Binary {
                     op: BinOp::Sub,
                     lhs: Box::new(len),
-                    rhs: Box::new(one),
+                    rhs: Box::new(HirExpr::Literal(
+                        Literal::I64(1),
+                        span,
+                        prim(TypeKind::I64),
+                    )),
                     span,
+                    ty: prim(TypeKind::I64),
+                    fault: None,
                 };
-                let last = Expr::Index {
-                    base: Box::new(receiver_expr()),
+                Some(Some(HirExpr::Index {
+                    base: Box::new(receiver_checked),
                     index: Box::new(index),
                     span,
-                };
-                Some(self.check_expr(&last))
+                    ty: option(&element, span),
+                }))
             }
             "set" => Some(self.check_array_set(receiver, args, span)),
             "insert" => Some(self.check_array_insert(receiver, args, span)),
@@ -2575,7 +2651,7 @@ impl<'src> Checker<'src> {
             _ => {
                 self.error(
                     expr_span(&other),
-                    "`extend` needs a slice binding, a slice literal, or a call result",
+                    "`extend` needs an array binding, an array literal, or a call result",
                 );
                 return None;
             }
@@ -2687,6 +2763,17 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// The receiver-first array builtins: `push`, `pop` and `free_slice`.
+    ///
+    /// These three cannot live in the fixed builtin table: their types mention
+    /// the array's *element* type, and the table has no type parameters.
+    /// `push` keeps the array (it may reallocate the backing store, and the
+    /// header in the binding's slot is updated in place); `pop` also keeps it
+    /// and hands the last element out as an `Option`; `free_slice` consumes it,
+    /// so its receiver must be a binding and is moved out here.
+    ///
+    /// The outer `Option` says "this name is an array builtin"; the inner one
+    /// is the checked expression, `None` after a reported error.
     fn check_slice_builtin(
         &mut self,
         name: &str,
@@ -2707,7 +2794,7 @@ impl<'src> Checker<'src> {
         let Expr::Ident(path, ident_span) = &args[0] else {
             self.error(
                 span,
-                format!("`{name}` needs a slice binding, not a temporary"),
+                format!("`{name}` needs an array binding, not a temporary"),
             );
             return Some(None);
         };
@@ -2717,7 +2804,7 @@ impl<'src> Checker<'src> {
             // projection here would make the call silently do nothing.
             self.error(
                 *ident_span,
-                format!("`{name}` needs a slice binding, not a field access"),
+                format!("`{name}` needs an array binding, not a field access"),
             );
             return Some(None);
         }
@@ -2729,7 +2816,7 @@ impl<'src> Checker<'src> {
         let TypeKind::Slice(element) = &receiver_ty.kind else {
             self.error(
                 expr_span(&receiver),
-                format!("`{name}` expects a slice, found `{receiver_ty}`"),
+                format!("`{name}` expects an array, found `{receiver_ty}`"),
             );
             return Some(None);
         };
@@ -2760,7 +2847,7 @@ impl<'src> Checker<'src> {
             if matches!(element.kind, TypeKind::Str) {
                 self.error(
                     expr_span(&receiver),
-                    "popping a `string` is not supported yet: the slice owns the reference, and a removed element would be handed out unowned",
+                    "popping a `string` is not supported yet: the array owns the reference, and a removed element would be handed out unowned",
                 );
                 return Some(None);
             }
@@ -2809,7 +2896,7 @@ impl<'src> Checker<'src> {
         if !matches!(ty.kind, TypeKind::Str | TypeKind::Slice(_)) {
             self.error(
                 expr_span(&argument),
-                format!("`len` expects a string or a slice, found `{ty}`"),
+                format!("`len` expects a string or an array, found `{ty}`"),
             );
             return None;
         }
@@ -3521,6 +3608,20 @@ impl<'src> Checker<'src> {
                         return constructed;
                     }
                 }
+                // A method receiver has to be a local binding. The parser keeps
+                // a field receiver as a longer path (`s.items.push`), which is
+                // not a module path once its first segment resolves locally:
+                // report the missing binding instead of looking for a function
+                // named `push`. A non-local first segment is left alone, so
+                // `std.io.print(...)` is untouched.
+                if callee.len() > 2 && self.scope.resolve(&callee[0]).is_some() {
+                    self.error(
+                        *span,
+                        "method calls need a local binding as the receiver: \
+                         a field access is not a binding",
+                    );
+                    return None;
+                }
                 // `xs.len()` arrives as the two-segment callee `["xs", "len"]`,
                 // because the parser flattens a dotted call. If the first
                 // segment names a local value, this is a receiver method, not a
@@ -3531,6 +3632,19 @@ impl<'src> Checker<'src> {
                     return method;
                 }
                 let name = callee.last().cloned().unwrap_or_default();
+                // The method surface replaced these free-function spellings.
+                // They are not aliases: a call written this way points at the
+                // method form with the receiver the caller already wrote. This
+                // is checked before constructors so `push`/`len` cannot fall
+                // through to a scope lookup that no longer has them.
+                if callee.len() == 1 {
+                    if let Some((method, arity)) = old_builtin_method_name(&name) {
+                        if args.len() == arity {
+                            self.report_old_builtin(&name, method, args, *span);
+                            return None;
+                        }
+                    }
+                }
                 // `None`, `Some(x)`, `Ok(v)` and `Err(e)` are value
                 // constructors, not calls. They resolve by name and arity,
                 // not by scope lookup — `None` takes no arguments and the
@@ -3539,34 +3653,12 @@ impl<'src> Checker<'src> {
                     if let Some(constructed) = self.check_constructor(&name, args, *span, None)? {
                         return Some(constructed);
                     }
-                    if name == "len" {
-                        return self.check_len_builtin(args, *span);
-                    }
-                    if matches!(name.as_str(), "push" | "free_slice" | "pop") {
-                        return self.check_slice_builtin(&name, args, *span).flatten();
-                    }
                     if name == "map_new" {
                         return self.check_map_new(args, *span, None);
                     }
                     if matches!(
                         name.as_str(),
-                        "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free"
-                    ) {
-                        return self.check_map_builtin(&name, args, *span).flatten();
-                    }
-                    if matches!(
-                        name.as_str(),
-                        "thread_spawn"
-                            | "thread_join"
-                            | "mutex_new"
-                            | "mutex_lock"
-                            | "mutex_unlock"
-                            | "mutex_free"
-                            | "chan_new"
-                            | "chan_send"
-                            | "chan_recv"
-                            | "chan_close"
-                            | "chan_free"
+                        "thread_spawn" | "thread_join" | "mutex_new" | "chan_new"
                     ) {
                         return self.check_thread_builtin(&name, args, *span).flatten();
                     }
@@ -3825,7 +3917,7 @@ impl<'src> Checker<'src> {
                     self.error(
                         *span,
                         format!(
-                            "a slice cannot hold `{elem_ty}`: its elements would have no size"
+                            "an array cannot hold `{elem_ty}`: its elements would have no size"
                         ),
                     );
                     return None;
@@ -4459,16 +4551,44 @@ impl<'src> Checker<'src> {
     }
 }
 
-/// Whether `==` is defined for a type, which is what `assert_eq` needs.
+/// The method name an old free-function spelling moved to, or `None` when the
+/// name was never a builtin.
 ///
-/// The four the comparison emitters support. An aggregate has no equality in
-/// Otter yet, and comparing one by its first field would be a wrong answer
-/// rather than a missing one, so asking is reported.
+/// This is the public migration table, not the lowering table: `str_slice`
+/// becomes `slice`, while the HIR still calls the runtime symbol
+/// `str_slice`. Keeping the two tables separate is what lets the method form
+/// keep the old ABI without keeping the old spelling.
+fn old_builtin_method_name(name: &str) -> Option<(&'static str, usize)> {
+    match name {
+        "push" => Some(("push", 2)),
+        "pop" => Some(("pop", 1)),
+        "free_slice" => Some(("free", 1)),
+        "len" => Some(("len", 1)),
+        "byte_at" => Some(("byte_at", 2)),
+        "str_slice" => Some(("slice", 3)),
+        "parse_i64" => Some(("parse_i64", 1)),
+        "parse_f64" => Some(("parse_f64", 1)),
+        "map_get" => Some(("get", 2)),
+        "map_insert" => Some(("insert", 3)),
+        "map_remove" => Some(("remove", 2)),
+        "map_len" => Some(("len", 1)),
+        "map_free" => Some(("free", 1)),
+        "chan_send" => Some(("send", 2)),
+        "chan_recv" => Some(("recv", 1)),
+        "chan_close" => Some(("close", 1)),
+        "chan_free" => Some(("free", 1)),
+        "mutex_lock" => Some(("lock", 1)),
+        "mutex_unlock" => Some(("unlock", 1)),
+        "mutex_free" => Some(("free", 1)),
+        _ => None,
+    }
+}
+
 /// The receiver-first builtin a method name stands for, or `None` when the
 /// receiver's type has no such method.
 ///
-/// The builtin names are the existing flat spellings; Task 6 removes those
-/// spellings from the surface, but the lowering keeps using them.
+/// The builtin names are the old flat spellings. Task 6 removed those spellings
+/// from the surface, but the lowering keeps using them as the runtime ABI.
 fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str> {
     match receiver {
         TypeKind::Slice(_) => match method {
@@ -4509,6 +4629,11 @@ fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str
     }
 }
 
+/// Whether `==` is defined for a type, which is what `assert_eq` needs.
+///
+/// The four the comparison emitters support. An aggregate has no equality in
+/// Otter yet, and comparing one by its first field would be a wrong answer
+/// rather than a missing one, so asking is reported.
 fn has_equality(ty: &Type) -> bool {
     matches!(
         ty.kind,
@@ -4702,7 +4827,7 @@ fn map_key_is_supported(kind: &TypeKind) -> bool {
 
 /// The diagnostic for an element kind [`slice_element_is_operable`] rejects.
 fn unsupported_element_message(element: &Type) -> String {
-    format!("a slice of `{element}` is not supported yet: only numbers, `bool` and `string` can be elements")
+    format!("an array of `{element}` is not supported yet: only numbers, `bool` and `string` can be elements")
 }
 
 /// Whether a value of type `found` may stand where `expected` is wanted.

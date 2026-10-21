@@ -49,7 +49,7 @@ Two things to notice:
 - `${...}` inside a string converts and concatenates. `"total = ${total}"` is
   the same program as `"total = " + str_from_i64(total)`; the checker lowers it
   into exactly that. The braces hold an expression, not only a name: `${p.x}`
-  and `${len(xs)}` are allowed.
+  and `${xs.len()}` are allowed.
 - Arithmetic between `i64` and `f64` needs an explicit cast, `as`. The language
   will not silently pick one for you. The result is cast back to `i64` before
   printing: `print_f64`'s formatting is the C library's, and the tutorial only

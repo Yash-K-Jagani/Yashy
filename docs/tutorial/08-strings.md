@@ -4,7 +4,7 @@
 
 - What a `string` stores, and why `len()` counts bytes rather than characters.
 - Which operations exist: `+`, `==`, the string methods, and interpolation.
-- Why a `string` can be copied while a slice or a pointer cannot.
+- Why a `string` can be copied while an array or a pointer cannot.
 - Where the implementation still leaks or dangles a string reference.
 
 A `string` is a counted sequence of bytes. `+` concatenates, `len()` counts
@@ -51,7 +51,7 @@ answer, so there is no panic path. `get` is the checked alternative: it returns
 
 ## Strings are copied, not moved
 
-Most owning values in Otter are linear: a pointer or a slice has exactly one
+Most owning values in Otter are linear: a pointer or an array has exactly one
 owner, and passing it to a function transfers it. A `string` is the exception.
 It is a small handle to a reference-counted buffer, and the language declares
 it *copyable*:
@@ -288,4 +288,4 @@ and the field then points at freed bytes. Until that is fixed, put literals in
 struct fields or keep the owning string alive in the caller's scope; do not
 return ownership of a string inside a struct and expect the struct to keep it.
 
-Continue to [09-slices](09-slices.md).
+Continue to [09-arrays](09-arrays.md).

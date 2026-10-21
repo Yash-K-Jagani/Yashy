@@ -14,8 +14,8 @@ fn show(o: Option[i64]) -> i64 {
 
 fn main() {
     var xs = []i64 { 10, 20, 30 };
-    push(xs, 40);
-    print_i64(len(xs));
+    xs.push(40);
+    print_i64(xs.len());
     print_str("\n");
 
     print_i64(show(xs[0]));
@@ -60,20 +60,20 @@ fn main() {
         if pushed == 3 {
             break;
         }
-        push(growing, value + 1);
+        growing.push(value + 1);
         pushed = pushed + 1;
     }
-    print_i64(len(growing));
+    print_i64(growing.len());
     print_str("\n");
 
-    print_i64(show(pop(xs)));
+    print_i64(show(xs.pop()));
     print_str("\n");
-    print_i64(show(pop(xs)));
+    print_i64(show(xs.pop()));
     print_str("\n");
-    print_i64(len(xs));
+    print_i64(xs.len());
     print_str("\n");
 
-    free_slice(empty);
-    free_slice(growing);
-    free_slice(xs);
+    empty.free();
+    growing.free();
+    xs.free();
 }

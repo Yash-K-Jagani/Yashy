@@ -20,5 +20,5 @@ fn main() {
         print_str(" ");
     }
     print_str("after\n");
-    free_slice(xs);
+    xs.free();
 }

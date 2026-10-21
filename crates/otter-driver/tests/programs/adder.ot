@@ -13,7 +13,7 @@ fn main() {
         if line == "" {
             break;
         }
-        total = total + parse_i64(line);
+        total = total + line.parse_i64();
     }
     print_i64(total);
     print_str("\n");

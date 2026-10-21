@@ -15,7 +15,7 @@ result comes back through a channel or shared state, not through the thread.
 fn worker(out: Channel[i64]) {
     var i = 1;
     while i <= 3 {
-        chan_send(out, i * i);
+        out.send(i * i);
         i += 1;
     }
 }
@@ -27,7 +27,7 @@ fn main() {
     var total = 0;
     var received = 0;
     while received < 3 {
-        total = total + switch chan_recv(results) {
+        total = total + switch results.recv() {
             case Some(v) { v }
             case None { 0 }
         };
@@ -35,7 +35,7 @@ fn main() {
     }
 
     thread_join(handle);
-    chan_free(results);
+    results.free();
     print_i64(total);
     print_str("\n");
     // => 14
@@ -58,13 +58,13 @@ what the channel carries.
 The capacity is clamped: values below 1 act as 1, since a zero-slot ring could
 never accept a value. The slot size is fixed on first use.
 
-- `chan_send(c, v)` returns `bool`. It blocks while the channel is full, then
+- `c.send(v)` returns `bool`. It blocks while the channel is full, then
   stores the value and returns `true`. On a closed channel it returns `false`
   immediately, including for a sender already blocked when the close arrived.
-- `chan_recv(c)` returns `Option[T]`. It blocks while the channel is empty and
+- `c.recv()` returns `Option[T]`. It blocks while the channel is empty and
   open. It returns `None` only when closed *and* drained; queued values stay
-  available after `chan_close`, which wakes every blocked sender and receiver.
-- `chan_free(c)` releases the channel and consumes the binding.
+  available after `c.close()`, which wakes every blocked sender and receiver.
+- `c.free()` releases the channel and consumes the binding.
 
 A channel and a mutex are linear: each is freed exactly once. A spawned worker
 *borrows* a channel argument, so the parent frees it after `thread_join`, never
@@ -86,31 +86,30 @@ into the thread, so the rules differ by type:
   the body returns, so the parent's string stays valid.
 - A `Mutex` or `Channel` is borrowed, never copied. The parent keeps the
   binding and must keep it alive until `thread_join`.
-- A linear value such as a slice or a pointer is refused today, because a copy
+- A linear value such as an array or a pointer is refused today, because a copy
   would leave the parent and the thread both owning one allocation.
 
 ## Mutexes
 
-A mutex serialises a section. `mutex_lock` and `mutex_unlock` borrow, and
-`mutex_free` consumes:
+A mutex serialises a section. `lock` and `unlock` borrow, and `free` consumes:
 
 ```otter
 fn worker(gate: Mutex) {
-    mutex_lock(gate);
+    gate.lock();
     print_str("worker\n");
-    mutex_unlock(gate);
+    gate.unlock();
 }
 
 fn main() {
     var gate = mutex_new();
-    mutex_lock(gate);
+    gate.lock();
     var handle = thread_spawn(worker, gate);
 
     print_str("main\n");
-    mutex_unlock(gate);
+    gate.unlock();
 
     thread_join(handle);
-    mutex_free(gate);
+    gate.free();
     // => main
     // => worker
 }
@@ -129,14 +128,14 @@ avoid one.
 |---|---|---|
 | `thread_spawn(f, args...)` | `i64` handle | Starts `f`; `f` must return `()`. |
 | `thread_join(h)` | `()` | Waits for the thread to finish. |
-| `mutex_new()` | `Mutex` | Linear; release with `mutex_free`. |
-| `mutex_lock(m)` / `mutex_unlock(m)` | `()` | Borrow `m`; block until the lock is free. |
-| `mutex_free(m)` | `()` | Consumes `m`. |
+| `mutex_new()` | `Mutex` | Linear; release with `.free()`. |
+| `m.lock()` / `m.unlock()` | `()` | Borrow `m`; block until the lock is free. |
+| `m.free()` | `()` | Consumes `m`. |
 | `chan_new(n)` | `Channel[T]` | `n` is elements; values below 1 act as 1. |
-| `chan_send(c, v)` | `bool` | Blocks when full; `false` when closed. |
-| `chan_recv(c)` | `Option[T]` | Blocks when empty; `None` when closed and drained. |
-| `chan_close(c)` | `()` | Wakes blocked senders and receivers. |
-| `chan_free(c)` | `()` | Consumes `c`. |
+| `c.send(v)` | `bool` | Blocks when full; `false` when closed. |
+| `c.recv()` | `Option[T]` | Blocks when empty; `None` when closed and drained. |
+| `c.close()` | `()` | Wakes blocked senders and receivers. |
+| `c.free()` | `()` | Consumes `c`. |
 
 ## Common mistakes
 
@@ -149,12 +148,13 @@ avoid one.
 - **Returning a value from a worker.** `fn worker() -> i64` reports ``error: a
   thread body must return `()`; `worker` returns `i64` ``. Send the value on a
   channel and return nothing.
-- **Passing a slice to a thread.** `thread_spawn(worker, xs)` where `xs` is
+- **Passing an array to a thread.** `thread_spawn(worker, xs)` where `xs` is
   `[]i64` reports ``error: a `[]i64` argument cannot cross a thread boundary
   yet: the runtime copies the value, so the body and the parent would both own
   it``. Copy the data into a channel element by element.
-- **Locking a temporary.** `mutex_lock(mutex_new())` reports ``error:
-  `mutex_lock` needs a mutex binding, not a temporary``. Bind the mutex first.
+- **Calling a method on a temporary.** `mutex_new().lock()` is not a method call
+  the parser can keep: a receiver must be a local binding whose header the call
+  can update. Bind the mutex first (`var gate = mutex_new(); gate.lock();`).
 
 ## Try it
 

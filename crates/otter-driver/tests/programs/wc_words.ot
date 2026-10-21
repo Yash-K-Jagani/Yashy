@@ -8,10 +8,10 @@ fn count_words(line: string) -> i64 {
     var words = 0;
     var inside = false;
     var index = 0;
-    var length = len(line);
+    var length = line.len();
     while index < length {
         // 32 space, 9 tab, 13 carriage return, in ASCII.
-        var byte = byte_at(line, index);
+        var byte = line.byte_at(index);
         if byte == 32 || byte == 9 || byte == 13 {
             inside = false;
         } else {

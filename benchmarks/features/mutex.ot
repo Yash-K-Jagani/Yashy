@@ -7,8 +7,8 @@
 fn worker(gate: Mutex, rounds: i64) {
     var i = 0;
     while i < rounds {
-        mutex_lock(gate);
-        mutex_unlock(gate);
+        gate.lock();
+        gate.unlock();
         i = wrapping_add(i, 1);
     }
 }
@@ -27,7 +27,7 @@ fn main() {
     thread_join(c);
     thread_join(d);
 
-    mutex_free(gate);
+    gate.free();
     print_i64(wrapping_mul(rounds, 4));
     print_str("\n");
 }

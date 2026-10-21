@@ -1,4 +1,4 @@
-// Growing a slice by `push`, then summing it.
+// Growing an array by `push`, then summing it.
 //
 // Nothing is preallocated: the runtime doubles the backing array when it fills,
 // so this measures the growth policy and the copy each time it triggers, not a
@@ -56,7 +56,7 @@ fn main() {
     xs.extend(extra);
     var copy = xs.slice(0, 3);
     if copy.len() != 3 {
-        print_str("bad slice\n");
+        print_str("bad array\n");
     }
     copy.free();
     xs.free();

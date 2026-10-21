@@ -1,5 +1,5 @@
-//! The slice type at the checking edge: literals, linearity, and the two
-//! operations that need the element type (`push`, `free_slice`).
+//! The slice type at the checking edge: literals, linearity, and the methods
+//! that need the element type (`push`, `pop`, `free`).
 
 use otter_common::{Diagnostic, SourceMap};
 use otter_lexer::Lexer;
@@ -31,22 +31,25 @@ fn assert_rejected(src: &str, needle: &str) {
 
 #[test]
 fn a_slice_literal_checks_every_element_against_its_written_type() {
-    check("fn main() { var xs = []i64 { 1, 2, 3 }; push(xs, 4); free_slice(xs); }")
+    check("fn main() { var xs = []i64 { 1, 2, 3 }; xs.push(4); xs.free(); }")
         .expect("a well-typed literal and its operations must check");
 }
 
 #[test]
 fn len_reads_a_slice_and_a_string() {
     check(
-        "fn main() { var xs = []i64 { 1, 2 }; var n: i64 = len(xs); \
-         var s = \"ab\"; var m: i64 = len(s); }",
+        "fn main() { var xs = []i64 { 1, 2 }; var n: i64 = xs.len(); \
+         var s = \"ab\"; var m: i64 = s.len(); }",
     )
     .expect("`len` is the same spelling for both inputs");
 }
 
 #[test]
 fn len_rejects_a_number() {
-    assert_rejected("fn main() { var n = len(1); }", "expects a string or a slice");
+    assert_rejected(
+        "fn main() { var x = 1; var n = x.len(); }",
+        "no method `len` on `i64`",
+    );
 }
 
 #[test]
@@ -62,21 +65,21 @@ fn indexing_a_slice_yields_an_option() {
 fn a_slice_element_cannot_be_assigned() {
     assert_rejected(
         "fn main() { var xs = []i64 { 1 }; xs[0] = 2; }",
-        "cannot assign to a slice element",
+        "cannot assign to an array element",
     );
 }
 
 #[test]
 fn pop_yields_the_element_in_an_option() {
-    check("fn main() { var xs = []i64 { 1 }; var last: Option[i64] = pop(xs); }")
+    check("fn main() { var xs = []i64 { 1 }; var last: Option[i64] = xs.pop(); }")
         .expect("`pop` hands the last element out or `None`");
 }
 
 #[test]
-fn pop_needs_a_slice_binding() {
+fn pop_needs_an_array() {
     assert_rejected(
-        "fn main() { var last = pop([]i64 { 1 }); }",
-        "needs a slice binding",
+        "fn main() { var x = 1; var last = x.pop(); }",
+        "no method `pop` on `i64`",
     );
 }
 
@@ -88,21 +91,21 @@ fn for_in_binds_the_element_type() {
 
 #[test]
 fn for_in_over_a_non_slice_is_rejected() {
-    assert_rejected("fn main() { for x in 1 { } }", "must iterate a slice");
+    assert_rejected("fn main() { for x in 1 { } }", "must iterate an array");
 }
 
 #[test]
 fn for_in_over_a_temporary_is_rejected() {
     assert_rejected(
         "fn main() { for x in []i64 { 1 } { } }",
-        "slice binding",
+        "array binding",
     );
 }
 
 #[test]
 fn moving_the_slice_while_iterating_is_rejected() {
     assert_rejected(
-        "fn main() { var xs = []i64 { 1 }; for x in xs { free_slice(xs); } }",
+        "fn main() { var xs = []i64 { 1 }; for x in xs { xs.free(); } }",
         "while it is being iterated",
     );
 }
@@ -110,8 +113,8 @@ fn moving_the_slice_while_iterating_is_rejected() {
 #[test]
 fn a_slice_of_strings_can_be_built_and_iterated() {
     check(
-        "fn main() { var xs = []string { \"a\", \"b\" }; push(xs, \"c\"); \
-         for x in xs { print_str(x); } free_slice(xs); }",
+        "fn main() { var xs = []string { \"a\", \"b\" }; xs.push(\"c\"); \
+         for x in xs { print_str(x); } xs.free(); }",
     )
     .expect("a `[]string` owns its elements: a literal and push retain, free releases");
 }
@@ -125,7 +128,7 @@ fn indexing_a_string_slice_yields_an_option_of_string() {
 #[test]
 fn popping_a_string_slice_is_rejected() {
     assert_rejected(
-        "fn main() { var xs = []string { \"a\" }; var last = pop(xs); }",
+        "fn main() { var xs = []string { \"a\" }; var last = xs.pop(); }",
         "popping a `string` is not supported yet",
     );
 }
@@ -137,8 +140,8 @@ fn a_field_slice_cannot_be_used_where_a_binding_is_needed() {
     // projection would make the call silently do nothing.
     assert_rejected(
         "struct S { items: []i64 }\n\
-         fn main() { var s = S { items: []i64 {} }; push(s.items, 1); }",
-        "not a field access",
+         fn main() { var s = S { items: []i64 {} }; s.items.push(1); }",
+        "field access is not a binding",
     );
     assert_rejected(
         "struct S { items: []i64 }\n\
@@ -150,7 +153,7 @@ fn a_field_slice_cannot_be_used_where_a_binding_is_needed() {
 #[test]
 fn a_wrong_element_type_is_reported() {
     assert_rejected(
-        r#"fn main() { var xs = []i64 { 1, "two" }; free_slice(xs); }"#,
+        r#"fn main() { var xs = []i64 { 1, "two" }; xs.free(); }"#,
         "expected `i64`",
     );
 }
@@ -160,7 +163,7 @@ fn a_slice_is_linear_like_a_pointer() {
     // Exactly one binding owns the backing array: copying the header would give
     // two owners and a double free.
     assert_rejected(
-        "fn main() { var a = []i64 { 1 }; var b = a; free_slice(a); free_slice(b); }",
+        "fn main() { var a = []i64 { 1 }; var b = a; a.free(); b.free(); }",
         "cannot assign linear value `a` without `move`",
     );
 }
@@ -183,14 +186,14 @@ fn a_slice_of_slices_is_linear_at_both_levels() {
 fn pushing_keeps_the_slice() {
     // `push` may reallocate, but the binding stays the owner: no `move` is
     // needed and the slice is usable again.
-    check("fn main() { var xs = []i64 { 1 }; push(xs, 2); push(xs, 3); free_slice(xs); }")
+    check("fn main() { var xs = []i64 { 1 }; xs.push(2); xs.push(3); xs.free(); }")
         .expect("a slice survives a push");
 }
 
 #[test]
 fn pushing_a_wrong_element_type_is_reported() {
     assert_rejected(
-        r#"fn main() { var xs = []i64 { 1 }; push(xs, "two"); free_slice(xs); }"#,
+        r#"fn main() { var xs = []i64 { 1 }; xs.push("two"); xs.free(); }"#,
         "expected `i64`",
     );
 }
@@ -198,16 +201,16 @@ fn pushing_a_wrong_element_type_is_reported() {
 #[test]
 fn freeing_a_slice_moves_it() {
     assert_rejected(
-        "fn main() { var xs = []i64 { 1 }; free_slice(xs); free_slice(xs); }",
+        "fn main() { var xs = []i64 { 1 }; xs.free(); xs.free(); }",
         "value `xs` has already been moved",
     );
 }
 
 #[test]
-fn push_needs_a_slice() {
+fn push_needs_an_array() {
     assert_rejected(
-        "fn main() { var x = 1; push(x, 2); }",
-        "`push` expects a slice",
+        "fn main() { var x = 1; x.push(2); }",
+        "no method `push` on `i64`",
     );
 }
 

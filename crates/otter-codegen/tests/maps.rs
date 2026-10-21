@@ -28,7 +28,7 @@ fn emit(src: &str) -> String {
 
 #[test]
 fn map_new_carries_the_key_kind_and_the_two_strides() {
-    let ir = emit("fn main() { var m: map[i64]i64 = map_new(); map_free(m); }");
+    let ir = emit("fn main() { var m: map[i64]i64 = map_new(); m.free(); }");
     assert!(
         ir.contains("call i8* @otter_map_new(i64 0, i64 8, i64 8)"),
         "an `i64` key is kind 0 with an eight-byte key and value:\n{ir}"
@@ -37,7 +37,7 @@ fn map_new_carries_the_key_kind_and_the_two_strides() {
 
 #[test]
 fn a_string_key_map_is_created_as_kind_two() {
-    let ir = emit("fn main() { var m: map[string]i64 = map_new(); map_free(m); }");
+    let ir = emit("fn main() { var m: map[string]i64 = map_new(); m.free(); }");
     assert!(
         ir.contains("call i8* @otter_map_new(i64 2, i64 8, i64 8)"),
         "a `string` key is kind 2 and still one word wide:\n{ir}"
@@ -46,7 +46,7 @@ fn a_string_key_map_is_created_as_kind_two() {
 
 #[test]
 fn a_bool_key_map_is_created_as_kind_one() {
-    let ir = emit("fn main() { var m: map[bool]i64 = map_new(); map_free(m); }");
+    let ir = emit("fn main() { var m: map[bool]i64 = map_new(); m.free(); }");
     assert!(
         ir.contains("call i8* @otter_map_new(i64 1, i64 1, i64 8)"),
         "a `bool` key is kind 1 with a one-byte key:\n{ir}"
@@ -56,7 +56,7 @@ fn a_bool_key_map_is_created_as_kind_one() {
 #[test]
 fn insert_hands_the_runtime_two_slots() {
     let ir = emit(
-        "fn main() { var m: map[i64]i64 = map_new(); map_insert(m, 7, 9); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); m.insert(7, 9); m.free(); }",
     );
     assert!(
         ir.contains("store i64 7, ptr %slot") && ir.contains("store i64 9, ptr %slot"),
@@ -71,7 +71,7 @@ fn insert_hands_the_runtime_two_slots() {
 #[test]
 fn a_lookup_turns_the_flag_into_an_option() {
     let ir = emit(
-        "fn main() { var m: map[i64]i64 = map_new(); var v = map_get(m, 1); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); var v = m.get(1); m.free(); }",
     );
     assert!(
         ir.contains("@otter_map_get(i8* %t") && ir.contains(", ptr %slot"),
@@ -86,7 +86,7 @@ fn a_lookup_turns_the_flag_into_an_option() {
 #[test]
 fn remove_uses_the_remove_entry_point() {
     let ir = emit(
-        "fn main() { var m: map[i64]i64 = map_new(); var v = map_remove(m, 1); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); var v = m.remove(1); m.free(); }",
     );
     assert!(
         ir.contains("call i64 @otter_map_remove("),
@@ -97,8 +97,8 @@ fn remove_uses_the_remove_entry_point() {
 #[test]
 fn len_calls_the_runtime() {
     let ir = emit(
-        "fn main() { var m: map[i64]i64 = map_new(); var n = map_len(m); print_i64(n); \
-         map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); var n = m.len(); print_i64(n); \
+         m.free(); }",
     );
     assert!(
         ir.contains("call i64 @otter_map_len(i8* %t"),
@@ -108,7 +108,7 @@ fn len_calls_the_runtime() {
 
 #[test]
 fn free_passes_the_table_pointer() {
-    let ir = emit("fn main() { var m: map[i64]i64 = map_new(); map_free(m); }");
+    let ir = emit("fn main() { var m: map[i64]i64 = map_new(); m.free(); }");
     assert!(
         ir.contains("call void @otter_map_free(i8* %t"),
         "free takes the binding's table value:\n{ir}"

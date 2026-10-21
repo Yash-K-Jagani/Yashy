@@ -1,13 +1,13 @@
 fn main() {
     var xs = []i64 { 1, 2, 3 };
-    var n = len(xs);
+    var n = xs.len();
     var first = xs[0];
-    var last = pop(xs);
+    var last = xs.pop();
     var sum = 0;
     for value in xs {
         sum = sum + value;
     }
     print_i64(n + sum);
     print_str("\n");
-    free_slice(xs);
+    xs.free();
 }

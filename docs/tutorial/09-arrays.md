@@ -1,15 +1,16 @@
-# 9. Slices
+# 9. Arrays
 
 ## What you will learn
 
-- How to build a slice, append to it, walk it, and free it.
+- How to build an array, append to it, walk it, and free it.
 - Why indexing returns `Option[T]` instead of panicking.
-- What passing a slice to a function does to ownership.
+- What passing an array to a function does to ownership.
 - How a `[]string` owns the strings inside it.
 
-A slice is a growable array. `[]i64 { ... }` is a literal, `xs.push(v)`
+An array is a growable sequence. `[]i64 { ... }` is a literal, `xs.push(v)`
 appends, `xs.len()` counts, `for` walks, and `xs.free()` releases the backing
-array.
+storage. The runtime still calls the three-word value it stores a *slice
+header*; the public surface is arrays and methods.
 
 ```otter
 fn main() {
@@ -55,22 +56,22 @@ fn main() {
 
 `xs[1]` is an `Option[i64]`, not an `i64`. An index may be out of bounds, and
 the type says so: `None` is the answer, and the compiler makes you match it.
-There is no panic path for a bad index; `xs[99]` on a three-element slice is
+There is no panic path for a bad index; `xs[99]` on a three-element array is
 exactly the `None` printed above. A negative index is also a miss, not a
 wrapped read from the end.
 
 `xs.push(v)` appends one element. The first push allocates room for four, and
-later growth doubles the capacity, so building a slice one element at a time
+later growth doubles the capacity, so building an array one element at a time
 costs amortised constant work per element. `xs.pop()` removes and returns the
-last element as an `Option[T]`; it is `None` on an empty slice. `pop` refuses a
-`[]string` today, because the slice owns the element's reference and a removed
+last element as an `Option[T]`; it is `None` on an empty array. `pop` refuses a
+`[]string` today, because the array owns the element's reference and a removed
 element would be handed out without that ownership.
 
-The query methods answer without moving the slice. `xs.get(i)` is exactly
+The query methods answer without moving the array. `xs.get(i)` is exactly
 `xs[i]`. `xs.first()` and `xs.last()` are `xs.get(0)` and
-`xs.get(xs.len() - 1)`, so an empty slice answers `None` rather than reading
+`xs.get(xs.len() - 1)`, so an empty array answers `None` rather than reading
 before the start. `xs.is_empty()` is `xs.len() == 0`. `xs.set(i, v)` writes one
-element and returns `true`, or returns `false` and leaves the slice unchanged
+element and returns `true`, or returns `false` and leaves the array unchanged
 when `i` is out of range. Setting a `[]string` element is refused for now: the
 array owns the old reference, and replacing it needs a retain of the new string
 and a release of the old one.
@@ -91,8 +92,8 @@ value is absent. Both work for `i64`, `f64`, `bool`, and `string` elements; a
 struct or enum element has no equality and is rejected.
 
 `xs.extend(other)` appends every element of `other`. It **consumes** `other`:
-a slice binding is moved, and the runtime frees its backing array after copying.
-A slice literal or a call result works too and is freed the same way. This is
+an array binding is moved, and the runtime frees its backing storage after copying.
+An array literal or a call result works too and is freed the same way. This is
 why `xs.extend(ys)` makes `ys` unusable afterwards, just like passing it to a
 function.
 
@@ -103,7 +104,7 @@ The result is independent: freeing it does not free the source, and for a
 
 ## Ownership
 
-A slice is linear: it has one owner and cannot be copied. **Passing it to a
+An array is linear: it has one owner and cannot be copied. **Passing it to a
 function moves it**, because a parameter takes ownership:
 
 ```otter
@@ -125,22 +126,22 @@ fn main() {
 }
 ```
 
-The callee owns the slice now, so the callee frees it (or leaks it). There is no
-borrow syntax for a slice. Parameter passing is also where a `string` behaves
+The callee owns the array now, so the callee frees it (or leaks it). There is no
+borrow syntax for an array. Parameter passing is also where a `string` behaves
 differently: a `string` parameter is borrowed, so the caller keeps its string,
-while a slice parameter is moved. The compiler enforces the difference; it does
+while an array parameter is moved. The compiler enforces the difference; it does
 not guess.
 
-`for x in xs` reads the header on every iteration, so the loop keeps the slice
+`for x in xs` reads the header on every iteration, so the loop keeps the array
 alive for its body. Moving `xs`, including calling `xs.free()`, inside the
 loop reports ``error: cannot move `xs` while it is being iterated``. Free the
-slice after the loop, never inside it.
+array after the loop, never inside it.
 
 Skipping `xs.free()` is not a compile error. The checker tracks ownership, not
-reachability: a slice that is never freed is a leak, and a slice freed twice is a
-compile error because the second call uses a moved value.
+reachability: an array that is never freed is a leak, and an array freed twice is
+a compile error because the second call uses a moved value.
 
-## Slices of strings
+## Arrays of strings
 
 `[]string` owns one reference per element. A literal retains each string it is
 given; `push` retains a borrowed value and takes over an owned temporary; and
@@ -148,7 +149,7 @@ given; `push` retains a borrowed value and takes over an owned temporary; and
 why it is not just `dealloc`: the checker knows the element type and
 emits `otter_slice_free_strings` for `[]string` and the plain array free for
 everything else. Popping a `[]string` is refused for the same reason: the
-element's reference would leave the slice without a matching release.
+element's reference would leave the array without a matching release.
 
 ## The operations
 
@@ -171,25 +172,25 @@ element's reference would leave the slice without a matching release.
 | `xs.extend(other)` | `()` | Consumes `other`; strings are retained. |
 | `xs.slice(start, end)` | `[]T` | Fresh array over the clamped range. |
 | `xs.pop()` | `Option[T]` | Removes the last element; refused for `[]string`. |
-| `for x in xs { ... }` | statement | Reads each element; the slice stays borrowed. |
+| `for x in xs { ... }` | statement | Reads each element; the array stays borrowed. |
 | `xs.free()` | `()` | Releases the elements (if strings) and the array. |
 
-The element type is part of the slice type, so `[]i64` and `[]string` are
-different types and a slice cannot change element type. The element type is
-written in the literal, and `[]i64 {}` is the empty slice of `i64`.
+The element type is part of the array type, so `[]i64` and `[]string` are
+different types and an array cannot change element type. The element type is
+written in the literal, and `[]i64 {}` is the empty array of `i64`.
 
 ## Common mistakes
 
 - **Treating an index as a value.** `print_i64(xs[0])` reports
   ``error: expected `i64`, found `Option[i64]` ``. Match the `Option`, or use
   `pop` when the last element is the one you want.
-- **Copying a slice binding.** `var ys = xs;` reports
+- **Copying an array binding.** `var ys = xs;` reports
   ``error: cannot assign linear value `xs` without `move` ``. Do not follow
   that suggestion with `var ys = move xs;` today: it builds invalid IR and
   clang reports `null must be a pointer type`. Keep one binding, or pass the
-  slice to a function, which transfers it correctly.
+  array to a function, which transfers it correctly.
 - **Assigning to an element with `=`.** `xs[0] = 9;` reports ``error: cannot
-  assign to a slice element: the slice does not expose its storage; use
+  assign to an array element: an array does not expose its storage; use
   `xs.set(0, 9)` ``. The method returns a `bool` so an out-of-range index is a
   value you can handle, not a fault.
 - **Freeing twice.** A second `xs.free()` reports
@@ -208,20 +209,21 @@ written in the literal, and `[]i64 {}` is the empty slice of `i64`.
 ## Try it
 
 1. Build a `[]i64` of the numbers 1 through 5 with a loop and `push`, then use
-   another loop to sum them and print the total. Free the slice once, after
+   another loop to sum them and print the total. Free the array once, after
    both loops. Hint: `xs.push(i)` appends the loop index, which is already the
    value you want.
 
 2. Build a `[]string` holding `"a"`, `"b"`, and `"c"`, print each element, and
-   free the slice. Then change the values to strings you built with `+` and
+   free the array. Then change the values to strings you built with `+` and
    confirm the output is unchanged. Hint: both literals and owned strings are
-   retained by the slice, so `xs.free()` handles either.
+   retained by the array, so `xs.free()` handles either.
 
 ## How it works
 
-A slice value is the three-word header `{ i8*, i64, i64 }`: data pointer,
-length, capacity. The header is a value stored in the binding's stack slot; the
-backing array is one heap block owned by that binding. `push` takes the address
+An array value is represented by the three-word slice header
+`{ i8*, i64, i64 }`: data pointer, length, capacity. The header is a value stored
+in the binding's stack slot; the backing storage is one heap block owned by that
+binding. `push` takes the address
 of the header because growing must update the length and capacity in place. The
 runtime's `get` and `pop` return a flag and copy the element into an output
 slot only on success; codegen turns that flag into the `Some`/`None` tag, which

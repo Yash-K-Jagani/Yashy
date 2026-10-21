@@ -1,105 +1,12 @@
 // Text helpers written in Otter (M6 Task 10).
 //
-// Bytes, not characters: Otter has no character type yet, so `len`, `byte_at`
-// and `str_slice` count bytes and `trim` trims ASCII whitespace. A multi-byte
-// encoding passes through unchanged; a caller that must not split a code point
-// has to know that it can.
-//
-// `string_matches_at` is internal: every top-level name in an Otter program is
-// global (modules share one root scope), so it carries the module's name as a
-// prefix to stay out of a user's way.
+// The string surface is methods now: `len`, `byte_at`, `slice`, `trim`,
+// `contains`, `starts_with`, `split` and the rest are called on a string
+// binding. The wrappers this module used to export were removed in M12 so
+// there is one spelling per operation. What remains is `concat`, a named
+// spelling for `+` that reads well in a pipeline of stdlib helpers.
 
 // Ownership: a fresh string is returned; neither argument is consumed.
 fn concat(left: string, right: string) -> string {
     return left + right;
-}
-
-// Whether `needle` occurs in `text`. Ownership: pure; nothing is allocated.
-fn contains(text: string, needle: string) -> bool {
-    var needle_len = len(needle);
-    if needle_len == 0 {
-        return true;
-    }
-    var text_len = len(text);
-    if needle_len > text_len {
-        return false;
-    }
-    var start = 0;
-    while start + needle_len <= text_len {
-        if string_matches_at(text, start, needle) {
-            return true;
-        }
-        start = start + 1;
-    }
-    return false;
-}
-
-// Whether `text` begins with `prefix`. Ownership: pure; nothing is allocated.
-fn starts_with(text: string, prefix: string) -> bool {
-    if len(prefix) > len(text) {
-        return false;
-    }
-    return string_matches_at(text, 0, prefix);
-}
-
-// `text` without leading and trailing spaces, tabs, carriage returns and
-// newlines. Ownership: the result is a fresh string; `text` is not consumed.
-fn trim(text: string) -> string {
-    var start = 0;
-    var end = len(text);
-    while start < end && string_is_space(byte_at(text, start)) {
-        start = start + 1;
-    }
-    while end > start && string_is_space(byte_at(text, end - 1)) {
-        end = end - 1;
-    }
-    return str_slice(text, start, end);
-}
-
-// The pieces of `text` between occurrences of `separator`, in order. An empty
-// separator does not split: the result is one part holding the whole text.
-// Ownership: the returned slice owns one reference per part, and the caller
-// releases all of them with `free_slice`.
-fn split(text: string, separator: string) -> []string {
-    var parts = []string {};
-    var separator_len = len(separator);
-    if separator_len == 0 {
-        push(parts, text);
-        return parts;
-    }
-    var text_len = len(text);
-    var start = 0;
-    var index = 0;
-    while index + separator_len <= text_len {
-        if string_matches_at(text, index, separator) {
-            push(parts, str_slice(text, start, index));
-            index = index + separator_len;
-            start = index;
-        } else {
-            index = index + 1;
-        }
-    }
-    push(parts, str_slice(text, start, text_len));
-    return parts;
-}
-
-// Whether `needle` sits at `start` in `text`, read as bytes. Internal to this
-// module; `byte_at` is bounds-safe, so a short `text` simply does not match.
-// Ownership: pure; neither argument is consumed.
-fn string_matches_at(text: string, start: i64, needle: string) -> bool {
-    var needle_len = len(needle);
-    var offset = 0;
-    while offset < needle_len {
-        if byte_at(text, start + offset) != byte_at(needle, offset) {
-            return false;
-        }
-        offset = offset + 1;
-    }
-    return true;
-}
-
-// ASCII whitespace: space, tab, carriage return, newline. Internal.
-// Ownership: pure; a number owns nothing.
-fn string_is_space(byte: i64) -> bool {
-    return byte == 32 || byte == 9 || byte == 13 || byte == 10;
 }

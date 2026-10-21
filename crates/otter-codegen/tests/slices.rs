@@ -29,7 +29,7 @@ fn emit(src: &str) -> String {
 
 #[test]
 fn a_slice_literal_allocates_and_stores_its_elements() {
-    let ir = emit("fn main() { var xs = []i64 { 10, 20 }; free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 { 10, 20 }; xs.free(); }");
     assert!(
         ir.contains("mul i64 2, 8"),
         "two `i64` elements are sixteen bytes:\n{ir}"
@@ -54,7 +54,7 @@ fn a_slice_literal_allocates_and_stores_its_elements() {
 
 #[test]
 fn an_empty_slice_literal_allocates_nothing() {
-    let ir = emit("fn main() { var xs = []i64 {}; push(xs, 1); free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 {}; xs.push(1); xs.free(); }");
     assert!(
         !ir.contains("call i8* @otter_alloc"),
         "an empty literal has a null backing pointer:\n{ir}"
@@ -67,7 +67,7 @@ fn an_empty_slice_literal_allocates_nothing() {
 
 #[test]
 fn pushing_passes_the_header_address_and_the_element_size() {
-    let ir = emit("fn main() { var xs = []i64 { 1 }; push(xs, 2); free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 { 1 }; xs.push(2); xs.free(); }");
     assert!(
         ir.contains("call void @otter_slice_push(ptr %slot") && ir.contains(", i64 8)"),
         "push takes the binding's slot and an 8-byte element:\n{ir}"
@@ -76,7 +76,7 @@ fn pushing_passes_the_header_address_and_the_element_size() {
 
 #[test]
 fn freeing_a_slice_calls_the_runtime_with_the_binding() {
-    let ir = emit("fn main() { var xs = []i64 { 1 }; free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 { 1 }; xs.free(); }");
     assert!(
         ir.contains("call void @otter_slice_free(ptr %slot"),
         "free_slice passes the header's address:\n{ir}"
@@ -85,7 +85,7 @@ fn freeing_a_slice_calls_the_runtime_with_the_binding() {
 
 #[test]
 fn len_of_a_slice_extracts_the_length_field() {
-    let ir = emit("fn main() { var xs = []i64 { 1, 2 }; print_i64(len(xs)); }");
+    let ir = emit("fn main() { var xs = []i64 { 1, 2 }; print_i64(xs.len()); }");
     assert!(
         ir.contains("extractvalue { i8*, i64, i64 } %t") && ir.contains(", 1"),
         "the length is field 1 of the header, with no call:\n{ir}"
@@ -115,7 +115,7 @@ fn indexing_calls_the_runtime_and_builds_an_option() {
 
 #[test]
 fn a_negative_index_reaches_the_runtime_as_written() {
-    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs[0 - 1]; free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs[0 - 1]; xs.free(); }");
     assert!(
         (ir.contains("sub i64 0, 1") || ir.contains("i64 -1"))
             && ir.contains("@otter_slice_get"),
@@ -125,7 +125,7 @@ fn a_negative_index_reaches_the_runtime_as_written() {
 
 #[test]
 fn pop_calls_the_runtime_with_the_binding() {
-    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = pop(xs); free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs.pop(); xs.free(); }");
     assert!(
         ir.contains("call i64 @otter_slice_pop(ptr %slot") && ir.contains(", i64 8)"),
         "pop updates the header in place and copies the element out:\n{ir}"
@@ -219,7 +219,7 @@ fn golden_slice_operations_match_the_pinned_contract() {
 
 #[test]
 fn a_string_literal_element_is_retained_by_the_slice() {
-    let ir = emit("fn main() { var xs = []string { \"a\" }; push(xs, \"b\"); free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []string { \"a\" }; xs.push(\"b\"); xs.free(); }");
     assert_eq!(
         ir.matches("call i8* @otter_str_retain").count(),
         2,
@@ -237,7 +237,7 @@ fn a_string_literal_element_is_retained_by_the_slice() {
 
 #[test]
 fn a_string_temporary_pushed_into_a_slice_transfers_its_reference() {
-    let ir = emit("fn main() { var xs = []string {}; push(xs, \"a\" + \"b\"); free_slice(xs); }");
+    let ir = emit("fn main() { var xs = []string {}; xs.push(\"a\" + \"b\"); xs.free(); }");
     assert!(
         !ir.contains("call i8* @otter_str_retain"),
         "a concatenation already owns a reference; retaining again would leak one:\n{ir}"

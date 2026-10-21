@@ -229,8 +229,8 @@ fn input_calls_use_the_runtime_symbols() {
     let ir_text = ir_of(
         "fn main() {\n\
          \x20   const line = read_line();\n\
-         \x20   print_i64(parse_i64(line));\n\
-         \x20   print_f64(parse_f64(line));\n\
+         \x20   print_i64(line.parse_i64());\n\
+         \x20   print_f64(line.parse_f64());\n\
          }",
     );
     assert!(

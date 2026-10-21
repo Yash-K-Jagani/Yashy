@@ -1,9 +1,10 @@
 //! Threads, mutexes and channels at the checking edge.
 //!
-//! The builtins follow M6's flat namespace (`thread_spawn`, `mutex_new`,
-//! `chan_new`, ...) rather than the plan's dotted `Thread.spawn` / `Mutex.new()`
-//! spelling: Otter still has no method-call syntax, and the M6 revision already
-//! chose flat names over a method table no program could spell.
+//! `thread_spawn`, `thread_join`, `mutex_new` and `chan_new` are free
+//! constructors; a mutex or channel handle then carries `lock`, `unlock`,
+//! `send`, `recv`, `close` and `free` as methods. The method layer lowered
+//! those operations to the same runtime entry points the old flat spellings
+//! used, so the ownership rules did not change with the spelling.
 //!
 //! What these pin, in order: a spawned body is an ordinary function checked on
 //! its own; `thread_spawn` needs that function and its arguments to agree; a
@@ -82,20 +83,20 @@ fn channel_element_type_is_fixed_at_creation() {
     check(
         "fn main() { \
            var c: Channel[i64] = chan_new(4); \
-           var ok: bool = chan_send(c, 1); \
-           var got: Option[i64] = chan_recv(c); \
-           chan_close(c); \
-           chan_free(c); \
+           var ok: bool = c.send(1); \
+           var got: Option[i64] = c.recv(); \
+           c.close(); \
+           c.free(); \
          }",
     )
     .expect("a channel of i64 round-trips");
 
     assert_rejected(
-        "fn main() { var c: Channel[i64] = chan_new(4); chan_send(c, true); }",
+        "fn main() { var c: Channel[i64] = chan_new(4); c.send(true); }",
         "expected `i64`, found `bool`",
     );
     assert_rejected(
-        "fn main() { var c: Channel[f64] = chan_new(4); var n: i64 = chan_recv(c); }",
+        "fn main() { var c: Channel[f64] = chan_new(4); var n: i64 = c.recv(); }",
         "found `Option[f64]`",
     );
     assert_rejected(
@@ -115,19 +116,19 @@ fn mutex_and_channel_handles_are_linear() {
     check(
         "fn main() { \
            var m: Mutex = mutex_new(); \
-           mutex_lock(m); \
-           mutex_unlock(m); \
-           mutex_free(m); \
+           m.lock(); \
+           m.unlock(); \
+           m.free(); \
          }",
     )
     .expect("lock and unlock borrow, free consumes");
 
     assert_rejected(
-        "fn main() { var m: Mutex = mutex_new(); var n: Mutex = m; mutex_free(m); }",
+        "fn main() { var m: Mutex = mutex_new(); var n: Mutex = m; m.free(); }",
         "without `move`",
     );
     assert_rejected(
-        "fn main() { var m: Mutex = mutex_new(); mutex_free(m); mutex_free(m); }",
+        "fn main() { var m: Mutex = mutex_new(); m.free(); m.free(); }",
         "moved",
     );
     assert_rejected(
@@ -138,12 +139,10 @@ fn mutex_and_channel_handles_are_linear() {
 
 #[test]
 fn recv_yields_an_option_not_a_blocking_value() {
-    check(
-        "fn main() { var c: Channel[i64] = chan_new(1); var got: Option[i64] = chan_recv(c); }",
-    )
-    .expect("recv is an Option");
+    check("fn main() { var c: Channel[i64] = chan_new(1); var got: Option[i64] = c.recv(); }")
+        .expect("recv is an Option");
     assert_rejected(
-        "fn main() { var c: Channel[i64] = chan_new(1); var n: i64 = chan_recv(c); }",
+        "fn main() { var c: Channel[i64] = chan_new(1); var n: i64 = c.recv(); }",
         "found `Option[i64]`",
     );
 }
@@ -153,12 +152,12 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
     // A channel argument is borrowed, not moved: the parent still frees it
     // after the join, which is the only way two threads share a handle.
     check(
-        "fn work(c: Channel[i64]) { chan_close(c); } \
+        "fn work(c: Channel[i64]) { c.close(); } \
          fn main() { \
            var c: Channel[i64] = chan_new(1); \
            var h: i64 = thread_spawn(work, c); \
            thread_join(h); \
-           chan_free(c); \
+           c.free(); \
          }",
     )
     .expect("a channel handle is shared with the thread and freed by the parent");
@@ -185,4 +184,3 @@ fn a_linear_container_cannot_cross_a_thread_boundary_yet() {
         "cannot cross a thread boundary",
     );
 }
-

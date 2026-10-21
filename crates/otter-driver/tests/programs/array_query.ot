@@ -50,6 +50,6 @@ fn main() {
         print_str("set out of range\n");
     }
 
-    free_slice(empty);
-    free_slice(xs);
+    empty.free();
+    xs.free();
 }

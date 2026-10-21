@@ -1541,9 +1541,10 @@ fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
     let output = compile_and_run(
         "byte-at",
         "fn main() {\n\
-         \x20   print_i64(byte_at(\"abc\", 1));\n\
+         \x20   const abc = \"abc\";\n\
+         \x20   print_i64(abc.byte_at(1));\n\
          \x20   print_str(\"\\n\");\n\
-         \x20   print_i64(byte_at(\"abc\", 99));\n\
+         \x20   print_i64(abc.byte_at(99));\n\
          \x20   print_str(\"\\n\");\n\
          }",
     );

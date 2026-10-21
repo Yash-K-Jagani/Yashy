@@ -6,10 +6,10 @@
 // then closes `slot` instead of draining it, and the blocked send must answer
 // false rather than hang. The join is the proof.
 fn producer(slot: Channel[i64], full: Channel[i64]) {
-    chan_send(slot, 1);
+    slot.send(1);
     // The slot is now full: this send is the signal that the next one blocks.
-    chan_send(full, 1);
-    chan_send(slot, 2);
+    full.send(1);
+    slot.send(2);
 }
 
 fn main() {
@@ -17,7 +17,7 @@ fn main() {
     var full: Channel[i64] = chan_new(1);
     var handle = thread_spawn(producer, slot, full);
 
-    switch chan_recv(full) {
+    switch full.recv() {
         case Some(n) {
             print_str("full\n");
         }
@@ -26,10 +26,10 @@ fn main() {
         }
     }
 
-    chan_close(slot);
+    slot.close();
     thread_join(handle);
-    chan_free(full);
-    chan_free(slot);
+    full.free();
+    slot.free();
 
     print_str("unblocked\n");
 }

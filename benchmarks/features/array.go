@@ -1,4 +1,4 @@
-// The slice.ot loop with a Go slice: append, then walk it.
+// The array.ot loop with a Go slice: append, then walk it.
 package main
 
 import "fmt"

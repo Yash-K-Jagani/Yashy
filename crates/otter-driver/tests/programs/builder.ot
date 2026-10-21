@@ -18,14 +18,14 @@ fn main() {
         acc = acc + "x";
         i += 1;
     }
-    print_i64(len(acc));
+    print_i64(acc.len());
     print_str("\n");
 
     var last = 0;
     i = 0;
     while i < 100 {
         var fresh = "item " + str_from_i64(i);
-        last = len(fresh);
+        last = fresh.len();
         i += 1;
     }
     print_i64(last);

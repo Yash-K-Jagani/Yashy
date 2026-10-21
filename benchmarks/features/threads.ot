@@ -1,19 +1,19 @@
 // 200,000 channel round trips between the main thread and one worker.
 //
 // Each channel holds one value, so the two sides strictly alternate: the main
-// thread sends, blocks in `chan_recv`, the worker answers, and the main thread
+// thread sends, blocks in `recv`, the worker answers, and the main thread
 // records the answer. The worker returns after a fixed number of replies, so
 // termination needs no closed channel and the join cannot wait on a lost
 // wakeup. A lost wakeup anywhere would hang the run; the harness notices.
 fn echo(inbox: Channel[i64], outbox: Channel[i64], rounds: i64) {
     var i = 0;
     while i < rounds {
-        switch chan_recv(inbox) {
+        switch inbox.recv() {
             case Some(n) {
-                chan_send(outbox, wrapping_add(n, 1));
+                outbox.send(wrapping_add(n, 1));
             }
             case None {
-                chan_send(outbox, 0 - 1);
+                outbox.send(0 - 1);
             }
         }
         i = wrapping_add(i, 1);
@@ -29,8 +29,8 @@ fn main() {
     var i = 0;
     var sum = 0;
     while i < rounds {
-        chan_send(inbox, i);
-        sum = wrapping_add(sum, switch chan_recv(outbox) {
+        inbox.send(i);
+        sum = wrapping_add(sum, switch outbox.recv() {
             case Some(n) {
                 n
             }
@@ -42,8 +42,8 @@ fn main() {
     }
 
     thread_join(worker);
-    chan_free(outbox);
-    chan_free(inbox);
+    outbox.free();
+    inbox.free();
     print_i64(sum);
     print_str("\n");
 }

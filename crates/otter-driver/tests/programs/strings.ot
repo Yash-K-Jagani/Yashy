@@ -16,11 +16,12 @@ fn main() {
     const greeting = "Hello, " + "Otter!";
     print_str(greeting);
     print_str("\n");
-    print_i64(len(greeting));
+    print_i64(greeting.len());
     print_str("\n");
     print_str(bracket("x"));
     print_str("\n");
-    print_i64(len(""));
+    const empty = "";
+    print_i64(empty.len());
     print_str("\n");
     if greeting == "Hello, Otter" {
         print_str("unexpected: the `!` was dropped\n");

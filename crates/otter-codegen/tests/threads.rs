@@ -110,9 +110,9 @@ fn a_locked_mutex_makes_lock_block() {
     let ir = emit(
         "fn main() { \
            var m: Mutex = mutex_new(); \
-           mutex_lock(m); \
-           mutex_unlock(m); \
-           mutex_free(m); \
+           m.lock(); \
+           m.unlock(); \
+           m.free(); \
          }",
     );
     assert!(ir.contains("declare i8* @otter_mutex_new()"), "{ir}");
@@ -127,10 +127,10 @@ fn channels_send_a_slot_and_receive_an_option() {
     let ir = emit(
         "fn main() { \
            var c: Channel[i64] = chan_new(4); \
-           var ok: bool = chan_send(c, 7); \
-           var got: Option[i64] = chan_recv(c); \
-           chan_close(c); \
-           chan_free(c); \
+           var ok: bool = c.send(7); \
+           var got: Option[i64] = c.recv(); \
+           c.close(); \
+           c.free(); \
          }",
     );
     assert!(ir.contains("declare i8* @otter_chan_new(i64)"), "{ir}");

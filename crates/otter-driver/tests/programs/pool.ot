@@ -22,14 +22,14 @@
 fn worker(jobs: Channel[i64], results: Channel[i64]) {
     var taken = 0;
     while taken < 1250 {
-        switch chan_recv(jobs) {
+        switch jobs.recv() {
             case Some(n) {
-                chan_send(results, n);
+                results.send(n);
             }
             case None {
                 // The parent never closes the job channel, so this is a
                 // should-not-happen marker that would poison the sum.
-                chan_send(results, -1);
+                results.send(-1);
             }
         }
         taken += 1;
@@ -43,27 +43,27 @@ fn main() {
     var handles = []i64 { };
     var w = 0;
     while w < 8 {
-        push(handles, thread_spawn(worker, jobs, results));
+        handles.push(thread_spawn(worker, jobs, results));
         w += 1;
     }
 
     var sent = 0;
     while sent < 10000 {
-        chan_send(jobs, sent);
+        jobs.send(sent);
         sent += 1;
     }
 
     var collected = []i64 { };
     var received = 0;
     while received < 10000 {
-        switch chan_recv(results) {
+        switch results.recv() {
             case Some(n) {
-                push(collected, n);
+                collected.push(n);
             }
             case None {
                 // The result channel is never closed; poison the sum if a
                 // worker answered nothing at all.
-                push(collected, -1);
+                collected.push(-1);
             }
         }
         received += 1;
@@ -78,10 +78,10 @@ fn main() {
         total += n;
     }
 
-    free_slice(collected);
-    free_slice(handles);
-    chan_free(results);
-    chan_free(jobs);
+    collected.free();
+    handles.free();
+    results.free();
+    jobs.free();
 
     print_i64(total);
     print_str("\n");

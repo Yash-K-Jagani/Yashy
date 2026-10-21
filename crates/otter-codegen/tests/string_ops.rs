@@ -165,7 +165,7 @@ fn inequality_is_the_equality_call_negated() {
 
 #[test]
 fn len_is_a_runtime_call_and_yields_i64() {
-    let ir_text = ir("fn main() { print_i64(len(\"hello\")); }");
+    let ir_text = ir("fn main() { var hello = \"hello\"; print_i64(hello.len()); }");
     assert_eq!(call_count(&ir_text, "@otter_str_len"), 1, "{ir_text}");
     assert!(
         ir_text.contains("call i64 @otter_str_len(i8* "),
@@ -179,7 +179,7 @@ fn byte_at_is_a_runtime_call_and_yields_i64() {
     // reachable from Otter: a declared symbol nothing calls is a contract with
     // no implementation behind it in practice. Out-of-range answers zero, which
     // the runtime test pins; this pins the call and the type.
-    let ir_text = ir("fn main() { print_i64(byte_at(\"abc\", 1)); }");
+    let ir_text = ir("fn main() { var abc = \"abc\"; print_i64(abc.byte_at(1)); }");
     assert_eq!(call_count(&ir_text, "@otter_str_byte_at"), 1, "{ir_text}");
     assert!(
         ir_text.contains("call i64 @otter_str_byte_at(i8* ") && ir_text.contains(", i64 1)"),

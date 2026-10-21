@@ -80,7 +80,13 @@ fn getenv_copies_the_name() {
 
 #[test]
 fn a_substring_is_owned_not_retained() {
-    let ir = emit("fn main() { var word = str_slice(\"hello\", 1, 3); print_str(word); }");
+    // A parameter is borrowed, so the only string operation in the body is the
+    // slice itself. Binding a literal instead would add the literal's own
+    // retain and hide whether the slice result was retained again.
+    let ir = emit(
+        "fn take(hello: string) { var word = hello.slice(1, 3); print_str(word); } \
+         fn main() { take(\"hello\"); }",
+    );
     assert!(
         ir.contains("call i8* @otter_str_slice(i8* "),
         "one runtime call builds the substring:\n{ir}"

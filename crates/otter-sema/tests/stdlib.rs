@@ -1,5 +1,5 @@
 //! The M6 Task 10 builtins at the checking edge: files, the environment, and
-//! the substring used by the stdlib's `trim` and `split`.
+//! the string slice method the stdlib transforms are built on.
 
 use otter_common::{Diagnostic, SourceMap};
 use otter_lexer::Lexer;
@@ -48,12 +48,14 @@ fn getenv_yields_a_string() {
 }
 
 #[test]
-fn str_slice_takes_two_bounds() {
-    check("fn main() { var word: string = str_slice(\"hello\", 1, 3); print_str(word); }")
-        .expect("str_slice is (string, i64, i64) -> string");
+fn slice_takes_two_bounds() {
+    check(
+        "fn main() { var hello = \"hello\"; var word: string = hello.slice(1, 3); print_str(word); }",
+    )
+    .expect("`slice` is (start, end) -> string");
     assert_rejected(
-        "fn main() { var word = str_slice(\"hello\", 1); }",
-        "expected 3 arguments",
+        "fn main() { var hello = \"hello\"; var word = hello.slice(1); }",
+        "`slice` takes 2 arguments",
     );
 }
 
@@ -72,7 +74,7 @@ fn file_builtins_check_their_argument_types() {
         "expected `string`",
     );
     assert_rejected(
-        "fn main() { var word = str_slice(\"x\", 0.5, 1); }",
+        "fn main() { var text = \"x\"; var word = text.slice(0.5, 1); }",
         "expected `i64`",
     );
 }

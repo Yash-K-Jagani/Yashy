@@ -1799,6 +1799,61 @@ fn a_function_whose_only_statement_panics_checks() {
 }
 
 #[test]
+fn old_builtin_names_point_at_their_methods() {
+    // The M12 surface has one spelling per operation. The old free-function
+    // names are not aliases: each reports where its method form is, using the
+    // receiver the caller already wrote.
+    for (src, hint) in [
+        (
+            "fn main() { var xs = []i64 { 1 }; push(xs, 2); }",
+            "`push` has moved to method syntax: write `xs.push(2)`",
+        ),
+        (
+            "fn main() { var xs = []i64 { 1 }; free_slice(xs); }",
+            "`free_slice` has moved to method syntax: write `xs.free()`",
+        ),
+        (
+            "fn main() { var m: map[i64]i64 = map_new(); map_get(m, 1); }",
+            "`map_get` has moved to method syntax: write `m.get(1)`",
+        ),
+        (
+            "fn main() { var c: Channel[i64] = chan_new(1); chan_recv(c); }",
+            "`chan_recv` has moved to method syntax: write `c.recv()`",
+        ),
+        (
+            "fn main() { var m: Mutex = mutex_new(); mutex_lock(m); }",
+            "`mutex_lock` has moved to method syntax: write `m.lock()`",
+        ),
+        (
+            "fn main() { var xs = []i64 { 1 }; len(xs); }",
+            "`len` has moved to method syntax: write `xs.len()`",
+        ),
+        (
+            "fn main() { var s = \"a\"; len(s); }",
+            "`len` has moved to method syntax: write `s.len()`",
+        ),
+        (
+            "fn main() { var s = \"a\"; byte_at(s, 0); }",
+            "`byte_at` has moved to method syntax: write `s.byte_at(0)`",
+        ),
+        (
+            "fn main() { var s = \"a\"; str_slice(s, 0, 1); }",
+            "`str_slice` has moved to method syntax: write `s.slice(0, 1)`",
+        ),
+        (
+            "fn main() { var s = \"1\"; parse_i64(s); }",
+            "`parse_i64` has moved to method syntax: write `s.parse_i64()`",
+        ),
+        (
+            "fn main() { var s = \"1\"; parse_f64(s); }",
+            "`parse_f64` has moved to method syntax: write `s.parse_f64()`",
+        ),
+    ] {
+        assert_error(src, hint);
+    }
+}
+
+#[test]
 fn only_a_diverging_expression_stands_in_for_a_value() {
     // `fits` accepts `!` where a value is wanted. It must not accept anything
     // else, or the sites it touched would stop catching mistakes.

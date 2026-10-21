@@ -8,7 +8,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 are complete; M12–M15 are in progress.** Otter lexes,
+**Status: milestones M0–M8 and M12 are complete; M13–M15 are next.** Otter lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -16,8 +16,8 @@ written as `var` or `let` (block-scoped and mutable) or `const` (block-scoped
 and immutable). Arrays and strings have a method surface: `xs.push(1)`,
 `xs.slice(0, 3)`, `s.trim()`, `s.split(",")`, and the rest of the string
 method table.
-Function values and objects are the next M12–M15 slices. A program can read its
-input (`read_line`, `parse_i64`), put a value inside a string — including with interpolation,
+Function values and objects are the next M13–M15 stages. A program can read its
+input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
 position it was written at and exits with a failure status. Integer arithmetic
@@ -31,7 +31,7 @@ panicking function's scopes; full stack unwinding is the one M4 item the host
 toolchain blocks (see [Roadmap](#roadmap)).
 
 Milestones M5–M8 add the rest of the language as designed: `extern "C"`
-declarations for C interop, `[]T` slices and `map[K]V` maps, multi-file builds
+declarations for C interop, `[]T` arrays and `map[K]V` maps, multi-file builds
 with `import`, and threads, mutexes and bounded `Channel[T]`s. Programs can
 declare their own structs and enums and construct enum values
 (`Shape.Circle(2)`, `Shape.Rect { w: w, h: h }`, `Shape.Point`) before matching
@@ -233,7 +233,7 @@ fn main() {
         if line == "" {
             break;
         }
-        total = total + parse_i64(line);
+        total = total + line.parse_i64();
     }
     print_i64(total);
     print_str("\n");
@@ -287,25 +287,25 @@ checking while writing the program and worth nothing in front of a user.
 
 ```otter
 // `map[K]V` is a hash map. String keys are hashed by content, so inserting
-// "otter" twice overwrites the value and `map_len` still counts one entry.
+// "otter" twice overwrites the value and `len()` still counts one entry.
 // A lookup answers in an `Option`, so a missing key is a `None` to handle,
 // not a crash.
 fn main() {
     var counts: map[string]i64 = map_new();
-    map_insert(counts, "otter", 2);
-    map_insert(counts, "river", 1);
-    map_insert(counts, "otter", 3);
-    print_i64(map_len(counts));
+    counts.insert("otter", 2);
+    counts.insert("river", 1);
+    counts.insert("otter", 3);
+    print_i64(counts.len());
     print_str("\n");
 
-    print_str(switch map_get(counts, "otter") {
+    print_str(switch counts.get("otter") {
         case Some(n) { str_from_i64(n) }
         case None { "missing" }
     });
     print_str("\n");
 
-    map_remove(counts, "river");
-    map_free(counts);
+    counts.remove("river");
+    counts.free();
 }
 ```
 
@@ -321,9 +321,9 @@ $ otter build main.ot -o main && ./main
 // worker receives, doubles, and answers; the main thread joins it and frees
 // each channel exactly once.
 fn worker(inbox: Channel[i64], outbox: Channel[i64]) {
-    switch chan_recv(inbox) {
-        case Some(n) { chan_send(outbox, n * 2); }
-        case None { chan_send(outbox, -1); }
+    switch inbox.recv() {
+        case Some(n) { outbox.send(n * 2); }
+        case None { outbox.send(-1); }
     }
 }
 
@@ -331,15 +331,15 @@ fn main() {
     var inbox: Channel[i64] = chan_new(1);
     var outbox: Channel[i64] = chan_new(1);
     var t = thread_spawn(worker, inbox, outbox);
-    chan_send(inbox, 21);
-    switch chan_recv(outbox) {
+    inbox.send(21);
+    switch outbox.recv() {
         case Some(n) { print_i64(n); }
         case None { print_str("closed"); }
     }
     print_str("\n");
     thread_join(t);
-    chan_free(outbox);
-    chan_free(inbox);
+    outbox.free();
+    inbox.free();
 }
 ```
 
@@ -554,7 +554,7 @@ the top, and it is already in C's band.
 
 The tables above measure arithmetic and calls. Six more programs, in
 [`benchmarks/features/`](benchmarks/features), measure the features that make a
-program rather than a loop: FFI, slices, maps, enums, channels and mutexes.
+program rather than a loop: FFI, arrays, maps, enums, channels and mutexes.
 Each is compared with the nearest built-in equivalent in another language, not
 with an identical source file, and each row must print the same expected
 number — a wrong hash or a lost update fails the run instead of becoming a fast
@@ -566,7 +566,7 @@ above.
 | Feature | Otter | Fastest comparison | Otter / comparison |
 |---|---:|---:|---:|
 | FFI, 100,000,000 `getpid` calls | 248 ms | C (clang) 237 ms | 1.05× |
-| Slices, 10,000,000 appends | 207 ms | C (clang) 141 ms | 1.47× |
+| Arrays, 10,000,000 appends | 207 ms | C (clang) 141 ms | 1.47× |
 | Maps, 1,000,000 inserts + lookups | 322 ms | Rust 282 ms | 1.14× |
 | Enums, 50,000,000 builds + matches | 150 ms | C (clang) 101 ms | 1.48× |
 | Channels, 200,000 round trips | 179 ms | Go 296 ms | 0.61× |
@@ -633,7 +633,7 @@ The workspace is one crate per pipeline stage:
 | `otter-sema` | name resolution, type inference, exhaustiveness checking |
 | `otter-codegen` | typed AST to textual LLVM IR |
 | `otter-driver` | CLI, pipeline orchestration, toolchain detection |
-| `otter-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, slices, hash maps, threads/channels/mutexes, and fault diagnostics |
+| `otter-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, array storage, hash maps, threads/channels/mutexes, and fault diagnostics |
 | `otter-stdlib` | Otter-source library modules: `alloc`, `io`, `math`, `os`, `string` |
 | `otter-fmt` | the canonical formatter behind `otter fmt` |
 | `otter-lsp` | the language server: diagnostics, hover, go-to-definition, and semantic tokens |
@@ -656,13 +656,14 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and `+` / `len` / `byte_at` / `==` on strings, `read_line` / `parse_i64` / `parse_f64`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%otter_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
+| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%otter_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
 | M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `i64::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `i64`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
-| M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, slices, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
-| M6 ✅ | Slices (`[]T`, `push`/`pop`/`len`/indexing, `free_slice`), hash maps (`map_new`/`map_insert`/`map_get`/`map_remove`/`map_len`/`map_free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |
-| M7 ✅ | Threads (`thread_spawn`/`thread_join`), linear mutexes, and bounded `Channel[T]` channels with blocking send/receive, `chan_close` to unblock both sides, and copyable elements |
+| M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, array storage, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
+| M6 ✅ | Arrays (`[]T`, `push`/`pop`/`len`/indexing, `free`), hash maps (`map_new` plus `.insert`/`.get`/`.remove`/`.len`/`.free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |
+| M7 ✅ | Threads (`thread_spawn`/`thread_join`), linear mutexes with `.lock`/`.unlock`/`.free`, and bounded `Channel[T]` channels with blocking `.send`/`.recv`, `.close` to unblock both sides, and copyable elements |
 | M8 ✅ | `otter fmt`, the eleven-chapter tutorial (every example compiled and run by a test), an LSP server, and editor modes for VS Code, Vim, and Emacs |
 | M9 | Escape analysis |
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
-| M12–M15 (in progress) | Language surface: `let` bindings and the array/string method layers are landed; function values and closures, objects, and the remaining correctness gaps are next |
+| M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
+| M13–M15 (in progress) | Function values and closures, objects, and the remaining correctness gaps |

@@ -14,10 +14,10 @@ fn main() {
     var words = 0;
     var bytes = 0;
     var line = read_line();
-    while len(line) > 0 {
+    while line.len() > 0 {
         lines = lines + 1;
         words = words + count_words(line);
-        bytes = bytes + len(line) + 1;
+        bytes = bytes + line.len() + 1;
         line = read_line();
     }
 

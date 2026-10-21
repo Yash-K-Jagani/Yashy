@@ -10,17 +10,17 @@
 fn key_of(line: string) -> string {
     var open = -1;
     var index = 0;
-    var length = len(line);
+    var length = line.len();
     while index < length {
         // 34 is the double quote in ASCII.
-        if byte_at(line, index) == 34 {
+        if line.byte_at(index) == 34 {
             if open < 0 {
                 open = index;
             } else {
-                return str_slice(line, open + 1, index);
+                return line.slice(open + 1, index);
             }
         }
         index = index + 1;
     }
-    return str_slice(line, 0, 0);
+    return line.slice(0, 0);
 }

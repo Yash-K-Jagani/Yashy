@@ -1,5 +1,5 @@
 //! The map type at the checking edge: key/value restrictions, inference at
-//! `map_new`, linearity, and the binding requirement shared with slices.
+//! `map_new`, linearity, and the binding requirement shared with arrays.
 
 use otter_common::{Diagnostic, SourceMap};
 use otter_lexer::Lexer;
@@ -34,19 +34,19 @@ fn a_map_round_trips_keys_of_every_primitive_key_type() {
     check(
         "fn main() { \
            var a: map[i64]i64 = map_new(); \
-           map_insert(a, 1, 10); \
-           var x: Option[i64] = map_get(a, 1); \
-           var y: Option[i64] = map_remove(a, 1); \
-           var n: i64 = map_len(a); \
-           map_free(a); \
+           a.insert(1, 10); \
+           var x: Option[i64] = a.get(1); \
+           var y: Option[i64] = a.remove(1); \
+           var n: i64 = a.len(); \
+           a.free(); \
            var b: map[bool]i64 = map_new(); \
-           map_insert(b, true, 1); \
-           var p: Option[i64] = map_get(b, true); \
-           map_free(b); \
+           b.insert(true, 1); \
+           var p: Option[i64] = b.get(true); \
+           b.free(); \
            var c: map[string]i64 = map_new(); \
-           map_insert(c, \"k\", 2); \
-           var q: Option[i64] = map_get(c, \"k\"); \
-           map_free(c); \
+           c.insert(\"k\", 2); \
+           var q: Option[i64] = c.get(\"k\"); \
+           c.free(); \
          }",
     )
     .expect("all three key kinds are supported");
@@ -55,8 +55,8 @@ fn a_map_round_trips_keys_of_every_primitive_key_type() {
 #[test]
 fn map_new_is_typed_by_a_parameter_or_a_binding_annotation() {
     check(
-        "fn fill(m: map[bool]f64) { map_insert(m, true, 1.5); } \
-         fn main() { fill(map_new()); var c: map[i64]i64 = map_new(); map_free(c); }",
+        "fn fill(m: map[bool]f64) { m.insert(true, 1.5); } \
+         fn main() { fill(map_new()); var c: map[i64]i64 = map_new(); c.free(); }",
     )
     .expect("a parameter and a binding annotation both supply the expected type");
 }
@@ -72,7 +72,7 @@ fn map_new_needs_an_annotation_to_infer_from() {
 #[test]
 fn a_map_key_must_be_hashable() {
     assert_rejected(
-        "fn main() { var m: map[f64]i64 = map_new(); map_free(m); }",
+        "fn main() { var m: map[f64]i64 = map_new(); m.free(); }",
         "a map key must be `i64`, `bool`, or `string`",
     );
 }
@@ -80,7 +80,7 @@ fn a_map_key_must_be_hashable() {
 #[test]
 fn a_map_value_must_be_copyable() {
     assert_rejected(
-        "fn main() { var m: map[i64]string = map_new(); map_free(m); }",
+        "fn main() { var m: map[i64]string = map_new(); m.free(); }",
         "a map value must be a number or `bool`",
     );
 }
@@ -88,7 +88,7 @@ fn a_map_value_must_be_copyable() {
 #[test]
 fn map_free_moves_the_binding() {
     assert_rejected(
-        "fn main() { var m: map[i64]i64 = map_new(); map_free(m); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); m.free(); m.free(); }",
         "moved",
     );
 }
@@ -105,9 +105,9 @@ fn a_map_is_linear() {
 fn map_get_and_remove_yield_options() {
     check(
         "fn main() { var m: map[i64]i64 = map_new(); \
-         var a: Option[i64] = map_get(m, 1); \
-         var b: Option[i64] = map_remove(m, 1); \
-         map_free(m); }",
+         var a: Option[i64] = m.get(1); \
+         var b: Option[i64] = m.remove(1); \
+         m.free(); }",
     )
     .expect("missing keys are values, not errors");
 }
@@ -115,7 +115,7 @@ fn map_get_and_remove_yield_options() {
 #[test]
 fn a_key_of_the_wrong_type_is_reported() {
     assert_rejected(
-        "fn main() { var m: map[i64]i64 = map_new(); map_insert(m, \"k\", 1); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); m.insert(\"k\", 1); m.free(); }",
         "expected `i64`, found `string`",
     );
 }
@@ -123,17 +123,21 @@ fn a_key_of_the_wrong_type_is_reported() {
 #[test]
 fn a_value_of_the_wrong_type_is_reported() {
     assert_rejected(
-        "fn main() { var m: map[i64]i64 = map_new(); map_insert(m, 1, true); map_free(m); }",
+        "fn main() { var m: map[i64]i64 = map_new(); m.insert(1, true); m.free(); }",
         "expected `i64`, found `bool`",
     );
 }
 
 #[test]
-fn map_operations_need_a_binding_not_a_temporary() {
+fn a_method_on_a_temporary_is_rejected() {
+    // The parser flattens a dotted call on a non-path receiver into the last
+    // segment alone, so this is rejected as an unknown free function rather
+    // than with a receiver-specific message. It still cannot run: a method
+    // needs a binding whose header it can update.
     assert_rejected(
         "fn make() -> map[i64]i64 { return map_new(); } \
-         fn main() { var v = map_get(make(), 1); }",
-        "needs a map binding, not a temporary",
+         fn main() { var v = make().get(1); }",
+        "cannot find function `get`",
     );
 }
 
@@ -141,16 +145,16 @@ fn map_operations_need_a_binding_not_a_temporary() {
 fn a_field_map_cannot_be_used_where_a_binding_is_needed() {
     assert_rejected(
         "struct S { m: map[i64]i64 } \
-         fn inspect(s: S) { var v = map_get(s.m, 1); } \
+         fn inspect(s: S) { var v = s.m.get(1); } \
          fn main() { }",
-        "needs a map binding, not a field access",
+        "field access is not a binding",
     );
 }
 
 #[test]
-fn len_does_not_measure_a_map() {
-    assert_rejected(
-        "fn main() { var m: map[i64]i64 = map_new(); var n = len(m); map_free(m); }",
-        "expects a string or a slice",
-    );
+fn len_measures_a_map() {
+    check(
+        "fn main() { var m: map[i64]i64 = map_new(); var n: i64 = m.len(); m.free(); }",
+    )
+    .expect("a map has the same `len` method as an array and a string");
 }

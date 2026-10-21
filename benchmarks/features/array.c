@@ -1,4 +1,4 @@
-/* The slice.ot loop with a hand-grown C array: double the capacity on fill. */
+/* The array.ot loop with a hand-grown C array: double the capacity on fill. */
 #include <stdio.h>
 #include <stdlib.h>
 

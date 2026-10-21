@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Build and time the language-feature benchmarks: FFI, slices, maps, enums,
+  Build and time the language-feature benchmarks: FFI, arrays, maps, enums,
   channels and mutexes.
 
 .DESCRIPTION
@@ -53,7 +53,7 @@ $exe = '.exe'
 # One workload per feature. `Work` is the number of operations the printed
 # number is divided by; for the map it counts both the insert and the lookup,
 # and for the mutex it counts lock/unlock pairs. `Expected` is the output every
-# language must print -- a wrong hash, a lost update, or a slice growth bug
+# language must print -- a wrong hash, a lost update, or an array growth bug
 # shows up as a mismatch instead of a speed number.
 $workloads = @(
     @{ Name = 'ffi';     Work = 100000000; Unit = 'call';       Expected = '100000000'; Source = 'ffi.ot';
@@ -62,13 +62,13 @@ $workloads = @(
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'ffi.c';  Out = 'ffi-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'ffi.c';  Out = 'ffi-gcc' }
        ) },
-    @{ Name = 'slice';   Work = 10000000;  Unit = 'element';    Expected = '49999995000000';   Source = 'slice.ot';
+    @{ Name = 'array';   Work = 10000000;  Unit = 'element';    Expected = '49999995000000';   Source = 'array.ot';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'slice.ot'; Out = 'slice-otter' },
-           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'slice.c'; Out = 'slice-clang' },
-           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'slice.c'; Out = 'slice-gcc' },
-           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'slice.go'; Out = 'slice-go' },
-           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'slice.rs'; Out = 'slice-rust' }
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'array.ot'; Out = 'array-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'array.c'; Out = 'array-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'array.c'; Out = 'array-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'array.go'; Out = 'array-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'array.rs'; Out = 'array-rust' }
        ) },
     @{ Name = 'map';     Work = 2000000;    Unit = 'operation'; Expected = '1499998500000';    Source = 'map.ot';
        Programs = @(

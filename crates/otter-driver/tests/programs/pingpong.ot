@@ -1,7 +1,7 @@
 // One echoing thread, 10,000 round trips, then a clean join.
 //
 // Each channel holds one value, so the two sides strictly alternate: the main
-// thread sends, blocks in `chan_recv`, the echo thread answers, and the main
+// thread sends, blocks in `recv`, the echo thread answers, and the main
 // thread records the answer. The echo thread counts its own replies and
 // returns after the 10,000th, so termination needs no closed channel and the
 // join cannot wait on a lost wakeup. The e2e test still runs this under a
@@ -12,13 +12,13 @@
 fn echo(inbox: Channel[i64], outbox: Channel[i64]) {
     var answered = 0;
     while answered < 10000 {
-        switch chan_recv(inbox) {
+        switch inbox.recv() {
             case Some(n) {
-                chan_send(outbox, n + 1);
+                outbox.send(n + 1);
             }
             case None {
                 // The parent closes `inbox` only after the last round trip.
-                chan_send(outbox, -1);
+                outbox.send(-1);
             }
         }
         answered += 1;
@@ -33,13 +33,13 @@ fn main() {
     var answers = []i64 { };
     var i = 0;
     while i < 10000 {
-        chan_send(inbox, i);
-        switch chan_recv(outbox) {
+        inbox.send(i);
+        switch outbox.recv() {
             case Some(n) {
-                push(answers, n);
+                answers.push(n);
             }
             case None {
-                push(answers, -1);
+                answers.push(-1);
             }
         }
         i += 1;
@@ -47,7 +47,7 @@ fn main() {
 
     thread_join(handle);
 
-    var ok = len(answers) == 10000;
+    var ok = answers.len() == 10000;
     var expected = 1;
     for n in answers {
         if n != expected {
@@ -56,9 +56,9 @@ fn main() {
         expected += 1;
     }
 
-    free_slice(answers);
-    chan_free(outbox);
-    chan_free(inbox);
+    answers.free();
+    outbox.free();
+    inbox.free();
 
     if ok {
         print_str("pingpong ok\n");

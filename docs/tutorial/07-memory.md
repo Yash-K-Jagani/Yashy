@@ -94,7 +94,7 @@ noise.
 
 ## Common mistakes
 
-- **Freeing twice.** `free_slice(xs)` called twice, or `dealloc(b)` after
+- **Freeing twice.** `xs.free()` called twice, or `dealloc(b)` after
   `dealloc(b)`, reports ``error: value `xs` has already been moved`` (or `b`,
   for the pointer). The first call consumed the binding.
 - **Passing a pointer to a function and then freeing it.** A parameter takes

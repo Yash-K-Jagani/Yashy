@@ -246,7 +246,7 @@ warning-free.
 - [x] **Step 5: Commit**
 
 ```bash
-git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_query.ot docs/tutorial/09-slices.md
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_query.ot docs/tutorial/09-arrays.md
 git commit -m "feat: array query methods"
 ```
 
@@ -474,7 +474,7 @@ git commit -m "feat: add string methods"
 - Consumes: Tasks 1–5's method layer.
 - Produces: the naming table at the top of this plan; the old free-function names are errors carrying a migration hint.
 
-- [ ] **Step 1: Add failing diagnostics for the old names**
+- [x] **Step 1: Add failing diagnostics for the old names**
 
 `push(xs, 1)`, `free_slice(xs)`, `map_get(m, 1)`, `chan_recv(c)`,
 `mutex_lock(m)`, `len(xs)`, `len(s)`, `byte_at(s, 0)`, `str_slice(s, 0, 1)`,
@@ -482,12 +482,12 @@ git commit -m "feat: add string methods"
 ``error: `push` has moved to method syntax: write `xs.push(1)` `` (with the
 matching spelling for each name) at the call span.
 
-- [ ] **Step 2: Run the diagnostics test and verify it fails**
+- [x] **Step 2: Run the diagnostics test and verify it fails**
 
 Run: `cargo test -p otter-sema old_builtin_names_point_at_their_methods`
 Expected: FAIL; the old names still compile.
 
-- [ ] **Step 3: Implement the removals and migrate every source**
+- [x] **Step 3: Implement the removals and migrate every source**
 
 Remove the old builtin names from the checker, add the migration diagnostics,
 and rewrite every call site in tests, tutorial, benchmarks, and README to the
@@ -497,19 +497,31 @@ methods are the only spelling. Rename `09-slices.md`, its title, and every link
 to it. Update the tutorial harness expectation count if the file list changes,
 and the benchmark runner's `slice` workload to `array`.
 
-- [ ] **Step 4: Run the full proof**
+- [x] **Step 4: Run the full proof**
 
 Run: `cargo test -p otter-sema old_builtin_names_point_at_their_methods`
 Run: `cargo test -p otter-driver --test tutorial`
 Run: `cargo check --workspace --all-targets`
 Expected: all PASS; warning-free check.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema crates/otter-stdlib crates/otter-driver/tests docs/tutorial README.md benchmarks
 git commit -m "refactor!: rename the public surface to arrays and methods"
 ```
+
+**As built:** the public migration table is `old_builtin_method_name`, and the
+HIR lowering still calls the old runtime symbols, so the ABI did not move with
+the spelling. A method needs a local binding: a field receiver and a temporary
+receiver each carry their own diagnostic. The string stdlib wrappers are gone
+(only `concat` remains), `09-slices.md` became `09-arrays.md`, and the
+benchmark workload and its C/Go/Rust files became `array`. The full proof ran
+`sema` and `codegen` before the final wording-only diagnostic edits, the
+tutorial harness, and the driver e2e/stdlib tests. The workspace check was
+warning-free. Of the 86 e2e tests, 62 passed and 24 were blocked by Device
+Guard 4551; no assertion failed. After the wording edits, Device Guard also
+blocked the freshly built sema test binaries.
 
 ---
 

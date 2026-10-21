@@ -1,5 +1,5 @@
 // Maps that own their keys: every key is a built string, the table retains it,
-// and `map_free` releases it.
+// and `free` releases it.
 //
 // The leak report at exit is the assertion. A non-zero count means the table
 // kept a reference it never dropped, or retained a key twice; both are the kind
@@ -11,17 +11,17 @@ fn main() {
     var i = 0;
     while i < 200 {
         var key = str_from_i64(i);
-        map_insert(m, key, i);
+        m.insert(key, i);
         i = i + 1;
     }
     var probe = str_from_i64(150);
-    var found = map_get(m, probe);
+    var found = m.get(probe);
     switch found {
         case Some(v) { print_i64(v); }
         case None { print_str("missing"); }
     }
     print_str("\n");
-    print_i64(map_len(m));
+    print_i64(m.len());
     print_str("\n");
-    map_free(m);
+    m.free();
 }

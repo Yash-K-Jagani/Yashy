@@ -52,10 +52,10 @@ fn main() {
 }
 ```
 
-`for n in 0..5` walks the half-open range 0, 1, 2, 3, 4. The same form walks a
-slice element by element (chapter 9).
+`for n in 0..5` walks the half-open range 0, 1, 2, 3, 4. The same form walks an
+array element by element (chapter 9).
 
-The half-open range is not an arbitrary choice. It makes `0..len(xs)` the
+The half-open range is not an arbitrary choice. It makes `0..xs.len()` the
 complete set of valid indices, and it makes the length of `a..b` equal to
 `b - a` without a `+ 1` to forget. An inverted range such as `3..1` is empty;
 it is not an error and it does not count down.

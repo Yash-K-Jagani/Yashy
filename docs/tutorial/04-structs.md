@@ -80,7 +80,7 @@ value belongs to which name without counting commas.
 
 ## Owning fields are an interim limitation
 
-A struct may also hold a `string` or a slice, but the backend does not track
+A struct may also hold a `string` or an array, but the backend does not track
 ownership per field. Storing a `string` stores the pointer without a retain,
 and leaving the struct's scope emits no release. If the string came from a
 local binding, that binding's own release can leave the field dangling; if it
