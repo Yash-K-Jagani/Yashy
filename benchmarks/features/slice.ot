@@ -8,6 +8,13 @@
 // methods exercises their runtime entry points. Those calls are outside the
 // measured loop, so the growth comparison is unchanged, but the benchmark stops
 // compiling if method resolution or a new runtime entry point regresses.
+fn option_i64(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
 fn main() {
     const n = 10000000;
     var xs = []i64 {};
@@ -27,51 +34,23 @@ fn main() {
     if xs.is_empty() {
         print_str("unexpected empty\n");
     }
-    switch xs.first() {
-        case Some(v) {
-            if v != 0 {
-                print_str("bad first\n");
-            }
-        }
-        case None {
-            print_str("missing first\n");
-        }
+    if option_i64(xs.first()) != 0 {
+        print_str("bad first\n");
     }
-    switch xs.last() {
-        case Some(v) {
-            if v != 9999999 {
-                print_str("bad last\n");
-            }
-        }
-        case None {
-            print_str("missing last\n");
-        }
+    if option_i64(xs.last()) != 9999999 {
+        print_str("bad last\n");
     }
     if !xs.set(0, 0) {
         print_str("set failed\n");
     }
-    switch xs.get(0) {
-        case Some(v) {
-            if v != 0 {
-                print_str("bad get\n");
-            }
-        }
-        case None {
-            print_str("missing get\n");
-        }
+    if option_i64(xs.get(0)) != 0 {
+        print_str("bad get\n");
     }
     if !xs.contains(0) {
         print_str("missing contains\n");
     }
-    switch xs.index_of(9999999) {
-        case Some(v) {
-            if v != 9999999 {
-                print_str("bad index_of\n");
-            }
-        }
-        case None {
-            print_str("missing index_of\n");
-        }
+    if option_i64(xs.index_of(9999999)) != 9999999 {
+        print_str("bad index_of\n");
     }
     var extra = []i64 { 1, 2 };
     xs.extend(extra);
@@ -81,4 +60,74 @@ fn main() {
     }
     copy.free();
     xs.free();
+
+    // The M12 string method surface, also outside the measured loop. These
+    // checks keep the method resolver and the string runtime entry points in a
+    // binary that the feature suite builds and runs.
+    var text = "  Otter,otter  ";
+    var trimmed = text.trim();
+    if trimmed.len() != 11 {
+        print_str("bad trim\n");
+    }
+    var upper = text.to_upper();
+    if upper.len() != 15 {
+        print_str("bad to_upper\n");
+    }
+    var lower = text.to_lower();
+    if lower.len() != 15 {
+        print_str("bad to_lower\n");
+    }
+    var replaced = text.replace("otter", "seal");
+    if replaced.len() != 14 {
+        print_str("bad replace\n");
+    }
+    var piece = text.slice(2, 7);
+    if piece.len() != 5 {
+        print_str("bad string slice\n");
+    }
+    var dash = "-";
+    var repeated = dash.repeat(3);
+    if repeated.len() != 3 {
+        print_str("bad repeat\n");
+    }
+    var parts = text.split(",");
+    if parts.len() != 2 {
+        print_str("bad split\n");
+    }
+    parts.free();
+    var lines = text.lines();
+    if lines.len() != 1 {
+        print_str("bad lines\n");
+    }
+    lines.free();
+    if !text.contains("otter") {
+        print_str("missing contains\n");
+    }
+    if !text.starts_with("  ") {
+        print_str("bad starts_with\n");
+    }
+    if !text.ends_with("  ") {
+        print_str("bad ends_with\n");
+    }
+    if text.byte_at(2) != 79 {
+        print_str("bad byte_at\n");
+    }
+    if option_i64(text.get(2)) != 79 {
+        print_str("bad string get\n");
+    }
+    if option_i64(text.index_of("otter")) != 8 {
+        print_str("bad string index_of\n");
+    }
+    var empty = "";
+    if !empty.is_empty() {
+        print_str("empty string is not empty\n");
+    }
+    var number = "42";
+    if number.parse_i64() != 42 {
+        print_str("bad parse_i64\n");
+    }
+    var decimal = "2.5";
+    if decimal.parse_f64() != 2.5 {
+        print_str("bad parse_f64\n");
+    }
 }

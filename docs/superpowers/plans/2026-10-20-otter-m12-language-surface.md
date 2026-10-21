@@ -356,8 +356,9 @@ git commit -m "feat: array search, extend, and copy-slice methods"
 
 **Files:**
 - Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/strings.rs`, `crates/otter-codegen/src/module.rs`
 - Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
+- Update: `crates/otter-codegen/tests/golden/*.expected.ll`
 - Test: `crates/otter-sema/tests/check.rs`
 - Test: `crates/otter-driver/tests/e2e.rs`
 - Test: `crates/otter-driver/tests/programs/string_methods.ot`
@@ -367,7 +368,7 @@ git commit -m "feat: array search, extend, and copy-slice methods"
 - Consumes: Task 1's method desugaring; the existing `len`, `byte_at`, `str_slice`, `parse_i64`, and `parse_f64` builtins.
 - Ownership: every transform returns a fresh owned string. `split` and `lines` return a fresh array whose `string` elements are owned; `xs.free()` releases each element.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `string_methods.ot` starts from `"  Otter,otter  "` and checks: `len`, `is_empty`,
 `trim`, `trim_start`, `trim_end`, `to_upper`, `to_lower`, `contains("otter")`,
@@ -380,12 +381,22 @@ both elements), `lines()` on `"a\nb\n"` (length and both elements), and
 `e2e.rs`, calling `build_and_run("string_methods")` and asserting the exact
 stdout.
 
-- [ ] **Step 2: Run it and verify it fails**
+As built, the program starts from `"  Hello, Otter  "` and adds `get(99)`,
+`repeat(0)`, empty-string `is_empty()`/`lines()` cases, and empty- and
+trailing-separator `split` cases. It uses intermediate bindings for
+every transform result because method calls do not chain yet: the parser
+flattens `s.trim_start().len()` into a three-segment callee, which the current
+desugaring does not accept.
+
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e string_methods_transform_bytes_and_ownership`
-Expected: FAIL; the methods do not exist.
+Expected: FAIL; the methods do not exist. As built, the first failure was
+``error: `len` takes 1 argument`` for the chained call; after binding the
+intermediate result it was ``error: `split` takes 2 arguments`` (the arity table
+initially counted the receiver as explicit).
 
-- [ ] **Step 3: Implement the string method table and runtime entry points**
+- [x] **Step 3: Implement the string method table and runtime entry points**
 
 Resolve string methods by receiver type `Str`, separately from arrays that reuse
 the same method names. Add runtime functions:
@@ -418,16 +429,35 @@ empty element. Case conversion and whitespace are ASCII-only; non-ASCII bytes
 pass through unchanged. The stdlib's duplicate free functions are not changed in
 this task; Task 6 migrates their callers and removes them.
 
-- [ ] **Step 4: Run the test**
+As built, the method surface lives in a dedicated `check_string_method` rather
+than in the flat builtin table. `len`, `byte_at`, `slice`, `parse_i64`, and
+`parse_f64` rewrite to their existing builtins; `is_empty` builds `len() == 0`;
+the new names build HIR calls directly. The runtime signatures use an out slot
+for `get` (`long long otter_str_get(..., long long *out)`) and put the slice
+header first for `split`/`lines`
+(`void otter_str_split(otter_slice *out, const otter_str *s, const otter_str *separator)`),
+which keeps the C ABI simple and avoids returning a three-word struct by value.
+`otter_str_split` and `otter_str_lines` push owned `string` pieces into a fresh
+slice; the codegen helpers release a temporary receiver after the call.
+`split` with an empty separator returns the whole string as one piece, and
+`lines` on the empty string returns an empty array. `replace` with an empty
+`old` returns a copy, and `repeat` with `n <= 0` returns an empty string. The
+golden IR snapshots gained the 29 new runtime declarations (15 slice methods
+from Task 4 and 14 string methods); every added line is a `declare`, with no
+body changes.
+
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e string_methods_transform_bytes_and_ownership`
-Expected: PASS, with the leak report at zero.
+Expected: PASS, with the leak report at zero. As built, it passed after the
+arity correction; sema tests also cover the method shapes and wrong argument
+types.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/string_methods.ot
-git commit -m "feat: string methods"
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-codegen/src/strings.rs crates/otter-codegen/src/module.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/string_methods.ot crates/otter-sema/tests/check.rs docs/tutorial/08-strings.md
+git commit -m "feat: add string methods"
 ```
 
 ### Task 6: Rename the remaining builtins and migrate every call site

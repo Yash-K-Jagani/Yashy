@@ -957,6 +957,15 @@ fn gen_call(
             }
         }
         "byte_at" => crate::strings::gen_str_byte_at(ctx, args),
+        "str_get" => crate::strings::gen_str_get(ctx, args, ty),
+        "str_index_of" => crate::strings::gen_str_index_of(ctx, args, ty),
+        "str_split" => crate::strings::gen_str_split(ctx, args, ty),
+        "str_lines" => crate::strings::gen_str_lines(ctx, args, ty),
+        "str_contains" | "str_starts_with" | "str_ends_with" | "str_trim"
+        | "str_trim_start" | "str_trim_end" | "str_to_upper" | "str_to_lower"
+        | "str_replace" | "str_repeat" => {
+            gen_borrowed_call(ctx, &format!("otter_{name}"), args, ty)
+        }
         // `str_from_bool` is the one conversion whose runtime signature is wider
         // than the language's type. C has no one-bit type, so
         // `otter_str_from_bool` takes an `i64` and the header argues the case;

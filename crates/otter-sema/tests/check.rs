@@ -597,6 +597,64 @@ fn a_builtin_can_be_called_as_a_method() {
 }
 
 #[test]
+fn string_methods_type_check_in_their_method_shapes() {
+    check_source(
+        r#"
+        fn main() {
+            var s = "  Hello  ";
+            var trimmed = s.trim();
+            var started = s.trim_start();
+            var ended = s.trim_end();
+            var upper = s.to_upper();
+            var lower = s.to_lower();
+            var replaced = s.replace("H", "J");
+            var repeated = s.repeat(2);
+            var byte = s.get(0);
+            var found_at = s.index_of("H");
+            var has = s.contains("H");
+            var starts = s.starts_with("  ");
+            var ends = s.ends_with("  ");
+            var raw = s.byte_at(0);
+            var piece = s.slice(0, 2);
+            var parts = s.split(" ");
+            var lines = s.lines();
+            var number = s.parse_i64();
+            var decimal = s.parse_f64();
+            print_i64(s.len());
+            parts.free();
+            lines.free();
+        }
+        "#,
+    )
+    .0
+    .expect("string methods must type-check with their documented shapes");
+}
+
+#[test]
+fn string_methods_reject_wrong_argument_types() {
+    assert_error(
+        r#"fn main() { var s = "x"; var has = s.contains(1); }"#,
+        "expected `string`",
+    );
+    assert_error(
+        r#"fn main() { var s = "x"; var piece = s.slice("a", 1); }"#,
+        "expected `i64`",
+    );
+    assert_error(
+        r#"fn main() { var s = "x"; var many = s.repeat("two"); }"#,
+        "expected `i64`",
+    );
+}
+
+#[test]
+fn an_unknown_string_method_is_reported() {
+    assert_error(
+        r#"fn main() { var s = "x"; var nope = s.reverse(); }"#,
+        "no method `reverse` on `string`",
+    );
+}
+
+#[test]
 fn const_and_var_keep_their_mutability() {
     assert_error(
         "fn main() { const x = 1; x = 2; }",

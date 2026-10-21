@@ -8,9 +8,12 @@
 //! the expression itself built is released right after the call. A literal
 //! (refcount -1) and a local's value are not owned names and are left alone.
 
-use otter_sema::{BinOp, TypeKind};
+use otter_sema::{BinOp, HirExpr, TypeKind};
 
-use crate::expr_gen::{FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, FnCtx, GenValue};
+
+/// The IR spelling of a slice header, matching `crate::slices`.
+const SLICE_REPR: &str = "{ i8*, i64, i64 }";
 
 /// Lower one binary operator applied to two `string` operands.
 ///
@@ -119,5 +122,122 @@ pub fn gen_str_len(ctx: &mut FnCtx<'_>, args: &[otter_sema::HirExpr]) -> GenValu
     GenValue {
         value: length,
         ty: TypeKind::I64,
+    }
+}
+
+fn unit() -> GenValue {
+    GenValue {
+        value: String::new(),
+        ty: TypeKind::Unit,
+    }
+}
+
+/// Lower `str_get(s, i) -> Option[i64]`: the byte at `i`, or `None` out of
+/// range. The runtime writes the byte through an out slot because `Option`
+/// needs a payload even on the `None` path.
+pub fn gen_str_get(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let (Some(value_expr), Some(index_expr)) = (args.first(), args.get(1)) else {
+        return unit();
+    };
+    let value = gen_expr(ctx, value_expr);
+    let index = gen_expr(ctx, index_expr);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca i64"));
+    ctx.push(format!("store i64 0, ptr {out_slot}"));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_str_get(i8* {}, i64 {}, ptr {out_slot})",
+        value.value, index.value
+    ));
+    ctx.release_owned(&value.value);
+    crate::slices::option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower `str_index_of(s, needle) -> Option[i64]`.
+///
+/// The runtime returns -1 for a miss, so the flag is the comparison against
+/// zero and the same value is the payload for a hit.
+pub fn gen_str_index_of(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let (Some(value_expr), Some(needle_expr)) = (args.first(), args.get(1)) else {
+        return unit();
+    };
+    let value = gen_expr(ctx, value_expr);
+    let needle = gen_expr(ctx, needle_expr);
+    let found_at = ctx.tmp();
+    ctx.push(format!(
+        "{found_at} = call i64 @otter_str_index_of(i8* {}, i8* {})",
+        value.value, needle.value
+    ));
+    ctx.release_owned(&value.value);
+    ctx.release_owned(&needle.value);
+    let found = ctx.tmp();
+    ctx.push(format!("{found} = icmp sge i64 {found_at}, 0"));
+    let flag = ctx.tmp();
+    ctx.push(format!("{flag} = zext i1 {found} to i64"));
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca i64"));
+    ctx.push(format!("store i64 {found_at}, ptr {out_slot}"));
+    crate::slices::option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower `str_split(s, separator) -> []string`.
+///
+/// The runtime fills an out header; every element it puts in the result is a
+/// fresh owned string, so freeing the slice releases the pieces.
+pub fn gen_str_split(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> GenValue {
+    if !matches!(slice_ty, TypeKind::Slice(_)) {
+        return unit();
+    }
+    let (Some(value_expr), Some(separator_expr)) = (args.first(), args.get(1)) else {
+        return unit();
+    };
+    let value = gen_expr(ctx, value_expr);
+    let separator = gen_expr(ctx, separator_expr);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {out_slot}"));
+    ctx.push(format!(
+        "call void @otter_str_split(ptr {out_slot}, i8* {}, i8* {})",
+        value.value, separator.value
+    ));
+    ctx.release_owned(&value.value);
+    ctx.release_owned(&separator.value);
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
+    }
+}
+
+/// Lower `str_lines(s) -> []string`: split on `\n`, strip a trailing `\r`,
+/// and omit the final empty element after a trailing newline.
+pub fn gen_str_lines(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> GenValue {
+    if !matches!(slice_ty, TypeKind::Slice(_)) {
+        return unit();
+    }
+    let Some(value_expr) = args.first() else {
+        return unit();
+    };
+    let value = gen_expr(ctx, value_expr);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {out_slot}"));
+    ctx.push(format!(
+        "call void @otter_str_lines(ptr {out_slot}, i8* {})",
+        value.value
+    ));
+    ctx.release_owned(&value.value);
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
     }
 }

@@ -2016,6 +2016,11 @@ impl<'src> Checker<'src> {
                 return Some(checked);
             }
         }
+        if matches!(receiver_ty.kind, TypeKind::Str) {
+            if let Some(checked) = self.check_string_method(receiver, method, args, span) {
+                return Some(checked);
+            }
+        }
         let Some(builtin) = builtin_method_name(method, &receiver_ty.kind) else {
             self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
             return Some(None);
@@ -2030,6 +2035,193 @@ impl<'src> Checker<'src> {
             span,
         };
         Some(self.check_expr(&synthetic))
+    }
+
+    /// String methods. The read-only helpers reuse the existing string
+    /// builtins (`len`, `byte_at`, `str_slice`, `parse_*`); the transforms and
+    /// searches are new runtime entry points and are built here so the method
+    /// surface does not need a free-function spelling for each one.
+    ///
+    /// The outer `Option` says "this was a string method"; the inner one is the
+    /// checked expression, `None` after a reported error.
+    fn check_string_method(
+        &mut self,
+        receiver: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let arity = match method {
+            "len" | "is_empty" | "trim" | "trim_start" | "trim_end" | "to_upper" | "to_lower"
+            | "lines" | "parse_i64" | "parse_f64" => 0,
+            "byte_at" | "get" | "contains" | "starts_with" | "ends_with" | "index_of"
+            | "repeat" | "split" => 1,
+            "slice" | "replace" => 2,
+            _ => return None,
+        };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
+        let synthetic = |name: &str, call_args: Vec<Expr>| Expr::Call {
+            callee: vec![name.to_string()],
+            args: call_args,
+            unsafe_call: false,
+            span,
+        };
+        match method {
+            "len" => Some(self.check_expr(&synthetic("len", vec![receiver_expr()]))),
+            "byte_at" => Some(self.check_expr(&synthetic(
+                "byte_at",
+                vec![receiver_expr(), args[0].clone()],
+            ))),
+            "slice" => Some(self.check_expr(&synthetic(
+                "str_slice",
+                vec![receiver_expr(), args[0].clone(), args[1].clone()],
+            ))),
+            "parse_i64" => Some(self.check_expr(&synthetic("parse_i64", vec![receiver_expr()]))),
+            "parse_f64" => Some(self.check_expr(&synthetic("parse_f64", vec![receiver_expr()]))),
+            "is_empty" => {
+                let len = synthetic("len", vec![receiver_expr()]);
+                let zero = Expr::Literal(Literal::I64(0), span);
+                let comparison = Expr::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(len),
+                    rhs: Box::new(zero),
+                    span,
+                };
+                Some(self.check_expr(&comparison))
+            }
+            _ => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                let (callee, result_ty, checked_args) = match method {
+                    "get" => {
+                        let Some(index) = self.check_i64_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        (
+                            "str_get",
+                            option(&prim(TypeKind::I64), span),
+                            vec![receiver_checked, index],
+                        )
+                    }
+                    "contains" | "starts_with" | "ends_with" => {
+                        let Some(needle) = self.check_string_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        (
+                            match method {
+                                "contains" => "str_contains",
+                                "starts_with" => "str_starts_with",
+                                _ => "str_ends_with",
+                            },
+                            prim(TypeKind::Bool),
+                            vec![receiver_checked, needle],
+                        )
+                    }
+                    "index_of" => {
+                        let Some(needle) = self.check_string_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        (
+                            "str_index_of",
+                            option(&prim(TypeKind::I64), span),
+                            vec![receiver_checked, needle],
+                        )
+                    }
+                    "trim" | "trim_start" | "trim_end" | "to_upper" | "to_lower" => (
+                        match method {
+                            "trim" => "str_trim",
+                            "trim_start" => "str_trim_start",
+                            "trim_end" => "str_trim_end",
+                            "to_upper" => "str_to_upper",
+                            _ => "str_to_lower",
+                        },
+                        prim(TypeKind::Str),
+                        vec![receiver_checked],
+                    ),
+                    "replace" => {
+                        let Some(old) = self.check_string_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        let Some(new) = self.check_string_argument(&args[1]) else {
+                            return Some(None);
+                        };
+                        (
+                            "str_replace",
+                            prim(TypeKind::Str),
+                            vec![receiver_checked, old, new],
+                        )
+                    }
+                    "repeat" => {
+                        let Some(count) = self.check_i64_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        ("str_repeat", prim(TypeKind::Str), vec![receiver_checked, count])
+                    }
+                    "split" => {
+                        let Some(separator) = self.check_string_argument(&args[0]) else {
+                            return Some(None);
+                        };
+                        let slice_ty = Type {
+                            kind: TypeKind::Slice(Box::new(prim(TypeKind::Str))),
+                            span,
+                        };
+                        ("str_split", slice_ty, vec![receiver_checked, separator])
+                    }
+                    "lines" => {
+                        let slice_ty = Type {
+                            kind: TypeKind::Slice(Box::new(prim(TypeKind::Str))),
+                            span,
+                        };
+                        ("str_lines", slice_ty, vec![receiver_checked])
+                    }
+                    _ => return None,
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec![callee.to_string()],
+                    args: checked_args,
+                    unsafe_call: false,
+                    span,
+                    ty: result_ty,
+                }))
+            }
+        }
+    }
+
+    /// Check one argument that must be a `string`.
+    fn check_string_argument(&mut self, arg: &Expr) -> Option<HirExpr> {
+        let checked = self.check_expr_with_expected(arg, &prim(TypeKind::Str))?;
+        if !fits(&prim(TypeKind::Str), &expr_ty(&checked)) {
+            self.error(
+                expr_span(&checked),
+                format!("expected `string`, found `{}`", expr_ty(&checked)),
+            );
+            return None;
+        }
+        Some(checked)
+    }
+
+    /// Check one argument that must be an `i64`.
+    fn check_i64_argument(&mut self, arg: &Expr) -> Option<HirExpr> {
+        let checked = self.check_expr_with_expected(arg, &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&checked)) {
+            self.error(
+                expr_span(&checked),
+                format!("expected `i64`, found `{}`", expr_ty(&checked)),
+            );
+            return None;
+        }
+        Some(checked)
     }
 
     /// Array query and update methods that do not lower to a single existing

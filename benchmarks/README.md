@@ -61,7 +61,7 @@ have a comparable standard-library primitive.
 | Program | Workload | Compared with |
 |---|---|---|
 | `ffi` | 100,000,000 calls to libc's `getpid` | C, clang and gcc |
-| `slice` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy pass | C (`realloc`), Go `append`, Rust `Vec` |
+| `slice` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
@@ -452,9 +452,13 @@ about 80 MB, so allocation and the growth copies are part of the measurement,
 not background noise.
 
 The trailing query/edit/search/extend/copy calls are outside the timed loop.
-They keep the M12 method path and the new slice runtime entry points in a
+They keep the M12 array method path and the new slice runtime entry points in a
 benchmark that is built and run with the rest of the suite; they do not change
-the growth numbers.
+the growth numbers. A final string-method pass covers `trim`, case conversion,
+`replace`, `slice`, `repeat`, `split`, `lines`, `contains`, `starts_with`,
+`ends_with`, `byte_at`, `get`, `index_of`, `is_empty`, `parse_i64`, and
+`parse_f64` for the same reason: a broken method resolver or string runtime
+entry point fails the run instead of hiding behind a number.
 
 #### Maps — 1,000,000 inserts and 1,000,000 lookups
 

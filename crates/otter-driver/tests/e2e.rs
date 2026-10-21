@@ -188,6 +188,15 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn string_methods_transform_bytes_and_ownership() {
+    let output = build_and_run("string_methods");
+    assert_eq!(
+        stdout_of(&output),
+        "16\nnot empty\n72\n72\n-1\nHello\ncontains Otter\nmissing cat\nstarts He\nends spaces\n9\n-1\nHello, Otter\n14\n14\n16\nHELLO, OTTER\nhello, otter\nHello, world\nababab\n0\n3\na\nb\nc\n1\n2\n3\none\ntwo\nthree\nempty is empty\n0\n42\nf64 parse ok\n"
+    );
+}
+
+#[test]
 fn array_search_and_copy_methods() {
     let output = build_and_run("array_search");
     assert_eq!(

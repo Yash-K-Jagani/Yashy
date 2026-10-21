@@ -380,6 +380,20 @@ impl Module {
         out.push_str("declare i8* @otter_str_from_f64(double)\n");
         out.push_str("declare i8* @otter_str_from_bool(i64)\n");
         out.push_str("declare i1 @otter_str_eq(i8*, i8*)\n");
+        out.push_str("declare i64 @otter_str_get(i8*, i64, ptr)\n");
+        out.push_str("declare i64 @otter_str_index_of(i8*, i8*)\n");
+        out.push_str("declare i1 @otter_str_contains(i8*, i8*)\n");
+        out.push_str("declare i1 @otter_str_starts_with(i8*, i8*)\n");
+        out.push_str("declare i1 @otter_str_ends_with(i8*, i8*)\n");
+        out.push_str("declare i8* @otter_str_trim(i8*)\n");
+        out.push_str("declare i8* @otter_str_trim_start(i8*)\n");
+        out.push_str("declare i8* @otter_str_trim_end(i8*)\n");
+        out.push_str("declare i8* @otter_str_to_upper(i8*)\n");
+        out.push_str("declare i8* @otter_str_to_lower(i8*)\n");
+        out.push_str("declare i8* @otter_str_replace(i8*, i8*, i8*)\n");
+        out.push_str("declare i8* @otter_str_repeat(i8*, i64)\n");
+        out.push_str("declare void @otter_str_split(ptr, i8*, i8*)\n");
+        out.push_str("declare void @otter_str_lines(ptr, i8*)\n");
         // Reference counting (M3 Task 5). `retain` is declared with the rest so
         // the pairing's second half does not rewrite every golden file; the
         // release half is emitted wherever an owned temporary is consumed.

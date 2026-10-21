@@ -103,6 +103,28 @@ otter_str *otter_str_from_f64(double value);
 otter_str *otter_str_from_bool(long long value);
 int otter_str_eq(const otter_str *a, const otter_str *b);
 
+/* String methods (M12 Task 5). These are byte operations: case mapping is
+ * ASCII only and every separator or line boundary is one byte. `get` writes the
+ * byte through `out` and returns 1 for a hit, 0 for an out-of-range index.
+ * `index_of` returns the first matching index or -1; `contains`, `starts_with`
+ * and `ends_with` are the same content search in a different shape. The trim
+ * and case helpers and `replace`/`repeat` return a fresh owned string, so the
+ * caller releases it. `split` and `lines` are declared after `otter_slice`
+ * because they fill a slice header. */
+long long otter_str_get(const otter_str *s, long long index, long long *out);
+long long otter_str_index_of(const otter_str *s, const otter_str *needle);
+int otter_str_contains(const otter_str *s, const otter_str *needle);
+int otter_str_starts_with(const otter_str *s, const otter_str *prefix);
+int otter_str_ends_with(const otter_str *s, const otter_str *suffix);
+otter_str *otter_str_trim(const otter_str *s);
+otter_str *otter_str_trim_start(const otter_str *s);
+otter_str *otter_str_trim_end(const otter_str *s);
+otter_str *otter_str_to_upper(const otter_str *s);
+otter_str *otter_str_to_lower(const otter_str *s);
+otter_str *otter_str_replace(const otter_str *s, const otter_str *old,
+                             const otter_str *new_text);
+otter_str *otter_str_repeat(const otter_str *s, long long count);
+
 /* Content hash used by the map runtime for `string` keys (FNV-1a). A null
  * string hashes like the empty string; generated code never calls this. */
 unsigned long long otter_str_hash(const otter_str *s);
@@ -189,6 +211,15 @@ void otter_slice_free(otter_slice *slice);
  * alone by `otter_str_release`, and a null slice is a no-op. The header is
  * zeroed, like `otter_slice_free`. */
 void otter_slice_free_strings(otter_slice *slice);
+
+/* String split and line splitting. Both fill a fresh `[]string`: every piece is
+ * a new owned string, so `otter_slice_free_strings` releases the whole result.
+ * An empty separator makes `split` return the source as one piece. `lines`
+ * splits on `\n`, strips one trailing `\r`, and omits the empty element after a
+ * trailing newline. */
+void otter_str_split(otter_slice *out, const otter_str *s,
+                     const otter_str *separator);
+void otter_str_lines(otter_slice *out, const otter_str *s);
 
 /* `otter_slice_get` copies the element at `index` into `out` and returns 1, or
  * returns 0 and leaves `out` untouched when `index` is negative or at least

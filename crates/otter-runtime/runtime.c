@@ -556,6 +556,304 @@ unsigned long long otter_str_hash(const otter_str *s) {
     return hash;
 }
 
+/* ---- String methods ----------------------------------------------------
+ *
+ *     declare i64 @otter_str_get(i8*, i64, ptr)
+ *     declare i1 @otter_str_contains(i8*, i8*)
+ *     declare i1 @otter_str_starts_with(i8*, i8*)
+ *     declare i1 @otter_str_ends_with(i8*, i8*)
+ *     declare i64 @otter_str_index_of(i8*, i8*)
+ *     declare i8* @otter_str_trim(i8*)
+ *     declare i8* @otter_str_trim_start(i8*)
+ *     declare i8* @otter_str_trim_end(i8*)
+ *     declare i8* @otter_str_to_upper(i8*)
+ *     declare i8* @otter_str_to_lower(i8*)
+ *     declare i8* @otter_str_replace(i8*, i8*, i8*)
+ *     declare i8* @otter_str_repeat(i8*, i64)
+ *     declare void @otter_str_split(ptr, i8*, i8*)
+ *     declare void @otter_str_lines(ptr, i8*)
+ *
+ * These are byte operations, not character operations: case mapping is ASCII
+ * only, and a split or a line boundary is one byte. Every string result is a
+ * fresh owned string, so the caller releases it like a concatenation. The
+ * searches keep nothing. `get` writes the byte through an out slot and returns
+ * 1 for a hit and 0 for an out-of-range index; `index_of` returns -1 for a
+ * miss. An empty needle is found at index 0, and an empty separator makes
+ * `split` return the whole string as one piece. */
+
+long long otter_str_get(const otter_str *s, long long index, long long *out) {
+    if (s == NULL || out == NULL || index < 0 || index >= s->len) {
+        return 0;
+    }
+    *out = (long long)(unsigned char)s->data[index];
+    return 1;
+}
+
+long long otter_str_index_of(const otter_str *s, const otter_str *needle) {
+    long long len = s == NULL ? 0 : s->len;
+    long long needle_len = needle == NULL ? 0 : needle->len;
+    if (needle_len == 0) {
+        return 0;
+    }
+    if (s == NULL || needle_len > len) {
+        return -1;
+    }
+    for (long long index = 0; index <= len - needle_len; index++) {
+        if (memcmp(s->data + index, needle->data, (size_t)needle_len) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+int otter_str_contains(const otter_str *s, const otter_str *needle) {
+    return otter_str_index_of(s, needle) >= 0;
+}
+
+int otter_str_starts_with(const otter_str *s, const otter_str *prefix) {
+    long long len = s == NULL ? 0 : s->len;
+    long long prefix_len = prefix == NULL ? 0 : prefix->len;
+    if (prefix_len > len) {
+        return 0;
+    }
+    return prefix_len == 0 ||
+           memcmp(s->data, prefix->data, (size_t)prefix_len) == 0;
+}
+
+int otter_str_ends_with(const otter_str *s, const otter_str *suffix) {
+    long long len = s == NULL ? 0 : s->len;
+    long long suffix_len = suffix == NULL ? 0 : suffix->len;
+    if (suffix_len > len) {
+        return 0;
+    }
+    return suffix_len == 0 ||
+           memcmp(s->data + (len - suffix_len), suffix->data,
+                  (size_t)suffix_len) == 0;
+}
+
+static int otter_str_is_space(unsigned char byte) {
+    return byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' ||
+           byte == '\f' || byte == '\v';
+}
+
+static void otter_str_trim_bounds(const otter_str *s, long long *start,
+                                  long long *end) {
+    long long first = 0;
+    long long last = s == NULL ? 0 : s->len;
+    if (s != NULL) {
+        while (first < last && otter_str_is_space((unsigned char)s->data[first])) {
+            first++;
+        }
+        while (last > first && otter_str_is_space((unsigned char)s->data[last - 1])) {
+            last--;
+        }
+    }
+    *start = first;
+    *end = last;
+}
+
+otter_str *otter_str_trim(const otter_str *s) {
+    long long start = 0;
+    long long end = 0;
+    otter_str_trim_bounds(s, &start, &end);
+    return otter_str_slice(s, start, end);
+}
+
+otter_str *otter_str_trim_start(const otter_str *s) {
+    long long start = 0;
+    long long end = s == NULL ? 0 : s->len;
+    if (s != NULL) {
+        while (start < end && otter_str_is_space((unsigned char)s->data[start])) {
+            start++;
+        }
+    }
+    return otter_str_slice(s, start, end);
+}
+
+otter_str *otter_str_trim_end(const otter_str *s) {
+    long long start = 0;
+    long long end = s == NULL ? 0 : s->len;
+    if (s != NULL) {
+        while (end > start && otter_str_is_space((unsigned char)s->data[end - 1])) {
+            end--;
+        }
+    }
+    return otter_str_slice(s, start, end);
+}
+
+otter_str *otter_str_to_upper(const otter_str *s) {
+    long long len = s == NULL ? 0 : s->len;
+    otter_str *out = otter_str_new(NULL, (size_t)len);
+    if (out == NULL) {
+        return NULL;
+    }
+    for (long long index = 0; index < len; index++) {
+        unsigned char byte = (unsigned char)s->data[index];
+        if (byte >= 'a' && byte <= 'z') {
+            byte = (unsigned char)(byte - ('a' - 'A'));
+        }
+        out->data[index] = (char)byte;
+    }
+    return out;
+}
+
+otter_str *otter_str_to_lower(const otter_str *s) {
+    long long len = s == NULL ? 0 : s->len;
+    otter_str *out = otter_str_new(NULL, (size_t)len);
+    if (out == NULL) {
+        return NULL;
+    }
+    for (long long index = 0; index < len; index++) {
+        unsigned char byte = (unsigned char)s->data[index];
+        if (byte >= 'A' && byte <= 'Z') {
+            byte = (unsigned char)(byte + ('a' - 'A'));
+        }
+        out->data[index] = (char)byte;
+    }
+    return out;
+}
+
+otter_str *otter_str_replace(const otter_str *s, const otter_str *old,
+                             const otter_str *new_text) {
+    long long len = s == NULL ? 0 : s->len;
+    long long old_len = old == NULL ? 0 : old->len;
+    long long new_len = new_text == NULL ? 0 : new_text->len;
+    if (old_len == 0) {
+        return otter_str_new(s == NULL ? "" : s->data, (size_t)len);
+    }
+    long long count = 0;
+    for (long long index = 0; index + old_len <= len;) {
+        if (memcmp(s->data + index, old->data, (size_t)old_len) == 0) {
+            count++;
+            index += old_len;
+        } else {
+            index++;
+        }
+    }
+    long long total = len;
+    if (new_len >= old_len) {
+        long long growth = new_len - old_len;
+        if (growth != 0 && count > (LLONG_MAX - len) / growth) {
+            return otter_str_new("", 0);
+        }
+        total += count * growth;
+    } else {
+        total -= count * (old_len - new_len);
+    }
+    otter_str *out = otter_str_new(NULL, (size_t)total);
+    if (out == NULL) {
+        return NULL;
+    }
+    long long source = 0;
+    long long target = 0;
+    while (source < len) {
+        if (source + old_len <= len &&
+            memcmp(s->data + source, old->data, (size_t)old_len) == 0) {
+            if (new_len > 0) {
+                memcpy(out->data + target, new_text->data, (size_t)new_len);
+            }
+            source += old_len;
+            target += new_len;
+        } else {
+            out->data[target++] = s->data[source++];
+        }
+    }
+    return out;
+}
+
+otter_str *otter_str_repeat(const otter_str *s, long long count) {
+    if (count <= 0 || s == NULL || s->len == 0) {
+        return otter_str_new("", 0);
+    }
+    if (s->len > LLONG_MAX / count) {
+        return otter_str_new("", 0);
+    }
+    long long total = s->len * count;
+    otter_str *out = otter_str_new(NULL, (size_t)total);
+    if (out == NULL) {
+        return NULL;
+    }
+    for (long long index = 0; index < count; index++) {
+        memcpy(out->data + (index * s->len), s->data, (size_t)s->len);
+    }
+    return out;
+}
+
+static void otter_str_push_piece(otter_slice *out, const char *bytes,
+                                 long long len) {
+    otter_str *piece = otter_str_new(bytes, (size_t)len);
+    if (piece == NULL) {
+        return;
+    }
+    long long before = out->len;
+    otter_slice_push(out, &piece, (long long)sizeof piece);
+    if (out->len == before) {
+        otter_str_release(piece);
+    }
+}
+
+void otter_str_split(otter_slice *out, const otter_str *s,
+                     const otter_str *separator) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (s == NULL) {
+        return;
+    }
+    long long separator_len = separator == NULL ? 0 : separator->len;
+    if (separator_len == 0) {
+        otter_str_push_piece(out, s->data, s->len);
+        return;
+    }
+    long long start = 0;
+    long long index = 0;
+    while (index + separator_len <= s->len) {
+        if (memcmp(s->data + index, separator->data,
+                   (size_t)separator_len) == 0) {
+            otter_str_push_piece(out, s->data + start, index - start);
+            index += separator_len;
+            start = index;
+        } else {
+            index++;
+        }
+    }
+    otter_str_push_piece(out, s->data + start, s->len - start);
+}
+
+void otter_str_lines(otter_slice *out, const otter_str *s) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (s == NULL || s->len == 0) {
+        return;
+    }
+    long long start = 0;
+    for (long long index = 0; index < s->len; index++) {
+        if (s->data[index] != '\n') {
+            continue;
+        }
+        long long end = index;
+        if (end > start && s->data[end - 1] == '\r') {
+            end--;
+        }
+        otter_str_push_piece(out, s->data + start, end - start);
+        start = index + 1;
+    }
+    if (start < s->len) {
+        long long end = s->len;
+        if (end > start && s->data[end - 1] == '\r') {
+            end--;
+        }
+        otter_str_push_piece(out, s->data + start, end - start);
+    }
+}
+
 otter_str *otter_str_from_i64(long long value) {
     char buffer[32];
     int written = snprintf(buffer, sizeof(buffer), "%lld", value);

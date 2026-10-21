@@ -8,11 +8,16 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 are complete.** Otter lexes, parses, type-checks and
-compiles programs with `i64`, `f64`, `bool`, `string`, `struct` (with field
-access), `enum`, `Option<T>`, `Result<T, E>`, `if`/`while`/`for`/`switch`,
-`defer`, and `?` propagation. A program can read its input (`read_line`,
-`parse_i64`), put a value inside a string — including with interpolation,
+**Status: milestones M0–M8 are complete; M12–M15 are in progress.** Otter lexes,
+parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
+`struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
+`if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
+written as `var` or `let` (block-scoped and mutable) or `const` (block-scoped
+and immutable). Arrays and strings have a method surface: `xs.push(1)`,
+`xs.slice(0, 3)`, `s.trim()`, `s.split(",")`, and the rest of the string
+method table.
+Function values and objects are the next M12–M15 slices. A program can read its
+input (`read_line`, `parse_i64`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
 position it was written at and exits with a failure status. Integer arithmetic
@@ -191,9 +196,10 @@ release, so counting its bump blocks individually would report a leak for
 correct code. The manual buffer and the string builder above both report zero.
 
 ```otter
-// Strings are values: `+` concatenates, `len` counts bytes, and `==`/`!=`
+// Strings are values: `+` concatenates, `len()` counts bytes, and `==`/`!=`
 // compare contents rather than addresses. `str_from_i64` puts a number inside
-// one, so a whole line is a single string.
+// one, so a whole line is a single string. The string methods return new
+// strings, so `trim` and `to_upper` leave `greeting` unchanged.
 fn label(name: string) -> string {
     return "[" + name + "]";
 }
@@ -201,11 +207,18 @@ fn label(name: string) -> string {
 fn main() {
     const greeting = "Hello, " + "Otter!";
     print_str(greeting + "\n");
-    print_str("length = " + str_from_i64(len(greeting)) + "\n");
+    print_str("length = " + str_from_i64(greeting.len()) + "\n");
     print_str(label("x") + "\n");
     if greeting == "Hello, Otter!" {
         print_str("equal\n");
     }
+    var padded = "  Otter  ";
+    print_str(padded.trim() + "\n");
+    var csv = "a,b";
+    var parts = csv.split(",");
+    print_i64(parts.len());
+    print_str("\n");
+    parts.free();
 }
 ```
 
@@ -652,4 +665,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M9 | Escape analysis |
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
-| M12–M15 | Language surface: `let` bindings, array and string methods, function values and closures, objects, and the remaining correctness gaps |
+| M12–M15 (in progress) | Language surface: `let` bindings and the array/string method layers are landed; function values and closures, objects, and the remaining correctness gaps are next |
