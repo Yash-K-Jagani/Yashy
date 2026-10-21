@@ -266,6 +266,12 @@ fn an_object_declaration_carries_its_methods() {
 }
 
 #[test]
+fn a_static_method_is_called_on_the_type() {
+    let output = build_and_run("object_new");
+    assert_eq!(stdout_of(&output), "3\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

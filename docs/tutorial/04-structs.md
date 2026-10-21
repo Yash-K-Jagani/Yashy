@@ -154,6 +154,33 @@ The object is constructed with the ordinary struct-literal syntax, and its
 methods are called like any other method. A method may be called on the
 result of another one, as `counter.add(4).get()` does.
 
+## Static methods
+
+A method with no `self` belongs to the type rather than to a value of it, and
+it is called on the type.
+
+```otter
+object Counter {
+    value: i64,
+    fn new(start: i64) -> Counter {
+        return Counter { value: start };
+    },
+    fn get(self) -> i64 {
+        return self.value;
+    },
+}
+
+fn main() {
+    print_i64(Counter.new(3).get());
+    print_str("\n");
+    // => 3
+}
+```
+
+`Counter.new(3)` is the type's method, and `counter.get()` is the value's. A
+method that needs a receiver cannot be called on the type: it says so, rather
+than pretending the type is a value of itself.
+
 ## The operations
 
 | Operation | Syntax | Meaning |

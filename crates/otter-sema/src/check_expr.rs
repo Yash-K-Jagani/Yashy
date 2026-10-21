@@ -2472,6 +2472,11 @@ impl<'src> Checker<'src> {
         }
         let receiver = &callee[0];
         let method = &callee[1];
+        // `Counter.new(3)` is a call on the *type*, not on a value of it: a
+        // static method, found by the type's name.
+        if self.is_type_name(receiver) {
+            return Some(self.check_static_method(receiver, method, args, span));
+        }
         let binding = self.scope.resolve(receiver)?;
         let receiver_ty = binding.ty.clone();
         if matches!(receiver_ty.kind, TypeKind::Slice(_)) {
@@ -2514,6 +2519,71 @@ impl<'src> Checker<'src> {
             _ => None,
         };
         Some(checked)
+    }
+
+    /// Whether a name is one of the declared types.
+    ///
+    /// The types are declared in the root scope, so a name that resolves there
+    /// and names a type is the type itself -- not a value of it. A local that
+    /// shadows a type's name resolves deeper and is a value.
+    fn is_type_name(&self, name: &str) -> bool {
+        self.scope.resolve_depth(name) == Some(0)
+            && (self.structs.contains_key(name) || self.enums.contains_key(name))
+    }
+
+    /// Check a call on a type: `Counter.new(3)`.
+    ///
+    /// A static method belongs to the type, not to a value of it, so the
+    /// receiver is the type's name and the method takes no receiver of its
+    /// own. A method that does have one is reported: it needs a value.
+    fn check_static_method(
+        &mut self,
+        type_name: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let mangled = format!("{type_name}.{method}");
+        let Some(sig) = self.methods.get(&mangled).cloned() else {
+            self.error(span, format!("no method `{method}` on `{type_name}`"));
+            return None;
+        };
+        if sig.has_self {
+            self.error(
+                span,
+                format!("`{type_name}.{method}` is a method and needs a receiver"),
+            );
+            return None;
+        }
+        if sig.params.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {} argument{}",
+                    sig.params.len(),
+                    if sig.params.len() == 1 { "" } else { "s" }
+                ),
+            );
+            return None;
+        }
+        let mut arg_exprs = Vec::with_capacity(args.len());
+        for (arg, param) in args.iter().zip(sig.params.iter()) {
+            let checked = self.check_expr_with_expected(arg, param)?;
+            if !fits(param, &expr_ty(&checked)) {
+                self.error(
+                    expr_span(&checked),
+                    format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                );
+            }
+            arg_exprs.push(checked);
+        }
+        Some(HirExpr::Call {
+            callee: vec![mangled],
+            args: arg_exprs,
+            unsafe_call: false,
+            span,
+            ty: sig.ret.clone(),
+        })
     }
 
     /// Check a call to a method declared in an `impl` block.
@@ -4423,8 +4493,8 @@ impl<'src> Checker<'src> {
                 // module path: rewrite it to the receiver-first builtin and
                 // check that. A first segment that is not a local stays on the
                 // ordinary path, so `std.io.print(...)` is untouched.
-                if let Some(method) = self.check_builtin_method(callee, args, *span) {
-                    return method;
+                if let Some(checked) = self.check_builtin_method(callee, args, *span) {
+                    return checked;
                 }
                 let name = callee.last().cloned().unwrap_or_default();
                 // The method surface replaced these free-function spellings.

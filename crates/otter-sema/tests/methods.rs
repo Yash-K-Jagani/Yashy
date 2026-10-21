@@ -124,3 +124,42 @@ fn an_object_is_constructed_like_a_struct() {
     )
     .expect("an object literal should type-check");
 }
+
+#[test]
+fn a_static_method_is_called_on_the_type() {
+    check_source(
+        "object Counter { value: i64, \
+         fn new(start: i64) -> Counter { return Counter { value: start }; }, \
+         fn get(self) -> i64 { return self.value; } } \
+         fn main() { const c = Counter.new(3); const n = c.get(); }",
+    )
+    .expect("a static method call should type-check");
+}
+
+#[test]
+fn a_method_called_on_the_type_needs_a_receiver() {
+    assert_error(
+        "object Counter { value: i64, fn get(self) -> i64 { return self.value; } } \
+         fn main() { const n = Counter.get(); }",
+        "`Counter.get` is a method and needs a receiver",
+    );
+}
+
+#[test]
+fn a_static_method_with_the_wrong_argument_type_is_reported() {
+    assert_error(
+        "object Counter { value: i64, \
+         fn new(start: i64) -> Counter { return Counter { value: start }; } } \
+         fn main() { const c = Counter.new(\"three\"); }",
+        "expected `i64`",
+    );
+}
+
+#[test]
+fn a_method_that_is_not_there_on_the_type_is_reported() {
+    assert_error(
+        "object Counter { value: i64 } \
+         fn main() { const c = Counter.missing(); }",
+        "no method `missing` on `Counter`",
+    );
+}

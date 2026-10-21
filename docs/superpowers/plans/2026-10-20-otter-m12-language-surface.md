@@ -1137,42 +1137,63 @@ The proof:
 
 **Files:**
 - Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/object_new.ot`
+- Test: `crates/otter-driver/tests/programs/object_new.ot`, `crates/otter-sema/tests/methods.rs`
 
 **Interfaces:**
 - Produces: `Counter.new(3)` resolves a method with no `self`; `Type.name(args)` is a static call.
 - Consumes: Task 13.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `object_new.ot` adds `fn new(start: i64) -> Counter` to the object declaration
 and prints `Counter.new(3).get()` as `3`. Calling `Counter.new` with the wrong
 argument type reports a normal argument-type diagnostic.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e a_static_method_is_called_on_the_type`
 Expected: FAIL with `unknown function \`new\`` or a type-name resolution error.
 
-- [ ] **Step 3: Implement type-name resolution in call position**
+- [x] **Step 3: Implement type-name resolution in call position**
 
 When the callee path is `Type.name`, resolve `name` as a static method of
 `Type`; if it has a `self` parameter, report
 `error: \`Counter.new\` is a method and needs a receiver`. Static methods are
 emitted as ordinary functions under the same `@Type.name` mangling.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e a_static_method_is_called_on_the_type`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/object_new.ot
 git commit -m "feat: static methods and constructors"
 ```
+
+**As built:** a method with no `self` is a static one, and it is called on the
+type: `Counter.new(3)`. The backend needs nothing new for it -- the method is
+emitted under the same `@Type.name` mangling, and the call is an ordinary call
+with the method's own arguments.
+
+The one thing the checker had to work out is telling a *type* from a *value of
+that type*: `Counter.new(3)` and `counter.new(3)` are the same call shape, and
+only the first is static. The types are declared in the root scope, so a name
+that resolves there and names a declared type is the type itself; a local that
+shadows a type's name resolves deeper, and is a value.
+
+A method called on the type that does have a `self` says so:
+"`Counter.get` is a method and needs a receiver".
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-sema --test methods` — 13 PASS.
+- `cargo test -p otter-driver --test e2e a_static_method_is_called_on_the_type`
+  — PASS; the program printed `3`.
+
 
 ### Task 15: Pointer receivers for mutating methods
 

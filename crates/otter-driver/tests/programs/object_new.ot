@@ -1,0 +1,16 @@
+// A static method: one that belongs to the type rather than to a value of it.
+
+object Counter {
+    value: i64,
+    fn new(start: i64) -> Counter {
+        return Counter { value: start };
+    },
+    fn get(self) -> i64 {
+        return self.value;
+    },
+}
+
+fn main() {
+    print_i64(Counter.new(3).get());
+    print_str("\n");
+}
