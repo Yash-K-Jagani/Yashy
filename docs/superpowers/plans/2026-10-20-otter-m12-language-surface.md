@@ -917,6 +917,18 @@ owned, so a `string` it built was counted twice and released once. The call
 inside the loop now marks what it returned, the way every other call through a
 function value does.
 
+Another the IR test caught: the block that holds the elements which pass ended
+with two branches -- the one the loop's body makes and the one the increment
+is reached by. The block now ends with the branch that reaches the increment,
+and a test walks the IR of all three methods to say that every block ends in
+exactly one terminator.
+
+The `map_array` benchmark measures the whole thing: ten million elements
+mapped into a second array, in Otter and in C, Go and Rust. Otter's row is
+41.7 ns per element against C's 11.1; about 4 ns of that is the call through
+the function value, and the rest is the array the mapping builds, which
+Otter's `push` grows one element at a time.
+
 
 ### Task 11: Generic functions
 

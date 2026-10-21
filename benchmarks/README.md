@@ -63,6 +63,7 @@ have a comparable standard-library primitive.
 | `ffi` | 100,000,000 calls to libc's `getpid` | C, clang and gcc |
 | `array` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
+| `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -541,6 +542,30 @@ before parking. The 12% gap is what that difference and the lock implementation
 cost under contention. A shared counter cannot be written in Otter user code
 yet: a `*mut` may not cross a thread boundary, so the runtime's own C test
 covers that case.
+
+#### Mapping an array — 10,000,000 elements into a second array
+
+| Language | min ms | median ms | ns/element |
+|---|---:|---:|---:|
+| C (gcc -O2) | 110.8 | 118.0 | 11.08 |
+| C (clang -O2) | 112.6 | 125.4 | 11.26 |
+| Rust (rustc -O) | 116.2 | 123.1 | 11.62 |
+| Go (go build) | 144.9 | 167.8 | 14.49 |
+| Otter -O2 | 417.1 | 458.4 | 41.71 |
+
+Every row builds an array of ten million elements, maps it into a second
+array, and sums the second one. The C, Go and Rust rows map with a plain
+loop; Otter's row maps through a function value, so every element costs a
+call through a pointer as well.
+
+That is the 30 ns an element Otter spends over C's 11: the call through the
+function value is about 4 ns of it, and the rest is the array the mapping
+builds — Otter's `push` is an out-of-line runtime call that checks the
+capacity and copies the element, where C's loop writes into an array it
+already knows the size of. The [function
+values](#function-values--100000000-calls-through-a-value-and-directly)
+table has the same story in one number: a call through a value costs about
+2.5 ns more than a direct one.
 
 #### Function values — 100,000,000 calls, through a value and directly
 
