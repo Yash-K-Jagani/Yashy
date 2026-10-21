@@ -16,6 +16,7 @@ pub mod expr_gen;
 pub mod faults;
 pub mod ffi;
 pub mod fn_gen;
+pub mod higher_order;
 pub mod ir;
 pub mod maps;
 pub mod memory;

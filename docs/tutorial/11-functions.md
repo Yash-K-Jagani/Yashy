@@ -177,6 +177,51 @@ A closure cannot be put in a struct, an enum, or an array yet. An aggregate
 copies the value it holds without counting the reference, and it has no way to
 release it, so the copy would outlive the environment it points at.
 
+## The higher-order array methods
+
+Three array methods take a function: `map` builds a new array from what the
+function returns for each element, `filter` keeps the elements the function
+says to keep, and `fold` carries one value through the whole array.
+
+```otter
+fn main() {
+    var xs = []i64 { 1, 2, 3 };
+
+    var doubled = xs.map(|x: i64| -> i64 { return x * 2; });
+    for x in doubled {
+        print_i64(x);
+        print_str("\n");
+    }
+    // => 2
+    // => 4
+    // => 6
+    doubled.free();
+
+    var big = xs.filter(|x: i64| -> bool { return x > 2; });
+    for x in big {
+        print_i64(x);
+        print_str("\n");
+    }
+    // => 3
+    big.free();
+
+    print_i64(xs.fold(0, |acc: i64, x: i64| -> i64 { return acc + x; }));
+    print_str("\n");
+    // => 6
+
+    xs.free();
+}
+```
+
+`map` and `filter` build a *new* array; the source keeps its own elements, so
+the new array is freed on its own. The element type may change: `map` through
+`|x: i64| -> string { return str_from_i64(x); }` gives a `[]string`.
+
+`fold` starts from the value in front of the callback and ends with one value:
+the callback takes the accumulator and the element, and returns the next
+accumulator. The accumulator's type is the type of the value `fold` starts
+from, so `xs.fold(0, ...)` folds into an `i64`.
+
 ## Writing a function type
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.

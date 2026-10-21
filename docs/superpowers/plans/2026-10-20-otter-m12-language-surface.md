@@ -835,15 +835,16 @@ The proof:
 ### Task 10: Builtin `map`, `filter`, and `fold`
 
 **Files:**
-- Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/higher_order.ot`
+- Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/hir.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/higher_order.rs`
+- Test: `crates/otter-driver/tests/programs/higher_order.ot`, `crates/otter-sema/tests/functions.rs`, `crates/otter-codegen/tests/higher_order.rs`
+- Docs: `docs/tutorial/11-functions.md`
 
 **Interfaces:**
 - Produces: `xs.map(f: fn(T) -> U) -> []U`, `xs.filter(f: fn(T) -> bool) -> []T`, `xs.fold(init: U, f: fn(U, T) -> U) -> U`.
 - Consumes: Tasks 7–9.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `higher_order.ot` maps `{1, 2, 3}` through `|x: i64| -> i64 { return x * 2; }`
 to `{2, 4, 6}`, filters through `|x: i64| -> bool { return x > 2; }` to `{3}`,
@@ -851,12 +852,12 @@ and folds from `0` with `|acc: i64, x: i64| -> i64 { return acc + x; }` to `6`.
 It also maps `[]i64` to `[]string` through a closure that calls `str_from_i64`,
 to prove `U` may differ from `T`.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e higher_order_array_methods_transform_in_order`
 Expected: FAIL; methods missing.
 
-- [ ] **Step 3: Implement the three methods in codegen**
+- [x] **Step 3: Implement the three methods in codegen**
 
 Each call site is specialized: `map` builds a fresh `[]U` and calls `f` on each
 element; the source array keeps its own elements, and only the new array owns
@@ -864,17 +865,41 @@ the mapped results. `filter` appends elements that pass, using `push`; for
 `[]string`, it retains each appended element. `fold` carries the accumulator and
 calls `f`. Each method requires the array receiver to be a binding, like `push`.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e higher_order_array_methods_transform_in_order`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/higher_order.ot
 git commit -m "feat: map, filter, and fold"
 ```
+
+**As built:** the three are one HIR node, because they are one shape: an
+array, a function, and a loop that calls it. The checker says what the whole
+expression is worth -- `[]U` for `map`, `[]T` for `filter`, and the
+accumulator's own type for `fold` -- and the backend lowers the node into the
+loop.
+
+The callback is called through its value, the same way any call through a
+function value is: the code pointer comes out of the pair and the environment
+goes with it as the first argument. A callback that is a closure therefore
+carries its environment through the loop, and the environment is released when
+the call ends -- a closure made for the call belongs to the call.
+
+`map` and `filter` build a new array with the runtime's own `push`, so the new
+array grows the way every other array does, and a `string` element is retained
+before it goes in: the new array owns one reference to every element it holds,
+and the source keeps its own.
+
+The accumulator's type is the type of the value `fold` starts from, and the
+callback has to take that type and the element and return the accumulator's
+type. A callback of the wrong shape is reported with the shape it should have
+had: `expected a function of one `i64``, `expected a function of one `i64`
+returning `bool``, and `expected a function of `(i64, i64)` returning `i64``.
+
 
 ### Task 11: Generic functions
 

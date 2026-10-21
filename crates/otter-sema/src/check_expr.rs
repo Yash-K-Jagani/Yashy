@@ -2491,8 +2491,8 @@ impl<'src> Checker<'src> {
         let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
         let arity = match method {
             "is_empty" | "first" | "last" | "clear" | "reverse" | "sort" => 0,
-            "get" | "remove" | "contains" | "index_of" | "extend" => 1,
-            "set" | "insert" | "slice" => 2,
+            "get" | "remove" | "contains" | "index_of" | "extend" | "map" | "filter" => 1,
+            "set" | "insert" | "slice" | "fold" => 2,
             _ => return None,
         };
         if args.len() != arity {
@@ -2584,8 +2584,170 @@ impl<'src> Checker<'src> {
             "index_of" => Some(self.check_array_contains(receiver, args, span, true)),
             "extend" => Some(self.check_array_extend(receiver, args, span)),
             "slice" => Some(self.check_array_slice(receiver, args, span)),
+            "map" => Some(self.check_array_map(receiver, args, span)),
+            "filter" => Some(self.check_array_filter(receiver, args, span)),
+            "fold" => Some(self.check_array_fold(receiver, args, span)),
             _ => None,
         }
+    }
+
+    /// Check `xs.map(f)`: a new array holding the mapped values.
+    ///
+    /// The callback takes one element and returns the value that replaces it,
+    /// so the result is an array of the callback's return type. The element type
+    /// may differ from the source's: `[]i64` maps to `[]string` as well as to
+    /// `[]i64`.
+    fn check_array_map(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
+        let TypeKind::Slice(element) = receiver_ty.kind else {
+            return None;
+        };
+        let Some(func_checked) = self.check_callback(&args[0], span) else {
+            return None;
+        };
+        let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
+            return None;
+        };
+        if params.len() != 1 || !params[0].eq_ignoring_span(&element) {
+            self.error(
+                span,
+                format!(
+                    "expected a function of one `{}`, found `{}`",
+                    element,
+                    expr_ty(&func_checked)
+                ),
+            );
+            return None;
+        }
+        let result_ty = Type {
+            kind: TypeKind::Slice(Box::new((*ret).clone())),
+            span,
+        };
+        Some(HirExpr::HigherOrder {
+            op: HigherOrderOp::Map,
+            receiver: Box::new(receiver_checked),
+            func: Box::new(func_checked),
+            init: None,
+            span,
+            ty: result_ty,
+        })
+    }
+
+    /// Check `xs.filter(f)`: a new array holding the values that pass.
+    ///
+    /// The callback takes one element and says whether it stays, so the
+    /// result is an array of the source's own element type.
+    fn check_array_filter(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
+        let TypeKind::Slice(element) = receiver_ty.kind else {
+            return None;
+        };
+        let Some(func_checked) = self.check_callback(&args[0], span) else {
+            return None;
+        };
+        let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
+            return None;
+        };
+        if params.len() != 1
+            || !params[0].eq_ignoring_span(&element)
+            || !matches!(ret.kind, TypeKind::Bool)
+        {
+            self.error(
+                span,
+                format!(
+                    "expected a function of one `{}` returning `bool`, found `{}`",
+                    element,
+                    expr_ty(&func_checked)
+                ),
+            );
+            return None;
+        }
+        let result_ty = Type {
+            kind: TypeKind::Slice(element),
+            span,
+        };
+        Some(HirExpr::HigherOrder {
+            op: HigherOrderOp::Filter,
+            receiver: Box::new(receiver_checked),
+            func: Box::new(func_checked),
+            init: None,
+            span,
+            ty: result_ty,
+        })
+    }
+
+    /// Check `xs.fold(init, f)`: one value, folded from the array.
+    ///
+    /// The accumulator's type is the type of `init`, and the callback takes
+    /// the accumulator and the element and returns the next accumulator.
+    fn check_array_fold(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
+        let TypeKind::Slice(element) = receiver_ty.kind else {
+            return None;
+        };
+        let Some(init_checked) = self.check_expr(&args[0]) else {
+            return None;
+        };
+        let accumulator_ty = expr_ty(&init_checked);
+        let Some(func_checked) = self.check_callback(&args[1], span) else {
+            return None;
+        };
+        let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
+            return None;
+        };
+        if params.len() != 2
+            || !params[0].eq_ignoring_span(&accumulator_ty)
+            || !params[1].eq_ignoring_span(&element)
+            || !ret.eq_ignoring_span(&accumulator_ty)
+        {
+            self.error(
+                span,
+                format!(
+                    "expected a function of `({accumulator_ty}, {element})` returning \
+                     `{accumulator_ty}`, found `{}`",
+                    expr_ty(&func_checked)
+                ),
+            );
+            return None;
+        }
+        Some(HirExpr::HigherOrder {
+            op: HigherOrderOp::Fold,
+            receiver: Box::new(receiver_checked),
+            func: Box::new(func_checked),
+            init: Some(Box::new(init_checked)),
+            span,
+            ty: accumulator_ty,
+        })
+    }
+
+    /// Check a callback argument and return its checked expression.
+    ///
+    /// The three higher-order methods all take a function, and all say so the
+    /// same way: the argument has to be one, and a value that is not is
+    /// reported here rather than deeper in.
+    fn check_callback(&mut self, expr: &Expr, span: Span) -> Option<HirExpr> {
+        let checked = self.check_expr(expr)?;
+        let ty = expr_ty(&checked);
+        if !matches!(ty.kind, TypeKind::Func(_, _)) {
+            self.error(span, format!("expected a function, found `{ty}`"));
+            return None;
+        }
+        Some(checked)
     }
 
     /// Resolve the receiver of an array method to its binding and slice type.

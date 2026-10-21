@@ -546,6 +546,14 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::CallCapture { index, args, ty, .. } => {
             gen_capture_call(ctx, *index, args, &ty.kind)
         }
+        HirExpr::HigherOrder {
+            op,
+            receiver,
+            func,
+            init,
+            ty,
+            ..
+        } => crate::higher_order::gen(ctx, *op, receiver, func, init.as_deref(), &ty.kind),
         HirExpr::SliceLit {
             elem_ty,
             elements,

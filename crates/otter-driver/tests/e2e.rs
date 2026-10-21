@@ -248,6 +248,12 @@ fn a_closure_outlives_its_creating_scope() {
 }
 
 #[test]
+fn higher_order_array_methods_transform_in_order() {
+    let output = build_and_run("higher_order");
+    assert_eq!(stdout_of(&output), "2\n4\n6\n3\n6\n1\n2\n3\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

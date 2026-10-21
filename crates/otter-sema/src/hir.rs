@@ -493,6 +493,34 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// `xs.map(f)`, `xs.filter(f)`, `xs.fold(init, f)`.
+    ///
+    /// The three are one node because they are one shape: an array, a function
+    /// to call, and a loop that calls it. The backend lowers the node into
+    /// that loop, and the checker has already said what the loop produces.
+    HigherOrder {
+        /// Which of the three it is.
+        op: HigherOrderOp,
+        /// The array the method is called on.
+        receiver: Box<HirExpr>,
+        /// The function the method calls.
+        func: Box<HirExpr>,
+        /// The value `fold` starts from. `None` for the other two.
+        init: Option<Box<HirExpr>>,
+        span: Span,
+        ty: Type,
+    },
+}
+
+/// The three higher-order array methods.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HigherOrderOp {
+    /// `xs.map(f)`: a new array holding the mapped values.
+    Map,
+    /// `xs.filter(f)`: a new array holding the values that pass.
+    Filter,
+    /// `xs.fold(init, f)`: one value, folded from the array.
+    Fold,
 }
 
 /// Re-exported so the HIR can reference the AST's operator enums without
@@ -518,6 +546,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Lambda { span, .. } => *span,
         HirExpr::Capture { span, .. } => *span,
         HirExpr::CallCapture { span, .. } => *span,
+        HirExpr::HigherOrder { span, .. } => *span,
     }
 }
 
@@ -540,5 +569,6 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Lambda { ty, .. } => ty.clone(),
         HirExpr::Capture { ty, .. } => ty.clone(),
         HirExpr::CallCapture { ty, .. } => ty.clone(),
+        HirExpr::HigherOrder { ty, .. } => ty.clone(),
     }
 }

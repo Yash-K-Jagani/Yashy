@@ -21,8 +21,9 @@ can be handed to another function and called through the parameter, and a
 binding can hold one and call it. A lambda -- `|x: i64| -> i64 { return x + 1; }`
 -- is a function written where a value is expected, and a *closure* is a
 lambda that carries the values of the scope it was written in, so it keeps
-working after that scope is gone. Objects are the next M14 stage. A program
-can read its
+working after that scope is gone. Three array methods take a function:
+`xs.map(f)`, `xs.filter(f)` and `xs.fold(init, f)`. Objects are the next M14
+stage. A program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
@@ -672,4 +673,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
-| M13–M15 (in progress) | Function values (done: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures), then objects and the remaining correctness gaps |
+| M13–M15 (in progress) | Function values (done: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures, and the `map`/`filter`/`fold` array methods), then objects and the remaining correctness gaps |

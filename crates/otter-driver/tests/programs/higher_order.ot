@@ -1,0 +1,38 @@
+// The higher-order array methods: `map`, `filter`, and `fold`.
+//
+// Each one calls a function on the array's elements, so each one is a loop
+// that a lambda is called from.
+
+fn main() {
+    var xs = []i64 { 1, 2, 3 };
+
+    // `map` builds a new array: the source keeps its own elements.
+    var doubled = xs.map(|x: i64| -> i64 { return x * 2; });
+    for x in doubled {
+        print_i64(x);
+        print_str("\n");
+    }
+    doubled.free();
+
+    // `filter` keeps the elements that pass.
+    var big = xs.filter(|x: i64| -> bool { return x > 2; });
+    for x in big {
+        print_i64(x);
+        print_str("\n");
+    }
+    big.free();
+
+    // `fold` carries one value through the whole array.
+    print_i64(xs.fold(0, |acc: i64, x: i64| -> i64 { return acc + x; }));
+    print_str("\n");
+
+    // The element type may change: `[]i64` maps to `[]string`.
+    var texts = xs.map(|x: i64| -> string { return str_from_i64(x); });
+    for text in texts {
+        print_str(text);
+        print_str("\n");
+    }
+    texts.free();
+
+    xs.free();
+}

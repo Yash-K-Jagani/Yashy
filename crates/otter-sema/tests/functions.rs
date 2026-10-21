@@ -217,8 +217,39 @@ fn a_lambda_body_is_checked_against_its_return_type() {
 }
 
 #[test]
-fn an_aggregate_cannot_hold_a_function_value() {
-    // The aggregate would copy the value without counting the reference, and
+fn the_higher_order_array_methods_check_their_callbacks() {
+    // `map` takes a function of one element and returns the array of what it
+    // returns; `filter` takes one that says whether an element stays; `fold`
+    // takes the accumulator's type and a function of the accumulator and the
+    // element.
+    let result = check_source(
+        "fn main() { \
+         var xs = []i64 { 1, 2, 3 }; \
+         const doubled = xs.map(|x: i64| -> i64 { return x * 2; }); \
+         const big = xs.filter(|x: i64| -> bool { return x > 2; }); \
+         const total = xs.fold(0, |acc: i64, x: i64| -> i64 { return acc + x; }); }",
+    );
+    result.expect("the three higher-order methods should type-check");
+}
+
+#[test]
+fn a_higher_order_callback_with_the_wrong_shape_is_an_error() {
+    assert_error(
+        "fn main() { var xs = []i64 { 1 }; const ys = xs.map(|x: string| -> i64 { return 1; }); }",
+        "expected a function of one `i64`",
+    );
+    assert_error(
+        "fn main() { var xs = []i64 { 1 }; const ys = xs.filter(|x: i64| -> i64 { return 1; }); }",
+        "expected a function of one `i64` returning `bool`",
+    );
+    assert_error(
+        "fn main() { var xs = []i64 { 1 }; const n = xs.fold(0, |acc: i64| -> i64 { return acc; }); }",
+        "expected a function of `(i64, i64)`",
+    );
+}
+
+#[test]
+fn an_aggregate_cannot_hold_a_function_value() {    // The aggregate would copy the value without counting the reference, and
     // it has no way to release it: the copy would outlive the environment it
     // points at.
     assert_error(

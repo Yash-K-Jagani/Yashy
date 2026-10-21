@@ -237,6 +237,20 @@ fn a_closure_releases_its_environment() {
 }
 
 #[test]
+fn the_higher_order_methods_release_what_they_build() {
+    // `higher_order.ot` maps, filters and folds, and frees the arrays it
+    // built. The mapped `[]string` holds three strings the runtime built, so
+    // the report proves the new array's elements came back with it.
+    let output = build_and_run("higher_order");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "2\n4\n6\n3\n6\n1\n2\n3\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("higher_order", &output);
+}
+
+#[test]
 fn a_string_slice_releases_every_element() {
     // `string_slices_heap.ot` pushes one hundred freshly built strings. The
     // slice owns a reference to each, so `free_slice` must release all hundred
