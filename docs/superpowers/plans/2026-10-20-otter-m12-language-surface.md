@@ -806,6 +806,15 @@ takes over the reference the closure value carried, a copy of a binding
 retains it, and the binding's scope releases it -- and the environment's own
 release, when its count reaches zero, releases the strings it captured.
 
+One thing the plan does not say, and the implementation had to decide: an
+*aggregate* may not hold a function value. A struct field, an enum field and
+an array element of function type are all refused. An aggregate copies the
+value without counting the reference, and it has no way to release it, so the
+copy would outlive the environment it points at. The checker cannot tell a
+closure from a named function by type, so the refusal is by type: a program
+that wants a function in a struct waits for the aggregate's own reference
+counting.
+
 
 ### Task 10: Builtin `map`, `filter`, and `fold`
 

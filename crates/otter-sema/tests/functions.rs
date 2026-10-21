@@ -215,3 +215,20 @@ fn a_lambda_body_is_checked_against_its_return_type() {
         "expected `i64`",
     );
 }
+
+#[test]
+fn an_aggregate_cannot_hold_a_function_value() {
+    // The aggregate would copy the value without counting the reference, and
+    // it has no way to release it: the copy would outlive the environment it
+    // points at.
+    assert_error(
+        "struct S { f: fn(i64) -> i64 } fn main() { const s = S { f: square }; } \
+         fn square(x: i64) -> i64 { return x; }",
+        "a struct field cannot have a function type yet",
+    );
+    assert_error(
+        "fn main() { const fs = []fn(i64) -> i64 { square }; } \
+         fn square(x: i64) -> i64 { return x; }",
+        "an array cannot hold a function value yet",
+    );
+}

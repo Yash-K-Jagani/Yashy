@@ -173,6 +173,10 @@ error: a linear value cannot be captured yet: `buf`
 A captured value is also a copy: assigning to it changes the copy and not the
 binding it came from, so a closure's captures are read-only.
 
+A closure cannot be put in a struct, an enum, or an array yet. An aggregate
+copies the value it holds without counting the reference, and it has no way to
+release it, so the copy would outlive the environment it points at.
+
 ## Writing a function type
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.
