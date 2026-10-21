@@ -1,0 +1,75 @@
+//! Methods: the receiver, the mangled name, and the call.
+//!
+//! A method is an ordinary function with a receiver, so what the backend
+//! emits is an ordinary function under a mangled name and an ordinary call
+//! with the receiver as the first argument.
+
+use otter_common::SourceMap;
+use otter_lexer::Lexer;
+use otter_parser::Parser;
+use otter_sema::check_program;
+
+use otter_codegen::{emit_program, CodegenOptions};
+
+/// Lex, parse, check and emit `src` as one module.
+fn ir_of(src: &str) -> String {
+    let mut sm = SourceMap::new();
+    let file = sm.add_file("main.ot", src.to_string());
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("lexer should never panic");
+    let mut parser = Parser::new(tokens, &sm, file);
+    let ast = parser
+        .parse_program()
+        .expect("these test sources must parse");
+    let hir = check_program(&ast, &sm, file).expect("these test sources must type-check");
+    emit_program(&hir, "main.ot", CodegenOptions::default())
+}
+
+#[test]
+fn a_method_is_emitted_under_its_mangled_name() {
+    let ir_text = ir_of(
+        "struct Point { x: i64, y: i64 } \
+         impl Point { fn sum(self) -> i64 { return self.x + self.y; } } \
+         fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
+    );
+    assert!(
+        ir_text.contains("define i64 @Point.sum(%struct.Point"),
+        "the method takes the receiver as its first argument:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i64 @Point.sum(%struct.Point"),
+        "the call passes the receiver:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_method_reads_the_receivers_fields() {
+    let ir_text = ir_of(
+        "struct Point { x: i64, y: i64 } \
+         impl Point { fn sum(self) -> i64 { return self.x + self.y; } } \
+         fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
+    );
+    assert!(
+        ir_text.contains("extractvalue %struct.Point"),
+        "the receiver's fields are read out of the aggregate:\n{ir_text}"
+    );
+}
+
+#[test]
+fn an_enum_method_switches_on_the_receiver() {
+    let ir_text = ir_of(
+        "enum Shape { Circle(i64), Square(i64) } \
+         impl Shape { fn area(self) -> i64 { return switch self { \
+         case Circle(r) { r * r } case Square(s) { s * s } }; } } \
+         fn main() { const c = Shape.Circle(2); print_i64(c.area()); }",
+    );
+    assert!(
+        ir_text.contains("define i64 @Shape.area("),
+        "the method is emitted under the enum's name:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("icmp eq i8"),
+        "the body compares the receiver's tag:\n{ir_text}"
+    );
+}

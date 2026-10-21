@@ -57,6 +57,24 @@ struct FnSig {
     ret: Type,
 }
 
+/// A method declared in an `impl` block.
+#[derive(Clone, Debug)]
+struct MethodSig {
+    /// The type the method belongs to.
+    type_name: String,
+    /// The method's own name, without the type.
+    name: String,
+    /// The parameters, the receiver first.
+    params: Vec<Type>,
+    /// The return type.
+    ret: Type,
+    /// Whether the first parameter is the receiver.
+    ///
+    /// A method with no `self` is a static method: it is called on the type
+    /// rather than on a value.
+    has_self: bool,
+}
+
 /// What a name lookup found.
 enum NameLookup {
     /// The name is bound, and the binding may be used here.
@@ -87,6 +105,18 @@ pub struct Checker<'src> {
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
+    /// The methods declared in `impl` blocks, keyed by the mangled name
+    /// `Type.method`.
+    ///
+    /// A method is an ordinary function with a receiver, so the signature is
+    /// the same shape a function's is; what is different is where it is
+    /// called from and that it is found by the type rather than by the name.
+    methods: HashMap<String, MethodSig>,
+    /// The type a method's `self` has, while its body is being checked.
+    ///
+    /// `Self` in a method's signature or body means the type the `impl` block
+    /// is for, and this is where that answer is kept.
+    self_type: Option<Type>,
     /// Names declared inside an `extern` block. A call to one of these follows
     /// the FFI boundary rules, which user functions do not (spec §8.1).
     externs: HashSet<String>,
@@ -321,6 +351,8 @@ impl<'src> Checker<'src> {
             structs: HashMap::new(),
             enums: HashMap::new(),
             fns: HashMap::new(),
+            methods: HashMap::new(),
+            self_type: None,
             externs: HashSet::new(),
             errors: Vec::new(),
             file,
@@ -513,7 +545,7 @@ impl<'src> Checker<'src> {
             self.file = *file;
             for item in &ast.items {
                 if let Some(hir) = self.check_item(item) {
-                    items.push(hir);
+                    items.extend(hir);
                 }
             }
         }
@@ -532,9 +564,64 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// The type a name refers to, if it is one of the declared types.
+    fn declared_type(&self, name: &str) -> Option<Type> {
+        if self.structs.contains_key(name) {
+            return Some(Type {
+                kind: TypeKind::Struct(name.to_string()),
+                span: Span::new(0, 0),
+            });
+        }
+        if self.enums.contains_key(name) {
+            return Some(Type {
+                kind: TypeKind::Enum(name.to_string()),
+                span: Span::new(0, 0),
+            });
+        }
+        None
+    }
+
+    /// The signature of a method declared in an `impl` block.
+    ///
+    /// The first parameter is the receiver when it is written `self`; the
+    /// receiver's type is the type the block is for, whatever the parameter
+    /// says.
+    fn method_signature(
+        &mut self,
+        type_name: &str,
+        name: &str,
+        params: &[Param],
+        ret: &Option<TypeExpr>,
+        receiver_ty: &Type,
+        span: Span,
+    ) -> MethodSig {
+        let has_self = params
+            .first()
+            .map(|param| param.name == "self")
+            .unwrap_or(false);
+        let mut param_tys = Vec::with_capacity(params.len());
+        for (index, param) in params.iter().enumerate() {
+            if index == 0 && has_self {
+                param_tys.push(receiver_ty.clone());
+                continue;
+            }
+            param_tys.push(self.resolve_or_report(&param.ty, param.span));
+        }
+        let ret_ty = match ret {
+            Some(ty) => self.resolve_or_report(ty, span),
+            None => prim(TypeKind::Unit),
+        };
+        MethodSig {
+            type_name: type_name.to_string(),
+            name: name.to_string(),
+            params: param_tys,
+            ret: ret_ty,
+            has_self,
+        }
+    }
+
     /// Pass 1: declare every item name so signatures can reference each other.
-    fn declare_items(&mut self, items: &[Item]) {
-        for item in items {
+    fn declare_items(&mut self, items: &[Item]) {        for item in items {
             match item {
                 Item::Fn {
                     name,
@@ -568,6 +655,49 @@ impl<'src> Checker<'src> {
                         self.error(e.span, e.message);
                     }
                     self.fns.insert(name.clone(), sig);
+                }
+                Item::Impl {
+                    type_name,
+                    methods,
+                    span,
+                } => {
+                    let Some(receiver_ty) = self.declared_type(type_name) else {
+                        self.error(
+                            *span,
+                            format!("no type named `{type_name}` for these methods"),
+                        );
+                        continue;
+                    };
+                    for method in methods {
+                        let Item::Fn {
+                            name,
+                            params,
+                            ret,
+                            body: _,
+                            span: method_span,
+                        } = method
+                        else {
+                            self.error(*span, "an `impl` block holds only methods");
+                            continue;
+                        };
+                        let sig = self.method_signature(
+                            type_name,
+                            name,
+                            params,
+                            ret,
+                            &receiver_ty,
+                            *method_span,
+                        );
+                        let mangled = format!("{type_name}.{name}");
+                        if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
+                            if previous.name == *name {
+                                self.error(
+                                    *method_span,
+                                    format!("`{type_name}` already has a method named `{name}`"),
+                                );
+                            }
+                        }
+                    }
                 }
                 Item::Struct { name, fields, span } => {
                     let binding = Binding {
@@ -758,6 +888,19 @@ impl<'src> Checker<'src> {
                         ),
                     ));
                 }
+                // `Self` is the type the method being checked belongs to.
+                if name == "Self" {
+                    if let Some(receiver) = &self.self_type {
+                        return Ok(Type {
+                            kind: receiver.kind.clone(),
+                            span: *span,
+                        });
+                    }
+                    return Err(TypeError::new(
+                        *span,
+                        "`Self` is only meaningful inside a method".to_string(),
+                    ));
+                }
                 let kind = match name.as_str() {
                     "bool" => Some(TypeKind::Bool),
                     "string" => Some(TypeKind::Str),
@@ -929,7 +1072,10 @@ impl<'src> Checker<'src> {
     }
 
     /// Build one item's HIR. `Fn` bodies are checked here.
-    fn check_item(&mut self, item: &Item) -> Option<HirItem> {
+    ///
+    /// An `impl` block holds several methods, so the answer is a list: each
+    /// method is an ordinary function item in the HIR, with a mangled name.
+    fn check_item(&mut self, item: &Item) -> Option<Vec<HirItem>> {
         match item {
             Item::Fn {
                 name,
@@ -962,7 +1108,7 @@ impl<'src> Checker<'src> {
                 let ret_ty = sig.ret.clone();
                 let body = self.check_block_with_ret(body, &ret_ty)?;
                 self.scope.pop();
-                Some(HirItem::Fn(HirFn {
+                Some(vec![HirItem::Fn(HirFn {
                     name: name.clone(),
                     params: params
                         .iter()
@@ -977,11 +1123,11 @@ impl<'src> Checker<'src> {
                     body,
                     captures: Vec::new(),
                     span: *span,
-                }))
+                })])
             }
             Item::Struct { name, fields, span } => {
                 let sig = self.structs.get(name).cloned()?;
-                Some(HirItem::Struct(HirStruct {
+                Some(vec![HirItem::Struct(HirStruct {
                     name: name.clone(),
                     fields: fields
                         .iter()
@@ -993,13 +1139,13 @@ impl<'src> Checker<'src> {
                         })
                         .collect(),
                     span: *span,
-                }))
+                })])
             }
             Item::Enum {
                 name,
                 variants,
                 span,
-            } => Some(HirItem::Enum(HirEnum {
+            } => Some(vec![HirItem::Enum(HirEnum {
                 name: name.clone(),
                 variants: variants
                     .iter()
@@ -1026,17 +1172,17 @@ impl<'src> Checker<'src> {
                     )
                     .collect(),
                 span: *span,
-            })),
-            Item::Import { path, span } => Some(HirItem::Import(HirImport {
+            })]),
+            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {
                 path: path.clone(),
                 span: *span,
-            })),
+            })]),
             Item::Extern {
                 abi,
                 link,
                 decls,
                 span,
-            } => Some(HirItem::Extern(HirExternBlock {
+            } => Some(vec![HirItem::Extern(HirExternBlock {
                 abi: abi.clone(),
                 link: link.clone(),
                 decls: decls
@@ -1064,8 +1210,85 @@ impl<'src> Checker<'src> {
                     })
                     .collect(),
                 span: *span,
-            })),
+            })]),
+            Item::Impl {
+                type_name,
+                methods,
+                span: _,
+            } => self.check_impl_methods(type_name, methods),
         }
+    }
+
+    /// Check the methods of an `impl` block.
+    ///
+    /// Each method is an ordinary function with a receiver: its first
+    /// parameter is the receiver, and `Self` inside it is the type the block
+    /// is for. The name the backend emits is the mangled `Type.method`, which
+    /// is what the call site resolves to.
+    fn check_impl_methods(
+        &mut self,
+        type_name: &str,
+        methods: &[Item],
+    ) -> Option<Vec<HirItem>> {
+        let Some(receiver_ty) = self.declared_type(type_name) else {
+            return None;
+        };
+        let mut items = Vec::new();
+        for method in methods {
+            let Item::Fn {
+                name,
+                params,
+                ret,
+                body,
+                span,
+            } = method
+            else {
+                continue;
+            };
+            let sig = self.method_signature(
+                type_name,
+                name,
+                params,
+                ret,
+                &receiver_ty,
+                *span,
+            );
+            let ret_ty = sig.ret.clone();
+            self.scope.push();
+            for (param, param_ty) in params.iter().zip(sig.params.iter()) {
+                let _ = self.scope.declare(
+                    param.name.clone(),
+                    Binding {
+                        ty: param_ty.clone(),
+                        mutability: Mutability::Const,
+                        span: param.span,
+                        ownership: Ownership::Live,
+                    },
+                );
+            }
+            let outer_self_type = self.self_type.replace(receiver_ty.clone());
+            let checked = self.check_block_with_ret(body, &ret_ty);
+            self.self_type = outer_self_type;
+            self.scope.pop();
+            let body = checked?;
+            items.push(HirItem::Fn(HirFn {
+                name: format!("{type_name}.{name}"),
+                params: params
+                    .iter()
+                    .zip(sig.params.iter())
+                    .map(|(param, param_ty)| HirParam {
+                        name: param.name.clone(),
+                        ty: param_ty.clone(),
+                        span: param.span,
+                    })
+                    .collect(),
+                ret: ret_ty,
+                body,
+                captures: Vec::new(),
+                span: *span,
+            }));
+        }
+        Some(items)
     }
 
     /// Check a block in which `return` must yield `ret`.
@@ -2169,6 +2392,9 @@ impl<'src> Checker<'src> {
                 return Some(checked);
             }
         }
+        if let Some(checked) = self.check_user_method(receiver, method, args, span) {
+            return Some(checked);
+        }
         let Some(builtin) = builtin_method_name(method, &receiver_ty.kind) else {
             self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
             return Some(None);
@@ -2198,8 +2424,78 @@ impl<'src> Checker<'src> {
         Some(checked)
     }
 
-    /// Report an old free-function spelling and show its method form.
+    /// Check a call to a method declared in an `impl` block.
     ///
+    /// The receiver is a value of a struct or an enum type, and the method is
+    /// found by the type: `point.sum()` is `Point.sum` with the receiver as
+    /// its first argument. The method's own parameters are checked against the
+    /// arguments the way a function's are.
+    fn check_user_method(
+        &mut self,
+        receiver: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let receiver_expr = Expr::Ident(vec![receiver.to_string()], span);
+        let Some(receiver_checked) = self.check_expr(&receiver_expr) else {
+            return Some(None);
+        };
+        let receiver_ty = expr_ty(&receiver_checked);
+        let type_name = match &receiver_ty.kind {
+            TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
+            _ => return None,
+        };
+        let mangled = format!("{type_name}.{method}");
+        let Some(sig) = self.methods.get(&mangled).cloned() else {
+            return None;
+        };
+        if !sig.has_self {
+            // A method with no `self` is a static one: it belongs to the type,
+            // not to a value of it.
+            self.error(
+                span,
+                format!(
+                    "`{method}` is a static method of `{}` and needs the type, not a value",
+                    sig.type_name
+                ),
+            );
+            return Some(None);
+        }
+        // The method's own parameters, without the receiver.
+        let own = sig.params.len().saturating_sub(1);
+        if own != args.len() {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {own} argument{}",
+                    if own == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        let mut arg_exprs = Vec::with_capacity(args.len() + 1);
+        arg_exprs.push(receiver_checked);
+        for (arg, param) in args.iter().zip(sig.params.iter().skip(1)) {
+            let checked = self.check_expr_with_expected(arg, param)?;
+            if !fits(param, &expr_ty(&checked)) {
+                self.error(
+                    expr_span(&checked),
+                    format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                );
+            }
+            arg_exprs.push(checked);
+        }
+        Some(Some(HirExpr::Call {
+            callee: vec![mangled],
+            args: arg_exprs,
+            unsafe_call: false,
+            span,
+            ty: sig.ret.clone(),
+        }))
+    }
+
+    /// Report an old free-function spelling and show its method form.    ///
     /// The receiver is quoted from the caller's own source rather than named
     /// generically, so the hint is a line the caller can paste back. An
     /// argument-less call has no receiver to quote; the message then names the

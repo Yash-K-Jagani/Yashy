@@ -49,7 +49,7 @@
 use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::{ExternDecl, FieldDef, Item, Param, VariantDef, VariantField};
+use crate::ast::{ExternDecl, FieldDef, Item, Param, TypeExpr, VariantDef, VariantField};
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
 
@@ -66,6 +66,7 @@ impl<'src> Parser<'src> {
             TokenKind::Struct => self.parse_struct(),
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Fn => self.parse_fn(),
+            TokenKind::Impl => self.parse_impl(),
             TokenKind::Extern => self.parse_extern(),
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
@@ -133,6 +134,32 @@ impl<'src> Parser<'src> {
         Ok(Item::Struct {
             name,
             fields,
+            span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// `impl Point { fn sum(self) -> i64 { ... } }`
+    ///
+    /// The block holds ordinary function items. The type the methods belong
+    /// to is named once, and each method's first parameter is the receiver:
+    /// `self` is written without a type, because the block already says what
+    /// the receiver is.
+    fn parse_impl(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Impl)?;
+        let (type_name, _) = self.identifier()?;
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            methods.push(self.parse_item()?);
+        }
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+
+        Ok(Item::Impl {
+            type_name,
+            methods,
             span: cover(keyword.span, close.span),
         })
     }
@@ -328,6 +355,16 @@ impl<'src> Parser<'src> {
     /// from.
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
         let (name, name_span) = self.identifier()?;
+        if name == "self" {
+            // `self` is the receiver, and its type is the type the `impl`
+            // block is for. The name `Self` is what the checker resolves to
+            // that type, so the parameter needs no annotation of its own.
+            return Ok(Param {
+                name,
+                ty: TypeExpr::Name("Self".to_string(), name_span),
+                span: name_span,
+            });
+        }
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type_expr()?;
         Ok(Param {

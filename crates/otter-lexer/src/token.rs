@@ -431,6 +431,8 @@ pub enum TokenKind {
     Fn,
     Struct,
     Enum,
+    /// impl -- a block of methods for a type.
+    Impl,
     Const,
     Var,
     Let,
@@ -534,10 +536,10 @@ impl TokenKind {
     /// (`crates/otter-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 25] = [
+    pub const KEYWORDS: [&'static str; 26] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false",
+        "default", "as", "move", "true", "false", "impl",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -567,6 +569,7 @@ impl TokenKind {
             "move" => TokenKind::Move,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
+            "impl" => TokenKind::Impl,
             _ => return None,
         })
     }
@@ -600,6 +603,7 @@ impl TokenKind {
                 | TokenKind::Move
                 | TokenKind::True
                 | TokenKind::False
+                | TokenKind::Impl
         )
     }
 
@@ -621,6 +625,7 @@ impl TokenKind {
             TokenKind::Fn => Naming::Fixed("fn"),
             TokenKind::Struct => Naming::Fixed("struct"),
             TokenKind::Enum => Naming::Fixed("enum"),
+            TokenKind::Impl => Naming::Fixed("impl"),
             TokenKind::Const => Naming::Fixed("const"),
             TokenKind::Var => Naming::Fixed("var"),
             TokenKind::Let => Naming::Fixed("let"),
@@ -733,7 +738,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 25] = [
+    const KEYWORDS: [(&str, TokenKind); 26] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -759,6 +764,7 @@ mod tests {
         ("move", TokenKind::Move),
         ("true", TokenKind::True),
         ("false", TokenKind::False),
+        ("impl", TokenKind::Impl),
     ];
 
     #[test]

@@ -254,6 +254,12 @@ fn higher_order_array_methods_transform_in_order() {
 }
 
 #[test]
+fn impl_methods_take_self() {
+    let output = build_and_run("methods");
+    assert_eq!(stdout_of(&output), "5\n48\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

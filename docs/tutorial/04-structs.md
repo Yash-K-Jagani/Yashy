@@ -5,6 +5,7 @@
 - How to declare a struct and construct a value with named fields.
 - Why the order of fields in a literal does not matter.
 - What copying a struct does, and what it does not do.
+- How to give a type its own methods.
 - Which struct shapes are safe in this milestone and which ones leak.
 
 A struct groups named fields. It is a value: assigning it or passing it copies
@@ -59,6 +60,67 @@ q.x = 9;
 That independence is the reason a struct can be passed to a function without
 ceremony. `manhattan` receives its own `Point`; the caller's value is not
 borrowed or mutated.
+
+## Methods
+
+An `impl` block gives a type its own methods. A method is a function whose
+first parameter is the value it is called on, and it is written `self`.
+
+```otter
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+impl Point {
+    fn sum(self) -> i64 {
+        return self.x + self.y;
+    }
+}
+
+fn main() {
+    const p = Point { x: 2, y: 3 };
+    print_i64(p.sum());
+    print_str("\n");
+    // => 5
+}
+```
+
+`p.sum()` is `Point.sum` with `p` in front. The method is found by the *type* of
+the value, not by the name, so two types may each have a method called `sum`.
+
+`self` carries no type of its own: the block already says what the receiver
+is. Inside the method, `Self` means the same type, and `self.x` reads a field
+of the receiver.
+
+An enum may have methods too, and a method on an enum usually switches on the
+receiver:
+
+```otter
+enum Shape {
+    Circle(i64),
+    Square(i64),
+}
+
+impl Shape {
+    fn area(self) -> i64 {
+        return switch self {
+            case Circle(r) { r * r * 3 }
+            case Square(s) { s * s }
+        };
+    }
+}
+
+fn main() {
+    const circle = Shape.Circle(4);
+    print_i64(circle.area());
+    print_str("\n");
+    // => 48
+}
+```
+
+A method that does not exist is reported by name and by type:
+``error: no method `area` on `Point` ``.
 
 ## The operations
 

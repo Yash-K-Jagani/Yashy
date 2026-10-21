@@ -79,6 +79,18 @@ pub enum Item {
         variants: Vec<VariantDef>,
         span: Span,
     },
+    /// `impl Point { fn sum(self) -> i64 { ... } }`
+    ///
+    /// A block of methods for a type. The methods are ordinary function
+    /// items: the difference is where they live and that their first
+    /// parameter is the receiver.
+    Impl {
+        /// The type the methods belong to.
+        type_name: String,
+        /// The methods, each an [`Item::Fn`].
+        methods: Vec<Item>,
+        span: Span,
+    },
     /// `fn d(a: P) -> f64 { ... }`
     ///
     /// `ret` is `None` when the source wrote no `->`; that is a missing

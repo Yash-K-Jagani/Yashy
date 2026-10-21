@@ -980,28 +980,31 @@ git commit -m "feat: generic functions by monomorphization"
 ### Task 12: `impl` methods on structs and enums
 
 **Files:**
-- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
-- Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/methods.ot`
+- Modify: `crates/otter-lexer/src/token.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/items.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/hir.rs`
+- Modify: `crates/otter-codegen/src/fn_gen.rs`
+- Modify: `editors/vim/otter.vim`, `editors/emacs/otter.el`, `editors/vscode/syntaxes/otter.tmLanguage.json`
+- Test: `crates/otter-driver/tests/programs/methods.ot`, `crates/otter-parser/tests/impls.rs`, `crates/otter-sema/tests/methods.rs`, `crates/otter-codegen/tests/methods.rs`
+- Docs: `docs/tutorial/04-structs.md`
 
 **Interfaces:**
 - Produces: `impl Point { fn length(self) -> i64 { ... } }`; `point.length()` resolves to the mangled function `Point.length`; `self` is the first parameter.
 - Consumes: M12 method resolution; Task 7 function signatures.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `methods.ot` declares `struct Point { x: i64, y: i64 }` and
 `impl Point { fn sum(self) -> i64 { return self.x + self.y; } }`; prints
 `point.sum()` as `5`. It also declares an `enum Shape` with an `impl Shape`
 method that switches on `self`.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e impl_methods_take_self`
 Expected: FAIL at parse on `impl`.
 
-- [ ] **Step 3: Implement `impl`**
+- [x] **Step 3: Implement `impl`**
 
 Parse `impl Type { fn ... }` items. Sema registers each method under the type
 name and checks the body with `self` bound to the receiver type. A method with no
@@ -1010,17 +1013,52 @@ name and checks the body with `self` bound to the receiver type. A method with n
 function. Method resolution runs before field access in call position; a missing
 method reports `error: no method \`name\` on \`Type\``.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e impl_methods_take_self`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/methods.ot
 git commit -m "feat: impl methods on structs and enums"
 ```
+
+**As built:** `impl` is a keyword now, so the lexer, the editor grammars and
+the LSP's keyword test all learned it.
+
+The receiver is written `self` and carries no type of its own: the block
+already says what the receiver is. The parser stands in the type `Self`, which
+the checker resolves to the type the block is for -- inside a method, and only
+there. A method is then an ordinary function with a receiver: the backend
+emits it as `@Point.sum` and the call site passes the receiver as the first
+argument.
+
+The method is found by the *type*, not by the name, so `point.sum()` is
+`Point.sum` with the receiver in front. A method that is not there reports
+`no method `sum` on `Point``, the same shape the builtin methods report.
+
+A method with no `self` is a static one, and calling it on a value says so:
+"`origin` is a static method of `Point` and needs the type, not a value".
+Calling a static method on the type is Task 14.
+
+One thing the plan does not say, and the implementation had to decide: an
+`impl` block must follow the type it is for. The checker collects the type
+signatures in one pass over the items, and a block for a type that is not
+declared yet would be a block for a type that does not exist.
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-parser --test impls` — 3 PASS.
+- `cargo test -p otter-sema --test methods` — 7 PASS.
+- `cargo test -p otter-codegen --test methods` — 3 PASS.
+- `cargo test -p otter-driver --test e2e impl_methods_take_self` — PASS; the
+  program printed `5` and `48`.
+- `cargo test -p otter-driver --test tutorial` — PASS, with the methods
+  section in chapter 4.
+
 
 ### Task 13: `object` declarations
 
