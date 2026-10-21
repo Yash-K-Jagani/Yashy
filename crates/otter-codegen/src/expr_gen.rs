@@ -132,7 +132,7 @@ pub struct FnCtx<'a> {
     /// sites that *do* release are the ones the consumer provably does not
     /// keep the pointer: the concatenations, the comparisons, `len`, the
     /// parsers and `print_str`.
-    owned_refs: HashMap<String, RefKind>,
+    owned_refs: HashMap<String, OwnedRef>,
     /// Locals that own a reference, one `Vec` per active scope, innermost
     /// last, pushed and popped alongside [`FnCtx::defers`].
     ///
@@ -150,7 +150,7 @@ pub struct FnCtx<'a> {
     /// goes away. A scope that exits without any statement to hang the release
     /// on (a `break` from a doubly nested block) leaks, the same reading of the
     /// same limitation the defer list has.
-    scope_refs: Vec<Vec<(String, RefKind)>>,
+    scope_refs: Vec<Vec<(String, RefKind, Option<TypeKind>)>>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
     /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
@@ -246,8 +246,15 @@ impl<'a> FnCtx<'a> {
     /// Record that `name` holds an owned reference, so a consumer owes it a
     /// `release`. See [`FnCtx::release_owned`].
     pub(crate) fn mark_owned(&mut self, name: &str, kind: RefKind) {
+        self.mark_owned_typed(name, kind, None);
+    }
+
+    /// Record that `name` holds an owned reference, and the type of the value
+    /// that holds it.
+    pub(crate) fn mark_owned_typed(&mut self, name: &str, kind: RefKind, ty: Option<TypeKind>) {
         if !name.is_empty() {
-            self.owned_refs.insert(name.to_string(), kind);
+            self.owned_refs
+                .insert(name.to_string(), OwnedRef { kind, ty });
         }
     }
 
@@ -259,10 +266,10 @@ impl<'a> FnCtx<'a> {
     /// reference at all. Emitting the release only for an owned name is what
     /// keeps this from dropping a reference the program still holds.
     pub(crate) fn release_owned(&mut self, name: &str) {
-        let Some(kind) = self.owned_refs.remove(name) else {
+        let Some(owned) = self.owned_refs.remove(name) else {
             return;
         };
-        match kind {
+        match owned.kind {
             RefKind::Str => {
                 let symbol = self.string_release_symbol();
                 self.push(format!("call void @{symbol}(i8* {name})"));
@@ -275,6 +282,11 @@ impl<'a> FnCtx<'a> {
                     "{env} = extractvalue {{ i8*, i8* }} {name}, 1"
                 ));
                 self.push(format!("call void @otter_env_release(i8* {env})"));
+            }
+            RefKind::StructFields => {
+                if let Some(ty) = &owned.ty {
+                    release_struct_fields(self, name, ty);
+                }
             }
         }
     }
@@ -313,8 +325,14 @@ impl<'a> FnCtx<'a> {
 
     /// Record that `slot` holds an owned reference in the innermost scope.
     pub(crate) fn track_ref_slot(&mut self, slot: &str, kind: RefKind) {
+        self.track_ref_slot_typed(slot, kind, None);
+    }
+
+    /// Record that `slot` holds an owned reference, and the type of the value
+    /// in it.
+    pub(crate) fn track_ref_slot_typed(&mut self, slot: &str, kind: RefKind, ty: Option<TypeKind>) {
         if let Some(scope) = self.scope_refs.last_mut() {
-            scope.push((slot.to_string(), kind));
+            scope.push((slot.to_string(), kind, ty));
         }
     }
 
@@ -324,7 +342,7 @@ impl<'a> FnCtx<'a> {
     pub(crate) fn is_tracked_ref_slot(&self, slot: &str) -> bool {
         self.scope_refs
             .iter()
-            .any(|scope| scope.iter().any(|(tracked, _)| tracked == slot))
+            .any(|scope| scope.iter().any(|(tracked, _, _)| tracked == slot))
     }
 
     /// Release every owned local of the innermost scope, innermost first, and
@@ -333,13 +351,13 @@ impl<'a> FnCtx<'a> {
         let Some(scope) = self.scope_refs.pop() else {
             return;
         };
-        for (slot, kind) in scope.iter().rev() {
-            self.release_slot(slot, *kind);
+        for (slot, kind, ty) in scope.iter().rev() {
+            self.release_slot(slot, *kind, ty.as_ref());
         }
     }
 
     /// Release one slot's owned reference.
-    fn release_slot(&mut self, slot: &str, kind: RefKind) {
+    fn release_slot(&mut self, slot: &str, kind: RefKind, ty: Option<&TypeKind>) {
         match kind {
             RefKind::Str => {
                 let loaded = self.tmp();
@@ -352,6 +370,14 @@ impl<'a> FnCtx<'a> {
                 let env = self.tmp();
                 self.push(format!("{env} = extractvalue {{ i8*, i8* }} {pair}, 1"));
                 self.push(format!("call void @otter_env_release(i8* {env})"));
+            }
+            RefKind::StructFields => {
+                let repr = ty.map(repr_type).unwrap_or_default();
+                let pair = self.tmp();
+                self.push(format!("{pair} = load {repr}, ptr {slot}"));
+                if let Some(ty) = ty {
+                    release_struct_fields(self, &pair, ty);
+                }
             }
         }
     }
@@ -371,8 +397,8 @@ impl<'a> FnCtx<'a> {
             Some(scope) => std::mem::take(scope),
             None => return,
         };
-        for (slot, kind) in slots.iter().rev() {
-            self.release_slot(slot, *kind);
+        for (slot, kind, ty) in slots.iter().rev() {
+            self.release_slot(slot, *kind, ty.as_ref());
         }
     }
 
@@ -461,15 +487,67 @@ impl<'a> FnCtx<'a> {
 
 /// What kind of reference a value owns.
 ///
-/// A `string` owns a reference to its bytes; a closure owns a reference to the
-/// environment its captured values live in. The two are released by different
-/// runtime calls, so the owner has to say which one it is holding.
+/// A `string` owns a reference to its bytes; a closure owns a reference to
+/// the environment its captured values live in; a struct owns one reference to
+/// each of the strings in its fields. The three are released by different
+/// calls, so the owner has to say which one it is holding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefKind {
     /// A `string`: released with `otter_str_release`.
     Str,
     /// A closure's environment: released with `otter_env_release`.
     Env,
+    /// A struct that owns the references in its `string` fields.
+    StructFields,
+}
+
+/// An owned reference, and the type of the value that owns it.
+///
+/// The type is only needed by the kinds that have to look inside the value --
+/// a struct's fields, for instance -- so it is carried only when there is one.
+#[derive(Clone, Debug)]
+struct OwnedRef {
+    kind: RefKind,
+    ty: Option<TypeKind>,
+}
+
+/// Retain the references a struct value owns, so a copy of it has its own.
+///
+/// The value is the copy's: the original still owns the references it had,
+/// and the copy owns new ones. Only the `string` fields are references; the
+/// others are numbers.
+pub(crate) fn retain_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
+    let TypeKind::Struct(name) = ty else {
+        return;
+    };
+    let repr = repr_type(ty);
+    let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
+    for (index, field_ty) in fields.iter().enumerate() {
+        if !matches!(field_ty, TypeKind::Str) {
+            continue;
+        }
+        let extracted = ctx.tmp();
+        ctx.push(format!("{extracted} = extractvalue {repr} {value}, {index}"));
+        let retained = ctx.tmp();
+        ctx.push_str_retain_into(&retained, &extracted);
+    }
+}
+
+/// Release the references a struct value owns.
+fn release_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
+    let TypeKind::Struct(name) = ty else {
+        return;
+    };
+    let repr = repr_type(ty);
+    let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
+    for (index, field_ty) in fields.iter().enumerate() {
+        if !matches!(field_ty, TypeKind::Str) {
+            continue;
+        }
+        let extracted = ctx.tmp();
+        ctx.push(format!("{extracted} = extractvalue {repr} {value}, {index}"));
+        ctx.push_str_release(&extracted);
+    }
 }
 
 /// Lower `expr` to a value, pushing its instructions into the module.
@@ -1888,6 +1966,33 @@ fn gen_struct_lit(
     let repr = repr_type(ty);
     let mut acc = "undef".to_string();
     for (index, value) in lowered.iter().enumerate() {
+        // A `string` field is a reference the struct owns: the value is
+        // either taken over (a temporary the runtime built) or retained (a
+        // literal, a local, a call's result) -- never both, so the reference
+        // is counted once.
+        if matches!(value.ty, TypeKind::Str) {
+            if ctx.is_owned(&value.value) {
+                ctx.forget_owned(&value.value);
+            } else if !value.value.is_empty() {
+                let retained = ctx.tmp();
+                ctx.push_str_retain_into(&retained, &value.value);
+                // The aggregate below is built from the retained value, so the
+                // reference it holds is the retained one.
+                let replacement = GenValue {
+                    value: retained,
+                    ty: value.ty.clone(),
+                };
+                let current = acc.clone();
+                let next = ctx.tmp();
+                ctx.push(format!(
+                    "{next} = insertvalue {repr} {current}, {} {}, {index}",
+                    repr_type(&replacement.ty),
+                    replacement.value
+                ));
+                acc = next;
+                continue;
+            }
+        }
         let next = ctx.tmp();
         ctx.push(format!(
             "{next} = insertvalue {repr} {acc}, {} {}, {index}",

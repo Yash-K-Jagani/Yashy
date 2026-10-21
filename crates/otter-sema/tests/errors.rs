@@ -82,3 +82,23 @@ fn a_unit_function_needs_no_return() {
     check_source("fn f(n: i64) { if n > 0 { print_i64(1); } }")
         .expect("a function that returns nothing needs no return");
 }
+
+#[test]
+fn two_structs_are_compared_field_by_field() {
+    check_source(
+        "struct Point { x: i64, y: i64 } \
+         fn main() { const a = Point { x: 1, y: 2 }; const b = Point { x: 1, y: 2 }; \
+         const same = a == b; }",
+    )
+    .expect("comparing two structs should type-check");
+}
+
+#[test]
+fn a_struct_with_a_field_that_has_no_equality_cannot_be_compared() {
+    assert_error(
+        "struct Holder { xs: []i64 } \
+         fn main() { const a = Holder { xs: []i64 {} }; const b = Holder { xs: []i64 {} }; \
+         const same = a == b; }",
+        "`==` needs fields with equality",
+    );
+}

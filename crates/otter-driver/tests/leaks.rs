@@ -251,6 +251,21 @@ fn the_higher_order_methods_release_what_they_build() {
 }
 
 #[test]
+fn a_struct_releases_the_strings_its_fields_hold() {
+    // `struct_ownership.ot` builds a struct with a string field, copies it,
+    // and lets both go. The struct owns a reference to the string, and so
+    // does the copy: two references, two releases, and the string's own
+    // reference is the one the struct literal took over.
+    let output = build_and_run("struct_ownership");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "same\ndifferent\n3\notter\n2\notter\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("struct_ownership", &output);
+}
+
+#[test]
 fn a_string_slice_releases_every_element() {
     // `string_slices_heap.ot` pushes one hundred freshly built strings. The
     // slice owns a reference to each, so `free_slice` must release all hundred

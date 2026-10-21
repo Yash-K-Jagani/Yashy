@@ -30,8 +30,18 @@
 use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, TypeKind};
 
 use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, RefKind};
+use crate::expr_gen::retain_struct_fields;
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
+
+/// Whether an expression reads a value that already exists.
+///
+/// A name or a field of one is a *copy* of what it names, and a copy of a
+/// struct that owns references needs its own. A literal or a call's result is
+/// a fresh value, and brings the references it already has.
+fn is_copy_of_a_value(expr: &HirExpr) -> bool {
+    matches!(expr, HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. })
+}
 
 /// How a statement left its basic block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +284,21 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     ctx.track_ref_slot(&slot, RefKind::Env);
                 }
                 slot
+            } else if let TypeKind::Struct(_) = ty {
+                // A struct binding owns the references its `string` fields
+                // hold. A value that is a *copy* of another struct's needs
+                // its own references; a fresh one -- a literal, a call's
+                // result -- brings the references it already has.
+                let value = gen_expr(ctx, init);
+                if is_copy_of_a_value(init) {
+                    retain_struct_fields(ctx, &value.value, &ty);
+                }
+                let repr = repr_type(&ty);
+                let slot = ctx.alloc_slot();
+                ctx.push_alloca(format!("{slot} = alloca {repr}"));
+                ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
+                ctx.track_ref_slot_typed(&slot, RefKind::StructFields, Some(ty.clone()));
+                slot
             } else {
                 gen_expr_to_slot(ctx, init)
             };
@@ -400,6 +425,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let returned_kind = match ctx.ret_type {
                 TypeKind::Str => Some(RefKind::Str),
                 TypeKind::Func(_, _) => Some(RefKind::Env),
+                TypeKind::Struct(_) => Some(RefKind::StructFields),
                 _ => None,
             };
             let taken = match (value, returned_kind) {
@@ -419,6 +445,10 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     match kind {
                         RefKind::Str => ctx.push_str_retain(&taken.value),
                         RefKind::Env => ctx.retain_env(&taken.value),
+                        RefKind::StructFields => {
+                            let ret_type = ctx.ret_type.clone();
+                            retain_struct_fields(ctx, &taken.value, &ret_type);
+                        }
                     }
                 }
             }

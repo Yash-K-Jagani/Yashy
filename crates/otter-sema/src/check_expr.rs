@@ -2657,6 +2657,95 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// Build the comparison of two structs, field by field.
+    ///
+    /// Two structs are equal when every one of their fields is, so the
+    /// comparison is a conjunction of the fields' comparisons. A field with no
+    /// equality -- an array, a map -- makes the whole comparison impossible,
+    /// and says so.
+    fn struct_equality(
+        &mut self,
+        op: BinOp,
+        lhs: &HirExpr,
+        rhs: &HirExpr,
+        name: &str,
+        span: Span,
+    ) -> Option<HirExpr> {
+        let sig = self.structs.get(name)?.clone();
+        let mut conjunction: Option<HirExpr> = None;
+        for (index, (field_name, field_ty)) in sig.fields.iter().enumerate() {
+            if !self.has_equality(&field_ty.kind) {
+                self.error(
+                    span,
+                    format!("`==` needs fields with equality: `{field_ty}` has none"),
+                );
+                return None;
+            }
+            let left = HirExpr::FieldAccess {
+                base: Box::new(lhs.clone()),
+                field: field_name.clone(),
+                index,
+                ty: field_ty.clone(),
+                span,
+            };
+            let right = HirExpr::FieldAccess {
+                base: Box::new(rhs.clone()),
+                field: field_name.clone(),
+                index,
+                ty: field_ty.clone(),
+                span,
+            };
+            let compared = HirExpr::Binary {
+                op: BinOp::Eq,
+                lhs: Box::new(left),
+                rhs: Box::new(right),
+                span,
+                ty: prim(TypeKind::Bool),
+                fault: None,
+            };
+            conjunction = Some(match conjunction {
+                None => compared,
+                Some(previous) => HirExpr::Binary {
+                    op: BinOp::And,
+                    lhs: Box::new(previous),
+                    rhs: Box::new(compared),
+                    span,
+                    ty: prim(TypeKind::Bool),
+                    fault: None,
+                },
+            });
+        }
+        let equal = conjunction?;
+        if op == BinOp::Ne {
+            return Some(HirExpr::Unary {
+                op: UnOp::Not,
+                operand: Box::new(equal),
+                span,
+                ty: prim(TypeKind::Bool),
+                fault: None,
+            });
+        }
+        Some(equal)
+    }
+
+    /// Whether a type has an equality the compiler can lower.
+    ///
+    /// The numbers and the string have one; a struct has one when all of its
+    /// fields do. An array, a map, a pointer and a channel have none: what
+    /// they hold is behind a header, and two headers are never the same
+    /// value.
+    fn has_equality(&self, ty: &TypeKind) -> bool {
+        match ty {
+            TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str => true,
+            TypeKind::Struct(name) => self
+                .structs
+                .get(name)
+                .map(|sig| sig.fields.iter().all(|(_, field)| self.has_equality(&field.kind)))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
     /// Check a call to a method declared in an `impl` block.
     ///
     /// The receiver is a value of a struct or an enum type, and the method is
@@ -4437,6 +4526,19 @@ impl<'src> Checker<'src> {
                 let rhs_ty = expr_ty(&rhs);
                 match binary_result_type(*op, &lhs_ty, &rhs_ty) {
                     Ok(ty) => {
+                        // A struct's equality is its fields' equality, so the
+                        // comparison is built here rather than left to the
+                        // backend, which would have to compare the aggregate
+                        // as a whole.
+                        if matches!(op, BinOp::Eq | BinOp::Ne) {
+                            if let TypeKind::Struct(name) = &lhs_ty.kind {
+                                if let Some(compared) =
+                                    self.struct_equality(*op, &lhs, &rhs, name, *span)
+                                {
+                                    return Some(compared);
+                                }
+                            }
+                        }
                         let checked =
                             is_checked_arithmetic(*op) && matches!(ty.kind, TypeKind::I64);
                         let fault = self.fault_site(*span, checked);

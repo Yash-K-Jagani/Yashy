@@ -1319,26 +1319,23 @@ branches, and two `alloca i1` slots joined the entry block.
 
 **Files:**
 - Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/struct_ownership.ot`
-- Test: `crates/otter-sema/tests/check.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/stmt_gen.rs`, `crates/otter-codegen/src/memory.rs`, `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/struct_ownership.ot`, `crates/otter-sema/tests/errors.rs`, `crates/otter-driver/tests/leaks.rs`
 
 **Interfaces:**
 - Produces: `==` on structs compares fields when every field has equality and otherwise reports a diagnostic; `move xs` on an array compiles to a valid aggregate move; struct string fields are retained on construction and released at scope exit.
 - Consumes: existing linearity checker and string retain/release.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-`struct_ownership.ot` compares two `Point` values, moves an array into a new
-binding and frees it once, and returns a struct built from a locally concatenated
-string; the leak report is zero and the string prints correctly after return.
+`struct_ownership.ot` compares two `Point` values, moves an array into a new binding and frees it once, and returns a struct built from a locally concatenated string; the leak report is zero and the string prints correctly after return.
 
-- [ ] **Step 2: Run and verify they fail**
+- [x] **Step 2: Run and verify they fail**
 
 Run: `cargo test -p otter-driver --test e2e struct_equality_and_string_fields`
 Expected: FAIL with `icmp requires integer operands` or a dangling string.
 
-- [ ] **Step 3: Implement the three fixes**
+- [x] **Step 3: Implement the three fixes**
 
 `==` on a struct lowers to a conjunction of field comparisons (recursively) or
 reports `error: \`==\` needs fields with equality`. Fix `Expr::Move` on arrays so
@@ -1346,18 +1343,45 @@ the HIR value is the loaded slice header, not a null; test the IR. Retain string
 fields when a struct is constructed or assigned and release them when the
 struct binding's scope exits; a struct copy retains each string field.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p otter-driver --test e2e struct_equality_and_string_fields`
 Run: `cargo test -p otter-sema --test check struct_equality_requires_fields_with_equality`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/struct_ownership.ot
 git commit -m "fix: struct equality, array moves, and string field ownership"
 ```
+
+**As built:** a struct's equality is built by the checker, field by field,
+because the backend cannot compare the aggregate as a whole. A field with no
+equality -- an array, a map -- makes the whole comparison impossible, and says
+so: "`==` needs fields with equality: `[]i64` has none".
+
+The move of an array emptied the source slot with `null`, which is a pointer
+and not an aggregate: the IR did not even compile. An aggregate is emptied
+with a zero value now.
+
+A struct that holds a string owns one reference to it. The literal takes the
+reference over from the value it was given -- a temporary's reference is
+transferred, a literal's or a local's is retained -- a *copy* of a struct
+retains a reference of its own, and the binding's scope releases what it
+holds. The backend needs the struct's field *types* to know which fields own
+a reference, and a `string` field's representation is the same as a raw
+pointer's, so the module now records the field types alongside the layout.
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-sema --test errors` — 8 PASS.
+- `cargo test -p otter-driver --test e2e struct_equality_and_string_fields`
+  — PASS; the program printed `same`, `different`, `3`, `otter`, `2`, `otter`.
+- `cargo test -p otter-driver --test leaks a_struct_releases_the_strings_its_fields_hold`
+  — PASS; the runtime reported `0 live allocations`.
+
 
 ### Task 18: Fixed arrays and array views
 

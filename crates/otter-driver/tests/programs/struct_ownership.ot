@@ -1,0 +1,47 @@
+// A struct's equality is its fields' equality, an array moves with `move`,
+// and a struct that holds a string owns that string.
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+struct Named {
+    name: string,
+    count: i64,
+}
+
+fn make() -> []i64 {
+    return []i64 { 1, 2, 3 };
+}
+
+fn main() {
+    const a = Point { x: 1, y: 2 };
+    const b = Point { x: 1, y: 2 };
+    const c = Point { x: 1, y: 3 };
+
+    if a == b {
+        print_str("same\n");
+    }
+    if a != c {
+        print_str("different\n");
+    }
+
+    // An explicit move hands the array over; the source is empty afterwards.
+    var xs = make();
+    const ys = move xs;
+    print_i64(ys.len());
+    print_str("\n");
+    ys.free();
+
+    // A struct that owns a string keeps it alive, and so does a copy of it.
+    const named = Named { name: "ott" + "er", count: 2 };
+    print_str(named.name);
+    print_str("\n");
+    print_i64(named.count);
+    print_str("\n");
+
+    const copy = named;
+    print_str(copy.name);
+    print_str("\n");
+}

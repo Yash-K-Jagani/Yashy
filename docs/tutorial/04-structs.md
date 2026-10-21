@@ -199,19 +199,37 @@ type. Keeping those separate means inserting a field in the declaration does
 not require rewriting every construction site, and a reader can see which
 value belongs to which name without counting commas.
 
-## Owning fields are an interim limitation
+## Owning fields
 
-A struct may also hold a `string` or an array, but the backend does not track
-ownership per field. Storing a `string` stores the pointer without a retain,
-and leaving the struct's scope emits no release. If the string came from a
-local binding, that binding's own release can leave the field dangling; if it
-came from a temporary, nothing frees it. Copying the struct copies the handle,
-so the copy is not an independent owner. `Point` and `Line` above are the
-supported shape; ledger L4 records owning fields as an interim limitation.
+A struct may hold a `string` or an array. A `string` field is a *reference*:
+the struct owns one, and so does every copy of the struct. The struct literal
+takes the reference over from the value it was given, a copy retains one of
+its own, and the binding's scope releases what it holds when it ends. A struct
+that goes out of scope therefore leaves nothing behind.
 
-In practice: use a struct of numbers and booleans when the value is copied or
-passed around. If a struct must hold a string, keep the string's own binding
-alive for as long as any copy of the struct is used.
+```otter
+struct Named {
+    name: string,
+    count: i64,
+}
+
+fn main() {
+    const named = Named { name: "ott" + "er", count: 2 };
+    print_str(named.name);
+    print_str("\n");
+    // => otter
+}
+```
+
+An array field is a different matter: an array owns its backing store, and
+the store belongs to the array the field was built from. A struct that holds
+one does not own it, so the array is freed by the binding that made it, and
+the struct's field is a header that points at it. The ownership rules for
+arrays are in chapter 9.
+
+In practice: a struct of numbers and booleans is copied freely. A struct that
+holds a string owns that string, and every copy of the struct owns it too. A
+struct that holds an array points at an array somebody else owns.
 
 ## Common mistakes
 

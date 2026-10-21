@@ -72,6 +72,13 @@ pub struct Module {
     /// Thunks already synthesized for top-level functions, keyed by source
     /// name. A function used as a value more than once shares one thunk.
     fn_value_thunks: HashMap<String, String>,
+    /// The field types of every declared struct, keyed by the struct's name.
+    ///
+    /// The backend needs them to know which fields of a struct own a
+    /// reference: a `string` field is a reference the struct has to release,
+    /// and the field's *representation* (`i8*`) is the same as a raw
+    /// pointer's, so the representation alone cannot say which is which.
+    struct_fields: HashMap<String, Vec<TypeKind>>,
     /// The index the next `@__lambda_N` will use.
     ///
     /// A lambda has no name in the source, so the backend gives it one: the
@@ -114,6 +121,7 @@ impl Module {
             next_thread_entry: 0,
             fn_signatures: HashMap::new(),
             fn_value_thunks: HashMap::new(),
+            struct_fields: HashMap::new(),
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
@@ -312,6 +320,17 @@ impl Module {
         let name = format!("%t{}", self.next_value);
         self.next_value += 1;
         name
+    }
+
+    /// Record a struct's field types, so the backend knows which of them own a
+    /// reference.
+    pub fn add_struct_fields(&mut self, name: &str, fields: Vec<TypeKind>) {
+        self.struct_fields.insert(name.to_string(), fields);
+    }
+
+    /// The field types of a struct, or an empty list when it is not known.
+    pub fn struct_fields(&self, name: &str) -> &[TypeKind] {
+        self.struct_fields.get(name).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// The next thread-entry index, for `@otter_thread_entry_N`.

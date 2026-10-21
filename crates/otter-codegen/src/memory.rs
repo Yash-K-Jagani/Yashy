@@ -84,7 +84,15 @@ pub fn gen_move(ctx: &mut FnCtx<'_>, inner: &HirExpr, ty: &TypeKind) -> GenValue
             if let Some((slot, slot_ty)) = ctx.locals.get(&name).cloned() {
                 let repr = repr_type(&slot_ty);
                 if !slot.is_empty() && repr != "void" {
-                    ctx.push(format!("store {repr} null, ptr {slot}"));
+                    // An aggregate is emptied with a zero value, not with
+                    // `null`: `null` is a pointer, and an aggregate is not
+                    // one.
+                    let empty = if repr.starts_with('{') {
+                        "zeroinitializer"
+                    } else {
+                        "null"
+                    };
+                    ctx.push(format!("store {repr} {empty}, ptr {slot}"));
                 }
             }
         }

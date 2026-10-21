@@ -136,6 +136,13 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
                     .map(|f| repr_type(&f.ty.kind))
                     .collect();
                 module.define_named_type(&format!("%struct.{}", s.name), fields);
+                // The field *types*, not just their representation: a `string`
+                // field is a reference the struct owns, and its representation
+                // is the same as a raw pointer's.
+                module.add_struct_fields(
+                    &s.name,
+                    s.fields.iter().map(|f| f.ty.kind.clone()).collect(),
+                );
             }
             HirItem::Enum(e) => {
                 let variants = e

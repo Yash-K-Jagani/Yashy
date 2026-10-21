@@ -278,6 +278,12 @@ fn question_and_return_are_enforced() {
 }
 
 #[test]
+fn struct_equality_and_string_fields() {
+    let output = build_and_run("struct_ownership");
+    assert_eq!(stdout_of(&output), "same\ndifferent\n3\notter\n2\notter\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");
