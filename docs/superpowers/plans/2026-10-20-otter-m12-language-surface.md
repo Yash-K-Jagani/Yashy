@@ -725,6 +725,10 @@ The proof:
   `40`, and the raw bytes were `42\n40\n`.
 - A lambda that returns a `string` was built and run by hand too: the
   indirect call releases the owned result the same way a direct call does.
+- The `function` benchmark gained a `lambda` row: the same workload calling
+  through a lambda. It prints the same number as every other row, and it costs
+  4.17 ns per call against the named function's 4.58 — the same indirect
+  call, with one fewer indirection to reach the function itself.
 
 ### Task 9: Capturing closures with copyable captures
 
