@@ -991,6 +991,196 @@ void otter_slice_sort_i64(otter_slice *slice) {
     qsort(slice->data, (size_t)slice->len, sizeof(long long), otter_compare_i64);
 }
 
+/* ---- Slice search, extend and copy -------------------------------------
+ *
+ *     declare i64 @otter_slice_index_of_i64(ptr, i64)
+ *     declare i64 @otter_slice_index_of_f64(ptr, double)
+ *     declare i64 @otter_slice_index_of_bool(ptr, i64)
+ *     declare i64 @otter_slice_index_of_string(ptr, i8*)
+ *     declare void @otter_slice_extend(ptr, ptr, i64)
+ *     declare void @otter_slice_extend_strings(ptr, ptr)
+ *     declare void @otter_slice_slice(ptr, ptr, i64, i64, i64)
+ *     declare void @otter_slice_slice_strings(ptr, ptr, i64, i64)
+ *
+ * The search helpers return the first matching index, or -1. `f64` uses
+ * numeric equality, so a NaN never matches; `string` compares contents, not
+ * handles. `extend` consumes the source: it appends every element and then
+ * frees the source's backing array. The `_strings` variant retains each element
+ * before the source releases its own references.
+ *
+ * `slice` clamps both bounds to `0..=len` and treats an end before the start as
+ * an empty range. The result is a fresh backing array; the `_strings` variant
+ * retains each copied handle. A failed allocation yields the empty slice. */
+
+long long otter_slice_index_of_i64(otter_slice *slice, long long value) {
+    if (slice == NULL || slice->data == NULL) {
+        return -1;
+    }
+    const long long *elements = (const long long *)slice->data;
+    for (long long index = 0; index < slice->len; index++) {
+        if (elements[index] == value) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+long long otter_slice_index_of_f64(otter_slice *slice, double value) {
+    if (slice == NULL || slice->data == NULL) {
+        return -1;
+    }
+    const double *elements = (const double *)slice->data;
+    for (long long index = 0; index < slice->len; index++) {
+        if (elements[index] == value) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+long long otter_slice_index_of_bool(otter_slice *slice, long long value) {
+    if (slice == NULL || slice->data == NULL) {
+        return -1;
+    }
+    const unsigned char *elements = (const unsigned char *)slice->data;
+    unsigned char needle = value != 0;
+    for (long long index = 0; index < slice->len; index++) {
+        if ((elements[index] != 0) == needle) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+long long otter_slice_index_of_string(otter_slice *slice, const otter_str *value) {
+    if (slice == NULL || slice->data == NULL || value == NULL) {
+        return -1;
+    }
+    otter_str *const *elements = (otter_str *const *)slice->data;
+    for (long long index = 0; index < slice->len; index++) {
+        if (otter_str_eq(elements[index], value)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+void otter_slice_extend(otter_slice *slice, otter_slice *other,
+                        long long element_size) {
+    if (slice == NULL || other == NULL || slice == other || element_size <= 0) {
+        return;
+    }
+    if (other->data != NULL) {
+        const char *data = (const char *)other->data;
+        for (long long index = 0; index < other->len; index++) {
+            otter_slice_push(slice, data + (size_t)(index * element_size),
+                             element_size);
+        }
+    }
+    otter_slice_free(other);
+}
+
+void otter_slice_extend_strings(otter_slice *slice, otter_slice *other) {
+    if (slice == NULL || other == NULL || slice == other) {
+        return;
+    }
+    if (other->data != NULL) {
+        otter_str **elements = (otter_str **)other->data;
+        for (long long index = 0; index < other->len; index++) {
+            otter_str *element = elements[index];
+            otter_str_retain(element);
+            long long before = slice->len;
+            otter_slice_push(slice, &element, sizeof element);
+            if (slice->len == before) {
+                otter_str_release(element);
+            }
+        }
+    }
+    otter_slice_free_strings(other);
+}
+
+void otter_slice_slice(otter_slice *out, otter_slice *source, long long start,
+                       long long end, long long element_size) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (source == NULL || source->data == NULL || element_size <= 0) {
+        return;
+    }
+    if (start < 0) {
+        start = 0;
+    } else if (start > source->len) {
+        start = source->len;
+    }
+    if (end < 0) {
+        end = 0;
+    } else if (end > source->len) {
+        end = source->len;
+    }
+    if (end < start) {
+        end = start;
+    }
+    long long count = end - start;
+    if (count <= 0 || count > LLONG_MAX / element_size) {
+        return;
+    }
+    char *data = (char *)otter_alloc(count * element_size, 8);
+    if (data == NULL) {
+        return;
+    }
+    memcpy(data, (const char *)source->data + (size_t)(start * element_size),
+           (size_t)(count * element_size));
+    out->data = data;
+    out->len = count;
+    out->cap = count;
+}
+
+void otter_slice_slice_strings(otter_slice *out, otter_slice *source,
+                               long long start, long long end) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (source == NULL || source->data == NULL) {
+        return;
+    }
+    if (start < 0) {
+        start = 0;
+    } else if (start > source->len) {
+        start = source->len;
+    }
+    if (end < 0) {
+        end = 0;
+    } else if (end > source->len) {
+        end = source->len;
+    }
+    if (end < start) {
+        end = start;
+    }
+    long long count = end - start;
+    if (count <= 0 || count > LLONG_MAX / (long long)sizeof(otter_str *)) {
+        return;
+    }
+    otter_str **data =
+        (otter_str **)otter_alloc(count * (long long)sizeof(otter_str *), 8);
+    if (data == NULL) {
+        return;
+    }
+    otter_str **elements = (otter_str **)source->data;
+    for (long long index = 0; index < count; index++) {
+        data[index] = elements[start + index];
+        otter_str_retain(data[index]);
+    }
+    out->data = (char *)data;
+    out->len = count;
+    out->cap = count;
+}
+
 /* ---- Diagnostics -------------------------------------------------------
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

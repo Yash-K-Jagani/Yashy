@@ -85,6 +85,22 @@ elements end to end, and `xs.sort()` orders an `[]i64` ascending. `insert` and
 `[]string` is allowed because it releases every element before dropping the
 length.
 
+`xs.contains(v)` and `xs.index_of(v)` search by value. `contains` answers a
+`bool`; `index_of` answers `Some(i)` for the first match and `None` when the
+value is absent. Both work for `i64`, `f64`, `bool`, and `string` elements; a
+struct or enum element has no equality and is rejected.
+
+`xs.extend(other)` appends every element of `other`. It **consumes** `other`:
+a slice binding is moved, and the runtime frees its backing array after copying.
+A slice literal or a call result works too and is freed the same way. This is
+why `xs.extend(ys)` makes `ys` unusable afterwards, just like passing it to a
+function.
+
+`xs.slice(start, end)` copies the clamped range into a fresh array. Both bounds
+are clamped to `0..=xs.len()`, and an end before the start gives an empty array.
+The result is independent: freeing it does not free the source, and for a
+`[]string` each copied element is retained so both arrays own a reference.
+
 ## Ownership
 
 A slice is linear: it has one owner and cannot be copied. **Passing it to a
@@ -150,6 +166,10 @@ element's reference would leave the slice without a matching release.
 | `xs.clear()` | `()` | Length zero; keeps the backing array. |
 | `xs.reverse()` | `()` | Reverses in place. |
 | `xs.sort()` | `()` | Ascending; `[]i64` only in this phase. |
+| `xs.contains(v)` | `bool` | Element types with equality. |
+| `xs.index_of(v)` | `Option[i64]` | First match; `None` when absent. |
+| `xs.extend(other)` | `()` | Consumes `other`; strings are retained. |
+| `xs.slice(start, end)` | `[]T` | Fresh array over the clamped range. |
 | `xs.pop()` | `Option[T]` | Removes the last element; refused for `[]string`. |
 | `for x in xs { ... }` | statement | Reads each element; the slice stays borrowed. |
 | `xs.free()` | `()` | Releases the elements (if strings) and the array. |
@@ -181,6 +201,9 @@ written in the literal, and `[]i64 {}` is the empty slice of `i64`.
 - **Sorting something other than `[]i64`.** `xs.sort()` on a `[]string` reports
   ``error: `sort` is only implemented for arrays of i64``. Sort the array you
   have, or build a numeric key array first.
+- **Using an extended array again.** `xs.extend(ys); print_i64(ys.len());`
+  reports ``error: value `ys` has already been moved``. `extend` consumed `ys`;
+  use `xs` after the call, or make a copy first with `ys.slice(0, ys.len())`.
 
 ## Try it
 

@@ -337,6 +337,14 @@ impl Module {
         out.push_str("declare void @otter_slice_clear_strings(ptr)\n");
         out.push_str("declare void @otter_slice_reverse(ptr, i64)\n");
         out.push_str("declare void @otter_slice_sort_i64(ptr)\n");
+        out.push_str("declare i64 @otter_slice_index_of_i64(ptr, i64)\n");
+        out.push_str("declare i64 @otter_slice_index_of_f64(ptr, double)\n");
+        out.push_str("declare i64 @otter_slice_index_of_bool(ptr, i64)\n");
+        out.push_str("declare i64 @otter_slice_index_of_string(ptr, i8*)\n");
+        out.push_str("declare void @otter_slice_extend(ptr, ptr, i64)\n");
+        out.push_str("declare void @otter_slice_extend_strings(ptr, ptr)\n");
+        out.push_str("declare void @otter_slice_slice(ptr, ptr, i64, i64, i64)\n");
+        out.push_str("declare void @otter_slice_slice_strings(ptr, ptr, i64, i64)\n");
         out.push_str("declare void @otter_slice_free(ptr)\n");
         out.push_str("declare void @otter_slice_free_strings(ptr)\n");
         // The map half of ledger L1's M6 block. An unused `declare` is legal

@@ -223,6 +223,26 @@ void otter_slice_clear_strings(otter_slice *slice);
 void otter_slice_reverse(otter_slice *slice, long long element_size);
 void otter_slice_sort_i64(otter_slice *slice);
 
+/* `otter_slice_index_of_*` returns the first matching index or -1. The type is
+ * part of the entry point because equality is not one operation: `f64` compares
+ * numerically, `bool` compares the stored byte, and `string` compares contents.
+ * `otter_slice_extend` appends every element of `other` and then frees `other`;
+ * the `_strings` variant retains each appended handle first. `otter_slice_slice`
+ * copies the clamped `start..end` range into a fresh array; the `_strings`
+ * variant retains each copied handle. The result owns its backing array, and an
+ * allocation failure yields the empty slice. */
+long long otter_slice_index_of_i64(otter_slice *slice, long long value);
+long long otter_slice_index_of_f64(otter_slice *slice, double value);
+long long otter_slice_index_of_bool(otter_slice *slice, long long value);
+long long otter_slice_index_of_string(otter_slice *slice, const otter_str *value);
+void otter_slice_extend(otter_slice *slice, otter_slice *other,
+                        long long element_size);
+void otter_slice_extend_strings(otter_slice *slice, otter_slice *other);
+void otter_slice_slice(otter_slice *out, otter_slice *source, long long start,
+                       long long end, long long element_size);
+void otter_slice_slice_strings(otter_slice *out, otter_slice *source,
+                               long long start, long long end);
+
 /* ---- Maps ----
  *
  *     declare i8* @otter_map_new(i64, i64, i64)

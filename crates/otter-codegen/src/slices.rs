@@ -421,6 +421,192 @@ pub fn gen_sort(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     unit()
 }
 
+/// Store a slice header in a fresh slot and return the slot.
+fn header_slot(ctx: &mut FnCtx<'_>, value: &GenValue) -> String {
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!("store {SLICE_REPR} {}, ptr {slot}", value.value));
+    slot
+}
+
+/// The runtime entry point and the lowered value for an equality search.
+///
+/// `bool` is stored as one byte, but the C ABI of the helper takes a machine
+/// word, so the value is zero-extended at the call site. A `string` handle is
+/// an `i8*` in the IR and an `otter_str*` in C; both are the same pointer.
+fn index_of_call(
+    ctx: &mut FnCtx<'_>,
+    element: &TypeKind,
+    slot: &str,
+    value: &GenValue,
+) -> Option<String> {
+    let symbol = match element {
+        TypeKind::I64 => "otter_slice_index_of_i64",
+        TypeKind::F64 => "otter_slice_index_of_f64",
+        TypeKind::Bool => "otter_slice_index_of_bool",
+        TypeKind::Str => "otter_slice_index_of_string",
+        _ => return None,
+    };
+    let argument = if matches!(element, TypeKind::Bool) {
+        let wide = ctx.tmp();
+        ctx.push(format!("{wide} = zext i1 {} to i64", value.value));
+        wide
+    } else {
+        value.value.clone()
+    };
+    let repr = if matches!(element, TypeKind::F64) {
+        "double"
+    } else if matches!(element, TypeKind::Str) {
+        "i8*"
+    } else {
+        "i64"
+    };
+    let result = ctx.tmp();
+    ctx.push(format!(
+        "{result} = call i64 @{symbol}(ptr {slot}, {repr} {argument})"
+    ));
+    Some(result)
+}
+
+/// Lower `slice_contains(slice, value) -> bool`.
+pub fn gen_contains(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some(receiver) = args.first() else {
+        return false_value();
+    };
+    let Some(value_expr) = args.get(1) else {
+        return false_value();
+    };
+    let header = gen_expr(ctx, receiver);
+    let TypeKind::Slice(element) = &header.ty else {
+        return false_value();
+    };
+    let slot = header_slot(ctx, &header);
+    let value = gen_expr(ctx, value_expr);
+    let Some(result) = index_of_call(ctx, &element.kind, &slot, &value) else {
+        return false_value();
+    };
+    if matches!(element.kind, TypeKind::Str) {
+        ctx.release_owned(&value.value);
+    }
+    let found = ctx.tmp();
+    ctx.push(format!("{found} = icmp sge i64 {result}, 0"));
+    GenValue {
+        value: found,
+        ty: TypeKind::Bool,
+    }
+}
+
+/// Lower `slice_index_of(slice, value) -> Option[i64]`.
+pub fn gen_index_of(
+    ctx: &mut FnCtx<'_>,
+    args: &[HirExpr],
+    option_ty: &TypeKind,
+) -> GenValue {
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let Some(receiver) = args.first() else {
+        return unit();
+    };
+    let Some(value_expr) = args.get(1) else {
+        return unit();
+    };
+    let header = gen_expr(ctx, receiver);
+    let TypeKind::Slice(slice_element) = &header.ty else {
+        return unit();
+    };
+    let slot = header_slot(ctx, &header);
+    let value = gen_expr(ctx, value_expr);
+    let Some(result) = index_of_call(ctx, &slice_element.kind, &slot, &value) else {
+        return unit();
+    };
+    if matches!(slice_element.kind, TypeKind::Str) {
+        ctx.release_owned(&value.value);
+    }
+    let found = ctx.tmp();
+    ctx.push(format!("{found} = icmp sge i64 {result}, 0"));
+    let flag = ctx.tmp();
+    ctx.push(format!("{flag} = zext i1 {found} to i64"));
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca i64"));
+    ctx.push(format!("store i64 {result}, ptr {out_slot}"));
+    option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower `slice_extend(slice, other) -> ()`.
+///
+/// `other` is consumed: the runtime appends its elements and then frees its
+/// backing array. For `[]string` the appended elements are retained before the
+/// consumed array releases its own references.
+pub fn gen_extend(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    let TypeKind::Slice(element) = &ty else {
+        return unit();
+    };
+    let Some(other_expr) = args.get(1) else {
+        return unit();
+    };
+    let other = gen_expr(ctx, other_expr);
+    let other_slot = header_slot(ctx, &other);
+    if matches!(element.kind, TypeKind::Str) {
+        ctx.push(format!(
+            "call void @otter_slice_extend_strings(ptr {slot}, ptr {other_slot})"
+        ));
+    } else {
+        ctx.push(format!(
+            "call void @otter_slice_extend(ptr {slot}, ptr {other_slot}, i64 {})",
+            size_of(&element.kind)
+        ));
+    }
+    unit()
+}
+
+/// Lower `slice_copy(slice, start, end) -> []T`.
+///
+/// The runtime clamps both bounds to the source length and copies the range
+/// into a fresh array. A `[]string` result retains each element, so it owns one
+/// reference per element independently of the source.
+pub fn gen_copy(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> GenValue {
+    let TypeKind::Slice(element) = slice_ty else {
+        return unit();
+    };
+    let (Some(source_expr), Some(start_expr), Some(end_expr)) =
+        (args.first(), args.get(1), args.get(2))
+    else {
+        return unit();
+    };
+    let source = gen_expr(ctx, source_expr);
+    let source_slot = header_slot(ctx, &source);
+    let start = gen_expr(ctx, start_expr);
+    let end = gen_expr(ctx, end_expr);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!(
+        "store {SLICE_REPR} zeroinitializer, ptr {out_slot}"
+    ));
+    if matches!(element.kind, TypeKind::Str) {
+        ctx.push(format!(
+            "call void @otter_slice_slice_strings(ptr {out_slot}, ptr {source_slot}, i64 {}, i64 {})",
+            start.value, end.value
+        ));
+    } else {
+        ctx.push(format!(
+            "call void @otter_slice_slice(ptr {out_slot}, ptr {source_slot}, i64 {}, i64 {}, i64 {})",
+            start.value,
+            end.value,
+            size_of(&element.kind)
+        ));
+    }
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
+    }
+}
+
 /// A `false` value for a slice method that cannot be lowered.
 fn false_value() -> GenValue {
     GenValue {

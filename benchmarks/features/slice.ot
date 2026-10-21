@@ -4,10 +4,10 @@
 // so this measures the growth policy and the copy each time it triggers, not a
 // pre-sized buffer. The C, Go and Rust rows append to a dynamic array too.
 //
-// After the sum, one `is_empty`, `first`, `last`, `get` and `set` exercise the
-// M12 query methods. They are constant-time checks outside the measured loop,
-// so the growth comparison is unchanged, but the benchmark stops compiling if
-// method resolution or the new runtime entry point regresses.
+// After the sum, one pass of the M12 query, edit, search, extend and copy
+// methods exercises their runtime entry points. Those calls are outside the
+// measured loop, so the growth comparison is unchanged, but the benchmark stops
+// compiling if method resolution or a new runtime entry point regresses.
 fn main() {
     const n = 10000000;
     var xs = []i64 {};
@@ -60,5 +60,25 @@ fn main() {
             print_str("missing get\n");
         }
     }
+    if !xs.contains(0) {
+        print_str("missing contains\n");
+    }
+    switch xs.index_of(9999999) {
+        case Some(v) {
+            if v != 9999999 {
+                print_str("bad index_of\n");
+            }
+        }
+        case None {
+            print_str("missing index_of\n");
+        }
+    }
+    var extra = []i64 { 1, 2 };
+    xs.extend(extra);
+    var copy = xs.slice(0, 3);
+    if copy.len() != 3 {
+        print_str("bad slice\n");
+    }
+    copy.free();
     xs.free();
 }

@@ -188,6 +188,15 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn array_search_and_copy_methods() {
+    let output = build_and_run("array_search");
+    assert_eq!(
+        stdout_of(&output),
+        "contains 20\nmissing 99\n2\n-1\n5\n10\n20\n30\n40\n50\n20\n30\n40\n10\n20\n30\n40\n50\ncontains c\n1\n4\nb\nc\n"
+    );
+}
+
+#[test]
 fn array_edit_methods_mutate_in_place() {
     let output = build_and_run("array_edit");
     assert_eq!(

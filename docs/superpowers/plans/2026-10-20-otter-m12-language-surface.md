@@ -314,34 +314,38 @@ git commit -m "feat: array edit and ordering methods"
 - Produces: `contains(value: T) -> bool`, `index_of(value: T) -> Option[i64]`, `extend(other: []T)`, `slice(start: i64, end: i64) -> []T`.
 - Consumes: Tasks 1–3.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
-`array_search.ot` adds `10, 20, 30`; checks `contains(20)`, `contains(99)`,
-`index_of(30)` and `index_of(99)`; extends with `{40, 50}` and prints the new
-length; copies `slice(1, 4)` and prints its elements. It also checks the
-clamping cases `slice(-5, 2)` and `slice(2, 99)`. Add
-`#[test] fn array_search_and_copy_methods()` to `e2e.rs`, calling
-`build_and_run("array_search")` and asserting the exact stdout.
+Added `array_search.ot` and `array_search_and_copy_methods`. It checks
+`contains(20)`, `contains(99)`, `index_of(30)` and `index_of(99)`; extends with
+`{40, 50}` and prints the new length; copies `slice(1, 4)`, `slice(-5, 2)` and
+`slice(2, 99)` and prints each result. A `[]string` section exercises
+`contains`, `index_of`, `extend`, and `slice` on the retain/release path.
 
-- [ ] **Step 2: Run it and verify it fails**
-
-Run: `cargo test -p otter-driver --test e2e array_search_and_copy_methods`
-Expected: FAIL; methods missing.
-
-- [ ] **Step 3: Implement the operations**
-
-`contains` and `index_of` accept element types with `==` (`i64`, `f64`, `bool`,
-`string`); a struct/enum element reports
-`error: \`contains\` needs an element type with equality`.
-`extend` copies elements into the receiver; for `[]string` it retains each
-element. `slice` copies the clamped range into a fresh array.
-
-- [ ] **Step 4: Run the test**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e array_search_and_copy_methods`
-Expected: PASS.
+Expected: FAIL. As built, the compiler reported
+`no method \`contains\` on \`[]i64\``.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement the operations**
+
+`contains` and `index_of` accept `i64`, `f64`, `bool`, and `string` elements; a
+struct or enum element reports `` `contains` needs an element type with
+equality ``. The runtime has one `otter_slice_index_of_*` entry point per type,
+and `contains` tests the returned index against zero. `extend` consumes its
+argument: a binding is moved out, the runtime copies every element, then frees
+the consumed array. The `[]string` variant retains each element before the
+consumed array releases its own references. `slice` copies the clamped range
+into a fresh array; the `[]string` variant retains each copied handle.
+
+- [x] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_search_and_copy_methods`
+Expected: PASS. It passed, and `cargo check --workspace --all-targets` stayed
+warning-free.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/runtime.c crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_search.ot

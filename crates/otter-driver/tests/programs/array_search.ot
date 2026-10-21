@@ -1,0 +1,78 @@
+// Array search, extend, and copy-slice methods. `contains`/`index_of` compare
+// element contents, `extend` consumes the array it is given, and `slice`
+// copies a clamped range into a fresh array. The `[]string` section checks the
+// retain/release path for both extend and slice.
+//
+// `show` turns an `Option[i64]` into a printable number: -1 means `None`.
+
+fn show(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
+fn main() {
+    var xs = []i64 { 10, 20, 30 };
+    if xs.contains(20) {
+        print_str("contains 20\n");
+    }
+    if xs.contains(99) {
+        print_str("unexpected: contains 99\n");
+    } else {
+        print_str("missing 99\n");
+    }
+    print_i64(show(xs.index_of(30)));
+    print_str("\n");
+    print_i64(show(xs.index_of(99)));
+    print_str("\n");
+
+    xs.extend([]i64 { 40, 50 });
+    print_i64(xs.len());
+    print_str("\n");
+    for x in xs {
+        print_i64(x);
+        print_str("\n");
+    }
+
+    var part = xs.slice(1, 4);
+    for x in part {
+        print_i64(x);
+        print_str("\n");
+    }
+    part.free();
+
+    var clamped = xs.slice(0 - 5, 2);
+    for x in clamped {
+        print_i64(x);
+        print_str("\n");
+    }
+    clamped.free();
+
+    var tail = xs.slice(2, 99);
+    for x in tail {
+        print_i64(x);
+        print_str("\n");
+    }
+    tail.free();
+
+    xs.free();
+
+    var names = []string { "a", "b" };
+    names.extend([]string { "c", "d" });
+    if names.contains("c") {
+        print_str("contains c\n");
+    }
+    print_i64(show(names.index_of("b")));
+    print_str("\n");
+    print_i64(names.len());
+    print_str("\n");
+
+    var middle = names.slice(1, 3);
+    for name in middle {
+        print_str(name);
+        print_str("\n");
+    }
+    middle.free();
+    names.free();
+}

@@ -2049,8 +2049,8 @@ impl<'src> Checker<'src> {
         let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
         let arity = match method {
             "is_empty" | "first" | "last" | "clear" | "reverse" | "sort" => 0,
-            "get" | "remove" => 1,
-            "set" | "insert" => 2,
+            "get" | "remove" | "contains" | "index_of" | "extend" => 1,
+            "set" | "insert" | "slice" => 2,
             _ => return None,
         };
         if args.len() != arity {
@@ -2123,6 +2123,10 @@ impl<'src> Checker<'src> {
             "clear" => Some(self.check_array_mutation(receiver, "slice_clear", span)),
             "reverse" => Some(self.check_array_mutation(receiver, "slice_reverse", span)),
             "sort" => Some(self.check_array_sort(receiver, span)),
+            "contains" => Some(self.check_array_contains(receiver, args, span, false)),
+            "index_of" => Some(self.check_array_contains(receiver, args, span, true)),
+            "extend" => Some(self.check_array_extend(receiver, args, span)),
+            "slice" => Some(self.check_array_slice(receiver, args, span)),
             _ => None,
         }
     }
@@ -2275,6 +2279,163 @@ impl<'src> Checker<'src> {
             unsafe_call: false,
             span,
             ty: prim(TypeKind::Unit),
+        })
+    }
+
+    /// `xs.contains(value) -> bool` and `xs.index_of(value) -> Option[i64]`.
+    ///
+    /// Both need an element type with equality; the runtime has one comparison
+    /// per type it supports. `index_of` answers the first matching position, or
+    /// `None` when the element is absent.
+    fn check_array_contains(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+        want_index: bool,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !has_equality(&element) {
+            self.error(
+                expr_span(&checked),
+                format!(
+                    "`{}` needs an element type with equality",
+                    if want_index { "index_of" } else { "contains" }
+                ),
+            );
+            return None;
+        }
+        let value = self.check_expr_with_expected(&args[0], &element)?;
+        if !fits(&element, &expr_ty(&value)) {
+            self.error(
+                expr_span(&value),
+                format!("expected `{element}`, found `{}`", expr_ty(&value)),
+            );
+            return None;
+        }
+        let result_ty = if want_index {
+            option(&prim(TypeKind::I64), span)
+        } else {
+            prim(TypeKind::Bool)
+        };
+        Some(HirExpr::Call {
+            callee: vec![if want_index {
+                "slice_index_of".to_string()
+            } else {
+                "slice_contains".to_string()
+            }],
+            args: vec![checked, value],
+            unsafe_call: false,
+            span,
+            ty: result_ty,
+        })
+    }
+
+    /// `xs.extend(other)` consumes `other` and appends its elements.
+    ///
+    /// A binding argument is moved out, and the runtime frees the consumed
+    /// slice after copying, so the caller cannot read it again. A slice
+    /// literal or a call result is a temporary with the same ownership. A
+    /// field or index projection is refused: freeing its backing array would
+    /// leave the field holding a dangling header.
+    fn check_array_extend(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        let other_expr = &args[0];
+        let other = self.check_expr(other_expr)?;
+        let other_ty = expr_ty(&other);
+        let TypeKind::Slice(other_element) = &other_ty.kind else {
+            self.error(
+                expr_span(&other),
+                format!("`extend` expects an array, found `{other_ty}`"),
+            );
+            return None;
+        };
+        if **other_element != element {
+            self.error(
+                expr_span(&other),
+                format!("`extend` expects `[]{element}`, found `{other_ty}`"),
+            );
+            return None;
+        }
+        match other_expr {
+            Expr::Ident(path, ident_span) if path.len() == 1 => {
+                let name = path.last().cloned().unwrap_or_default();
+                if name == receiver {
+                    self.error(*ident_span, "an array cannot extend itself");
+                    return None;
+                }
+                if let Err(error) = self.move_out(&name, *ident_span) {
+                    self.error(error.span, error.message);
+                }
+            }
+            Expr::SliceLit { .. } | Expr::Call { .. } => {}
+            _ => {
+                self.error(
+                    expr_span(&other),
+                    "`extend` needs a slice binding, a slice literal, or a call result",
+                );
+                return None;
+            }
+        }
+        Some(HirExpr::Call {
+            callee: vec!["slice_extend".to_string()],
+            args: vec![checked, other],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Unit),
+        })
+    }
+
+    /// `xs.slice(start, end) -> []T`, a fresh array over the clamped range.
+    fn check_array_slice(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        let start = self.check_expr_with_expected(&args[0], &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&start)) {
+            self.error(
+                expr_span(&start),
+                format!("expected `i64`, found `{}`", expr_ty(&start)),
+            );
+            return None;
+        }
+        let end = self.check_expr_with_expected(&args[1], &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&end)) {
+            self.error(
+                expr_span(&end),
+                format!("expected `i64`, found `{}`", expr_ty(&end)),
+            );
+            return None;
+        }
+        let result_ty = Type {
+            kind: TypeKind::Slice(Box::new(element)),
+            span,
+        };
+        Some(HirExpr::Call {
+            callee: vec!["slice_copy".to_string()],
+            args: vec![checked, start, end],
+            unsafe_call: false,
+            span,
+            ty: result_ty,
         })
     }
 
