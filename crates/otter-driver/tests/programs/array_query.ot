@@ -1,0 +1,55 @@
+// Array query and update methods. `first`/`last` are `get(0)`/`get(len - 1)`,
+// so an empty array answers `None` rather than faulting. `set` returns `false`
+// when the index is outside the array, and the array is unchanged.
+//
+// `show` turns an `Option[i64]` into a printable number: -1 means `None`.
+
+fn show(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
+fn main() {
+    var empty = []i64 {};
+    if empty.is_empty() {
+        print_str("empty is empty\n");
+    }
+    print_i64(show(empty.first()));
+    print_str("\n");
+    print_i64(show(empty.last()));
+    print_str("\n");
+
+    var xs = []i64 { 10, 20, 30 };
+    if xs.is_empty() {
+        print_str("unexpected: not empty\n");
+    } else {
+        print_str("xs is not empty\n");
+    }
+    print_i64(show(xs.get(1)));
+    print_str("\n");
+    print_i64(show(xs.get(3)));
+    print_str("\n");
+    print_i64(show(xs.first()));
+    print_str("\n");
+    print_i64(show(xs.last()));
+    print_str("\n");
+
+    if xs.set(1, 99) {
+        print_str("set in range\n");
+    } else {
+        print_str("unexpected: set missed\n");
+    }
+    print_i64(show(xs.get(1)));
+    print_str("\n");
+
+    if xs.set(3, 1) {
+        print_str("unexpected: set accepted an out-of-range index\n");
+    } else {
+        print_str("set out of range\n");
+    }
+
+    free_slice(empty);
+    free_slice(xs);
+}

@@ -188,6 +188,15 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn array_query_methods_answer_in_options() {
+    let output = build_and_run("array_query");
+    assert_eq!(
+        stdout_of(&output),
+        "empty is empty\n-1\n-1\nxs is not empty\n20\n-1\n10\n30\nset in range\n99\nset out of range\n"
+    );
+}
+
+#[test]
 fn array_builtins_can_be_called_as_methods() {
     let output = build_and_run("array_methods");
     assert_eq!(stdout_of(&output), "2\n3\n");

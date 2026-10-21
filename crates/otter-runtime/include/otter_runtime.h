@@ -193,14 +193,18 @@ void otter_slice_free_strings(otter_slice *slice);
 /* `otter_slice_get` copies the element at `index` into `out` and returns 1, or
  * returns 0 and leaves `out` untouched when `index` is negative or at least
  * `len`. `otter_slice_pop` is the same for the last element, after decrementing
- * `len`; an empty slice returns 0. Both take the stride so the runtime stays
+ * `len`; an empty slice returns 0. `otter_slice_set` copies `element` over the
+ * element at `index` and returns 1, or returns 0 and leaves the slice unchanged
+ * when the index is out of range. All three take the stride so the runtime stays
  * independent of the element type. A null slice is a miss, not a crash.
  *
  * Indexing is how the language reads a slice, and it never traps: the 0/1
  * answer becomes an `Option`, so "out of range" is a value rather than a
- * process ending. */
+ * process ending. `set` is the same rule with a `bool` answer. */
 long long otter_slice_get(otter_slice *slice, long long index, void *out, long long element_size);
 long long otter_slice_pop(otter_slice *slice, void *out, long long element_size);
+long long otter_slice_set(otter_slice *slice, long long index, const void *element,
+                          long long element_size);
 
 /* ---- Maps ----
  *

@@ -3,12 +3,17 @@
 // Nothing is preallocated: the runtime doubles the backing array when it fills,
 // so this measures the growth policy and the copy each time it triggers, not a
 // pre-sized buffer. The C, Go and Rust rows append to a dynamic array too.
+//
+// After the sum, one `is_empty`, `first`, `last`, `get` and `set` exercise the
+// M12 query methods. They are constant-time checks outside the measured loop,
+// so the growth comparison is unchanged, but the benchmark stops compiling if
+// method resolution or the new runtime entry point regresses.
 fn main() {
     const n = 10000000;
     var xs = []i64 {};
     var i = 0;
     while i < n {
-        push(xs, i);
+        xs.push(i);
         i = wrapping_add(i, 1);
     }
 
@@ -18,5 +23,42 @@ fn main() {
     }
     print_i64(sum);
     print_str("\n");
-    free_slice(xs);
+
+    if xs.is_empty() {
+        print_str("unexpected empty\n");
+    }
+    switch xs.first() {
+        case Some(v) {
+            if v != 0 {
+                print_str("bad first\n");
+            }
+        }
+        case None {
+            print_str("missing first\n");
+        }
+    }
+    switch xs.last() {
+        case Some(v) {
+            if v != 9999999 {
+                print_str("bad last\n");
+            }
+        }
+        case None {
+            print_str("missing last\n");
+        }
+    }
+    if !xs.set(0, 0) {
+        print_str("set failed\n");
+    }
+    switch xs.get(0) {
+        case Some(v) {
+            if v != 0 {
+                print_str("bad get\n");
+            }
+        }
+        case None {
+            print_str("missing get\n");
+        }
+    }
+    xs.free();
 }

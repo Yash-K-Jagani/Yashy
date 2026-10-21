@@ -272,6 +272,50 @@ pub fn gen_pop(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> G
     option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
 }
 
+/// Lower `slice_set(slice, index, value) -> bool`.
+///
+/// The value is copied into a temporary slot and the runtime copies it over the
+/// element only when the index is in range. The receiver must be a binding, as
+/// for `push` and `pop`, because the runtime takes the address of its header.
+pub fn gen_set(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
+        return GenValue {
+            value: "false".to_string(),
+            ty: TypeKind::Bool,
+        };
+    };
+    let TypeKind::Slice(element) = &ty else {
+        return GenValue {
+            value: "false".to_string(),
+            ty: TypeKind::Bool,
+        };
+    };
+    let (Some(index_expr), Some(value_expr)) = (args.get(1), args.get(2)) else {
+        return GenValue {
+            value: "false".to_string(),
+            ty: TypeKind::Bool,
+        };
+    };
+    let index = gen_expr(ctx, index_expr);
+    let value = gen_expr(ctx, value_expr);
+    let elem_repr = repr_type(&element.kind);
+    let elem_size = size_of(&element.kind);
+    let temp = ctx.alloc_slot();
+    ctx.push_alloca(format!("{temp} = alloca {elem_repr}"));
+    ctx.push(format!("store {elem_repr} {}, ptr {temp}", value.value));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_slice_set(ptr {slot}, i64 {}, ptr {temp}, i64 {elem_size})",
+        index.value
+    ));
+    let ok = ctx.tmp();
+    ctx.push(format!("{ok} = icmp ne i64 {flag}, 0"));
+    GenValue {
+        value: ok,
+        ty: TypeKind::Bool,
+    }
+}
+
 /// Lower `free_slice(slice) -> ()`.
 ///
 /// The runtime frees the backing array and zeroes the header in the binding's

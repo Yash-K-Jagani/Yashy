@@ -860,6 +860,17 @@ long long otter_slice_pop(otter_slice *slice, void *out, long long element_size)
     return 1;
 }
 
+long long otter_slice_set(otter_slice *slice, long long index, const void *element,
+                          long long element_size) {
+    if (slice == NULL || element == NULL || element_size <= 0 || index < 0 ||
+        index >= slice->len || slice->data == NULL) {
+        return 0;
+    }
+    memcpy((char *)slice->data + (size_t)(index * element_size), element,
+           (size_t)element_size);
+    return 1;
+}
+
 /* ---- Diagnostics -------------------------------------------------------
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

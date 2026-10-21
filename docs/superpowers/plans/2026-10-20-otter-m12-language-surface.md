@@ -214,35 +214,39 @@ git commit -m "feat(sema): resolve builtins as methods"
 - Produces: `len() -> i64`, `is_empty() -> bool`, `get(index: i64) -> Option[T]`, `first() -> Option[T]`, `last() -> Option[T]`, `set(index: i64, value: T) -> bool`.
 - Consumes: Task 1's method desugaring.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
-`array_query.ot` covers an empty array (`is_empty` true, `first`/`last` `None`),
-a populated array (`get`, `first`, `last`), an out-of-range `get`, an in-range
-`set` that changes a later read, and an out-of-range `set` that returns `false`.
-Add `#[test] fn array_query_methods_answer_in_options()` to `e2e.rs`, calling
-`build_and_run("array_query")` and asserting the exact stdout.
+Added `array_query.ot` and
+`array_query_methods_answer_in_options`. The program covers an empty array
+(`is_empty`, `first`, `last`), a populated array (`get`, `first`, `last`), an
+out-of-range `get`, an in-range `set` that changes a later read, and an
+out-of-range `set` that returns `false`.
 
-- [ ] **Step 2: Run it and verify it fails**
-
-Run: `cargo test -p otter-driver --test e2e array_query_methods_answer_in_options`
-Expected: FAIL; the methods do not exist.
-
-- [ ] **Step 3: Implement the method table and runtime entry points**
-
-`get` reuses slice indexing; `first`/`last` lower to `get(0)` / `get(len - 1)`.
-`set` calls new `otter_slice_set(slice, index, value, size) -> i64`, which
-returns 1 on success and 0 when `index` is outside `0..len`. `is_empty` lowers
-to `len() == 0`.
-
-- [ ] **Step 4: Run the test**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e array_query_methods_answer_in_options`
-Expected: PASS.
+Expected: FAIL. As built, the compiler reported
+`no method \`is_empty\` on \`[]i64\``.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement the method table and runtime entry points**
+
+`get` reuses `Expr::Index`; `first`/`last` build `xs[0]` / `xs[xs.len() - 1]`;
+`is_empty` builds `xs.len() == 0`. `set` is checked as a binding receiver with
+an `i64` index and an element-typed value, then lowered to the new
+`otter_slice_set(slice, index, value, size) -> i64` runtime call. The codegen
+turns the 0/1 answer into `bool`. `set` on a `[]string` is refused until the
+array owns a retain/release pair for the replaced element.
+
+- [x] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_query_methods_answer_in_options`
+Expected: PASS. It passed, and `cargo check --workspace --all-targets` stayed
+warning-free.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_query.ot
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_query.ot docs/tutorial/09-slices.md
 git commit -m "feat: array query methods"
 ```
 

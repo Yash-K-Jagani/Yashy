@@ -1096,7 +1096,7 @@ impl<'src> Checker<'src> {
                         self.error(
                             *span,
                             "cannot assign to a slice element: the slice does not \
-                             expose its storage; use `push` to append",
+                             expose its storage; use the `set` method",
                         );
                         return None;
                     }
@@ -2011,6 +2011,11 @@ impl<'src> Checker<'src> {
         let method = &callee[1];
         let binding = self.scope.resolve(receiver)?;
         let receiver_ty = binding.ty.clone();
+        if matches!(receiver_ty.kind, TypeKind::Slice(_)) {
+            if let Some(checked) = self.check_array_method(receiver, method, args, span) {
+                return Some(checked);
+            }
+        }
         let Some(builtin) = builtin_method_name(method, &receiver_ty.kind) else {
             self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
             return Some(None);
@@ -2025,6 +2030,152 @@ impl<'src> Checker<'src> {
             span,
         };
         Some(self.check_expr(&synthetic))
+    }
+
+    /// Array query and update methods that do not lower to a single existing
+    /// builtin.
+    ///
+    /// `first`, `last`, and `is_empty` are source-level compositions: they
+    /// become an index expression or a comparison against `len`, so indexing
+    /// remains the one place that defines the `Option` shape. `set` needs a
+    /// runtime call because it writes through the binding's header.
+    fn check_array_method(
+        &mut self,
+        receiver: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
+        let arity = match method {
+            "is_empty" | "first" | "last" => 0,
+            "get" => 1,
+            "set" => 2,
+            _ => return None,
+        };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        match method {
+            "is_empty" => {
+                let len = Expr::Call {
+                    callee: vec!["len".to_string()],
+                    args: vec![receiver_expr()],
+                    unsafe_call: false,
+                    span,
+                };
+                let zero = Expr::Literal(Literal::I64(0), span);
+                let empty = Expr::Binary {
+                    op: BinOp::Eq,
+                    lhs: Box::new(len),
+                    rhs: Box::new(zero),
+                    span,
+                };
+                Some(self.check_expr(&empty))
+            }
+            "get" => {
+                let index = Expr::Index {
+                    base: Box::new(receiver_expr()),
+                    index: Box::new(args[0].clone()),
+                    span,
+                };
+                Some(self.check_expr(&index))
+            }
+            "first" => {
+                let index = Expr::Index {
+                    base: Box::new(receiver_expr()),
+                    index: Box::new(Expr::Literal(Literal::I64(0), span)),
+                    span,
+                };
+                Some(self.check_expr(&index))
+            }
+            "last" => {
+                let len = Expr::Call {
+                    callee: vec!["len".to_string()],
+                    args: vec![receiver_expr()],
+                    unsafe_call: false,
+                    span,
+                };
+                let one = Expr::Literal(Literal::I64(1), span);
+                let index = Expr::Binary {
+                    op: BinOp::Sub,
+                    lhs: Box::new(len),
+                    rhs: Box::new(one),
+                    span,
+                };
+                let last = Expr::Index {
+                    base: Box::new(receiver_expr()),
+                    index: Box::new(index),
+                    span,
+                };
+                Some(self.check_expr(&last))
+            }
+            "set" => Some(self.check_array_set(receiver, args, span)),
+            _ => None,
+        }
+    }
+
+    /// `xs.set(index, value) -> bool`, where the receiver must be a plain
+    /// binding because the runtime updates its header through the binding's
+    /// slot.
+    fn check_array_set(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let receiver_expr = Expr::Ident(vec![receiver.to_string()], span);
+        let checked = self.check_expr(&receiver_expr)?;
+        let receiver_ty = expr_ty(&checked);
+        let TypeKind::Slice(element) = &receiver_ty.kind else {
+            self.error(
+                expr_span(&checked),
+                format!("`set` expects an array, found `{receiver_ty}`"),
+            );
+            return None;
+        };
+        let element = (**element).clone();
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        if matches!(element.kind, TypeKind::Str) {
+            self.error(
+                expr_span(&checked),
+                "setting a `string` element is not supported yet: the array owns the old reference, and the replacement would need a retain and a release",
+            );
+            return None;
+        }
+        let index = self.check_expr_with_expected(&args[0], &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
+            self.error(
+                expr_span(&index),
+                format!("expected `i64`, found `{}`", expr_ty(&index)),
+            );
+            return None;
+        }
+        let value = self.check_expr_with_expected(&args[1], &element)?;
+        if !fits(&element, &expr_ty(&value)) {
+            self.error(
+                expr_span(&value),
+                format!("expected `{element}`, found `{}`", expr_ty(&value)),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["slice_set".to_string()],
+            args: vec![checked, index, value],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Bool),
+        })
     }
 
     fn check_slice_builtin(

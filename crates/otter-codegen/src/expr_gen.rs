@@ -827,6 +827,7 @@ fn gen_call(
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
         "push" => crate::slices::gen_push(ctx, args),
         "pop" => crate::slices::gen_pop(ctx, args, ty),
+        "slice_set" => crate::slices::gen_set(ctx, args),
         "free_slice" => crate::slices::gen_free(ctx, args),
         "map_new" => crate::maps::gen_new(ctx, ty),
         "map_insert" => crate::maps::gen_insert(ctx, args),
