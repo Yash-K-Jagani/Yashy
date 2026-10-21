@@ -19,4 +19,8 @@ fn main() {
     const greet = greeter("hello");
     print_str(greet());
     print_str("\n");
+
+    // A closure that is made and thrown away: its environment is released
+    // with it, so it does not leak.
+    |x: i64| -> i64 { return x; };
 }

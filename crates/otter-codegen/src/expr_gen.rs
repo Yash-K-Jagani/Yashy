@@ -270,10 +270,10 @@ impl<'a> FnCtx<'a> {
             RefKind::Env => {
                 // The value is a `{ i8* code, i8* env }` pair: the environment
                 // is its second half.
-                let pair = self.tmp();
-                self.push(format!("{pair} = load {{ i8*, i8* }}, ptr {name}"));
                 let env = self.tmp();
-                self.push(format!("{env} = extractvalue {{ i8*, i8* }} {pair}, 1"));
+                self.push(format!(
+                    "{env} = extractvalue {{ i8*, i8* }} {name}, 1"
+                ));
                 self.push(format!("call void @otter_env_release(i8* {env})"));
             }
         }

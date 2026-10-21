@@ -73,9 +73,9 @@ there because "what does a function value cost" is a question about the
 difference between two calls, not about one number: every language has a
 direct call, and the interesting measurement is what the *value* adds to it.
 Each language therefore contributes a `value` row and a `direct` row, and the
-gap between them is the price of the function value. Otter contributes a
-third row, `lambda`, which calls through a lambda instead of a named
-function.
+gap between them is the price of the function value. Otter contributes two
+more: a `lambda` row, which calls through a lambda, and a `closure` row,
+which calls through a closure that captured a value.
 
 The `value` rows keep the call indirect on purpose, because a call the
 optimizer can see through is not a call through a value:
@@ -546,41 +546,45 @@ covers that case.
 
 | Language | min ms | median ms | ns/call |
 |---|---:|---:|---:|
-| Otter -O2 (direct) | 160.5 | 165.5 | 1.60 |
-| Rust (rustc -O, direct) | 160.8 | 168.0 | 1.61 |
-| C (clang -O2, direct) | 162.8 | 170.3 | 1.63 |
-| C (gcc -O2, direct) | 200.2 | 201.1 | 2.00 |
-| Go (go build, direct) | 229.0 | 240.5 | 2.29 |
-| C (gcc -O2, value) | 306.7 | 313.2 | 3.07 |
-| C (clang -O2, value) | 348.1 | 350.8 | 3.48 |
-| Rust (rustc -O, value) | 378.5 | 386.9 | 3.79 |
-| Otter -O2 (lambda) | 417.5 | 423.7 | 4.17 |
-| Otter -O2 (value) | 457.9 | 461.6 | 4.58 |
-| Go (go build, value) | 545.1 | 571.5 | 5.45 |
+| C (clang -O2, direct) | 158.8 | 165.9 | 1.59 |
+| Otter -O2 (direct) | 160.7 | 163.9 | 1.61 |
+| Rust (rustc -O, direct) | 162.1 | 165.4 | 1.62 |
+| C (gcc -O2, direct) | 201.2 | 207.7 | 2.01 |
+| Go (go build, direct) | 232.3 | 241.0 | 2.32 |
+| C (gcc -O2, value) | 306.3 | 314.9 | 3.06 |
+| C (clang -O2, value) | 343.5 | 355.9 | 3.44 |
+| Rust (rustc -O, value) | 374.9 | 389.8 | 3.75 |
+| Otter -O2 (lambda) | 414.6 | 423.8 | 4.15 |
+| Otter -O2 (closure) | 417.3 | 426.1 | 4.17 |
+| Otter -O2 (value) | 453.4 | 466.1 | 4.53 |
+| Go (go build, value) | 548.5 | 569.2 | 5.49 |
 
 The direct rows call the function by name; the value rows call the same
 function through a value, so the difference between the two rows of a language
 is the price of the value and nothing else.
 
-The price is about 1.5 ns more per call in C, 2.2 ns in Rust, 3.0 ns in Otter
+The price is about 1.5 ns more per call in C, 2.1 ns in Rust, 2.9 ns in Otter
 and 3.2 ns in Go. A function value is a pair of pointers — the code and the
 environment — and the call goes through the code pointer, which the processor
 cannot predict. The direct rows are the same program with the call folded to a
 direct one, which is why they are 1.6 to 2.3 ns.
 
-Otter's value row is 31% behind clang's and 16% ahead of Go's. Otter's
+Otter's value row is 31% behind clang's and 18% ahead of Go's. Otter's
 function value is a `{ i8* code, i8* env }` pair in memory: the call site
 loads the pair out of the binding's slot, takes the two halves, and calls the
 code pointer with the environment as its first argument. The environment is
 null for a top-level function, but the argument is still passed, because that
 is the convention a closure will use.
 
-The lambda row is the same workload calling through a lambda instead of a
-named function: the lambda is written inside the loop, so the value is built
-on every iteration exactly as the value row builds it, and the two differ only
-in what the value points at. A lambda costs 4.17 ns against the named
-function's 4.58 — the same call, with one fewer indirection to reach the
-function itself.
+The two Otter rows that are not a direct call are the same program through
+different values. The `lambda` row calls through a lambda written inside the
+loop, so the value is built on every iteration exactly as the value row builds
+it, and the two differ only in what the value points at. The `closure` row
+calls through a closure that captured a value, so the call passes an
+environment that is not null and the closure reads the captured value out of
+it. The two cost the same to within a percent: 4.15 ns and 4.17 ns, against
+the named function's 4.53. Carrying a captured value is not what makes a call
+through a value slow; going through the pointer is.
 
 When these numbers change, update this file and the `Speed` section of the
 top-level `README.md` in the same commit, so the two cannot drift.

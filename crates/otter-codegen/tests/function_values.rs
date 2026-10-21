@@ -204,6 +204,19 @@ fn a_closure_carries_its_captures_in_an_environment() {
 }
 
 #[test]
+fn a_thrown_away_closure_releases_its_environment() {
+    // A closure that is made and never used still owns an environment, and the
+    // environment has to come back.
+    let ir_text = ir_of(
+        "fn main() { const n = 1; |x: i64| -> i64 { return x + n; }; }",
+    );
+    assert!(
+        ir_text.contains("call void @otter_env_release(i8* %"),
+        "the discarded closure's environment is released:\n{ir_text}"
+    );
+}
+
+#[test]
 fn a_captured_string_is_retained_by_the_environment() {
     // The environment owns a reference to the string it captured, and the
     // table says so: the release at the end of the environment's life is the
