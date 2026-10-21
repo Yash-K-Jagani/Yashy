@@ -815,6 +815,22 @@ closure from a named function by type, so the refusal is by type: a program
 that wants a function in a struct waits for the aggregate's own reference
 counting.
 
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-sema --test functions` — 15 PASS.
+- `cargo test -p otter-codegen --test function_values` — 12 PASS.
+- `cargo test -p otter-driver --test e2e a_closure_outlives_its_creating_scope`
+  — PASS; the program printed `15\nhello\n`.
+- `cargo test -p otter-driver --test leaks a_closure_releases_its_environment`
+  — PASS; the runtime reported `0 live allocations`, so the environment and
+  the string it captured both came back.
+- `cargo test -p otter-driver --test tutorial` — PASS, with the closure
+  section in chapter 11.
+- The golden IR files gained the three `declare` lines the module now emits
+  for the environment. The diff is those three lines in each of the twelve
+  files and nothing else.
+
 
 ### Task 10: Builtin `map`, `filter`, and `fold`
 

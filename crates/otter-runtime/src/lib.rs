@@ -116,6 +116,42 @@ unsafe extern "C" {
     pub fn otter_arena_free_all(arena: *mut c_void);
 }
 
+unsafe extern "C" {
+    /// A new closure environment with `slot_count` captured values in a
+    /// payload of `payload_size` bytes, and one reference. The captured
+    /// values start `OTTER_ENV_HEADER_SIZE + slot_count * OTTER_ENV_SLOT_SIZE`
+    /// bytes into the block. Null if the allocation fails.
+    pub fn otter_env_new(
+        slot_count: c_longlong,
+        payload_size: c_longlong,
+        align: c_longlong,
+    ) -> *mut c_void;
+}
+
+unsafe extern "C" {
+    /// One more reference to `env`, and the environment itself. Null stays
+    /// null.
+    pub fn otter_env_retain(env: *mut c_void) -> *mut c_void;
+}
+
+unsafe extern "C" {
+    /// One fewer reference to `env`. When the last one goes, the captured
+    /// strings are released and the block is freed. Null is left alone.
+    pub fn otter_env_release(env: *mut c_void);
+}
+
+/// The environment's header, as C lays it out: the reference count and the
+/// number of captured values that need releasing.
+///
+/// This is also the IR shape the generated code writes, and the two sizes
+/// below are the ones the runtime's header and the backend's `env` module
+/// have to agree on.
+pub const OTTER_ENV_HEADER_SIZE: usize = 16;
+
+/// One entry of the environment's release table: what to release, and the
+/// reference to release.
+pub const OTTER_ENV_SLOT_SIZE: usize = 16;
+
 /// The runtime's slice header, as C lays it out:
 /// `struct otter_slice { void *data; long long len; long long cap; }`.
 ///
