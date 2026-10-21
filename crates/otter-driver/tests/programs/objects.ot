@@ -1,0 +1,21 @@
+// An object declaration: a type with its fields and its methods together.
+
+object Counter {
+    value: i64,
+    fn get(self) -> i64 {
+        return self.value;
+    },
+    fn add(self, n: i64) -> Counter {
+        return Counter { value: self.value + n };
+    },
+}
+
+fn main() {
+    const counter = Counter { value: 3 };
+    print_i64(counter.get());
+    print_str("\n");
+
+    // A method called on the result of another one.
+    print_i64(counter.add(4).get());
+    print_str("\n");
+}

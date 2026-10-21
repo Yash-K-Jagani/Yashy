@@ -7,7 +7,7 @@
 
 use otter_common::SourceMap;
 use otter_lexer::Lexer;
-use otter_parser::ast::{Item, TypeExpr};
+use otter_parser::ast::{Expr, Item, Stmt, TypeExpr};
 use otter_parser::Parser;
 
 /// Parse `src` and return its items.
@@ -71,4 +71,41 @@ fn an_impl_block_may_hold_several_methods() {
         panic!("the program has an `impl` block");
     };
     assert_eq!(methods.len(), 2);
+}
+
+#[test]
+fn an_object_holds_its_fields_and_its_methods() {
+    let items = items_of(
+        "object Counter { value: i64, fn get(self) -> i64 { return self.value; } }",
+    );
+    let Item::Object {
+        name,
+        fields,
+        methods,
+        ..
+    } = &items[0]
+    else {
+        panic!("the program has an object");
+    };
+    assert_eq!(name, "Counter");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "value");
+    assert_eq!(methods.len(), 1);
+}
+
+#[test]
+fn a_method_called_on_a_value_is_not_a_path() {
+    // `f().g()` has no path to write down, so the parser keeps the receiver
+    // as the expression it is.
+    let items = items_of("fn main() { const n = f().g(); }");
+    let Item::Fn { body, .. } = &items[0] else {
+        panic!("the program has a function");
+    };
+    let Stmt::Const { init, .. } = &body.stmts[0] else {
+        panic!("the function has a const binding");
+    };
+    let Expr::MethodCall { method, .. } = init else {
+        panic!("the call is on a value, not a path: {init:?}");
+    };
+    assert_eq!(method, "g");
 }

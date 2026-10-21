@@ -260,6 +260,12 @@ fn impl_methods_take_self() {
 }
 
 #[test]
+fn an_object_declaration_carries_its_methods() {
+    let output = build_and_run("objects");
+    assert_eq!(stdout_of(&output), "3\n7\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

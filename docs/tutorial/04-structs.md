@@ -122,6 +122,38 @@ fn main() {
 A method that does not exist is reported by name and by type:
 ``error: no method `area` on `Point` ``.
 
+## Objects
+
+An `object` is a type with its fields and its methods in one declaration. It
+is a struct and an `impl` block written together.
+
+```otter
+object Counter {
+    value: i64,
+    fn get(self) -> i64 {
+        return self.value;
+    },
+    fn add(self, n: i64) -> Counter {
+        return Counter { value: self.value + n };
+    },
+}
+
+fn main() {
+    const counter = Counter { value: 3 };
+    print_i64(counter.get());
+    print_str("\n");
+    // => 3
+
+    print_i64(counter.add(4).get());
+    print_str("\n");
+    // => 7
+}
+```
+
+The object is constructed with the ordinary struct-literal syntax, and its
+methods are called like any other method. A method may be called on the
+result of another one, as `counter.add(4).get()` does.
+
 ## The operations
 
 | Operation | Syntax | Meaning |

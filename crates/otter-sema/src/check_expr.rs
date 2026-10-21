@@ -699,6 +699,71 @@ impl<'src> Checker<'src> {
                         }
                     }
                 }
+                Item::Object {
+                    name,
+                    fields,
+                    methods,
+                    span,
+                } => {
+                    // An object is a struct and an `impl` block written
+                    // together: the type is declared here, and the methods
+                    // are registered the way an `impl` block's are.
+                    let binding = Binding {
+                        ty: Type {
+                            kind: TypeKind::Struct(name.clone()),
+                            span: *span,
+                        },
+                        mutability: Mutability::Const,
+                        span: *span,
+                        ownership: Ownership::Live,
+                    };
+                    if let Err(e) = self.scope.declare(name.clone(), binding) {
+                        self.error(e.span, e.message);
+                    }
+                    let field_tys = fields
+                        .iter()
+                        .map(|f| {
+                            let ty = self.resolve_or_report(&f.ty, f.span);
+                            (f.name.clone(), ty)
+                        })
+                        .collect();
+                    self.structs
+                        .insert(name.clone(), StructSig { fields: field_tys });
+                    let receiver_ty = Type {
+                        kind: TypeKind::Struct(name.clone()),
+                        span: *span,
+                    };
+                    for method in methods {
+                        let Item::Fn {
+                            name: method_name,
+                            params,
+                            ret,
+                            body: _,
+                            span: method_span,
+                        } = method
+                        else {
+                            self.error(*span, "an `object` holds only methods");
+                            continue;
+                        };
+                        let sig = self.method_signature(
+                            name,
+                            method_name,
+                            params,
+                            ret,
+                            &receiver_ty,
+                            *method_span,
+                        );
+                        let mangled = format!("{name}.{method_name}");
+                        if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
+                            if previous.name == *method_name {
+                                self.error(
+                                    *method_span,
+                                    format!("`{name}` already has a method named `{method_name}`"),
+                                );
+                            }
+                        }
+                    }
+                }
                 Item::Struct { name, fields, span } => {
                     let binding = Binding {
                         ty: Type {
@@ -1216,6 +1281,33 @@ impl<'src> Checker<'src> {
                 methods,
                 span: _,
             } => self.check_impl_methods(type_name, methods),
+            Item::Object {
+                name,
+                fields,
+                methods,
+                span,
+            } => {
+                // The type, and then the methods: an object is a struct and
+                // an `impl` block in one declaration.
+                let sig = self.structs.get(name).cloned()?;
+                let mut items = vec![HirItem::Struct(HirStruct {
+                    name: name.clone(),
+                    fields: fields
+                        .iter()
+                        .zip(sig.fields.iter())
+                        .map(|(f, (_, ty))| HirFieldDef {
+                            name: f.name.clone(),
+                            ty: ty.clone(),
+                            span: f.span,
+                        })
+                        .collect(),
+                    span: *span,
+                })];
+                if let Some(methods) = self.check_impl_methods(name, methods) {
+                    items.extend(methods);
+                }
+                Some(items)
+            }
         }
     }
 
@@ -2441,6 +2533,21 @@ impl<'src> Checker<'src> {
         let Some(receiver_checked) = self.check_expr(&receiver_expr) else {
             return Some(None);
         };
+        self.check_user_method_on(receiver_checked, method, args, span)
+    }
+
+    /// Check a method call whose receiver is a value rather than a name.
+    ///
+    /// `counter.add(4).get()` is a call on the result of a call: the receiver
+    /// is an expression, and the method is found by its type exactly as it is
+    /// when the receiver is a binding.
+    fn check_user_method_on(
+        &mut self,
+        receiver_checked: HirExpr,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
         let receiver_ty = expr_ty(&receiver_checked);
         let type_name = match &receiver_ty.kind {
             TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
@@ -4256,6 +4363,30 @@ impl<'src> Checker<'src> {
                     }
                 }
                 Some(HirExpr::Move(Box::new(checked), *span, ty))
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => {
+                // A method called on a value: the result of a call, say. The
+                // method is found by the receiver's type, exactly as it is
+                // when the receiver is a binding.
+                let Some(receiver_checked) = self.check_expr(receiver) else {
+                    return None;
+                };
+                let receiver_ty = expr_ty(&receiver_checked);
+                match self.check_user_method_on(receiver_checked, method, args, *span) {
+                    Some(checked) => checked,
+                    None => {
+                        self.error(
+                            *span,
+                            format!("no method `{method}` on `{receiver_ty}`"),
+                        );
+                        None
+                    }
+                }
             }
             Expr::Call {
                 callee,

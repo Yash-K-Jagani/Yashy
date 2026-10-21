@@ -24,7 +24,8 @@ lambda that carries the values of the scope it was written in, so it keeps
 working after that scope is gone. Three array methods take a function:
 `xs.map(f)`, `xs.filter(f)` and `xs.fold(init, f)`. A type can have its own
 methods, written in an `impl` block: `impl Point { fn sum(self) -> i64 { ... } }`
-is called as `point.sum()`. Objects are the next M14 stage. A program can read
+is called as `point.sum()`. An `object` is a type with its fields and its
+methods together. Objects are the next M14 stage. A program can read
 its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
@@ -675,4 +676,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
-| M13–M15 (in progress) | Function values (done: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures, and the `map`/`filter`/`fold` array methods), then `impl` methods, objects, and the remaining correctness gaps |
+| M13–M15 (in progress) | Function values (done: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures, and the `map`/`filter`/`fold` array methods), then `impl` methods, `object` declarations, and the remaining correctness gaps |

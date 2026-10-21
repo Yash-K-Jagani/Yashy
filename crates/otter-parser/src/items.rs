@@ -67,6 +67,7 @@ impl<'src> Parser<'src> {
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Fn => self.parse_fn(),
             TokenKind::Impl => self.parse_impl(),
+            TokenKind::Object => self.parse_object(),
             TokenKind::Extern => self.parse_extern(),
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
@@ -159,6 +160,39 @@ impl<'src> Parser<'src> {
 
         Ok(Item::Impl {
             type_name,
+            methods,
+            span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// `object Counter { value: i64, fn get(self) -> i64 { ... } }`
+    ///
+    /// The fields and the methods live in one block, in any order. It is a
+    /// struct and an `impl` block written together.
+    fn parse_object(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Object)?;
+        let (name, _name_span) = self.identifier()?;
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            if self.check(TokenKind::Fn) {
+                methods.push(self.parse_item()?);
+            } else {
+                fields.push(self.parse_field_def()?);
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+
+        Ok(Item::Object {
+            name,
+            fields,
             methods,
             span: cover(keyword.span, close.span),
         })

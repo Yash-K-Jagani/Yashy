@@ -91,6 +91,19 @@ pub enum Item {
         methods: Vec<Item>,
         span: Span,
     },
+    /// `object Counter { value: i64, fn get(self) -> i64 { ... } }`
+    ///
+    /// A type with its fields and its methods in one declaration. It is a
+    /// struct and an `impl` block written together.
+    Object {
+        /// The type's name.
+        name: String,
+        /// The fields, in declaration order.
+        fields: Vec<FieldDef>,
+        /// The methods, each an [`Item::Fn`].
+        methods: Vec<Item>,
+        span: Span,
+    },
     /// `fn d(a: P) -> f64 { ... }`
     ///
     /// `ret` is `None` when the source wrote no `->`; that is a missing
@@ -606,6 +619,20 @@ pub enum Expr {
     SwitchExpr {
         subject: Box<Expr>,
         arms: Vec<SwitchArm>,
+        span: Span,
+    },
+    /// `value.method(args)` where the receiver is a value rather than a name.
+    ///
+    /// A call on a name or a field chain is a path call, and the parser keeps
+    /// it as one. A call on anything else -- the result of a call, say -- is
+    /// this, because there is no path to write down.
+    MethodCall {
+        /// The value the method is called on.
+        receiver: Box<Expr>,
+        /// The method's name.
+        method: String,
+        /// The arguments, without the receiver.
+        args: Vec<Expr>,
         span: Span,
     },
     /// `|x: i64| -> i64 { ... }` -- an anonymous function.

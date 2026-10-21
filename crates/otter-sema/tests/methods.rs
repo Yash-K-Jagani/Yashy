@@ -104,3 +104,23 @@ fn a_static_method_needs_the_type_and_not_a_value() {
         "is a static method of `Point` and needs the type, not a value",
     );
 }
+
+#[test]
+fn an_object_declaration_carries_its_fields_and_its_methods() {
+    check_source(
+        "object Counter { value: i64, \
+         fn get(self) -> i64 { return self.value; }, \
+         fn add(self, n: i64) -> Counter { return Counter { value: self.value + n }; } } \
+         fn main() { const c = Counter { value: 3 }; const n = c.add(4).get(); }",
+    )
+    .expect("an object with methods should type-check");
+}
+
+#[test]
+fn an_object_is_constructed_like_a_struct() {
+    check_source(
+        "object Counter { value: i64 } \
+         fn main() { const c = Counter { value: 3 }; }",
+    )
+    .expect("an object literal should type-check");
+}

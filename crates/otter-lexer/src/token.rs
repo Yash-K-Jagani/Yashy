@@ -433,6 +433,8 @@ pub enum TokenKind {
     Enum,
     /// impl -- a block of methods for a type.
     Impl,
+    /// object -- a type with its fields and its methods together.
+    Object,
     Const,
     Var,
     Let,
@@ -536,10 +538,10 @@ impl TokenKind {
     /// (`crates/otter-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 26] = [
+    pub const KEYWORDS: [&'static str; 27] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl",
+        "default", "as", "move", "true", "false", "impl", "object",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -570,6 +572,7 @@ impl TokenKind {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "impl" => TokenKind::Impl,
+            "object" => TokenKind::Object,
             _ => return None,
         })
     }
@@ -604,6 +607,7 @@ impl TokenKind {
                 | TokenKind::True
                 | TokenKind::False
                 | TokenKind::Impl
+                | TokenKind::Object
         )
     }
 
@@ -626,6 +630,7 @@ impl TokenKind {
             TokenKind::Struct => Naming::Fixed("struct"),
             TokenKind::Enum => Naming::Fixed("enum"),
             TokenKind::Impl => Naming::Fixed("impl"),
+            TokenKind::Object => Naming::Fixed("object"),
             TokenKind::Const => Naming::Fixed("const"),
             TokenKind::Var => Naming::Fixed("var"),
             TokenKind::Let => Naming::Fixed("let"),
@@ -738,7 +743,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 26] = [
+    const KEYWORDS: [(&str, TokenKind); 27] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -765,6 +770,7 @@ mod tests {
         ("true", TokenKind::True),
         ("false", TokenKind::False),
         ("impl", TokenKind::Impl),
+        ("object", TokenKind::Object),
     ];
 
     #[test]

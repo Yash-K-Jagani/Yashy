@@ -202,12 +202,6 @@ impl<'src> Parser<'src> {
                     let (field, fspan) = self.identifier()?;
                     // If followed by '(', convert to call if possible
                     if self.check(TokenKind::LParen) {
-                        // build callee path
-                        // expr must be Ident or FieldAccess chain; flatten
-                        let mut callee = Vec::new();
-                        // collect from expr
-                        collect_callee(&expr, &mut callee);
-                        callee.push(field.clone());
                         // parse args
                         let open = self.expect(TokenKind::LParen)?;
                         let _ = self.push_open(TokenKind::LParen, open.span)?;
@@ -220,7 +214,22 @@ impl<'src> Parser<'src> {
                         self.close_open(TokenKind::RParen);
                         let span = cover(expr_span(&expr), close.span);
                         let _ = fspan;
-                        expr = Expr::Call { callee, args, unsafe_call: false, span };
+                        // A receiver that is a name or a field chain is a
+                        // path, and the call keeps it as one. A receiver that
+                        // is a value -- the result of a call, say -- is not,
+                        // and the call remembers it as the expression it is.
+                        let mut callee = Vec::new();
+                        if collect_callee(&expr, &mut callee) {
+                            callee.push(field.clone());
+                            expr = Expr::Call { callee, args, unsafe_call: false, span };
+                        } else {
+                            expr = Expr::MethodCall {
+                                receiver: Box::new(expr),
+                                method: field,
+                                args,
+                                span,
+                            };
+                        }
                         continue;
                     }
                     let span = cover(expr_span(&expr), fspan);
@@ -678,6 +687,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,
         Expr::SwitchExpr { span, .. } => *span,
+        Expr::MethodCall { span, .. } => *span,
         Expr::Lambda { span, .. } => *span,
     }
 }

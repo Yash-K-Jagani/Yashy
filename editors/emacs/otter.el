@@ -8,7 +8,7 @@
 (defvar otter-keywords
   '("fn" "struct" "enum" "const" "var" "let" "import" "extern" "unsafe" "defer"
     "return" "break" "continue" "if" "else" "for" "while" "in" "switch"
-    "case" "default" "as" "move" "true" "false" "impl")
+    "case" "default" "as" "move" "true" "false" "impl" "object")
   "Otter keywords.")
 
 (defvar otter-types

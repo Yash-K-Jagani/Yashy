@@ -1063,44 +1063,75 @@ The proof:
 ### Task 13: `object` declarations
 
 **Files:**
-- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-lexer/src/token.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/items.rs`, `crates/otter-parser/src/exprs.rs`
 - Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/module.rs`
-- Test: `crates/otter-driver/tests/programs/objects.ot`
+- Modify: `editors/vim/otter.vim`, `editors/emacs/otter.el`, `editors/vscode/syntaxes/otter.tmLanguage.json`
+- Test: `crates/otter-driver/tests/programs/objects.ot`, `crates/otter-parser/tests/impls.rs`, `crates/otter-sema/tests/methods.rs`
 
 **Interfaces:**
 - Produces: `object Counter { value: i64, fn get(self) -> i64 { ... } }`, equivalent to a struct plus an `impl` block; object literals use the existing struct-literal syntax.
 - Consumes: Task 12.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `objects.ot` declares `object Counter { value: i64, fn get(self) -> i64 { return self.value; }, fn add(self, n: i64) -> Counter { return Counter { value: self.value + n }; } }`;
 constructs `Counter { value: 3 }`, prints `get` as `3`, and prints
 `counter.add(4).get()` as `7`.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e an_object_declaration_carries_its_methods`
 Expected: FAIL at parse on `object`.
 
-- [ ] **Step 3: Lower `object` to a struct and an impl**
+- [x] **Step 3: Lower `object` to a struct and an impl**
 
 Parse field declarations and methods in one item. Lower it in sema to a struct
 definition plus the same method registrations Task 12 produces; codegen sees the
 same layout and mangled names. An `object` with no fields is allowed; one with
 no methods is legal but redundant.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e an_object_declaration_carries_its_methods`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/objects.ot
 git commit -m "feat: object declarations"
 ```
+
+**As built:** an object is a struct and an `impl` block written together, and
+the checker lowers it to exactly that: the fields are declared as a struct's
+are, and the methods are registered the way an `impl` block's are. The backend
+never sees an object -- it sees a struct and some methods, with the same
+layout and the same mangled names.
+
+The fields and the methods may be written in any order, and a comma separates
+them. The object is constructed with the ordinary struct-literal syntax:
+`Counter { value: 3 }`.
+
+One thing the plan's example needed and the parser did not have: a method
+called on the *result* of a call. `counter.add(4).get()` has no path to write
+down -- the receiver is a value, not a name -- so the parser keeps it as an
+expression, and the checker finds the method by the receiver's type exactly as
+it does when the receiver is a binding. A call on a name or a field chain is
+still a path call, so the method resolution the earlier milestone built is
+untouched.
+
+`object` is a keyword now, so the lexer and the three editor grammars learned
+it, as they did for `impl`.
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-parser --test impls` — 5 PASS.
+- `cargo test -p otter-sema --test methods` — 9 PASS.
+- `cargo test -p otter-driver --test e2e an_object_declaration_carries_its_methods`
+  — PASS; the program printed `3` and `7`.
+
 
 ### Task 14: Static methods and constructors
 
