@@ -433,6 +433,7 @@ pub enum TokenKind {
     Enum,
     Const,
     Var,
+    Let,
     Import,
     Extern,
     Unsafe,
@@ -528,10 +529,10 @@ impl TokenKind {
     /// (`crates/otter-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 24] = [
-        "fn", "struct", "enum", "const", "var", "import", "extern", "unsafe", "defer", "return",
-        "break", "continue", "if", "else", "for", "while", "in", "switch", "case", "default", "as",
-        "move", "true", "false",
+    pub const KEYWORDS: [&'static str; 25] = [
+        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
+        "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
+        "default", "as", "move", "true", "false",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -541,6 +542,7 @@ impl TokenKind {
             "enum" => TokenKind::Enum,
             "const" => TokenKind::Const,
             "var" => TokenKind::Var,
+            "let" => TokenKind::Let,
             "import" => TokenKind::Import,
             "extern" => TokenKind::Extern,
             "unsafe" => TokenKind::Unsafe,
@@ -573,6 +575,7 @@ impl TokenKind {
                 | TokenKind::Enum
                 | TokenKind::Const
                 | TokenKind::Var
+                | TokenKind::Let
                 | TokenKind::Import
                 | TokenKind::Extern
                 | TokenKind::Unsafe
@@ -615,6 +618,7 @@ impl TokenKind {
             TokenKind::Enum => Naming::Fixed("enum"),
             TokenKind::Const => Naming::Fixed("const"),
             TokenKind::Var => Naming::Fixed("var"),
+            TokenKind::Let => Naming::Fixed("let"),
             TokenKind::Import => Naming::Fixed("import"),
             TokenKind::Extern => Naming::Fixed("extern"),
             TokenKind::Unsafe => Naming::Fixed("unsafe"),
@@ -723,12 +727,13 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 24] = [
+    const KEYWORDS: [(&str, TokenKind); 25] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
         ("const", TokenKind::Const),
         ("var", TokenKind::Var),
+        ("let", TokenKind::Let),
         ("import", TokenKind::Import),
         ("extern", TokenKind::Extern),
         ("unsafe", TokenKind::Unsafe),
@@ -793,6 +798,7 @@ mod tests {
             TokenKind::Enum,
             TokenKind::Const,
             TokenKind::Var,
+            TokenKind::Let,
             TokenKind::Import,
             TokenKind::Extern,
             TokenKind::Unsafe,

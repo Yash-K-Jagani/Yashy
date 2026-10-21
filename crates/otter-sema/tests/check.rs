@@ -569,6 +569,45 @@ fn assigning_a_var_binding_is_legal() {
 }
 
 #[test]
+fn let_bindings_are_mutable_and_block_scoped() {
+    check_source("fn main() { let x = 1; x = 2; }")
+        .0
+        .expect("a `let` binding is mutable");
+    assert_error(
+        "fn main() { if true { let y = 1; } print_i64(y); }",
+        "cannot find value `y` in this scope",
+    );
+}
+
+#[test]
+fn a_builtin_can_be_called_as_a_method() {
+    check_source(
+        r#"
+        fn main() {
+            var xs = []i64 { 1, 2 };
+            print_i64(xs.len());
+            xs.push(3);
+            print_i64(xs.len());
+            xs.free();
+        }
+        "#,
+    )
+    .0
+    .expect("receiver-first builtins must be callable as methods");
+}
+
+#[test]
+fn const_and_var_keep_their_mutability() {
+    assert_error(
+        "fn main() { const x = 1; x = 2; }",
+        "cannot assign to `x`, which is immutable",
+    );
+    check_source("fn main() { var x = 1; x = 2; }")
+        .0
+        .expect("a `var` binding stays mutable");
+}
+
+#[test]
 fn assigning_a_const_is_an_error() {
     // The whole point of having two binding forms is that one of them refuses
     // assignment. A `const` that accepts it is a `var` with extra steps.

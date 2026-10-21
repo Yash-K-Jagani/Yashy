@@ -188,6 +188,18 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn array_builtins_can_be_called_as_methods() {
+    let output = build_and_run("array_methods");
+    assert_eq!(stdout_of(&output), "2\n3\n");
+}
+
+#[test]
+fn let_var_and_const_behave_as_documented() {
+    let output = build_and_run("bindings");
+    assert_eq!(stdout_of(&output), "2\n42\n3\n");
+}
+
+#[test]
 fn fibonacci_prints_the_tenth_number() {
     // 55, the tenth Fibonacci number, from an accumulating loop: this is the
     // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a

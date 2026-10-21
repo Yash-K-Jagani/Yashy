@@ -66,12 +66,12 @@ each chapter is a complete program you can build and run.
 ## A taste of Otter
 
 ```otter
-// `var` bindings are mutable, `const` bindings are not. `for i in 0..n` is a
-// range loop whose end is exclusive.
+// `let` and `var` bindings are mutable, `const` bindings are not. `for i in 0..n`
+// is a range loop whose end is exclusive.
 fn fib(n: i64) -> i64 {
-    var a = 0;
-    var b = 1;
-    var next = 0;
+    let a = 0;
+    let b = 1;
+    let next = 0;
     for step in 0..n {
         next = a + b;
         a = b;
@@ -652,4 +652,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M9 | Escape analysis |
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
-| M12–M15 | Language surface: array and string methods, function values and closures, objects, and the remaining correctness gaps |
+| M12–M15 | Language surface: `let` bindings, array and string methods, function values and closures, objects, and the remaining correctness gaps |

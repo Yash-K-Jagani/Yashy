@@ -3,18 +3,31 @@
 ## What you will learn
 
 - The four scalar types and the operators each one supports.
-- How `const` and `var` differ, and why there is no `let`.
+- How `const`, `let` and `var` differ.
 - Why mixed arithmetic needs an explicit `as` cast.
 - How a value becomes text, and when arithmetic stops the program.
 
 The scalar types are `i64`, `f64`, `bool`, and `string`. `const` binds a name
-once and never rebinds; `var` binds a name that can be assigned again.
-Assignment operators like `+=` are shorthand for the expanded form.
+once and never rebinds. `let` and `var` bind a name that can be assigned again.
+`let` is the form to reach for in new code; `var` is kept for programs written
+before `let` existed. Assignment operators like `+=` are shorthand for the
+expanded form.
+
+| Form | Reassignable | Scope | Use it for |
+|---|---|---|---|
+| `const` | No | Current block | A value that is fixed after it is created. |
+| `let` | Yes | Current block | A value that changes in this block. |
+| `var` | Yes | Current block | The older mutable form; still accepted. |
+
+All three are block-scoped today. `let` is not JavaScript's function-scoped
+`var`: leaving the block makes the name unavailable, and there is no
+`undefined` value to read before the declaration. This keeps every binding
+initialized and every owned string releasable.
 
 ```otter
 fn main() {
     const count = 3;
-    var total = count * 7;
+    let total = count * 7;
     total += 1;
 
     const ratio = 0.5;
@@ -102,7 +115,7 @@ division: a wrapped quotient is not the quotient of anything.
 ## Common mistakes
 
 - **Assigning to a `const`.** `const n = 3; n = 4;` reports
-  ``error: cannot assign to `n`, which is immutable``. Use `var n = 3;`.
+  ``error: cannot assign to `n`, which is immutable``. Use `let n = 3;`.
 - **Mixing `i64` and `f64` in one expression.** `x + 1.5` where `x` is `i64`
   reports ``error: cannot apply `+` to `i64` and `f64` ``. Cast one side:
   `x as f64 + 1.5`.
@@ -112,7 +125,7 @@ division: a wrapped quotient is not the quotient of anything.
 - **Relying on `&&` to guard a fault.** As above, the right operand still
   runs. The program stops with `panic: division by zero: 10 / 0` even when the
   left operand is false.
-- **Declaring a `var` without a value.** `var x;` reports
+- **Declaring a binding without a value.** `let x;` (and `var x;`) reports
   ``error: expected `=`, found `;` ``. A binding is initialized when it is
   created; there is no uninitialized local.
 
@@ -122,7 +135,7 @@ division: a wrapped quotient is not the quotient of anything.
    down to an `i64`. Hint: cast the sum to `f64` before dividing, and cast the
    result back after.
 
-2. Swap two `var` bindings without a third variable. Hint: `+` and `-` work,
+2. Swap two `let` bindings without a third variable. Hint: `+` and `-` work,
    but only if the intermediate values stay inside `i64`. Then try it with a
    temporary `const` and decide which version you would rather read.
 
@@ -134,6 +147,8 @@ needs no call) and joins the pieces with `+`, so the typed tree has no
 interpolation node left. Checked arithmetic lowers to LLVM's overflow
 intrinsics, with a branch to a cold block that reports the operands and ends the
 process. `&&` and `||` lower to LLVM's `and` and `or` on `i1`, which is exactly
-why both sides are evaluated.
+why both sides are evaluated. `let` and `var` lower to the same mutable
+declaration node; they differ only in the name and in the documentation of
+intent. `const` lowers to the immutable form.
 
 Continue to [03-control-flow](03-control-flow.md).

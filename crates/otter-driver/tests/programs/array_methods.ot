@@ -1,0 +1,13 @@
+// Receiver-first builtins called in method position. `xs.len()` is
+// `len(xs)`, `xs.push(3)` is `push(xs, 3)`, and `xs.free()` is `free_slice(xs)`.
+// The method spelling is the one the M12 surface will keep.
+
+fn main() {
+    var xs = []i64 { 1, 2 };
+    print_i64(xs.len());
+    print_str("\n");
+    xs.push(3);
+    print_i64(xs.len());
+    print_str("\n");
+    xs.free();
+}

@@ -741,6 +741,10 @@ The v1 non-goals and open questions above are historical. The post-v1
 language-surface plan (`docs/superpowers/plans/2026-10-20-otter-m12-language-surface.md`)
 records the deliberate changes:
 
+- `let x = expr;` is a block-scoped mutable binding, beside `var` (mutable) and
+  `const` (immutable). This supersedes the v1 sentence that `let` is not a
+  keyword. `var` remains block-scoped for now; JavaScript's function-scoped
+  `var` and hoisting are deferred because Otter has no `undefined`.
 - `[]T` is called an **array** in public documentation and diagnostics. The word
   **slice** is reserved for a future non-owning view.
 - Builtins become receiver methods (`xs.push(v)`, `m.get(k)`, `s.len()`), and the

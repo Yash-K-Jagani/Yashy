@@ -191,6 +191,13 @@ fn full_block(spans: &mut Spans) -> Block {
             init: Expr::Literal(Literal::Bool(true), spans.take()),
             span: spans.take(),
         },
+        // Stmt::Let
+        Stmt::Let {
+            name: "l".to_string(),
+            ty: None,
+            init: Expr::Literal(Literal::I64(3), spans.take()),
+            span: spans.take(),
+        },
         // Stmt::Return, with a value
         Stmt::Return(Some(int(0, spans.take())), spans.take()),
         // Stmt::If, with a condition binding and an else branch
@@ -492,8 +499,8 @@ fn ast_nodes_round_trip_through_debug() {
     }
     // One of every Stmt variant.
     for name in [
-        "Expr", "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
-        "Defer",
+        "Expr", "Const", "Var", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break",
+        "Continue", "Defer",
     ] {
         assert!(
             debug.contains(name),
@@ -1154,7 +1161,21 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["Var", "name", "ty", "init", "span"],
             &[
-                "Const", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Const", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Defer", "Assign", "Binary", "Call",
+            ],
+        ),
+        case(
+            "Stmt::Let",
+            Stmt::Let {
+                name: "l".to_string(),
+                ty: None,
+                init: int(1, here()),
+                span: here(),
+            },
+            &["Let", "name", "ty", "init", "span"],
+            &[
+                "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Assign", "Binary", "Call",
             ],
         ),

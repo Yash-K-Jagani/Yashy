@@ -285,7 +285,7 @@ fn fmt(args: &[String]) -> ExitCode {
                 // the same index, so the carets land on the right bytes.
                 let mut sources = SourceMap::new();
                 let _ = sources.add_file(path.display().to_string(), source.clone());
-                render(&sources, &diagnostics);
+                let _ = render(&sources, &diagnostics);
                 failed = true;
             }
         }

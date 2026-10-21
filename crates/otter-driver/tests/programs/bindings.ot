@@ -1,0 +1,23 @@
+// The three binding forms, end to end. `let` and `var` are mutable; `const` is
+// not. All three are block-scoped today, so the nested `var` in this program is
+// only visible inside its block -- the assignment on the next line uses the
+// outer `total`, not the inner `var`.
+
+fn main() {
+    let x: i64 = 1;
+    x = x + 1;
+    print_i64(x);
+    print_str("\n");
+
+    var total = 0;
+    if true {
+        var inner = 40;
+        total = inner + 2;
+    }
+    print_i64(total);
+    print_str("\n");
+
+    const limit = 3;
+    print_i64(limit);
+    print_str("\n");
+}

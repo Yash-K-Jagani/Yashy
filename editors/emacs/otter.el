@@ -6,7 +6,7 @@
 ;;; Code:
 
 (defvar otter-keywords
-  '("fn" "struct" "enum" "const" "var" "import" "extern" "unsafe" "defer"
+  '("fn" "struct" "enum" "const" "var" "let" "import" "extern" "unsafe" "defer"
     "return" "break" "continue" "if" "else" "for" "while" "in" "switch"
     "case" "default" "as" "move" "true" "false")
   "Otter keywords.")

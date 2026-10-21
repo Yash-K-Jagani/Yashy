@@ -1009,6 +1009,12 @@ impl<'src> Checker<'src> {
                 ty,
                 init,
                 span,
+            }
+            | Stmt::Let {
+                name,
+                ty,
+                init,
+                span,
             } => {
                 // Same ordering as `Stmt::Const` above: the annotation is the
                 // initializer's expected type.
@@ -1982,6 +1988,45 @@ impl<'src> Checker<'src> {
     ///
     /// The outer `Option` says "this name is a slice builtin"; the inner one is
     /// the checked expression, `None` after a reported error.
+    /// Rewrite `receiver.method(args)` into the receiver-first builtin
+    /// `builtin(receiver, args)` and check that.
+    ///
+    /// The parser flattens a dotted call into a callee path, so the method form
+    /// reaches the checker as `["receiver", "method"]`. The first segment is a
+    /// method receiver only when it resolves to a local binding; otherwise the
+    /// path is left alone for module resolution.
+    ///
+    /// The outer `Option` says "this was a method-shaped call"; the inner one
+    /// is the checked expression, `None` after a reported error.
+    fn check_builtin_method(
+        &mut self,
+        callee: &[String],
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<HirExpr>> {
+        if callee.len() != 2 {
+            return None;
+        }
+        let receiver = &callee[0];
+        let method = &callee[1];
+        let binding = self.scope.resolve(receiver)?;
+        let receiver_ty = binding.ty.clone();
+        let Some(builtin) = builtin_method_name(method, &receiver_ty.kind) else {
+            self.error(span, format!("no method `{method}` on `{receiver_ty}`"));
+            return Some(None);
+        };
+        let mut call_args = Vec::with_capacity(args.len().saturating_add(1));
+        call_args.push(Expr::Ident(vec![receiver.clone()], span));
+        call_args.extend(args.iter().cloned());
+        let synthetic = Expr::Call {
+            callee: vec![builtin.to_string()],
+            args: call_args,
+            unsafe_call: false,
+            span,
+        };
+        Some(self.check_expr(&synthetic))
+    }
+
     fn check_slice_builtin(
         &mut self,
         name: &str,
@@ -2815,6 +2860,15 @@ impl<'src> Checker<'src> {
                     if let Some(constructed) = self.check_enum_call(callee, args, *span) {
                         return constructed;
                     }
+                }
+                // `xs.len()` arrives as the two-segment callee `["xs", "len"]`,
+                // because the parser flattens a dotted call. If the first
+                // segment names a local value, this is a receiver method, not a
+                // module path: rewrite it to the receiver-first builtin and
+                // check that. A first segment that is not a local stays on the
+                // ordinary path, so `std.io.print(...)` is untouched.
+                if let Some(method) = self.check_builtin_method(callee, args, *span) {
+                    return method;
                 }
                 let name = callee.last().cloned().unwrap_or_default();
                 // `None`, `Some(x)`, `Ok(v)` and `Err(e)` are value
@@ -3750,6 +3804,51 @@ impl<'src> Checker<'src> {
 /// The four the comparison emitters support. An aggregate has no equality in
 /// Otter yet, and comparing one by its first field would be a wrong answer
 /// rather than a missing one, so asking is reported.
+/// The receiver-first builtin a method name stands for, or `None` when the
+/// receiver's type has no such method.
+///
+/// The builtin names are the existing flat spellings; Task 6 removes those
+/// spellings from the surface, but the lowering keeps using them.
+fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str> {
+    match receiver {
+        TypeKind::Slice(_) => match method {
+            "len" => Some("len"),
+            "push" => Some("push"),
+            "pop" => Some("pop"),
+            "free" => Some("free_slice"),
+            _ => None,
+        },
+        TypeKind::Str => match method {
+            "len" => Some("len"),
+            "byte_at" => Some("byte_at"),
+            "slice" => Some("str_slice"),
+            _ => None,
+        },
+        TypeKind::Map(_, _) => match method {
+            "get" => Some("map_get"),
+            "insert" => Some("map_insert"),
+            "remove" => Some("map_remove"),
+            "len" => Some("map_len"),
+            "free" => Some("map_free"),
+            _ => None,
+        },
+        TypeKind::Channel(_) => match method {
+            "send" => Some("chan_send"),
+            "recv" => Some("chan_recv"),
+            "close" => Some("chan_close"),
+            "free" => Some("chan_free"),
+            _ => None,
+        },
+        TypeKind::Mutex => match method {
+            "lock" => Some("mutex_lock"),
+            "unlock" => Some("mutex_unlock"),
+            "free" => Some("mutex_free"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn has_equality(ty: &Type) -> bool {
     matches!(
         ty.kind,

@@ -71,6 +71,71 @@ The public name of `[]T` becomes **array**. The word **slice** is reserved for a
 
 ## M12 — Arrays, strings, method syntax, and the rename
 
+### Task 0: JavaScript-style `let` beside `var` and `const`
+
+**Files:**
+- Modify: `crates/otter-lexer/src/token.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/stmts.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Test: `crates/otter-sema/tests/check.rs`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/bindings.ot`
+
+**Interfaces:**
+- Produces: `let x: T = value;` is a mutable, block-scoped binding; `const` remains immutable and block-scoped; `var` remains the existing mutable, block-scoped binding.
+- Consumes: the existing `Stmt::Var`/`Stmt::Const` checking and codegen paths.
+- Deliberate deviation from JavaScript: `var` is not function-scoped or hoisted yet, and there is no `undefined`. Hoisting is recorded in the backlog because Otter has no value to give an uninitialized binding.
+
+- [x] **Step 1: Write the failing sema tests**
+
+Added `let_bindings_are_mutable_and_block_scoped` and
+`const_and_var_keep_their_mutability` to `check.rs`. The block-scope half uses
+`if true { let y = 1; }`, because a bare block is not a statement in Otter's
+grammar.
+
+- [x] **Step 2: Run them and verify they fail**
+
+The first run failed at parse time because `let` was not a keyword. The host's
+GNU `rustc` is blocked by Application Control, so the suite was run with a
+freshly installed `nightly-x86_64-pc-windows-gnu` toolchain and a separate
+target directory.
+
+- [x] **Step 3: Implement `let`**
+
+Added `TokenKind::Let` and the `"let"` keyword mapping, `Stmt::Let`, parser
+support, and a checker arm that shares `Stmt::Var`'s annotation, initializer,
+linear-copy and block-scope rules. Lowered to `HirStmt::Var`; codegen needed no
+change. Updated the lexer's keyword tables and the Vim, Emacs and VS Code
+definitions.
+
+- [x] **Step 4: Add the end-to-end program**
+
+`bindings.ot` prints a `let` after assignment, a `var` used through a nested
+`if` block, and a `const`; `e2e.rs` has
+`let_var_and_const_behave_as_documented`.
+
+- [x] **Step 5: Run the focused and workspace tests**
+
+- `cargo test -p otter-sema --test check let_bindings_are_mutable_and_block_scoped` — PASS.
+- `cargo test -p otter-sema --test check` — 120 PASS (including the new tests).
+- `cargo test -p otter-parser --test items let_binding_parses_like_var` — PASS.
+- `cargo test -p otter-parser --test parse ast_nodes_round_trip_through_debug` — PASS.
+- `cargo test -p otter-lexer --lib` — 40 PASS.
+- `cargo test -p otter-driver --test e2e let_var_and_const_behave_as_documented` — PASS; the program printed `2\n42\n3\n`.
+- `cargo check --workspace --all-targets` — clean, no warnings.
+
+Application Control blocked some freshly linked test binaries with error 4551
+on the first attempt. Rebuilding under a new target directory and RUSTFLAGS
+fingerprint produced a runnable binary; that is an environment workaround, not
+a code change.
+
+- [x] **Step 6: Commit**
+
+```bash
+git add crates/otter-lexer/src/token.rs crates/otter-parser/src crates/otter-sema/src/check_expr.rs crates/otter-sema/tests/check.rs crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/bindings.ot
+git commit -m "feat: add let bindings"
+```
+
 ### Task 1: Method-call resolution for builtins
 
 **Files:**
@@ -83,55 +148,53 @@ The public name of `[]T` becomes **array**. The word **slice** is reserved for a
 - Consumes: the existing builtin checks `check_slice_builtin`, `check_len_builtin`, `check_map_builtin`, `check_thread_builtin`.
 - Produces: `receiver.name(args...)` type-checks as the builtin `name(receiver, args...)` for every receiver-first builtin; mutating receivers must be a single-name binding.
 
-- [ ] **Step 1: Write the failing sema test**
+- [x] **Step 1: Write the failing sema test**
 
-```rust
-#[test]
-fn a_builtin_can_be_called_as_a_method() {
-    let program = r#"
-        fn main() {
-            var xs = []i64 { 1, 2 };
-            print_i64(xs.len());
-            xs.push(3);
-            print_i64(xs.len());
-            xs.free();
-        }
-    "#;
-    assert!(check(program).is_ok());
-}
-```
+Added `a_builtin_can_be_called_as_a_method` to `check.rs`, using the array
+program from this step.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
-Run: `cargo test -p otter-sema a_builtin_can_be_called_as_a_method`
-Expected: FAIL with `cannot find field \`len\`` or an unknown-function diagnostic.
+Run: `cargo test -p otter-sema --test check a_builtin_can_be_called_as_a_method`
+Expected: FAIL with an arity diagnostic. As built, the parser flattens
+`xs.len()` into a two-segment callee, so the checker saw a zero-argument `len`
+call: `expected 1 arguments, found 0`.
 
-- [ ] **Step 3: Implement desugaring in `Expr::Call`**
+- [x] **Step 3: Implement desugaring in `Expr::Call`**
 
-In `check_expr.rs`, before ordinary callee resolution, match a callee of
-`Expr::FieldAccess { receiver, field, .. }`. If `field` is a builtin method for
-`receiver`'s type, check `Call { callee: vec![field], args: [receiver] + args }`.
-Register the receiver-first builtins that already exist: array (`len`, `push`,
-`pop`, `free`), string (`len`, `byte_at`, `slice`), map (`get`, `insert`,
-`remove`, `len`, `free`), channel (`send`, `recv`, `close`, `free`), and mutex
-(`lock`, `unlock`, `free`). Tasks 2–5 add the new array and string methods.
-For `push`, `pop`, `free`, `insert`, `remove`, and `clear`, reuse the existing
-single-binding rule: the receiver must be `Expr::Ident` with a one-segment path.
-An unknown method reports `error: no method \`name\` on \`T\`` at the field span.
+The parser does not produce `Expr::FieldAccess` for a dotted call; it flattens
+the receiver and method into `Expr::Call { callee: ["xs", "len"], .. }`. The
+checker therefore treats a two-segment callee as a method call only when its
+first segment resolves to a local binding. It looks up the receiver-first
+builtin by the receiver's type, synthesizes
+`Call { callee: [builtin], args: [receiver] + args }`, and checks that. A first
+segment that is not a local stays on the ordinary path, so module paths are
+untouched. Unknown methods report
+`error: no method \`name\` on \`T\`` at the call span.
 
-- [ ] **Step 4: Add the end-to-end program and its named test**
+Registered methods: array (`len`, `push`, `pop`, `free`), string (`len`,
+`byte_at`, `slice`), map (`get`, `insert`, `remove`, `len`, `free`), channel
+(`send`, `recv`, `close`, `free`), and mutex (`lock`, `unlock`, `free`). `free`
+lowers to the existing `free_slice`/`map_free`/`chan_free`/`mutex_free` names,
+and string `slice` lowers to `str_slice`.
 
-Add `#[test] fn array_builtins_can_be_called_as_methods()` to `e2e.rs`; it
-calls `build_and_run("array_methods")` and asserts stdout is `2\n3\n`.
-`array_methods.ot` contains the sema test program above.
+- [x] **Step 4: Add the end-to-end program and its named test**
 
-- [ ] **Step 5: Run the sema and e2e tests**
+Added `array_methods.ot` and
+`#[test] fn array_builtins_can_be_called_as_methods()`, asserting stdout is
+`2\n3\n`.
 
-Run: `cargo test -p otter-sema a_builtin_can_be_called_as_a_method`
-Run: `cargo test -p otter-driver --test e2e array_builtins_can_be_called_as_methods`
-Expected: PASS.
+- [x] **Step 5: Run the sema and e2e tests**
 
-- [ ] **Step 6: Commit**
+- `cargo test -p otter-sema --test check a_builtin_can_be_called_as_a_method` — PASS.
+- `cargo test -p otter-sema --test check` — 121 PASS.
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-driver --test e2e array_builtins_can_be_called_as_methods` — PASS; stdout `2\n3\n`.
+- Application Control intermittently blocked the freshly linked test or CLI
+  binary (4551). A fresh target directory and RUSTFLAGS fingerprint is the
+  environment workaround, not a code change.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-sema/tests/check.rs crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_methods.ot

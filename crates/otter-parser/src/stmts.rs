@@ -36,6 +36,7 @@ impl<'src> Parser<'src> {
         match self.peek() {
             TokenKind::Const => self.parse_const(),
             TokenKind::Var => self.parse_var(),
+            TokenKind::Let => self.parse_let(),
             TokenKind::Return => self.parse_return(),
             TokenKind::If => self.parse_if(),
             TokenKind::For => self.parse_for(),
@@ -80,6 +81,25 @@ impl<'src> Parser<'src> {
         let init = self.parse_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
         Ok(Stmt::Var {
+            name,
+            ty,
+            init,
+            span: cover(kw.span, semi.span),
+        })
+    }
+
+    fn parse_let(&mut self) -> Result<Stmt, ParseError> {
+        let kw = self.expect(TokenKind::Let)?;
+        let (name, _) = self.identifier()?;
+        let ty = if self.eat(TokenKind::Colon) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        self.expect(TokenKind::Eq)?;
+        let init = self.parse_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Let {
             name,
             ty,
             init,

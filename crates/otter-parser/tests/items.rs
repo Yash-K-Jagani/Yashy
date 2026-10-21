@@ -1331,6 +1331,27 @@ fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
 // -- assignment -------------------------------------------------------------
 
 #[test]
+fn let_binding_parses_like_var() {
+    let src = "fn main() { let x: i64 = 1; }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Let {
+        name, ty, init, ..
+    } = &body.stmts[0]
+    else {
+        panic!("expected a let binding, got {:?}", body.stmts[0]);
+    };
+    assert_eq!(name, "x");
+    assert!(ty.is_some(), "the annotation must be kept");
+    assert!(
+        matches!(init, Expr::Literal(Literal::I64(1), _)),
+        "expected the initializer 1, got {init:?}"
+    );
+}
+
+#[test]
 fn assignment_to_a_var_binding_is_a_statement() {
     // Before this, `var x = 1; x = 2;` did not parse at all: the parser read `x`
     // as an expression statement, wanted a `;`, and found `=`. So a binding

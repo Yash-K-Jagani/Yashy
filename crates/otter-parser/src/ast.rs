@@ -303,10 +303,21 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
+    /// `let v = 1;` or `let v: f64 = 1.0;`.
+    ///
+    /// `let` is the block-scoped mutable form. It parses and checks exactly
+    /// like `var`; today the two differ only in spelling and intent.
+    Let {
+        name: String,
+        ty: Option<TypeExpr>,
+        init: Expr,
+        span: Span,
+    },
     /// `x = expr;` -- assigning to a binding that already exists.
     ///
-    /// Only a `var` binding in scope may be assigned; assigning a `const` is a
-    /// diagnostic, and so is assigning a name that is not declared. Those are
+    /// Only a `var` or `let` binding in scope may be assigned; assigning a
+    /// `const` is a diagnostic, and so is assigning a name that is not
+    /// declared. Those are
     /// the *checker's* rules, which is why the target is an `Expr` and not a
     /// name: the parser accepts any expression the expression grammar can
     /// already produce and leaves to the checker the question of whether that
