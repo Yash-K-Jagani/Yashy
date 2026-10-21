@@ -586,6 +586,16 @@ impl<'src> Checker<'src> {
                         .iter()
                         .map(|f| {
                             let ty = self.resolve_or_report(&f.ty, f.span);
+                            // A function value in a struct would be copied into
+                            // the aggregate without being counted, and the
+                            // aggregate has no way to release it: the copy would
+                            // outlive the environment it points at.
+                            if matches!(ty.kind, TypeKind::Func(_, _)) {
+                                self.error(
+                                    f.span,
+                                    "a struct field cannot have a function type yet",
+                                );
+                            }
                             (f.name.clone(), ty)
                         })
                         .collect();
@@ -608,6 +618,20 @@ impl<'src> Checker<'src> {
                     };
                     if let Err(e) = self.scope.declare(name.clone(), binding) {
                         self.error(e.span, e.message);
+                    }
+                    for variant in variants {
+                        for field in &variant.fields {
+                            let ty = self.resolve_or_report(field.ty(), field.span());
+                            // The same reason a struct field cannot have one:
+                            // an enum value is an aggregate, and an aggregate
+                            // does not count the references it holds.
+                            if matches!(ty.kind, TypeKind::Func(_, _)) {
+                                self.error(
+                                    field.span(),
+                                    "an enum field cannot have a function type yet",
+                                );
+                            }
+                        }
                     }
                     self.enums.insert(
                         name.clone(),
@@ -4109,6 +4133,15 @@ impl<'src> Checker<'src> {
                         format!(
                             "an array cannot hold `{elem_ty}`: its elements would have no size"
                         ),
+                    );
+                    return None;
+                }
+                if matches!(elem_ty.kind, TypeKind::Func(_, _)) {
+                    // The same reason a struct cannot hold one: the array would
+                    // hold a copy the environment does not know about.
+                    self.error(
+                        *span,
+                        "an array cannot hold a function value yet",
                     );
                     return None;
                 }
