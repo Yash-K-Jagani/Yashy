@@ -47,6 +47,7 @@ impl<'src> Parser<'src> {
     ///          | `Option` `[` type `]`
     ///          | `Result` `[` type `,` type `]`
     ///          | `*` [`mut` | `const`] type -- a pointer
+    ///          | `fn` `(` [type (`,` type)*] `)` [`->` type]
     /// name    := ident (`.` ident)*
     /// ```
     ///
@@ -64,8 +65,42 @@ impl<'src> Parser<'src> {
             TokenKind::Ident => self.parse_named_type(),
             TokenKind::Star => self.parse_pointer_type(),
             TokenKind::LBracket => self.parse_slice_type(),
+            TokenKind::Fn => self.parse_fn_type(),
             _ => Err(self.type_expected_error()),
         }
+    }
+
+    /// `fn(T, U) -> R` - a first-class function type.
+    ///
+    /// The arrow is optional and means `-> ()` when omitted, matching a
+    /// function declaration whose return annotation is absent. The type has no
+    /// parameter names: a value's type describes the calling convention, not
+    /// the names the callee happens to use.
+    fn parse_fn_type(&mut self) -> Result<TypeExpr, ParseError> {
+        let keyword = self.expect(TokenKind::Fn)?;
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+
+        let mut params = Vec::new();
+        while !self.check(TokenKind::RParen) {
+            params.push(self.parse_type_expr()?);
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let close = self.expect(TokenKind::RParen)?;
+        self.close_open(TokenKind::RParen);
+
+        let ret = if self.eat(TokenKind::Arrow) {
+            self.parse_type_expr()?
+        } else {
+            TypeExpr::Unit(close.span)
+        };
+        Ok(TypeExpr::Fn {
+            params,
+            ret: Box::new(ret),
+            span: cover(keyword.span, self.previous_span()),
+        })
     }
 
     /// `[]T` — a slice. The brackets are empty; the element type follows.

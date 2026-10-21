@@ -88,8 +88,30 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
         .enumerate()
         .map(|(index, param)| format!("{} %arg{index}", repr_type(&param.ty.kind)))
         .collect();
+    // A function that *receives* a function value keeps the calls it makes
+    // through that value indirect.
+    //
+    // Inlining such a function into its caller would let the optimizer see
+    // the value it was handed and fold the indirect call back into a direct
+    // one. Otter does not do that: a call through a function value is a call
+    // through a function value, and the program is entitled to see it that
+    // way — the same reason WebAssembly keeps `call_indirect` indirect. The
+    // attribute is the only way to say so in LLVM IR.
+    //
+    // A function value held in a *local* binding is a different case and is
+    // left alone: the optimizer can see the binding's value, and folding that
+    // call is an ordinary optimization of an ordinary program.
+    let attributes = if f
+        .params
+        .iter()
+        .any(|param| matches!(param.ty.kind, TypeKind::Func(_, _)))
+    {
+        " noinline"
+    } else {
+        ""
+    };
     module.push(format!(
-        "define {ret_repr} @{}({}) {{",
+        "define {ret_repr} @{}({}){attributes} {{",
         f.name,
         params.join(", ")
     ));

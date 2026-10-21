@@ -10,6 +10,8 @@ use std::collections::HashMap;
 
 use otter_sema::{HirExternDecl, TypeKind};
 
+use crate::ir::repr_type;
+
 /// One variant of a user-declared enum, as the backend needs it.
 ///
 /// The field list is flattened in source order and carries the LLVM
@@ -63,6 +65,13 @@ pub struct Module {
     /// synthesized per `thread_spawn` site, so the argument struct's shape is
     /// already known when the entry is written.
     next_thread_entry: u32,
+    /// Top-level function signatures, used when a function name is used as a
+    /// value. The key is the source name; the value is the parameter and return
+    /// types the thunk must reproduce.
+    fn_signatures: HashMap<String, (Vec<TypeKind>, TypeKind)>,
+    /// Thunks already synthesized for top-level functions, keyed by source
+    /// name. A function used as a value more than once shares one thunk.
+    fn_value_thunks: HashMap<String, String>,
     /// Whether string refcounts in this module are atomic.
     ///
     /// Set once, from the checked program's "any spawn?" bit; see
@@ -88,6 +97,8 @@ impl Module {
             next_value: 0,
             synthesized: Vec::new(),
             next_thread_entry: 0,
+            fn_signatures: HashMap::new(),
+            fn_value_thunks: HashMap::new(),
             atomic_strings: false,
             externs: HashMap::new(),
         }
@@ -253,6 +264,68 @@ impl Module {
         let index = self.next_thread_entry;
         self.next_thread_entry += 1;
         index
+    }
+
+    /// Record one top-level function's signature.
+    ///
+    /// The table is separate from the emitted `define` because a function can
+    /// be used as a value before its body is emitted, and a thunk needs the
+    /// parameter and return representations without re-reading the HIR.
+    pub fn add_fn_signature(&mut self, name: &str, params: Vec<TypeKind>, ret: TypeKind) {
+        self.fn_signatures.insert(name.to_string(), (params, ret));
+    }
+
+    /// The `@__fnvalue_<name>` thunk that turns a top-level function into a
+    /// `{ i8* code, i8* env }` value, synthesizing it on first use.
+    ///
+    /// The thunk's first parameter is the environment pointer the indirect
+    /// call always passes; a top-level function has no environment, so the
+    /// thunk ignores it and calls the real function directly. The name is
+    /// stable per source function, so two uses share one definition.
+    ///
+    /// `None` means the name is not a recorded top-level function (a builtin,
+    /// a local, or a typo); the caller lowers that to a zero value rather than
+    /// inventing a symbol.
+    pub fn fn_value_thunk(&mut self, name: &str) -> Option<String> {
+        if let Some(thunk) = self.fn_value_thunks.get(name) {
+            return Some(thunk.clone());
+        }
+        let (params, ret) = self.fn_signatures.get(name)?.clone();
+        let thunk = format!("__fnvalue_{name}");
+        let ret_repr = if matches!(ret, TypeKind::Unit | TypeKind::Never) {
+            "void".to_string()
+        } else {
+            repr_type(&ret)
+        };
+
+        let mut params_ir = Vec::with_capacity(params.len());
+        for (index, param) in params.iter().enumerate() {
+            params_ir.push(format!("{} %arg{index}", repr_type(param)));
+        }
+        let signature = if params_ir.is_empty() {
+            "i8* %env".to_string()
+        } else {
+            format!("i8* %env, {}", params_ir.join(", "))
+        };
+
+        let mut lines = vec![
+            format!("define {ret_repr} @{thunk}({signature}) {{"),
+            "entry:".to_string(),
+        ];
+        if ret_repr == "void" {
+            lines.push(format!("  call void @{name}({})", params_ir.join(", ")));
+            lines.push("  ret void".to_string());
+        } else {
+            lines.push(format!(
+                "  %result = call {ret_repr} @{name}({})",
+                params_ir.join(", ")
+            ));
+            lines.push(format!("  ret {ret_repr} %result"));
+        }
+        lines.push("}".to_string());
+        self.add_synthesized_function(lines);
+        self.fn_value_thunks.insert(name.to_string(), thunk.clone());
+        Some(thunk)
     }
 
     /// Choose the reference-count pair every string operation in this module

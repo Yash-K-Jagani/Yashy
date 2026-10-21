@@ -96,6 +96,26 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> S
             for decl in &block.decls {
                 gen_extern_decl(&mut module, decl);
                 module.add_extern_decl(decl.clone());
+                module.add_fn_signature(
+                    &decl.name,
+                    decl.params.iter().map(|p| p.ty.kind.clone()).collect(),
+                    decl.ret.kind.clone(),
+                );
+            }
+        }
+    }
+    // Function names are values too. Record every signature before any body is
+    // lowered: a thunk may be requested by the first function emitted, while
+    // the function it wraps is emitted later. `main` is skipped because its
+    // emitted signature is the operating system's `i32`, not its Otter type.
+    for item in &hir.items {
+        if let HirItem::Fn(f) = item {
+            if f.name != "main" {
+                module.add_fn_signature(
+                    &f.name,
+                    f.params.iter().map(|p| p.ty.kind.clone()).collect(),
+                    f.ret.kind.clone(),
+                );
             }
         }
     }

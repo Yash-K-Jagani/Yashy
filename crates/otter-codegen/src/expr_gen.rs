@@ -424,6 +424,30 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                         ty: slot_ty,
                     }
                 }
+                // A top-level function name is not in `locals`; it becomes a
+                // function value by taking the address of a synthesized thunk.
+                // The thunk adds the environment parameter every indirect call
+                // passes, and this value pairs it with a null environment.
+                _ if matches!(ty.kind, TypeKind::Func(_, _)) => {
+                    match ctx.module.fn_value_thunk(&name) {
+                        Some(thunk) => {
+                            let repr = "{ i8*, i8* }";
+                            let with_code = ctx.tmp();
+                            ctx.push(format!(
+                                "{with_code} = insertvalue {repr} undef, i8* @{thunk}, 0"
+                            ));
+                            let with_env = ctx.tmp();
+                            ctx.push(format!(
+                                "{with_env} = insertvalue {repr} {with_code}, i8* null, 1"
+                            ));
+                            GenValue {
+                                value: with_env,
+                                ty: ty.kind.clone(),
+                            }
+                        }
+                        None => zero_of(&ty.kind, ctx),
+                    }
+                }
                 // `None` (and any other value-position variant name) has no
                 // slot, and a `()` binding has no loadable value; both take a
                 // zero of the type the expression already carries.
@@ -808,6 +832,63 @@ fn gen_enum_ctor(
     })
 }
 
+/// Call through a function value held in `slot`.
+///
+/// The value is `{ i8* code, i8* env }`; the call passes `env` as its first
+/// argument and then the lowered arguments. String arguments are borrowed for
+/// the duration of the call, exactly as in [`gen_borrowed_call`], so an owned
+/// temporary is released once the callee returns.
+fn gen_indirect_call(
+    ctx: &mut FnCtx<'_>,
+    slot: &str,
+    ret: &TypeKind,
+    args: &[HirExpr],
+    ty: &TypeKind,
+) -> GenValue {
+    let fn_repr = "{ i8*, i8* }";
+    let loaded = ctx.tmp();
+    ctx.push(format!("{loaded} = load {fn_repr}, ptr {slot}"));
+    let code = ctx.tmp();
+    ctx.push(format!("{code} = extractvalue {fn_repr} {loaded}, 0"));
+    let env = ctx.tmp();
+    ctx.push(format!("{env} = extractvalue {fn_repr} {loaded}, 1"));
+
+    let mut call_args = vec![format!("i8* {env}")];
+    let mut lowered = Vec::with_capacity(args.len());
+    for argument in args {
+        let value = gen_expr(ctx, argument);
+        call_args.push(format!("{} {}", repr_type(&value.ty), value.value));
+        lowered.push(value);
+    }
+
+    let ret_repr = if matches!(ret, TypeKind::Unit | TypeKind::Never) {
+        "void".to_string()
+    } else {
+        repr_type(ret)
+    };
+    let result = if ret_repr == "void" {
+        ctx.push(format!("call void {code}({})", call_args.join(", ")));
+        String::new()
+    } else {
+        let result = ctx.tmp();
+        ctx.push(format!(
+            "{result} = call {ret_repr} {code}({})",
+            call_args.join(", ")
+        ));
+        result
+    };
+    for argument in &lowered {
+        ctx.release_owned(&argument.value);
+    }
+    if ret_repr != "void" && matches!(ret, TypeKind::Str) {
+        ctx.mark_owned(&result);
+    }
+    GenValue {
+        value: result,
+        ty: ty.clone(),
+    }
+}
+
 fn gen_call(
     ctx: &mut FnCtx<'_>,
     callee: &[String],
@@ -817,6 +898,16 @@ fn gen_call(
 ) -> GenValue {
     if let Some(constructed) = gen_enum_ctor(ctx, callee, args, ty) {
         return constructed;
+    }
+    // A one-segment callee that names a local binding of function type is an
+    // indirect call. A top-level function is not in `locals`, so it keeps the
+    // direct-call path below.
+    if callee.len() == 1 {
+        if let Some(name) = callee.first() {
+            if let Some((slot, TypeKind::Func(_, ret))) = ctx.locals.get(name).cloned() {
+                return gen_indirect_call(ctx, &slot, &ret.kind, args, ty);
+            }
+        }
     }
     let name = callee.last().cloned().unwrap_or_default();
     match name.as_str() {

@@ -66,6 +66,28 @@ have a comparable standard-library primitive.
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
+| `function` | 100,000,000 calls through a function value, and the same 100,000,000 calls made directly | C function pointer, Go func value, Rust fn pointer |
+
+The `function` workload is the only one with two rows per language. It is
+there because "what does a function value cost" is a question about the
+difference between two calls, not about one number: every language has a
+direct call, and the interesting measurement is what the *value* adds to it.
+Each language therefore contributes a `value` row and a `direct` row, and the
+gap between them is the price of the function value.
+
+The `value` rows keep the call indirect on purpose, because a call the
+optimizer can see through is not a call through a value:
+
+- Otter marks a function that *receives* a function value `noinline`, so the
+  call it makes through that value stays indirect. This is the same reason
+  WebAssembly keeps `call_indirect` indirect.
+- C hides the pointer behind an empty `asm` barrier.
+- Rust uses `black_box`.
+- Go relies on `//go:noinline`: the Go compiler does not promote an indirect
+  call to a direct one.
+
+Without those, every row would measure a direct call and the workload would
+answer a question nobody asked.
 
 There is no C row for `map`: C has no hash map in its standard library, and a
 hand-written one would measure the author of that C file rather than Otter.
@@ -517,6 +539,43 @@ before parking. The 12% gap is what that difference and the lock implementation
 cost under contention. A shared counter cannot be written in Otter user code
 yet: a `*mut` may not cross a thread boundary, so the runtime's own C test
 covers that case.
+
+#### Function values — 100,000,000 calls, through a value and directly
+
+| Language | min ms | median ms | ns/call |
+|---|---:|---:|---:|
+| Otter -O2 (direct) | 153.2 | 156.0 | 1.53 |
+| C (clang -O2, direct) | 155.2 | 156.8 | 1.55 |
+| Rust (rustc -O, direct) | 159.1 | 164.9 | 1.59 |
+| C (gcc -O2, direct) | 200.2 | 201.4 | 2.00 |
+| Go (go build, direct) | 228.3 | 231.6 | 2.28 |
+| C (gcc -O2, value) | 308.1 | 314.9 | 3.08 |
+| C (clang -O2, value) | 344.6 | 349.2 | 3.45 |
+| Rust (rustc -O, value) | 371.9 | 372.7 | 3.72 |
+| Otter -O2 (value) | 453.3 | 456.0 | 4.53 |
+| Go (go build, value) | 528.6 | 531.7 | 5.29 |
+
+The direct rows call the function by name; the value rows call the same
+function through a value, so the difference between the two rows of a language
+is the price of the value and nothing else.
+
+The price is the same everywhere: about 2 ns more per call in C and Rust, 3 ns
+in Otter, and 3 ns in Go. A function value is a pair of pointers — the code
+and the environment — and the call goes through the code pointer, which the
+processor cannot predict. The direct rows are the same program with the call
+folded to a direct one, which is why they are 1.5 to 2.3 ns.
+
+Otter's value row is 31% behind clang's and 15% ahead of Go's. Otter's
+function value is a `{ i8* code, i8* env }` pair in memory: the call site
+loads the pair out of the binding's slot, takes the two halves, and calls the
+code pointer with the environment as its first argument. The environment is
+null for a top-level function, but the argument is still passed, because that
+is the convention a closure will use.
+
+Some rows come from an adjacent run of the same suite: Device Guard refused
+those binaries in the published run, and a rebuild is the only way to change
+its verdict. The rows the runs share agree to within 1%, and the Rust value
+row is from an earlier 3-run pass of the same suite for the same reason.
 
 When these numbers change, update this file and the `Speed` section of the
 top-level `README.md` in the same commit, so the two cannot drift.

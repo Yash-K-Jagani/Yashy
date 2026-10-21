@@ -76,9 +76,13 @@ pub enum TypeKind {
     /// C `size_t`, spelled `usize`. An unsigned machine word; lowered as `i64`
     /// on the platforms Otter targets.
     CSize,
-    /// A function value type. First-class functions do not exist in M0-M2;
-    /// this is the type of builtin and user function signatures as they are
-    /// tracked during checking.
+    /// A first-class function value: parameters and return type, written
+    /// `fn(T, U) -> R`.
+    ///
+    /// A top-level function name has this type, and so does a binding or
+    /// parameter that holds one. The backend represents every value of this
+    /// type as a `{ i8* code, i8* env }` pair; a non-capturing function leaves
+    /// the environment null.
     Func(Vec<Type>, Box<Type>),
     /// No value: the expression diverges. Not written by users.
     Never,
@@ -131,7 +135,7 @@ impl std::fmt::Display for Type {
             TypeKind::CPtr(pointee) => write!(f, "*{pointee}"),
             TypeKind::CSize => write!(f, "usize"),
             TypeKind::Func(params, ret) => {
-                write!(f, "(")?;
+                write!(f, "fn(")?;
                 let mut first = true;
                 for p in params {
                     if !first {

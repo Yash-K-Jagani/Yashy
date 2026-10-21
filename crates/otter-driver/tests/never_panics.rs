@@ -411,6 +411,7 @@ const TEMPLATES: &[&str] = &[
     "fn f(x: bool) { if x { break; } }\n",
     "fn f() -> Result[i64, string] { return Err(\"no\"); }\n",
     "import std.io;\nextern \"C\" { fn puts(s: string) -> i64; }\n",
+    "fn f(g: fn(i64) -> i64, x: i64) -> i64 { return g(x); }\n",
 ];
 
 #[test]

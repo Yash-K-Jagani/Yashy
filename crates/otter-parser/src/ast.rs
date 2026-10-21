@@ -226,10 +226,10 @@ pub enum PtrKind {
 
 /// A type as the source wrote it.
 ///
-/// These six forms are the whole type grammar. It gained `Ptr` with the memory
+/// These forms are the whole type grammar. It gained `Ptr` with the memory
 /// model in M3 and the C pointer spellings in M5; slices and maps arrive in
-/// M6, and adding a variant is additive for the parser and a recompile for
-/// everyone else.
+/// M6, function types arrive with first-class functions, and adding a variant
+/// is additive for the parser and a recompile for everyone else.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeExpr {
     /// A named type, primitive or declared: `i64`, `f64`, `P`.
@@ -265,6 +265,16 @@ pub enum TypeExpr {
     /// its arguments to infer from, so the binding's annotation is what fixes
     /// the channel, exactly as `map[K]V` does for `map_new`.
     Channel(Box<TypeExpr>, Span),
+    /// `fn(T, U) -> R` - a first-class function value.
+    ///
+    /// The parameter and return types are written, not inferred. The syntax
+    /// mirrors a function declaration's signature because the two describe the
+    /// same calling convention; only the names and body are absent.
+    Fn {
+        params: Vec<TypeExpr>,
+        ret: Box<TypeExpr>,
+        span: Span,
+    },
     /// A parenthesised list of types, as in `(i64, f64)`.
     ///
     /// **Never empty.** `()` is [`TypeExpr::Unit`], always, and a parser that

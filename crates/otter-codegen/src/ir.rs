@@ -52,11 +52,14 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::CSize => "i64".to_string(),
         TypeKind::CVoid => "void".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
+        // Every function value is a code pointer plus an environment pointer.
+        // A non-capturing function leaves the environment null; a closure will
+        // put a retained environment there.
+        TypeKind::Func(_, _) => "{ i8*, i8* }".to_string(),
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
         | TypeKind::Struct(_)
-        | TypeKind::Enum(_)
-        | TypeKind::Func(_, _) => "void".to_string(),
+        | TypeKind::Enum(_) => "void".to_string(),
     }
 }
 
@@ -92,7 +95,7 @@ pub fn repr_type(t: &TypeKind) -> String {
         }
         TypeKind::Struct(name) => format!("%struct.{name}"),
         TypeKind::Enum(name) => format!("%enum.{name}"),
-        TypeKind::Func(_, _) => "void".to_string(),
+        TypeKind::Func(_, _) => "{ i8*, i8* }".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Map(_, _) => "i8*".to_string(),
         other => llvm_type_string(other),
@@ -125,14 +128,12 @@ pub fn size_of(kind: &TypeKind) -> u64 {
         | TypeKind::Mutex
         | TypeKind::Channel(_) => 8,
         TypeKind::Slice(_) => 24,
+        TypeKind::Func(_, _) => 16,
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
         | TypeKind::Struct(_)
         | TypeKind::Enum(_) => 8,
-        TypeKind::Unit
-        | TypeKind::Never
-        | TypeKind::CVoid
-        | TypeKind::Func(_, _) => 0,
+        TypeKind::Unit | TypeKind::Never | TypeKind::CVoid => 0,
         // Widths the checker never constructs; one word is the harmless answer.
         TypeKind::CInt(_) | TypeKind::CUInt(_) => 8,
     }

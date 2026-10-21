@@ -180,6 +180,4 @@ and releases the string references the thread owned. A program with any
 `thread_spawn` uses the atomic string retain/release pair, so the last
 reference can be dropped safely from either thread.
 
-That is the language. The [introduction](00-intro.md) restates the three
-decisions, and the programs under `crates/otter-driver/tests/programs` show the
-rest.
+Continue to [11-functions](11-functions.md).

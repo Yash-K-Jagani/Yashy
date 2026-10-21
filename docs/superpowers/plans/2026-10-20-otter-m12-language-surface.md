@@ -530,26 +530,27 @@ blocked the freshly built sema test binaries.
 ### Task 7: Function types, top-level function values, and indirect calls
 
 **Files:**
-- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/types.rs`, `crates/otter-parser/src/exprs.rs`, `crates/otter-parser/src/items.rs`
 - Modify: `crates/otter-sema/src/ty.rs`, `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/ir.rs`, `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/module.rs`
-- Test: `crates/otter-driver/tests/programs/functions.ot`
+- Modify: `crates/otter-codegen/src/ir.rs`, `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/module.rs`, `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/lib.rs`
+- Test: `crates/otter-driver/tests/programs/functions.ot`, `crates/otter-parser/tests/function_types.rs`, `crates/otter-sema/tests/functions.rs`, `crates/otter-codegen/tests/function_values.rs`
+- Benchmark: `benchmarks/features/function.*`, `benchmarks/features/function_direct.*`
 
 **Interfaces:**
 - Produces: type syntax `fn(i64, string) -> bool`; a top-level `fn` name is a value of its function type; `apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); }`.
 - Consumes: M12 method syntax; the existing `TypeKind::Func` representation.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `functions.ot` defines `square`, `apply`, and prints `apply(square, 7)` as `49`;
 it also binds `const f = square;` and calls `f(4)` as `16`.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e functions_can_be_passed_and_called_through_values`
 Expected: FAIL at parse (`fn(` is not a type) or LLVM (`use of undefined value '@f'`).
 
-- [ ] **Step 3: Implement function types and values**
+- [x] **Step 3: Implement function types and values**
 
 Add `TypeExpr::Fn { params, ret }` and `TypeKind::Func` as a real value type.
 Represent **every** function value as `{ i8* code, i8* env }` from this task
@@ -560,17 +561,48 @@ thunk `__fnvalue_square(i8* env, args...)` that ignores `env` and calls
 value loads both fields and emits an indirect call with `env` as argument 0.
 `ir.rs` currently maps `Func` to `void`; replace that mapping with this struct.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e functions_can_be_passed_and_called_through_values`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/functions.ot
 git commit -m "feat: function types and indirect calls"
 ```
+
+**As built:** the type syntax is `fn(T, U) -> R`, with the arrow optional and
+an omitted arrow meaning `-> ()`. `TypeExpr::Fn` is a parser node, and
+`TypeKind::Func` is now a real value type: it has a `Display` (`fn(i64) -> i64`,
+the same spelling the source uses) and a representation. Every function value
+is `{ i8* code, i8* env }`. A top-level function name becomes a value by taking
+the address of a synthesized thunk `__fnvalue_<name>(i8* env, args...)` that
+ignores the environment and calls the real function; the value pairs that
+thunk with a null environment, because a top-level function captures nothing.
+A call through a value loads the pair, extracts both fields, and calls the
+code pointer with the environment as argument 0. A direct call to a named
+function is still a direct call: the thunk is only synthesized when a name is
+used as a value, and one thunk is shared by every use of that function.
+
+One decision the plan did not spell out: a function that *receives* a function
+value is emitted `noinline`. Inlining it into its caller would let the
+optimizer see the value and fold the indirect call back into a direct one,
+which would quietly turn a program that calls through a value into one that
+does not. WebAssembly keeps `call_indirect` indirect for the same reason. A
+function value held in a *local* binding is left alone: the optimizer can see
+that binding's value, and folding that call is an ordinary optimization.
+
+The `function` feature benchmark is the first workload with two rows per
+language: one that calls through a function value and one that calls the same
+function directly, so the difference between them is the price of the value.
+The C row hides its function pointer behind an empty `asm` barrier, the Rust
+row uses `black_box`, and the Go row relies on `//go:noinline`; without those
+the optimizer would devirtualize every row and the workload would measure a
+direct call. All ten rows print `4999999950099999999`. On this machine the
+value costs 1.5 ns more per call in clang, 1.9 ns in gcc, 2.1 ns in Rust,
+3.0 ns in Otter, and 3.0 ns in Go.
 
 ### Task 8: Non-capturing lambdas
 

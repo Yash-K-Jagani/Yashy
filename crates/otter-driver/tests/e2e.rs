@@ -230,6 +230,12 @@ fn array_builtins_can_be_called_as_methods() {
 }
 
 #[test]
+fn functions_can_be_passed_and_called_through_values() {
+    let output = build_and_run("functions");
+    assert_eq!(stdout_of(&output), "49\n16\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

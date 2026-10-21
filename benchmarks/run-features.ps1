@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Build and time the language-feature benchmarks: FFI, arrays, maps, enums,
-  channels and mutexes.
+  channels, mutexes and function values.
 
 .DESCRIPTION
   The scalar suite (run.ps1) answers "how fast is the arithmetic Otter emits?".
@@ -91,6 +91,24 @@ $workloads = @(
        Programs = @(
            @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'mutex.ot'; Out = 'mutex-otter' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'mutex.go'; Out = 'mutex-go' }
+       ) },
+    # The function-value workload has two rows per language: one that calls
+    # through a function value and one that calls the same function directly.
+    # The gap between them is the price of the value. Every row prints the same
+    # number, so a row that computed the wrong thing shows up as a mismatch
+    # instead of as a speed number.
+    @{ Name = 'function'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'function.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2 (value)';         Kind = 'otter'; Src = 'function.ot';         Out = 'function-otter' },
+           @{ Lang = 'Otter -O2 (direct)';        Kind = 'otter'; Src = 'function_direct.ot'; Out = 'function-direct-otter' },
+           @{ Lang = 'C (clang -O2, value)';      Kind = 'clang'; Src = 'function.c';         Out = 'function-clang' },
+           @{ Lang = 'C (clang -O2, direct)';     Kind = 'clang'; Src = 'function_direct.c'; Out = 'function-direct-clang' },
+           @{ Lang = 'C (gcc -O2, value)';        Kind = 'gcc';   Src = 'function.c';         Out = 'function-gcc' },
+           @{ Lang = 'C (gcc -O2, direct)';       Kind = 'gcc';   Src = 'function_direct.c'; Out = 'function-direct-gcc' },
+           @{ Lang = 'Go (go build, value)';      Kind = 'go';    Src = 'function.go';        Out = 'function-go' },
+           @{ Lang = 'Go (go build, direct)';     Kind = 'go';    Src = 'function_direct.go'; Out = 'function-direct-go' },
+           @{ Lang = 'Rust (rustc -O, value)';    Kind = 'rust';  Src = 'function.rs';        Out = 'function-rust' },
+           @{ Lang = 'Rust (rustc -O, direct)';   Kind = 'rust';  Src = 'function_direct.rs'; Out = 'function-direct-rust' }
        ) }
 )
 

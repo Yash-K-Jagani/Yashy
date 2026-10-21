@@ -742,6 +742,17 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
+            TypeExpr::Fn { params, ret, span } => {
+                let params = params
+                    .iter()
+                    .map(|param| self.resolve_type_in(param, allow_c))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ret = self.resolve_type_in(ret, allow_c)?;
+                Ok(Type {
+                    kind: TypeKind::Func(params, Box::new(ret)),
+                    span: *span,
+                })
+            }
             TypeExpr::Tuple(_, span) => Err(TypeError::new(
                 *span,
                 "tuple types are not value types in M0-M2".to_string(),
@@ -3511,7 +3522,19 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 match self.scope.resolve(&name) {
-                    Some(binding) => Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone())),
+                    Some(binding) => {
+                        // `main` is the entry point, and it is emitted with the
+                        // operating system's `i32` signature rather than its
+                        // Otter one. It can be called; it cannot be a value.
+                        if name == "main" && matches!(binding.ty.kind, TypeKind::Func(_, _)) {
+                            self.error(
+                                *span,
+                                "`main` is the entry point and cannot be used as a value",
+                            );
+                            return None;
+                        }
+                        Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone()))
+                    }
                     None => {
                         self.error(*span, format!("cannot find value `{name}` in this scope"));
                         None
@@ -4980,7 +5003,12 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             span,
         },
         TypeKind::CSize => TypeExpr::Name("usize".to_string(), span),
-        TypeKind::Func(_, _) | TypeKind::Never => TypeExpr::Unit(span),
+        TypeKind::Func(params, ret) => TypeExpr::Fn {
+            params: params.iter().map(type_to_expr).collect(),
+            ret: Box::new(type_to_expr(ret)),
+            span,
+        },
+        TypeKind::Never => TypeExpr::Unit(span),
     }
 }
 
@@ -5096,6 +5124,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Map(_, _, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Channel(_, span) => *span,
+        TypeExpr::Fn { span, .. } => *span,
         TypeExpr::Tuple(_, span) => *span,
         TypeExpr::Unit(span) => *span,
     }

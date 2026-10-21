@@ -1,0 +1,20 @@
+// Function values: a top-level function name is a value, it can be passed
+// to another function and called through the parameter, and it can be bound
+// to a local and called through that binding.
+
+fn square(x: i64) -> i64 {
+    return x * x;
+}
+
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+    return f(x);
+}
+
+fn main() {
+    print_i64(apply(square, 7));
+    print_str("\n");
+
+    const f = square;
+    print_i64(f(4));
+    print_str("\n");
+}

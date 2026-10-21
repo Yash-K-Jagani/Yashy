@@ -8,7 +8,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 and M12 are complete; M13–M15 are next.** Otter lexes,
+**Status: milestones M0–M8 and M12 are complete; M13 is in progress.** Otter lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -16,7 +16,10 @@ written as `var` or `let` (block-scoped and mutable) or `const` (block-scoped
 and immutable). Arrays and strings have a method surface: `xs.push(1)`,
 `xs.slice(0, 3)`, `s.trim()`, `s.split(",")`, and the rest of the string
 method table.
-Function values and objects are the next M13–M15 stages. A program can read its
+A function name is a value: `fn(i64) -> i64` is a type, a top-level function
+can be handed to another function and called through the parameter, and a
+binding can hold one and call it. Lambdas, capturing closures, and objects are
+the next M13–M15 stages. A program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
@@ -666,4 +669,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
-| M13–M15 (in progress) | Function values and closures, objects, and the remaining correctness gaps |
+| M13–M15 (in progress) | Function values (done: `fn(T) -> R` types, top-level function values, indirect calls), then lambdas, capturing closures, objects, and the remaining correctness gaps |

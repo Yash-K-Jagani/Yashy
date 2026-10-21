@@ -495,6 +495,7 @@ fn ty_span(ty: &crate::ast::TypeExpr) -> Span {
         crate::ast::TypeExpr::Result(_, _, span) => *span,
         crate::ast::TypeExpr::Map(_, _, span) => *span,
         crate::ast::TypeExpr::Channel(_, span) => *span,
+        crate::ast::TypeExpr::Fn { span, .. } => *span,
         crate::ast::TypeExpr::Tuple(_, span) => *span,
     }
 }

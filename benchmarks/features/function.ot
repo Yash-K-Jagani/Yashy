@@ -1,0 +1,32 @@
+// Calling a function through a value: the loop's callee is a parameter of
+// function type, so every call goes through the stored code pointer.
+//
+// The C, Go and Rust rows call through a function pointer, a func value and a
+// fn pointer respectively. The work is the same in all of them: multiply the
+// loop counter by a constant, add the counter's remainder, and add the result
+// to a running total, so the answer is the same number everywhere and a
+// miscompiled call shows up as a mismatch rather than as a speed number.
+//
+// The `function_direct` files are the same program calling the function
+// directly. The difference between the two rows is the price of the function
+// value.
+fn scale(x: i64, k: i64) -> i64 {
+    return x * k + x % 3;
+}
+
+fn apply(f: fn(i64, i64) -> i64, x: i64, k: i64) -> i64 {
+    return f(x, k);
+}
+
+fn main() {
+    const n = 100000000;
+    const k = 1000;
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        sum = wrapping_add(sum, apply(scale, i, k));
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}
