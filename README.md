@@ -651,3 +651,5 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M8 ✅ | `otter fmt`, the eleven-chapter tutorial (every example compiled and run by a test), an LSP server, and editor modes for VS Code, Vim, and Emacs |
 | M9 | Escape analysis |
 | M10 | Self-hosting bootstrap |
+| M11 | Adoption: formatter polish, test runner, LSP, installer |
+| M12–M15 | Language surface: array and string methods, function values and closures, objects, and the remaining correctness gaps |

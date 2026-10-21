@@ -1,0 +1,1108 @@
+# M12–M15 Language Surface Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Give Otter a conventional surface — arrays with methods, first-class functions and lambdas, method-bearing objects, and a closing pass over the language's known gaps — and rename the public vocabulary so “array”, “function”, and “object” mean what users expect.
+
+**Architecture:** Four sequential phases, each leaving a working language. M12 adds method resolution as a desugaring layer in sema over the existing builtins, then renames the public surface and migrates every call site. M13 adds function types, function values, lambdas, closure environments, and higher-order array methods. M14 adds `impl` methods and `object` declarations as sugar over structs; codegen reuses the struct layout and mangles method names. M15 closes the correctness, ownership, and collection gaps those features expose. Each phase consumes only interfaces landed by an earlier phase.
+
+**Tech Stack:** Rust 1.99 (edition 2021), LLVM IR text via `clang`, the C runtime shim in `crates/otter-runtime`, `cargo test` on Windows and Linux.
+
+**Spec:** `docs/superpowers/specs/2026-10-16-otter-language-design.md`, `docs/superpowers/plans/2026-10-16-otter-language-vision.md` §§10.2, 11.5.2, 11.5.3, 11.5.6. This plan is the spec change that lifts the v1 exclusions on methods and function values; the master plan's “Naming is frozen” constraint is amended for M12 and freezes again after it.
+
+## Global Constraints
+
+- The compiler never panics on user input: no `unwrap`, `expect`, `panic!`, `unreachable!`, or unchecked indexing in compiler code. A malformed program produces a diagnostic with a span and a caret.
+- No LLVM build dependency; `clang`/`llc` remain subprocesses.
+- Every task ends with `cargo check --workspace --all-targets` warning-free and `cargo test --workspace --no-fail-fast` passing. Device Guard blocks are environmental and are not passes.
+- `rustfmt` is not part of the gate. Do not run `cargo fmt`.
+- Golden IR changes are reviewed as deliberate diffs, never regenerated unread.
+- Conventional commits; explicit `git add` paths; no push from an implementer subagent.
+- New source-level names are the names in this plan. No aliases survive the rename task: a second spelling is a second language.
+- Every end-to-end program has a named `#[test]` in `crates/otter-driver/tests/e2e.rs` that calls `build_and_run("name")`; adding only `tests/programs/name.ot` runs nothing. Commands filter on the test name.
+- Runtime C symbols keep their existing `otter_slice_*` names; the ABI is internal. Public source names change.
+
+## Naming Decisions
+
+The public name of `[]T` becomes **array**. The word **slice** is reserved for a future non-owning view; nothing in this plan introduces that view.
+
+| Today | After | Notes |
+|---|---|---|
+| `slice`, “slice literal” | `array`, “array literal” | Syntax stays `[]T` and `[]T { ... }`. |
+| `free_slice(xs)` | `xs.free()` | Consumes the array; releases string elements. |
+| `push(xs, v)` | `xs.push(v)` | Receiver must be a binding, as today. |
+| `pop(xs)` | `xs.pop()` | `Option[T]`. |
+| `len(xs)` / `len(s)` | `xs.len()` / `s.len()` | One method name across arrays, strings, maps. |
+| `str_slice(s, a, b)` | `s.slice(a, b)` | Copies; clamped, never faults. |
+| `byte_at(s, i)` | `s.byte_at(i)` | Byte value, `0` out of range. |
+| `map_get(m, k)` | `m.get(k)` | `Option[V]`. |
+| `map_insert(m, k, v)` | `m.insert(k, v)` | |
+| `map_remove(m, k)` | `m.remove(k)` | `Option[V]`. |
+| `map_len(m)` | `m.len()` | |
+| `map_free(m)` | `m.free()` | |
+| `chan_send(c, v)` | `c.send(v)` | `bool`; `false` when closed. |
+| `chan_recv(c)` | `c.recv()` | `Option[T]`. |
+| `chan_close(c)` | `c.close()` | |
+| `chan_free(c)` | `c.free()` | |
+| `mutex_lock(m)` / `mutex_unlock(m)` | `m.lock()` / `m.unlock()` | |
+| `mutex_free(m)` | `m.free()` | |
+| `str_from_i64` | unchanged | Number-to-string conversions stay free functions. |
+| `parse_i64(s)` / `parse_f64(s)` | `s.parse_i64()` / `s.parse_f64()` | 0 when the text is not a number. |
+| `read_line`, `print_i64` | unchanged | I/O stays free functions. |
+
+`struct` and `enum` keep their names. An **object** is a struct or enum with methods, declared with `impl`. An `object` declaration is sugar for a struct plus an `impl` block. There is no inheritance, no virtual dispatch, and no automatic `this`; `self` is an explicit first parameter.
+
+## Scope
+
+**In:** method-call syntax for builtins; array query, mutation, search, and growth methods; string query, transform, split, and parse methods; function types, top-level function values, non-capturing and capturing lambdas, indirect calls, builtin `map`/`filter`/`fold`; `impl` methods, `object` declarations, static methods, pointer receivers; the correctness and ownership fixes listed in M15.
+
+**Out, deliberately:** inheritance, traits/interfaces, dynamic dispatch, operator overloading, exceptions, async/await, macros, a garbage collector, package management, and a non-owning array view. Capturing a linear value (`*mut`, array, map, channel) in a closure is out until a general destructor exists; capturing copyable values is in.
+
+## Review Focus
+
+1. **A method call on a temporary mutates a copy and silently loses the result.** `make_array().push(1)` must be rejected with the same “needs an array binding” diagnostic the free function uses, not compiled into a write to a temporary.
+2. **A method name shadowed by a field.** `point.len` is a field access; `point.len()` must resolve the method only when the field is not callable, and the ambiguity must be diagnosed, not guessed.
+3. **A closure environment freed while the closure is still callable.** Returning `|x| x + n` from a function must keep `n` alive; the refcount test must fail if the environment is released with the creating scope.
+4. **A moved array or object still usable after `free()`.** Every consuming method goes through the existing `move_out` path; a second `free` is a compile error.
+5. **Renaming a builtin without updating every embedded program.** The tutorial, benchmarks, golden programs, and README are part of the test surface; the rename task is not complete until the tutorial harness passes.
+6. **Split strings outliving their source.** `split` and `lines` must copy each element into an owned string, and the returned array's `free()` must release every element; a test must free after the source binding's scope ends.
+
+---
+
+## M12 — Arrays, strings, method syntax, and the rename
+
+### Task 1: Method-call resolution for builtins
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Test: `crates/otter-sema/tests/check.rs`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/array_methods.ot`
+
+**Interfaces:**
+- Consumes: the existing builtin checks `check_slice_builtin`, `check_len_builtin`, `check_map_builtin`, `check_thread_builtin`.
+- Produces: `receiver.name(args...)` type-checks as the builtin `name(receiver, args...)` for every receiver-first builtin; mutating receivers must be a single-name binding.
+
+- [ ] **Step 1: Write the failing sema test**
+
+```rust
+#[test]
+fn a_builtin_can_be_called_as_a_method() {
+    let program = r#"
+        fn main() {
+            var xs = []i64 { 1, 2 };
+            print_i64(xs.len());
+            xs.push(3);
+            print_i64(xs.len());
+            xs.free();
+        }
+    "#;
+    assert!(check(program).is_ok());
+}
+```
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-sema a_builtin_can_be_called_as_a_method`
+Expected: FAIL with `cannot find field \`len\`` or an unknown-function diagnostic.
+
+- [ ] **Step 3: Implement desugaring in `Expr::Call`**
+
+In `check_expr.rs`, before ordinary callee resolution, match a callee of
+`Expr::FieldAccess { receiver, field, .. }`. If `field` is a builtin method for
+`receiver`'s type, check `Call { callee: vec![field], args: [receiver] + args }`.
+Register the receiver-first builtins that already exist: array (`len`, `push`,
+`pop`, `free`), string (`len`, `byte_at`, `slice`), map (`get`, `insert`,
+`remove`, `len`, `free`), channel (`send`, `recv`, `close`, `free`), and mutex
+(`lock`, `unlock`, `free`). Tasks 2–5 add the new array and string methods.
+For `push`, `pop`, `free`, `insert`, `remove`, and `clear`, reuse the existing
+single-binding rule: the receiver must be `Expr::Ident` with a one-segment path.
+An unknown method reports `error: no method \`name\` on \`T\`` at the field span.
+
+- [ ] **Step 4: Add the end-to-end program and its named test**
+
+Add `#[test] fn array_builtins_can_be_called_as_methods()` to `e2e.rs`; it
+calls `build_and_run("array_methods")` and asserts stdout is `2\n3\n`.
+`array_methods.ot` contains the sema test program above.
+
+- [ ] **Step 5: Run the sema and e2e tests**
+
+Run: `cargo test -p otter-sema a_builtin_can_be_called_as_a_method`
+Run: `cargo test -p otter-driver --test e2e array_builtins_can_be_called_as_methods`
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-sema/tests/check.rs crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_methods.ot
+git commit -m "feat(sema): resolve builtins as methods"
+```
+
+### Task 2: Array query methods
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/array_query.ot`
+
+**Interfaces:**
+- Produces: `len() -> i64`, `is_empty() -> bool`, `get(index: i64) -> Option[T]`, `first() -> Option[T]`, `last() -> Option[T]`, `set(index: i64, value: T) -> bool`.
+- Consumes: Task 1's method desugaring.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`array_query.ot` covers an empty array (`is_empty` true, `first`/`last` `None`),
+a populated array (`get`, `first`, `last`), an out-of-range `get`, an in-range
+`set` that changes a later read, and an out-of-range `set` that returns `false`.
+Add `#[test] fn array_query_methods_answer_in_options()` to `e2e.rs`, calling
+`build_and_run("array_query")` and asserting the exact stdout.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e array_query_methods_answer_in_options`
+Expected: FAIL; the methods do not exist.
+
+- [ ] **Step 3: Implement the method table and runtime entry points**
+
+`get` reuses slice indexing; `first`/`last` lower to `get(0)` / `get(len - 1)`.
+`set` calls new `otter_slice_set(slice, index, value, size) -> i64`, which
+returns 1 on success and 0 when `index` is outside `0..len`. `is_empty` lowers
+to `len() == 0`.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_query_methods_answer_in_options`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_query.ot
+git commit -m "feat: array query methods"
+```
+
+### Task 3: Array mutation and ordering methods
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/array_edit.ot`
+
+**Interfaces:**
+- Produces: `push(value: T)`, `pop() -> Option[T]`, `insert(index: i64, value: T) -> bool`, `remove(index: i64) -> Option[T]`, `clear()`, `reverse()`, `sort()`.
+- Consumes: Task 1; the existing `push`/`pop` checks.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`array_edit.ot` covers `insert` at the front, middle, and end; `insert` past the
+end returning `false`; `remove` returning the right element; `clear` leaving
+`len == 0` and `is_empty()` true; `reverse`; and `sort` on an unsorted `[]i64`.
+Add `#[test] fn array_edit_methods_mutate_in_place()` to `e2e.rs`, calling
+`build_and_run("array_edit")` and asserting the exact stdout.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e array_edit_methods_mutate_in_place`
+Expected: FAIL; methods missing.
+
+- [ ] **Step 3: Implement the operations**
+
+Add `otter_slice_insert`, `otter_slice_remove`, `otter_slice_clear`,
+`otter_slice_reverse`, and `otter_slice_sort_i64` to the runtime. `insert`
+accepts `0..=len` and `memmove`s the tail; `remove` accepts `0..len` and
+`memmove`s the tail left. `sort` is `i64` only in this phase; every other element
+type reports `error: \`sort\` is only implemented for arrays of i64`. `insert`
+and `remove` reject `string` elements with the ownership diagnostic the current
+`pop` uses.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_edit_methods_mutate_in_place`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_edit.ot
+git commit -m "feat: array edit and ordering methods"
+```
+
+### Task 4: Search, extend, and copy-slice methods
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-runtime/runtime.c`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/array_search.ot`
+
+**Interfaces:**
+- Produces: `contains(value: T) -> bool`, `index_of(value: T) -> Option[i64]`, `extend(other: []T)`, `slice(start: i64, end: i64) -> []T`.
+- Consumes: Tasks 1–3.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`array_search.ot` adds `10, 20, 30`; checks `contains(20)`, `contains(99)`,
+`index_of(30)` and `index_of(99)`; extends with `{40, 50}` and prints the new
+length; copies `slice(1, 4)` and prints its elements. It also checks the
+clamping cases `slice(-5, 2)` and `slice(2, 99)`. Add
+`#[test] fn array_search_and_copy_methods()` to `e2e.rs`, calling
+`build_and_run("array_search")` and asserting the exact stdout.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e array_search_and_copy_methods`
+Expected: FAIL; methods missing.
+
+- [ ] **Step 3: Implement the operations**
+
+`contains` and `index_of` accept element types with `==` (`i64`, `f64`, `bool`,
+`string`); a struct/enum element reports
+`error: \`contains\` needs an element type with equality`.
+`extend` copies elements into the receiver; for `[]string` it retains each
+element. `slice` copies the clamped range into a fresh array.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_search_and_copy_methods`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/runtime.c crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_search.ot
+git commit -m "feat: array search, extend, and copy-slice methods"
+```
+
+### Task 5: String methods
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
+- Test: `crates/otter-sema/tests/check.rs`
+- Test: `crates/otter-driver/tests/e2e.rs`
+- Test: `crates/otter-driver/tests/programs/string_methods.ot`
+
+**Interfaces:**
+- Produces: `len() -> i64`, `is_empty() -> bool`, `byte_at(i: i64) -> i64`, `get(i: i64) -> Option[i64]`, `slice(start: i64, end: i64) -> string`, `contains(needle: string) -> bool`, `starts_with(prefix: string) -> bool`, `ends_with(suffix: string) -> bool`, `index_of(needle: string) -> Option[i64]`, `trim() -> string`, `trim_start() -> string`, `trim_end() -> string`, `to_upper() -> string`, `to_lower() -> string`, `replace(old: string, new: string) -> string`, `repeat(n: i64) -> string`, `split(separator: string) -> []string`, `lines() -> []string`, `parse_i64() -> i64`, `parse_f64() -> f64`.
+- Consumes: Task 1's method desugaring; the existing `len`, `byte_at`, `str_slice`, `parse_i64`, and `parse_f64` builtins.
+- Ownership: every transform returns a fresh owned string. `split` and `lines` return a fresh array whose `string` elements are owned; `xs.free()` releases each element.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`string_methods.ot` starts from `"  Otter,otter  "` and checks: `len`, `is_empty`,
+`trim`, `trim_start`, `trim_end`, `to_upper`, `to_lower`, `contains("otter")`,
+`contains("badger")`, `starts_with("  Ot")`, `ends_with("  ")`,
+`index_of("otter")` and `index_of("badger")`, `replace("otter", "seal")`,
+`repeat(2)`, `slice(2, 7)`, `get(2)`, `byte_at(999)`, `split(",")` (length and
+both elements), `lines()` on `"a\nb\n"` (length and both elements), and
+`s.parse_i64()` / `s.parse_f64()` on `"42"` and `"nope"` (the failure parses as
+`0`). Add `#[test] fn string_methods_transform_bytes_and_ownership()` to
+`e2e.rs`, calling `build_and_run("string_methods")` and asserting the exact
+stdout.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e string_methods_transform_bytes_and_ownership`
+Expected: FAIL; the methods do not exist.
+
+- [ ] **Step 3: Implement the string method table and runtime entry points**
+
+Resolve string methods by receiver type `Str`, separately from arrays that reuse
+the same method names. Add runtime functions:
+
+```c
+long long  otter_str_contains(const otter_str*, const otter_str*);
+long long  otter_str_starts_with(const otter_str*, const otter_str*);
+long long  otter_str_ends_with(const otter_str*, const otter_str*);
+long long  otter_str_index_of(const otter_str*, const otter_str*); /* -1 if absent */
+otter_str* otter_str_trim(const otter_str*);
+otter_str* otter_str_trim_start(const otter_str*);
+otter_str* otter_str_trim_end(const otter_str*);
+otter_str* otter_str_to_upper(const otter_str*); /* ASCII only */
+otter_str* otter_str_to_lower(const otter_str*); /* ASCII only */
+otter_str* otter_str_replace(const otter_str*, const otter_str* old, const otter_str* new);
+otter_str* otter_str_repeat(const otter_str*, long long n); /* n < 0 is empty */
+void       otter_str_split(const otter_str*, const otter_str*, otter_slice* out);
+void       otter_str_lines(const otter_str*, otter_slice* out);
+```
+
+`get` returns `None` outside `0..len`; `byte_at` keeps its existing
+out-of-range answer of `0`. `is_empty` is `len() == 0`. `slice` calls the
+existing `otter_str_slice`. `parse_i64` and `parse_f64` call the existing
+builtins and keep their "0 on bad input" rule. `replace` replaces every
+non-overlapping occurrence; an empty `old` returns a copy. `repeat` with a
+negative count is empty. `split` with an empty separator returns one element
+containing the whole string; `lines` splits on `\n` and drops a final empty
+element. `lines` splits on `\n`, strips a preceding `\r`, and drops a final
+empty element. Case conversion and whitespace are ASCII-only; non-ASCII bytes
+pass through unchanged. The stdlib's duplicate free functions are not changed in
+this task; Task 6 migrates their callers and removes them.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e string_methods_transform_bytes_and_ownership`
+Expected: PASS, with the leak report at zero.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/string_methods.ot
+git commit -m "feat: string methods"
+```
+
+### Task 6: Rename the remaining builtins and migrate every call site
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs` (method table and removed-name diagnostics)
+- Modify: `crates/otter-stdlib/otter/string.ot` (remove duplicate string wrappers)
+- Modify: all `crates/otter-driver/tests/programs/*.ot`
+- Modify: `docs/tutorial/*.md`, `README.md`, `benchmarks/features/*.ot`, `benchmarks/README.md`
+- Rename: `docs/tutorial/09-slices.md` → `docs/tutorial/09-arrays.md`
+- Test: `crates/otter-sema/tests/check.rs`
+
+**Interfaces:**
+- Consumes: Tasks 1–5's method layer.
+- Produces: the naming table at the top of this plan; the old free-function names are errors carrying a migration hint.
+
+- [ ] **Step 1: Add failing diagnostics for the old names**
+
+`push(xs, 1)`, `free_slice(xs)`, `map_get(m, 1)`, `chan_recv(c)`,
+`mutex_lock(m)`, `len(xs)`, `len(s)`, `byte_at(s, 0)`, `str_slice(s, 0, 1)`,
+`parse_i64(s)`, and `parse_f64(s)` each report
+``error: `push` has moved to method syntax: write `xs.push(1)` `` (with the
+matching spelling for each name) at the call span.
+
+- [ ] **Step 2: Run the diagnostics test and verify it fails**
+
+Run: `cargo test -p otter-sema old_builtin_names_point_at_their_methods`
+Expected: FAIL; the old names still compile.
+
+- [ ] **Step 3: Implement the removals and migrate every source**
+
+Remove the old builtin names from the checker, add the migration diagnostics,
+and rewrite every call site in tests, tutorial, benchmarks, and README to the
+method form. Remove the duplicate stdlib `string.contains`, `string.starts_with`,
+`string.trim`, and `string.split` wrappers and migrate their callers; the new
+methods are the only spelling. Rename `09-slices.md`, its title, and every link
+to it. Update the tutorial harness expectation count if the file list changes,
+and the benchmark runner's `slice` workload to `array`.
+
+- [ ] **Step 4: Run the full proof**
+
+Run: `cargo test -p otter-sema old_builtin_names_point_at_their_methods`
+Run: `cargo test -p otter-driver --test tutorial`
+Run: `cargo check --workspace --all-targets`
+Expected: all PASS; warning-free check.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema crates/otter-stdlib crates/otter-driver/tests docs/tutorial README.md benchmarks
+git commit -m "refactor!: rename the public surface to arrays and methods"
+```
+
+---
+
+## M13 — Functions as values
+
+### Task 7: Function types, top-level function values, and indirect calls
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/ty.rs`, `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/ir.rs`, `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/functions.ot`
+
+**Interfaces:**
+- Produces: type syntax `fn(i64, string) -> bool`; a top-level `fn` name is a value of its function type; `apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); }`.
+- Consumes: M12 method syntax; the existing `TypeKind::Func` representation.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`functions.ot` defines `square`, `apply`, and prints `apply(square, 7)` as `49`;
+it also binds `const f = square;` and calls `f(4)` as `16`.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e functions_can_be_passed_and_called_through_values`
+Expected: FAIL at parse (`fn(` is not a type) or LLVM (`use of undefined value '@f'`).
+
+- [ ] **Step 3: Implement function types and values**
+
+Add `TypeExpr::Fn { params, ret }` and `TypeKind::Func` as a real value type.
+Represent **every** function value as `{ i8* code, i8* env }` from this task
+onward; closures only add a non-null environment. A direct call to a named
+function stays a direct call. Coercing a top-level `fn` to a value emits a
+thunk `__fnvalue_square(i8* env, args...)` that ignores `env` and calls
+`@square`; the value is `{ @__fnvalue_square, null }`. A call through a function
+value loads both fields and emits an indirect call with `env` as argument 0.
+`ir.rs` currently maps `Func` to `void`; replace that mapping with this struct.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e functions_can_be_passed_and_called_through_values`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/functions.ot
+git commit -m "feat: function types and indirect calls"
+```
+
+### Task 8: Non-capturing lambdas
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/lambdas.ot`
+
+**Interfaces:**
+- Produces: `|x: i64| -> i64 { return x * 2; }` as an expression whose type is `fn(i64) -> i64`.
+- Consumes: Task 7.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`lambdas.ot` prints `apply(|x: i64| -> i64 { return x + 1; }, 41)` as `42`, and
+stores a lambda in a binding before calling it.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e a_non_capturing_lambda_is_a_function_value`
+Expected: FAIL at parse.
+
+- [ ] **Step 3: Implement lambda parsing and lowering**
+
+Parse `|params| -> ret { body }` after a `|` in expression position. Sema checks
+the body with the declared parameter and return types. Codegen emits a private
+function `__lambda_N(i8* env, params...) -> ret` that ignores `env` in this
+task, and yields `{ @__lambda_N, null }`. A lambda that mentions a name not
+bound by its parameters reports
+`error: closures are not captured yet; this lambda needs \`x\`` until Task 9.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e a_non_capturing_lambda_is_a_function_value`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/lambdas.ot
+git commit -m "feat: non-capturing lambdas"
+```
+
+### Task 9: Capturing closures with copyable captures
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/ty.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/module.rs`
+- Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
+- Test: `crates/otter-driver/tests/programs/closures.ot`
+
+**Interfaces:**
+- Produces: a closure type represented as `{ i8* code, i8* env }`; captures are copied into a refcounted environment; the environment's refcount is released with the closure binding.
+- Consumes: Task 8; the string refcount pattern in `otter_str_retain`/`otter_str_release`.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`closures.ot` defines `fn adder(n: i64) -> fn(i64) -> i64` returning
+`|x: i64| -> i64 { return x + n; }`; it binds `const add5 = adder(5);`, calls
+`add5(10)`, and prints `15`. It also captures a `string`, returns the closure,
+and prints the captured text after the creating function has returned.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e a_closure_outlives_its_creating_scope`
+Expected: FAIL with the Task 8 “closures are not captured yet” diagnostic.
+
+- [ ] **Step 3: Implement environments and thunks**
+
+A capturing lambda lowers to a heap environment struct holding each capture,
+plus a thunk whose first parameter is `i8* env`; the thunk unpacks the
+environment and calls the lambda body. String captures are retained on creation
+and released when the environment's count reaches zero. Closure values are
+copyable and retain the environment. Linear captures (`*mut`, array, map,
+channel) report `error: a linear value cannot be captured yet`.
+`env` allocation is freed when the refcount reaches zero.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e a_closure_outlives_its_creating_scope`
+Expected: PASS, with no leak report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema crates/otter-codegen crates/otter-runtime crates/otter-driver/tests/programs/closures.ot
+git commit -m "feat: capturing closures with refcounted environments"
+```
+
+### Task 10: Builtin `map`, `filter`, and `fold`
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/higher_order.ot`
+
+**Interfaces:**
+- Produces: `xs.map(f: fn(T) -> U) -> []U`, `xs.filter(f: fn(T) -> bool) -> []T`, `xs.fold(init: U, f: fn(U, T) -> U) -> U`.
+- Consumes: Tasks 7–9.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`higher_order.ot` maps `{1, 2, 3}` through `|x: i64| -> i64 { return x * 2; }`
+to `{2, 4, 6}`, filters through `|x: i64| -> bool { return x > 2; }` to `{3}`,
+and folds from `0` with `|acc: i64, x: i64| -> i64 { return acc + x; }` to `6`.
+It also maps `[]i64` to `[]string` through a closure that calls `str_from_i64`,
+to prove `U` may differ from `T`.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e higher_order_array_methods_transform_in_order`
+Expected: FAIL; methods missing.
+
+- [ ] **Step 3: Implement the three methods in codegen**
+
+Each call site is specialized: `map` builds a fresh `[]U` and calls `f` on each
+element; the source array keeps its own elements, and only the new array owns
+the mapped results. `filter` appends elements that pass, using `push`; for
+`[]string`, it retains each appended element. `fold` carries the accumulator and
+calls `f`. Each method requires the array receiver to be a binding, like `push`.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e higher_order_array_methods_transform_in_order`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/higher_order.ot
+git commit -m "feat: map, filter, and fold"
+```
+
+### Task 11: Generic functions
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/generics.ot`
+
+**Interfaces:**
+- Produces: `fn identity[T](x: T) -> T` and `fn apply_twice[T](f: fn(T) -> T, x: T) -> T`; call-site inference; monomorphized symbols such as `identity_i64`.
+- Consumes: Task 7.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`generics.ot` prints `identity(7)` as `7`, `identity("seven")` as `seven`, and
+`apply_twice(square, 3)` as `81`. A call whose type parameter cannot be inferred
+reports `error: cannot infer type parameter \`T\`` at the call.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e generic_functions_are_monomorphized`
+Expected: FAIL at parse.
+
+- [ ] **Step 3: Implement monomorphization**
+
+Parse `[T]` after the function name. Sema records type parameters and infers
+them from argument types at each call. Codegen emits one function per concrete
+substitution, keyed by the mangled name plus type names. Generic recursion is
+allowed; polymorphic recursion (a call with a different substitution inside the
+generic body) is rejected with a diagnostic.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e generic_functions_are_monomorphized`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/generics.ot
+git commit -m "feat: generic functions by monomorphization"
+```
+
+---
+
+## M14 — Objects
+
+### Task 12: `impl` methods on structs and enums
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/methods.ot`
+
+**Interfaces:**
+- Produces: `impl Point { fn length(self) -> i64 { ... } }`; `point.length()` resolves to the mangled function `Point.length`; `self` is the first parameter.
+- Consumes: M12 method resolution; Task 7 function signatures.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`methods.ot` declares `struct Point { x: i64, y: i64 }` and
+`impl Point { fn sum(self) -> i64 { return self.x + self.y; } }`; prints
+`point.sum()` as `5`. It also declares an `enum Shape` with an `impl Shape`
+method that switches on `self`.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e impl_methods_take_self`
+Expected: FAIL at parse on `impl`.
+
+- [ ] **Step 3: Implement `impl`**
+
+Parse `impl Type { fn ... }` items. Sema registers each method under the type
+name and checks the body with `self` bound to the receiver type. A method with no
+`self` parameter is a static method (Task 14). Codegen emits
+`@Type.method` and passes the receiver as argument 0; the body is an ordinary
+function. Method resolution runs before field access in call position; a missing
+method reports `error: no method \`name\` on \`Type\``.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e impl_methods_take_self`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/methods.ot
+git commit -m "feat: impl methods on structs and enums"
+```
+
+### Task 13: `object` declarations
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/objects.ot`
+
+**Interfaces:**
+- Produces: `object Counter { value: i64, fn get(self) -> i64 { ... } }`, equivalent to a struct plus an `impl` block; object literals use the existing struct-literal syntax.
+- Consumes: Task 12.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`objects.ot` declares `object Counter { value: i64, fn get(self) -> i64 { return self.value; }, fn add(self, n: i64) -> Counter { return Counter { value: self.value + n }; } }`;
+constructs `Counter { value: 3 }`, prints `get` as `3`, and prints
+`counter.add(4).get()` as `7`.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e an_object_declaration_carries_its_methods`
+Expected: FAIL at parse on `object`.
+
+- [ ] **Step 3: Lower `object` to a struct and an impl**
+
+Parse field declarations and methods in one item. Lower it in sema to a struct
+definition plus the same method registrations Task 12 produces; codegen sees the
+same layout and mangled names. An `object` with no fields is allowed; one with
+no methods is legal but redundant.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e an_object_declaration_carries_its_methods`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/objects.ot
+git commit -m "feat: object declarations"
+```
+
+### Task 14: Static methods and constructors
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/object_new.ot`
+
+**Interfaces:**
+- Produces: `Counter.new(3)` resolves a method with no `self`; `Type.name(args)` is a static call.
+- Consumes: Task 13.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`object_new.ot` adds `fn new(start: i64) -> Counter` to the object declaration
+and prints `Counter.new(3).get()` as `3`. Calling `Counter.new` with the wrong
+argument type reports a normal argument-type diagnostic.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e a_static_method_is_called_on_the_type`
+Expected: FAIL with `unknown function \`new\`` or a type-name resolution error.
+
+- [ ] **Step 3: Implement type-name resolution in call position**
+
+When the callee path is `Type.name`, resolve `name` as a static method of
+`Type`; if it has a `self` parameter, report
+`error: \`Counter.new\` is a method and needs a receiver`. Static methods are
+emitted as ordinary functions under the same `@Type.name` mangling.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e a_static_method_is_called_on_the_type`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/object_new.ot
+git commit -m "feat: static methods and constructors"
+```
+
+### Task 15: Pointer receivers for mutating methods
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/mutating_methods.ot`
+
+**Interfaces:**
+- Produces: `fn bump(self: *mut Counter)`; the receiver is the address of a `var` object; field writes through `self[0].field`.
+- Consumes: Task 13; existing pointer indexing and field assignment.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`mutating_methods.ot` declares a `Counter` with
+`fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; }`; a `var c`
+starts at `0`, `c.bump()` twice, and prints `2`. Calling `bump` on a `const`
+reports `error: \`bump\` needs a mutable object binding`.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e a_pointer_receiver_mutates_its_object`
+Expected: FAIL; pointer receivers are not resolved.
+
+- [ ] **Step 3: Implement pointer receivers**
+
+A method whose first parameter type is `*mut T` receives the address of the
+receiver. The receiver must be a single-name `var` binding of type `T`; a
+temporary, field, or `const` is rejected at the call span. Codegen passes the
+binding's slot; the body already supports `self[0].field` through pointer
+indexing.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e a_pointer_receiver_mutates_its_object`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/mutating_methods.ot
+git commit -m "feat: pointer receivers for mutating methods"
+```
+
+---
+
+## M15 — Close the gaps
+
+### Task 16: Enforce `?` and missing returns; short-circuit `&&`/`||`
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-sema/tests/check.rs`
+- Test: `crates/otter-driver/tests/programs/errors_checked.ot`
+
+**Interfaces:**
+- Produces: `?` is legal only in a function returning `Result[T, E]` with the same `E`; every path of a value-returning function returns; `&&`/`||` evaluate the right operand only when needed.
+- Consumes: existing `Try` HIR, return-type threading in `check_block_with_ret`.
+
+- [ ] **Step 1: Write the failing diagnostics and runtime tests**
+
+Sema tests expect `error: \`?\` needs a function returning \`Result\`` for a `?`
+in an `i64` function, `error: error type mismatch: \`bool\` vs \`string\`` for
+mismatched errors, and `error: missing return` for a function whose last
+statement is an `if` without an `else`. `errors_checked.ot` proves
+`if n != 0 && 10 / n > 1` does not divide by zero when `n == 0`.
+
+- [ ] **Step 2: Run and verify they fail**
+
+Run: `cargo test -p otter-sema question_requires_a_result_function`
+Run: `cargo test -p otter-driver --test e2e question_and_return_are_enforced`
+Expected: both FAIL on the old behavior.
+
+- [ ] **Step 3: Implement the checks and the CFG**
+
+Thread the enclosing function's return type into `check_expr`'s `Try` arm via a
+checker field set by `check_fn`; compare the `Err` types. Add a
+`block_always_returns` check for value-returning functions. Lower `&&`/`||` to
+branch-and-phi instead of LLVM `and`/`or`.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `cargo test -p otter-sema question_requires_a_result_function`
+Run: `cargo test -p otter-driver --test e2e question_and_return_are_enforced`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/errors_checked.ot
+git commit -m "fix: enforce error propagation, returns, and short-circuiting"
+```
+
+### Task 17: Struct equality, explicit array moves, and string fields
+
+**Files:**
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/struct_ownership.ot`
+- Test: `crates/otter-sema/tests/check.rs`
+
+**Interfaces:**
+- Produces: `==` on structs compares fields when every field has equality and otherwise reports a diagnostic; `move xs` on an array compiles to a valid aggregate move; struct string fields are retained on construction and released at scope exit.
+- Consumes: existing linearity checker and string retain/release.
+
+- [ ] **Step 1: Write the failing tests**
+
+`struct_ownership.ot` compares two `Point` values, moves an array into a new
+binding and frees it once, and returns a struct built from a locally concatenated
+string; the leak report is zero and the string prints correctly after return.
+
+- [ ] **Step 2: Run and verify they fail**
+
+Run: `cargo test -p otter-driver --test e2e struct_equality_and_string_fields`
+Expected: FAIL with `icmp requires integer operands` or a dangling string.
+
+- [ ] **Step 3: Implement the three fixes**
+
+`==` on a struct lowers to a conjunction of field comparisons (recursively) or
+reports `error: \`==\` needs fields with equality`. Fix `Expr::Move` on arrays so
+the HIR value is the loaded slice header, not a null; test the IR. Retain string
+fields when a struct is constructed or assigned and release them when the
+struct binding's scope exits; a struct copy retains each string field.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `cargo test -p otter-driver --test e2e struct_equality_and_string_fields`
+Run: `cargo test -p otter-sema --test check struct_equality_requires_fields_with_equality`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/struct_ownership.ot
+git commit -m "fix: struct equality, array moves, and string field ownership"
+```
+
+### Task 18: Fixed arrays and array views
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/ty.rs`, `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/ir.rs`, `crates/otter-codegen/src/expr_gen.rs`
+- Test: `crates/otter-driver/tests/programs/fixed_arrays.ot`
+
+**Interfaces:**
+- Produces: `[T; N]` fixed arrays with stack storage and `[T]` views; `a[start..end]` returns a view that borrows `a`.
+- Consumes: M12 array methods; Task 17 ownership fixes.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`fixed_arrays.ot` declares `const grid: [i64; 3] = [1, 2, 3];`, reads
+`grid[1]`, takes `const head = grid[0..2];`, and sums the view. Indexing out of
+bounds on a fixed array returns `Option`, as on an array.
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e fixed_arrays_and_views`
+Expected: FAIL at parse on `[i64; 3]`.
+
+- [ ] **Step 3: Implement fixed arrays and views**
+
+`[T; N]` is an LLVM array aggregate stored in an `alloca`; indexing is a constant
+check plus `extractvalue` or `getelementptr`. `[T]` is a `{ i64, i8* }` view with
+no ownership; `a[start..end]` borrows `a` and is rejected if `a` is moved or
+freed while the view is live. Views cannot be returned from the function that
+owns the storage.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e fixed_arrays_and_views`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/fixed_arrays.ot
+git commit -m "feat: fixed arrays and borrowed array views"
+```
+
+### Task 19: Tuples, destructuring, and pattern guards
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/patterns.rs`
+- Test: `crates/otter-driver/tests/programs/tuples_guards.ot`
+
+**Interfaces:**
+- Produces: tuple types `(i64, string)`, tuple literals `(1, "a")`, destructuring `const (n, s) = pair;`, and switch guards `case Circle(r) if r > 10.0 { ... }`.
+- Consumes: enum pattern machinery.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`tuples_guards.ot` returns `(i64, i64)` from `min_max`, destructures it into
+`lo`/`hi`, and matches a `Shape` with a guard that selects only large circles.
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e tuples_destructure_and_guards_select`
+Expected: FAIL at parse.
+
+- [ ] **Step 3: Implement tuples, destructuring, and guards**
+
+Tuple types are anonymous LLVM structs; literals are `insertvalue`. A tuple
+pattern checks arity and element types and binds each name. A guard is checked
+as a `bool` after the pattern binds; codegen evaluates it in the arm block and
+jumps to the next arm on false. Exhaustiveness ignores guards.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e tuples_destructure_and_guards_select`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/tuples_guards.ot
+git commit -m "feat: tuples, destructuring, and pattern guards"
+```
+
+### Task 20: Debug formatting, numeric literals, and module visibility
+
+**Files:**
+- Modify: `crates/otter-parser/src/lexer.rs` (numeric literals), `crates/otter-sema/src/check_expr.rs` (interpolation), `crates/otter-parser/src/ast.rs`, `crates/otter-sema/src/check.rs` (visibility)
+- Modify: `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/diagnostics_and_syntax.ot`
+
+**Interfaces:**
+- Produces: `"${value:?}"` for structs, enums, arrays, and tuples; `1_000_000`, `0xFF`, `0b1010`, `0o777`; `pub` on items and fields, with a private-item diagnostic.
+- Consumes: Tasks 12–19.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`diagnostics_and_syntax.ot` prints `Point { x: 3, y: 4 }` and `[1, 2, 3]` via
+`${...:?}`, prints `1000000`, `255`, `10`, and `511` from the four literal
+forms, and imports a `pub fn` from a module while a private function is
+rejected.
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e debug_format_literals_and_visibility`
+Expected: FAIL at parse on `:?`, separators, or hex.
+
+- [ ] **Step 3: Implement the three features**
+
+`:?` lowers to a synthesized `debug_<Type>` function per nominal type and a
+recursive array/tuple printer; strings are quoted and escaped. Numeric literals
+allow `_` between digits and the `0x`/`0b`/`0o` prefixes; the lexer rejects a
+trailing `_`. `pub` marks an item or field exported; module resolution reports
+`error: \`f\` is private to module \`m\`` at the use.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e debug_format_literals_and_visibility`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/diagnostics_and_syntax.ot
+git commit -m "feat: debug formatting, numeric literals, and visibility"
+```
+
+### Task 21: `const fn` and the standard-library pass
+
+**Files:**
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Create: `crates/otter-sema/src/const_eval.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`
+- Modify: `crates/otter-stdlib/otter/*.ot`
+- Test: `crates/otter-driver/tests/programs/const_fn.ot`
+
+**Interfaces:**
+- Produces: `const fn` evaluated at compile time in a `const` initializer; the stdlib gains map key/value methods that the new surface makes possible.
+- Consumes: M12 methods, M13 functions, Task 20 visibility.
+
+- [ ] **Step 1: Write the failing e2e program**
+
+`const_fn.ot` declares `const fn square(n: i64) -> i64 { return n * n; }` and
+`const TABLE = square(9);`, then prints `81` without a runtime call. The stdlib
+adds `map.keys()`, `map.values()`, and `map.contains_key(key)`; a stdlib program
+exercises each. Add `#[test] fn const_fn_evaluates_at_compile_time()` to
+`e2e.rs`.
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `cargo test -p otter-driver --test e2e const_fn_evaluates_at_compile_time`
+Expected: FAIL at parse on `const fn` or unknown map method.
+
+- [ ] **Step 3: Implement `const fn` with a tree-walker**
+
+A `const fn` body may use only literals, arithmetic, comparisons, calls to other
+`const fn`s, and `if`; anything else reports
+`error: \`read_line\` is not allowed in a const fn`. The evaluator returns an
+`i64`, `f64`, `bool`, or `string` value; a non-terminating or faulting
+evaluation reports a diagnostic at the call. Add the three map methods using
+the same method resolution as builtins; `keys`/`values` return fresh arrays, and
+`keys` owns retained string keys.
+
+- [ ] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e const_fn_evaluates_at_compile_time`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add crates/otter-parser crates/otter-sema crates/otter-stdlib crates/otter-driver/tests/programs/const_fn.ot
+git commit -m "feat: const fn and stdlib method coverage"
+```
+
+---
+
+## Backlog (recorded, not scheduled)
+
+These are deliberately outside M12–M15; each would need its own spec change.
+
+| Item | Why it is later |
+|---|---|
+| Inheritance, traits, interfaces, dynamic dispatch | The object model here is value methods; polymorphism needs a vtable design and a layout contract. |
+| Mutation through captured linear values | Needs a general destructor and escape analysis; closures capture copyable values only. |
+| Operator overloading | Conflicts with the “one spelling per operation” rule; no user demand yet. |
+| Async/await and a scheduler | Threads and channels cover the concurrency budget; async is a second runtime. |
+| Macros and metaprogramming | Generics and `const fn` cover most duplication. |
+| Package manager and version resolution | Independent of the language surface; M11 adoption owns distribution. |
+| Garbage collection | Ownership and refcounting are the design; a GC would invalidate the ABI. |
+| Array views escaping their owner | Task 18 borrows views only within the owning function; escaping needs lifetime syntax. |
+| Default/named/variadic arguments | No proposed syntax; overload resolution would complicate method lookup. |
+| `defer` across a panic boundary | Still blocked by the host unwinder; unchanged from M3–M4 Task 10. |
+
+## Self-Review
+
+- **Naming:** every old builtin has a named replacement in the table, and Task 6 removes the old spelling rather than aliasing it. String transforms and queries are methods too, not free functions with a parallel spelling.
+- **Interfaces:** M12 produces the method layer M13/M14 consume; M13 produces function values `.map`/`.filter`/`.fold` consume; M14 produces objects whose string fields Task 17 makes safe.
+- **Tests:** every task names a failing test and its expected diagnostic or output; the tutorial harness is part of Task 6 because it embeds the renamed examples.
+- **Known gaps:** `?`, missing returns, short-circuiting, struct equality, array moves, and string fields are explicitly scheduled in M15 rather than documented as permanent limitations.
+- **Order:** M13 does not require M14; M14 does not require M13. M15 requires both. If partial delivery is needed, M12 alone is a complete, shippable rename with array and string methods.
+
+## Execution Handoff
+
+When this plan is approved, request a separate phase plan for the first milestone to be executed, and use the preserved execution method. M12 is the recommended first slice: it is mechanical, test-heavy, and leaves the language shippable.

@@ -32,10 +32,10 @@ channels. C is reachable through `unsafe`-marked `extern` blocks.
 - Compiling to WebAssembly
 - C++ interop
 - Operator overloading
-- First-class closures / higher-order functions as a v1 feature
+- First-class closures / higher-order functions as a v1 feature (superseded for post-v1 by the M12–M15 language-surface plan)
 - A package manager with version resolution
 - Any form of garbage collection
-- Generics (deferred past v1 by deliberate decision — see §4.6)
+- Generics (deferred past v1 by deliberate decision — see §4.6; post-v1 M13 adds monomorphized user generics)
 
 ---
 
@@ -732,3 +732,28 @@ Not blocking v1; decide when the milestone is reached.
 6. Whether to add data-race detection to M7 or defer it indefinitely.
 7. Whether `struct` values inside slices may be self-referential (a linked list in
    an array). If so, how are elements pinned?
+
+---
+
+## 14. Post-v1 surface addendum (M12–M15)
+
+The v1 non-goals and open questions above are historical. The post-v1
+language-surface plan (`docs/superpowers/plans/2026-10-20-otter-m12-language-surface.md`)
+records the deliberate changes:
+
+- `[]T` is called an **array** in public documentation and diagnostics. The word
+  **slice** is reserved for a future non-owning view.
+- Builtins become receiver methods (`xs.push(v)`, `m.get(k)`, `s.len()`), and the
+  old free-function spellings are removed. String queries, transforms, splitting,
+  and parsing are methods too (`s.trim()`, `s.split(",")`, `s.parse_i64()`).
+- Function types, top-level function values, non-capturing and capturing
+  lambdas, and monomorphized generic functions are post-v1 features. Captures
+  are copyable values only; a refcounted environment keeps them alive.
+- An **object** is a struct or enum with methods, declared with `impl`; an
+  `object` declaration is sugar for a struct plus its methods. There is no
+  inheritance, trait, or dynamic-dispatch model.
+- The known correctness gaps (unchecked `?`, missing return, non-short-circuit
+  `&&`/`||`, struct `==`, array `move`, string fields) are scheduled in M15
+  rather than accepted as permanent limitations.
+
+After M12 lands, naming freezes again. A further rename is a new spec change.

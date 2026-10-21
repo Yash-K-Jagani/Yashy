@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coordinate the complete construction of the Otter language, from an empty repository to a self-hosting compiler, across six phase plans.
+**Goal:** Coordinate the complete construction of the Otter language, from an empty repository to a self-hosting compiler, across seven phase plans.
 
-**Architecture:** This document holds no implementation tasks. It is the cross-plan contract: the interface ledger that six phase plans must agree on, the dependency order between milestones, and the global constraints that bind all of them. Read it before any phase plan.
+**Architecture:** This document holds no implementation tasks. It is the cross-plan contract: the interface ledger that seven phase plans must agree on, the dependency order between milestones, and the global constraints that bind all of them. Read it before any phase plan.
 
 **Tech Stack:** Rust 1.99 (edition 2021), LLVM IR emitted as text, `llc`/`clang` as subprocesses, a C runtime shim, `cargo-fuzz`.
 
@@ -20,8 +20,9 @@
 | `2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8 | 10 | 8–12 weeks |
 | `2026-10-16-otter-m9-m10-optimization-and-bootstrap.md` | M9–M10 | 8 | 12–24 weeks |
 | `2026-10-16-otter-m11-adoption.md` | M11 | 9 | 4–6 weeks |
+| `2026-10-20-otter-m12-language-surface.md` | M12–M15 | 21 | 24–36 weeks |
 
-Cumulative: **50–81 weeks** (12–19 months) at 25–30 effective hours/week. See
+Cumulative: **74–117 weeks** (17–27 months) at 25–30 effective hours/week. See
 spec §10.1.
 
 ## Dependency Order
@@ -42,8 +43,13 @@ spec §10.1.
         M9 ──────────▶ M10       escape analysis, then bootstrap
           │
           ▼
-        M11 ─▶ M12+             adoption: formatter, test runner, LSP, installer
+        M11                     adoption: formatter, test runner, LSP, installer
+
+  M8 ─▶ M12 ─▶ M13 ─▶ M14 ─▶ M15   language surface (arrays, functions, objects)
 ```
+
+M12 depends only on M8; it may run in parallel with M9–M11. The four surface
+phases are ordered among themselves.
 
 Two dependencies are load-bearing and easy to get wrong:
 
@@ -55,8 +61,9 @@ Two dependencies are load-bearing and easy to get wrong:
   harness is green, so a miscompile is distinguishable from a missed
   optimization.
 
-M9, M10, and M11 are the only milestones where deferring is acceptable. Everything
-else is strictly ordered.
+M9–M15 are the only milestones that may be deferred as a whole. Within M12–M15
+the four surface phases are strictly ordered; everything before M9 is strictly
+ordered.
 
 ---
 
@@ -625,7 +632,10 @@ weaken these.
   in later milestones use `otter_common::Diagnostic`, never `eprintln!`.
 - **Naming is frozen.** The type keywords, the builtin names in L3, and the
   runtime symbols in L1 do not get renamed by a later milestone. A rename is a
-  spec change, not an implementation choice.
+  spec change, not an implementation choice. The one deliberate exception is
+  M12, whose plan renames public terminology and builtin names to arrays and
+  methods; after M12 lands, the freeze resumes. Runtime symbols keep their
+  `otter_slice_*` names because the ABI is internal.
 - **Golden files are the contract.** Any change to emitted IR must be a
   deliberate, reviewed diff of a `.expected.ll` file. The implementer reads
   each regenerated golden file; an unread regeneration is an incomplete task.
@@ -685,3 +695,5 @@ owning task with a test. A reviewer of any phase should read this list first.
 | M5–M6 | a C library is called from Otter; slices, maps, multi-file modules, and the `io`/`string`/`math` stdlib modules work |
 | M7–M8 | a parallel task pool produces correct results; a stranger can write and run a program using only the tutorial; `otter fmt` is idempotent |
 | M9–M10 | the benchmark suite shows fewer allocations than M3 with identical output; the Otter-written compiler passes the Rust compiler's own test suite |
+| M11 | the formatter is idempotent, the test runner is usable from a clean checkout, and the LSP answers completion and diagnostics in an editor |
+| M12–M15 | arrays and strings are manipulated entirely through methods; a function can be passed, returned, and called through a value; an object carries its own methods; the tutorial's renamed examples still pass |
