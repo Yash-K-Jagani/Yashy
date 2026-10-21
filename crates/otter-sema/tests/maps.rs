@@ -130,14 +130,14 @@ fn a_value_of_the_wrong_type_is_reported() {
 
 #[test]
 fn a_method_on_a_temporary_is_rejected() {
-    // The parser flattens a dotted call on a non-path receiver into the last
-    // segment alone, so this is rejected as an unknown free function rather
-    // than with a receiver-specific message. It still cannot run: a method
-    // needs a binding whose header it can update.
+    // The parser keeps the receiver as the expression it is, so this is
+    // rejected because a method needs a binding it can update -- not because
+    // the name is unknown. It still cannot run: a method needs a binding
+    // whose header it can update.
     assert_rejected(
         "fn make() -> map[i64]i64 { return map_new(); } \
          fn main() { var v = make().get(1); }",
-        "cannot find function `get`",
+        "a method needs a binding as the receiver",
     );
 }
 

@@ -131,6 +131,8 @@ entry:
 %slot17 = alloca i1
 %slot18 = alloca i1
 %slot19 = alloca i1
+%slot20 = alloca i1
+%slot21 = alloca i1
 %t0 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 1, i64 2)
 %t1 = extractvalue { i64, i1 } %t0, 0
 %t2 = extractvalue { i64, i1 } %t0, 1
@@ -208,10 +210,26 @@ store i1 %t31, ptr %slot15
 store i1 %t32, ptr %slot16
 %t33 = fcmp olt double 1.0, 2.0
 store i1 %t33, ptr %slot17
-%t34 = and i1 1, 0
-store i1 %t34, ptr %slot18
-%t35 = or i1 1, 0
-store i1 %t35, ptr %slot19
+br i1 1, label %bb10_rhs, label %bb11_short
+bb11_short:
+store i1 false, ptr %slot18
+br label %bb12_end
+bb10_rhs:
+store i1 0, ptr %slot18
+br label %bb12_end
+bb12_end:
+%t34 = load i1, ptr %slot18
+store i1 %t34, ptr %slot19
+br i1 1, label %bb14_short, label %bb13_rhs
+bb14_short:
+store i1 true, ptr %slot20
+br label %bb15_end
+bb13_rhs:
+store i1 0, ptr %slot20
+br label %bb15_end
+bb15_end:
+%t35 = load i1, ptr %slot20
+store i1 %t35, ptr %slot21
 call void @otter_print_str(i8* @.str.6)
 call void @otter_print_i64(i64 1)
 call void @otter_print_f64(double 1.0)

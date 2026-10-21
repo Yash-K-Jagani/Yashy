@@ -742,6 +742,12 @@ fn gen_binary(
     rhs: &HirExpr,
     fault: Option<&FaultSite>,
 ) -> GenValue {
+    // `&&` and `||` short-circuit: the right operand is evaluated only when
+    // the left one does not decide the answer. That is a branch, not an
+    // instruction, so these two are lowered before the operands are.
+    if matches!(op, BinOp::And | BinOp::Or) {
+        return gen_short_circuit(ctx, op, lhs, rhs);
+    }
     let l = gen_expr(ctx, lhs);
     let r = gen_expr(ctx, rhs);
     // A `string` has no instruction-level operator: `+` concatenates and
@@ -1081,7 +1087,64 @@ fn gen_enum_ctor(
     })
 }
 
-/// Call through a function value.
+/// Lower `a && b` and `a || b`, which evaluate the right operand only when the
+/// left one does not decide the answer.
+///
+/// The value is a phi of the two ways out: the left operand's answer when it
+/// decides, and the right operand's when it does not. The right operand is
+/// evaluated in a block of its own, so the branch around it is what keeps it
+/// from running when it should not.
+fn gen_short_circuit(
+    ctx: &mut FnCtx<'_>,
+    op: BinOp,
+    lhs: &HirExpr,
+    rhs: &HirExpr,
+) -> GenValue {
+    let l = gen_expr(ctx, lhs);
+    let rhs_label = ctx.alloc_label_base() + "_rhs";
+    let short_label = ctx.alloc_label_base() + "_short";
+    let end_label = ctx.alloc_label_base() + "_end";
+    // The answer lives in a slot rather than in a phi: the right operand may
+    // be a checked operation with a fault path of its own, and the block the
+    // value comes from is then not the block the branch names. A slot does not
+    // care which block the value was made in.
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca i1"));
+    // `a && b` is false when `a` is false; `a || b` is true when `a` is true.
+    let (short_value, branch) = match op {
+        BinOp::And => (
+            "false",
+            format!(
+                "br i1 {}, label %{rhs_label}, label %{short_label}",
+                l.value
+            ),
+        ),
+        _ => (
+            "true",
+            format!(
+                "br i1 {}, label %{short_label}, label %{rhs_label}",
+                l.value
+            ),
+        ),
+    };
+    ctx.push(branch);
+    ctx.push(format!("{short_label}:"));
+    ctx.push(format!("store i1 {short_value}, ptr {slot}"));
+    ctx.push(format!("br label %{end_label}"));
+    ctx.push(format!("{rhs_label}:"));
+    let r = gen_expr(ctx, rhs);
+    ctx.push(format!("store i1 {}, ptr {slot}", r.value));
+    ctx.push(format!("br label %{end_label}"));
+    ctx.push(format!("{end_label}:"));
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load i1, ptr {slot}"));
+    GenValue {
+        value: result,
+        ty: TypeKind::Bool,
+    }
+}
+
+/// Lower a call through a function value.
 ///
 /// The value is `{ i8* code, i8* env }`; the call passes `env` as its first
 /// argument and then the lowered arguments. String arguments are borrowed for

@@ -272,6 +272,12 @@ fn a_static_method_is_called_on_the_type() {
 }
 
 #[test]
+fn question_and_return_are_enforced() {
+    let output = build_and_run("errors_checked");
+    assert_eq!(stdout_of(&output), "0\n5\n41\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

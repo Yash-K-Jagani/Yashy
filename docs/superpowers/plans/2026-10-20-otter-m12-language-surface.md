@@ -1247,14 +1247,14 @@ git commit -m "feat: pointer receivers for mutating methods"
 **Files:**
 - Modify: `crates/otter-sema/src/check_expr.rs`
 - Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-sema/tests/check.rs`
+- Test: `crates/otter-sema/tests/errors.rs`
 - Test: `crates/otter-driver/tests/programs/errors_checked.ot`
 
 **Interfaces:**
 - Produces: `?` is legal only in a function returning `Result[T, E]` with the same `E`; every path of a value-returning function returns; `&&`/`||` evaluate the right operand only when needed.
 - Consumes: existing `Try` HIR, return-type threading in `check_block_with_ret`.
 
-- [ ] **Step 1: Write the failing diagnostics and runtime tests**
+- [x] **Step 1: Write the failing diagnostics and runtime tests**
 
 Sema tests expect `error: \`?\` needs a function returning \`Result\`` for a `?`
 in an `i64` function, `error: error type mismatch: \`bool\` vs \`string\`` for
@@ -1262,31 +1262,58 @@ mismatched errors, and `error: missing return` for a function whose last
 statement is an `if` without an `else`. `errors_checked.ot` proves
 `if n != 0 && 10 / n > 1` does not divide by zero when `n == 0`.
 
-- [ ] **Step 2: Run and verify they fail**
+- [x] **Step 2: Run and verify they fail**
 
 Run: `cargo test -p otter-sema question_requires_a_result_function`
 Run: `cargo test -p otter-driver --test e2e question_and_return_are_enforced`
 Expected: both FAIL on the old behavior.
 
-- [ ] **Step 3: Implement the checks and the CFG**
+- [x] **Step 3: Implement the checks and the CFG**
 
 Thread the enclosing function's return type into `check_expr`'s `Try` arm via a
 checker field set by `check_fn`; compare the `Err` types. Add a
 `block_always_returns` check for value-returning functions. Lower `&&`/`||` to
 branch-and-phi instead of LLVM `and`/`or`.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p otter-sema question_requires_a_result_function`
 Run: `cargo test -p otter-driver --test e2e question_and_return_are_enforced`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/errors_checked.ot
 git commit -m "fix: enforce error propagation, returns, and short-circuiting"
 ```
+
+**As built:** the checker now knows the function it is inside. `?` compares the
+error type of its operand with the error type of the function's return type,
+and reports "the `?` needs a function returning `Result`" when the function
+returns something else. A value-returning function has to return on every
+path: the analysis is deliberately conservative, so a loop that might not run,
+an `if` without an `else`, and a `switch` without a default all fall through.
+
+`&&` and `||` are branches now, not instructions. The right operand is
+evaluated in a block of its own, so `n != 0 && 10 / n > 1` does not divide by
+zero when `n` is zero.
+
+Two things the plan did not say, and the implementation had to decide:
+
+- **The short-circuit's answer lives in a slot, not in a `phi`.** The right
+  operand may be a checked operation with a fault path of its own, and then
+  the block the value comes from is not the block the branch names -- and a
+  `phi` has to name the predecessors exactly. A slot does not care which
+  block the value was made in.
+- **A function that falls off the end is now a compile error**, so the
+  generator's `ret i64 0` fallback is only reachable from a tree the
+  checker let through. The codegen test that pinned the fallback became a
+  test that the checker refuses the program.
+
+The golden IR changed accordingly: the two `and`/`or` instructions became
+branches, and two `alloca i1` slots joined the entry block.
+
 
 ### Task 17: Struct equality, explicit array moves, and string fields
 

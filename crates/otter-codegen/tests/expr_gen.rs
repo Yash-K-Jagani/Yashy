@@ -329,8 +329,8 @@ fn comparisons_and_boolean_logic_are_never_checked() {
         "comparisons are still a `icmp`:\n{body}"
     );
     assert!(
-        body.contains("and i1"),
-        "`&&` is still an `and` on one bit:\n{body}"
+        body.contains("br i1"),
+        "`&&` is a branch, so the right operand is only evaluated when it has to be:\n{body}"
     );
     assert!(
         !body.contains("with.overflow") && !body.contains("_fault"),
@@ -490,10 +490,14 @@ fn comparisons_emit_the_matching_predicate() {
 }
 
 #[test]
-fn boolean_operators_operate_on_i1() {
+fn boolean_operators_short_circuit() {
+    // `&&` and `||` are branches, not instructions: the right operand is
+    // evaluated only when the left one does not decide the answer.
     let ir_text = gen_body("fn f() { const a = true && false; const b = true || false; }");
-    assert!(ir_text.contains("and i1"), ":\n{ir_text}");
-    assert!(ir_text.contains("or i1"), ":\n{ir_text}");
+    assert!(ir_text.contains("br i1"), ":\n{ir_text}");
+    assert!(ir_text.contains("alloca i1"), ":\n{ir_text}");
+    assert!(!ir_text.contains("and i1"), ":\n{ir_text}");
+    assert!(!ir_text.contains("or i1"), ":\n{ir_text}");
 }
 
 #[test]

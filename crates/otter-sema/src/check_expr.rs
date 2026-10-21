@@ -75,6 +75,52 @@ struct MethodSig {
     has_self: bool,
 }
 
+/// Whether a block returns on every path out of it.
+///
+/// This is what a "missing return" check needs: a function that returns a
+/// value has to return one on every path, and the question is whether the
+/// body manages it.
+///
+/// The analysis is deliberately conservative. A loop that might not run, an
+/// `if` without an `else`, and a `switch` without a default all fall through,
+/// so a body that ends in one of them does not always return.
+fn block_always_returns(block: &HirBlock) -> bool {
+    match block.stmts.last() {
+        Some(HirStmt::Return(..)) => true,
+        // A `panic` never comes back, so a body that ends in one returns.
+        Some(HirStmt::Expr(_, _, ty)) => matches!(ty.kind, TypeKind::Never),
+        Some(HirStmt::If {
+            then_block,
+            else_block,
+            ..
+        }) => match else_block {
+            Some(else_block) => {
+                block_always_returns(then_block) && block_always_returns(else_block)
+            }
+            None => false,
+        },
+        Some(HirStmt::Switch { arms, .. }) => {
+            arms.iter().any(|arm| arm.is_default)
+                && arms.iter().all(|arm| expr_always_returns(&arm.body))
+        }
+        _ => false,
+    }
+}
+
+/// Whether an expression always returns.
+///
+/// Only a `switch` can: every arm returns and there is a default, so the
+/// switch has an answer on every path.
+fn expr_always_returns(expr: &HirExpr) -> bool {
+    match expr {
+        HirExpr::SwitchExpr { arms, .. } => {
+            arms.iter().any(|arm| arm.is_default)
+                && arms.iter().all(|arm| expr_always_returns(&arm.body))
+        }
+        _ => false,
+    }
+}
+
 /// What a name lookup found.
 enum NameLookup {
     /// The name is bound, and the binding may be used here.
@@ -117,6 +163,13 @@ pub struct Checker<'src> {
     /// `Self` in a method's signature or body means the type the `impl` block
     /// is for, and this is where that answer is kept.
     self_type: Option<Type>,
+    /// The return type of the function being checked, while its body is.
+    ///
+    /// `?` needs it: propagating an error means returning it, so the
+    /// enclosing function has to be returning a `Result` of the same error
+    /// type. The "missing return" check needs it too: a function that returns
+    /// a value has to return one on every path.
+    fn_ret: Option<Type>,
     /// Names declared inside an `extern` block. A call to one of these follows
     /// the FFI boundary rules, which user functions do not (spec §8.1).
     externs: HashSet<String>,
@@ -353,6 +406,7 @@ impl<'src> Checker<'src> {
             fns: HashMap::new(),
             methods: HashMap::new(),
             self_type: None,
+            fn_ret: None,
             externs: HashSet::new(),
             errors: Vec::new(),
             file,
@@ -1171,7 +1225,16 @@ impl<'src> Checker<'src> {
                     );
                 }
                 let ret_ty = sig.ret.clone();
+                let outer_ret = self.fn_ret.replace(ret_ty.clone());
                 let body = self.check_block_with_ret(body, &ret_ty)?;
+                self.fn_ret = outer_ret;
+                // A function that returns a value has to return one on every
+                // path out of its body.
+                if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
+                    && !block_always_returns(&body)
+                {
+                    self.error(*span, "missing return");
+                }
                 self.scope.pop();
                 Some(vec![HirItem::Fn(HirFn {
                     name: name.clone(),
@@ -1359,10 +1422,18 @@ impl<'src> Checker<'src> {
                 );
             }
             let outer_self_type = self.self_type.replace(receiver_ty.clone());
+            let outer_ret = self.fn_ret.replace(ret_ty.clone());
             let checked = self.check_block_with_ret(body, &ret_ty);
+            self.fn_ret = outer_ret;
             self.self_type = outer_self_type;
             self.scope.pop();
             let body = checked?;
+            // A method that returns a value has to return one on every path.
+            if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
+                && !block_always_returns(&body)
+            {
+                self.error(*span, "missing return");
+            }
             items.push(HirItem::Fn(HirFn {
                 name: format!("{type_name}.{name}"),
                 params: params
@@ -4450,9 +4521,16 @@ impl<'src> Checker<'src> {
                 match self.check_user_method_on(receiver_checked, method, args, *span) {
                     Some(checked) => checked,
                     None => {
+                        // The receiver is a value, not a binding. The builtin
+                        // methods -- an array's, a map's -- need a binding they
+                        // can update, and a user's method needs a value of the
+                        // type it belongs to.
                         self.error(
                             *span,
-                            format!("no method `{method}` on `{receiver_ty}`"),
+                            format!(
+                                "a method needs a binding as the receiver, not a value \
+                                 of type `{receiver_ty}`"
+                            ),
                         );
                         None
                     }
@@ -4978,20 +5056,42 @@ impl<'src> Checker<'src> {
             Expr::Try { expr, span } => {
                 let inner = self.check_expr(expr)?;
                 let inner_ty = expr_ty(&inner);
-                match &inner_ty.kind {
-                    TypeKind::Result(ok, _) => Some(HirExpr::Try {
-                        expr: Box::new(inner),
-                        span: *span,
-                        ty: (**ok).clone(),
-                    }),
-                    _ => {
-                        self.error(
-                            *span,
-                            format!("`?` can only be used on a `Result`, not `{inner_ty}`"),
-                        );
-                        None
+                let TypeKind::Result(ok, err) = &inner_ty.kind else {
+                    self.error(
+                        *span,
+                        format!("`?` can only be used on a `Result`, not `{inner_ty}`"),
+                    );
+                    return None;
+                };
+                // Propagating an error means returning it, so the function
+                // around the `?` has to be returning a `Result` -- and one
+                // that can carry this error.
+                match self.fn_ret.clone() {
+                    Some(ret) => match &ret.kind {
+                        TypeKind::Result(_, ret_err) => {
+                            if !ret_err.eq_ignoring_span(err) {
+                                self.error(
+                                    *span,
+                                    format!("error type mismatch: `{err}` vs `{ret_err}`"),
+                                );
+                                return None;
+                            }
+                        }
+                        _ => {
+                            self.error(*span, "`?` needs a function returning `Result`");
+                            return None;
+                        }
+                    },
+                    None => {
+                        self.error(*span, "`?` needs a function returning `Result`");
+                        return None;
                     }
                 }
+                Some(HirExpr::Try {
+                    expr: Box::new(inner),
+                    span: *span,
+                    ty: (**ok).clone(),
+                })
             }
             Expr::SwitchExpr {
                 subject,

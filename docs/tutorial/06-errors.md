@@ -68,25 +68,39 @@ this build.
 
 ## The rule, and what is checked
 
-The intended rule is: `?` belongs in a function whose return type is a `Result`
-with the same error type. The `Err` it produces has to fit the caller's
-signature, or the caller could not handle it.
+The rule is: `?` belongs in a function whose return type is a `Result` with the
+same error type. The `Err` it produces has to fit the caller's signature, or
+the caller could not handle it.
 
-This build checks the first half only. It verifies that the operand is a
-`Result`; it does not verify that the enclosing function returns a `Result`, or
-that the error types match. A `?` in an `i64` function compiles, and if the
-call actually returns `Err`, the generated code reaches an `unreachable` and the
-process dies with no message. The same happens when the error types differ:
+The checker enforces both halves of that. A `?` whose operand is not a
+`Result` is reported, a `?` in a function that does not return a `Result` is
+reported, and a `?` whose error type does not match the function's is
+reported:
 
 ```text
 fn bad(n: i64) -> i64 {
-    return half(n)?;   // compiles; dies on the Err path
+    return half(n)?;   // error: `?` needs a function returning `Result`
 }
 ```
 
-Treat the rule as one you enforce while writing. Until the checker catches it,
-a `?` outside a matching `Result` function is a latent crash, not a reported
-mistake.
+```text
+fn bad(n: i64) -> Result[i64, string] {
+    return half(n)?;   // error: error type mismatch: `bool` vs `string`
+}
+```
+
+The second one matters most: the `Err` the caller would have to handle is a
+`bool` where the signature promises a `string`, and the program would have
+died on the error path with no message.
+
+A function that returns a value also has to return one on every path. A
+function whose last statement is an `if` without an `else` is reported:
+
+```text
+fn half(n: i64) -> i64 {
+    if n > 0 { return n; }   // error: missing return
+}
+```
 
 For the same reason, a bare call to a `Result`-returning function is accepted
 as a statement: `half(3);` compiles and the `Err` is discarded. The type makes
@@ -101,12 +115,13 @@ the result matters, match it or pass it to a function that takes a `Result`.
   promises.
 - **Applying `?` to a number.** `const x = 3?;` reports
   ``error: `?` can only be used on a `Result`, not `i64` ``.
-- **Using `?` in a function that does not return a `Result`.** It compiles, and
-  the error path dies without a message. Change the function's return type to
-  `Result[...]`, or match the result instead.
+- **Using `?` in a function that does not return a `Result`.** It reports
+  ``error: `?` needs a function returning `Result` ``. Change the function's
+  return type to `Result[...]`, or match the result instead.
 - **Mixing the error types of two `?` calls.** A `?` on `Result[i64, bool]`
-  inside a `Result[i64, string]` function is accepted, but the `Err` path is
-  unreachable and the program dies. Keep one error type through the chain.
+  inside a `Result[i64, string]` function reports
+  ``error: error type mismatch: `bool` vs `string` ``. Keep one error type
+  through the chain.
 - **Ignoring a result.** `half(3);` compiles and drops the `Err`. If the caller
   should report it, match it and print the message, as `report` does.
 
@@ -129,7 +144,12 @@ tests the tag: an `Ok` extracts the payload and continues, and an `Err` returns
 the whole `Result` value from the enclosing function. That return is a direct
 `ret` only when the checker's function-return type has the same representation
 as the operand; otherwise the generator has no value of the right shape to
-return and emits `unreachable`. That is the implementation behind the
-limitation above, not a separate rule.
+return and emits `unreachable`. The checker now refuses that mismatch before
+the generator ever sees it.
+
+`&&` and `||` short-circuit: the right operand is evaluated only when the left
+one does not decide the answer, so `n != 0 && 10 / n > 1` does not divide by
+zero when `n` is zero. The generated code is a branch rather than an
+instruction, which is what makes the difference.
 
 Continue to [07-memory](07-memory.md).

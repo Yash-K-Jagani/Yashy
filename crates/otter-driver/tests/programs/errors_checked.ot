@@ -1,0 +1,35 @@
+// The checks that make a program safe to read: an error is propagated only
+// where it can be, a value-returning function returns on every path, and `&&`
+// does not evaluate its right operand when the left one decides.
+
+fn divide(n: i64) -> i64 {
+    if n != 0 && 10 / n > 1 {
+        return 10 / n;
+    }
+    return 0;
+}
+
+fn parse(s: string) -> Result[i64, string] {
+    const n = s.parse_i64();
+    return Ok(n);
+}
+
+fn unwrap_or(s: string) -> Result[i64, string] {
+    const n = parse(s)?;
+    return Ok(n);
+}
+
+fn main() {
+    // The division by zero never happens: `&&` stops at the left operand.
+    print_i64(divide(0));
+    print_str("\n");
+    print_i64(divide(2));
+    print_str("\n");
+
+    const parsed = unwrap_or("41");
+    print_i64(switch parsed {
+        case Ok(v) { v }
+        case Err(e) { 0 }
+    });
+    print_str("\n");
+}

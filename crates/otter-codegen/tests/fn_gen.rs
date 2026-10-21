@@ -197,11 +197,23 @@ fn empty_function_with_unit_return_emits_ret_void() {
 }
 
 #[test]
-fn falling_off_the_end_of_an_i64_function_returns_zero() {
-    let ir_text = ir_of("fn f() -> i64 { }");
+fn a_function_that_cannot_return_is_refused() {
+    // The checker refuses a value-returning function that does not return on
+    // every path, so the generator's `ret i64 0` fallback is only reachable
+    // from a tree the checker let through.
+    let source = "fn f() -> i64 { }";
+    let mut sm = SourceMap::new();
+    let file = sm.add_file("main.ot", source.to_string());
+    let tokens = Lexer::new(source)
+        .tokenize()
+        .expect("the lexer must not panic");
+    let mut parser = Parser::new(tokens, &sm, file);
+    let ast = parser
+        .parse_program()
+        .expect("the program must parse");
     assert!(
-        ir_text.contains("ret i64 0"),
-        "an `i64` function cannot return nothing:\n{ir_text}"
+        check_program(&ast, &sm, file).is_err(),
+        "a function that returns nothing on one path is refused"
     );
 }
 
