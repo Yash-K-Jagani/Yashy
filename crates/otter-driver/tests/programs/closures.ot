@@ -1,0 +1,22 @@
+// A closure captures the values of the scope it is written in, and carries
+// them with it: the closure outlives the function that made it.
+
+fn adder(n: i64) -> fn(i64) -> i64 {
+    return |x: i64| -> i64 { return x + n; };
+}
+
+fn greeter(greeting: string) -> fn() -> string {
+    return || -> string { return greeting; };
+}
+
+fn main() {
+    const add5 = adder(5);
+    print_i64(add5(10));
+    print_str("\n");
+
+    // The closure is still alive after `greeter` has returned: its environment
+    // is a block of its own, and the captured string is in it.
+    const greet = greeter("hello");
+    print_str(greet());
+    print_str("\n");
+}

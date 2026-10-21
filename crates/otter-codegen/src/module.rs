@@ -532,6 +532,11 @@ impl Module {
         // which the spec promises stays free of locks.
         out.push_str("declare i8* @otter_str_retain_atomic(i8*)\n");
         out.push_str("declare void @otter_str_release_atomic(i8*)\n");
+        // The closure environment (M13 Task 9): a reference-counted block
+        // holding the values a closure captured.
+        out.push_str("declare i8* @otter_env_new(i64, i64, i64)\n");
+        out.push_str("declare i8* @otter_env_retain(i8*)\n");
+        out.push_str("declare void @otter_env_release(i8*)\n");
         // The C boundary (spec §8.1, M5 Task 3). `cstr` allocates a copy for a
         // safe call; `ptr` lends the string's own bytes to an `unsafe` one.
         out.push_str("declare i8* @otter_str_cstr(i8*)\n");

@@ -735,26 +735,28 @@ The proof:
 **Files:**
 - Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/ty.rs`
 - Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/module.rs`
+- Modify: `crates/otter-codegen/src/env.rs`, `crates/otter-codegen/src/fn_gen.rs`
 - Modify: `crates/otter-runtime/runtime.c`, `crates/otter-runtime/include/otter_runtime.h`
-- Test: `crates/otter-driver/tests/programs/closures.ot`
+- Test: `crates/otter-driver/tests/programs/closures.ot`, `crates/otter-driver/tests/leaks.rs`
+- Docs: `docs/tutorial/11-functions.md`
 
 **Interfaces:**
 - Produces: a closure type represented as `{ i8* code, i8* env }`; captures are copied into a refcounted environment; the environment's refcount is released with the closure binding.
 - Consumes: Task 8; the string refcount pattern in `otter_str_retain`/`otter_str_release`.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `closures.ot` defines `fn adder(n: i64) -> fn(i64) -> i64` returning
 `|x: i64| -> i64 { return x + n; }`; it binds `const add5 = adder(5);`, calls
 `add5(10)`, and prints `15`. It also captures a `string`, returns the closure,
 and prints the captured text after the creating function has returned.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e a_closure_outlives_its_creating_scope`
 Expected: FAIL with the Task 8 “closures are not captured yet” diagnostic.
 
-- [ ] **Step 3: Implement environments and thunks**
+- [x] **Step 3: Implement environments and thunks**
 
 A capturing lambda lowers to a heap environment struct holding each capture,
 plus a thunk whose first parameter is `i8* env`; the thunk unpacks the
@@ -764,17 +766,46 @@ copyable and retain the environment. Linear captures (`*mut`, array, map,
 channel) report `error: a linear value cannot be captured yet`.
 `env` allocation is freed when the refcount reaches zero.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e a_closure_outlives_its_creating_scope`
 Expected: PASS, with no leak report.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema crates/otter-codegen crates/otter-runtime crates/otter-driver/tests/programs/closures.ot
 git commit -m "feat: capturing closures with refcounted environments"
 ```
+
+**As built:** the closure's captured values live in an *environment*: a
+reference-counted block the closure carries and reads through. The block is
+the runtime's `otter_env_new`, with a header the runtime owns, a table of
+release actions the generated code writes, and the captured values after it.
+The two sizes the generated code and the runtime have to agree on --
+`OTTER_ENV_HEADER_SIZE` and `OTTER_ENV_SLOT_SIZE` -- are in the runtime's
+header, and the tests on each side pin them.
+
+The checker's job is to find the captures: a name that resolves above the
+closure's own scope, but not in the root scope, is a capture. The root scope
+is exempt because a top-level function is a global, not something a closure
+carries. A closure inside a closure is handled by making the *enclosing*
+closure capture the name too, so the value is there to be copied: the
+enclosing closure holds it in its own environment, and the inner one reads it
+from there.
+
+A capture is a copy, so it is read-only: assigning to one changes the copy
+and not the binding it came from. A linear value cannot be captured at all --
+the environment would have to own a value the program still owns -- and the
+checker says so.
+
+The ownership model is the string model's, which is why the backend's
+reference tracking grew a kind: a value owns a `string` or a closure's
+environment, and the two are released by different calls. A closure binding
+takes over the reference the closure value carried, a copy of a binding
+retains it, and the binding's scope releases it -- and the environment's own
+release, when its count reaches zero, releases the strings it captured.
+
 
 ### Task 10: Builtin `map`, `filter`, and `fold`
 

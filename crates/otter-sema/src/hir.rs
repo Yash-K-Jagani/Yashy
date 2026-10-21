@@ -92,7 +92,38 @@ pub struct HirFn {
     pub params: Vec<HirParam>,
     pub ret: Type,
     pub body: HirBlock,
+    /// The values the function captured, in the order the environment holds
+    /// them. Empty for every function that is not a closure.
+    pub captures: Vec<HirCapture>,
     pub span: Span,
+}
+
+/// One value a closure captured.
+///
+/// A capture is a name from an enclosing scope that the closure's body reads.
+/// The closure cannot see that scope, so the value is copied into the
+/// closure's environment when the closure is made, and the body reads it from
+/// there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HirCapture {
+    /// The name the capture was read under.
+    pub name: String,
+    /// The captured value's type.
+    pub ty: Type,
+    /// Where the value comes from when the closure is made.
+    pub source: CaptureSource,
+}
+
+/// Where a captured value is read from at the point the closure is made.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CaptureSource {
+    /// A local of the scope the closure is written in: its parameter, or a
+    /// binding of the body around it.
+    Scope,
+    /// A capture of the enclosing closure, at that closure's index. The
+    /// enclosing closure holds it in its own environment, and the value is
+    /// copied from there.
+    Enclosing(usize),
 }
 
 /// A function parameter: always named, always typed.
@@ -441,6 +472,27 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// A read of a value the closure captured.
+    ///
+    /// The value is not in a slot: it is in the closure's environment, at the
+    /// capture's index. The backend reads it from there.
+    Capture {
+        /// The capture's index in the function's capture list.
+        index: usize,
+        span: Span,
+        ty: Type,
+    },
+    /// A call through a captured function value.
+    ///
+    /// The callee is not a name the backend can look up: it is a value in the
+    /// closure's environment, and the call goes through it.
+    CallCapture {
+        /// The capture's index in the function's capture list.
+        index: usize,
+        args: Vec<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
 }
 
 /// Re-exported so the HIR can reference the AST's operator enums without
@@ -464,6 +516,8 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Try { span, .. } => *span,
         HirExpr::SwitchExpr { span, .. } => *span,
         HirExpr::Lambda { span, .. } => *span,
+        HirExpr::Capture { span, .. } => *span,
+        HirExpr::CallCapture { span, .. } => *span,
     }
 }
 
@@ -484,5 +538,7 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Try { ty, .. } => ty.clone(),
         HirExpr::SwitchExpr { ty, .. } => ty.clone(),
         HirExpr::Lambda { ty, .. } => ty.clone(),
+        HirExpr::Capture { ty, .. } => ty.clone(),
+        HirExpr::CallCapture { ty, .. } => ty.clone(),
     }
 }

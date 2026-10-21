@@ -10,7 +10,7 @@
 
 use otter_sema::{BinOp, HirExpr, TypeKind};
 
-use crate::expr_gen::{gen_expr, FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, FnCtx, GenValue, RefKind};
 
 /// The IR spelling of a slice header, matching `crate::slices`.
 const SLICE_REPR: &str = "{ i8*, i64, i64 }";
@@ -31,7 +31,7 @@ pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenVa
             ));
             // The result is a fresh string the caller owns; the operands have
             // been copied, so an owned one is released here.
-            ctx.mark_owned(&joined);
+            ctx.mark_owned(&joined, RefKind::Str);
             ctx.release_owned(&l.value);
             ctx.release_owned(&r.value);
             GenValue {

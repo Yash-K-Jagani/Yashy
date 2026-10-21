@@ -65,6 +65,51 @@ otter_arena *otter_arena_new(void);
 void *otter_arena_alloc(otter_arena *arena, long long size, long long align);
 void otter_arena_free_all(otter_arena *arena);
 
+/* ---- Closure environments ----
+ *
+ *     declare i8* @otter_env_new(i64, i64, i64)
+ *     declare i8* @otter_env_retain(i8*)
+ *     declare void @otter_env_release(i8*)
+ *
+ * A closure carries the values it captured in an *environment*: a block the
+ * closure's code reads through. The environment outlives the function that
+ * made the closure, so it is reference counted: the closure value holds one
+ * reference, a copy of the value holds another, and the block is freed when
+ * the last one lets go.
+ *
+ * The generated code builds the block; the runtime owns the count and the
+ * release of what the block captured. The layout is:
+ *
+ *   [0]   long long   the reference count
+ *   [8]   long long   how many captured values need releasing
+ *   [16]  the release table: `count` pairs of (kind, pointer)
+ *   ...   the captured values themselves
+ *
+ * The table says what to release when the count reaches zero: a captured
+ * `string` is a reference the environment owns, and the table names it. A
+ * captured number owns nothing, and its table entry says so.
+ *
+ * The header is `OTTER_ENV_HEADER_SIZE` bytes and a table entry is
+ * `OTTER_ENV_SLOT_SIZE` bytes; the generated code uses the same two numbers
+ * to find the captured values, and the two sides are pinned by the tests on
+ * each side.
+ */
+#define OTTER_ENV_HEADER_SIZE 16
+#define OTTER_ENV_SLOT_SIZE 16
+
+/* A new environment with `slot_count` captured values in a payload of
+ * `payload_size` bytes, and one reference. The captured values start
+ * `OTTER_ENV_HEADER_SIZE + slot_count * OTTER_ENV_SLOT_SIZE` bytes into the
+ * block. NULL if the allocation fails. */
+void *otter_env_new(long long slot_count, long long payload_size, long long align);
+
+/* One more reference to `env`, and the environment itself. NULL stays NULL. */
+void *otter_env_retain(void *env);
+
+/* One fewer reference to `env`. When the last one goes, the captured strings
+ * are released and the block is freed. NULL is left alone. */
+void otter_env_release(void *env);
+
 /* ---- Strings ----
  *
  *     declare i64 @otter_str_len(i8*)

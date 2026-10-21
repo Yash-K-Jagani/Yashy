@@ -21,7 +21,7 @@
 
 use otter_sema::{HirExternDecl, HirExpr, TypeKind};
 
-use crate::expr_gen::{gen_expr, FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, FnCtx, GenValue, RefKind};
 use crate::fn_gen::fn_return_repr;
 use crate::ir::repr_type;
 
@@ -154,7 +154,7 @@ pub fn gen_cstr_string_builtin(
     for value in &consumed {
         ctx.release_owned(value);
     }
-    ctx.mark_owned(&result);
+    ctx.mark_owned(&result, RefKind::Str);
     GenValue {
         value: result,
         ty: ty.clone(),

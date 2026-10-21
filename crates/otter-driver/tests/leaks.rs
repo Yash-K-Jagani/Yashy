@@ -222,6 +222,21 @@ fn a_map_releases_every_key_it_retained() {
 }
 
 #[test]
+fn a_closure_releases_its_environment() {
+    // `closures.ot` makes two closures: one captures a number, the other a
+    // string. The environment is a block of its own, and the string in it is a
+    // reference the environment owns. Both have to come back, or the report
+    // counts them.
+    let output = build_and_run("closures");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "15\nhello\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("closures", &output);
+}
+
+#[test]
 fn a_string_slice_releases_every_element() {
     // `string_slices_heap.ot` pushes one hundred freshly built strings. The
     // slice owns a reference to each, so `free_slice` must release all hundred

@@ -50,11 +50,11 @@
 //! missing one lowers to a comment plus a zero rather than aborting the
 //! compile.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use otter_common::Span;
 use otter_parser::ast::Literal;
-use otter_sema::{expr_ty, BinOp, FaultSite, HirExpr, HirFn, TypeKind, UnOp};
+use otter_sema::{expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp};
 
 use crate::ir::repr_type;
 use crate::module::Module;
@@ -132,11 +132,11 @@ pub struct FnCtx<'a> {
     /// sites that *do* release are the ones the consumer provably does not
     /// keep the pointer: the concatenations, the comparisons, `len`, the
     /// parsers and `print_str`.
-    owned_strings: HashSet<String>,
-    /// String locals that own a reference, one `Vec` per active scope,
-    /// innermost last, pushed and popped alongside [`FnCtx::defers`].
+    owned_refs: HashMap<String, RefKind>,
+    /// Locals that own a reference, one `Vec` per active scope, innermost
+    /// last, pushed and popped alongside [`FnCtx::defers`].
     ///
-    /// Each entry is an `alloca` slot holding an owned `string`, and it is
+    /// Each entry is an `alloca` slot holding an owned value, and it is
     /// released when its scope exits — on fall-through, and on a
     /// `return`/`break`/`continue` from a statement in that scope. The release
     /// happens *after* the scope's deferred bodies have run, because
@@ -150,7 +150,7 @@ pub struct FnCtx<'a> {
     /// goes away. A scope that exits without any statement to hang the release
     /// on (a `break` from a doubly nested block) leaks, the same reading of the
     /// same limitation the defer list has.
-    scope_strings: Vec<Vec<String>>,
+    scope_refs: Vec<Vec<(String, RefKind)>>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
     /// has to yield an `i32` — see [`crate::fn_gen::gen_main`].
@@ -167,6 +167,14 @@ pub struct FnCtx<'a> {
     /// `stmt_gen::run_all_scopes_defers`, so a fault in a deferred body goes
     /// straight to the runtime.
     pub(crate) lowering_defers: bool,
+    /// The values this function captured, in the order the environment holds
+    /// them. Empty for a function that is not a closure.
+    pub(crate) captures: Vec<HirCapture>,
+    /// The offset of each captured value in the environment.
+    pub(crate) capture_offsets: Vec<u64>,
+    /// The environment pointer this function reads its captures from, when it
+    /// is a closure. The name is the SSA value the parameter was bound to.
+    pub(crate) env: Option<String>,
 }
 
 impl<'a> FnCtx<'a> {
@@ -183,11 +191,14 @@ impl<'a> FnCtx<'a> {
             locals: HashMap::new(),
             loops: Vec::new(),
             defers: Vec::new(),
-            owned_strings: HashSet::new(),
-            scope_strings: Vec::new(),
+            owned_refs: HashMap::new(),
+            scope_refs: Vec::new(),
             unit_terminator: "ret void".to_string(),
             entry_point: false,
             lowering_defers: false,
+            captures: Vec::new(),
+            capture_offsets: Vec::new(),
+            env: None,
             atomic_strings,
         }
     }
@@ -232,15 +243,15 @@ impl<'a> FnCtx<'a> {
         self.push(format!("{dest} = call i8* @{symbol}(i8* {value})"));
     }
 
-    /// Record that `name` holds an owned `string` reference, so a consumer owes
-    /// it a `release`. See [`FnCtx::release_owned`].
-    pub(crate) fn mark_owned(&mut self, name: &str) {
+    /// Record that `name` holds an owned reference, so a consumer owes it a
+    /// `release`. See [`FnCtx::release_owned`].
+    pub(crate) fn mark_owned(&mut self, name: &str, kind: RefKind) {
         if !name.is_empty() {
-            self.owned_strings.insert(name.to_string());
+            self.owned_refs.insert(name.to_string(), kind);
         }
     }
 
-    /// Release `name` if it holds an owned `string` reference, and forget it.
+    /// Release `name` if it holds an owned reference, and forget it.
     ///
     /// A name that is not owned is left alone: a literal is a static string
     /// (releasing it is a no-op, but there is nothing to say), a name bound to
@@ -248,78 +259,120 @@ impl<'a> FnCtx<'a> {
     /// reference at all. Emitting the release only for an owned name is what
     /// keeps this from dropping a reference the program still holds.
     pub(crate) fn release_owned(&mut self, name: &str) {
-        if self.owned_strings.remove(name) {
-            let symbol = self.string_release_symbol();
-            self.push(format!("call void @{symbol}(i8* {name})"));
+        let Some(kind) = self.owned_refs.remove(name) else {
+            return;
+        };
+        match kind {
+            RefKind::Str => {
+                let symbol = self.string_release_symbol();
+                self.push(format!("call void @{symbol}(i8* {name})"));
+            }
+            RefKind::Env => {
+                // The value is a `{ i8* code, i8* env }` pair: the environment
+                // is its second half.
+                let pair = self.tmp();
+                self.push(format!("{pair} = load {{ i8*, i8* }}, ptr {name}"));
+                let env = self.tmp();
+                self.push(format!("{env} = extractvalue {{ i8*, i8* }} {pair}, 1"));
+                self.push(format!("call void @otter_env_release(i8* {env})"));
+            }
         }
     }
 
     /// Whether `name` holds an owned reference. A `return` asks so it can tell a
     /// string it is transferring from one it has to keep.
     pub(crate) fn is_owned(&self, name: &str) -> bool {
-        self.owned_strings.contains(name)
+        self.owned_refs.contains_key(name)
     }
 
     /// Forget an owned reference because something else has taken it over: a
     /// slot that stores a temporary's value now owns that reference, so no
     /// consumer will release it.
     pub(crate) fn forget_owned(&mut self, name: &str) {
-        self.owned_strings.remove(name);
+        self.owned_refs.remove(name);
     }
 
-    /// Open a scope for string locals, pushed and popped alongside [`FnCtx::defers`].
-    pub(crate) fn open_string_scope(&mut self) {
-        self.scope_strings.push(Vec::new());
+    /// Add a reference to the environment a function value carries.
+    ///
+    /// The value is a `{ i8* code, i8* env }` pair, and the environment is its
+    /// second half. A value with no environment -- a named function -- has
+    /// nothing to count, and the runtime's retain leaves a null alone.
+    pub(crate) fn retain_env(&mut self, value: &str) {
+        let env = self.tmp();
+        self.push(format!(
+            "{env} = extractvalue {{ i8*, i8* }} {value}, 1"
+        ));
+        self.push(format!("call i8* @otter_env_retain(i8* {env})"));
     }
 
-    /// Record that `slot` holds an owned `string` in the innermost scope.
-    pub(crate) fn track_string_slot(&mut self, slot: &str) {
-        if let Some(scope) = self.scope_strings.last_mut() {
-            scope.push(slot.to_string());
+    /// Open a scope for owned locals, pushed and popped alongside
+    /// [`FnCtx::defers`].
+    pub(crate) fn open_ref_scope(&mut self) {
+        self.scope_refs.push(Vec::new());
+    }
+
+    /// Record that `slot` holds an owned reference in the innermost scope.
+    pub(crate) fn track_ref_slot(&mut self, slot: &str, kind: RefKind) {
+        if let Some(scope) = self.scope_refs.last_mut() {
+            scope.push((slot.to_string(), kind));
         }
     }
 
-    /// Whether `slot` is a string local that owns a reference -- the test the
+    /// Whether `slot` is a local that owns a reference -- the test the
     /// assignment lowering uses to decide whether the old value has to be
     /// released. A parameter's slot is not one: its reference is the caller's.
-    pub(crate) fn is_tracked_string_slot(&self, slot: &str) -> bool {
-        self.scope_strings
+    pub(crate) fn is_tracked_ref_slot(&self, slot: &str) -> bool {
+        self.scope_refs
             .iter()
-            .any(|scope| scope.iter().any(|s| s == slot))
+            .any(|scope| scope.iter().any(|(tracked, _)| tracked == slot))
     }
 
-    /// Release every string local of the innermost scope, innermost first, and
+    /// Release every owned local of the innermost scope, innermost first, and
     /// close it. Used where the scope exits on its own: the block fell through.
-    pub(crate) fn close_string_scope_released(&mut self) {
-        let Some(scope) = self.scope_strings.pop() else {
+    pub(crate) fn close_ref_scope_released(&mut self) {
+        let Some(scope) = self.scope_refs.pop() else {
             return;
         };
-        for slot in scope.iter().rev() {
-            let loaded = self.tmp();
-            self.push(format!("{loaded} = load i8*, ptr {slot}"));
-            self.push_str_release(&loaded);
+        for (slot, kind) in scope.iter().rev() {
+            self.release_slot(slot, *kind);
         }
     }
 
-    /// Close the innermost string scope without releasing it. Used where the
-    /// block was already terminated by the statement that exited it: a release
-    /// emitted after a terminator is not well-formed IR.
-    pub(crate) fn close_string_scope(&mut self) {
-        self.scope_strings.pop();
+    /// Release one slot's owned reference.
+    fn release_slot(&mut self, slot: &str, kind: RefKind) {
+        match kind {
+            RefKind::Str => {
+                let loaded = self.tmp();
+                self.push(format!("{loaded} = load i8*, ptr {slot}"));
+                self.push_str_release(&loaded);
+            }
+            RefKind::Env => {
+                let pair = self.tmp();
+                self.push(format!("{pair} = load {{ i8*, i8* }}, ptr {slot}"));
+                let env = self.tmp();
+                self.push(format!("{env} = extractvalue {{ i8*, i8* }} {pair}, 1"));
+                self.push(format!("call void @otter_env_release(i8* {env})"));
+            }
+        }
     }
 
-    /// Release the innermost scope's string locals where a terminating statement
+    /// Close the innermost scope without releasing it. Used where the
+    /// block was already terminated by the statement that exited it: a release
+    /// emitted after a terminator is not well-formed IR.
+    pub(crate) fn close_ref_scope(&mut self) {
+        self.scope_refs.pop();
+    }
+
+    /// Release the innermost scope's owned locals where a terminating statement
     /// is about to branch, leaving the (now empty) scope for the block's own
     /// close to pop. The scope's defers have already run.
-    pub(crate) fn release_current_string_scope(&mut self) {
-        let slots = match self.scope_strings.last_mut() {
+    pub(crate) fn release_current_ref_scope(&mut self) {
+        let slots = match self.scope_refs.last_mut() {
             Some(scope) => std::mem::take(scope),
             None => return,
         };
-        for slot in slots.iter().rev() {
-            let loaded = self.tmp();
-            self.push(format!("{loaded} = load i8*, ptr {slot}"));
-            self.push_str_release(&loaded);
+        for (slot, kind) in slots.iter().rev() {
+            self.release_slot(slot, *kind);
         }
     }
 
@@ -406,6 +459,19 @@ impl<'a> FnCtx<'a> {
     }
 }
 
+/// What kind of reference a value owns.
+///
+/// A `string` owns a reference to its bytes; a closure owns a reference to the
+/// environment its captured values live in. The two are released by different
+/// runtime calls, so the owner has to say which one it is holding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefKind {
+    /// A `string`: released with `otter_str_release`.
+    Str,
+    /// A closure's environment: released with `otter_env_release`.
+    Env,
+}
+
 /// Lower `expr` to a value, pushing its instructions into the module.
 pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
     match expr {
@@ -476,6 +542,10 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
         HirExpr::Lambda { f, ty, .. } => gen_lambda(ctx, f, &ty.kind),
+        HirExpr::Capture { index, ty, .. } => gen_capture_read(ctx, *index, &ty.kind),
+        HirExpr::CallCapture { index, args, ty, .. } => {
+            gen_capture_call(ctx, *index, args, &ty.kind)
+        }
         HirExpr::SliceLit {
             elem_ty,
             elements,
@@ -788,11 +858,15 @@ fn gen_unary(
 ///
 /// The value is the same pair every function value is -- the code pointer and
 /// the environment -- so a lambda can be passed, bound and called exactly like
-/// a named function. The environment is null: a lambda that captures nothing
+/// a named function. A lambda that captures nothing has a null environment: it
 /// has nothing to carry.
 fn gen_lambda(ctx: &mut FnCtx<'_>, f: &HirFn, ty: &TypeKind) -> GenValue {
     let index = ctx.module.next_lambda();
     let name = format!("__lambda_{index}");
+    // The environment: the captured values, copied into a block the closure
+    // carries. It is built before the body, because the body is lowered into
+    // its own function and the two have to agree on the layout.
+    let env = gen_env(ctx, f);
     // The body is written into a buffer: it is lowered while the function
     // that contains the lambda is still open, and a `define` block cannot be
     // written inside a function.
@@ -805,11 +879,149 @@ fn gen_lambda(ctx: &mut FnCtx<'_>, f: &HirFn, ty: &TypeKind) -> GenValue {
     let with_code = ctx.tmp();
     ctx.push(format!("{with_code} = insertvalue {repr} undef, i8* @{name}, 0"));
     let with_env = ctx.tmp();
-    ctx.push(format!("{with_env} = insertvalue {repr} {with_code}, i8* null, 1"));
+    ctx.push(format!("{with_env} = insertvalue {repr} {with_code}, i8* {env}, 1"));
+    if f.captures.is_empty() {
+        GenValue {
+            value: with_env,
+            ty: ty.clone(),
+        }
+    } else {
+        // The value owns the environment: the block was created with one
+        // reference, and this is that reference.
+        ctx.mark_owned(&with_env, RefKind::Env);
+        GenValue {
+            value: with_env,
+            ty: ty.clone(),
+        }
+    }
+}
+
+/// Build the environment a closure carries, and return its pointer.
+///
+/// The captured values are copied out of the scope the closure is written in
+/// and into the block, and the block's table says which of them the
+/// environment owns a reference to.
+fn gen_env(ctx: &mut FnCtx<'_>, f: &HirFn) -> String {
+    if f.captures.is_empty() {
+        return "null".to_string();
+    }
+    let offsets = crate::env::capture_offsets(&f.captures);
+    let payload = crate::env::payload_size(&f.captures);
+    let env = ctx.tmp();
+    ctx.push(format!(
+        "{env} = call i8* @otter_env_new(i64 {}, i64 {payload}, i64 16)",
+        f.captures.len()
+    ));
+
+    for (index, capture) in f.captures.iter().enumerate() {
+        let repr = repr_type(&capture.ty.kind);
+        // Read the captured value from the scope the closure is written in.
+        let value = match &capture.source {
+            CaptureSource::Scope => {
+                let slot = ctx
+                    .locals
+                    .get(&capture.name)
+                    .map(|(slot, _)| slot.clone())
+                    .unwrap_or_default();
+                if slot.is_empty() {
+                    "null".to_string()
+                } else {
+                    let loaded = ctx.tmp();
+                    ctx.push(format!("{loaded} = load {repr}, ptr {slot}"));
+                    loaded
+                }
+            }
+            CaptureSource::Enclosing(parent) => {
+                // A capture of the enclosing closure: the value is in that
+                // closure's environment, and the closure being made is inside
+                // that closure's body.
+                let env_name = ctx.env.clone().unwrap_or_default();
+                let offset = ctx
+                    .capture_offsets
+                    .get(*parent)
+                    .copied()
+                    .unwrap_or_default();
+                let address = ctx.tmp();
+                ctx.push(format!(
+                    "{address} = getelementptr i8, ptr {env_name}, i64 {offset}"
+                ));
+                let loaded = ctx.tmp();
+                ctx.push(format!("{loaded} = load {repr}, ptr {address}"));
+                loaded
+            }
+        };
+
+        // Store it into the environment's payload.
+        let address = ctx.tmp();
+        ctx.push(format!(
+            "{address} = getelementptr i8, ptr {env}, i64 {}",
+            offsets[index]
+        ));
+        ctx.push(format!("store {repr} {value}, ptr {address}"));
+
+        // The table entry: what the environment releases when it dies.
+        let slot = ctx.tmp();
+        ctx.push(format!(
+            "{slot} = getelementptr i8, ptr {env}, i64 {}",
+            crate::env::slot_offset(index)
+        ));
+        if crate::env::is_string(capture) {
+            // The environment owns a reference to the string it captured.
+            ctx.push_str_retain(&value);
+            ctx.push(format!(
+                "store i64 {}, ptr {slot}",
+                crate::env::SLOT_STRING
+            ));
+            let pointer = ctx.tmp();
+            ctx.push(format!("{pointer} = getelementptr i8, ptr {slot}, i64 8"));
+            ctx.push(format!("store i8* {value}, ptr {pointer}"));
+        } else {
+            ctx.push(format!(
+                "store i64 {}, ptr {slot}",
+                crate::env::SLOT_NONE
+            ));
+        }
+    }
+    env
+}
+
+/// Lower a read of a captured value: the value is in the environment, not in
+/// a slot.
+fn gen_capture_read(ctx: &mut FnCtx<'_>, index: usize, ty: &TypeKind) -> GenValue {
+    let Some(env_name) = ctx.env.clone() else {
+        return zero_of(ty, ctx);
+    };
+    let Some(offset) = ctx.capture_offsets.get(index).copied() else {
+        return zero_of(ty, ctx);
+    };
+    let repr = repr_type(ty);
+    let address = ctx.tmp();
+    ctx.push(format!(
+        "{address} = getelementptr i8, ptr {env_name}, i64 {offset}"
+    ));
+    let value = ctx.tmp();
+    ctx.push(format!("{value} = load {repr}, ptr {address}"));
     GenValue {
-        value: with_env,
+        value,
         ty: ty.clone(),
     }
+}
+
+/// Lower a call through a captured function value.
+fn gen_capture_call(
+    ctx: &mut FnCtx<'_>,
+    index: usize,
+    args: &[HirExpr],
+    ty: &TypeKind,
+) -> GenValue {
+    let Some(capture) = ctx.captures.get(index).cloned() else {
+        return zero_of(ty, ctx);
+    };
+    let TypeKind::Func(_, ret) = capture.ty.kind.clone() else {
+        return zero_of(ty, ctx);
+    };
+    let value = gen_capture_read(ctx, index, &capture.ty.kind);
+    gen_indirect_call(ctx, &value.value, &ret.kind, args, ty)
 }
 
 /// Lower a call: the three runtime builtins, the `Option`/`Result`
@@ -861,7 +1073,7 @@ fn gen_enum_ctor(
     })
 }
 
-/// Call through a function value held in `slot`.
+/// Call through a function value.
 ///
 /// The value is `{ i8* code, i8* env }`; the call passes `env` as its first
 /// argument and then the lowered arguments. String arguments are borrowed for
@@ -869,18 +1081,16 @@ fn gen_enum_ctor(
 /// temporary is released once the callee returns.
 fn gen_indirect_call(
     ctx: &mut FnCtx<'_>,
-    slot: &str,
+    pair: &str,
     ret: &TypeKind,
     args: &[HirExpr],
     ty: &TypeKind,
 ) -> GenValue {
     let fn_repr = "{ i8*, i8* }";
-    let loaded = ctx.tmp();
-    ctx.push(format!("{loaded} = load {fn_repr}, ptr {slot}"));
     let code = ctx.tmp();
-    ctx.push(format!("{code} = extractvalue {fn_repr} {loaded}, 0"));
+    ctx.push(format!("{code} = extractvalue {fn_repr} {pair}, 0"));
     let env = ctx.tmp();
-    ctx.push(format!("{env} = extractvalue {fn_repr} {loaded}, 1"));
+    ctx.push(format!("{env} = extractvalue {fn_repr} {pair}, 1"));
 
     let mut call_args = vec![format!("i8* {env}")];
     let mut lowered = Vec::with_capacity(args.len());
@@ -910,7 +1120,11 @@ fn gen_indirect_call(
         ctx.release_owned(&argument.value);
     }
     if ret_repr != "void" && matches!(ret, TypeKind::Str) {
-        ctx.mark_owned(&result);
+        ctx.mark_owned(&result, RefKind::Str);
+    }
+    if ret_repr != "void" && matches!(ret, TypeKind::Func(_, _)) {
+        // A returned closure: the caller owns the reference the callee had.
+        ctx.mark_owned(&result, RefKind::Env);
     }
     GenValue {
         value: result,
@@ -934,7 +1148,9 @@ fn gen_call(
     if callee.len() == 1 {
         if let Some(name) = callee.first() {
             if let Some((slot, TypeKind::Func(_, ret))) = ctx.locals.get(name).cloned() {
-                return gen_indirect_call(ctx, &slot, &ret.kind, args, ty);
+                let pair = ctx.tmp();
+                ctx.push(format!("{pair} = load {{ i8*, i8* }}, ptr {slot}"));
+                return gen_indirect_call(ctx, &pair, &ret.kind, args, ty);
             }
         }
     }
@@ -1108,7 +1324,7 @@ fn gen_call(
                 "{converted} = call i8* @otter_str_from_bool(i64 {as_i64})"
             ));
             // A conversion builds the string, so the result is owned.
-            ctx.mark_owned(&converted);
+            ctx.mark_owned(&converted, RefKind::Str);
             GenValue {
                 value: converted,
                 ty: ty.clone(),
@@ -1518,7 +1734,12 @@ fn gen_borrowed_call(
         ctx.release_owned(&argument.value);
     }
     if matches!(ty, TypeKind::Str) {
-        ctx.mark_owned(&value.value);
+        ctx.mark_owned(&value.value, RefKind::Str);
+    }
+    if matches!(ty, TypeKind::Func(_, _)) {
+        // A returned closure: the caller owns the reference the callee had, so
+        // the value is owned here and the caller's binding takes it over.
+        ctx.mark_owned(&value.value, RefKind::Env);
     }
     value
 }

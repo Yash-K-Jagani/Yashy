@@ -30,6 +30,11 @@
  * because the printing and diagnostic functions come before it. */
 static const char *otter_str_data(const otter_str *s);
 
+/* `otter_str_release`, defined with the string type further down. The closure
+ * environment releases the strings it captured, and it comes before the string
+ * section. */
+void otter_str_release(otter_str *s);
+
 /* Thread-local storage, which the runtime uses wherever a `static` would
  * otherwise be shared mutable state:
  *
@@ -323,6 +328,92 @@ void otter_arena_free_all(otter_arena *arena) {
         block = next;
     }
     arena->head = NULL;
+}
+
+/* ---- Closure environments -----------------------------------------------
+ *
+ * A closure carries the values it captured in an environment: a block the
+ * closure's code reads through. The environment outlives the function that
+ * made the closure, so it is reference counted.
+ *
+ * The block the generated code builds:
+ *
+ *   [0]   long long   the reference count
+ *   [8]   long long   how many captured values need releasing
+ *   [16]  the release table: `count` pairs of (kind, pointer)
+ *   ...   the captured values themselves
+ *
+ * The table is written by the generated code: one entry per captured value,
+ * saying whether the environment owns a reference to it (a captured `string`)
+ * or nothing at all (a captured number). When the last owner lets go, the
+ * runtime walks the table and releases what it owns.
+ *
+ * The header and a table entry are the two sizes the generated code and this
+ * file have to agree on; they are `OTTER_ENV_HEADER_SIZE` and
+ * `OTTER_ENV_SLOT_SIZE` in the header, and the tests on both sides pin them. */
+
+void *otter_env_new(long long slot_count, long long payload_size, long long align) {
+    size_t slots = slot_count > 0 ? (size_t)slot_count : 0;
+    size_t payload = payload_size > 0 ? (size_t)payload_size : 0;
+    if (slots > (SIZE_MAX - OTTER_ENV_HEADER_SIZE) / OTTER_ENV_SLOT_SIZE) {
+        return NULL;
+    }
+    size_t total = OTTER_ENV_HEADER_SIZE + slots * OTTER_ENV_SLOT_SIZE + payload;
+    if (total < payload) {
+        return NULL;
+    }
+    void *block = otter_alloc((long long)total, align > 0 ? align : 16);
+    if (block == NULL) {
+        return NULL;
+    }
+    long long *header = (long long *)block;
+    header[0] = 1;              /* the reference count */
+    header[1] = (long long)slots;
+    /* The table starts empty: the generated code writes the entries it has
+     * something to release, and an entry it does not write is an entry that
+     * releases nothing. Zeroing it here means a table entry is never
+     * whatever the allocator left behind. */
+    unsigned char *table = (unsigned char *)block + OTTER_ENV_HEADER_SIZE;
+    memset(table, 0, slots * OTTER_ENV_SLOT_SIZE);
+    return block;
+}
+
+void *otter_env_retain(void *env) {
+    if (env == NULL) {
+        return NULL;
+    }
+    long long *header = (long long *)env;
+    if (header[0] > 0) {
+        header[0]++;
+    }
+    return env;
+}
+
+void otter_env_release(void *env) {
+    if (env == NULL) {
+        return;
+    }
+    long long *header = (long long *)env;
+    if (header[0] <= 0) {
+        return;
+    }
+    header[0]--;
+    if (header[0] != 0) {
+        return;
+    }
+    /* The last owner: release what the environment captured, then the block.
+     * The table is walked before the free, because the entries live in the
+     * block. */
+    long long slots = header[1];
+    unsigned char *table = (unsigned char *)env + OTTER_ENV_HEADER_SIZE;
+    for (long long i = 0; i < slots; i++) {
+        long long *entry = (long long *)(table + (size_t)i * OTTER_ENV_SLOT_SIZE);
+        if (entry[0] == 1) {
+            /* A captured `string`: the environment owns a reference to it. */
+            otter_str_release((otter_str *)entry[1]);
+        }
+    }
+    otter_free(env);
 }
 
 /* ---- Strings -----------------------------------------------------------

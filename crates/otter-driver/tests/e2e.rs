@@ -242,6 +242,12 @@ fn a_non_capturing_lambda_is_a_function_value() {
 }
 
 #[test]
+fn a_closure_outlives_its_creating_scope() {
+    let output = build_and_run("closures");
+    assert_eq!(stdout_of(&output), "15\nhello\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

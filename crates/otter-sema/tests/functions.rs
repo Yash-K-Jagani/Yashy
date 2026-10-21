@@ -174,10 +174,26 @@ fn a_lambda_can_be_passed_to_a_function_parameter() {
 }
 
 #[test]
-fn a_lambda_that_captures_an_enclosing_local_is_an_error() {
+fn a_lambda_may_capture_an_enclosing_local() {
+    // A capture is a value the closure carries with it: the environment holds
+    // a copy, so the closure still works after the scope it was made in is
+    // gone.
+    let result = check_source(
+        "fn adder(n: i64) -> fn(i64) -> i64 { \
+         return |x: i64| -> i64 { return x + n; }; } \
+         fn main() { const add5 = adder(5); const r = add5(10); }",
+    );
+    result.expect("a closure that captures a local should type-check");
+}
+
+#[test]
+fn a_lambda_that_captures_a_linear_value_is_an_error() {
+    // The environment would have to own a value the program still owns, and
+    // Otter has no way to say which of the two owners releases it.
     assert_error(
-        "fn main() { const n = 1; const f = |x: i64| -> i64 { return x + n; }; }",
-        "closures are not captured yet; this lambda needs `n`",
+        "fn main() { const buf = alloc(16); \
+         const f = |x: i64| -> i64 { return x + buf[0]; }; }",
+        "a linear value cannot be captured yet",
     );
 }
 

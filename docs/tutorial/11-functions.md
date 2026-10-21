@@ -114,6 +114,65 @@ with it, wherever it goes. Otter has no way to take a capture yet, so the
 compiler says so rather than quietly copying the value or quietly reading
 the wrong one.
 
+## A closure
+
+A closure is a function that carries the values of the scope it was written
+in. It is a lambda that captures something.
+
+```otter
+fn adder(n: i64) -> fn(i64) -> i64 {
+    return |x: i64| -> i64 { return x + n; };
+}
+
+fn main() {
+    const add5 = adder(5);
+    print_i64(add5(10));
+    print_str("\n");
+    // => 15
+}
+```
+
+`adder` returns a closure. The closure captured `n`, so it carries a copy of
+it, and it keeps working after `adder` has returned — the value it captured
+lives in the closure, not in `adder`'s frame.
+
+A closure may capture a number or a string. A string it captured is a
+reference the closure owns: the closure holds it alive, and releases it when
+the closure itself is gone.
+
+```otter
+fn greeter(greeting: string) -> fn() -> string {
+    return || -> string { return greeting; };
+}
+
+fn main() {
+    const greet = greeter("hello");
+    print_str(greet());
+    print_str("\n");
+    // => hello
+}
+```
+
+### What a closure may not capture
+
+A closure may not capture a *linear* value — an array, a map, a pointer, a
+channel. The closure would have to own a value the program still owns, and
+Otter has no way to say which of the two owners releases it:
+
+```text
+fn main() {
+    const buf = alloc(16);
+    const f = |x: i64| -> i64 { return x; };
+}
+```
+
+```text
+error: a linear value cannot be captured yet: `buf`
+```
+
+A captured value is also a copy: assigning to it changes the copy and not the
+binding it came from, so a closure's captures are read-only.
+
 ## Writing a function type
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.

@@ -183,3 +183,41 @@ fn a_lambda_may_contain_another_lambda() {
         "the outer lambda's body builds the inner lambda's value:\n{ir_text}"
     );
 }
+
+#[test]
+fn a_closure_carries_its_captures_in_an_environment() {
+    // The environment is a block of its own: the captured value is copied into
+    // it, and the closure reads it from there rather than from the scope it
+    // was made in.
+    let ir_text = ir_of(
+        "fn adder(n: i64) -> fn(i64) -> i64 { \
+         return |x: i64| -> i64 { return x + n; }; }",
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_env_new(i64 1, i64 8, i64 16)"),
+        "the environment is allocated with the captured value in it:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("getelementptr i8, ptr %env, i64 32"),
+        "the closure reads its capture out of the environment:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_captured_string_is_retained_by_the_environment() {
+    // The environment owns a reference to the string it captured, and the
+    // table says so: the release at the end of the environment's life is the
+    // runtime's, driven by the table the generated code wrote.
+    let ir_text = ir_of(
+        "fn greeter(greeting: string) -> fn() -> string { \
+         return || -> string { return greeting; }; }",
+    );
+    assert!(
+        ir_text.contains("call i8* @otter_str_retain(i8* %"),
+        "the environment retains the string it captured:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("store i64 1, ptr %"),
+        "the table entry says the environment owns a reference:\n{ir_text}"
+    );
+}

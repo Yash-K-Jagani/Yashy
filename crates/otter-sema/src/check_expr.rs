@@ -63,10 +63,21 @@ enum NameLookup {
     Found(Binding),
     /// The name is not bound at all.
     Missing,
-    /// The name is bound, but it belongs to an enclosing function and the
-    /// lambda being checked may not capture it. The diagnostic has been
-    /// reported already.
-    Capture,
+    /// The name is bound, but it belongs to an enclosing scope and the closure
+    /// being checked captures it. The capture's index and type are the value.
+    Capture { index: usize, ty: Type },
+}
+
+/// One closure being checked: the scope its parameters live in, and the
+/// values it has captured so far.
+struct ClosureFrame {
+    /// The depth of the scope the closure's own parameters are bound in.
+    ///
+    /// A name that resolves *above* this depth belongs to an enclosing scope
+    /// and is a capture; a name at or below it is the closure's own.
+    scope_depth: usize,
+    /// The captures, in the order the environment holds them.
+    captures: Vec<HirCapture>,
 }
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
@@ -105,16 +116,16 @@ pub struct Checker<'src> {
     /// the loop can still read its header would free the array the next
     /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
     iteration_borrows: Vec<String>,
-    /// The scope depth of the lambda body being checked, if any.
+    /// The closures being checked, innermost last.
     ///
-    /// A name that resolves *above* this depth but below the root scope is a
-    /// local of an enclosing function: a capture. Otter has no closures yet,
-    /// so a lambda that mentions one is an error rather than a silent copy of
-    /// a value the environment does not hold.
+    /// A closure's frame says which scope is its own and what it has
+    /// captured. A name that resolves above a closure's own scope is a
+    /// capture: the value is copied into the closure's environment when the
+    /// closure is made, and the body reads it from there.
     ///
-    /// The root scope is exempt: a top-level function is a global, and a
-    /// lambda may call one.
-    capture_barrier: Option<usize>,
+    /// The root scope is never a capture: a top-level function is a global,
+    /// and a closure may call one.
+    closures: Vec<ClosureFrame>,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -316,7 +327,7 @@ impl<'src> Checker<'src> {
             release: options.release,
             uses_threads: false,
             iteration_borrows: Vec::new(),
-            capture_barrier: None,
+            closures: Vec::new(),
             sm,
         }
     }
@@ -330,27 +341,105 @@ impl<'src> Checker<'src> {
     /// The three outcomes are separate because the three callers say different
     /// things about a name that is not there: a read says "cannot find value",
     /// a call says "cannot find function", and neither should be said at all
-    /// when the name *is* there but may not be used -- a capture has already
-    /// been reported with its own message.
+    /// when the name *is* there but belongs to an enclosing scope -- a capture
+    /// is a value, not a missing name.
     fn lookup(&mut self, name: &str, span: Span) -> NameLookup {
         let Some(binding) = self.scope.resolve(name).cloned() else {
             return NameLookup::Missing;
         };
-        if let Some(barrier) = self.capture_barrier {
-            if let Some(depth) = self.scope.resolve_depth(name) {
-                // Depth 0 is the root scope: a top-level function is a global,
-                // not a capture. The lambda's own scope and everything inside
-                // it are its own.
-                if depth > 0 && depth < barrier {
-                    self.error(
-                        span,
-                        format!("closures are not captured yet; this lambda needs `{name}`"),
-                    );
-                    return NameLookup::Capture;
-                }
+        let Some(depth) = self.scope.resolve_depth(name) else {
+            return NameLookup::Missing;
+        };
+        // A name that resolves above the closure being checked belongs to an
+        // enclosing scope: a capture. The root scope is exempt -- a top-level
+        // function is a global, and a closure may call one.
+        if let Some(frame) = self.closures.last() {
+            if depth > 0 && depth < frame.scope_depth {
+                let index = self.capture(name, depth, &binding.ty, span);
+                return NameLookup::Capture {
+                    index,
+                    ty: binding.ty.clone(),
+                };
             }
         }
         NameLookup::Found(binding)
+    }
+
+    /// Record that the closure being checked captures `name`, and return the
+    /// capture's index.
+    ///
+    /// A linear value cannot be captured: the environment would have to own a
+    /// value the program still owns, and Otter has no way to say which of the
+    /// two owners releases it.
+    fn capture(&mut self, name: &str, depth: usize, ty: &Type, span: Span) -> usize {
+        if matches!(linearity_of(&ty.kind), Linearity::Linear) {
+            self.error(
+                span,
+                format!("a linear value cannot be captured yet: `{name}`"),
+            );
+        }
+        let frame_index = self.closures.len() - 1;
+        self.capture_in(frame_index, name, depth, ty)
+    }
+
+    /// Record a capture in a particular closure, and return its index.
+    ///
+    /// The closure that is being checked captures the name; the closures
+    /// between it and the scope the name belongs to capture it too, so that
+    /// the value is there to be copied.
+    fn capture_in(
+        &mut self,
+        frame_index: usize,
+        name: &str,
+        depth: usize,
+        ty: &Type,
+    ) -> usize {
+        if let Some(index) = self.closures[frame_index]
+            .captures
+            .iter()
+            .position(|capture| capture.name == name)
+        {
+            return index;
+        }
+        let source = self.capture_source(frame_index, name, depth, ty);
+        self.closures[frame_index].captures.push(HirCapture {
+            name: name.to_string(),
+            ty: ty.clone(),
+            source,
+        });
+        self.closures[frame_index].captures.len() - 1
+    }
+
+    /// Where the closure at `frame_index` reads the captured `name` from.
+    ///
+    /// The name belongs to a scope outside the closure. The scope that holds
+    /// it is the innermost enclosing closure whose own scope reaches the
+    /// name's depth -- or the function around them all, if there is no such
+    /// closure. The value is read from that scope when the closure is made.
+    fn capture_source(
+        &mut self,
+        frame_index: usize,
+        name: &str,
+        depth: usize,
+        ty: &Type,
+    ) -> CaptureSource {
+        if frame_index == 0 {
+            // The outermost closure: the name belongs to the function it is
+            // written in, and the function's frame is live where the closure
+            // is made.
+            return CaptureSource::Scope;
+        }
+        let parent = frame_index - 1;
+        if depth >= self.closures[parent].scope_depth {
+            // A local of the enclosing closure's own scope: its parameter, or
+            // a binding of its body.
+            CaptureSource::Scope
+        } else {
+            // The enclosing closure captured the name too, so the value is
+            // copied out of that closure's environment.
+            let parent_index = self.capture_in(parent, name, depth, ty);
+            CaptureSource::Enclosing(parent_index)
+        }
     }
 
     /// Move `name` out of its binding, unless an enclosing `for-in` is reading
@@ -862,6 +951,7 @@ impl<'src> Checker<'src> {
                         .collect(),
                     ret: ret_ty,
                     body,
+                    captures: Vec::new(),
                     span: *span,
                 }))
             }
@@ -1180,9 +1270,14 @@ impl<'src> Checker<'src> {
 
                 let binding = match self.lookup(&name, otter_parser::exprs::expr_span(target)) {
                     NameLookup::Found(binding) => binding,
-                    // A capture has been reported with its own message.
-                    NameLookup::Capture => {
+                    // A capture holds a copy: assigning to it would change the
+                    // copy and not the binding it came from.
+                    NameLookup::Capture { .. } => {
                         let _ = self.check_expr(value);
+                        self.error(
+                            otter_parser::exprs::expr_span(target),
+                            format!("cannot assign to `{name}`, which is captured"),
+                        );
                         return None;
                     }
                     NameLookup::Missing => {
@@ -3594,7 +3689,11 @@ impl<'src> Checker<'src> {
                         }
                         Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone()))
                     }
-                    NameLookup::Capture => None,
+                    NameLookup::Capture { index, ty } => Some(HirExpr::Capture {
+                        index,
+                        span: *span,
+                        ty,
+                    }),
                     NameLookup::Missing => {
                         self.error(*span, format!("cannot find value `{name}` in this scope"));
                         None
@@ -3754,10 +3853,11 @@ impl<'src> Checker<'src> {
                 // `f`'s parameter type to know what `None` is an `Option` of.
                 let resolved = match self.lookup(&name, *span) {
                     NameLookup::Found(binding) => Some(binding.ty),
-                    // A capture has been reported with its own message; saying
-                    // "cannot find function" as well would be two errors for
-                    // one mistake.
-                    NameLookup::Capture => return None,
+                    // A capture is a value, not a missing name: the call goes
+                    // through the captured function.
+                    NameLookup::Capture { index, ty } => {
+                        return self.check_capture_call(index, ty, args, *span);
+                    }
                     NameLookup::Missing => None,
                 };
                 match resolved {
@@ -4257,14 +4357,18 @@ impl<'src> Checker<'src> {
                     );
                 }
                 // A name that resolves above this depth belongs to an enclosing
-                // function: a capture. The barrier is the depth of the scope
-                // the parameters live in, so the lambda's own names are fine
-                // and a global is fine, and only an enclosing local is not.
-                let barrier = self.scope.depth() - 1;
-                let outer_barrier = self.capture_barrier;
-                self.capture_barrier = Some(barrier);
+                // scope: a capture. The frame's depth is the scope the
+                // parameters live in, so the closure's own names are fine and
+                // a global is fine, and only an enclosing local is a capture.
+                self.closures.push(ClosureFrame {
+                    scope_depth: self.scope.depth() - 1,
+                    captures: Vec::new(),
+                });
                 let checked_body = self.check_block_with_ret(body, &ret_ty);
-                self.capture_barrier = outer_barrier;
+                let frame = self.closures.pop().unwrap_or(ClosureFrame {
+                    scope_depth: 0,
+                    captures: Vec::new(),
+                });
                 self.scope.pop();
 
                 let checked_body = checked_body?;
@@ -4286,6 +4390,7 @@ impl<'src> Checker<'src> {
                             .collect(),
                         ret: ret_ty,
                         body: checked_body,
+                        captures: frame.captures,
                         span: *span,
                     }),
                     span: *span,
@@ -4293,6 +4398,55 @@ impl<'src> Checker<'src> {
                 })
             }
         }
+    }
+
+    /// Check a call whose callee is a captured function value.
+    ///
+    /// The call is through the value, so the arguments are checked against the
+    /// captured function's own parameter types, exactly as a call to a binding
+    /// would be.
+    fn check_capture_call(
+        &mut self,
+        index: usize,
+        ty: Type,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let TypeKind::Func(params, ret) = ty.kind else {
+            self.error(
+                span,
+                format!("this captured value is not a function (it is `{ty}`)"),
+            );
+            return None;
+        };
+        if params.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "expected {} arguments, found {}",
+                    params.len(),
+                    args.len()
+                ),
+            );
+            return None;
+        }
+        let mut arg_exprs = Vec::with_capacity(args.len());
+        for (arg, param) in args.iter().zip(params.iter()) {
+            let checked = self.check_expr_with_expected(arg, param)?;
+            if !fits(param, &expr_ty(&checked)) {
+                self.error(
+                    expr_span(&checked),
+                    format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                );
+            }
+            arg_exprs.push(checked);
+        }
+        Some(HirExpr::CallCapture {
+            index,
+            args: arg_exprs,
+            span,
+            ty: (*ret).clone(),
+        })
     }
 
     /// Resolve a dotted name as the field-access chain it is: `p.x`, `a.b.c`.

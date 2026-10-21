@@ -55,7 +55,7 @@ pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
     }
     module.push(format!("define {ret_repr} @{}({}) {{", name, params.join(", ")));
 
-    gen_body(module, f, false);
+    gen_body(module, f, false, Some("%env"));
 }
 
 /// Emit one C function declaration as an LLVM `declare`.
@@ -138,7 +138,7 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
         params.join(", ")
     ));
 
-    gen_body(module, f, entry_point);
+    gen_body(module, f, entry_point, None);
 }
 
 /// The body of a function: its parameter spills, its statements, and its
@@ -147,13 +147,19 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
 /// The signature is the caller's business -- a named function and a lambda
 /// have different ones -- but everything after the opening brace is the same
 /// code, and keeping it in one place is what keeps the two from drifting.
-fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool) {
+///
+/// `env` is the environment pointer a closure reads its captures from, when
+/// the function is one. It is the SSA name the parameter was bound to.
+fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>) {
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
         ctx.entry_point = entry_point;
         if entry_point {
             ctx.unit_terminator = "ret i32 0".to_string();
         }
+        ctx.captures = f.captures.clone();
+        ctx.capture_offsets = crate::env::capture_offsets(&f.captures);
+        ctx.env = env.map(|name| name.to_string());
         ctx.begin_entry();
         let slots = ctx.alloc_params(f);
         for (index, (slot, param)) in slots.iter().zip(f.params.iter()).enumerate() {

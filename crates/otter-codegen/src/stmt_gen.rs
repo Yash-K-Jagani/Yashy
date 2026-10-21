@@ -29,7 +29,7 @@
 
 use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, TypeKind};
 
-use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, RefKind};
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
 
@@ -128,7 +128,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     // `defer` registers into the scope it is written in and only that scope's
     // defers run (and only that scope's strings are released) at its exit.
     ctx.defers.push(Vec::new());
-    ctx.open_string_scope();
+    ctx.open_ref_scope();
     for stmt in &block.stmts {
         let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {
@@ -137,7 +137,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
             // branching, so both lists are empty; popping keeps the stacks
             // honest for whatever scope is below.
             ctx.defers.pop();
-            ctx.close_string_scope();
+            ctx.close_ref_scope();
             return flow;
         }
     }
@@ -148,7 +148,7 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     // would move the body to the end of the branch or of one iteration.
     run_defers(ctx);
     ctx.defers.pop();
-    ctx.close_string_scope_released();
+    ctx.close_ref_scope_released();
     Flow::Fallthrough
 }
 
@@ -249,7 +249,29 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                         ctx.push_str_retain(&value.value);
                     }
                     ctx.push(format!("store i8* {}, ptr {slot}", value.value));
-                    ctx.track_string_slot(&slot);
+                    ctx.track_ref_slot(&slot, RefKind::Str);
+                }
+                slot
+            } else if matches!(ty, TypeKind::Func(_, _)) {
+                // A closure binding owns a reference to its environment, the
+                // same way a `string` binding owns a reference to its bytes.
+                // The value is either taken over (a closure the program just
+                // made, which owns the only reference) or kept (a copy of
+                // another binding, which has to be counted again).
+                let value = gen_expr(ctx, init);
+                let slot = ctx.alloc_slot();
+                ctx.push_alloca(format!("{slot} = alloca {{ i8*, i8* }}"));
+                if !value.value.is_empty() {
+                    if ctx.is_owned(&value.value) {
+                        ctx.forget_owned(&value.value);
+                    } else {
+                        ctx.retain_env(&value.value);
+                    }
+                    ctx.push(format!(
+                        "store {{ i8*, i8* }} {}, ptr {slot}",
+                        value.value
+                    ));
+                    ctx.track_ref_slot(&slot, RefKind::Env);
                 }
                 slot
             } else {
@@ -303,7 +325,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 // Dropping the old value is only right when this slot owns it.
                 // A parameter's reference is the caller's, so it is left alone.
                 if let Some(slot) = &slot {
-                    if ctx.is_tracked_string_slot(slot) {
+                    if ctx.is_tracked_ref_slot(slot) {
                         let old = ctx.tmp();
                         ctx.push(format!("{old} = load i8*, ptr {slot}"));
                         ctx.push_str_release(&old);
@@ -370,8 +392,18 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // released: the block is leaving, and a local the `return` names is
             // still in its slot. Only for a string return type, so every other
             // function's semantics (and its IR) are unchanged.
-            let taken = match (value, matches!(ctx.ret_type, TypeKind::Str)) {
-                (Some(expr), true) => Some(gen_expr(ctx, expr)),
+            //
+            // A returned closure is taken for the same reason, and for one
+            // more: the closure's environment must survive the scope's
+            // release, or the value the caller gets would point at a block
+            // that is already gone.
+            let returned_kind = match ctx.ret_type {
+                TypeKind::Str => Some(RefKind::Str),
+                TypeKind::Func(_, _) => Some(RefKind::Env),
+                _ => None,
+            };
+            let taken = match (value, returned_kind) {
+                (Some(expr), Some(_)) => Some(gen_expr(ctx, expr)),
                 _ => None,
             };
             // Defers for this scope run before the block is terminated, so
@@ -379,15 +411,18 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // and before the string locals below are released, so a deferred
             // body still sees them.
             run_defers(ctx);
-            if let Some(taken) = &taken {
+            if let (Some(taken), Some(kind)) = (&taken, returned_kind) {
                 // The returned reference has to survive the release: a local's
                 // value is kept here and given to the caller, while a
                 // temporary's reference is transferred as-is.
                 if !ctx.is_owned(&taken.value) && !taken.value.is_empty() {
-                    ctx.push_str_retain(&taken.value);
+                    match kind {
+                        RefKind::Str => ctx.push_str_retain(&taken.value),
+                        RefKind::Env => ctx.retain_env(&taken.value),
+                    }
                 }
             }
-            ctx.release_current_string_scope();
+            ctx.release_current_ref_scope();
             match (value, taken) {
                 (Some(_), Some(v)) => emit_return(ctx, &v),
                 (Some(expr), None) => {
@@ -443,7 +478,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         }
         HirStmt::Break(_) => {
             run_defers(ctx);
-            ctx.release_current_string_scope();
+            ctx.release_current_ref_scope();
             match ctx.loops.last().cloned() {
                 Some((break_label, _)) => {
                     ctx.push(format!("br label %{break_label}"));
@@ -457,7 +492,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         }
         HirStmt::Continue(_) => {
             run_defers(ctx);
-            ctx.release_current_string_scope();
+            ctx.release_current_ref_scope();
             match ctx.loops.last().cloned() {
                 Some((_, continue_label)) => {
                     ctx.push(format!("br label %{continue_label}"));

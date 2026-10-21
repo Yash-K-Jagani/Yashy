@@ -102,6 +102,7 @@ $workloads = @(
            @{ Lang = 'Otter -O2 (value)';         Kind = 'otter'; Src = 'function.ot';         Out = 'function-otter' },
            @{ Lang = 'Otter -O2 (direct)';        Kind = 'otter'; Src = 'function_direct.ot'; Out = 'function-direct-otter' },
            @{ Lang = 'Otter -O2 (lambda)';        Kind = 'otter'; Src = 'function_lambda.ot'; Out = 'function-lambda-otter' },
+           @{ Lang = 'Otter -O2 (closure)';       Kind = 'otter'; Src = 'function_closure.ot'; Out = 'function-closure-otter' },
            @{ Lang = 'C (clang -O2, value)';      Kind = 'clang'; Src = 'function.c';         Out = 'function-clang' },
            @{ Lang = 'C (clang -O2, direct)';     Kind = 'clang'; Src = 'function_direct.c'; Out = 'function-direct-clang' },
            @{ Lang = 'C (gcc -O2, value)';        Kind = 'gcc';   Src = 'function.c';         Out = 'function-gcc' },
