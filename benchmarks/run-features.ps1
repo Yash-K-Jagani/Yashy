@@ -111,6 +111,16 @@ $workloads = @(
            @{ Lang = 'Go (go build, direct)';     Kind = 'go';    Src = 'function_direct.go'; Out = 'function-direct-go' },
            @{ Lang = 'Rust (rustc -O, value)';    Kind = 'rust';  Src = 'function.rs';        Out = 'function-rust' },
            @{ Lang = 'Rust (rustc -O, direct)';   Kind = 'rust';  Src = 'function_direct.rs'; Out = 'function-direct-rust' }
+       ) },
+    # The array mapping: the same loop in every language, building a second
+    # array the size of the first.
+    @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map_array.ot'; Out = 'map_array-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'map_array.c';  Out = 'map_array-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'map_array.c';  Out = 'map_array-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map_array.go'; Out = 'map_array-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map_array.rs'; Out = 'map_array-rust' }
        ) }
 )
 

@@ -173,6 +173,7 @@ pub fn gen(
                 _ => TypeKind::Unit,
             };
             push_into(ctx, &out, &result_kind, &mapped);
+            ctx.push(format!("br label %{inc_label}"));
         }
         HigherOrderOp::Filter => {
             // The callback says whether the element stays.
@@ -187,6 +188,8 @@ pub fn gen(
             ctx.push(format!("{keep_label}:"));
             let out = out_slot.clone().unwrap_or_default();
             push_into(ctx, &out, &element_kind, &element_value);
+            // The body branched here, so the block ends with this branch and
+            // the loop's increment is the only way back.
             ctx.push(format!("br label %{inc_label}"));
         }
         HigherOrderOp::Fold => {
@@ -211,10 +214,10 @@ pub fn gen(
             if !next.is_empty() {
                 ctx.push(format!("store {acc_repr} {next}, ptr {acc_slot}"));
             }
+            ctx.push(format!("br label %{inc_label}"));
         }
     }
 
-    ctx.push(format!("br label %{inc_label}"));
     ctx.push(format!("{inc_label}:"));
     let next = ctx.tmp();
     ctx.push(format!("{next} = add i64 {current}, 1"));

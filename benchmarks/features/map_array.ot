@@ -1,0 +1,26 @@
+// Mapping an array: the same loop in every language, building a new array.
+//
+// The C, Go and Rust rows build the mapped array the same way -- a second
+// array the size of the first -- so the numbers are about the mapping, not
+// about how the language grows an array.
+fn main() {
+    const n = 10000000;
+    var xs = []i64 {};
+    var i = 0;
+    while i < n {
+        xs.push(i);
+        i = wrapping_add(i, 1);
+    }
+
+    var doubled = xs.map(|x: i64| -> i64 { return x * 2; });
+
+    var sum = 0;
+    for x in doubled {
+        sum = wrapping_add(sum, x);
+    }
+    print_i64(sum);
+    print_str("\n");
+
+    doubled.free();
+    xs.free();
+}

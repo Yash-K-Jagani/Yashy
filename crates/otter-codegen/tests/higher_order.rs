@@ -76,6 +76,61 @@ fn fold_carries_one_value_through_the_array() {
 }
 
 #[test]
+fn every_block_of_the_three_methods_ends_in_one_terminator() {
+    // The loop is three blocks -- the test, the body, the increment -- and
+    // `filter` adds a fourth for the elements that pass. A block with two
+    // terminators is not well-formed IR, and clang's verifier is the only
+    // thing that says so.
+    for source in [
+        "fn main() { var xs = []i64 { 1, 2 }; const ys = xs.map(|x: i64| -> i64 { return x; }); }",
+        "fn main() { var xs = []i64 { 1, 2 }; const ys = xs.filter(|x: i64| -> bool { return x > 1; }); }",
+        "fn main() { var xs = []i64 { 1, 2 }; const n = xs.fold(0, |acc: i64, x: i64| -> i64 { return acc + x; }); }",
+    ] {
+        let ir_text = ir_of(source);
+        assert_one_terminator_per_block(&ir_text, source);
+    }
+}
+
+/// Assert every basic block in `ir` has exactly one terminator.
+fn assert_one_terminator_per_block(ir: &str, source: &str) {
+    let mut in_function = false;
+    let mut terminated = false;
+    for line in ir.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(';') {
+            continue;
+        }
+        if trimmed.starts_with("define ") {
+            in_function = true;
+            terminated = false;
+            continue;
+        }
+        if !in_function {
+            continue;
+        }
+        if trimmed == "}" {
+            in_function = false;
+            continue;
+        }
+        if trimmed.ends_with(':') {
+            terminated = false;
+            continue;
+        }
+        assert!(
+            !terminated,
+            "{source}: a block continued after its terminator: `{trimmed}`\n{ir}"
+        );
+        if trimmed.starts_with("br ")
+            || trimmed.starts_with("ret ")
+            || trimmed.starts_with("switch ")
+            || trimmed == "unreachable"
+        {
+            terminated = true;
+        }
+    }
+}
+
+#[test]
 fn the_mapped_array_is_a_new_one() {
     // The source keeps its own elements: the mapped values go into a header
     // of their own, and the source's header is only read.

@@ -900,6 +900,23 @@ type. A callback of the wrong shape is reported with the shape it should have
 had: `expected a function of one `i64``, `expected a function of one `i64`
 returning `bool``, and `expected a function of `(i64, i64)` returning `i64``.
 
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-sema --test functions` — 17 PASS.
+- `cargo test -p otter-codegen --test higher_order` — 4 PASS.
+- `cargo test -p otter-driver --test e2e higher_order_array_methods_transform_in_order`
+  — PASS; the program printed `2 4 6`, `3`, `6` and `1 2 3`.
+- `cargo test -p otter-driver --test leaks the_higher_order_methods_release_what_they_build`
+  — PASS; the runtime reported `0 live allocations`.
+- `cargo test -p otter-driver --test tutorial` — PASS, with the higher-order
+  section in chapter 11.
+
+One bug the leak test caught: the value a callback returned was not marked as
+owned, so a `string` it built was counted twice and released once. The call
+inside the loop now marks what it returned, the way every other call through a
+function value does.
+
 
 ### Task 11: Generic functions
 
