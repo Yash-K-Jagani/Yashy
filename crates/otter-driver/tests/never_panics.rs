@@ -412,6 +412,7 @@ const TEMPLATES: &[&str] = &[
     "fn f() -> Result[i64, string] { return Err(\"no\"); }\n",
     "import std.io;\nextern \"C\" { fn puts(s: string) -> i64; }\n",
     "fn f(g: fn(i64) -> i64, x: i64) -> i64 { return g(x); }\n",
+    "fn f() { const g = |x: i64| -> i64 { return x + 1; }; print_i64(g(1)); }\n",
 ];
 
 #[test]

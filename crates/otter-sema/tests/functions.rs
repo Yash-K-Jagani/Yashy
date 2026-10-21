@@ -154,3 +154,48 @@ fn the_entry_point_cannot_be_used_as_a_value() {
         "`main` is the entry point and cannot be used as a value",
     );
 }
+
+#[test]
+fn a_lambda_has_its_function_type() {
+    assert_type(
+        "fn main() { const f = |x: i64| -> i64 { return x + 1; }; }",
+        "f",
+        TypeKind::Func(vec![ty(TypeKind::I64)], Box::new(ty(TypeKind::I64))),
+    );
+}
+
+#[test]
+fn a_lambda_can_be_passed_to_a_function_parameter() {
+    let result = check_source(
+        "fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); } \
+         fn main() { const r = apply(|x: i64| -> i64 { return x + 1; }, 41); }",
+    );
+    result.expect("passing a lambda as an argument should type-check");
+}
+
+#[test]
+fn a_lambda_that_captures_an_enclosing_local_is_an_error() {
+    assert_error(
+        "fn main() { const n = 1; const f = |x: i64| -> i64 { return x + n; }; }",
+        "closures are not captured yet; this lambda needs `n`",
+    );
+}
+
+#[test]
+fn a_lambda_may_call_a_top_level_function() {
+    // A top-level function is a global, not a capture: nothing has to be
+    // copied into the lambda for it to be there.
+    let result = check_source(
+        "fn square(x: i64) -> i64 { return x * x; } \
+         fn main() { const f = |x: i64| -> i64 { return square(x); }; }",
+    );
+    result.expect("a lambda may call a top-level function");
+}
+
+#[test]
+fn a_lambda_body_is_checked_against_its_return_type() {
+    assert_error(
+        "fn main() { const f = |x: i64| -> i64 { return \"not an i64\"; }; }",
+        "expected `i64`",
+    );
+}

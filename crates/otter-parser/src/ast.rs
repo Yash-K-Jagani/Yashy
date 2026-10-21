@@ -596,6 +596,20 @@ pub enum Expr {
         arms: Vec<SwitchArm>,
         span: Span,
     },
+    /// `|x: i64| -> i64 { ... }` -- an anonymous function.
+    ///
+    /// The parameters and the return type are written, not inferred: a lambda
+    /// has no declaration to take a type from, so the type is the only place
+    /// it can come from. The body is an ordinary block, the same shape a
+    /// function's body has.
+    Lambda {
+        params: Vec<Param>,
+        /// The declared return type. `None` when the source wrote no arrow,
+        /// which means the lambda returns unit.
+        ret: Option<TypeExpr>,
+        body: Box<Block>,
+        span: Span,
+    },
 }
 
 /// One part of an [`Expr::Interp`].

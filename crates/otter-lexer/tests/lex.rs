@@ -730,11 +730,20 @@ fn an_at_sign_lexes_as_the_at_token() {
 }
 
 #[test]
+fn a_bar_lexes_as_the_pipe_token_and_two_bars_are_still_the_or() {
+    // The bar opens a lambda's parameter list, and the two-character operator
+    // is matched first, so `||` is still the logical or.
+    assert_eq!(tokens("|"), vec![(TokenKind::Pipe, Span::new(0, 1)), (TokenKind::Eof, Span::new(1, 1))]);
+    assert_eq!(tokens("||"), vec![(TokenKind::OrOr, Span::new(0, 2)), (TokenKind::Eof, Span::new(2, 2))]);
+    assert_eq!(tokens("|||"), vec![(TokenKind::OrOr, Span::new(0, 2)), (TokenKind::Pipe, Span::new(2, 3)), (TokenKind::Eof, Span::new(3, 3))]);
+}
+
+#[test]
 fn reports_unexpected_character_instead_of_skipping_it() {
     // A character with no token is a diagnostic. Dropping it would shift every
     // later span by one byte and hide the typo, so the assertion is that the
     // input fails, not merely that it produces something.
-    for src in ["#", "\\", "&", "|", "\u{1f600}", "1 \u{0} 2"] {
+    for src in ["#", "\\", "&", "\u{1f600}", "1 \u{0} 2"] {
         let diags = errors(src);
         assert_eq!(diags.len(), 1, "{src:?}: {:?}", messages(&diags));
         assert!(diags[0].message.contains("unexpected character"), "{src:?}: {:?}", diags[0].message);

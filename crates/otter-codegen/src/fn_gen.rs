@@ -36,6 +36,28 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
     gen_fn_impl(module, f, false);
 }
 
+/// Emit a lambda as a private function `@<name>(i8* %env, args...)`.
+///
+/// The environment parameter is the convention every function value carries:
+/// a call through a value passes the environment as its first argument, so
+/// the function behind the value has to accept one. A lambda that captures
+/// nothing ignores it.
+///
+/// The function is written into a capture buffer rather than into the module
+/// body, because a lambda is lowered while the function that contains it is
+/// still open, and a `define` block cannot be written inside a function. The
+/// caller closes the capture and queues the block.
+pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
+    let ret_repr = fn_return_repr(&f.ret.kind);
+    let mut params = vec!["i8* %env".to_string()];
+    for (index, param) in f.params.iter().enumerate() {
+        params.push(format!("{} %arg{index}", repr_type(&param.ty.kind)));
+    }
+    module.push(format!("define {ret_repr} @{}({}) {{", name, params.join(", ")));
+
+    gen_body(module, f, false);
+}
+
 /// Emit one C function declaration as an LLVM `declare`.
 ///
 /// A `declare` is the whole contract: the symbol name, the return type and the
@@ -116,6 +138,16 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
         params.join(", ")
     ));
 
+    gen_body(module, f, entry_point);
+}
+
+/// The body of a function: its parameter spills, its statements, and its
+/// terminators.
+///
+/// The signature is the caller's business -- a named function and a lambda
+/// have different ones -- but everything after the opening brace is the same
+/// code, and keeping it in one place is what keeps the two from drifting.
+fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool) {
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
         ctx.entry_point = entry_point;

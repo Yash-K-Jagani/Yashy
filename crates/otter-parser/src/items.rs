@@ -326,7 +326,7 @@ impl<'src> Parser<'src> {
     /// Always named and always annotated (spec §3.2): the annotation is required
     /// at the boundary, which is exactly where inference has nothing to infer
     /// from.
-    fn parse_param(&mut self) -> Result<Param, ParseError> {
+    pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
         let (name, name_span) = self.identifier()?;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type_expr()?;

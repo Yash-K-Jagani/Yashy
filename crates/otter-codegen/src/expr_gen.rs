@@ -475,6 +475,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::StructLit {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
+        HirExpr::Lambda { f, ty, .. } => gen_lambda(ctx, f, &ty.kind),
         HirExpr::SliceLit {
             elem_ty,
             elements,
@@ -780,6 +781,34 @@ fn gen_unary(
     GenValue {
         value: tmp,
         ty: value.ty,
+    }
+}
+
+/// Lower a lambda: emit it as a private function and yield its value.
+///
+/// The value is the same pair every function value is -- the code pointer and
+/// the environment -- so a lambda can be passed, bound and called exactly like
+/// a named function. The environment is null: a lambda that captures nothing
+/// has nothing to carry.
+fn gen_lambda(ctx: &mut FnCtx<'_>, f: &HirFn, ty: &TypeKind) -> GenValue {
+    let index = ctx.module.next_lambda();
+    let name = format!("__lambda_{index}");
+    // The body is written into a buffer: it is lowered while the function
+    // that contains the lambda is still open, and a `define` block cannot be
+    // written inside a function.
+    ctx.module.begin_capture();
+    crate::fn_gen::gen_lambda(ctx.module, f, &name);
+    let lines = ctx.module.end_capture();
+    ctx.module.add_synthesized_function(lines);
+
+    let repr = "{ i8*, i8* }";
+    let with_code = ctx.tmp();
+    ctx.push(format!("{with_code} = insertvalue {repr} undef, i8* @{name}, 0"));
+    let with_env = ctx.tmp();
+    ctx.push(format!("{with_env} = insertvalue {repr} {with_code}, i8* null, 1"));
+    GenValue {
+        value: with_env,
+        ty: ty.clone(),
     }
 }
 

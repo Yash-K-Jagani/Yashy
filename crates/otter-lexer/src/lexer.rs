@@ -486,9 +486,10 @@ fn operator(first: u8, second: Option<u8>) -> Option<(usize, TokenKind)> {
         (b'&', Some(b'&')) => (2, K::AndAnd),
         (b'|', Some(b'|')) => (2, K::OrOr),
 
-        // One-character operators. `&` and `|` are absent on purpose: Otter
-        // has `&&` and `||` and no bitwise operators, so a lone `&` is a typo
-        // to report rather than a token to invent.
+        // One-character operators. `&` is absent on purpose: Otter has `&&` and
+        // no bitwise operators, so a lone `&` is a typo to report rather than a
+        // token to invent. `|` is the exception: it opens a lambda's parameter
+        // list, and `||` is matched above, so the two never collide.
         (b'=' , _) => (1, K::Eq),
         (b'!', _) => (1, K::Bang),
         (b'<', _) => (1, K::Lt),
@@ -510,6 +511,7 @@ fn operator(first: u8, second: Option<u8>) -> Option<(usize, TokenKind)> {
         (b';', _) => (1, K::Semi),
         (b'@', _) => (1, K::At),
         (b'?', _) => (1, K::Question),
+        (b'|', _) => (1, K::Pipe),
 
         _ => return None,
     })
@@ -618,7 +620,7 @@ mod tests {
 
     #[test]
     fn an_unknown_byte_is_a_diagnostic() {
-        for src in ["#", "$", "`", "~", "^", "&", "|", "\\", "\u{1}"] {
+        for src in ["#", "$", "`", "~", "^", "&", "\\", "\u{1}"] {
             let d = first_error(src);
             assert!(d.message.starts_with("unexpected character"), "{src:?}: {}", d.message);
             assert_eq!(d.span.start, 0, "{src:?}");

@@ -426,6 +426,21 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// `|x: i64| -> i64 { ... }` -- an anonymous function.
+    ///
+    /// The body is a checked function, carried whole: a lambda is a function
+    /// that has no name, and the backend needs the same things a named
+    /// function needs -- its parameters, its return type and its body -- to
+    /// emit it as a private function.
+    ///
+    /// The function's `name` is empty. The backend gives it one when it
+    /// emits it, because the name has to be unique in the module and only the
+    /// backend knows how many lambdas a program has.
+    Lambda {
+        f: Box<HirFn>,
+        span: Span,
+        ty: Type,
+    },
 }
 
 /// Re-exported so the HIR can reference the AST's operator enums without
@@ -448,6 +463,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Cast { span, .. } => *span,
         HirExpr::Try { span, .. } => *span,
         HirExpr::SwitchExpr { span, .. } => *span,
+        HirExpr::Lambda { span, .. } => *span,
     }
 }
 
@@ -467,5 +483,6 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Cast { ty, .. } => ty.clone(),
         HirExpr::Try { ty, .. } => ty.clone(),
         HirExpr::SwitchExpr { ty, .. } => ty.clone(),
+        HirExpr::Lambda { ty, .. } => ty.clone(),
     }
 }

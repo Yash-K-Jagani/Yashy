@@ -173,6 +173,17 @@ fn empty_braces_collapse_to_one_pair() {
 }
 
 #[test]
+fn a_lambda_bars_bind_to_their_parameter_list() {
+    // `|x: i64|` reads as one thing: the bar opens the list, the bar closes
+    // it, and neither takes air. The arrow after the closing bar does.
+    let source = "fn main() {\n    const f = |x: i64| -> i64 { return x; };\n}\n";
+    assert_eq!(
+        format(source),
+        "fn main() {\n    const f = |x: i64| -> i64 {\n        return x;\n    };\n}\n"
+    );
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = otter_fmt::format(source).expect_err("bad input must be reported");

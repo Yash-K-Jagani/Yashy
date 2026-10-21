@@ -66,6 +66,29 @@ impl Scope {
             .find_map(|frame| frame.bindings.get(name))
     }
 
+    /// The depth of the scope a name is bound in, searching outward.
+    ///
+    /// The root scope is depth 0, the scope a function body is checked in is
+    /// depth 1, and so on. The depth is what tells a *global* (a top-level
+    /// function, in the root scope) from a *local* of an enclosing function:
+    /// a lambda may use a global, but a local of the function it is written in
+    /// is a capture, and Task 8 has no way to take one.
+    pub fn resolve_depth(&self, name: &str) -> Option<usize> {
+        self.frames
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(depth, frame)| frame.bindings.get(name).map(|_| depth))
+    }
+
+    /// How many scopes are open.
+    ///
+    /// The depth of the scope a lambda's parameters live in is this number
+    /// after the lambda's own scope has been pushed.
+    pub fn depth(&self) -> usize {
+        self.frames.len()
+    }
+
     /// Push a new inner scope.
     pub fn push(&mut self) {
         self.frames.push(Frame::default());

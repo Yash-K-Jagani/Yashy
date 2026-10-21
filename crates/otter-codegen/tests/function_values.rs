@@ -124,3 +124,62 @@ fn a_function_that_receives_a_value_is_not_inlined() {
         "the receiver of a function value is not inlined:\n{ir_text}"
     );
 }
+
+#[test]
+fn a_lambda_is_emitted_as_a_private_function() {
+    // The lambda has no name in the source, so the backend gives it one, and
+    // the environment parameter is the convention every function value uses.
+    let ir_text = ir_of(
+        "fn main() { const f = |x: i64| -> i64 { return x + 1; }; print_i64(f(1)); }",
+    );
+    assert!(
+        ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
+        "the lambda is a function with an environment parameter:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("insertvalue { i8*, i8* } undef, i8* @__lambda_0, 0"),
+        "the value is the lambda's address:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("i8* null, 1"),
+        "a lambda that captures nothing has a null environment:\n{ir_text}"
+    );
+}
+
+#[test]
+fn two_lambdas_get_two_functions() {
+    let ir_text = ir_of(
+        "fn main() { const f = |x: i64| -> i64 { return x + 1; }; \
+         const g = |x: i64| -> i64 { return x + 2; }; print_i64(f(1)); print_i64(g(1)); }",
+    );
+    assert!(
+        ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
+        "the first lambda:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("define i64 @__lambda_1(i8* %env, i64 %arg0)"),
+        "the second lambda has its own function:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_lambda_may_contain_another_lambda() {
+    // The inner lambda's body is written while the outer one's body is still
+    // open, so the two bodies must not be written into the same buffer.
+    let ir_text = ir_of(
+        "fn main() { const f = |x: i64| -> i64 { \
+         const g = |y: i64| -> i64 { return y; }; return g(x); }; print_i64(f(1)); }",
+    );
+    assert!(
+        ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
+        "the outer lambda:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("define i64 @__lambda_1(i8* %env, i64 %arg0)"),
+        "the inner lambda has its own function:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("insertvalue { i8*, i8* } undef, i8* @__lambda_1, 0"),
+        "the outer lambda's body builds the inner lambda's value:\n{ir_text}"
+    );
+}

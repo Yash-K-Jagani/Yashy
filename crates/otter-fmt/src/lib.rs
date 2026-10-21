@@ -356,5 +356,15 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     if matches!((prev, cur), (LBrace, RBrace)) {
         return false;
     }
+    // A lambda's bars bind to its parameter list: `|x: i64|`. The bar before
+    // the name takes no space, and the bar that closes the list takes none
+    // either. The arrow after the closing bar still gets one, because it is
+    // not part of the list.
+    if matches!(prev, Pipe) && matches!(cur, Ident) {
+        return false;
+    }
+    if matches!(cur, Pipe) && matches!(prev, Ident | RBracket) {
+        return false;
+    }
     true
 }

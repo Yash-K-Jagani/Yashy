@@ -321,6 +321,11 @@ impl<'src> Parser<'src> {
                 let span = cover(kw.span, close_span);
                 Ok(Expr::SwitchExpr { subject: Box::new(subject), arms, span })
             }
+            TokenKind::Pipe => self.parse_lambda(),
+            // `||` in prefix position is a lambda with no parameters: the
+            // lexer matches the two-character operator first, and Otter has
+            // no prefix `||` for it to be.
+            TokenKind::OrOr => self.parse_lambda(),
             TokenKind::LParen => {
                 let open = self.expect(TokenKind::LParen)?;
                 let _ = self.push_open(TokenKind::LParen, open.span)?;
@@ -410,6 +415,46 @@ impl<'src> Parser<'src> {
             }
             _ => Err(self.error(self.peek_span(), "expected an expression".to_string())),
         }
+    }
+
+    /// `|x: i64, y: i64| -> i64 { ... }` -- an anonymous function.
+    ///
+    /// The bars are the lambda's own punctuation, so the parameter list is
+    /// closed by a bar rather than a parenthesis, and the return type is
+    /// optional: a lambda with no arrow returns unit, exactly as a function
+    /// declaration with no return annotation does.
+    ///
+    /// A lambda with no parameters is written `||`, and the lexer matches that
+    /// as the two-character operator `||`. In *prefix* position the operator
+    /// cannot be anything else -- there is no prefix `||` in Otter -- so the
+    /// parser reads it as the empty parameter list it is.
+    fn parse_lambda(&mut self) -> Result<Expr, ParseError> {
+        let (bars, params) = if self.eat(TokenKind::OrOr) {
+            (self.previous_span(), Vec::new())
+        } else {
+            let open = self.expect(TokenKind::Pipe)?;
+            let mut params = Vec::new();
+            while !self.check(TokenKind::Pipe) && !self.at_eof() {
+                params.push(self.parse_param()?);
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+            let close = self.expect(TokenKind::Pipe)?;
+            (cover(open.span, close.span), params)
+        };
+        let ret = if self.eat(TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+        let body = self.parse_block()?;
+        Ok(Expr::Lambda {
+            params,
+            ret,
+            span: cover(bars, body.span),
+            body: Box::new(body),
+        })
     }
 
     fn parse_switch_arms_for_expr(&mut self) -> Result<(Vec<crate::ast::SwitchArm>, Span), ParseError> {
@@ -633,6 +678,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,
         Expr::SwitchExpr { span, .. } => *span,
+        Expr::Lambda { span, .. } => *span,
     }
 }
 

@@ -72,6 +72,21 @@ pub struct Module {
     /// Thunks already synthesized for top-level functions, keyed by source
     /// name. A function used as a value more than once shares one thunk.
     fn_value_thunks: HashMap<String, String>,
+    /// The index the next `@__lambda_N` will use.
+    ///
+    /// A lambda has no name in the source, so the backend gives it one: the
+    /// index is unique in the module, which is all a symbol has to be.
+    next_lambda: u32,
+    /// Where the module's lines go while a capture is open.
+    ///
+    /// A lambda's body is written while another function's body is still open,
+    /// and a `define` cannot be written inside a function. The capture
+    /// diverts the lines into a buffer that is closed into one complete
+    /// `define` block and queued as a synthesized function.
+    ///
+    /// The buffers are a stack, not one buffer: a lambda may contain another
+    /// lambda, and the inner one's body must not swallow the outer one's.
+    captures: Vec<Vec<String>>,
     /// Whether string refcounts in this module are atomic.
     ///
     /// Set once, from the checked program's "any spawn?" bit; see
@@ -99,6 +114,8 @@ impl Module {
             next_thread_entry: 0,
             fn_signatures: HashMap::new(),
             fn_value_thunks: HashMap::new(),
+            next_lambda: 0,
+            captures: Vec::new(),
             atomic_strings: false,
             externs: HashMap::new(),
         }
@@ -183,7 +200,35 @@ impl Module {
 
     /// Append one line of IR to the module body.
     pub fn push(&mut self, line: impl Into<String>) {
-        self.lines.push(line.into());
+        match self.captures.last_mut() {
+            Some(buffer) => buffer.push(line.into()),
+            None => self.lines.push(line.into()),
+        }
+    }
+
+    /// Start diverting the module's lines into a fresh buffer.
+    ///
+    /// A lambda's body is lowered while the function that contains it is
+    /// still open, and a `define` block cannot be written inside a function.
+    /// The capture collects the lines so they can be closed into one block and
+    /// queued as a synthesized function.
+    pub fn begin_capture(&mut self) {
+        self.captures.push(Vec::new());
+    }
+
+    /// Stop diverting and return the lines collected so far.
+    ///
+    /// An empty stack means no capture was open, which is a caller error
+    /// rather than a program error; the empty list is the harmless answer.
+    pub fn end_capture(&mut self) -> Vec<String> {
+        self.captures.pop().unwrap_or_default()
+    }
+
+    /// The next lambda index, for `@__lambda_N`.
+    pub fn next_lambda(&mut self) -> u32 {
+        let index = self.next_lambda;
+        self.next_lambda += 1;
+        index
     }
 
     /// How many body lines have been pushed so far.
@@ -191,7 +236,10 @@ impl Module {
     /// A caller uses this to remember a position it will later insert at; see
     /// [`Module::insert_lines`].
     pub fn line_count(&self) -> usize {
-        self.lines.len()
+        match self.captures.last() {
+            Some(buffer) => buffer.len(),
+            None => self.lines.len(),
+        }
     }
 
     /// Insert `lines` before `index`, shifting everything after it down.
@@ -201,7 +249,14 @@ impl Module {
     /// diverted into a buffer, and the buffer is spliced in at the remembered
     /// position once the function is finished.
     pub fn insert_lines(&mut self, index: usize, lines: Vec<String>) {
-        self.lines.splice(index..index, lines);
+        match self.captures.last_mut() {
+            Some(buffer) => {
+                buffer.splice(index..index, lines);
+            }
+            None => {
+                self.lines.splice(index..index, lines);
+            }
+        }
     }
 
     /// Intern `bytes` as a static string global, returning its name.

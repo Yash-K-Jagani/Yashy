@@ -1,0 +1,23 @@
+// The function.ot loop calling through a lambda instead of a named function.
+//
+// The lambda is written inside the loop, so the value is built on every
+// iteration, exactly as the `function.ot` row builds the value of a named
+// function on every iteration. The two rows therefore differ in one thing
+// only: what the value points at -- a thunk that calls a named function, or
+// the lambda's own function.
+fn apply(f: fn(i64, i64) -> i64, x: i64, k: i64) -> i64 {
+    return f(x, k);
+}
+
+fn main() {
+    const n = 100000000;
+    const k = 1000;
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        sum = wrapping_add(sum, apply(|x: i64, k: i64| -> i64 { return x * k + x % 3; }, i, k));
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}

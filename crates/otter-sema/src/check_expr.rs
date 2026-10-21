@@ -57,6 +57,18 @@ struct FnSig {
     ret: Type,
 }
 
+/// What a name lookup found.
+enum NameLookup {
+    /// The name is bound, and the binding may be used here.
+    Found(Binding),
+    /// The name is not bound at all.
+    Missing,
+    /// The name is bound, but it belongs to an enclosing function and the
+    /// lambda being checked may not capture it. The diagnostic has been
+    /// reported already.
+    Capture,
+}
+
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
 pub struct Checker<'src> {
@@ -93,6 +105,16 @@ pub struct Checker<'src> {
     /// the loop can still read its header would free the array the next
     /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
     iteration_borrows: Vec<String>,
+    /// The scope depth of the lambda body being checked, if any.
+    ///
+    /// A name that resolves *above* this depth but below the root scope is a
+    /// local of an enclosing function: a capture. Otter has no closures yet,
+    /// so a lambda that mentions one is an error rather than a silent copy of
+    /// a value the environment does not hold.
+    ///
+    /// The root scope is exempt: a top-level function is a global, and a
+    /// lambda may call one.
+    capture_barrier: Option<usize>,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -294,12 +316,41 @@ impl<'src> Checker<'src> {
             release: options.release,
             uses_threads: false,
             iteration_borrows: Vec::new(),
+            capture_barrier: None,
             sm,
         }
     }
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push((self.file, TypeError::new(span, message)));
+    }
+
+    /// Look a name up for a read, a call or an assignment.
+    ///
+    /// The three outcomes are separate because the three callers say different
+    /// things about a name that is not there: a read says "cannot find value",
+    /// a call says "cannot find function", and neither should be said at all
+    /// when the name *is* there but may not be used -- a capture has already
+    /// been reported with its own message.
+    fn lookup(&mut self, name: &str, span: Span) -> NameLookup {
+        let Some(binding) = self.scope.resolve(name).cloned() else {
+            return NameLookup::Missing;
+        };
+        if let Some(barrier) = self.capture_barrier {
+            if let Some(depth) = self.scope.resolve_depth(name) {
+                // Depth 0 is the root scope: a top-level function is a global,
+                // not a capture. The lambda's own scope and everything inside
+                // it are its own.
+                if depth > 0 && depth < barrier {
+                    self.error(
+                        span,
+                        format!("closures are not captured yet; this lambda needs `{name}`"),
+                    );
+                    return NameLookup::Capture;
+                }
+            }
+        }
+        NameLookup::Found(binding)
     }
 
     /// Move `name` out of its binding, unless an enclosing `for-in` is reading
@@ -1127,11 +1178,19 @@ impl<'src> Checker<'src> {
                     }
                 };
 
-                let Some(binding) = self.scope.resolve(&name).cloned() else {
-                    let _ = self.check_expr(value);
-                    let span = otter_parser::exprs::expr_span(target);
-                    self.error(span, format!("cannot find value `{name}` in this scope"));
-                    return None;
+                let binding = match self.lookup(&name, otter_parser::exprs::expr_span(target)) {
+                    NameLookup::Found(binding) => binding,
+                    // A capture has been reported with its own message.
+                    NameLookup::Capture => {
+                        let _ = self.check_expr(value);
+                        return None;
+                    }
+                    NameLookup::Missing => {
+                        let _ = self.check_expr(value);
+                        let span = otter_parser::exprs::expr_span(target);
+                        self.error(span, format!("cannot find value `{name}` in this scope"));
+                        return None;
+                    }
                 };
 
                 if !binding.mutability.is_mutable() {
@@ -3521,8 +3580,8 @@ impl<'src> Checker<'src> {
                     self.error(e.span, e.message);
                     return None;
                 }
-                match self.scope.resolve(&name) {
-                    Some(binding) => {
+                match self.lookup(&name, *span) {
+                    NameLookup::Found(binding) => {
                         // `main` is the entry point, and it is emitted with the
                         // operating system's `i32` signature rather than its
                         // Otter one. It can be called; it cannot be a value.
@@ -3535,7 +3594,8 @@ impl<'src> Checker<'src> {
                         }
                         Some(HirExpr::Ident(path.clone(), *span, binding.ty.clone()))
                     }
-                    None => {
+                    NameLookup::Capture => None,
+                    NameLookup::Missing => {
                         self.error(*span, format!("cannot find value `{name}` in this scope"));
                         None
                     }
@@ -3692,7 +3752,14 @@ impl<'src> Checker<'src> {
                 // afterwards works for concrete arguments but cannot type a
                 // constructor that has nothing to infer from: `f(None)` needs
                 // `f`'s parameter type to know what `None` is an `Option` of.
-                let resolved = self.scope.resolve(&name).map(|b| b.ty.clone());
+                let resolved = match self.lookup(&name, *span) {
+                    NameLookup::Found(binding) => Some(binding.ty),
+                    // A capture has been reported with its own message; saying
+                    // "cannot find function" as well would be two errors for
+                    // one mistake.
+                    NameLookup::Capture => return None,
+                    NameLookup::Missing => None,
+                };
                 match resolved {
                     Some(ty) => match ty.kind {
                         TypeKind::Func(params, ret) => {
@@ -4157,6 +4224,72 @@ impl<'src> Checker<'src> {
                     arms: hir_arms,
                     span: *span,
                     ty: arm_ty.unwrap_or_else(|| never(*span)),
+                })
+            }
+            Expr::Lambda {
+                params,
+                ret,
+                body,
+                span,
+            } => {
+                // A lambda is a function without a name, so it is checked the
+                // way a function is: its own scope, its parameters bound in it,
+                // and its body checked against its declared return type.
+                let param_tys: Vec<Type> = params
+                    .iter()
+                    .map(|param| self.resolve_or_report(&param.ty, param.span))
+                    .collect();
+                let ret_ty = match ret {
+                    Some(ty) => self.resolve_or_report(ty, *span),
+                    None => prim(TypeKind::Unit),
+                };
+
+                self.scope.push();
+                for (param, param_ty) in params.iter().zip(param_tys.iter()) {
+                    let _ = self.scope.declare(
+                        param.name.clone(),
+                        Binding {
+                            ty: param_ty.clone(),
+                            mutability: Mutability::Const,
+                            span: param.span,
+                            ownership: Ownership::Live,
+                        },
+                    );
+                }
+                // A name that resolves above this depth belongs to an enclosing
+                // function: a capture. The barrier is the depth of the scope
+                // the parameters live in, so the lambda's own names are fine
+                // and a global is fine, and only an enclosing local is not.
+                let barrier = self.scope.depth() - 1;
+                let outer_barrier = self.capture_barrier;
+                self.capture_barrier = Some(barrier);
+                let checked_body = self.check_block_with_ret(body, &ret_ty);
+                self.capture_barrier = outer_barrier;
+                self.scope.pop();
+
+                let checked_body = checked_body?;
+                let ty = Type {
+                    kind: TypeKind::Func(param_tys.clone(), Box::new(ret_ty.clone())),
+                    span: *span,
+                };
+                Some(HirExpr::Lambda {
+                    f: Box::new(HirFn {
+                        name: String::new(),
+                        params: params
+                            .iter()
+                            .zip(param_tys.iter())
+                            .map(|(param, param_ty)| HirParam {
+                                name: param.name.clone(),
+                                ty: param_ty.clone(),
+                                span: param.span,
+                            })
+                            .collect(),
+                        ret: ret_ty,
+                        body: checked_body,
+                        span: *span,
+                    }),
+                    span: *span,
+                    ty,
                 })
             }
         }

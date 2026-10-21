@@ -66,6 +66,54 @@ binding's type is the function's type, so the checker knows what the call
 returns. `const` says the binding does not change; `var f = square;` would
 work just as well, because a function value is a value like any other.
 
+## A lambda
+
+A lambda is a function written where a value is expected. It has no name; it
+has parameters, an optional return type, and a body.
+
+```otter
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+    return f(x);
+}
+
+fn main() {
+    print_i64(apply(|x: i64| -> i64 { return x + 1; }, 41));
+    print_str("\n");
+    // => 42
+
+    const double = |x: i64| -> i64 { return x * 2; };
+    print_i64(double(20));
+    print_str("\n");
+    // => 40
+}
+```
+
+The parameter types and the return type are written out, because a lambda has
+no declaration for the checker to take them from. The arrow is optional: a
+lambda with no arrow returns nothing, exactly as a function declaration with
+no return annotation does.
+
+### What a lambda may not do yet
+
+A lambda may use its own parameters and any top-level function. It may not
+use a variable of the function it is written in:
+
+```text
+fn main() {
+    const n = 1;
+    const f = |x: i64| -> i64 { return x + n; };
+}
+```
+
+```text
+error: closures are not captured yet; this lambda needs `n`
+```
+
+Using `n` there would be a *capture*: the lambda would have to carry `n`
+with it, wherever it goes. Otter has no way to take a capture yet, so the
+compiler says so rather than quietly copying the value or quietly reading
+the wrong one.
+
 ## Writing a function type
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.

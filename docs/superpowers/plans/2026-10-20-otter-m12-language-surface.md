@@ -637,26 +637,29 @@ re-run that way and passed.
 ### Task 8: Non-capturing lambdas
 
 **Files:**
-- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
-- Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/lambdas.ot`
+- Modify: `crates/otter-lexer/src/token.rs`, `crates/otter-lexer/src/lexer.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/exprs.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/hir.rs`, `crates/otter-sema/src/scope.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/module.rs`
+- Test: `crates/otter-driver/tests/programs/lambdas.ot`, `crates/otter-parser/tests/lambdas.rs`, `crates/otter-sema/tests/functions.rs`, `crates/otter-codegen/tests/function_values.rs`
+- Docs: `docs/tutorial/11-functions.md`
+- Benchmark: `benchmarks/features/function_lambda.ot`
 
 **Interfaces:**
 - Produces: `|x: i64| -> i64 { return x * 2; }` as an expression whose type is `fn(i64) -> i64`.
 - Consumes: Task 7.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `lambdas.ot` prints `apply(|x: i64| -> i64 { return x + 1; }, 41)` as `42`, and
 stores a lambda in a binding before calling it.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e a_non_capturing_lambda_is_a_function_value`
 Expected: FAIL at parse.
 
-- [ ] **Step 3: Implement lambda parsing and lowering**
+- [x] **Step 3: Implement lambda parsing and lowering**
 
 Parse `|params| -> ret { body }` after a `|` in expression position. Sema checks
 the body with the declared parameter and return types. Codegen emits a private
@@ -665,17 +668,63 @@ task, and yields `{ @__lambda_N, null }`. A lambda that mentions a name not
 bound by its parameters reports
 `error: closures are not captured yet; this lambda needs \`x\`` until Task 9.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e a_non_capturing_lambda_is_a_function_value`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/lambdas.ot
 git commit -m "feat: non-capturing lambdas"
 ```
+
+**As built:** the syntax needed a token the language did not have. The lexer
+reported a lone `|` as an unexpected character, and two tests pinned that;
+`TokenKind::Pipe` replaces it. `||` is still the two-character operator,
+because the lexer matches it first -- so a lambda with no parameters is
+written `||`, and the parser reads `||` in *prefix* position as the empty
+parameter list. Otter has no prefix `||` for it to be, and the infix operator
+is consumed before a prefix is ever looked for.
+
+The lambda is a function without a name, so the checker builds it the way it
+builds a function: its own scope, its parameters bound in it, and its body
+checked against its declared return type. The HIR carries a whole `HirFn`
+with an empty name, and the backend names it `__lambda_N` when it emits it,
+because only the backend knows how many lambdas a program has.
+
+The body is lowered into a capture buffer rather than into the module body: a
+lambda is lowered while the function that contains it is still open, and a
+`define` block cannot be written inside a function. The buffers are a stack,
+because a lambda may contain another lambda and the inner body must not
+swallow the outer one.
+
+A capture is a name that resolves in a scope *above* the lambda's own but
+below the root. The root scope is exempt: a top-level function is a global,
+and a lambda may call one. The checker's `lookup` reports the capture and says
+nothing else about the name, so a capture is one diagnostic rather than two.
+
+The formatter learned the bars too: `|x: i64|` is one thing, and neither bar
+takes air. The `||` of a parameterless lambda is still the logical-or token,
+so the formatter leaves it alone -- it cannot tell a prefix `||` from an
+infix one without looking at what came before it.
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-parser --test lambdas` — 4 PASS.
+- `cargo test -p otter-sema --test functions` — 13 PASS.
+- `cargo test -p otter-codegen --test function_values` — 9 PASS.
+- `cargo test -p otter-fmt --test fmt` — 8 PASS.
+- `cargo test -p otter-driver --test e2e a_non_capturing_lambda_is_a_function_value`
+  — PASS; the program printed `42\n40\n`.
+- `cargo test -p otter-driver --test tutorial` — PASS, with the lambda section
+  in chapter 11.
+- The `lambdas.ot` program was built and run by hand: it printed `42` and
+  `40`, and the raw bytes were `42\n40\n`.
+- A lambda that returns a `string` was built and run by hand too: the
+  indirect call releases the owned result the same way a direct call does.
 
 ### Task 9: Capturing closures with copyable captures
 

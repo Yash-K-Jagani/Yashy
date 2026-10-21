@@ -236,6 +236,12 @@ fn functions_can_be_passed_and_called_through_values() {
 }
 
 #[test]
+fn a_non_capturing_lambda_is_a_function_value() {
+    let output = build_and_run("lambdas");
+    assert_eq!(stdout_of(&output), "42\n40\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

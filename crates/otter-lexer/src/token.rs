@@ -505,6 +505,11 @@ pub enum TokenKind {
     PercentEq,
     AndAnd,
     OrOr,
+    /// `|` on its own: the bar that opens a lambda's parameter list.
+    ///
+    /// `||` is still [`TokenKind::OrOr`]; the two-character operator is
+    /// matched first, so a lambda's bars and the logical or never collide.
+    Pipe,
 
     // Everything whose text is its value.
     Ident,
@@ -673,6 +678,7 @@ impl TokenKind {
             TokenKind::PercentEq => Naming::Fixed("%="),
             TokenKind::AndAnd => Naming::Fixed("&&"),
             TokenKind::OrOr => Naming::Fixed("||"),
+            TokenKind::Pipe => Naming::Fixed("|"),
 
             // The five kinds whose text is their value have no spelling: there
             // is no one way to write `an identifier`, only many.
