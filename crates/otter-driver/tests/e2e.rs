@@ -188,6 +188,15 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn array_edit_methods_mutate_in_place() {
+    let output = build_and_run("array_edit");
+    assert_eq!(
+        stdout_of(&output),
+        "front ok\nmiddle ok\nend ok\npast end rejected\n6\n10\n-1\n5\n5\n15\n20\n30\n35\n35\n30\n20\n15\n5\n5\n15\n20\n30\n35\n0\ncleared\nstrings cleared\n"
+    );
+}
+
+#[test]
 fn array_query_methods_answer_in_options() {
     let output = build_and_run("array_query");
     assert_eq!(

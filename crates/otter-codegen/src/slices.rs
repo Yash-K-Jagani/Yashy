@@ -316,6 +316,129 @@ pub fn gen_set(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     }
 }
 
+/// Lower `slice_insert(slice, index, value) -> bool`.
+///
+/// Like `set`, the value goes through a temporary slot because the runtime
+/// copies bytes. The runtime grows the array when the insert fills it and
+/// shifts the tail with `memmove`; an index past `len` is a `false` answer.
+pub fn gen_insert(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
+        return false_value();
+    };
+    let TypeKind::Slice(element) = &ty else {
+        return false_value();
+    };
+    let (Some(index_expr), Some(value_expr)) = (args.get(1), args.get(2)) else {
+        return false_value();
+    };
+    let index = gen_expr(ctx, index_expr);
+    let value = gen_expr(ctx, value_expr);
+    let elem_repr = repr_type(&element.kind);
+    let temp = ctx.alloc_slot();
+    ctx.push_alloca(format!("{temp} = alloca {elem_repr}"));
+    ctx.push(format!("store {elem_repr} {}, ptr {temp}", value.value));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_slice_insert(ptr {slot}, i64 {}, ptr {temp}, i64 {})",
+        index.value,
+        size_of(&element.kind)
+    ));
+    bool_from_flag(ctx, &flag)
+}
+
+/// Lower `slice_remove(slice, index) -> Option[T]`.
+///
+/// The runtime copies the removed element into the out slot before shifting
+/// the tail left, so the answer owns the value that just left the array.
+pub fn gen_remove(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
+    let Some((slot, _)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    let TypeKind::Option(element) = option_ty else {
+        return unit();
+    };
+    let Some(index_expr) = args.get(1) else {
+        return unit();
+    };
+    let index = gen_expr(ctx, index_expr);
+    let element_repr = repr_type(&element.kind);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {element_repr}"));
+    ctx.push(format!(
+        "store {element_repr} zeroinitializer, ptr {out_slot}"
+    ));
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_slice_remove(ptr {slot}, i64 {}, ptr {out_slot}, i64 {})",
+        index.value,
+        size_of(&element.kind)
+    ));
+    option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower `slice_clear(slice) -> ()`.
+///
+/// A `[]string` releases each element before dropping the length; every other
+/// element type is a plain machine word or aggregate, so the runtime only
+/// zeroes the length. The backing array and its capacity stay allocated.
+pub fn gen_clear(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    let TypeKind::Slice(element) = &ty else {
+        return unit();
+    };
+    let callee = if matches!(element.kind, TypeKind::Str) {
+        "otter_slice_clear_strings"
+    } else {
+        "otter_slice_clear"
+    };
+    ctx.push(format!("call void @{callee}(ptr {slot})"));
+    unit()
+}
+
+/// Lower `slice_reverse(slice) -> ()`.
+pub fn gen_reverse(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, ty)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    let TypeKind::Slice(element) = &ty else {
+        return unit();
+    };
+    ctx.push(format!(
+        "call void @otter_slice_reverse(ptr {slot}, i64 {})",
+        size_of(&element.kind)
+    ));
+    unit()
+}
+
+/// Lower `slice_sort(slice) -> ()`, `i64` elements only.
+pub fn gen_sort(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let Some((slot, _)) = binding_slot(ctx, args) else {
+        return unit();
+    };
+    ctx.push(format!("call void @otter_slice_sort_i64(ptr {slot})"));
+    unit()
+}
+
+/// A `false` value for a slice method that cannot be lowered.
+fn false_value() -> GenValue {
+    GenValue {
+        value: "false".to_string(),
+        ty: TypeKind::Bool,
+    }
+}
+
+/// Turn a runtime 0/1 flag into an LLVM `i1`.
+fn bool_from_flag(ctx: &mut FnCtx<'_>, flag: &str) -> GenValue {
+    let ok = ctx.tmp();
+    ctx.push(format!("{ok} = icmp ne i64 {flag}, 0"));
+    GenValue {
+        value: ok,
+        ty: TypeKind::Bool,
+    }
+}
+
 /// Lower `free_slice(slice) -> ()`.
 ///
 /// The runtime frees the backing array and zeroes the header in the binding's

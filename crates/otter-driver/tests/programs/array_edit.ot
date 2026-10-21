@@ -1,0 +1,74 @@
+// Array mutation and ordering methods. `insert` accepts 0..=len and returns
+// `false` past the end; `remove` answers `None` out of range. `clear` keeps the
+// backing array but sets the length to zero. `reverse` and `sort` update the
+// elements in place.
+//
+// `show` turns an `Option[i64]` into a printable number: -1 means `None`.
+
+fn show(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
+fn main() {
+    var xs = []i64 { 10, 20, 30 };
+
+    if xs.insert(0, 5) {
+        print_str("front ok\n");
+    }
+    if xs.insert(2, 15) {
+        print_str("middle ok\n");
+    }
+    if xs.insert(xs.len(), 35) {
+        print_str("end ok\n");
+    }
+    if xs.insert(xs.len() + 1, 99) {
+        print_str("unexpected: past-end insert accepted\n");
+    } else {
+        print_str("past end rejected\n");
+    }
+
+    print_i64(xs.len());
+    print_str("\n");
+    print_i64(show(xs.remove(1)));
+    print_str("\n");
+    print_i64(show(xs.remove(99)));
+    print_str("\n");
+    print_i64(xs.len());
+    print_str("\n");
+
+    for x in xs {
+        print_i64(x);
+        print_str("\n");
+    }
+
+    xs.reverse();
+    for x in xs {
+        print_i64(x);
+        print_str("\n");
+    }
+
+    xs.sort();
+    for x in xs {
+        print_i64(x);
+        print_str("\n");
+    }
+
+    xs.clear();
+    print_i64(xs.len());
+    print_str("\n");
+    if xs.is_empty() {
+        print_str("cleared\n");
+    }
+
+    xs.free();
+
+    var names = []string { "a", "b" };
+    names.clear();
+    if names.is_empty() {
+        print_str("strings cleared\n");
+    }
+    names.free();
+}

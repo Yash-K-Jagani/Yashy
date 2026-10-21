@@ -2048,9 +2048,9 @@ impl<'src> Checker<'src> {
     ) -> Option<Option<HirExpr>> {
         let receiver_expr = || Expr::Ident(vec![receiver.to_string()], span);
         let arity = match method {
-            "is_empty" | "first" | "last" => 0,
-            "get" => 1,
-            "set" => 2,
+            "is_empty" | "first" | "last" | "clear" | "reverse" | "sort" => 0,
+            "get" | "remove" => 1,
+            "set" | "insert" => 2,
             _ => return None,
         };
         if args.len() != arity {
@@ -2118,8 +2118,164 @@ impl<'src> Checker<'src> {
                 Some(self.check_expr(&last))
             }
             "set" => Some(self.check_array_set(receiver, args, span)),
+            "insert" => Some(self.check_array_insert(receiver, args, span)),
+            "remove" => Some(self.check_array_remove(receiver, args, span)),
+            "clear" => Some(self.check_array_mutation(receiver, "slice_clear", span)),
+            "reverse" => Some(self.check_array_mutation(receiver, "slice_reverse", span)),
+            "sort" => Some(self.check_array_sort(receiver, span)),
             _ => None,
         }
+    }
+
+    /// Resolve the receiver of an array method to its binding and slice type.
+    fn check_array_receiver(
+        &mut self,
+        receiver: &str,
+        span: Span,
+    ) -> Option<(HirExpr, Type)> {
+        let receiver_expr = Expr::Ident(vec![receiver.to_string()], span);
+        let checked = self.check_expr(&receiver_expr)?;
+        let ty = expr_ty(&checked);
+        if !matches!(ty.kind, TypeKind::Slice(_)) {
+            self.error(
+                expr_span(&checked),
+                format!("expected an array, found `{ty}`"),
+            );
+            return None;
+        }
+        Some((checked, ty))
+    }
+
+    /// The element type of a checked slice receiver.
+    fn array_element(ty: &Type) -> Option<Type> {
+        let TypeKind::Slice(element) = &ty.kind else {
+            return None;
+        };
+        Some((**element).clone())
+    }
+
+    /// `xs.insert(index, value) -> bool`.
+    fn check_array_insert(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        if matches!(element.kind, TypeKind::Str) {
+            self.error(
+                expr_span(&checked),
+                "inserting into a `[]string` is not supported yet: the array owns one reference per element, and the new element would need a retain",
+            );
+            return None;
+        }
+        let index = self.check_expr_with_expected(&args[0], &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
+            self.error(
+                expr_span(&index),
+                format!("expected `i64`, found `{}`", expr_ty(&index)),
+            );
+            return None;
+        }
+        let value = self.check_expr_with_expected(&args[1], &element)?;
+        if !fits(&element, &expr_ty(&value)) {
+            self.error(
+                expr_span(&value),
+                format!("expected `{element}`, found `{}`", expr_ty(&value)),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["slice_insert".to_string()],
+            args: vec![checked, index, value],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Bool),
+        })
+    }
+
+    /// `xs.remove(index) -> Option[T]`.
+    fn check_array_remove(
+        &mut self,
+        receiver: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        if matches!(element.kind, TypeKind::Str) {
+            self.error(
+                expr_span(&checked),
+                "removing from a `[]string` is not supported yet: the removed reference would leave the array without a matching release",
+            );
+            return None;
+        }
+        let index = self.check_expr_with_expected(&args[0], &prim(TypeKind::I64))?;
+        if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
+            self.error(
+                expr_span(&index),
+                format!("expected `i64`, found `{}`", expr_ty(&index)),
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["slice_remove".to_string()],
+            args: vec![checked, index],
+            unsafe_call: false,
+            span,
+            ty: option(&element, span),
+        })
+    }
+
+    /// `xs.clear()` and `xs.reverse()`: one receiver, no result.
+    fn check_array_mutation(
+        &mut self,
+        receiver: &str,
+        builtin: &str,
+        span: Span,
+    ) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !slice_element_is_operable(&element.kind) {
+            self.error(expr_span(&checked), unsupported_element_message(&element));
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec![builtin.to_string()],
+            args: vec![checked],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Unit),
+        })
+    }
+
+    /// `xs.sort()`, limited to `[]i64` in this phase.
+    fn check_array_sort(&mut self, receiver: &str, span: Span) -> Option<HirExpr> {
+        let (checked, ty) = self.check_array_receiver(receiver, span)?;
+        let element = Self::array_element(&ty)?;
+        if !matches!(element.kind, TypeKind::I64) {
+            self.error(
+                expr_span(&checked),
+                "`sort` is only implemented for arrays of i64",
+            );
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["slice_sort".to_string()],
+            args: vec![checked],
+            unsafe_call: false,
+            span,
+            ty: prim(TypeKind::Unit),
+        })
     }
 
     /// `xs.set(index, value) -> bool`, where the receiver must be a plain

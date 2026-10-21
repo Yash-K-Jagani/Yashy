@@ -871,6 +871,126 @@ long long otter_slice_set(otter_slice *slice, long long index, const void *eleme
     return 1;
 }
 
+/* ---- Slice mutation ----------------------------------------------------
+ *
+ *     declare i64 @otter_slice_insert(ptr, i64, ptr, i64)
+ *     declare i64 @otter_slice_remove(ptr, i64, ptr, i64)
+ *     declare void @otter_slice_clear(ptr)
+ *     declare void @otter_slice_clear_strings(ptr)
+ *     declare void @otter_slice_reverse(ptr, i64)
+ *     declare void @otter_slice_sort_i64(ptr)
+ *
+ * `insert` accepts `0..=len` and `remove` accepts `0..len`; anything else is a
+ * 0 answer and leaves the array untouched. Insert grows through the same
+ * `otter_slice_push` path as an append, then shifts the tail right, so the
+ * growth policy stays in one place. A failed grow is a 0 answer rather than a
+ * partially shifted array.
+ *
+ * `clear` keeps the backing array and capacity: a later push reuses them. A
+ * `[]string` must release its elements first, which is why the checker emits a
+ * different entry point for that element type.
+ *
+ * `reverse` swaps bytes, so it does not need to know the element type. `sort`
+ * is deliberately limited to `i64` in this phase; `qsort` with a comparator is
+ * enough for the one type the checker admits. */
+
+long long otter_slice_insert(otter_slice *slice, long long index,
+                             const void *element, long long element_size) {
+    if (slice == NULL || element == NULL || element_size <= 0 || index < 0 ||
+        index > slice->len || (slice->len > 0 && slice->data == NULL)) {
+        return 0;
+    }
+    if (slice->len >= slice->cap) {
+        long long before = slice->len;
+        otter_slice_push(slice, element, element_size);
+        if (slice->len != before + 1 || slice->data == NULL) {
+            return 0;
+        }
+        char *data = (char *)slice->data;
+        for (long long position = before - 1; position >= index; position--) {
+            memmove(data + (size_t)((position + 1) * element_size),
+                    data + (size_t)(position * element_size),
+                    (size_t)element_size);
+        }
+        memcpy(data + (size_t)(index * element_size), element,
+               (size_t)element_size);
+        return 1;
+    }
+    char *data = (char *)slice->data;
+    memmove(data + (size_t)((index + 1) * element_size),
+            data + (size_t)(index * element_size),
+            (size_t)((slice->len - index) * element_size));
+    memcpy(data + (size_t)(index * element_size), element,
+           (size_t)element_size);
+    slice->len += 1;
+    return 1;
+}
+
+long long otter_slice_remove(otter_slice *slice, long long index, void *out,
+                             long long element_size) {
+    if (slice == NULL || out == NULL || element_size <= 0 || index < 0 ||
+        index >= slice->len || slice->data == NULL) {
+        return 0;
+    }
+    char *data = (char *)slice->data;
+    memcpy(out, data + (size_t)(index * element_size), (size_t)element_size);
+    memmove(data + (size_t)(index * element_size),
+            data + (size_t)((index + 1) * element_size),
+            (size_t)((slice->len - index - 1) * element_size));
+    slice->len -= 1;
+    return 1;
+}
+
+void otter_slice_clear(otter_slice *slice) {
+    if (slice == NULL) {
+        return;
+    }
+    slice->len = 0;
+}
+
+void otter_slice_clear_strings(otter_slice *slice) {
+    if (slice == NULL) {
+        return;
+    }
+    if (slice->data != NULL) {
+        otter_str **elements = (otter_str **)slice->data;
+        for (long long index = 0; index < slice->len; index++) {
+            otter_str_release(elements[index]);
+        }
+    }
+    slice->len = 0;
+}
+
+void otter_slice_reverse(otter_slice *slice, long long element_size) {
+    if (slice == NULL || element_size <= 0 || slice->len < 2 ||
+        slice->data == NULL) {
+        return;
+    }
+    char *data = (char *)slice->data;
+    for (long long index = 0; index < slice->len / 2; index++) {
+        char *left = data + (size_t)(index * element_size);
+        char *right = data + (size_t)((slice->len - 1 - index) * element_size);
+        for (long long byte = 0; byte < element_size; byte++) {
+            char temporary = left[byte];
+            left[byte] = right[byte];
+            right[byte] = temporary;
+        }
+    }
+}
+
+static int otter_compare_i64(const void *left, const void *right) {
+    long long a = *(const long long *)left;
+    long long b = *(const long long *)right;
+    return (a > b) - (a < b);
+}
+
+void otter_slice_sort_i64(otter_slice *slice) {
+    if (slice == NULL || slice->len < 2 || slice->data == NULL) {
+        return;
+    }
+    qsort(slice->data, (size_t)slice->len, sizeof(long long), otter_compare_i64);
+}
+
 /* ---- Diagnostics -------------------------------------------------------
  *
  *     declare void @otter_panic(i8*, i8*, i64, i64)

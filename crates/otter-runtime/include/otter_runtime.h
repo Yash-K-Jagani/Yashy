@@ -206,6 +206,23 @@ long long otter_slice_pop(otter_slice *slice, void *out, long long element_size)
 long long otter_slice_set(otter_slice *slice, long long index, const void *element,
                           long long element_size);
 
+/* `otter_slice_insert` accepts `0..=len` and shifts the tail right, growing
+ * through the same path as `push`. `otter_slice_remove` accepts `0..len` and
+ * shifts the tail left after copying the removed element into `out`. Both
+ * return 1 on success and 0, leaving the array unchanged, for a bad index or a
+ * failed grow. `clear` sets the length to zero but keeps the backing array and
+ * its capacity; the `_strings` variant releases each owned handle first.
+ * `reverse` swaps bytes and needs only the stride. `sort_i64` sorts in place
+ * and is the only ordering entry point in this phase. */
+long long otter_slice_insert(otter_slice *slice, long long index, const void *element,
+                             long long element_size);
+long long otter_slice_remove(otter_slice *slice, long long index, void *out,
+                             long long element_size);
+void otter_slice_clear(otter_slice *slice);
+void otter_slice_clear_strings(otter_slice *slice);
+void otter_slice_reverse(otter_slice *slice, long long element_size);
+void otter_slice_sort_i64(otter_slice *slice);
+
 /* ---- Maps ----
  *
  *     declare i8* @otter_map_new(i64, i64, i64)

@@ -75,6 +75,16 @@ when `i` is out of range. Setting a `[]string` element is refused for now: the
 array owns the old reference, and replacing it needs a retain of the new string
 and a release of the old one.
 
+The edit methods change the array in place. `xs.insert(i, v)` accepts
+`0..=xs.len()`: inserting at `len` is an append, and anything past that returns
+`false`. `xs.remove(i)` accepts `0..len` and answers `Some(value)`, or `None`
+for an out-of-range index. `xs.clear()` sets the length to zero but keeps the
+backing array, so a later push reuses its capacity. `xs.reverse()` swaps the
+elements end to end, and `xs.sort()` orders an `[]i64` ascending. `insert` and
+`remove` refuse `[]string` for the same ownership reason as `pop`; `clear` on a
+`[]string` is allowed because it releases every element before dropping the
+length.
+
 ## Ownership
 
 A slice is linear: it has one owner and cannot be copied. **Passing it to a
@@ -135,6 +145,11 @@ element's reference would leave the slice without a matching release.
 | `xs.first()` / `xs.last()` | `Option[T]` | `None` on an empty array. |
 | `xs.is_empty()` | `bool` | `xs.len() == 0`. |
 | `xs.set(i, v)` | `bool` | Writes in range; refused for `[]string`. |
+| `xs.insert(i, v)` | `bool` | Accepts `0..=len`; refused for `[]string`. |
+| `xs.remove(i)` | `Option[T]` | Accepts `0..len`; refused for `[]string`. |
+| `xs.clear()` | `()` | Length zero; keeps the backing array. |
+| `xs.reverse()` | `()` | Reverses in place. |
+| `xs.sort()` | `()` | Ascending; `[]i64` only in this phase. |
 | `xs.pop()` | `Option[T]` | Removes the last element; refused for `[]string`. |
 | `for x in xs { ... }` | statement | Reads each element; the slice stays borrowed. |
 | `xs.free()` | `()` | Releases the elements (if strings) and the array. |
@@ -163,6 +178,9 @@ written in the literal, and `[]i64 {}` is the empty slice of `i64`.
 - **Freeing inside a `for` loop.** `xs.free()` in the body reports
   ``error: cannot move `xs` while it is being iterated``. Move the call after
   the loop.
+- **Sorting something other than `[]i64`.** `xs.sort()` on a `[]string` reports
+  ``error: `sort` is only implemented for arrays of i64``. Sort the array you
+  have, or build a numeric key array first.
 
 ## Try it
 

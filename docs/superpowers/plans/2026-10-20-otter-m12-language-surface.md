@@ -263,35 +263,38 @@ git commit -m "feat: array query methods"
 - Produces: `push(value: T)`, `pop() -> Option[T]`, `insert(index: i64, value: T) -> bool`, `remove(index: i64) -> Option[T]`, `clear()`, `reverse()`, `sort()`.
 - Consumes: Task 1; the existing `push`/`pop` checks.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
-`array_edit.ot` covers `insert` at the front, middle, and end; `insert` past the
-end returning `false`; `remove` returning the right element; `clear` leaving
-`len == 0` and `is_empty()` true; `reverse`; and `sort` on an unsorted `[]i64`.
-Add `#[test] fn array_edit_methods_mutate_in_place()` to `e2e.rs`, calling
-`build_and_run("array_edit")` and asserting the exact stdout.
+Added `array_edit.ot` and `array_edit_methods_mutate_in_place`. It covers
+`insert` at the front, middle, and end; an insert past the end returning
+`false`; `remove` returning the right element and `None` out of range; `clear`
+leaving `len == 0` and `is_empty()` true; `reverse`; `sort` on an unsorted
+`[]i64`; and `clear` on a `[]string`.
 
-- [ ] **Step 2: Run it and verify it fails**
-
-Run: `cargo test -p otter-driver --test e2e array_edit_methods_mutate_in_place`
-Expected: FAIL; methods missing.
-
-- [ ] **Step 3: Implement the operations**
-
-Add `otter_slice_insert`, `otter_slice_remove`, `otter_slice_clear`,
-`otter_slice_reverse`, and `otter_slice_sort_i64` to the runtime. `insert`
-accepts `0..=len` and `memmove`s the tail; `remove` accepts `0..len` and
-`memmove`s the tail left. `sort` is `i64` only in this phase; every other element
-type reports `error: \`sort\` is only implemented for arrays of i64`. `insert`
-and `remove` reject `string` elements with the ownership diagnostic the current
-`pop` uses.
-
-- [ ] **Step 4: Run the test**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e array_edit_methods_mutate_in_place`
-Expected: PASS.
+Expected: FAIL. As built, the compiler reported
+`no method \`insert\` on \`[]i64\``.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement the operations**
+
+Added `otter_slice_insert`, `otter_slice_remove`, `otter_slice_clear`,
+`otter_slice_clear_strings`, `otter_slice_reverse`, and
+`otter_slice_sort_i64` to the runtime. `insert` accepts `0..=len` and grows
+through `otter_slice_push`, then shifts the tail; `remove` copies the element
+out and shifts the tail left. `clear` keeps the backing array, and the
+`_strings` variant releases each handle first. `reverse` swaps bytes, and
+`sort` is `i64` only in this phase. `insert` and `remove` reject `string`
+elements with an ownership diagnostic.
+
+- [x] **Step 4: Run the test**
+
+Run: `cargo test -p otter-driver --test e2e array_edit_methods_mutate_in_place`
+Expected: PASS. It passed, and `cargo check --workspace --all-targets` stayed
+warning-free.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-runtime/ crates/otter-driver/tests/e2e.rs crates/otter-driver/tests/programs/array_edit.ot
