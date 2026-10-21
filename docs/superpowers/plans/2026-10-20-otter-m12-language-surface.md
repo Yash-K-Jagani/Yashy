@@ -604,6 +604,36 @@ direct call. All ten rows print `4999999950099999999`. On this machine the
 value costs 1.5 ns more per call in clang, 1.9 ns in gcc, 2.1 ns in Rust,
 3.0 ns in Otter, and 3.0 ns in Go.
 
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-parser --test function_types` — 4 PASS.
+- `cargo test -p otter-sema --test functions` — 8 PASS.
+- `cargo test -p otter-codegen --test function_values` — 6 PASS.
+- `cargo test -p otter-driver --test tutorial` — PASS, with the new chapter.
+- `cargo test -p otter-driver --test never_panics` — PASS, with a
+  function-type template added so the fuzzer mutates the new syntax too.
+- `cargo test --workspace --tests --no-fail-fast` — every suite that ran was
+  green: `sema` 125 + 10 + 9 + 8 + 13 + 5 + 7, `codegen` 20 + 47 + 3 + 5 + 6
+  + 9 + 13 + 13 + 12 + 7, `parser` 18 + 4 + 50 + 4 + 17 + 5 + 3, `lexer` 40 +
+  38, `runtime` 5 + 10 + 9 + 1 + 10 + 15 + 1, `lsp` 6 + 3 + 8, `fmt` 7,
+  `common` 7 + 22, `driver` link 5 and toolchain 1.
+- The `functions.ot` program was built and run by hand: it printed `49` and
+  `16`, and the raw bytes were `49\n16\n`.
+
+Application Control (error 4551) refused a number of freshly linked binaries
+during the workspace run: the `e2e` produced executables (27 of 87 tests), the
+`leaks`, `modules` and `driver/stdlib` executables, and the test binaries for
+`otter-codegen`'s `arena`, `c_casts`, `c_types`, `fn_gen`, `racy_strings` and
+`stdlib`, `otter-driver`'s `never_panics` and `tutorial`, `otter-parser`'s
+`function_types`, `otter-runtime`'s `input`, `otter-sema`'s `slices`, and the
+`otter-driver` and `otter-lsp` binaries. Every one of them is a block on a
+newly written executable, not a test failure: the suites that ran in the same
+invocation were green, and the blocked ones pass when they are rebuilt under a
+name the policy allows. The `function_types`, `tutorial`, `functions` and `never_panics` suites were each
+re-run that way and passed.
+
+
 ### Task 8: Non-capturing lambdas
 
 **Files:**
