@@ -660,6 +660,27 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             ty,
             ..
         } => crate::fixed::gen_literal(ctx, &elem_ty.kind, elements, &ty.kind),
+        // A tuple is built the way a fixed array is: one `insertvalue` per
+        // element onto `undef`. Nothing is allocated, so the value is the
+        // aggregate itself and a copy is a store.
+        HirExpr::TupleLit { elements, ty, .. } => {
+            let repr = repr_type(&ty.kind);
+            let mut value = "undef".to_string();
+            for (index, element) in elements.iter().enumerate() {
+                let element_value = gen_expr(ctx, element);
+                let element_repr = repr_type(&element_value.ty);
+                let next = ctx.tmp();
+                ctx.push(format!(
+                    "{next} = insertvalue {repr} {value}, {element_repr} {}, {index}",
+                    element_value.value
+                ));
+                value = next;
+            }
+            GenValue {
+                value,
+                ty: ty.kind.clone(),
+            }
+        }
         HirExpr::View {
             base, start, end, ty, ..
         } => crate::fixed::gen_view(ctx, base, start, end, &ty.kind),

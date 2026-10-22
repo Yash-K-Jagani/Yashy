@@ -7,7 +7,7 @@
 use otter_common::Span;
 use otter_lexer::TokenKind;
 
-use crate::ast::{BinOp, Block, Expr, Literal, Pattern, Stmt, SwitchArm};
+use crate::ast::{BindingKeyword, BinOp, Block, Expr, Literal, Pattern, Stmt, SwitchArm};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -52,6 +52,9 @@ impl<'src> Parser<'src> {
 
     fn parse_const(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Const)?;
+        if self.check(TokenKind::LParen) {
+            return self.parse_destructure(BindingKeyword::Const, kw.span);
+        }
         let (name, _) = self.identifier()?;
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type_expr()?)
@@ -71,6 +74,9 @@ impl<'src> Parser<'src> {
 
     fn parse_var(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Var)?;
+        if self.check(TokenKind::LParen) {
+            return self.parse_destructure(BindingKeyword::Var, kw.span);
+        }
         let (name, _) = self.identifier()?;
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type_expr()?)
@@ -90,6 +96,9 @@ impl<'src> Parser<'src> {
 
     fn parse_let(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Let)?;
+        if self.check(TokenKind::LParen) {
+            return self.parse_destructure(BindingKeyword::Let, kw.span);
+        }
         let (name, _) = self.identifier()?;
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type_expr()?)
@@ -104,6 +113,56 @@ impl<'src> Parser<'src> {
             ty,
             init,
             span: cover(kw.span, semi.span),
+        })
+    }
+
+    /// The rest of `const (a, b) = pair;` once the keyword is consumed.
+    ///
+    /// Only names and `_` are accepted: the elements are bound positionally,
+    /// so there is nothing else a pattern could say here. The list must not be
+    /// empty -- `const () = x;` has no binding to make and no tuple to
+    /// destructure, since `()` is the unit type, not a zero-element tuple.
+    fn parse_destructure(
+        &mut self,
+        kind: BindingKeyword,
+        keyword_span: Span,
+    ) -> Result<Stmt, ParseError> {
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let mut names = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            let span = self.peek_span();
+            if self.check(TokenKind::Ident) {
+                let (name, _) = self.identifier()?;
+                names.push(if name == "_" { None } else { Some(name) });
+            } else {
+                return Err(self.error(
+                    span,
+                    "a destructuring pattern is a list of names: each element of the tuple binds \
+                     to one name, or to `_` to skip it"
+                        .to_string(),
+                ));
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let close = self.expect(TokenKind::RParen)?;
+        self.close_open(TokenKind::RParen);
+        if names.is_empty() {
+            return Err(self.error(
+                cover(open.span, close.span),
+                "a destructuring pattern needs at least one name".to_string(),
+            ));
+        }
+        self.expect(TokenKind::Eq)?;
+        let init = self.parse_expr()?;
+        let semi = self.expect(TokenKind::Semi)?;
+        Ok(Stmt::Destructure {
+            kind,
+            names,
+            init,
+            span: cover(keyword_span, semi.span),
         })
     }
 
@@ -281,12 +340,22 @@ impl<'src> Parser<'src> {
             } else {
                 self.parse_pattern()?
             };
+            // `if` cannot start anything else after a pattern, so it is
+            // unambiguous here. The condition may be any boolean expression --
+            // it is checked after the pattern's names are in scope, which is
+            // what makes `case Some(v) if v > 0` work.
+            let guard = if self.eat(TokenKind::If) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
             let body = self.parse_switch_arm_body()?;
             let arm_span = cover(crate::exprs::pattern_span(&pattern), crate::exprs::expr_span(&body));
             // extend to braces? body already includes. fine.
             let _ = arm_start;
             arms.push(SwitchArm {
                 pattern,
+                guard,
                 body,
                 is_default,
                 span: arm_span,

@@ -26,8 +26,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
-    BinOp, Block, Expr, InterpPart, Item, Literal, Param, Pattern, PtrKind, Stmt, StringLit,
-    SwitchArm, TypeExpr, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, Expr, InterpPart, Item, Literal, Param, Pattern, PtrKind, Stmt,
+    StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -176,6 +176,17 @@ fn mangled_type_name(ty: &Type) -> String {
             mangled.push_str(&mangled_type_name(ret));
             mangled
         }
+        // A tuple's position is part of its type, so the mangled name has to
+        // keep the order: `(i64, bool)` and `(bool, i64)` are different
+        // instantiations of a generic function.
+        TypeKind::Tuple(elements) => {
+            let mut mangled = "tuple".to_string();
+            for element in elements {
+                mangled.push('_');
+                mangled.push_str(&mangled_type_name(element));
+            }
+            mangled
+        }
     }
 }
 
@@ -239,7 +250,10 @@ fn block_always_returns(block: &HirBlock) -> bool {
             None => false,
         },
         Some(HirStmt::Switch { arms, .. }) => {
-            arms.iter().any(|arm| arm.is_default)
+            // A guarded `default` does not cover anything: its guard can be
+            // false at run time. The switch only always returns when an
+            // unguarded arm catches everything.
+            arms.iter().any(|arm| arm.is_default && arm.guard.is_none())
                 && arms.iter().all(|arm| expr_always_returns(&arm.body))
         }
         _ => false,
@@ -253,7 +267,7 @@ fn block_always_returns(block: &HirBlock) -> bool {
 fn expr_always_returns(expr: &HirExpr) -> bool {
     match expr {
         HirExpr::SwitchExpr { arms, .. } => {
-            arms.iter().any(|arm| arm.is_default)
+            arms.iter().any(|arm| arm.is_default && arm.guard.is_none())
                 && arms.iter().all(|arm| expr_always_returns(&arm.body))
         }
         _ => false,
@@ -1573,10 +1587,16 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
-            TypeExpr::Tuple(_, span) => Err(TypeError::new(
-                *span,
-                "tuple types are not value types in M0-M2".to_string(),
-            )),
+            TypeExpr::Tuple(items, span) => {
+                let elements = items
+                    .iter()
+                    .map(|item| self.resolve_type_in(item, allow_c))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Type {
+                    kind: TypeKind::Tuple(elements),
+                    span: *span,
+                })
+            }
             TypeExpr::Unit(span) => Ok(Type {
                 kind: TypeKind::Unit,
                 span: *span,
@@ -1836,7 +1856,18 @@ impl<'src> Checker<'src> {
                 _ => false,
             },
             TypeExpr::Unit(_) => matches!(actual.kind, TypeKind::Unit),
-            TypeExpr::Tuple(_, _) => false,
+            TypeExpr::Tuple(items, _) => match &actual.kind {
+                TypeKind::Tuple(elements) => {
+                    items.len() == elements.len()
+                        && items
+                            .iter()
+                            .zip(elements.iter())
+                            .all(|(declared, actual)| {
+                                self.unify_type(declared, params, subst, actual)
+                            })
+                }
+                _ => false,
+            },
         }
     }
 
@@ -2300,6 +2331,73 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
+            Stmt::Destructure {
+                kind,
+                names,
+                init,
+                span,
+            } => {
+                let init_expr = self.check_expr(init)?;
+                let init_ty = expr_ty(&init_expr);
+                let TypeKind::Tuple(elements) = &init_ty.kind else {
+                    self.error(
+                        expr_span(&init_expr),
+                        format!(
+                            "cannot destructure `{init_ty}`: a destructuring pattern needs a \
+                             tuple, and this has no elements to bind"
+                        ),
+                    );
+                    return None;
+                };
+                if elements.len() != names.len() {
+                    self.error(
+                        *span,
+                        format!(
+                            "this pattern binds {} name{}, but the tuple has {} element{}",
+                            names.len(),
+                            if names.len() == 1 { "" } else { "s" },
+                            elements.len(),
+                            if elements.len() == 1 { "" } else { "s" }
+                        ),
+                    );
+                    return None;
+                }
+                // A tuple is a copyable value, but the rule is still stated the
+                // same way every other binding states it: a linear initializer
+                // has to say `move`. Nothing a tuple can currently hold is
+                // linear, so this is future-proofing rather than a live check.
+                self.forbid_linear_copy(init, &init_expr);
+                let mutability = match kind {
+                    BindingKeyword::Const => Mutability::Const,
+                    BindingKeyword::Var | BindingKeyword::Let => Mutability::Var,
+                };
+                let mut bindings = Vec::with_capacity(names.len());
+                for (name, element) in names.iter().zip(elements.iter()) {
+                    match name {
+                        Some(name) => {
+                            if let Err(error) = self.scope.declare(
+                                name.clone(),
+                                Binding {
+                                    ty: element.clone(),
+                                    mutability,
+                                    span: *span,
+                                    ownership: Ownership::Live,
+                                },
+                            ) {
+                                self.error(error.span, error.message);
+                            }
+                            bindings.push(Some((name.clone(), element.clone())));
+                        }
+                        None => bindings.push(None),
+                    }
+                }
+                Some(HirStmt::Destructure {
+                    init: init_expr,
+                    bindings,
+                    mutability,
+                    span: *span,
+                })
+            }
             Stmt::Assign {
                 target,
                 value,
@@ -2711,10 +2809,34 @@ impl<'src> Checker<'src> {
                 return None;
             }
         };
-        let body = self.check_expr(&arm.body)?;
+        // The guard is checked with the pattern's names in scope -- that is the
+        // point of a guard -- and must be a `bool`, because it decides a branch
+        // with no conversion.
+        let guard = match &arm.guard {
+            Some(guard) => {
+                let Some(checked) = self.check_expr(guard) else {
+                    self.scope.pop();
+                    return None;
+                };
+                let guard_ty = expr_ty(&checked);
+                if !matches!(guard_ty.kind, TypeKind::Bool) {
+                    self.error(
+                        expr_span(&checked),
+                        format!("a guard must be a `bool`, found `{guard_ty}`"),
+                    );
+                }
+                Some(checked)
+            }
+            None => None,
+        };
+        let Some(body) = self.check_expr(&arm.body) else {
+            self.scope.pop();
+            return None;
+        };
         self.scope.pop();
         Some(HirSwitchArm {
             pattern,
+            guard,
             body,
             is_default: arm.is_default,
             span: arm.span,
@@ -2760,7 +2882,10 @@ impl<'src> Checker<'src> {
         arms: &[SwitchArm],
         span: Span,
     ) -> Option<()> {
-        let has_default = arms.iter().any(|arm| arm.is_default);
+        // A guard does not cover the case where it is false, so a guarded arm
+        // takes no part in exhaustiveness: `case A if c` leaves A uncovered.
+        // The switch is exhaustive only if its unguarded arms are.
+        let has_default = arms.iter().any(|arm| arm.is_default && arm.guard.is_none());
         if has_default {
             return Some(());
         }
@@ -2840,8 +2965,12 @@ impl<'src> Checker<'src> {
         arms: &[SwitchArm],
         span: Span,
     ) -> Option<()> {
-        let has_default = arms.iter().any(|arm| arm.is_default);
-        let patterns: Vec<Pattern> = arms.iter().map(|arm| arm.pattern.clone()).collect();
+        let has_default = arms.iter().any(|arm| arm.is_default && arm.guard.is_none());
+        let patterns: Vec<Pattern> = arms
+            .iter()
+            .filter(|arm| arm.guard.is_none())
+            .map(|arm| arm.pattern.clone())
+            .collect();
         let missing = missing_cases(enum_name, variants, &patterns, has_default);
         if missing.is_empty() {
             Some(())
@@ -5999,6 +6128,39 @@ impl<'src> Checker<'src> {
                     ty,
                 })
             }
+            Expr::TupleLit { elements, span } => {
+                // Every element says its own type; the tuple is the product of
+                // them. There is no inference to do and no empty spelling, so
+                // the type is never guessed.
+                let mut checked = Vec::with_capacity(elements.len());
+                for (index, element) in elements.iter().enumerate() {
+                    let value = self.check_expr(element)?;
+                    let element_ty = expr_ty(&value);
+                    if !tuple_element_is_supported(&element_ty.kind) {
+                        self.error(
+                            expr_span(&value),
+                            format!(
+                                "a tuple cannot hold `{element_ty}` (element {}): a tuple is \
+                                 copied by copying its bytes, which is exact for the built-in \
+                                 number and `bool` types and for other tuples of them, and not \
+                                 yet defined for anything that owns a reference",
+                                index + 1
+                            ),
+                        );
+                        return None;
+                    }
+                    checked.push(value);
+                }
+                let element_types = checked.iter().map(|value| expr_ty(value)).collect();
+                Some(HirExpr::TupleLit {
+                    elements: checked,
+                    span: *span,
+                    ty: Type {
+                        kind: TypeKind::Tuple(element_types),
+                        span: *span,
+                    },
+                })
+            }
             Expr::IndexRange { base, start, end, span } => {
                 // A view borrows the array's storage, so the source has to be
                 // a binding the checker can follow: a temporary would be gone
@@ -7091,6 +7253,31 @@ fn fixed_array_element_is_supported(kind: &TypeKind) -> bool {
     )
 }
 
+/// Whether a tuple may hold `kind`.
+///
+/// The byte-copy rule is the same one fixed arrays use, with one addition:
+/// a tuple may hold another tuple of supported elements, because the nested
+/// value is itself plain bytes. Nothing that owns a reference or a linear
+/// pointer is allowed -- copying a tuple copies its bytes, so a `string`
+/// element would hand out a second reference the compiler never retained,
+/// and a `*mut T` element would produce two owners of one allocation.
+fn tuple_element_is_supported(kind: &TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::I64
+            | TypeKind::F64
+            | TypeKind::Bool
+            | TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+    ) || matches!(
+        kind,
+        TypeKind::Tuple(elements)
+            if elements.iter().all(|element| tuple_element_is_supported(&element.kind))
+    )
+}
+
 fn slice_element_is_operable(kind: &TypeKind) -> bool {
     matches!(
         kind,
@@ -7323,6 +7510,9 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             ret: Box::new(type_to_expr(ret)),
             span,
         },
+        TypeKind::Tuple(elements) => {
+            TypeExpr::Tuple(elements.iter().map(type_to_expr).collect(), span)
+        }
         TypeKind::Never => TypeExpr::Unit(span),
     }
 }

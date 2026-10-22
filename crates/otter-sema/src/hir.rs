@@ -211,6 +211,18 @@ pub enum HirStmt {
         mutability: Mutability,
         span: Span,
     },
+    /// `const (a, b) = pair;` -- one binding per tuple element.
+    ///
+    /// `bindings` is aligned with the tuple's elements, so code generation
+    /// extracts element `i` for the binding at position `i`. `None` is `_`:
+    /// the element is extracted by nothing and simply dropped, which is free
+    /// because a tuple element is a copyable value.
+    Destructure {
+        init: HirExpr,
+        bindings: Vec<Option<(String, Type)>>,
+        mutability: Mutability,
+        span: Span,
+    },
     /// `x = value;`.
     ///
     /// The target is gone by now: the checker proved it named a `var` binding,
@@ -330,6 +342,12 @@ pub enum HirStmt {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirSwitchArm {
     pub pattern: HirPattern,
+    /// The `if` condition, checked after the pattern's names are in scope.
+    ///
+    /// `None` for an unguarded arm. A guard is evaluated in the arm's own
+    /// block: when it is false the arm does not match after all, and the test
+    /// chain continues exactly as if the pattern had failed.
+    pub guard: Option<HirExpr>,
     pub body: HirExpr,
     pub is_default: bool,
     pub span: Span,
@@ -495,6 +513,15 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// `(a, b)` -- an anonymous product.
+    ///
+    /// `ty` is the tuple type the elements produced, not a declared type: the
+    /// elements say what the tuple is, exactly as they do for a fixed array.
+    TupleLit {
+        elements: Vec<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
     Cast {
         expr: Box<HirExpr>,
         ty: Type,
@@ -596,6 +623,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::FieldAccess { span, .. } => *span,
         HirExpr::Index { span, .. } => *span,
         HirExpr::FixedArrayLit { span, .. } => *span,
+        HirExpr::TupleLit { span, .. } => *span,
         HirExpr::View { span, .. } => *span,
         HirExpr::Cast { span, .. } => *span,
         HirExpr::Try { span, .. } => *span,
@@ -622,6 +650,7 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::FieldAccess { ty, .. } => ty.clone(),
         HirExpr::Index { ty, .. } => ty.clone(),
         HirExpr::FixedArrayLit { ty, .. } => ty.clone(),
+        HirExpr::TupleLit { ty, .. } => ty.clone(),
         HirExpr::View { ty, .. } => ty.clone(),
         HirExpr::Cast { ty, .. } => ty.clone(),
         HirExpr::Try { ty, .. } => ty.clone(),

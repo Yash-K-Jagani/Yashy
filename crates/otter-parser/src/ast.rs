@@ -340,6 +340,19 @@ pub struct Block {
     pub span: Span,
 }
 
+/// Which keyword introduced a binding statement.
+///
+/// `const` is immutable; `var` and `let` are mutable. The three spellings are
+/// kept apart in the tree rather than folded into a `bool` because a
+/// destructuring statement is parsed before the checker decides anything, and
+/// the tree should say what was written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindingKeyword {
+    Const,
+    Var,
+    Let,
+}
+
 /// A statement: the things that can appear in a block in statement position.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
@@ -366,6 +379,24 @@ pub enum Stmt {
     Let {
         name: String,
         ty: Option<TypeExpr>,
+        init: Expr,
+        span: Span,
+    },
+    /// `const (n, s) = pair;` -- one binding per element of a tuple.
+    ///
+    /// No type annotation: the tuple's own type says what each name binds, and
+    /// there is no syntax for annotating an element in place. `None` in
+    /// `names` is `_`, which skips that element; the name is bound in the
+    /// enclosing block exactly as a `const`/`var`/`let` would be, with the
+    /// mutability of `kind`.
+    ///
+    /// Destructuring is a statement rather than an expression because each
+    /// element becomes its own binding, and bindings are statements
+    /// everywhere else in the language.
+    Destructure {
+        kind: BindingKeyword,
+        /// One entry per tuple element: the name to bind, or `None` for `_`.
+        names: Vec<Option<String>>,
         init: Expr,
         span: Span,
     },
@@ -494,6 +525,15 @@ pub enum Stmt {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SwitchArm {
     pub pattern: Pattern,
+    /// `case Circle(r) if r > 10.0 { .. }` -- the extra condition, checked
+    /// after the pattern has bound its names.
+    ///
+    /// A guard is not part of the pattern: the pattern says *which values can
+    /// reach this arm*, the guard says whether this arm wants the one that
+    /// did. Exhaustiveness therefore ignores guards -- an arm that guards
+    /// every value it could match still does not cover the case where the
+    /// guard is false, so it cannot stand in for a `default`.
+    pub guard: Option<Expr>,
     pub body: Expr,
     pub is_default: bool,
     pub span: Span,
@@ -618,6 +658,16 @@ pub enum Expr {
     /// `[]` is the start of a growable array's `[]T { ... }` literal -- so the
     /// type of a fixed array is never guessed from nothing.
     FixedArrayLit {
+        elements: Vec<Expr>,
+        span: Span,
+    },
+    /// `(1, "a")` — a tuple literal.
+    ///
+    /// `(e)` is grouping, not a one-element tuple: the parser only builds this
+    /// node when it sees a comma inside the parentheses. A one-element tuple
+    /// is written `(e,)`, which keeps `(i64)` in type position and `(e)` in
+    /// expression position meaning the obvious thing.
+    TupleLit {
         elements: Vec<Expr>,
         span: Span,
     },

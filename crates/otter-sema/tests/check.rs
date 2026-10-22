@@ -1940,3 +1940,198 @@ fn a_range_binding_has_a_view_type() {
     assert_eq!(expr_ty(init).to_string(), "[i64]");
     assert!(matches!(init, HirExpr::View { .. }));
 }
+// -- tuples, destructuring, and guards --------------------------------------
+
+#[test]
+fn a_tuple_is_the_product_of_its_element_types() {
+    // Position is part of the type, and the type is the element types in the
+    // order they were written. An element may be another tuple.
+    assert_eq!(
+        binding_type_in_fn("fn main() { const pair = (7, true); }", "main"),
+        "(i64, bool)"
+    );
+    assert_eq!(
+        binding_type_in_fn("fn main() { const nested = (1, (2.0, false)); }", "main"),
+        "(i64, (f64, bool))"
+    );
+    // `(7,)` is the one-element tuple; `(7)` would be the integer itself.
+    assert_eq!(
+        binding_type_in_fn("fn main() { const single = (7,); }", "main"),
+        "(i64,)"
+    );
+}
+
+#[test]
+fn destructuring_binds_each_element_with_its_own_type() {
+    let (result, _, _) = check_source(
+        "fn main() { const pair = (7, true); const (n, flag) = pair; }",
+    );
+    let hir = result.expect("destructuring a tuple should check");
+    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+        panic!("main should exist");
+    };
+    let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
+        panic!("the destructuring statement should be second: {:?}", f.body.stmts);
+    };
+    assert_eq!(bindings.len(), 2, "one entry per element");
+    match &bindings[0] {
+        Some((name, ty)) => {
+            assert_eq!(name, "n");
+            assert_eq!(ty.to_string(), "i64", "element 0 is the i64");
+        }
+        other => panic!("expected a binding for element 0, got {other:?}"),
+    }
+    match &bindings[1] {
+        Some((name, ty)) => {
+            assert_eq!(name, "flag");
+            assert_eq!(ty.to_string(), "bool", "element 1 is the bool");
+        }
+        other => panic!("expected a binding for element 1, got {other:?}"),
+    }
+
+    // `_` is a hole in the binding list, not a name: the element is dropped.
+    let (result, _, _) = check_source(
+        "fn main() { const pair = (7, true); const (_, flag) = pair; }",
+    );
+    let hir = result.expect("`_` should skip an element");
+    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+        panic!("main should exist");
+    };
+    let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
+        panic!("the destructuring statement should be second");
+    };
+    assert_eq!(bindings[0], None, "`_` binds nothing");
+
+    // The names really are in scope afterwards: this only type-checks if `n`
+    // and `flag` resolve to the element types.
+    let (result, _, _) = check_source(
+        "fn main() { const pair = (7, true); const (n, flag) = pair; if flag { print_i64(n); } }",
+    );
+    if let Err(diags) = result {
+        panic!("the bound names should resolve: {diags:?}");
+    }
+}
+
+#[test]
+fn only_a_tuple_can_be_destructured() {
+    assert_error(
+        "fn main() { const (a, b) = 1; }",
+        "cannot destructure `i64`",
+    );
+    assert_error(
+        "fn main() { const (a, b) = (1, 2, 3); }",
+        "this pattern binds 2 names, but the tuple has 3 elements",
+    );
+    assert_error(
+        "fn main() { const (a, b, c) = (1, 2); }",
+        "this pattern binds 3 names, but the tuple has 2 elements",
+    );
+}
+
+#[test]
+fn a_tuple_holds_only_values_it_can_copy() {
+    // A tuple is copied by copying its bytes, so an element that owns a
+    // reference has no meaning yet -- the same rule fixed arrays use.
+    assert_error(
+        "fn main() { const bad = (1, \"s\"); }",
+        "a tuple cannot hold `string`",
+    );
+    // A fixed array is copyable, but the element rule stays at scalars and
+    // tuples of them: `size_of` a tuple predicts LLVM's field alignment from
+    // each element's own size, which is exact for a scalar and not for an
+    // aggregate. Admitting it later is a change to that rule, not a bug here.
+    assert_error(
+        "fn main() { const bad = (1, [2, 3]); }",
+        "a tuple cannot hold `[i64; 2]`",
+    );
+    // Scalars and nested tuples of them are the whole supported set.
+    let (result, _, _) = check_source("fn main() { const ok = (1, (2.0, true), 3); }");
+    if let Err(diags) = result {
+        panic!("scalars and nested tuples should be allowed: {diags:?}");
+    }
+}
+
+#[test]
+fn a_const_destructured_binding_is_immutable_and_a_var_one_is_not() {
+    assert_error(
+        "fn main() { const pair = (1, 2); const (a, b) = pair; a = 5; }",
+        "cannot assign to `a`, which is immutable",
+    );
+    let (result, _, _) = check_source(
+        "fn main() { const pair = (1, 2); var (a, b) = pair; a = 5; let (c, d) = pair; c = 6; }",
+    );
+    if let Err(diags) = result {
+        panic!("`var` and `let` elements should be assignable: {diags:?}");
+    }
+}
+
+#[test]
+fn a_guard_must_be_a_bool_and_sees_the_patterns_names() {
+    assert_error(
+        "fn f(n: i64) -> i64 { return switch n { case 1 if n { 1 } default { 0 } }; }",
+        "a guard must be a `bool`, found `i64`",
+    );
+
+    // The binding `v` is in scope inside the guard and inside the body: the
+    // guard is checked after the pattern has bound its names.
+    let (result, _, _) = check_source(
+        "enum E { A(i64), B } \
+         fn f(e: E) -> i64 { return switch e { case A(v) if v > 0 { v } case A(v) { 0 } case B { 1 } }; }",
+    );
+    if let Err(diags) = result {
+        panic!("a guard should see the pattern's names: {diags:?}");
+    }
+}
+
+#[test]
+fn a_guard_does_not_count_towards_exhaustiveness() {
+    // `A` is matched only by a guarded arm, so the switch can reach a value
+    // with no arm to take: the guard does not cover the case where it is false.
+    assert_error(
+        "enum E { A, B } \
+         fn f(e: E) -> i64 { return switch e { case A if true { 1 } case B { 2 } }; }",
+        "switch is not exhaustive: missing case `A`",
+    );
+
+    // The same rule for the `default` of a switch over a scalar.
+    assert_error(
+        "fn f(n: i64) -> i64 { return switch n { default if n > 0 { 1 } }; }",
+        "switch over a non-enum type is not exhaustive",
+    );
+}
+
+#[test]
+fn tuples_are_ordinary_parameters_and_return_values() {
+    let (result, _, _) = check_source(
+        "fn swap(p: (i64, bool)) -> (bool, i64) { const (n, b) = p; return (b, n); }",
+    );
+    let hir = result.expect("a tuple parameter and return type should check");
+    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "swap")) else {
+        panic!("swap should exist");
+    };
+    assert_eq!(f.params[0].ty.to_string(), "(i64, bool)");
+    assert_eq!(f.ret.to_string(), "(bool, i64)");
+}
+
+#[test]
+fn a_generic_function_can_be_called_with_a_tuple() {
+    // A tuple is a type like any other to the unifier: `T` becomes
+    // `(i64, bool)` and the instance is mangled from the element types.
+    let (result, _, _) = check_source(
+        "fn identity[T](x: T) -> T { return x; } \
+         fn main() { const t = identity((1, true)); }",
+    );
+    let hir = result.expect("a generic call with a tuple argument should check");
+    let names: Vec<&str> = hir
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            HirItem::Fn(f) => Some(f.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        names.contains(&"identity_tuple_i64_bool"),
+        "the instance is named from the element types: {names:?}"
+    );
+}

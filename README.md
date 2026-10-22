@@ -36,8 +36,12 @@ is part of its type is a fixed array: `[i64; 3]` stores its elements in the
 frame, `[1, 2, 3]` is its literal, and indexing is checked like any other array
 (`grid[i]` is an `Option`). `grid[0..2]` is a *view*: a length and a pointer
 into the array that owns nothing, with clamped bounds, and the checker refuses
-to move or change the array until the view is out of scope.
-A program can read its
+to move or change the array until the view is out of scope. A tuple is an
+anonymous product: `(i64, i64)` is a type, `(a, b)` is its literal, and
+`const (n, rest) = pair;` unpacks one into separate bindings (`_` skips an
+element). An arm may carry a guard -- `case Circle(r) if r > 10.0` -- checked
+after the pattern has bound its names; a false guard sends the search on to the
+next arm exactly as a failed pattern would. A program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
@@ -689,4 +693,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
 | M13 ✅ | Function values: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures with refcounted environments, the `map`/`filter`/`fold` array methods, `impl` methods, `object` declarations, static methods, and generic functions by monomorphization |
 | M14 ✅ | Objects: field-and-method declarations, static methods and constructors, and pointer receivers (`self: *mut T`) that mutate the object they are called on |
-| M15 (in progress) | Correctness gaps: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, and fixed arrays `[T; N]` with borrowed `a[start..end]` views (arrays and views done) |
+| M15 (in progress) | Correctness gaps: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, fixed arrays `[T; N]` with borrowed `a[start..end]` views, tuples with destructuring, and pattern guards (arrays, views, tuples and guards done) |

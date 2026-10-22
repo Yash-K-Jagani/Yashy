@@ -150,6 +150,19 @@ $workloads = @(
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'fixed_array.go'; Out = 'fixed_array-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'fixed_array.rs'; Out = 'fixed_array-rust' }
        ) },
+    # A tuple: `min_max` returns two i64s as one value, the caller destructures
+    # it, and both halves feed the accumulator. The C row returns the same pair
+    # as a struct by value, Go returns two values, and Rust returns a tuple.
+    # There is no allocation anywhere, so the row measures the aggregate return
+    # and the extraction, not a data structure.
+    @{ Name = 'tuple'; Work = 50000000; Unit = 'iteration'; Expected = '3750000000000000'; Source = 'tuple.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'tuple.ot'; Out = 'tuple-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'tuple.c';  Out = 'tuple-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'tuple.c';  Out = 'tuple-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'tuple.go'; Out = 'tuple-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'tuple.rs'; Out = 'tuple-rust' }
+       ) },
     # The array mapping: the same loop in every language, building a second
     # array the size of the first.
     @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';

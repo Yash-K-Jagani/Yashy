@@ -368,6 +368,31 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             }
             Flow::Fallthrough
         }
+        HirStmt::Destructure {
+            init, bindings, ..
+        } => {
+            // The tuple value is an aggregate, so each element is one
+            // `extractvalue` -- no address, no copy of the whole, and nothing
+            // to free: the checker only admits elements that own nothing.
+            let value = gen_expr(ctx, init);
+            let repr = repr_type(&value.ty);
+            for (index, binding) in bindings.iter().enumerate() {
+                let Some((name, ty)) = binding else { continue };
+                let element_repr = repr_type(&ty.kind);
+                let slot = ctx.alloc_slot();
+                ctx.push_alloca(format!("{slot} = alloca {element_repr}"));
+                let element = ctx.tmp();
+                ctx.push(format!(
+                    "{element} = extractvalue {repr} {}, {index}",
+                    value.value
+                ));
+                if element_repr != "void" {
+                    ctx.push(format!("store {element_repr} {element}, ptr {slot}"));
+                }
+                ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+            }
+            Flow::Fallthrough
+        }
         HirStmt::IndexAssign {
             base,
             index,

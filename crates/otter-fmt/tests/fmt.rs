@@ -184,6 +184,16 @@ fn a_lambda_bars_bind_to_their_parameter_list() {
 }
 
 #[test]
+fn a_trailing_comma_keeps_its_closer_attached() {
+    // `(5,)` is the one-element tuple and `[1,]` is an array with a trailing
+    // separator; in both cases the comma is followed by the closer rather
+    // than by another element, so the separator's space would be stray. The
+    // same source is the fixed point: formatting it again changes nothing.
+    let source = "fn main() {\n    const pair = (5,);\n    const (only,) = pair;\n    const xs = [1, 2, 3,];\n}\n";
+    assert_eq!(format(source), source);
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = otter_fmt::format(source).expect_err("bad input must be reported");

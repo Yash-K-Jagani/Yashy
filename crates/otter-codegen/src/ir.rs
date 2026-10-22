@@ -56,6 +56,13 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
             format!("[{} x {}]", length, llvm_type_string(&element.kind))
         }
         TypeKind::View(_) => "{ i8*, i64 }".to_string(),
+        TypeKind::Tuple(elements) => {
+            let fields: Vec<String> = elements
+                .iter()
+                .map(|element| llvm_type_string(&element.kind))
+                .collect();
+            format!("{{ {} }}", fields.join(", "))
+        }
         // Every function value is a code pointer plus an environment pointer.
         // A non-capturing function leaves the environment null; a closure will
         // put a retained environment there.
@@ -106,12 +113,39 @@ pub fn repr_type(t: &TypeKind) -> String {
         TypeKind::FixedArray(element, length) => {
             format!("[{} x {}]", length, repr_type(&element.kind))
         }
+        // A tuple is an LLVM literal struct: the elements live where the value
+        // does, in order, and position is part of the type. LLVM names the
+        // struct by its field list, so two elements of the same type in the
+        // same order are the same struct -- which is exactly tuple equality.
+        TypeKind::Tuple(elements) => {
+            let fields: Vec<String> = elements.iter().map(|e| repr_type(&e.kind)).collect();
+            format!("{{ {} }}", fields.join(", "))
+        }
         // A view is a pointer and a length. The pointer names the first element
         // the view covers, so the length is the only other thing it needs.
         TypeKind::View(_) => "{ i8*, i64 }".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Map(_, _) => "i8*".to_string(),
         other => llvm_type_string(other),
+    }
+}
+
+/// The alignment LLVM gives a value of `kind`, for the types a tuple may hold.
+///
+/// A scalar's size is its alignment, but a tuple's is not: `{ i64, i1 }` is 16
+/// bytes and 8-byte aligned. Deriving it from the size would align a nested
+/// tuple to 16 and make the outer size wrong.
+fn alignment_of(kind: &TypeKind) -> u64 {
+    match kind {
+        TypeKind::Tuple(elements) => elements
+            .iter()
+            .map(|element| alignment_of(&element.kind))
+            .max()
+            .unwrap_or(1),
+        TypeKind::Bool | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
+        TypeKind::CInt(16) | TypeKind::CUInt(16) => 2,
+        TypeKind::CInt(32) | TypeKind::CUInt(32) | TypeKind::CFloat(32) => 4,
+        other => size_of(other).max(1),
     }
 }
 
@@ -149,6 +183,21 @@ pub fn size_of(kind: &TypeKind) -> u64 {
             size_of(&element.kind).saturating_mul(u64::try_from(*length).unwrap_or(u64::MAX))
         }
         TypeKind::View(_) => 16,
+        // LLVM lays out a struct by aligning each field to its own alignment
+        // and rounding the whole to the largest one. A tuple's elements are
+        // scalars and other tuples, so both numbers are reproducible here.
+        TypeKind::Tuple(elements) => {
+            let mut size = 0u64;
+            let mut alignment = 1u64;
+            for element in elements {
+                let element_size = size_of(&element.kind);
+                let element_align = alignment_of(&element.kind);
+                size = size.div_ceil(element_align) * element_align;
+                size = size.saturating_add(element_size);
+                alignment = alignment.max(element_align);
+            }
+            size.div_ceil(alignment) * alignment
+        }
         TypeKind::Func(_, _) => 16,
         TypeKind::Option(_)
         | TypeKind::Result(_, _)
@@ -225,6 +274,7 @@ pub fn variant_payload_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use otter_sema::Type;
 
     /// A unit variant first, then one positional field, then two named ones.
     /// This is the case where a variant's tag and its payload's first field
@@ -269,5 +319,40 @@ mod tests {
         });
         assert_eq!(variant_tag(&ty, "Last", Some(&four)), Some(3));
         assert_eq!(variant_payload_index(&ty, "Last", Some(&four)), Some(4));
+    }
+
+    fn ty(kind: TypeKind) -> Type {
+        Type {
+            kind,
+            span: otter_common::Span::new(0, 0),
+        }
+    }
+
+    #[test]
+    fn a_tuple_is_sized_like_the_llvm_struct_it_is() {
+        // `{ i64, i1 }` is 16 bytes: the bool pads to the i64's alignment. Its
+        // own alignment is still 8, so an outer tuple must not align it to its
+        // size -- that is the case a size-derived alignment gets wrong.
+        let inner = TypeKind::Tuple(vec![ty(TypeKind::I64), ty(TypeKind::Bool)]);
+        assert_eq!(size_of(&inner), 16);
+        assert_eq!(alignment_of(&inner), 8);
+
+        // LLVM: the i64 at 0, the 16-byte nested tuple at 8, the last i64 at
+        // 24, and the whole struct rounded to 32.
+        let outer = TypeKind::Tuple(vec![
+            ty(TypeKind::I64),
+            ty(inner),
+            ty(TypeKind::I64),
+        ]);
+        assert_eq!(size_of(&outer), 32);
+        assert_eq!(alignment_of(&outer), 8);
+
+        // Two eight-byte scalars and a lone bool are the simple ends of the
+        // rule: size 16, and size 1 with alignment 1.
+        assert_eq!(
+            size_of(&TypeKind::Tuple(vec![ty(TypeKind::I64), ty(TypeKind::F64)])),
+            16
+        );
+        assert_eq!(size_of(&TypeKind::Tuple(vec![ty(TypeKind::Bool)])), 1);
     }
 }

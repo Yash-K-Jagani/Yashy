@@ -46,20 +46,34 @@ use crate::ir::{repr_type, variant_payload_index, variant_tag};
 enum Test {
     Tag(u8),
     Literal(Literal),
+    /// A guard on a pattern that matches everything.
+    ///
+    /// A bare `case _ if c` has no tag to test and still has two ways to go:
+    /// the guard says yes, or the search continues. Giving it a place in the
+    /// chain -- a block that branches straight to the arm -- is what keeps the
+    /// arm at its source position instead of turning it into the chain's
+    /// fall-through, where nothing after it could be tried.
+    Always,
 }
 
-/// The test an arm performs, or `None` for an arm that matches everything.
+/// The test an arm performs, or `None` for an arm that matches everything and
+/// has no guard.
 fn test_for(ctx: &FnCtx<'_>, arm: &HirSwitchArm, subject: &TypeKind) -> Option<Test> {
     if arm.is_default {
-        return None;
+        return arm.guard.as_ref().map(|_| Test::Always);
     }
     if let HirPattern::Literal(literal, _) = &arm.pattern {
         return Some(Test::Literal(literal.clone()));
     }
     let user = ctx.module.enum_variants(subject);
-    pattern_variant_name(&arm.pattern)
-        .and_then(|name| variant_tag(subject, name, user))
-        .map(Test::Tag)
+    match pattern_variant_name(&arm.pattern).and_then(|name| variant_tag(subject, name, user)) {
+        Some(tag) => Some(Test::Tag(tag)),
+        // A wildcard or a binding matches everything, so normally it is the
+        // fall-through. A guard changes that: the arm can decline the value,
+        // and the arms after it still have to be tried.
+        None if arm.guard.is_some() => Some(Test::Always),
+        None => None,
+    }
 }
 
 /// Lower a `switch` on `subject` against `arms`. Returns the name of the
@@ -96,6 +110,12 @@ pub fn gen_match(
 
     // Phase 1: the test chain. The first test lands in the current block; each
     // later one opens the block the previous test branched to.
+    //
+    // `fail_targets[index]` is where arm `index` goes when its *guard* says no.
+    // That is the same place its test would have gone on a non-match: the next
+    // test, or the chain's fall-through arm. A guard that fails is a pattern
+    // that did not match, which is exactly the semantics Otter gives it.
+    let mut fail_targets: Vec<Option<String>> = vec![None; arms.len()];
     let mut opened = false;
     for (index, test) in tests.iter().enumerate() {
         let Some(test) = test else { continue };
@@ -105,7 +125,8 @@ pub fn gen_match(
         opened = true;
 
         // Each branch allocates its temps in the order the pinned goldens
-        // record: the tag extraction first, then the comparison.
+        // record: the tag extraction first, then the comparison. `Always`
+        // allocates nothing -- there is no question to ask.
         let is_match = match test {
             Test::Tag(tag) => {
                 let subject_repr = repr_type(&subject.ty);
@@ -119,7 +140,7 @@ pub fn gen_match(
                 // typed constants, so `i8 0` here is a parse error ("expected
                 // value token").
                 ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, {tag}"));
-                is_match
+                Some(is_match)
             }
             Test::Literal(literal) => {
                 let value = gen_literal(ctx, literal, &subject.ty);
@@ -142,18 +163,23 @@ pub fn gen_match(
                         value.value
                     ));
                 }
-                is_match
+                Some(is_match)
             }
+            Test::Always => None,
         };
 
         let next = next_test(&tests, index)
             .map(|next| test_labels[next].clone())
             .or_else(|| fallthrough.map(|arm| arm_labels[arm].clone()))
             .unwrap_or_else(|| result_done.clone());
-        ctx.push(format!(
-            "br i1 {is_match}, label %{}, label %{next}",
-            arm_labels[index]
-        ));
+        fail_targets[index] = Some(next.clone());
+        match is_match {
+            Some(is_match) => ctx.push(format!(
+                "br i1 {is_match}, label %{}, label %{next}",
+                arm_labels[index]
+            )),
+            None => ctx.push(format!("br label %{}", arm_labels[index])),
+        }
     }
     if !opened {
         // No arm tests anything: fall straight through to the untested arm, or
@@ -166,10 +192,24 @@ pub fn gen_match(
     }
 
     // Phase 2: the arm bodies. Each binds its pattern, lowers its body, and
-    // writes the result into the shared slot.
+    // writes the result into the shared slot. An arm with a guard evaluates it
+    // first: true falls into the body, false goes where a failed test would
+    // have gone. An unguarded arm has no extra block, so its IR is untouched.
     for (index, arm) in arms.iter().enumerate() {
         ctx.push(format!("{}:", arm_labels[index]));
         bind_pattern(ctx, subject, &arm.pattern);
+        if let Some(guard) = &arm.guard {
+            let condition = gen_expr(ctx, guard);
+            let accepted = ctx.alloc_label_base() + "_accept";
+            let rejected = fail_targets[index]
+                .clone()
+                .unwrap_or_else(|| result_done.clone());
+            ctx.push(format!(
+                "br i1 {}, label %{accepted}, label %{rejected}",
+                condition.value
+            ));
+            ctx.push(format!("{accepted}:"));
+        }
         let body_value = gen_expr(ctx, &arm.body);
         if result_repr != "void" && !body_value.value.is_empty() {
             ctx.push(format!(

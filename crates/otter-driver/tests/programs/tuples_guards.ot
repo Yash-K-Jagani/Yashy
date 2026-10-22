@@ -1,0 +1,106 @@
+// Tuples, destructuring, and pattern guards.
+//
+// `min_max` returns both answers at once as a `(i64, i64)`, and every binding
+// in this program unpacks one: `const` for a fixed pair, `var`/`let` for the
+// mutable ones, `_` for the element that is not wanted, `(only,)` for the
+// one-element spelling, and a second destructuring for a nested tuple.
+//
+// `classify` and `bucket` are about guards. A guard is checked after the
+// pattern has bound its names, and a false guard means "this arm did not
+// match" -- the search continues exactly as if the pattern had failed. The
+// last arms are unguarded on purpose: a guard cannot stand in for a case
+// that covers everything, because it can always say no.
+
+enum Shape {
+    Circle(f64),
+    Rect { w: f64, h: f64 },
+    Dot,
+}
+
+fn min_max(a: i64, b: i64) -> (i64, i64) {
+    if a < b {
+        return (a, b);
+    }
+    return (b, a);
+}
+
+fn sum(pair: (i64, i64)) -> i64 {
+    const (a, b) = pair;
+    return a + b;
+}
+
+fn classify(shape: Shape) -> string {
+    return switch shape {
+        case Circle(r) if r > 10.0 { "big circle" }
+        case Circle(r) { "small circle" }
+        case Rect { w: w, h: h } if w == h { "square" }
+        case Rect { w: w, h: h } { "rectangle" }
+        case Dot { "dot" }
+    };
+}
+
+fn bucket(n: i64) -> i64 {
+    return switch n {
+        case 0 { 100 }
+        // A guard on a pattern that matches everything still has a place in
+        // the search order: when the guard says no, the `default` below is
+        // reached rather than skipped.
+        case _ if n < 0 { 200 }
+        default { 300 }
+    };
+}
+
+fn main() {
+    const pair = min_max(9, 4);
+    const (lo, hi) = pair;
+    print_i64(lo);
+    print_str("\n");
+    print_i64(hi);
+    print_str("\n");
+
+    // `_` skips an element; `var` leaves the remaining one assignable.
+    var (first, _) = min_max(2, 7);
+    first = first + 1;
+    print_i64(first);
+    print_str("\n");
+
+    // A one-element tuple is the spelling with the trailing comma.
+    const single = (5,);
+    const (only,) = single;
+    print_i64(only);
+    print_str("\n");
+
+    // A tuple is an ordinary value: it can be passed and returned.
+    print_i64(sum(pair));
+    print_str("\n");
+
+    // Nested tuples unpack one layer at a time.
+    const nested = (1, (2, 3));
+    const (x, rest) = nested;
+    const (y, z) = rest;
+    print_i64(x + y + z);
+    print_str("\n");
+
+    print_str(classify(Shape.Circle(20.0)));
+    print_str("\n");
+    print_str(classify(Shape.Circle(2.0)));
+    print_str("\n");
+    print_str(classify(Shape.Rect { w: 3.0, h: 3.0 }));
+    print_str("\n");
+    print_str(classify(Shape.Rect { w: 3.0, h: 4.0 }));
+    print_str("\n");
+    print_str(classify(Shape.Dot));
+    print_str("\n");
+
+    print_i64(bucket(0));
+    print_str("\n");
+    print_i64(bucket(0 - 5));
+    print_str("\n");
+    print_i64(bucket(5));
+    print_str("\n");
+
+    let (small, large) = min_max(3, 8);
+    large = large + 1;
+    print_i64(small + large);
+    print_str("\n");
+}

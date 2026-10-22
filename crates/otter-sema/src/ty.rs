@@ -97,6 +97,15 @@ pub enum TypeKind {
     /// type as a `{ i8* code, i8* env }` pair; a non-capturing function leaves
     /// the environment null.
     Func(Vec<Type>, Box<Type>),
+    /// A tuple `(A, B, ...)`: an anonymous product of values.
+    ///
+    /// The elements are a list, so `(i64, bool)` and `(bool, i64)` are
+    /// different types -- position is part of the type, which is the whole
+    /// difference between a tuple and a struct with unnamed fields. Tuples are
+    /// copied by copying their bytes, so an element that owns a reference has
+    /// no meaning here yet; the checker keeps the elements to the built-in
+    /// value types and to other tuples of them.
+    Tuple(Vec<Type>),
     /// No value: the expression diverges. Not written by users.
     Never,
 }
@@ -162,6 +171,21 @@ impl std::fmt::Display for Type {
                 write!(f, ") -> {ret}")
             }
             TypeKind::Never => write!(f, "!"),
+            TypeKind::Tuple(elements) => {
+                write!(f, "(")?;
+                let mut first = true;
+                for element in elements {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    write!(f, "{element}")?;
+                }
+                if elements.len() == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }

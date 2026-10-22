@@ -309,6 +309,18 @@ fn fixed_arrays_and_views() {
 }
 
 #[test]
+fn tuples_destructure_and_guards_select() {
+    // A function returns two answers as one tuple; each binding unpacks it.
+    // The guards select the big circle, the square, and the negative bucket,
+    // and the unguarded arms catch everything the guards decline.
+    let output = build_and_run("tuples_guards");
+    assert_eq!(
+        stdout_of(&output),
+        "4\n9\n3\n5\n13\n6\nbig circle\nsmall circle\nsquare\nrectangle\ndot\n100\n200\n300\n12\n"
+    );
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

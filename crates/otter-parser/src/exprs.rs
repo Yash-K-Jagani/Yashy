@@ -377,10 +377,29 @@ impl<'src> Parser<'src> {
                     // unit not an expr; return? error
                     return Err(self.error(open.span, "expected an expression".to_string()));
                 }
-                let e = self.parse_expr()?;
-                self.expect(TokenKind::RParen)?;
+                let first = self.parse_expr()?;
+                if !self.eat(TokenKind::Comma) {
+                    // No comma: the parentheses only grouped.
+                    self.expect(TokenKind::RParen)?;
+                    self.close_open(TokenKind::RParen);
+                    return Ok(first);
+                }
+                // The comma is what makes a tuple: `(a, b)` is a value with
+                // two elements, and `(a,)` is the one-element spelling -- the
+                // trailing comma is what keeps it from being read as grouping.
+                let mut elements = vec![first];
+                while !self.check(TokenKind::RParen) && !self.at_eof() {
+                    elements.push(self.parse_expr()?);
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let close = self.expect(TokenKind::RParen)?;
                 self.close_open(TokenKind::RParen);
-                Ok(e)
+                Ok(Expr::TupleLit {
+                    elements,
+                    span: cover(open.span, close.span),
+                })
             }
             TokenKind::Ident => {
                 let (first, first_span) = self.identifier()?;
@@ -512,9 +531,14 @@ impl<'src> Parser<'src> {
             } else {
                 self.parse_pattern()?
             };
+            let guard = if self.eat(TokenKind::If) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
             let body = self.parse_switch_arm_body_expr()?;
             let arm_span = cover(pattern_span(&pattern), expr_span(&body));
-            arms.push(crate::ast::SwitchArm { pattern, body, is_default, span: arm_span });
+            arms.push(crate::ast::SwitchArm { pattern, guard, body, is_default, span: arm_span });
         }
         let close = self.expect(TokenKind::RBrace)?;
         self.close_open(TokenKind::RBrace);
@@ -718,6 +742,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::FieldAccess { span, .. } => *span,
         Expr::Index { span, .. } => *span,
         Expr::FixedArrayLit { span, .. } => *span,
+        Expr::TupleLit { span, .. } => *span,
         Expr::IndexRange { span, .. } => *span,
         Expr::Interp { span, .. } => *span,
         Expr::Cast { span, .. } => *span,

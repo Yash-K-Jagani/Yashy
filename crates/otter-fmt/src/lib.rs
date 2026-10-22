@@ -332,13 +332,17 @@ fn top_level_or_line(indent: usize) -> Break {
 /// `)`, `]`, `.`, `:`, or `..`; none after `(`, `[`, `.`, `..`, or `!`; none
 /// before `(` or `[`, so a call and a subscript stay attached to their name;
 /// none after `]`, so `[]i64` and `map[K]V` print as written.
+///
+/// The closer rule is checked before the separator rule, so a *trailing* comma
+/// keeps its closer attached: `(5,)` is the one-element tuple, and `(5, )`
+/// would be the separator rule leaking into a place where nothing separates.
 fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     use TokenKind::*;
-    if matches!(prev, Colon | Comma) {
-        return true;
-    }
     if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon) {
         return false;
+    }
+    if matches!(prev, Colon | Comma) {
+        return true;
     }
     if matches!(prev, LParen | LBracket | Dot | DotDot | Bang) {
         return false;

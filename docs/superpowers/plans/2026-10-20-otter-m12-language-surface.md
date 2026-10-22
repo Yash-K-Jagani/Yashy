@@ -1595,34 +1595,107 @@ git commit -m "feat: fixed arrays and borrowed array views"
 - Produces: tuple types `(i64, string)`, tuple literals `(1, "a")`, destructuring `const (n, s) = pair;`, and switch guards `case Circle(r) if r > 10.0 { ... }`.
 - Consumes: enum pattern machinery.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `tuples_guards.ot` returns `(i64, i64)` from `min_max`, destructures it into
 `lo`/`hi`, and matches a `Shape` with a guard that selects only large circles.
 
-- [ ] **Step 2: Run and verify it fails**
+- [x] **Step 2: Run and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e tuples_destructure_and_guards_select`
 Expected: FAIL at parse.
 
-- [ ] **Step 3: Implement tuples, destructuring, and guards**
+- [x] **Step 3: Implement tuples, destructuring, and guards**
 
 Tuple types are anonymous LLVM structs; literals are `insertvalue`. A tuple
 pattern checks arity and element types and binds each name. A guard is checked
 as a `bool` after the pattern binds; codegen evaluates it in the arm block and
 jumps to the next arm on false. Exhaustiveness ignores guards.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e tuples_destructure_and_guards_select`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+The test passes, and the program's checked output was also confirmed directly:
+`4 9 3 5 13 6 big circle small circle square rectangle dot 100 200 300 12`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/tuples_guards.ot
 git commit -m "feat: tuples, destructuring, and pattern guards"
 ```
+
+**As built**
+
+- **The AST split this plan assumed no longer exists.** `parser.rs` is a
+  dispatcher; statements, expressions, and types live in `stmts.rs`, `exprs.rs`,
+  and `types.rs`. Tuple types were already parsed (`TypeExpr::Tuple`) and
+  rejected by the checker; only the value, statement, and guard halves were new.
+- **A destructuring pattern is a list of names, not a general pattern.** The
+  plan's `(n, s)` is the whole grammar: `(` name-or-`_` `,` ... `)`. A general
+  pattern in binding position would need refutable bindings (`const (Some(n),
+  _) = ...` is a runtime failure), which the language does not have. That makes
+  arity a static property of the tuple's type and leaves `_` as the only
+  skipping form.
+- **`(e)` groups and `(e,)` is a one-element tuple.** The comma is what makes
+  the node, matching the type grammar's existing `(T,)` rule. Grouping is not a
+  new expression variant, so there is no way to write a tuple value with the
+  wrong arity by accident.
+- **Tuple elements are copyable values only: numbers, `bool`, and tuples of
+  them.** The plan's interface shows `(i64, string)`, which would make a tuple
+  copy a second reference; a `string` element needs a retain/release rule for
+  aggregates, and that is Task 20/21 work, not this one. `string`, slices,
+  pointers, structs, and fixed arrays are rejected with
+  `a tuple cannot hold `<type>``. There is also no tuple field access
+  (`pair.0`) and no tuple equality; destructure and compare the parts.
+- **A guard on a catch-all pattern gets a place in the test chain.** The IR
+  chain tests each arm that has a tag or literal and falls through to the first
+  untested arm. A guarded `case _ if c` cannot be that fall-through, because a
+  false guard has to reach the arms below it. Such an arm gets a
+  `Test::Always` entry -- an unconditional branch to its own block -- so the
+  chain keeps source order and the rejected edge goes to the next test (or the
+  next arm). An unguarded arm's IR is byte-identical to before, which is why
+  the pinned goldens did not change.
+- **Guards are ignored for exhaustiveness, and that is sound.** A switch whose
+  unguarded arms cover the subject can always reach an arm that stores the
+  result: the chain visits every test in source order and the unguarded arm for
+  the value's variant matches when it is reached. A guarded `default` counts as
+  no `default`, so `default if c` alone reports the same "not exhaustive"
+  diagnostic an empty switch does. `block_always_returns` was updated the same
+  way, so a switch whose only catch-all is guarded is not treated as returning
+  on every path.
+- **The guard sees the pattern's names, checked in the arm's own scope.**
+  `case A(v) if v > 0` works because the guard is checked after the bindings
+  are declared and before the arm's scope is popped; the arm scope is also
+  popped when the guard or body fails to check, which the old code did not do
+  on the body path.
+- **A tuple parameter is passed as one aggregate argument** (`define { i1, i64 }
+  @swap({ i64, i1 } %arg0)`), not as flattened fields. Returning one is the
+  aggregate return, and the call site names the same struct, so there is no
+  hidden out-parameter.
+- **Tests:** e2e `tuples_destructure_and_guards_select`; parser
+  `crates/otter-parser/tests/tuples.rs` (8 tests: grouping vs tuple, order and
+  spans, all three keywords, `_`, trailing comma, non-name diagnostics, guards
+  in both switch forms, tuple types); sema
+  `crates/otter-sema/tests/check.rs` (9 tests: tuple types and nesting,
+  element types in the HIR, `_`, non-tuple/arity diagnostics, the element
+  restriction, const vs var mutability, guard type and scope, guards ignored
+  for exhaustiveness, tuple parameters/returns, generic instantiation of a
+  tuple); codegen `crates/otter-codegen/tests/tuples.rs` (7 IR-shape tests:
+  insertvalue chain, nested struct, extractvalue per binding, aggregate
+  call/return, guard accept edge, two guards on one variant, guarded catch-all
+  in the chain, plus a `size_of` unit test for the nested-struct layout). The
+  tutorial is chapter 5 ("Guards", "Tuples and destructuring"), whose blocks
+  compile and run.
+- **`otter fmt` now treats a trailing comma as trailing.** `needs_space`
+  checked `prev == Comma` before the closer rule, so a one-element tuple was
+  rewritten as `(5, )`. The closer rule now wins, which makes `(5,)` the
+  formatter's fixed point (`crates/otter-fmt/tests/fmt.rs`).
+- **Benchmark:** `benchmarks/features/tuple.*` (Otter, C, Go, Rust) measures a
+  function returning `(i64, i64)` and the caller destructuring it in a loop;
+  the row is in `benchmarks/README.md`.
 
 ### Task 20: Debug formatting, numeric literals, and module visibility
 

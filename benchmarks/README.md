@@ -67,6 +67,7 @@ have a comparable standard-library primitive.
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
+| `tuple` | 50,000,000 calls returning a `(i64, i64)`, each destructured by the caller and both elements folded into the accumulator | C struct returned by value (clang and gcc), Go multiple returns, Rust tuple |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -716,5 +717,43 @@ that a checked add is what it is.
 A view (`grid[0..2]`, or the whole `grid` in the `for` above) is not measured
 separately: it is the same header-free pointer-and-length loop as iterating the
 array, and its length is already a word in a register.
+
+#### Tuples — 50,000,000 calls returning two values
+
+| Language | min ms | median ms | ns/iteration |
+|---|---:|---:|---:|
+| C (gcc -O2) | 74.7 | 80.1 | 1.494 |
+| C (clang -O2) | 90.6 | 97.8 | 1.812 |
+| Rust (rustc -O) | 97.7 | 102.9 | 1.953 |
+| Otter -O2 | 133.6 | 135.4 | 2.672 |
+| Go (go build) | BLOCKED | — | — |
+
+Every row runs the same loop: `min_max(i, rounds - i)` returns the smaller and
+the larger of its two arguments as one value, the caller destructures that value
+into `lo` and `hi`, and folds `3 * lo + hi` into an accumulator. The program
+prints `3750000000000000`. The pair travels by value: Otter returns a
+`{ i64, i64 }` literal struct, C returns a two-field struct, Rust returns a
+tuple (also a two-field struct), and Go returns two results — which its ABI also
+turns into a register pair.
+
+The rows are within 1.8x of each other and the ordering is arithmetic policy
+again, not layout. All four compilers inline a function this small, so the
+aggregate return and the destructuring disappear and what is left is the
+`if`, the multiply, and the adds. Otter's `+`, `-`, and `*` each test for
+overflow and branch, and this loop does five of them per iteration (the
+subtraction in the argument, the multiply, two adds into the accumulator, and
+the increment), so the Otter row is 1.47x clang and 1.79x gcc. Rust's `-O`
+turns overflow checks off and lands next to clang; gcc reassociates the sum
+into one multiply-add chain and wins. A tuple itself has no run-time
+representation to pay for: the number would be the same if `min_max` returned
+one `i64` and the loop multiplied it.
+
+The Go row is BLOCKED: Application Control refused every freshly linked
+`tuple-go` binary during the run, and this suite does not time a binary that
+has not printed its expected output. The Otter row was produced by the same
+compiler source built in debug mode (`-O2` output is unchanged by the compiler
+binary's own optimization), because the freshly built release driver was
+blocked at the time; re-running `run-features.ps1` rebuilds and times every row
+through the release driver.
 
 
