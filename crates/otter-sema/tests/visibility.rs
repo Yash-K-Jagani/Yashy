@@ -165,3 +165,54 @@ fn a_const_fn_is_private_too() {
         "`square` is private to module `lib`",
     );
 }
+
+#[test]
+fn a_private_generic_function_is_not_usable_from_another_module() {
+    // A generic function is not a value and has no root-scope binding, so the
+    // check is not the ordinary name lookup's: it is the call path's.
+    assert_rejected(
+        &[
+            (
+                "main.ot",
+                "import lib;\nfn main() { print_i64(identity(3)); }\n",
+            ),
+            (
+                "lib.ot",
+                "fn identity[T](x: T) -> T { return x; }\n",
+            ),
+        ],
+        "`identity` is private to module `lib`",
+    );
+}
+
+#[test]
+fn a_private_field_may_not_be_written_from_another_module() {
+    assert_rejected(
+        &[
+            (
+                "main.ot",
+                "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; p.x = 3; }\n",
+            ),
+            (
+                "lib.ot",
+                "pub struct Point { x: i64, pub y: i64 }\n",
+            ),
+        ],
+        "field `x` of `Point` is private to module `lib`",
+    );
+}
+
+#[test]
+fn a_public_type_is_usable_from_another_module() {
+    check(&[
+        (
+            "main.ot",
+            "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print_i64(p.y); }\n",
+        ),
+        (
+            "lib.ot",
+            "pub struct Point { pub x: i64, pub y: i64 }\n",
+        ),
+    ])
+    .expect("a `pub` type is another module's to name");
+}

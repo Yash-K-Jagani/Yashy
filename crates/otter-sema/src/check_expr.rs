@@ -3533,6 +3533,9 @@ impl<'src> Checker<'src> {
             return None;
         }
         let sig = self.enums.get(&path[0])?.clone();
+        // The enum is an item, so it is private to the module that declares
+        // it unless it is `pub`.
+        self.check_visibility(&path[0], span);
         let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
         if !variant.fields.is_empty() {
             self.error(
@@ -3576,6 +3579,9 @@ impl<'src> Checker<'src> {
             return None;
         }
         let sig = self.enums.get(&path[0])?.clone();
+        // The enum is an item, so it is private to the module that declares
+        // it unless it is `pub`.
+        self.check_visibility(&path[0], span);
         let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
         let enum_name = path[0].clone();
         let variant_name = path[1].clone();
@@ -3723,6 +3729,11 @@ impl<'src> Checker<'src> {
         }
         let binding = self.scope.resolve(receiver)?;
         let receiver_ty = binding.ty.clone();
+        // The receiver's type is an item, so it is private to the module that
+        // declares it unless it is `pub`.
+        if let TypeKind::Struct(name) = &receiver_ty.kind {
+            self.check_visibility(name, span);
+        }
         if matches!(
             receiver_ty.kind,
             TypeKind::FixedArray(_, _) | TypeKind::View(_)
@@ -3818,6 +3829,9 @@ impl<'src> Checker<'src> {
             self.error(span, format!("no method `{method}` on `{type_name}`"));
             return None;
         };
+        // The type is an item, so it is private to the module that declares
+        // it unless it is `pub`.
+        self.check_visibility(type_name, span);
         if sig.has_self {
             self.error(
                 span,
@@ -6063,6 +6077,9 @@ impl<'src> Checker<'src> {
                 // the argument types, and the body is checked at that
                 // substitution rather than here.
                 if callee.len() == 1 && self.generics.contains_key(&name) {
+                    // A generic function is an item, so it is private to the
+                    // module that declares it unless it is `pub`.
+                    self.check_visibility(&name, *span);
                     return self.check_generic_call(&name, args, *span);
                 }
                 // The method surface replaced these free-function spellings.
@@ -7108,6 +7125,11 @@ impl<'src> Checker<'src> {
                     return None;
                 }
             };
+            // A field is private to the module that declares it unless it is
+            // `pub`, so writing one from another module is the mistake.
+            if let Some(sig) = self.structs.get(sname).cloned() {
+                self.check_field_visibility(sname, field, &sig, index, *fspan);
+            }
             steps.push(FieldStep {
                 index,
                 ty: field_ty.clone(),
