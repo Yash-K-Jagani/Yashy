@@ -1743,8 +1743,11 @@ git commit -m "feat: debug formatting, numeric literals, and visibility"
 > **As built (three commits, not one).** The task names three unrelated
 > features, and they landed as three commits so each is reviewable on its own:
 > `b229a58` (numeric literals), `37965d5` (debug formatting), and the
-> visibility commit. The single `diagnostics_and_syntax.ot` program and the
-> single `debug_format_literals_and_visibility` test became three: the
+> visibility commits `383c471` and `4864254` (the first lands the rule, the
+> second checks it at every place a name can be used: a call, a type
+> annotation, a field read, a field write, a static method, a generic call,
+> and a `const fn` call). The single `diagnostics_and_syntax.ot` program and
+> the single `debug_format_literals_and_visibility` test became three: the
 > programs are `numeric_literals.ot`, `debug_format.ot`, and the visibility
 > test `a_public_item_is_usable_from_another_module_and_a_private_one_is_not`
 > (which writes its two modules into a work directory, because a visibility

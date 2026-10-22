@@ -49,6 +49,11 @@ tuple's and an array's elements -- with a string quoted and escaped, so that a
 newline inside it stays visible. A `const fn` is a function the compiler runs
 itself: a call to one in a `const` initializer is replaced by the value the
 compiler computed, so the program carries the number rather than the call. A
+map hands its contents back as arrays: `m.keys()` and `m.values()` are fresh
+arrays the caller owns and frees, and `m.contains_key(k)` answers whether a
+key is there without looking the value up. A module's items belong to it:
+another module may use a `pub` item and may not use a private one, and using
+one is a diagnostic that names the item and the module that keeps it. A
 program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
