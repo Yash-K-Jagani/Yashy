@@ -355,6 +355,7 @@ impl<'src> Parser<'src> {
     fn parse_fn(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Fn)?;
         let (name, _) = self.identifier()?;
+        let type_params = self.parse_type_params()?;
 
         let open = self.expect(TokenKind::LParen)?;
         let _ = self.push_open(TokenKind::LParen, open.span)?;
@@ -375,11 +376,40 @@ impl<'src> Parser<'src> {
 
         Ok(Item::Fn {
             name,
+            type_params,
             params,
             ret,
             body,
             span,
         })
+    }
+
+    /// `[T, U]` -- the type parameters of a generic function, in order.
+    ///
+    /// Empty when the name is followed by `(`, which is what makes the
+    /// spelling optional without a second token of lookahead: a function's
+    /// argument list is the only other thing that can follow its name.
+    ///
+    /// The names are parsed here and judged by the checker: a duplicate, a
+    /// name that shadows a declared type, and a method that writes one are
+    /// all its business, not the parser's.
+    fn parse_type_params(&mut self) -> Result<Vec<(String, Span)>, ParseError> {
+        if !self.check(TokenKind::LBracket) {
+            return Ok(Vec::new());
+        }
+        let open = self.expect(TokenKind::LBracket)?;
+        let _ = self.push_open(TokenKind::LBracket, open.span)?;
+        let mut params = Vec::new();
+        loop {
+            let (name, span) = self.identifier()?;
+            params.push((name, span));
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let _ = self.expect(TokenKind::RBracket)?;
+        self.close_open(TokenKind::RBracket);
+        Ok(params)
     }
 
     /// `a: P` -- one parameter of a function.

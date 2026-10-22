@@ -1,0 +1,18 @@
+// The same loop with a concrete `scale`: what `generics.ot` compiles to, and
+// the baseline the generic row is compared with.
+fn scale(x: i64, k: i64) -> i64 {
+    return x * k + x % 3;
+}
+
+fn main() {
+    const n = 100000000;
+    const k = 1000;
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        sum = wrapping_add(sum, scale(i, k));
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}

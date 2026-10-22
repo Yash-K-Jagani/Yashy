@@ -933,27 +933,27 @@ Otter's `push` grows one element at a time.
 ### Task 11: Generic functions
 
 **Files:**
-- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/parser.rs`
+- Modify: `crates/otter-parser/src/ast.rs`, `crates/otter-parser/src/items.rs`
 - Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/fn_gen.rs`, `crates/otter-codegen/src/module.rs`
-- Test: `crates/otter-driver/tests/programs/generics.ot`
+- Test: `crates/otter-driver/tests/programs/generics.ot`,
+  `crates/otter-sema/tests/check.rs`, `crates/otter-sema/tests/errors.rs`
 
 **Interfaces:**
 - Produces: `fn identity[T](x: T) -> T` and `fn apply_twice[T](f: fn(T) -> T, x: T) -> T`; call-site inference; monomorphized symbols such as `identity_i64`.
 - Consumes: Task 7.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `generics.ot` prints `identity(7)` as `7`, `identity("seven")` as `seven`, and
 `apply_twice(square, 3)` as `81`. A call whose type parameter cannot be inferred
 reports `error: cannot infer type parameter \`T\`` at the call.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e generic_functions_are_monomorphized`
 Expected: FAIL at parse.
 
-- [ ] **Step 3: Implement monomorphization**
+- [x] **Step 3: Implement monomorphization**
 
 Parse `[T]` after the function name. Sema records type parameters and infers
 them from argument types at each call. Codegen emits one function per concrete
@@ -961,17 +961,73 @@ substitution, keyed by the mangled name plus type names. Generic recursion is
 allowed; polymorphic recursion (a call with a different substitution inside the
 generic body) is rejected with a diagnostic.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e generic_functions_are_monomorphized`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/generics.ot
 git commit -m "feat: generic functions by monomorphization"
 ```
+
+**As built:** the type parameters live on the item (`Item::Fn.type_params`),
+so every consumer of the syntax tree sees them: two names after the function
+name in brackets, parsed by the same `[...]` machinery as an index. There is no
+generic `fn` value and no generic signature in the root scope -- a generic
+function is not a value, because its parameters mention types that are not
+known until a call says what they are.
+
+The checker makes two passes over the generics, the same shape it already made
+over the program. A call records what it inferred and emits a call to a mangled
+name (`identity_i64`, `identity_string`); bodies are checked afterwards, once
+per distinct substitution, from a worklist. Checking a body can discover more
+instantiations, which is how a generic function calls itself or another
+generic. The substitution is installed in `Checker::type_subst` while a body is
+checked, and `resolve_type` consults it first -- so `T` means the concrete type
+in the signature, in a local's annotation, and in a nested generic call,
+without any special-casing at each site.
+
+Inference is a structural unification (no constraints, no bounds): a type
+parameter binds to the argument's type and a repeated parameter has to agree
+with itself. A parameter that stays unbound is reported at the call span as
+`` cannot infer type parameter `T` ``. A generic parameter whose name shadows a
+declared type is refused at its own span, because inside the body it would
+silently change what that type means.
+
+Polymorphic recursion is detected rather than discovered by exhaustion: each
+instantiation is on an active stack, and a call back into a function already
+being instantiated with a *different* substitution is an error
+(`` polymorphic recursion has no finite instantiation ``). Same-substitution
+recursion is ordinary recursion and the dedupe makes it one function.
+
+Deviations and limits, recorded here:
+
+- Methods cannot declare type parameters yet; `impl` and `object` report
+  `` a method cannot have type parameters yet ``.
+- A generic function's *name* is not a value: `apply_twice(identity, 3)` is a
+  "cannot find value" error. Passing a generic function as a `fn` value would
+  need the callee's type to pick the instantiation, which is a future task.
+- The mangled name joins type names with `_`, so `[]i64` becomes
+  `array_i64` and `fn(i64) -> i64` becomes `fn_i64_to_i64`. The names are
+  readable rather than injective; two pathological types that fold to the same
+  spelling would share an instantiation.
+- Codegen needed no change: a monomorphized function is an ordinary `HirFn`
+  with an ordinary name, which is the point of doing this in the checker.
+
+The proof:
+
+- `cargo check --workspace --all-targets` -- clean, no warnings.
+- `cargo test -p otter-driver --test e2e
+  generic_functions_are_monomorphized` -- PASS; the program printed
+  `7`, `seven`, `81`.
+- `cargo test -p otter-sema --test errors` -- PASS, including the inference,
+  shadowing and polymorphic-recursion diagnostics.
+- `cargo test -p otter-sema --test check
+  a_generic_function_is_emitted_once_per_substitution` -- PASS; the HIR holds
+  `identity_i64`, `identity_string` and `main`, and no generic function.
 
 ---
 

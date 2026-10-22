@@ -102,3 +102,32 @@ fn a_struct_with_a_field_that_has_no_equality_cannot_be_compared() {
         "`==` needs fields with equality",
     );
 }
+
+#[test]
+fn a_generic_call_has_to_infer_every_type_parameter() {
+    // `T` appears nowhere in the parameters, so there is nothing at the call
+    // to replace it with. The error belongs at the call, not in the body.
+    assert_error(
+        "fn make[T]() -> i64 { return 0; } fn main() { print_i64(make()); }",
+        "cannot infer type parameter `T`",
+    );
+}
+
+#[test]
+fn a_generic_function_cannot_shadow_a_type() {
+    assert_error(
+        "struct T { x: i64 } fn f[T](x: i64) -> i64 { return x; }",
+        "type parameter `T` shadows a type of the same name",
+    );
+}
+
+#[test]
+fn polymorphic_recursion_is_rejected() {
+    // The instantiation for `(i64, string)` asks for `(string, i64)`, which
+    // would ask for the first again: there is no finite family to emit.
+    assert_error(
+        "fn swap[T, U](x: T, y: U) -> i64 { return swap(y, x); } \
+         fn main() { print_i64(swap(1, \"x\")); }",
+        "polymorphic recursion has no finite instantiation",
+    );
+}

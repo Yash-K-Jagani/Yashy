@@ -290,6 +290,14 @@ fn a_pointer_receiver_mutates_its_object() {
 }
 
 #[test]
+fn generic_functions_are_monomorphized() {
+    // One body, two types: `identity` is emitted once for `i64` and once for
+    // `string`, and the call site picks the function by the inferred type.
+    let output = build_and_run("generics");
+    assert_eq!(stdout_of(&output), "7\nseven\n81\n");
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

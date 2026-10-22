@@ -5,6 +5,7 @@
 - How to write a function type: `fn(i64) -> i64`.
 - How to hand a function to another function and call it there.
 - How to keep a function in a binding and call it through the binding.
+- How to write one function that works for more than one type.
 - What the checker insists on, and what a function value is at runtime.
 
 A function name is a value. `fn(i64) -> i64` is the type of a function that
@@ -177,6 +178,101 @@ A closure cannot be put in a struct, an enum, or an array yet. An aggregate
 copies the value it holds without counting the reference, and it has no way to
 release it, so the copy would outlive the environment it points at.
 
+## Generic functions
+
+A function can work for more than one type. `[T]` after the function's name
+declares a *type parameter*: `T` is a type the function does not name yet, and
+each call says what it is.
+
+```otter
+// One body, for any type.
+fn identity[T](x: T) -> T {
+    return x;
+}
+
+// `T` can appear inside another type, and more than once. Here the function
+// value and the value it is given must agree about `T`.
+fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
+    return f(f(x));
+}
+
+fn square(x: i64) -> i64 {
+    return x * x;
+}
+
+fn main() {
+    print_i64(identity(7));
+    print_str("\n");
+    // => 7
+
+    print_str(identity("seven"));
+    print_str("\n");
+    // => seven
+
+    print_i64(apply_twice(square, 3));
+    print_str("\n");
+    // => 81
+}
+```
+
+`identity(7)` infers `T = i64`; `identity("seven")` infers `T = string`. The
+call says what the type is by the value it passes — there is no `identity<i64>`
+spelling, because there is only one thing a call can mean.
+
+A type parameter is inferred from the arguments, and a repeated one has to
+agree with itself. `apply_twice` mentions `T` three times, so the first
+argument fixes it: `square` has type `fn(i64) -> i64`, which means `T` is
+`i64`, which means `3` has to be an `i64` too. A call whose arguments disagree
+reports the mismatch at the argument, in the same words an ordinary call does.
+
+Every type parameter must be inferred. One that appears nowhere in the
+parameters has nothing to say what it is:
+
+```text
+fn make[T]() -> i64 { return 0; }
+fn main() { print_i64(make()); }
+```
+
+```text
+error: cannot infer type parameter `T`
+```
+
+### What happens at run time
+
+Nothing. A generic function is not dispatched: the compiler checks the body
+once for each type the program calls it with and emits an ordinary function
+for each. `identity(7)` and `identity("seven")` above become two functions,
+`identity_i64` and `identity_string`; the call sites name the one their
+inference chose. A generic function the program never calls is never checked
+either, which is why an unused generic body may mention a type it cannot
+actually work with.
+
+Recursion is ordinary recursion: a generic function that calls itself with the
+same `T` is one function calling itself. A call with a *different* `T` — the
+body of `swap[T, U]` calling `swap(y, x)` — is refused:
+
+```text
+error: `swap` calls itself with a different type: polymorphic recursion has no
+finite instantiation
+```
+
+That call would need a new copy of the function for every type, and the next
+copy would need another, so there is no finite program to emit.
+
+### What generics cannot do yet
+
+- A type can be generic; a *type declaration* cannot. `struct Pair[T]` is not
+  in the language, so there is no way to write a container that holds a `T`.
+  (The built-in `[]T`, `map[K]V`, `Option[T]` and `Result[T, E]` are generic
+  because the compiler knows them by name.)
+- A method cannot declare type parameters. `impl` methods take concrete types.
+- A generic function's name is not a value. `apply_twice(identity, 3)` cannot
+  be written, because the callee's type would have to pick which `identity`
+  was meant; call it with a value instead.
+- A type parameter may not share a name with a type: `fn f[T](x: T)` next to
+  `struct T` reports ``type parameter `T` shadows a type of the same name``,
+  because inside the body the parameter would silently replace the struct.
+
 ## The higher-order array methods
 
 Three array methods take a function: `map` builds a new array from what the
@@ -285,6 +381,10 @@ that call is an ordinary optimization of an ordinary program.
 2. Write three functions of the same type — `negate`, `double` and
    `identity` — and a function `pick(which: fn(i64) -> i64, x: i64) -> i64`
    that calls the one it is given. Call `pick` with each of the three.
+
+3. Write `fn first_of[T](x: T, y: T) -> T` that returns `x`, and call it once
+   with two `i64`s and once with two `string`s. Then change the second call so
+   the two arguments have different types and read the error.
 
 ## Where this leaves you
 

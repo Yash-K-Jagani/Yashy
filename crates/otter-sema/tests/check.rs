@@ -1871,3 +1871,24 @@ fn only_a_diverging_expression_stands_in_for_a_value() {
     );
 }
 
+#[test]
+fn a_generic_function_is_emitted_once_per_substitution() {
+    // Monomorphization is visible in the HIR: there is one concrete function
+    // per type the program called it with, and no generic function at all.
+    let (result, _, _) = check_source(
+        "fn identity[T](x: T) -> T { return x; } \
+         fn main() { const a = identity(7); const b = identity(\"s\"); }",
+    );
+    let hir = result.expect("a generic call should type-check");
+    let mut names: Vec<&str> = hir
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            HirItem::Fn(f) => Some(f.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, vec!["identity_i64", "identity_string", "main"]);
+}
+

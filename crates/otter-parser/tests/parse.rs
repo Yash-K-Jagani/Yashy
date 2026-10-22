@@ -121,6 +121,7 @@ fn full_program(spans: &mut Spans) -> Program {
         // body that holds every statement.
         Item::Fn {
             name: "d".to_string(),
+            type_params: Vec::new(),
             params: vec![Param {
                 name: "a".to_string(),
                 ty: TypeExpr::Result(
@@ -563,12 +564,13 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             "Item::Fn",
             Item::Fn {
                 name: "f".to_string(),
+                type_params: Vec::new(),
                 params: Vec::new(),
                 ret: None,
                 body: empty_block(here()),
                 span: here(),
             },
-            &["Fn", "name", "params", "ret", "body", "span"],
+            &["Fn", "name", "type_params", "params", "ret", "body", "span"],
             &["Import", "Struct", "Enum", "Extern"],
         ),
         case(

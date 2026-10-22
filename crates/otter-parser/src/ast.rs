@@ -108,8 +108,15 @@ pub enum Item {
     ///
     /// `ret` is `None` when the source wrote no `->`; that is a missing
     /// annotation, which is different from one that says `-> ()`.
+    ///
+    /// `type_params` is empty for an ordinary function and names the
+    /// parameters of a generic one, in the order written:
+    /// `fn identity[T](x: T) -> T` declares `T` here. A name in this list is
+    /// a type *variable* inside the function's signature and body, and the
+    /// checker replaces it with a concrete type at each call.
     Fn {
         name: String,
+        type_params: Vec<(String, Span)>,
         params: Vec<Param>,
         ret: Option<TypeExpr>,
         body: Block,

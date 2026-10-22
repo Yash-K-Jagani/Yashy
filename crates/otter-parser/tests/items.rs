@@ -149,6 +149,7 @@ fn parses_import_struct_enum_and_fn() {
     match &program.items[3] {
         Item::Fn {
             name,
+            type_params: _,
             params,
             ret,
             body,

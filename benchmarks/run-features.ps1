@@ -124,6 +124,19 @@ $workloads = @(
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'method.go'; Out = 'method-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'method.rs'; Out = 'method-rust' }
        ) },
+    # A generic function: one body, called with one type. The direct row is
+    # the same loop with the type written out, so the gap between the two rows
+    # is the cost of the type parameter -- which monomorphization should make
+    # nothing.
+    @{ Name = 'generics'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'generics.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2 (generic)';     Kind = 'otter'; Src = 'generics.ot';        Out = 'generics-otter' },
+           @{ Lang = 'Otter -O2 (direct)';      Kind = 'otter'; Src = 'generics_direct.ot'; Out = 'generics-direct-otter' },
+           @{ Lang = 'C (clang -O2)';           Kind = 'clang'; Src = 'generics.c';          Out = 'generics-clang' },
+           @{ Lang = 'C (gcc -O2)';             Kind = 'gcc';   Src = 'generics.c';          Out = 'generics-gcc' },
+           @{ Lang = 'Go (go build)';           Kind = 'go';    Src = 'generics.go';         Out = 'generics-go' },
+           @{ Lang = 'Rust (rustc -O)';         Kind = 'rust';  Src = 'generics.rs';         Out = 'generics-rust' }
+       ) },
     # The array mapping: the same loop in every language, building a second
     # array the size of the first.
     @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';

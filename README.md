@@ -29,6 +29,9 @@ methods together, and a method with no `self` is called on the type:
 `Counter.new(3)`. A method that takes `self: *mut T` receives the object's
 address rather than a copy, so `self[0].value = ...` writes the caller's
 object, and the receiver at the call site has to be a mutable binding. A
+function can be generic: `fn identity[T](x: T) -> T` is written once, checked
+once for each type the program calls it with, and emitted as an ordinary
+function for each, so nothing is dispatched at run time. A
 program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
@@ -679,6 +682,6 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
-| M13 ✅ | Function values: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures with refcounted environments, the `map`/`filter`/`fold` array methods, `impl` methods, `object` declarations, and static methods |
+| M13 ✅ | Function values: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures with refcounted environments, the `map`/`filter`/`fold` array methods, `impl` methods, `object` declarations, static methods, and generic functions by monomorphization |
 | M14 ✅ | Objects: field-and-method declarations, static methods and constructors, and pointer receivers (`self: *mut T`) that mutate the object they are called on |
 | M15 (in progress) | Correctness gaps: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, and fixed arrays and views |

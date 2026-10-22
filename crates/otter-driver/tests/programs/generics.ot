@@ -1,0 +1,33 @@
+// Generic functions.
+//
+// `[T]` after a function's name declares a type parameter. A call says what
+// `T` is by passing a value of that type; the compiler then checks one copy of
+// the body for that type. Nothing is dispatched at run time: `identity(7)` and
+// `identity("seven")` become two ordinary functions.
+
+fn identity[T](x: T) -> T {
+    return x;
+}
+
+// A type parameter can appear inside a function type, and more than once.
+// `f` and `x` both mention `T`, so the first argument's type fixes what the
+// second one has to be.
+fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
+    return f(f(x));
+}
+
+fn square(x: i64) -> i64 {
+    return x * x;
+}
+
+fn main() {
+    print_i64(identity(7));
+    print_str("\n");
+    print_str(identity("seven"));
+    print_str("\n");
+    print_i64(apply_twice(square, 3));
+    print_str("\n");
+    // => 7
+    //    seven
+    //    81
+}

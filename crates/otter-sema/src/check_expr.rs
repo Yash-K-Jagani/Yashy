@@ -57,6 +57,45 @@ struct FnSig {
     ret: Type,
 }
 
+/// A generic function, kept until a call fixes its type parameters.
+///
+/// The body is not checked in pass 2 like an ordinary function's: it mentions
+/// type variables, so there is no single set of types to check it against.
+/// Each call records the substitution it inferred, and the body is checked
+/// once per distinct substitution -- monomorphization. The HIR therefore holds
+/// only concrete functions, which is why nothing downstream of the checker has
+/// to know that generics exist.
+#[derive(Clone, Debug)]
+struct GenericFn {
+    /// The type parameters, in the order written.
+    type_params: Vec<(String, Span)>,
+    /// The parameters, whose annotations may mention a type parameter.
+    params: Vec<Param>,
+    /// The return annotation, if the source wrote one.
+    ret: Option<TypeExpr>,
+    /// The body, checked once per substitution.
+    body: Block,
+    /// The item's span, used when the item itself is at fault.
+    span: Span,
+    /// The file the body came from, so its diagnostics name the right module.
+    file: FileId,
+}
+
+/// One concrete substitution waiting to be checked.
+///
+/// A call records this instead of emitting the body directly: checking the
+/// body may add more calls, and the queue is what lets one instantiation
+/// discover another without recursing through the checker's own stack.
+#[derive(Clone, Debug)]
+struct Instantiation {
+    /// The generic function being instantiated.
+    name: String,
+    /// One concrete type per type parameter, in the function's order.
+    subst: Vec<Type>,
+    /// The call site, for diagnostics about the instantiation itself.
+    span: Span,
+}
+
 /// A method declared in an `impl` block.
 #[derive(Clone, Debug)]
 struct MethodSig {
@@ -80,6 +119,91 @@ struct MethodSig {
     /// called on must therefore be a mutable `var`, and it must be a binding:
     /// there is no address of a temporary.
     receiver_is_pointer: bool,
+}
+
+/// The LLVM symbol a generic function has at one substitution.
+///
+/// `identity[T]` called with `i64` is `identity_i64`. The names are built from
+/// the type names, so a symbol reads like the type it was made for. A struct's
+/// own name is used as-is; the element types of a slice or a map are folded in,
+/// which keeps `[]i64` and `[]string` apart.
+fn mangled_generic_name(name: &str, subst: &[Type]) -> String {
+    let mut mangled = name.to_string();
+    for ty in subst {
+        mangled.push('_');
+        mangled.push_str(&mangled_type_name(ty));
+    }
+    mangled
+}
+
+fn mangled_type_name(ty: &Type) -> String {
+    match &ty.kind {
+        TypeKind::I64 => "i64".to_string(),
+        TypeKind::F64 => "f64".to_string(),
+        TypeKind::Bool => "bool".to_string(),
+        TypeKind::Str => "string".to_string(),
+        TypeKind::Unit => "unit".to_string(),
+        TypeKind::Never => "never".to_string(),
+        TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
+        TypeKind::Option(inner) => format!("option_{}", mangled_type_name(inner)),
+        TypeKind::Result(ok, err) => {
+            format!("result_{}_{}", mangled_type_name(ok), mangled_type_name(err))
+        }
+        TypeKind::Slice(element) => format!("array_{}", mangled_type_name(element)),
+        TypeKind::Map(key, value) => {
+            format!("map_{}_{}", mangled_type_name(key), mangled_type_name(value))
+        }
+        TypeKind::Mutex => "mutex".to_string(),
+        TypeKind::Channel(element) => format!("channel_{}", mangled_type_name(element)),
+        TypeKind::Ptr(pointee) => format!("ptr_{}", mangled_type_name(pointee)),
+        TypeKind::CInt(width) => format!("cint{width}"),
+        TypeKind::CUInt(width) => format!("cuint{width}"),
+        TypeKind::CFloat(width) => format!("cfloat{width}"),
+        TypeKind::CVoid => "void".to_string(),
+        TypeKind::CPtr(pointee) => format!("cptr_{}", mangled_type_name(pointee)),
+        TypeKind::CSize => "csize".to_string(),
+        TypeKind::Func(params, ret) => {
+            let mut mangled = "fn".to_string();
+            for param in params {
+                mangled.push('_');
+                mangled.push_str(&mangled_type_name(param));
+            }
+            mangled.push_str("_to_");
+            mangled.push_str(&mangled_type_name(ret));
+            mangled
+        }
+    }
+}
+
+/// How a declared type is written, for a diagnostic.
+///
+/// The checker's own [`Type`] describes the same thing, but a message about an
+/// argument mismatch should show the annotation the program wrote -- `[]T`,
+/// not a slice of some concrete element -- so the spelling is rebuilt from the
+/// syntax tree.
+fn type_expr_name(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Name(name, _) => name.clone(),
+        TypeExpr::Ptr { pointee, .. } => format!("*mut {}", type_expr_name(pointee)),
+        TypeExpr::Slice(element, _) => format!("[]{}", type_expr_name(element)),
+        TypeExpr::Map(key, value, _) => {
+            format!("map[{}]{}", type_expr_name(key), type_expr_name(value))
+        }
+        TypeExpr::Option(inner, _) => format!("Option[{}]", type_expr_name(inner)),
+        TypeExpr::Result(ok, err, _) => {
+            format!("Result[{}, {}]", type_expr_name(ok), type_expr_name(err))
+        }
+        TypeExpr::Channel(element, _) => format!("Channel[{}]", type_expr_name(element)),
+        TypeExpr::Fn { params, ret, .. } => {
+            let params: Vec<String> = params.iter().map(type_expr_name).collect();
+            format!("fn({}) -> {}", params.join(", "), type_expr_name(ret))
+        }
+        TypeExpr::Tuple(items, _) => {
+            let items: Vec<String> = items.iter().map(type_expr_name).collect();
+            format!("({})", items.join(", "))
+        }
+        TypeExpr::Unit(_) => "()".to_string(),
+    }
 }
 
 /// Whether a block returns on every path out of it.
@@ -158,6 +282,30 @@ pub struct Checker<'src> {
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
+    /// The generic functions, keyed by name.
+    ///
+    /// A generic function is not a value and has no `FnSig`: its parameters
+    /// mention type variables. A call finds it here, infers a substitution and
+    /// queues an instantiation; the body is checked once per substitution.
+    generics: HashMap<String, GenericFn>,
+    /// The substitution in force while a generic body is being checked.
+    ///
+    /// Empty everywhere else. `resolve_type` consults it before the declared
+    /// types, which is what makes `T` mean the instantiation's type inside a
+    /// generic body and nowhere else.
+    type_subst: HashMap<String, Type>,
+    /// Instantiations discovered but not yet checked.
+    pending_generics: Vec<Instantiation>,
+    /// Mangled names already queued or emitted, so one substitution is checked
+    /// once however many calls find it.
+    instantiated: HashSet<String>,
+    /// The instantiations currently being checked, innermost last.
+    ///
+    /// A call to a generic from inside its own instantiation is ordinary
+    /// recursion when the substitution is the same and polymorphic recursion
+    /// when it is not; the second has no finite monomorphization, so it is
+    /// rejected here.
+    active_generics: Vec<(String, Vec<Type>)>,
     /// The methods declared in `impl` blocks, keyed by the mangled name
     /// `Type.method`.
     ///
@@ -411,6 +559,11 @@ impl<'src> Checker<'src> {
             structs: HashMap::new(),
             enums: HashMap::new(),
             fns: HashMap::new(),
+            generics: HashMap::new(),
+            type_subst: HashMap::new(),
+            pending_generics: Vec::new(),
+            instantiated: HashSet::new(),
+            active_generics: Vec::new(),
             methods: HashMap::new(),
             self_type: None,
             fn_ret: None,
@@ -610,6 +763,10 @@ impl<'src> Checker<'src> {
                 }
             }
         }
+        // Generic bodies are checked last, once per substitution the program
+        // asked for. This has to follow every module: a generic body may call
+        // anything the program declares.
+        self.instantiate_generics(&mut items);
         if self.errors.is_empty() {
             Ok(HirProgram {
                 items,
@@ -721,16 +878,88 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// Record a generic function's declaration.
+    ///
+    /// The function is not bound in the root scope: a generic function is not
+    /// a value, and its signature has type variables that only a call can
+    /// replace. It is kept here until a call instantiates it.
+    fn declare_generic(
+        &mut self,
+        name: &str,
+        type_params: &[(String, Span)],
+        params: &[Param],
+        ret: &Option<TypeExpr>,
+        body: &Block,
+        span: Span,
+    ) {
+        if self.generics.contains_key(name) || self.scope.resolve(name).is_some() {
+            self.error(span, format!("duplicate definition of `{name}`"));
+        }
+        for (index, (param, param_span)) in type_params.iter().enumerate() {
+            if type_params[..index]
+                .iter()
+                .any(|(previous, _)| previous == param)
+            {
+                self.error(*param_span, format!("duplicate type parameter `{param}`"));
+            }
+            if param == "Self" {
+                self.error(
+                    *param_span,
+                    "`Self` is not a type parameter name: it means the method's own type",
+                );
+            }
+            // A type parameter shadows the type it names inside the body, so a
+            // parameter that names one turns every mention of that type in the
+            // body into something else. That is never what the author meant.
+            if self
+                .resolve_type(&TypeExpr::Name(param.clone(), *param_span))
+                .is_ok()
+            {
+                self.error(
+                    *param_span,
+                    format!("type parameter `{param}` shadows a type of the same name"),
+                );
+            }
+        }
+        self.generics.insert(
+            name.to_string(),
+            GenericFn {
+                type_params: type_params.to_vec(),
+                params: params.to_vec(),
+                ret: ret.clone(),
+                body: body.clone(),
+                span,
+                file: self.file,
+            },
+        );
+    }
+
     /// Pass 1: declare every item name so signatures can reference each other.
     fn declare_items(&mut self, items: &[Item]) {        for item in items {
             match item {
                 Item::Fn {
                     name,
+                    type_params,
                     params,
                     ret,
-                    body: _,
+                    body,
                     span,
                 } => {
+                    if !type_params.is_empty() {
+                        // A generic function is not a value: its signature has
+                        // type variables, so there is nothing to bind in the
+                        // root scope until a call says what they are. The call
+                        // path finds it in `generics` instead.
+                        self.declare_generic(
+                            name,
+                            type_params,
+                            params,
+                            ret,
+                            body,
+                            *span,
+                        );
+                        continue;
+                    }
                     let param_tys: Vec<Type> = params
                         .iter()
                         .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
@@ -772,6 +1001,7 @@ impl<'src> Checker<'src> {
                     for method in methods {
                         let Item::Fn {
                             name,
+                            type_params,
                             params,
                             ret,
                             body: _,
@@ -781,6 +1011,13 @@ impl<'src> Checker<'src> {
                             self.error(*span, "an `impl` block holds only methods");
                             continue;
                         };
+                        if !type_params.is_empty() {
+                            self.error(
+                                *method_span,
+                                "a method cannot have type parameters yet",
+                            );
+                            continue;
+                        }
                         let sig = self.method_signature(
                             type_name,
                             name,
@@ -837,6 +1074,7 @@ impl<'src> Checker<'src> {
                     for method in methods {
                         let Item::Fn {
                             name: method_name,
+                            type_params,
                             params,
                             ret,
                             body: _,
@@ -846,6 +1084,13 @@ impl<'src> Checker<'src> {
                             self.error(*span, "an `object` holds only methods");
                             continue;
                         };
+                        if !type_params.is_empty() {
+                            self.error(
+                                *method_span,
+                                "a method cannot have type parameters yet",
+                            );
+                            continue;
+                        }
                         let sig = self.method_signature(
                             name,
                             method_name,
@@ -1044,6 +1289,15 @@ impl<'src> Checker<'src> {
     fn resolve_type_in(&self, ty: &TypeExpr, allow_c: bool) -> Result<Type, TypeError> {
         match ty {
             TypeExpr::Name(name, span) => {
+                // A type parameter, while its generic body is being checked.
+                // It shadows everything: the body was written meaning the
+                // instantiation's type wherever the parameter's name appears.
+                if let Some(concrete) = self.type_subst.get(name) {
+                    return Ok(Type {
+                        kind: concrete.kind.clone(),
+                        span: *span,
+                    });
+                }
                 if !allow_c && TypeKind::is_c_only_spelling(name) {
                     return Err(TypeError::new(
                         *span,
@@ -1237,6 +1491,332 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// Check one function body against concrete parameter and return types.
+    ///
+    /// Shared by ordinary functions and by each instantiation of a generic
+    /// one: the two differ only in where the types come from.
+    fn check_fn_body(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        param_tys: &[Type],
+        ret_ty: &Type,
+        body: &Block,
+        span: Span,
+    ) -> Option<HirFn> {
+        self.scope.push();
+        for (param, ty) in params.iter().zip(param_tys.iter()) {
+            let _ = self.scope.declare(
+                param.name.clone(),
+                Binding {
+                    ty: ty.clone(),
+                    mutability: Mutability::Const,
+                    span: param.span,
+                    ownership: Ownership::Live,
+                },
+            );
+        }
+        let outer_ret = self.fn_ret.replace(ret_ty.clone());
+        let checked = self.check_block_with_ret(body, ret_ty);
+        self.fn_ret = outer_ret;
+        self.scope.pop();
+        let body = checked?;
+        // A function that returns a value has to return one on every path out
+        // of its body.
+        if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
+            && !block_always_returns(&body)
+        {
+            self.error(span, "missing return");
+        }
+        Some(HirFn {
+            name: name.to_string(),
+            params: params
+                .iter()
+                .zip(param_tys.iter())
+                .map(|(param, ty)| HirParam {
+                    name: param.name.clone(),
+                    ty: ty.clone(),
+                    span: param.span,
+                })
+                .collect(),
+            ret: ret_ty.clone(),
+            body,
+            captures: Vec::new(),
+            span,
+        })
+    }
+
+    /// Check a call to a generic function and record its instantiation.
+    ///
+    /// The arguments are checked first, without an expected type: the expected
+    /// type is what the call is trying to discover. Each argument's type is
+    /// then unified with the parameter's declared type, which binds the type
+    /// parameters; a parameter that stays unbound is an error at the call.
+    fn check_generic_call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let Some(generic) = self.generics.get(name).cloned() else {
+            return None;
+        };
+        if generic.params.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "expected {} arguments, found {}",
+                    generic.params.len(),
+                    args.len()
+                ),
+            );
+            return None;
+        }
+        let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut checked_args = Vec::with_capacity(args.len());
+        for (arg, param) in args.iter().zip(generic.params.iter()) {
+            let checked = self.check_expr(arg)?;
+            let actual = expr_ty(&checked);
+            if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
+                self.error(
+                    expr_span(&checked),
+                    format!(
+                        "expected `{}`, found `{actual}`",
+                        type_expr_name(&param.ty)
+                    ),
+                );
+            }
+            checked_args.push(checked);
+        }
+        // Every type parameter has to be pinned down by an argument. One that
+        // appears only in the return type, or nowhere at all, has no answer.
+        let mut ordered = Vec::with_capacity(generic.type_params.len());
+        for (param, _) in &generic.type_params {
+            match subst.get(param) {
+                Some(concrete) => ordered.push(concrete.clone()),
+                None => {
+                    self.error(span, format!("cannot infer type parameter `{param}`"));
+                    return None;
+                }
+            }
+        }
+        // Resolve the signature at the inferred substitution. The map is
+        // installed only for the duration of the lookup: nothing outside a
+        // generic body should see `T`.
+        let outer_subst = std::mem::take(&mut self.type_subst);
+        self.type_subst = generic
+            .type_params
+            .iter()
+            .zip(ordered.iter())
+            .map(|((param, _), concrete)| (param.clone(), concrete.clone()))
+            .collect();
+        let param_tys: Vec<Type> = generic
+            .params
+            .iter()
+            .map(|param| self.resolve_or_report(&param.ty, param.span))
+            .collect();
+        let ret_ty = match &generic.ret {
+            Some(ty) => self.resolve_or_report(ty, span),
+            None => prim(TypeKind::Unit),
+        };
+        self.type_subst = outer_subst;
+        // A parameter of linear type takes ownership, exactly as it does in an
+        // ordinary call: passing a bare name moves it out.
+        for (arg, param_ty) in args.iter().zip(param_tys.iter()) {
+            if matches!(linearity_of(&param_ty.kind), Linearity::Linear) {
+                if let Expr::Ident(path, arg_span) = arg {
+                    let arg_name = path.last().cloned().unwrap_or_default();
+                    if let Err(e) = self.move_out(&arg_name, *arg_span) {
+                        self.error(e.span, e.message);
+                    }
+                }
+            }
+        }
+        let mangled = self.queue_instantiation(name, &ordered, span);
+        Some(HirExpr::Call {
+            callee: vec![mangled],
+            args: checked_args,
+            unsafe_call: false,
+            span,
+            ty: ret_ty,
+        })
+    }
+
+    /// Unify a declared parameter type with an argument's type, binding type
+    /// parameters as they are found.
+    ///
+    /// This is a plain structural walk rather than full inference: a type
+    /// parameter binds to whatever the argument has, and a repeated parameter
+    /// has to have the same answer both times. There are no constraints and no
+    /// bounds, so that is the whole algorithm.
+    fn unify_type(
+        &self,
+        declared: &TypeExpr,
+        params: &[(String, Span)],
+        subst: &mut HashMap<String, Type>,
+        actual: &Type,
+    ) -> bool {
+        match declared {
+            TypeExpr::Name(name, _) if params.iter().any(|(param, _)| param == name) => {
+                match subst.get(name) {
+                    Some(bound) => bound.eq_ignoring_span(actual),
+                    None => {
+                        subst.insert(name.clone(), actual.clone());
+                        true
+                    }
+                }
+            }
+            // Anything that is not a type parameter is a concrete type, and it
+            // has to equal what the argument is.
+            TypeExpr::Name(_, _) => self
+                .resolve_type(declared)
+                .is_ok_and(|ty| ty.eq_ignoring_span(actual)),
+            TypeExpr::Slice(element, _) => match &actual.kind {
+                TypeKind::Slice(actual_element) => {
+                    self.unify_type(element, params, subst, actual_element)
+                }
+                _ => false,
+            },
+            TypeExpr::Map(key, value, _) => match &actual.kind {
+                TypeKind::Map(actual_key, actual_value) => {
+                    self.unify_type(key, params, subst, actual_key)
+                        && self.unify_type(value, params, subst, actual_value)
+                }
+                _ => false,
+            },
+            TypeExpr::Option(element, _) => match &actual.kind {
+                TypeKind::Option(actual_element) => {
+                    self.unify_type(element, params, subst, actual_element)
+                }
+                _ => false,
+            },
+            TypeExpr::Result(ok, err, _) => match &actual.kind {
+                TypeKind::Result(actual_ok, actual_err) => {
+                    self.unify_type(ok, params, subst, actual_ok)
+                        && self.unify_type(err, params, subst, actual_err)
+                }
+                _ => false,
+            },
+            TypeExpr::Channel(element, _) => match &actual.kind {
+                TypeKind::Channel(actual_element) => {
+                    self.unify_type(element, params, subst, actual_element)
+                }
+                _ => false,
+            },
+            TypeExpr::Ptr { pointee, .. } => match &actual.kind {
+                TypeKind::Ptr(actual_pointee) => {
+                    self.unify_type(pointee, params, subst, actual_pointee)
+                }
+                _ => false,
+            },
+            TypeExpr::Fn { params: declared_params, ret, .. } => match &actual.kind {
+                TypeKind::Func(actual_params, actual_ret) => {
+                    declared_params.len() == actual_params.len()
+                        && declared_params
+                            .iter()
+                            .zip(actual_params.iter())
+                            .all(|(declared, actual)| {
+                                self.unify_type(declared, params, subst, actual)
+                            })
+                        && self.unify_type(ret, params, subst, actual_ret)
+                }
+                _ => false,
+            },
+            TypeExpr::Unit(_) => matches!(actual.kind, TypeKind::Unit),
+            TypeExpr::Tuple(_, _) => false,
+        }
+    }
+
+    /// Record an instantiation, and answer with the symbol it will have.
+    ///
+    /// The same substitution is recorded once however many calls find it. A
+    /// call from inside the function's own instantiation is allowed when the
+    /// substitution is unchanged -- ordinary recursion -- and rejected when it
+    /// is not: polymorphic recursion would need an unbounded family of
+    /// functions, so there is no finite answer to emit.
+    fn queue_instantiation(&mut self, name: &str, subst: &[Type], span: Span) -> String {
+        let mangled = mangled_generic_name(name, subst);
+        if self.instantiated.contains(&mangled) {
+            return mangled;
+        }
+        if let Some((_, active)) = self
+            .active_generics
+            .iter()
+            .find(|(active_name, _)| active_name == name)
+        {
+            if active.len() != subst.len()
+                || !active
+                    .iter()
+                    .zip(subst.iter())
+                    .all(|(active, actual)| active.eq_ignoring_span(actual))
+            {
+                self.error(
+                    span,
+                    format!(
+                        "`{name}` calls itself with a different type: polymorphic \
+                         recursion has no finite instantiation"
+                    ),
+                );
+                return mangled;
+            }
+        }
+        self.instantiated.insert(mangled.clone());
+        self.pending_generics.push(Instantiation {
+            name: name.to_string(),
+            subst: subst.to_vec(),
+            span,
+        });
+        mangled
+    }
+
+    /// Check every instantiation the program asked for, appending the concrete
+    /// functions to `items`.
+    ///
+    /// This is monomorphization's second half. The worklist is what makes it
+    /// terminate without recursion: an instantiation's body can ask for more,
+    /// and they are appended to the same list. `queue_instantiation` has
+    /// already refused polymorphic recursion, so the list is finite.
+    fn instantiate_generics(&mut self, items: &mut Vec<HirItem>) {
+        let outer_file = self.file;
+        while let Some(job) = self.pending_generics.pop() {
+            let Some(generic) = self.generics.get(&job.name).cloned() else {
+                continue;
+            };
+            self.file = generic.file;
+            self.type_subst = generic
+                .type_params
+                .iter()
+                .zip(job.subst.iter())
+                .map(|((param, _), concrete)| (param.clone(), concrete.clone()))
+                .collect();
+            let param_tys: Vec<Type> = generic
+                .params
+                .iter()
+                .map(|param| self.resolve_or_report(&param.ty, param.span))
+                .collect();
+            let ret_ty = match &generic.ret {
+                Some(ty) => self.resolve_or_report(ty, job.span),
+                None => prim(TypeKind::Unit),
+            };
+            let mangled = mangled_generic_name(&job.name, &job.subst);
+            self.active_generics.push((job.name.clone(), job.subst.clone()));
+            let checked = self.check_fn_body(
+                &mangled,
+                &generic.params,
+                &param_tys,
+                &ret_ty,
+                &generic.body,
+                generic.span,
+            );
+            self.active_generics.pop();
+            self.type_subst.clear();
+            if let Some(hir) = checked {
+                items.push(HirItem::Fn(hir));
+            }
+        }
+        self.file = outer_file;
+    }
+
     /// Build one item's HIR. `Fn` bodies are checked here.
     ///
     /// An `impl` block holds several methods, so the answer is a list: each
@@ -1245,60 +1825,21 @@ impl<'src> Checker<'src> {
         match item {
             Item::Fn {
                 name,
+                type_params,
                 params,
                 ret: _,
                 body,
                 span,
             } => {
+                // A generic body mentions type variables, so it is checked at
+                // each call's substitution -- see `instantiate_generics` -- and
+                // there is no signature to look up here.
+                if !type_params.is_empty() {
+                    return None;
+                }
                 let sig = self.fns.get(name).cloned()?;
-                self.scope.push();
-                for (
-                    Param {
-                        name: pname,
-                        ty: _,
-                        span: pspan,
-                    },
-                    pty,
-                ) in params.iter().zip(sig.params.iter())
-                {
-                    let _ = self.scope.declare(
-                        pname.clone(),
-                        Binding {
-                            ty: pty.clone(),
-                            mutability: Mutability::Const,
-                            span: *pspan,
-                            ownership: Ownership::Live,
-                        },
-                    );
-                }
-                let ret_ty = sig.ret.clone();
-                let outer_ret = self.fn_ret.replace(ret_ty.clone());
-                let body = self.check_block_with_ret(body, &ret_ty)?;
-                self.fn_ret = outer_ret;
-                // A function that returns a value has to return one on every
-                // path out of its body.
-                if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
-                    && !block_always_returns(&body)
-                {
-                    self.error(*span, "missing return");
-                }
-                self.scope.pop();
-                Some(vec![HirItem::Fn(HirFn {
-                    name: name.clone(),
-                    params: params
-                        .iter()
-                        .zip(sig.params.iter())
-                        .map(|(p, ty)| HirParam {
-                            name: p.name.clone(),
-                            ty: ty.clone(),
-                            span: p.span,
-                        })
-                        .collect(),
-                    ret: ret_ty,
-                    body,
-                    captures: Vec::new(),
-                    span: *span,
-                })])
+                let checked = self.check_fn_body(name, params, &sig.params, &sig.ret, body, *span)?;
+                Some(vec![HirItem::Fn(checked)])
             }
             Item::Struct { name, fields, span } => {
                 let sig = self.structs.get(name).cloned()?;
@@ -1439,6 +1980,7 @@ impl<'src> Checker<'src> {
         for method in methods {
             let Item::Fn {
                 name,
+                type_params,
                 params,
                 ret,
                 body,
@@ -1447,6 +1989,10 @@ impl<'src> Checker<'src> {
             else {
                 continue;
             };
+            if !type_params.is_empty() {
+                self.error(*span, "a method cannot have type parameters yet");
+                continue;
+            }
             let sig = self.method_signature(
                 type_name,
                 name,
@@ -4761,6 +5307,13 @@ impl<'src> Checker<'src> {
                     return checked;
                 }
                 let name = callee.last().cloned().unwrap_or_default();
+                // A generic function is found by name like an ordinary one, but
+                // its signature has type variables: the substitution comes from
+                // the argument types, and the body is checked at that
+                // substitution rather than here.
+                if callee.len() == 1 && self.generics.contains_key(&name) {
+                    return self.check_generic_call(&name, args, *span);
+                }
                 // The method surface replaced these free-function spellings.
                 // They are not aliases: a call written this way points at the
                 // method form with the receiver the caller already wrote. This

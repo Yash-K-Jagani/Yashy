@@ -65,6 +65,7 @@ have a comparable standard-library primitive.
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
+| `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -638,4 +639,41 @@ offset plus a `store`. There is nothing to box, no vtable to look up, and no
 aggregate to rebuild. The 1.6 ns gap to gcc is the checked add on
 `self[0].value + 1`: Otter's `+` traps on overflow, and that check is a
 `llvm.sadd.with.overflow` plus a branch, which gcc's `-O2` is free to omit.
+
+#### Generic functions — 100,000,000 calls
+
+| Language | min ms | median ms | ns/call |
+|---|---:|---:|---:|
+| Otter -O2 (generic) | 162.1 | 173.3 | 1.62 |
+| C (clang -O2) | 163.7 | 200.6 | 1.64 |
+| Otter -O2 (direct) | 164.6 | 172.9 | 1.65 |
+| Rust (rustc -O) | 169.0 | 179.2 | 1.69 |
+| C (gcc -O2) | 209.4 | 241.1 | 2.09 |
+| Go (go build) | 264.2 | 290.1 | 2.64 |
+
+Every row runs the same loop: `scale(i, 1000)` over 100,000,000 iterations,
+summed with wrapping addition, and every row prints
+`4999999950099999999`. The two Otter rows are `scale[T]` and a `scale` written
+with `i64`; the other languages use their own generic function, except C, which
+has none — its row is the specialized function a generic call would compile to.
+
+The two Otter rows differ by 1.5%, which is inside this machine's run-to-run
+spread (the direct row's median is the *lower* of the two). That is the result:
+a generic function costs what the concrete one costs, because it *is* the
+concrete one. `scale(i, 1000)` infers `T = i64`, the checker checks one body at
+that substitution, and the backend emits `scale_i64` as an ordinary function
+with an ordinary name. The call site is a direct call; no value is built, no
+type is inspected, and nothing is dispatched. Rust and Go monomorphize the same
+way, which is why their rows sit in the same band.
+
+The gcc row is slower than clang's for the same reason it is slower on the
+`function_direct` row above: `-O2` leaves the signed `% 3` in a form clang
+turns into a multiply-and-shift. The gap is the compiler's arithmetic, not the
+call.
+
+A generic function that is never called emits nothing at all: the body is
+checked at a substitution, and a program with no substitution has no body to
+check. That is a compile-time property, not a run-time one, and this benchmark
+does not measure it.
+
 
