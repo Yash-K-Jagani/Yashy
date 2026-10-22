@@ -1708,19 +1708,19 @@ git commit -m "feat: tuples, destructuring, and pattern guards"
 - Produces: `"${value:?}"` for structs, enums, arrays, and tuples; `1_000_000`, `0xFF`, `0b1010`, `0o777`; `pub` on items and fields, with a private-item diagnostic.
 - Consumes: Tasks 12–19.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `diagnostics_and_syntax.ot` prints `Point { x: 3, y: 4 }` and `[1, 2, 3]` via
 `${...:?}`, prints `1000000`, `255`, `10`, and `511` from the four literal
 forms, and imports a `pub fn` from a module while a private function is
 rejected.
 
-- [ ] **Step 2: Run and verify it fails**
+- [x] **Step 2: Run and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e debug_format_literals_and_visibility`
 Expected: FAIL at parse on `:?`, separators, or hex.
 
-- [ ] **Step 3: Implement the three features**
+- [x] **Step 3: Implement the three features**
 
 `:?` lowers to a synthesized `debug_<Type>` function per nominal type and a
 recursive array/tuple printer; strings are quoted and escaped. Numeric literals
@@ -1728,12 +1728,12 @@ allow `_` between digits and the `0x`/`0b`/`0o` prefixes; the lexer rejects a
 trailing `_`. `pub` marks an item or field exported; module resolution reports
 `error: \`f\` is private to module \`m\`` at the use.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e debug_format_literals_and_visibility`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/diagnostics_and_syntax.ot
@@ -1790,7 +1790,7 @@ git commit -m "feat: debug formatting, numeric literals, and visibility"
 - Produces: `const fn` evaluated at compile time in a `const` initializer; the stdlib gains map key/value methods that the new surface makes possible.
 - Consumes: M12 methods, M13 functions, Task 20 visibility.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `const_fn.ot` declares `const fn square(n: i64) -> i64 { return n * n; }` and
 `const TABLE = square(9);`, then prints `81` without a runtime call. The stdlib
@@ -1798,12 +1798,12 @@ adds `map.keys()`, `map.values()`, and `map.contains_key(key)`; a stdlib program
 exercises each. Add `#[test] fn const_fn_evaluates_at_compile_time()` to
 `e2e.rs`.
 
-- [ ] **Step 2: Run and verify it fails**
+- [x] **Step 2: Run and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e const_fn_evaluates_at_compile_time`
 Expected: FAIL at parse on `const fn` or unknown map method.
 
-- [ ] **Step 3: Implement `const fn` with a tree-walker**
+- [x] **Step 3: Implement `const fn` with a tree-walker**
 
 A `const fn` body may use only literals, arithmetic, comparisons, calls to other
 `const fn`s, and `if`; anything else reports
@@ -1813,12 +1813,12 @@ evaluation reports a diagnostic at the call. Add the three map methods using
 the same method resolution as builtins; `keys`/`values` return fresh arrays, and
 `keys` owns retained string keys.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e const_fn_evaluates_at_compile_time`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-stdlib crates/otter-driver/tests/programs/const_fn.ot
