@@ -371,9 +371,12 @@ impl<'src> Parser<'src> {
     /// so this is a guard and not a case with wording of its own. It is a guard
     /// all the same: a `0.0` fallback would be the same silently wrong number the
     /// integer form can produce, and being unreachable today is not a property
-    /// the next change to the lexer is obliged to keep.
+    /// the next change to the lexer is obliged to keep. The separators the lexer
+    /// allows between digits are removed first, because `str::parse` does not
+    /// accept them and `1_000.5` is the same number as `1000.5`.
     pub fn float_literal(&self, span: Span) -> Result<f64, ParseError> {
         self.text(span)?
+            .replace('_', "")
             .parse::<f64>()
             .map_err(|_| error::invalid_float_literal(span))
     }

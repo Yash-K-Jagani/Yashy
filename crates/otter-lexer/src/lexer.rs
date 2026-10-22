@@ -243,33 +243,56 @@ impl<'src> Lexer<'src> {
         TokenKind::keyword(text).unwrap_or(TokenKind::Ident)
     }
 
-    /// Scans `[0-9]+` or `[0-9]+ '.' [0-9]+`.
+    /// Scans an integer -- decimal, `0x`, `0b` or `0o` -- or a decimal float.
     ///
-    /// The dot is only part of the number when a digit follows it, which is
-    /// what keeps `0..10` two tokens and a `DotDot` rather than a float and a
-    /// stray `10`. A float with no digits before the dot (`.5`) is not in the
-    /// language, so it is a `Dot` followed by a number.
+    /// A decimal number is `[0-9]` digits with `_` allowed *between* two of
+    /// them, then optionally `'.'` and another such run. The dot is only part
+    /// of the number when a digit follows it, which is what keeps `0..10` two
+    /// tokens and a `DotDot` rather than a float and a stray `10`. A float with
+    /// no digits before the dot (`.5`) is not in the language, so it is a `Dot`
+    /// followed by a number.
     ///
-    /// A number may not run straight into a name or a second dot. Splitting
-    /// `0x1F` into `0` and `x1F` looks like success and leaves the parser to
-    /// complain about an identifier the user never wrote, so those are
-    /// diagnosed here, where the mistake is visible.
+    /// A radix prefix is part of the number only when at least one digit of
+    /// that radix follows it, and a radix integer has no fraction: `0x1F.5` is
+    /// `0x1F`, a `Dot`, and `5`, which the parser rejects where the `.` is.
+    ///
+    /// A number may not run straight into a name, a second dot, or a stray
+    /// separator. Splitting `0x1F` into `0` and `x1F` looks like success and
+    /// leaves the parser to complain about an identifier the user never wrote,
+    /// so those are diagnosed here, where the mistake is visible.
     fn scan_number(&mut self) -> Result<TokenKind, Failed> {
         let bytes = self.src.as_bytes();
         let start = self.pos;
-        self.skip_digits();
+        let radix = match (peek(bytes, start), peek_at(bytes, start, 1)) {
+            (Some(b'0'), Some(b'x' | b'X')) => Some(16),
+            (Some(b'0'), Some(b'b' | b'B')) => Some(2),
+            (Some(b'0'), Some(b'o' | b'O')) => Some(8),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            self.pos = start.saturating_add(2);
+            let digits = self.skip_separated_digits(radix);
+            if digits == 0 || matches!(peek(bytes, self.pos), Some(byte) if is_ident_continue(byte))
+            {
+                let span = self.span_of(start, self.pos);
+                return self.report(error::invalid_numeric_literal(self.file, span));
+            }
+            return Ok(TokenKind::I64);
+        }
+
+        self.skip_separated_digits(10);
         let after_int = self.pos;
 
         let is_float = peek(bytes, after_int) == Some(b'.')
             && matches!(peek_at(bytes, after_int, 1), Some(b'0'..=b'9'));
         if is_float {
             self.pos = self.pos.saturating_add(1);
-            self.skip_digits();
+            self.skip_separated_digits(10);
         }
 
         let malformed = match peek(bytes, self.pos) {
-            // `123abc`, `1_000`, `1e10`: a letter or an underscore where the
-            // number should have ended.
+            // `123abc`, `1_`, `1e10`: a letter or a separator where the number
+            // should have ended. A separator between digits was consumed above.
             Some(byte) if is_ident_continue(byte) => true,
             // `1.2.3`: a second dot after a float. A dot after an *integer* is
             // `DotDot` or a bare `Dot`, which are both real tokens.
@@ -284,11 +307,33 @@ impl<'src> Lexer<'src> {
         Ok(if is_float { TokenKind::F64 } else { TokenKind::I64 })
     }
 
-    fn skip_digits(&mut self) {
+    /// Scans digits of `radix`, allowing `_` only between two of them.
+    ///
+    /// Returns how many digits were consumed, so a prefix with nothing after it
+    /// (`0x`) is a diagnostic rather than a zero followed by a name.
+    fn skip_separated_digits(&mut self, radix: u32) -> usize {
         let bytes = self.src.as_bytes();
-        while matches!(peek(bytes, self.pos), Some(b'0'..=b'9')) {
-            self.pos = self.pos.saturating_add(1);
+        let mut digits = 0usize;
+        let mut last_was_digit = false;
+        loop {
+            let next = peek(bytes, self.pos);
+            if matches!(next, Some(byte) if is_radix_digit(byte, radix)) {
+                digits = digits.saturating_add(1);
+                last_was_digit = true;
+                self.pos = self.pos.saturating_add(1);
+            } else if next == Some(b'_')
+                && last_was_digit
+                && matches!(
+                    peek_at(bytes, self.pos, 1),
+                    Some(byte) if is_radix_digit(byte, radix)
+                )
+            {
+                self.pos = self.pos.saturating_add(1);
+            } else {
+                break;
+            }
         }
+        digits
     }
 
     /// Scans a `"..."` literal.
@@ -532,6 +577,17 @@ fn is_ident_start(byte: u8) -> bool {
 
 fn is_ident_continue(byte: u8) -> bool {
     is_ident_start(byte) || byte.is_ascii_digit()
+}
+
+/// Whether `byte` is a digit of `radix` (2, 8, 10 or 16).
+fn is_radix_digit(byte: u8, radix: u32) -> bool {
+    match radix {
+        2 => matches!(byte, b'0' | b'1'),
+        8 => matches!(byte, b'0'..=b'7'),
+        10 => byte.is_ascii_digit(),
+        16 => byte.is_ascii_hexdigit(),
+        _ => false,
+    }
 }
 
 /// The byte at `at`, or `None` past the end of the source.

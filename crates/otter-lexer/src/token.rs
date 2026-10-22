@@ -48,9 +48,10 @@ use crate::error::{self, LitError};
 ///
 /// # Errors
 ///
-/// A diagnostic against `file` when the span does not name digits, or names
-/// digits too large for an `i64`. The span is the one that was passed in, so
-/// the caret covers the literal the user wrote.
+/// A diagnostic against `file` when the span does not name a well-formed
+/// integer -- decimal, or `0x`, `0b`, `0o` with `_` separators -- or names one
+/// too large for an `i64`. The span is the one that was passed in, so the caret
+/// covers the literal the user wrote.
 pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagnostic> {
     // `usize::try_from` cannot fail for a `u32` on any platform this runs on,
     // and a saturated `usize::MAX` is out of range for `str::get` anyway, so
@@ -64,16 +65,72 @@ pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagno
         Some(text) if !text.is_empty() => text,
         _ => return Err(error::invalid_integer_literal(file, span)),
     };
-    if !text.bytes().all(|byte| byte.is_ascii_digit()) {
-        // The lexer never emits a span covering anything but digits, so this is
-        // a caller that sliced the wrong range -- a diagnostic is still better
-        // than handing back a number read out of the middle of a string.
+    // A prefix selects the radix and is not a digit; the value is the digits
+    // with their separators removed. `0x` with nothing after it is not a
+    // literal the lexer emits, but this function is also reachable from a
+    // caller that sliced a span by hand, so it refuses rather than guessing.
+    let (digits, radix) = if let Some(rest) = text
+        .strip_prefix("0x")
+        .or_else(|| text.strip_prefix("0X"))
+    {
+        (rest, 16)
+    } else if let Some(rest) = text
+        .strip_prefix("0b")
+        .or_else(|| text.strip_prefix("0B"))
+    {
+        (rest, 2)
+    } else if let Some(rest) = text
+        .strip_prefix("0o")
+        .or_else(|| text.strip_prefix("0O"))
+    {
+        (rest, 8)
+    } else {
+        (text, 10)
+    };
+    let cleaned = strip_separators(digits, radix);
+    let Some(cleaned) = cleaned else {
+        // The lexer never emits a span covering anything but a well-formed
+        // number, so this is a caller that sliced the wrong range -- a
+        // diagnostic is still better than handing back a number read out of
+        // the middle of a string.
         return Err(error::invalid_integer_literal(file, span));
-    }
-    match text.parse::<i64>() {
+    };
+    match i64::from_str_radix(&cleaned, radix) {
         Ok(value) => Ok(value),
         Err(_) => Err(error::integer_literal_out_of_range(file, span)),
     }
+}
+
+/// The digits of a literal with their separators removed, or `None` when a
+/// separator does not sit between two digits.
+///
+/// `1_000` is a number; `_1`, `1_` and `1__0` are not. The check is here
+/// rather than in the lexer because this function is the only place that
+/// reads a literal's value, and a caller that sliced the wrong range must not
+/// get a number out of it.
+fn strip_separators(digits: &str, radix: u32) -> Option<String> {
+    let mut cleaned = String::with_capacity(digits.len());
+    let mut previous_was_digit = false;
+    for character in digits.chars() {
+        if character == '_' {
+            if !previous_was_digit {
+                return None;
+            }
+            previous_was_digit = false;
+            continue;
+        }
+        if !character.is_digit(radix) {
+            return None;
+        }
+        cleaned.push(character);
+        previous_was_digit = true;
+    }
+    // A separator at the end leaves the last character a separator: the
+    // number ends with `_`, which is not a number.
+    if !previous_was_digit {
+        return None;
+    }
+    Some(cleaned)
 }
 
 /// A string literal with its escape sequences decoded.

@@ -1,0 +1,38 @@
+// Numeric literals: the four ways a whole number is written (M15 Task 20).
+//
+// The four forms are the same number written four ways, so the program prints
+// one line and the reader can check that the prefixes and the separators did
+// not change the value: `1_000_000` is a million, `0xFF` is 255, `0b1010` is
+// ten, and `0o777` is 511.
+//
+// The separator is only allowed *between* two digits, and a prefix needs at
+// least one digit after it; both are diagnosed by the lexer rather than being
+// quietly accepted, and the second half of this file is the error case the
+// compiler refuses to build.
+
+fn main() {
+    const million = 1_000_000;
+    const hex = 0xFF;
+    const binary = 0b1010;
+    const octal = 0o777;
+
+    print_i64(million);
+    print_str(" ");
+    print_i64(hex);
+    print_str(" ");
+    print_i64(binary);
+    print_str(" ");
+    print_i64(octal);
+    print_str("\n");
+
+    // The separators work in a float too, and the value is the number rather
+    // than the text: `1_000.5_0` is 1000.5.
+    const fraction = 1_000.5_0;
+    print_f64(fraction);
+    print_str("\n");
+
+    // A radix prefix is a whole number, so `0x10 + 1` is seventeen.
+    const added = 0x10 + 1;
+    print_i64(added);
+    print_str("\n");
+}

@@ -162,15 +162,67 @@ fn a_number_too_large_for_an_i64_is_a_diagnostic_not_a_panic() {
 }
 
 #[test]
+fn a_number_may_be_written_with_separators_or_a_radix_prefix() {
+    // The separator is part of one token, not a spurious identifier after a
+    // number, and the prefix is part of the token rather than a zero followed
+    // by a name. Both were diagnostics before; the caret still covers the
+    // whole literal, which is what the parser slices to get the value.
+    for (src, kind, span) in [
+        ("1_000_000", TokenKind::I64, Span::new(0, 9)),
+        ("0xFF", TokenKind::I64, Span::new(0, 4)),
+        ("0b1010", TokenKind::I64, Span::new(0, 6)),
+        ("0o777", TokenKind::I64, Span::new(0, 5)),
+        ("0X1f", TokenKind::I64, Span::new(0, 4)),
+        ("1_000.5_0", TokenKind::F64, Span::new(0, 9)),
+    ] {
+        let end = u32::try_from(src.len()).unwrap_or(u32::MAX);
+        assert_eq!(
+            tokens(src),
+            vec![(kind, span), (TokenKind::Eof, Span::new(end, end))],
+            "{src:?}"
+        );
+    }
+
+    // The value is the digits in their radix, not the source text parsed as
+    // decimal: `0xFF` is 255, and the separators are not digits.
+    for (src, value) in [
+        ("1_000_000", 1_000_000),
+        ("0xFF", 255),
+        ("0b1010", 10),
+        ("0o777", 511),
+    ] {
+        let end = u32::try_from(src.len()).unwrap_or(u32::MAX);
+        assert_eq!(
+            literal_as_i64(src, Span::new(0, end), file()),
+            Ok(value),
+            "{src:?}"
+        );
+    }
+
+    // A prefix with no digits, a digit of the wrong radix, a separator that is
+    // not between two digits, and a value too large for the radix's `i64` are
+    // all diagnostics rather than guesses.
+    for src in ["0x", "0xG", "0b102", "0o8", "0x_1", "0xFF_", "0xFFFFFFFFFFFFFFFFF"] {
+        let end = u32::try_from(src.len()).unwrap_or(u32::MAX);
+        assert!(
+            literal_as_i64(src, Span::new(0, end), file()).is_err(),
+            "{src:?} must not produce a value"
+        );
+    }
+}
+
+#[test]
 fn a_malformed_number_is_diagnosed_rather_than_split_into_two_tokens() {
     // `123abc` used to lex as `I64` `Ident`, and `0x1F` as `I64` `Ident`. Both
     // are silent successes that leave the parser to report something
     // bewildering about a name the user never wrote.
     for (src, span) in [
         ("123abc", Span::new(0, 3)),
-        ("0x1F", Span::new(0, 1)),
+        ("0x", Span::new(0, 2)),
+        ("0b102", Span::new(0, 4)),
         ("1e10", Span::new(0, 1)),
-        ("1_000", Span::new(0, 1)),
+        ("1_", Span::new(0, 1)),
+        ("1__0", Span::new(0, 1)),
         ("1.2.3", Span::new(0, 3)),
     ] {
         let diags = errors(src);

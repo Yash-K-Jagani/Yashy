@@ -327,6 +327,14 @@ fn let_var_and_const_behave_as_documented() {
 }
 
 #[test]
+fn numeric_literals_come_in_four_forms() {
+    // `1_000_000`, `0xFF`, `0b1010` and `0o777` are four spellings of four
+    // numbers, and the separators are not part of the value.
+    let output = build_and_run("numeric_literals");
+    assert_eq!(stdout_of(&output), "1000000 255 10 511\n1000.5\n17\n");
+}
+
+#[test]
 fn fibonacci_prints_the_tenth_number() {
     // 55, the tenth Fibonacci number, from an accumulating loop: this is the
     // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a

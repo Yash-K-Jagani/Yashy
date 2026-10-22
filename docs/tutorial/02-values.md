@@ -78,6 +78,36 @@ Both operands of an arithmetic or comparison operator must have the same type.
 `i64` truncates toward zero: `3.9 as i64` is `3`, and `-3.9 as i64` is `-3`.
 There is no cast from `string` to a number; `parse_i64` exists for that.
 
+## How a number is written
+
+An integer is written in decimal by default, and it may be written in another
+base or with separators. All four of these are the same number:
+
+```otter
+fn main() {
+    print_i64(1_000_000);
+    print_str(" ");
+    print_i64(0xFF);
+    print_str(" ");
+    print_i64(0b1010);
+    print_str(" ");
+    print_i64(0o777);
+    print_str("\n");
+    // => 1000000 255 10 511
+}
+```
+
+- `_` separates digits and is ignored: `1_000_000` is a million. It must sit
+  *between* two digits, so `1_` and `_1` are errors rather than numbers.
+- `0x` is hexadecimal, `0b` is binary, and `0o` is octal: `0xFF` is 255,
+  `0b1010` is 10, and `0o777` is 511. The prefix may be written in either
+  case (`0X`, `0B`, `0O`).
+- A prefixed number is a whole number. There is no hexadecimal fraction, and
+  there are no exponent literals: `1e10` is an error, not ten million.
+
+A float is a decimal point and more digits, and the separator works there too:
+`1_000.5_0` is `1000.5`.
+
 `&&` and `||` take two `bool`s and produce a `bool`. They are not
 short-circuiting in this build: both operands are evaluated before the operator
 runs. That matters when the right side has a side effect or can fault. Write

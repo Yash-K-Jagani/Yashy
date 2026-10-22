@@ -98,14 +98,16 @@ pub(crate) fn integer_literal_out_of_range(file: FileId, span: Span) -> Diagnost
 }
 
 /// A number that runs straight into something that cannot be part of one, such
-/// as the `x` in `0x1F` or a second dot in `1.2.3`.
+/// as a stray separator, a prefix with no digit after it, or a second dot in
+/// `1.2.3`.
 ///
 /// The label matters here more than the message: the mistake is always the same
 /// one -- writing a literal Otter does not have -- and saying so is the
 /// difference between a user who fixes it and a user who tries `0b1010` next.
 pub(crate) fn invalid_numeric_literal(file: FileId, span: Span) -> Diagnostic {
-    error(file, span, "invalid numeric literal")
-        .with_label("Otter has no hex, binary, exponent or digit-separating literals")
+    error(file, span, "invalid numeric literal").with_label(
+        "digits, `_` between two digits, and a `0x`/`0b`/`0o` prefix; no exponents",
+    )
 }
 
 fn error(file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
@@ -262,7 +264,7 @@ mod tests {
         assert_eq!(numeric.message, "invalid numeric literal");
         assert_eq!(
             numeric.label.as_deref(),
-            Some("Otter has no hex, binary, exponent or digit-separating literals")
+            Some("digits, `_` between two digits, and a `0x`/`0b`/`0o` prefix; no exponents")
         );
     }
 }
