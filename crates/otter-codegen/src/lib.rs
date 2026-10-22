@@ -15,6 +15,7 @@ pub mod env;
 pub mod expr_gen;
 pub mod faults;
 pub mod ffi;
+pub mod fixed;
 pub mod fn_gen;
 pub mod higher_order;
 pub mod ir;

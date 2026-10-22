@@ -654,6 +654,15 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             ty,
             ..
         } => crate::slices::gen_literal(ctx, &elem_ty.kind, elements, &ty.kind),
+        HirExpr::FixedArrayLit {
+            elem_ty,
+            elements,
+            ty,
+            ..
+        } => crate::fixed::gen_literal(ctx, &elem_ty.kind, elements, &ty.kind),
+        HirExpr::View {
+            base, start, end, ty, ..
+        } => crate::fixed::gen_view(ctx, base, start, end, &ty.kind),
         // A struct value is an aggregate, so reading one field of it is
         // `extractvalue` -- no address, no alloca, no GEP. The index was resolved
         // against the declaration order in the checker (see `HirExpr::FieldAccess`).
@@ -670,9 +679,18 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             }
         }
         HirExpr::Index { base, index, ty, .. } => {
-            if matches!(expr_ty(base).kind, TypeKind::Slice(_)) {
+            match &expr_ty(base).kind {
                 // `xs[i]` is an `Option`: the runtime bounds test decides.
-                return crate::slices::gen_index(ctx, base, index, &ty.kind);
+                TypeKind::Slice(_) => {
+                    return crate::slices::gen_index(ctx, base, index, &ty.kind);
+                }
+                // A fixed array or a view is checked against a length the
+                // backend already has: a constant in the type, or the word the
+                // view carries.
+                TypeKind::FixedArray(_, _) | TypeKind::View(_) => {
+                    return crate::fixed::gen_index(ctx, base, index, &ty.kind);
+                }
+                _ => {}
             }
             // `p[i]` reads the element at an address: getelementptr to the
             // element's address, then load. The element is whatever the
@@ -1345,6 +1363,7 @@ fn gen_call(
         "slice_extend" => crate::slices::gen_extend(ctx, args),
         "slice_copy" => crate::slices::gen_copy(ctx, args, ty),
         "free_slice" => crate::slices::gen_free(ctx, args),
+        "view_len" => crate::fixed::gen_len(ctx, args),
         "map_new" => crate::maps::gen_new(ctx, ty),
         "map_insert" => crate::maps::gen_insert(ctx, args),
         "map_get" => crate::maps::gen_get(ctx, args, ty),

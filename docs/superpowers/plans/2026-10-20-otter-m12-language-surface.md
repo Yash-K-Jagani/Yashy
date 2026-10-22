@@ -24,7 +24,10 @@
 
 ## Naming Decisions
 
-The public name of `[]T` becomes **array**. The word **slice** is reserved for a future non-owning view; nothing in this plan introduces that view.
+The public name of `[]T` becomes **array**. The word **slice** is reserved for
+the runtime header and its C symbols (`otter_slice_*`); the non-owning view
+this plan adds in Task 18 is called a **view**, and the word slice stays
+internal.
 
 | Today | After | Notes |
 |---|---|---|
@@ -1487,18 +1490,18 @@ The proof:
 - Produces: `[T; N]` fixed arrays with stack storage and `[T]` views; `a[start..end]` returns a view that borrows `a`.
 - Consumes: M12 array methods; Task 17 ownership fixes.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `fixed_arrays.ot` declares `const grid: [i64; 3] = [1, 2, 3];`, reads
 `grid[1]`, takes `const head = grid[0..2];`, and sums the view. Indexing out of
 bounds on a fixed array returns `Option`, as on an array.
 
-- [ ] **Step 2: Run and verify it fails**
+- [x] **Step 2: Run and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e fixed_arrays_and_views`
 Expected: FAIL at parse on `[i64; 3]`.
 
-- [ ] **Step 3: Implement fixed arrays and views**
+- [x] **Step 3: Implement fixed arrays and views**
 
 `[T; N]` is an LLVM array aggregate stored in an `alloca`; indexing is a constant
 check plus `extractvalue` or `getelementptr`. `[T]` is a `{ i64, i8* }` view with
@@ -1506,17 +1509,79 @@ no ownership; `a[start..end]` borrows `a` and is rejected if `a` is moved or
 freed while the view is live. Views cannot be returned from the function that
 owns the storage.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e fixed_arrays_and_views`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-driver/tests/programs/fixed_arrays.ot
 git commit -m "feat: fixed arrays and borrowed array views"
 ```
+
+**As built:**
+
+- The view header is `{ i8*, i64 }` -- data pointer first, then length, matching
+  the order the slice header uses for its first two words. The plan's
+  `{ i64, i8* }` would only have swapped two fields in one aggregate; the
+  slice's order won so `extractvalue ..., 1` is the length in both.
+- `[T]` is *not a spelling*. `resolve_type_in` rejects a written `TypeExpr::View`
+  with "a view type cannot be written", because Otter has no lifetime syntax to
+  say which array a parameter or return type would borrow from. A view is
+  inferred at `a[start..end]` and lives in the function that made it; this is
+  what makes "views cannot be returned" an enforced rule instead of a comment.
+- Borrowing is tracked as a list of binding names per function body
+  (`borrowed_bindings`), cleared on entry and restored on exit. `move_out`
+  refuses a borrowed name, and every mutating array method (`push`, `pop`,
+  `set`, `insert`, `remove`, `clear`, `reverse`, `sort`, `extend`, `free`) and
+  a plain `xs = ...` assignment go through `reject_borrowed_write`. The borrow
+  lasts until the function returns: there is no expression that ends it early.
+- Consequence, documented in the tutorial: a `[]T` a function takes a view of
+  cannot be freed in that function, because `free` is a write to the borrowed
+  binding. That is a leak, not a corruption, and it is the price of views
+  without lifetimes; fixed arrays have no `free`, so the cost is zero there.
+- Range bounds are clamped with `select`s, matching `slice(start, end)`. A
+  backwards range is empty rather than an error, and `grid[0..99]` is the whole
+  array.
+- Indexing is guarded rather than trapped: the index is compared, the load uses
+  `select i1 in_range, i64 index, i64 0`, and the tag is the comparison. The
+  address handed to `load` is therefore always in bounds, which is why the
+  fixed-array path needs no runtime call.
+- `for` over a fixed array hoists the element address and the length, because
+  neither can change: the length is in the type and the elements are the
+  binding's own slot. `for` over a slice or a view keeps re-reading the header
+  on every iteration, which is the existing, tested behaviour: a `push` inside
+  the loop grows the backing array and the loop must follow it (see
+  `slices_ops.ot`). Hoisting the header for the fixed-array case and leaving it
+  alone for the other two is what keeps `slices_ops` green.
+- A fixed array element must be a built-in number, `bool`, or `usize`
+  (`fixed_array_element_is_supported`). A `string` element is refused: copying
+  the array copies bytes, which would duplicate a handle without a retain.
+  Views inherit the same restriction, so `v[i]` never hands out a borrowed
+  reference as if it were a copy.
+- `[T; N]` accepts `N >= 1` and a decimal literal only. There is no zero-length
+  array (its type would have no value to store) and no constant-expression
+  length (a type has no run time).
+- A fixed array has no mutating methods and `grid[i] = v` is rejected; the
+  element surface is read-only (`len`, `is_empty`, `get`, `first`, `last`,
+  indexing, `for`). `[]T` remains the growable, mutable form.
+- Tests: e2e `fixed_arrays_and_views`; codegen `crates/otter-codegen/tests/fixed.rs`
+  -- `a_fixed_array_literal_lives_in_the_frame`,
+  `a_fixed_array_index_is_checked_and_guarded`,
+  `a_view_is_a_pointer_and_a_clamped_length`,
+  `a_fixed_array_loop_uses_the_length_from_its_type`, and
+  `a_slice_loop_re_reads_its_header_each_iteration` (the last one is the
+  in-process guard for the `slices_ops.ot` behaviour, which runs even when
+  Application Control blocks the end-to-end executables);
+  sema `a_fixed_array_index_is_an_option`,
+  `a_range_binding_has_a_view_type`, `a_view_borrows_its_source_until_the_function_ends`,
+  `changing_a_borrowed_array_is_rejected`, `a_view_type_is_not_a_spelling`,
+  `a_fixed_array_cannot_hold_a_reference`, `a_fixed_array_needs_a_length`;
+  parser `the_three_bracket_types_parse_apart`,
+  `a_fixed_array_length_must_be_a_and_fit_in_a_machine_word`,
+  `a_fixed_array_literal_and_a_range_are_distinct_expressions`.
 
 ### Task 19: Tuples, destructuring, and pattern guards
 

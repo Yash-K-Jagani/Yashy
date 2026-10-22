@@ -24,6 +24,19 @@ pub enum TypeKind {
     Enum(String),
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
+    /// A fixed-size array `[T; N]`: storage in the enclosing frame.
+    ///
+    /// Copyable and non-linear: it owns no heap, and copying it copies the
+    /// elements. `N` is part of the type, so `[i64; 3]` and `[i64; 4]` are
+    /// different types.
+    FixedArray(Box<Type>, usize),
+    /// A borrowed view `[T]` of a run of elements.
+    ///
+    /// A view owns nothing -- it is a length and a pointer into an array that
+    /// something else owns -- so it is copyable and never freed. It cannot be
+    /// returned from the function that made it, which is what keeps the
+    /// pointer from outliving its storage.
+    View(Box<Type>),
     /// A growable, linearly owned sequence of the element type, written `[]T`.
     ///
     /// Linear for the same reason a raw pointer is: exactly one binding owns
@@ -124,6 +137,8 @@ impl std::fmt::Display for Type {
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
             TypeKind::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
             TypeKind::Slice(element) => write!(f, "[]{element}"),
+            TypeKind::FixedArray(element, length) => write!(f, "[{element}; {length}]"),
+            TypeKind::View(element) => write!(f, "[{element}]"),
             TypeKind::Map(key, value) => write!(f, "map[{key}]{value}"),
             TypeKind::Mutex => write!(f, "Mutex"),
             TypeKind::Channel(element) => write!(f, "Channel[{element}]"),

@@ -137,6 +137,19 @@ $workloads = @(
            @{ Lang = 'Go (go build)';           Kind = 'go';    Src = 'generics.go';         Out = 'generics-go' },
            @{ Lang = 'Rust (rustc -O)';         Kind = 'rust';  Src = 'generics.rs';         Out = 'generics-rust' }
        ) },
+    # A fixed array: eight elements in the frame, summed by an inner `for`.
+    # There is no allocation and no capacity in the loop, so the gap to the C
+    # row is the cost of iterating an aggregate the compiler knows the length
+    # of rather than of a growable array.
+    @{ Name = 'fixed_array'; Work = 400000000; Unit = 'element'; Expected = '1800000000'; Source = 'fixed_array.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2 (checked +)'; Kind = 'otter'; Src = 'fixed_array.ot';          Out = 'fixed_array-otter' },
+           @{ Lang = 'Otter -O2 (wrapping)';  Kind = 'otter'; Src = 'fixed_array_wrapping.ot'; Out = 'fixed_array-wrapping-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'fixed_array.c';  Out = 'fixed_array-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'fixed_array.c';  Out = 'fixed_array-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'fixed_array.go'; Out = 'fixed_array-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'fixed_array.rs'; Out = 'fixed_array-rust' }
+       ) },
     # The array mapping: the same loop in every language, building a second
     # array the size of the first.
     @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';

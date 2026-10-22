@@ -734,15 +734,40 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     let Some(binding) = path.last() else {
         return Flow::Fallthrough;
     };
-    let Some((slice_slot, slice_ty)) = ctx.locals.get(binding).cloned() else {
+    let Some((slot, iterable_ty)) = ctx.locals.get(binding).cloned() else {
         return Flow::Fallthrough;
     };
-    let TypeKind::Slice(element) = &slice_ty else {
-        return Flow::Fallthrough;
+    // All three array forms iterate the same way -- walk a pointer and a
+    // length -- but they must not read those two words at the same time. A
+    // slice's header is *live*: a `push` inside the loop grows the backing
+    // array, and the loop has to see the new length and pointer, so both are
+    // re-read on every iteration. A view behaves the same way, because a `var`
+    // view can be rebound. A fixed array cannot change at all: its length is a
+    // constant in its type and its elements are the binding's own slot, so
+    // those two are computed once, before the loop.
+    let element_kind = match &iterable_ty {
+        TypeKind::Slice(element) | TypeKind::View(element) => element.kind.clone(),
+        TypeKind::FixedArray(element, _) => element.kind.clone(),
+        _ => return Flow::Fallthrough,
     };
-    let element_kind = element.kind.clone();
+    let repr = repr_type(&iterable_ty);
+    let fixed_data = match &iterable_ty {
+        TypeKind::FixedArray(_, _) => {
+            let data = ctx.tmp();
+            ctx.push(format!(
+                "{data} = getelementptr {repr}, ptr {slot}, i64 0, i64 0"
+            ));
+            Some(data)
+        }
+        _ => None,
+    };
+    let fixed_len = match &iterable_ty {
+        TypeKind::FixedArray(_, length) => {
+            Some(i64::try_from(*length).unwrap_or(i64::MAX).to_string())
+        }
+        _ => None,
+    };
     let element_repr = repr_type(&element_kind);
-    let slice_repr = repr_type(&slice_ty);
 
     let index_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{index_slot} = alloca i64"));
@@ -755,12 +780,18 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
 
     ctx.push(format!("br label %{cond_label}"));
     ctx.push(format!("{cond_label}:"));
-    let len_ptr = ctx.tmp();
-    ctx.push(format!(
-        "{len_ptr} = getelementptr {slice_repr}, ptr {slice_slot}, i32 0, i32 1"
-    ));
-    let len = ctx.tmp();
-    ctx.push(format!("{len} = load i64, ptr {len_ptr}"));
+    let len = match &fixed_len {
+        Some(len) => len.clone(),
+        None => {
+            let len_ptr = ctx.tmp();
+            ctx.push(format!(
+                "{len_ptr} = getelementptr {repr}, ptr {slot}, i32 0, i32 1"
+            ));
+            let len = ctx.tmp();
+            ctx.push(format!("{len} = load i64, ptr {len_ptr}"));
+            len
+        }
+    };
     let current = ctx.tmp();
     ctx.push(format!("{current} = load i64, ptr {index_slot}"));
     let in_range = ctx.tmp();
@@ -770,12 +801,18 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     ));
 
     ctx.push(format!("{body_label}:"));
-    let data_ptr = ctx.tmp();
-    ctx.push(format!(
-        "{data_ptr} = getelementptr {slice_repr}, ptr {slice_slot}, i32 0, i32 0"
-    ));
-    let data = ctx.tmp();
-    ctx.push(format!("{data} = load i8*, ptr {data_ptr}"));
+    let data = match &fixed_data {
+        Some(data) => data.clone(),
+        None => {
+            let data_ptr = ctx.tmp();
+            ctx.push(format!(
+                "{data_ptr} = getelementptr {repr}, ptr {slot}, i32 0, i32 0"
+            ));
+            let data = ctx.tmp();
+            ctx.push(format!("{data} = load i8*, ptr {data_ptr}"));
+            data
+        }
+    };
     let position = ctx.tmp();
     ctx.push(format!("{position} = load i64, ptr {index_slot}"));
     let element_ptr = ctx.tmp();

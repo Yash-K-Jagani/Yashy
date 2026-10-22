@@ -6,6 +6,8 @@
 - Why indexing returns `Option[T]` instead of panicking.
 - What passing an array to a function does to ownership.
 - How a `[]string` owns the strings inside it.
+- How a fixed array `[T; N]` differs from a growable `[]T`, and what a view
+  `a[start..end]` borrows.
 
 An array is a growable sequence. `[]i64 { ... }` is a literal, `xs.push(v)`
 appends, `xs.len()` counts, `for` walks, and `xs.free()` releases the backing
@@ -174,10 +176,135 @@ element's reference would leave the array without a matching release.
 | `xs.pop()` | `Option[T]` | Removes the last element; refused for `[]string`. |
 | `for x in xs { ... }` | statement | Reads each element; the array stays borrowed. |
 | `xs.free()` | `()` | Releases the elements (if strings) and the array. |
+| `[T; N]` | type | Fixed array in the frame; length is part of the type. |
+| `[a, b, c]` | `[T; 3]` | Fixed array literal; at least one element. |
+| `grid[i]` / `grid.get(i)` | `Option[T]` | Checked against the array's own length. |
+| `grid.first()` / `grid.last()` | `Option[T]` | `None` only for a view of length zero. |
+| `grid.len()` | `i64` | The length in the type, or the view's word. |
+| `a[start..end]` | `[T]` view | Clamped range borrowing `a` for the rest of the function. |
 
 The element type is part of the array type, so `[]i64` and `[]string` are
 different types and an array cannot change element type. The element type is
 written in the literal, and `[]i64 {}` is the empty array of `i64`.
+
+## Fixed arrays and views
+
+`[T; N]` is an array whose length is part of its type. The elements live in the
+frame that declares the binding, so there is no allocation, no owner, and
+nothing to free: `[i64; 3]` and `[i64; 4]` are two different types, and a
+function that returns the first cannot hand back the second.
+
+```otter
+fn show(o: Option[i64]) -> i64 {
+    return switch o {
+        case Some(v) { v }
+        case None { 0 - 1 }
+    };
+}
+
+fn main() {
+    const grid: [i64; 3] = [1, 2, 3];
+
+    print_i64(grid.len());
+    print_str("\n");
+    // => 3
+
+    print_i64(show(grid[1]));
+    print_str("\n");
+    // => 2
+
+    print_i64(show(grid[3]));
+    print_str("\n");
+    // => -1
+
+    const head = grid[0..2];
+    print_i64(head.len());
+    print_str("\n");
+    // => 2
+
+    var total = 0;
+    for value in head {
+        total = total + value;
+    }
+    print_i64(total);
+    print_str("\n");
+    // => 3
+}
+```
+
+`grid[1]` is an `Option[i64]` for the same reason `xs[1]` is: the index may be
+past the end, and the type says so. There is no panic path, and the backend
+guards the load with a `select` so even the machine code never reads outside the
+array.
+
+`grid[0..2]` is a **view**: a length and a pointer into `grid`, not a copy.
+`0` and `2` are clamped to `grid.len()`, so `grid[0..99]` is the whole array and
+`grid[2..1]` is empty rather than an error. Iterating a view walks the elements
+it covers; iterating the array itself walks all of them.
+
+A view owns nothing, so the array it borrows must not move or change while the
+view exists. The checker treats a view as borrowing its source **until the
+function returns**:
+
+```otter
+fn main() {
+    var xs = []i64 { 1, 2, 3 };
+    const view = xs[0..2];
+    // xs.push(4);   error: cannot change `xs` while a view of it is alive
+    // move xs;      error: cannot move `xs` while a view of it is alive
+    print_i64(view.len());
+    print_str("\n");
+    // => 2
+}
+```
+
+Views are not a type you can write. `fn f(x: [i64])` and `fn f() -> [i64]` are
+both rejected, because Otter has no lifetime syntax to say which array a
+borrowed view came from, and a view that outlived its array would read freed
+storage. A view is inferred at the range and lives in the function that made
+it; pass the array itself, or copy the elements into a `[]T`, to hand the data
+to another function.
+
+The borrow also means a `[]T` you take a view of **cannot be freed in that
+function**. `xs.free()` under a live view is refused, and the view lives until
+the function returns, so an owned array that has been viewed is never released:
+a leak, not a corruption. This is the honest cost of views without lifetimes:
+
+```otter
+fn middle_sum(xs: []i64) -> i64 {
+    const mid = xs[1..3];
+    var sum = 0;
+    for value in mid {
+        sum = sum + value;
+    }
+    return sum;      // `xs` is not freed: `mid` still points into it
+}
+
+fn main() {
+    // => 50
+    print_i64(middle_sum([]i64 { 10, 20, 30, 40 }));
+    print_str("\n");
+}
+```
+
+A fixed array has no `free`, so the restriction costs nothing there: views are
+at their best over `[T; N]`, where the storage is in the frame and the view can
+never see it released early.
+
+The two forms divide the work like this:
+
+| Form | Storage | Length | Ownership | Copy |
+|---|---|---|---|---|
+| `[T; N]` | the frame | constant in the type | none | yes, by value |
+| `[T]` (view) | borrowed from an array | a word it carries | none | yes, by value |
+| `[]T` | the heap | a word it carries | one owner, freed with `free()` | no |
+
+A fixed array is a value, so `var copy = grid;` is allowed and copies the
+elements. A view is a value too, but copying a view copies a pointer, which is
+safe only because neither copy can outlive the array. The element types are
+limited to the built-in numbers, `bool`, and `usize`: copying a fixed array
+copies its bytes, which is exact for those and not yet defined for a `string`
+that owns a reference.
 
 ## Common mistakes
 
@@ -205,6 +332,20 @@ written in the literal, and `[]i64 {}` is the empty array of `i64`.
 - **Using an extended array again.** `xs.extend(ys); print_i64(ys.len());`
   reports ``error: value `ys` has already been moved``. `extend` consumed `ys`;
   use `xs` after the call, or make a copy first with `ys.slice(0, ys.len())`.
+- **Changing an array a view borrows.** `const v = xs[0..2]; xs.push(3);`
+  reports ``error: cannot change `xs` while a view of it is alive``. Any write
+  -- `push`, `pop`, `set`, `insert`, `remove`, `clear`, `reverse`, `sort`,
+  `extend`, `free`, or an assignment -- is refused until the function returns.
+- **Writing a view type.** `fn total(xs: [i64]) -> i64` reports
+  ``error: a view type cannot be written``. Otter cannot say which array a
+  borrowed parameter would point at, so views stay in the function that made
+  them; take `[]i64` and free it, or copy the elements first.
+- **A fixed array of strings.** `[\"a\", \"b\"]` reports
+  ``error: a fixed array cannot hold `string` ``. Copying the array would
+  duplicate the handles without taking a reference; use a `[]string` today.
+- **Assigning to a fixed array element.** `grid[0] = 9;` reports ``error:
+  cannot assign to index of `[i64; 3]` ``. A fixed array is built once, at its
+  literal or its return; use a `[]i64` when the elements have to change.
 
 ## Try it
 
@@ -217,6 +358,30 @@ written in the literal, and `[]i64 {}` is the empty array of `i64`.
    free the array. Then change the values to strings you built with `+` and
    confirm the output is unchanged. Hint: both literals and owned strings are
    retained by the array, so `xs.free()` handles either.
+
+3. Write a function that returns `[i64; 4]` holding the first four square
+   numbers, then print `grid.len()`, `grid.last()`, and the sum of
+   `grid[1..3]`. Hint: build the literal directly with `return [...]`; a fixed
+   array is a value, so returning one copies the elements and nothing is freed.
+
+4. Predict the output, then run it:
+
+   ```otter
+   fn main() {
+       const grid = [1, 2, 3];
+       const whole = grid[0..99];
+       const none = grid[3..3];
+       print_i64(whole.len());
+       print_str("\n");
+       // => 3
+       print_i64(none.len());
+       print_str("\n");
+       // => 0
+   }
+   ```
+
+   Answer: `3` and `0`. Bounds are clamped, so `0..99` is the whole array and
+   `3..3` is empty, not an error.
 
 ## How it works
 
@@ -231,5 +396,14 @@ is why a bad index is a value rather than a trap. `set` uses the same bounds
 test and copies the new value only in range. `xs.free()` dispatches on the
 element type: `[]string` calls `otter_slice_free_strings`, which releases each
 handle, then frees the array; every other type calls `otter_slice_free`.
+
+A fixed array is an LLVM aggregate `[N x T]` with no indirection: the elements
+sit in the binding's `alloca`, a literal is a chain of `insertvalue`s, and
+`grid[i]` takes the aggregate's address, tests `0 <= i < N`, and loads an element
+through a `select`ed in-range index so the load is always defined. A view is
+`{ i8*, i64 }` -- the address of its first element plus a length; `a[start..end]`
+clamps both bounds with `select`s and computes the pointer with `mul` and
+`getelementptr`, and never touches the source's header. Neither form calls the
+allocator, which is why neither has a `free`.
 
 Continue to [10-concurrency](10-concurrency.md).

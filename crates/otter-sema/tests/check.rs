@@ -1892,3 +1892,51 @@ fn a_generic_function_is_emitted_once_per_substitution() {
     assert_eq!(names, vec!["identity_i64", "identity_string", "main"]);
 }
 
+
+#[test]
+fn a_fixed_array_index_is_an_option() {
+    // `grid[1]` never faults: in range is `Some`, anything else is `None`.
+    // The length of a fixed array is its type, so `[i64; 3]` prints that way.
+    assert_eq!(
+        binding_type_in_fn(
+            "fn main() { const grid: [i64; 3] = [1, 2, 3]; }",
+            "main"
+        ),
+        "[i64; 3]"
+    );
+    assert_eq!(
+        binding_type_in_fn(
+            "fn main() { const grid = [1, 2, 3]; const at = grid[1]; }",
+            "main"
+        ),
+        "[i64; 3]"
+    );
+    let (result, _, _) = check_source(
+        "fn main() { const grid = [1, 2, 3]; const at = grid[1]; }",
+    );
+    let hir = result.expect("indexing a fixed array should check");
+    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+        panic!("main should exist");
+    };
+    let Some(HirStmt::Const { init, .. }) = f.body.stmts.get(1) else {
+        panic!("the index binding should be second");
+    };
+    assert_eq!(expr_ty(init).to_string(), "Option[i64]");
+}
+
+#[test]
+fn a_range_binding_has_a_view_type() {
+    // The view's type is inferred, and it carries its element type: `[i64]`.
+    let (result, _, _) = check_source(
+        "fn main() { const grid = [1, 2, 3]; const head = grid[0..2]; }",
+    );
+    let hir = result.expect("a range over a fixed array should check");
+    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+        panic!("main should exist");
+    };
+    let Some(HirStmt::Const { init, .. }) = f.body.stmts.get(1) else {
+        panic!("the view binding should be second");
+    };
+    assert_eq!(expr_ty(init).to_string(), "[i64]");
+    assert!(matches!(init, HirExpr::View { .. }));
+}

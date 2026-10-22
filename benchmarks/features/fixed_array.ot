@@ -1,0 +1,23 @@
+// Summing a fixed array 50,000,000 times.
+//
+// `[i64; 8]` lives in the frame: no allocation, no capacity, no bounds field.
+// The inner `for` walks the elements through a pointer the compiler already
+// knows is eight elements long, so the only per-element cost is the load and
+// the add. Every element add updates the *outer* accumulator, so no optimiser
+// can fold the inner loop away: the loop-carried dependency is the workload.
+//
+// The printed number is 50,000,000 * (1 + ... + 8) = 1,800,000,000.
+fn main() {
+    const grid = [1, 2, 3, 4, 5, 6, 7, 8];
+    const rounds = 50000000;
+    var total = 0;
+    var i = 0;
+    while i < rounds {
+        for value in grid {
+            total = total + value;
+        }
+        i = i + 1;
+    }
+    print_i64(total);
+    print_str("\n");
+}

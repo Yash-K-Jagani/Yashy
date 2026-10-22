@@ -260,11 +260,27 @@ impl<'src> Parser<'src> {
             if self.check(TokenKind::LBracket) {
                 let open = self.expect(TokenKind::LBracket)?;
                 let _ = self.push_open(TokenKind::LBracket, open.span)?;
-                let index = self.parse_expr()?;
+                // `a[0..2]` is a view, not an index whose value is a range:
+                // the range is read here, where the brackets are, so no range
+                // expression has to exist on its own.
+                let start = self.parse_expr()?;
+                if self.eat(TokenKind::DotDot) {
+                    let end = self.parse_expr()?;
+                    let close = self.expect(TokenKind::RBracket)?;
+                    self.close_open(TokenKind::RBracket);
+                    let span = cover(expr_span(&expr), close.span);
+                    expr = Expr::IndexRange {
+                        base: Box::new(expr),
+                        start: Box::new(start),
+                        end: Box::new(end),
+                        span,
+                    };
+                    continue;
+                }
                 let close = self.expect(TokenKind::RBracket)?;
                 self.close_open(TokenKind::RBracket);
                 let span = cover(expr_span(&expr), close.span);
-                expr = Expr::Index { base: Box::new(expr), index: Box::new(index), span };
+                expr = Expr::Index { base: Box::new(expr), index: Box::new(start), span };
                 continue;
             }
             break;
@@ -298,26 +314,44 @@ impl<'src> Parser<'src> {
                 Ok(Expr::Literal(Literal::Bool(false), tok.span))
             }
             TokenKind::LBracket => {
-                // `[]T { a, b }`. The brackets are empty and the element type
-                // follows, so an empty literal is typed without inference.
+                // Two literals start with `[`. `[]T { a, b }` has an empty
+                // bracket pair followed by its element type, so an empty
+                // literal is typed without inference. `[1, 2, 3]` is a fixed
+                // array: the elements say the type, and the brackets close at
+                // the end of them.
                 let open = self.advance();
                 let _ = self.push_open(TokenKind::LBracket, open.span)?;
-                let _ = self.expect(TokenKind::RBracket)?;
-                self.close_open(TokenKind::RBracket);
-                let elem = self.parse_type_expr()?;
-                let brace = self.expect(TokenKind::LBrace)?;
-                let _ = self.push_open(TokenKind::LBrace, brace.span)?;
+                if self.check(TokenKind::RBracket) {
+                    let _ = self.expect(TokenKind::RBracket)?;
+                    self.close_open(TokenKind::RBracket);
+                    let elem = self.parse_type_expr()?;
+                    let brace = self.expect(TokenKind::LBrace)?;
+                    let _ = self.push_open(TokenKind::LBrace, brace.span)?;
+                    let mut elements = Vec::new();
+                    while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                        elements.push(self.parse_expr()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    let close = self.expect(TokenKind::RBrace)?;
+                    self.close_open(TokenKind::RBrace);
+                    return Ok(Expr::SliceLit {
+                        elem: Box::new(elem),
+                        elements,
+                        span: cover(open.span, close.span),
+                    });
+                }
                 let mut elements = Vec::new();
-                while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                while !self.check(TokenKind::RBracket) && !self.at_eof() {
                     elements.push(self.parse_expr()?);
                     if !self.eat(TokenKind::Comma) {
                         break;
                     }
                 }
-                let close = self.expect(TokenKind::RBrace)?;
-                self.close_open(TokenKind::RBrace);
-                Ok(Expr::SliceLit {
-                    elem: Box::new(elem),
+                let close = self.expect(TokenKind::RBracket)?;
+                self.close_open(TokenKind::RBracket);
+                Ok(Expr::FixedArrayLit {
                     elements,
                     span: cover(open.span, close.span),
                 })
@@ -683,6 +717,8 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::SliceLit { span, .. } => *span,
         Expr::FieldAccess { span, .. } => *span,
         Expr::Index { span, .. } => *span,
+        Expr::FixedArrayLit { span, .. } => *span,
+        Expr::IndexRange { span, .. } => *span,
         Expr::Interp { span, .. } => *span,
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,
@@ -698,6 +734,8 @@ pub(crate) fn ty_span(ty: &TypeExpr) -> Span {
         | TypeExpr::Option(_, span)
         | TypeExpr::Ptr { span, .. }
         | TypeExpr::Slice(_, span)
+        | TypeExpr::FixedArray(_, _, span)
+        | TypeExpr::View(_, span)
         | TypeExpr::Unit(span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Map(_, _, span) => *span,

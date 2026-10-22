@@ -52,6 +52,10 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::CSize => "i64".to_string(),
         TypeKind::CVoid => "void".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
+        TypeKind::FixedArray(element, length) => {
+            format!("[{} x {}]", length, llvm_type_string(&element.kind))
+        }
+        TypeKind::View(_) => "{ i8*, i64 }".to_string(),
         // Every function value is a code pointer plus an environment pointer.
         // A non-capturing function leaves the environment null; a closure will
         // put a retained environment there.
@@ -96,6 +100,15 @@ pub fn repr_type(t: &TypeKind) -> String {
         TypeKind::Struct(name) => format!("%struct.{name}"),
         TypeKind::Enum(name) => format!("%enum.{name}"),
         TypeKind::Func(_, _) => "{ i8*, i8* }".to_string(),
+        // A fixed array is an LLVM aggregate with no indirection: the elements
+        // live where the value does, so a local of this type is its own
+        // storage and there is nothing to free.
+        TypeKind::FixedArray(element, length) => {
+            format!("[{} x {}]", length, repr_type(&element.kind))
+        }
+        // A view is a pointer and a length. The pointer names the first element
+        // the view covers, so the length is the only other thing it needs.
+        TypeKind::View(_) => "{ i8*, i64 }".to_string(),
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Map(_, _) => "i8*".to_string(),
         other => llvm_type_string(other),
@@ -128,6 +141,14 @@ pub fn size_of(kind: &TypeKind) -> u64 {
         | TypeKind::Mutex
         | TypeKind::Channel(_) => 8,
         TypeKind::Slice(_) => 24,
+        // The elements are laid out end to end and each is a whole number of
+        // its own alignment, so the size is length times element size. The
+        // checker only lets a fixed array hold the built-in value types, whose
+        // sizes this function knows exactly.
+        TypeKind::FixedArray(element, length) => {
+            size_of(&element.kind).saturating_mul(u64::try_from(*length).unwrap_or(u64::MAX))
+        }
+        TypeKind::View(_) => 16,
         TypeKind::Func(_, _) => 16,
         TypeKind::Option(_)
         | TypeKind::Result(_, _)

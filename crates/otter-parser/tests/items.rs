@@ -1695,3 +1695,68 @@ fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
         "`-5` stays a negation: {init:?}"
     );
 }
+
+#[test]
+fn the_three_bracket_types_parse_apart() {
+    // One bracket pair, three meanings: empty brackets take the element after
+    // them (`[]T`), `T; N` is a fixed array, and `T` alone is a view. Reading
+    // the pair in one place is what keeps `[]T` from being read as a view.
+    let src = "struct S { grow: []i64, fixed: [i64; 3], view: [i64] }";
+    let program = parse_ok(src);
+    let fields = match &program.items[0] {
+        Item::Struct { fields, .. } => fields,
+        other => panic!("expected a struct, got {other:?}"),
+    };
+    assert!(
+        matches!(&fields[0].ty, TypeExpr::Slice(_, _)),
+        "`[]i64` is a growable array: {:?}",
+        fields[0].ty
+    );
+    match &fields[1].ty {
+        TypeExpr::FixedArray(element, length, span) => {
+            assert_eq!(*length, 3);
+            assert!(matches!(**element, TypeExpr::Name(ref name, _) if name == "i64"));
+            assert_eq!(*span, span_of(src, "[i64; 3]"));
+        }
+        other => panic!("`[i64; 3]` is a fixed array, got {other:?}"),
+    }
+    assert!(
+        matches!(&fields[2].ty, TypeExpr::View(_, _)),
+        "`[i64]` is a view: {:?}",
+        fields[2].ty
+    );
+}
+
+#[test]
+fn a_fixed_array_length_must_be_a_and_fit_in_a_machine_word() {
+    assert!(
+        all_messages(&parse_err("struct S { a: [i64; n] }")).contains("array length"),
+        "a length is a literal, not a name"
+    );
+    assert!(
+        all_messages(&parse_err("struct S { a: [i64; 99999999999999999999999] }"))
+            .contains("machine word"),
+        "a length that cannot be stored is reported, not truncated"
+    );
+}
+
+#[test]
+fn a_fixed_array_literal_and_a_range_are_distinct_expressions() {
+    let program = parse_ok("fn main() { const a = [1, 2, 3]; const b = a[0..2]; const c = a[1]; }");
+    let body = match &program.items[0] {
+        Item::Fn { body, .. } => body,
+        other => panic!("expected a function, got {other:?}"),
+    };
+    assert!(
+        matches!(&body.stmts[0], Stmt::Const { init, .. } if matches!(init, Expr::FixedArrayLit { .. })),
+        "`[1, 2, 3]` is a fixed array literal, not a growable one"
+    );
+    assert!(
+        matches!(&body.stmts[1], Stmt::Const { init, .. } if matches!(init, Expr::IndexRange { .. })),
+        "`a[0..2]` is a range, so it makes a view"
+    );
+    assert!(
+        matches!(&body.stmts[2], Stmt::Const { init, .. } if matches!(init, Expr::Index { .. })),
+        "`a[1]` is an index"
+    );
+}

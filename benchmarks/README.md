@@ -66,6 +66,7 @@ have a comparable standard-library primitive.
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
+| `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -675,5 +676,45 @@ A generic function that is never called emits nothing at all: the body is
 checked at a substitution, and a program with no substitution has no body to
 check. That is a compile-time property, not a run-time one, and this benchmark
 does not measure it.
+
+#### Fixed arrays — 50,000,000 traversals of 8 elements
+
+| Language | min ms | median ms | ns/element |
+|---|---:|---:|---:|
+| C (clang -O2) | 16.9 | 19.9 | 0.042 |
+| Otter -O2 (`wrapping_add`) | 17.9 | 19.8 | 0.045 |
+| Rust (rustc -O) | 21.4 | 25.6 | 0.053 |
+| C (gcc -O2) | 176.3 | 196.6 | 0.441 |
+| Otter -O2 (`+`) | 192.8 | 218.3 | 0.482 |
+| Go (go build) | 333.6 | 352.6 | 0.834 |
+
+Every row walks the same eight-element `[1, 2, 3, 4, 5, 6, 7, 8]` fifty
+million times and adds each element into one accumulator, then prints
+`1800000000`. The array is in the frame in every language: `[i64; 8]` in Otter,
+`int64_t grid[8]` in C, `[8]int64` in Go, `[i64; 8]` in Rust. Nothing is
+allocated, nothing is freed, and no bounds field is read.
+
+The table is really two measurements. The `wrapping_add` row is the array: 17.9
+ms against clang's 16.9 (5.9% behind) and Rust's 21.4 (16% ahead). Iterating a
+fixed array is a pointer bump and a load; the inner `for` reads the length from
+the type, so the loop's bound is a constant and LLVM folds it like any other
+counted loop. The Go row is slow for an unrelated reason — Go's compiler does
+not reassociate the sum — and gcc's `-O2` does not either, which is why those
+two rows are near 180 ms.
+
+The second measurement is the checked add. Otter's `+` is an overflow test plus
+a branch on every element, and that branch is loop-carried, so the optimiser
+cannot reassociate the sum away. That row is 11x the `wrapping_add` row with
+the *same* array code, and it is the one place in this suite where the cost of
+Otter's arithmetic rules is larger than the cost of the feature being measured.
+C and Rust get the fast row by default: C's signed overflow is undefined, and
+Rust's `-O` turns overflow checks off. Go defines wrapping but does not
+reassociate, so its row is the slow one despite having no checks at all. The
+honest reading is that the fixed array costs about what C's array costs, and
+that a checked add is what it is.
+
+A view (`grid[0..2]`, or the whole `grid` in the `for` above) is not measured
+separately: it is the same header-free pointer-and-length loop as iterating the
+array, and its length is already a word in a register.
 
 

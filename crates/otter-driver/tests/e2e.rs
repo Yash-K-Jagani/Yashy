@@ -298,6 +298,17 @@ fn generic_functions_are_monomorphized() {
 }
 
 #[test]
+fn fixed_arrays_and_views() {
+    // `[i64; 3]` lives in the frame, indexing answers `Option`, and a range
+    // makes a borrowed view whose bounds are clamped.
+    let output = build_and_run("fixed_arrays");
+    assert_eq!(
+        stdout_of(&output),
+        "3\n2\n-1\n1\n3\n2\n3\n6\n3\n0\n8\n50\n"
+    );
+}
+
+#[test]
 fn let_var_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");

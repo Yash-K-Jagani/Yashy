@@ -472,6 +472,29 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// `[1, 2, 3]` -- a fixed array built in the enclosing frame.
+    ///
+    /// The elements are all of `elem_ty`, and there are as many as the type's
+    /// length says. Lowered as an `insertvalue` chain, so the value itself is
+    /// an LLVM aggregate and no allocation happens.
+    FixedArrayLit {
+        elem_ty: Type,
+        elements: Vec<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
+    /// `a[0..2]` -- a borrowed view of part of an array.
+    ///
+    /// `base` is a binding: a view points into storage that outlives it, so
+    /// the checker insists the source is a local it can hold onto. The result
+    /// is a length and a pointer, and it owns neither.
+    View {
+        base: Box<HirExpr>,
+        start: Box<HirExpr>,
+        end: Box<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
     Cast {
         expr: Box<HirExpr>,
         ty: Type,
@@ -572,6 +595,8 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::SliceLit { span, .. } => *span,
         HirExpr::FieldAccess { span, .. } => *span,
         HirExpr::Index { span, .. } => *span,
+        HirExpr::FixedArrayLit { span, .. } => *span,
+        HirExpr::View { span, .. } => *span,
         HirExpr::Cast { span, .. } => *span,
         HirExpr::Try { span, .. } => *span,
         HirExpr::SwitchExpr { span, .. } => *span,
@@ -596,6 +621,8 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::SliceLit { ty, .. } => ty.clone(),
         HirExpr::FieldAccess { ty, .. } => ty.clone(),
         HirExpr::Index { ty, .. } => ty.clone(),
+        HirExpr::FixedArrayLit { ty, .. } => ty.clone(),
+        HirExpr::View { ty, .. } => ty.clone(),
         HirExpr::Cast { ty, .. } => ty.clone(),
         HirExpr::Try { ty, .. } => ty.clone(),
         HirExpr::SwitchExpr { ty, .. } => ty.clone(),

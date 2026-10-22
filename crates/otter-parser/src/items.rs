@@ -606,6 +606,8 @@ fn ty_span(ty: &crate::ast::TypeExpr) -> Span {
         | crate::ast::TypeExpr::Option(_, span)
         | crate::ast::TypeExpr::Ptr { span, .. }
         | crate::ast::TypeExpr::Slice(_, span)
+        | crate::ast::TypeExpr::FixedArray(_, _, span)
+        | crate::ast::TypeExpr::View(_, span)
         | crate::ast::TypeExpr::Unit(span) => *span,
         crate::ast::TypeExpr::Result(_, _, span) => *span,
         crate::ast::TypeExpr::Map(_, _, span) => *span,

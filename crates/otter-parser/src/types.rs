@@ -64,7 +64,7 @@ impl<'src> Parser<'src> {
             TokenKind::LParen => self.parse_paren_type(),
             TokenKind::Ident => self.parse_named_type(),
             TokenKind::Star => self.parse_pointer_type(),
-            TokenKind::LBracket => self.parse_slice_type(),
+            TokenKind::LBracket => self.parse_bracket_type(),
             TokenKind::Fn => self.parse_fn_type(),
             _ => Err(self.type_expected_error()),
         }
@@ -103,21 +103,66 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// `[]T` — a slice. The brackets are empty; the element type follows.
+    /// `[]T`, `[T; N]` and `[T]` — the bracket family in type position.
     ///
-    /// A non-empty bracket pair in type position is a future fixed-size array,
-    /// not a spelling of this type, so it is rejected here rather than read as
-    /// something else.
-    fn parse_slice_type(&mut self) -> Result<TypeExpr, ParseError> {
+    /// The three spellings differ in what is inside the brackets: nothing and
+    /// then the element is a growable array, `T; N` is a fixed array, and `T`
+    /// alone is a borrowed view. Reading the bracket pair in one place is what
+    /// keeps `[]T` from being mistaken for the view of `T`.
+    fn parse_bracket_type(&mut self) -> Result<TypeExpr, ParseError> {
         let open = self.expect(TokenKind::LBracket)?;
         let _ = self.push_open(TokenKind::LBracket, open.span)?;
+        if self.check(TokenKind::RBracket) {
+            let close = self.expect(TokenKind::RBracket)?;
+            self.close_open(TokenKind::RBracket);
+            let element = self.parse_type_expr()?;
+            return Ok(TypeExpr::Slice(
+                Box::new(element),
+                cover(open.span, close.span),
+            ));
+        }
+        let element = self.parse_type_expr()?;
+        if self.eat(TokenKind::Semi) {
+            let length = self.array_length()?;
+            let close = self.expect(TokenKind::RBracket)?;
+            self.close_open(TokenKind::RBracket);
+            return Ok(TypeExpr::FixedArray(
+                Box::new(element),
+                length,
+                cover(open.span, close.span),
+            ));
+        }
         let close = self.expect(TokenKind::RBracket)?;
         self.close_open(TokenKind::RBracket);
-        let element = self.parse_type_expr()?;
-        Ok(TypeExpr::Slice(
+        Ok(TypeExpr::View(
             Box::new(element),
             cover(open.span, close.span),
         ))
+    }
+
+    /// `N` in `[T; N]` -- a compile-time length.
+    ///
+    /// It is a plain decimal literal, not a constant expression: the length is
+    /// part of the type, and a type has no run time at which to evaluate one.
+    fn array_length(&mut self) -> Result<usize, ParseError> {
+        let span = self.peek_span();
+        if self.peek() != TokenKind::I64 {
+            return Err(ParseError::new(
+                span,
+                "an array length must be a decimal literal: it is part of the type, so there is \
+                 no run time at which it could be computed"
+                    .to_string(),
+            ));
+        }
+        self.advance();
+        let text = self.text(span)?;
+        match text.parse::<usize>() {
+            Ok(length) => Ok(length),
+            Err(_) => Err(ParseError::new(
+                span,
+                "an array length has to fit in a machine word".to_string(),
+            )),
+        }
     }
 
     /// `*T`, `*mut T`, or `*const T`.

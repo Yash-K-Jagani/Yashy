@@ -276,6 +276,20 @@ pub enum TypeExpr {
         pointee: Box<TypeExpr>,
         span: Span,
     },
+    /// `[T; N]` — a fixed-size array of `N` elements of `T`.
+    ///
+    /// The length is part of the type and is a literal: `[i64; 3]` and
+    /// `[i64; 4]` are different types, and a function that takes the first
+    /// cannot be given the second. Storage is in the enclosing frame, so a
+    /// fixed array has no owner and no `free`.
+    FixedArray(Box<TypeExpr>, usize, Span),
+    /// `[T]` — a borrowed view of a run of `T` from an array.
+    ///
+    /// A view owns nothing: it is a length and a pointer into storage that
+    /// something else owns. Indexing it is checked against its own length, and
+    /// it cannot outlive the function that made it, which the checker enforces
+    /// by refusing to let a view be returned or stored in a struct.
+    View(Box<TypeExpr>, Span),
     /// `[]T` — a growable, linearly owned sequence of `T`.
     ///
     /// The element type is written, never inferred: `[]T { ... }` names `T`
@@ -594,6 +608,28 @@ pub enum Expr {
     Index {
         base: Box<Expr>,
         index: Box<Expr>,
+        span: Span,
+    },
+    /// `[1, 2, 3]` — a fixed-size array literal.
+    ///
+    /// The length is the number of elements, so the literal's type is
+    /// `[T; n]` where `T` comes from the elements: they all have to agree, and
+    /// the checker takes the first one's type. There is no empty spelling --
+    /// `[]` is the start of a growable array's `[]T { ... }` literal -- so the
+    /// type of a fixed array is never guessed from nothing.
+    FixedArrayLit {
+        elements: Vec<Expr>,
+        span: Span,
+    },
+    /// `a[0..2]` — a borrowed view of part of an array.
+    ///
+    /// `start` and `end` are `i64` expressions. The result is `[T]`, which owns
+    /// nothing; the checker refuses to let the array be moved or mutated while
+    /// the view exists, because the view points into it.
+    IndexRange {
+        base: Box<Expr>,
+        start: Box<Expr>,
+        end: Box<Expr>,
         span: Span,
     },
     /// `"far: ${d}!"` -- a string literal whose value is assembled at run time.

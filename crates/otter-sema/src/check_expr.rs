@@ -150,6 +150,10 @@ fn mangled_type_name(ty: &Type) -> String {
             format!("result_{}_{}", mangled_type_name(ok), mangled_type_name(err))
         }
         TypeKind::Slice(element) => format!("array_{}", mangled_type_name(element)),
+        TypeKind::FixedArray(element, length) => {
+            format!("fixed_{}_{length}", mangled_type_name(element))
+        }
+        TypeKind::View(element) => format!("view_{}", mangled_type_name(element)),
         TypeKind::Map(key, value) => {
             format!("map_{}_{}", mangled_type_name(key), mangled_type_name(value))
         }
@@ -186,6 +190,10 @@ fn type_expr_name(ty: &TypeExpr) -> String {
         TypeExpr::Name(name, _) => name.clone(),
         TypeExpr::Ptr { pointee, .. } => format!("*mut {}", type_expr_name(pointee)),
         TypeExpr::Slice(element, _) => format!("[]{}", type_expr_name(element)),
+        TypeExpr::FixedArray(element, length, _) => {
+            format!("[{}; {}]", type_expr_name(element), length)
+        }
+        TypeExpr::View(element, _) => format!("[{}]", type_expr_name(element)),
         TypeExpr::Map(key, value, _) => {
             format!("map[{}]{}", type_expr_name(key), type_expr_name(value))
         }
@@ -306,6 +314,13 @@ pub struct Checker<'src> {
     /// when it is not; the second has no finite monomorphization, so it is
     /// rejected here.
     active_generics: Vec<(String, Vec<Type>)>,
+    /// The bindings a view in this function borrows, with the range's span.
+    ///
+    /// A view points into its array, and nothing in Otter can free the view
+    /// before the function returns, so the borrow lasts as long as the body.
+    /// The checker refuses to move or mutate a borrowed array: either would
+    /// leave the view pointing at storage that is gone or has been replaced.
+    borrowed_bindings: Vec<(String, Span)>,
     /// The methods declared in `impl` blocks, keyed by the mangled name
     /// `Type.method`.
     ///
@@ -564,6 +579,7 @@ impl<'src> Checker<'src> {
             pending_generics: Vec::new(),
             instantiated: HashSet::new(),
             active_generics: Vec::new(),
+            borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
             self_type: None,
             fn_ret: None,
@@ -692,11 +708,49 @@ impl<'src> Checker<'src> {
     /// it. The loop re-reads the header every iteration, so a `free_slice` or
     /// another linear transfer inside the body would leave it reading a header
     /// whose array is gone.
+    /// Refuse a write to a binding a view borrows.
+    ///
+    /// A view is a pointer into the binding's storage, and Otter has no way to
+    /// end the view early: it lives until the function returns. Rebinding,
+    /// freeing, or mutating the array in place would all leave the view reading
+    /// storage that was released or replaced, so every write to a borrowed
+    /// binding is an error rather than a dangling read later.
+    fn reject_borrowed_write(&mut self, name: &str, span: Span) {
+        if let Some((_, borrow_span)) = self
+            .borrowed_bindings
+            .iter()
+            .find(|(borrowed, _)| borrowed == name)
+        {
+            self.error(
+                span,
+                format!(
+                    "cannot change `{name}` while a view of it is alive: the view at line {} \
+                     points into it",
+                    self.sm.locate(self.file, *borrow_span).line
+                ),
+            );
+        }
+    }
+
     fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
         if self.iteration_borrows.iter().any(|borrowed| borrowed == name) {
             return Err(TypeError::new(
                 span,
                 format!("cannot move `{name}` while it is being iterated"),
+            ));
+        }
+        if let Some((_, borrow_span)) = self
+            .borrowed_bindings
+            .iter()
+            .find(|(borrowed, _)| borrowed == name)
+        {
+            return Err(TypeError::new(
+                span,
+                format!(
+                    "cannot move `{name}` while a view of it is alive: the view at \
+                     {} points into it",
+                    self.sm.locate(self.file, *borrow_span).line
+                ),
             ));
         }
         self.scope.move_out(name, span)
@@ -1425,6 +1479,45 @@ impl<'src> Checker<'src> {
                     })
                 }
             }
+            TypeExpr::FixedArray(element, length, span) => {
+                let inner = self.resolve_type_in(element, allow_c)?;
+                if !fixed_array_element_is_supported(&inner.kind) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "a fixed array cannot hold `{inner}`: a fixed array is copied by \
+                             copying its bytes, which is exact for the built-in number and \
+                             `bool` types and not yet defined for anything that owns a reference"
+                        ),
+                    ));
+                }
+                if *length == 0 {
+                    return Err(TypeError::new(
+                        *span,
+                        "a fixed array needs at least one element: its length is part of its \
+                         type, and a zero-length array has no value to store"
+                            .to_string(),
+                    ));
+                }
+                Ok(Type {
+                    kind: TypeKind::FixedArray(Box::new(inner), *length),
+                    span: *span,
+                })
+            }
+            TypeExpr::View(_, span) => {
+                // A view is produced by `a[start..end]` and inferred there. It
+                // borrows storage in the current frame, and Otter has no
+                // lifetime syntax to say which storage that is, so a written
+                // `[T]` could not be checked: a parameter or a return type
+                // would let the view outlive its source. The type exists
+                // internally and in messages; it is not a spelling.
+                Err(TypeError::new(
+                    *span,
+                    "a view type cannot be written: `[T]` is the type of `a[start..end]`, \
+                     which borrows `a` and stays in the function that made it"
+                        .to_string(),
+                ))
+            }
             TypeExpr::Slice(element, span) => {
                 let inner = self.resolve_type_in(element, allow_c)?;
                 if matches!(
@@ -1517,7 +1610,14 @@ impl<'src> Checker<'src> {
             );
         }
         let outer_ret = self.fn_ret.replace(ret_ty.clone());
+        // A view cannot leave the function that made it, so the borrows start
+        // and end with the body. Lambdas are checked inside it and their own
+        // borrows are cleared here too; a view in a lambda is over by the time
+        // the closure returns, and holding the source for the rest of the
+        // enclosing function is the conservative answer.
+        let outer_borrows = std::mem::take(&mut self.borrowed_bindings);
         let checked = self.check_block_with_ret(body, ret_ty);
+        self.borrowed_bindings = outer_borrows;
         self.fn_ret = outer_ret;
         self.scope.pop();
         let body = checked?;
@@ -1673,6 +1773,19 @@ impl<'src> Checker<'src> {
                 .is_ok_and(|ty| ty.eq_ignoring_span(actual)),
             TypeExpr::Slice(element, _) => match &actual.kind {
                 TypeKind::Slice(actual_element) => {
+                    self.unify_type(element, params, subst, actual_element)
+                }
+                _ => false,
+            },
+            TypeExpr::FixedArray(element, length, _) => match &actual.kind {
+                TypeKind::FixedArray(actual_element, actual_length) => {
+                    actual_length == length
+                        && self.unify_type(element, params, subst, actual_element)
+                }
+                _ => false,
+            },
+            TypeExpr::View(element, _) => match &actual.kind {
+                TypeKind::View(actual_element) => {
                     self.unify_type(element, params, subst, actual_element)
                 }
                 _ => false,
@@ -2300,6 +2413,12 @@ impl<'src> Checker<'src> {
                     self.error(span, format!("cannot assign to `{name}`, which is immutable"));
                 }
 
+                // A view points into this binding's storage. Rebinding would
+                // free what the view covers and leave the pointer dangling, so
+                // the binding stays put until the view is out of scope -- which
+                // in Otter means until the function returns.
+                self.reject_borrowed_write(&name, otter_parser::exprs::expr_span(target));
+
                 let checked = self.check_expr_with_expected(value, &binding.ty)?;
                 let found = expr_ty(&checked);
                 if !binding.ty.eq_ignoring_span(&found) {
@@ -2460,12 +2579,19 @@ impl<'src> Checker<'src> {
                     None => return None,
                 };
                 let iterable_ty = expr_ty(&iterable_expr);
-                let TypeKind::Slice(element) = &iterable_ty.kind else {
-                    self.error(
-                        *span,
-                        format!("`for` over a value must iterate an array, found `{iterable_ty}`"),
-                    );
-                    return None;
+                let element = match &iterable_ty.kind {
+                    TypeKind::Slice(element)
+                    | TypeKind::FixedArray(element, _)
+                    | TypeKind::View(element) => (**element).clone(),
+                    _ => {
+                        self.error(
+                            *span,
+                            format!(
+                                "`for` over a value must iterate an array, found `{iterable_ty}`"
+                            ),
+                        );
+                        return None;
+                    }
                 };
                 let Some(binding) = binding else {
                     self.error(
@@ -2474,7 +2600,6 @@ impl<'src> Checker<'src> {
                     );
                     return None;
                 };
-                let element = (**element).clone();
                 if !slice_element_is_operable(&element.kind) {
                     self.error(*span, unsupported_element_message(&element));
                     return None;
@@ -3147,9 +3272,34 @@ impl<'src> Checker<'src> {
         }
         let binding = self.scope.resolve(receiver)?;
         let receiver_ty = binding.ty.clone();
+        if matches!(
+            receiver_ty.kind,
+            TypeKind::FixedArray(_, _) | TypeKind::View(_)
+        ) {
+            if let Some(checked) =
+                self.check_fixed_array_method(receiver, method, args, span, &receiver_ty)
+            {
+                return Some(checked);
+            }
+        }
         if matches!(receiver_ty.kind, TypeKind::Slice(_)) {
             if let Some(checked) = self.check_array_method(receiver, method, args, span) {
                 return Some(checked);
+            }
+        }
+        // Every mutating method -- pushing, removing, sorting, freeing -- would
+        // invalidate a view of the same array. `len` and the read-only methods
+        // are fine, and a fixed array has no mutating methods at all.
+        if mutates_storage(method) {
+            self.reject_borrowed_write(receiver, span);
+            if self
+                .borrowed_bindings
+                .iter()
+                .any(|(borrowed, _)| borrowed == receiver)
+            {
+                // One diagnostic is enough; checking the call would report the
+                // same write again from inside the method.
+                return Some(None);
             }
         }
         if matches!(receiver_ty.kind, TypeKind::Str) {
@@ -3850,6 +4000,119 @@ impl<'src> Checker<'src> {
             "map" => Some(self.check_array_map(receiver, args, span)),
             "filter" => Some(self.check_array_filter(receiver, args, span)),
             "fold" => Some(self.check_array_fold(receiver, args, span)),
+            _ => None,
+        }
+    }
+
+    /// The method surface a fixed array and a view share.
+    ///
+    /// Both know their length and can be indexed, which is enough for reading:
+    /// `len`, `is_empty`, `get`, `first` and `last`. A fixed array's length is
+    /// a constant in its type; a view's is a word it carries. The mutating and
+    /// allocating methods belong to `[]T`, which owns its storage, so they are
+    /// not offered here -- `[]T` is what a fixed array can be copied into if
+    /// the program needs to grow.
+    fn check_fixed_array_method(
+        &mut self,
+        receiver: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+        receiver_ty: &Type,
+    ) -> Option<Option<HirExpr>> {
+        let arity = match method {
+            "len" | "is_empty" | "first" | "last" => 0,
+            "get" => 1,
+            _ => return None,
+        };
+        if args.len() != arity {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {arity} argument{}",
+                    if arity == 1 { "" } else { "s" }
+                ),
+            );
+            return Some(None);
+        }
+        let receiver_expr = || HirExpr::Ident(
+            vec![receiver.to_string()],
+            span,
+            receiver_ty.clone(),
+        );
+        let len = match &receiver_ty.kind {
+            TypeKind::FixedArray(_, length) => HirExpr::Literal(
+                Literal::I64(i64::try_from(*length).unwrap_or(i64::MAX)),
+                span,
+                prim(TypeKind::I64),
+            ),
+            _ => HirExpr::Call {
+                callee: vec!["view_len".to_string()],
+                args: vec![receiver_expr()],
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::I64),
+            },
+        };
+        match method {
+            "len" => Some(Some(len)),
+            "is_empty" => Some(Some(HirExpr::Binary {
+                op: BinOp::Eq,
+                lhs: Box::new(len),
+                rhs: Box::new(HirExpr::Literal(
+                    Literal::I64(0),
+                    span,
+                    prim(TypeKind::I64),
+                )),
+                span,
+                ty: prim(TypeKind::Bool),
+                fault: None,
+            })),
+            "get" => {
+                let index = Expr::Index {
+                    base: Box::new(Expr::Ident(vec![receiver.to_string()], span)),
+                    index: Box::new(args[0].clone()),
+                    span,
+                };
+                Some(self.check_expr(&index))
+            }
+            "first" => {
+                let index = Expr::Index {
+                    base: Box::new(Expr::Ident(vec![receiver.to_string()], span)),
+                    index: Box::new(Expr::Literal(Literal::I64(0), span)),
+                    span,
+                };
+                Some(self.check_expr(&index))
+            }
+            "last" => {
+                let index = HirExpr::Binary {
+                    op: BinOp::Sub,
+                    lhs: Box::new(len),
+                    rhs: Box::new(HirExpr::Literal(
+                        Literal::I64(1),
+                        span,
+                        prim(TypeKind::I64),
+                    )),
+                    span,
+                    ty: prim(TypeKind::I64),
+                    fault: None,
+                };
+                let base = self.check_expr(&Expr::Ident(vec![receiver.to_string()], span))?;
+                Some(Some(HirExpr::Index {
+                    base: Box::new(base),
+                    index: Box::new(index),
+                    span,
+                    ty: option(
+                        &match &receiver_ty.kind {
+                            TypeKind::FixedArray(element, _) | TypeKind::View(element) => {
+                                (**element).clone()
+                            }
+                            _ => prim(TypeKind::Unit),
+                        },
+                        span,
+                    ),
+                }))
+            }
             _ => None,
         }
     }
@@ -5646,13 +5909,16 @@ impl<'src> Checker<'src> {
             Expr::Index { base, index, span } => {
                 // `p[i]` reads (or, in an assignment target, writes) an
                 // element of a pointer, and always an `i64`. `xs[i]` reads an
-                // element of a slice and is *always* an `Option`: indexing
-                // never traps, and out of range including negative is `None`.
+                // element of an array -- growable, fixed, or a view -- and is
+                // *always* an `Option`: indexing never traps, and out of range
+                // including negative is `None`.
                 let base = self.check_expr(base)?;
                 let base_ty = expr_ty(&base);
-                let (element, is_slice) = match &base_ty.kind {
+                let (element, checked) = match &base_ty.kind {
                     TypeKind::Ptr(pointee) => ((**pointee).clone(), false),
-                    TypeKind::Slice(element) => ((**element).clone(), true),
+                    TypeKind::Slice(element)
+                    | TypeKind::FixedArray(element, _)
+                    | TypeKind::View(element) => ((**element).clone(), true),
                     _ => {
                         self.error(*span, format!("cannot index `{base_ty}`"));
                         return None;
@@ -5666,7 +5932,7 @@ impl<'src> Checker<'src> {
                     );
                     return None;
                 }
-                let ty = if is_slice {
+                let ty = if checked {
                     if !slice_element_is_operable(&element.kind) {
                         self.error(*span, unsupported_element_message(&element));
                         return None;
@@ -5688,6 +5954,101 @@ impl<'src> Checker<'src> {
                 Some(HirExpr::Index {
                     base: Box::new(base),
                     index: Box::new(index),
+                    span: *span,
+                    ty,
+                })
+            }
+            Expr::FixedArrayLit { elements, span } => {
+                // The first element fixes the type; the rest have to fit it.
+                // There is no empty spelling, so the type is never guessed.
+                let Some(first) = elements.first() else {
+                    self.error(
+                        *span,
+                        "a fixed array needs at least one element: write `[]T { ... }` for a \
+                         growable array"
+                            .to_string(),
+                    );
+                    return None;
+                };
+                let first = self.check_expr(first)?;
+                let elem_ty = expr_ty(&first);
+                if !fixed_array_element_is_supported(&elem_ty.kind) {
+                    self.error(
+                        expr_span(&first),
+                        format!(
+                            "a fixed array cannot hold `{elem_ty}`: a fixed array is copied by \
+                             copying its bytes, which is exact for the built-in number and \
+                             `bool` types and not yet defined for anything that owns a reference"
+                        ),
+                    );
+                    return None;
+                }
+                let mut checked = Vec::with_capacity(elements.len());
+                checked.push(first);
+                for element in elements.iter().skip(1) {
+                    checked.push(self.check_expr_with_expected(element, &elem_ty)?);
+                }
+                let ty = Type {
+                    kind: TypeKind::FixedArray(Box::new(elem_ty.clone()), elements.len()),
+                    span: *span,
+                };
+                Some(HirExpr::FixedArrayLit {
+                    elem_ty,
+                    elements: checked,
+                    span: *span,
+                    ty,
+                })
+            }
+            Expr::IndexRange { base, start, end, span } => {
+                // A view borrows the array's storage, so the source has to be
+                // a binding the checker can follow: a temporary would be gone
+                // at the end of the expression and a field access is not
+                // something the borrow rule tracks. The binding is marked
+                // borrowed until the function returns, which is what makes
+                // moving or mutating the array while the view exists an error.
+                let base_checked = self.check_expr(base)?;
+                let base_ty = expr_ty(&base_checked);
+                let element = match &base_ty.kind {
+                    TypeKind::Slice(element)
+                    | TypeKind::FixedArray(element, _)
+                    | TypeKind::View(element) => (**element).clone(),
+                    _ => {
+                        self.error(*span, format!("cannot take a view of `{base_ty}`"));
+                        return None;
+                    }
+                };
+                if !fixed_array_element_is_supported(&element.kind) {
+                    self.error(
+                        *span,
+                        format!(
+                            "a view of `{element}` is not supported yet: viewing a value that \
+                             owns a reference would lend it out without saying so"
+                        ),
+                    );
+                    return None;
+                }
+                let HirExpr::Ident(path, _, _) = &base_checked else {
+                    self.error(
+                        *span,
+                        "a view needs a binding as its source: a field or a temporary may not \
+                         outlive the view"
+                            .to_string(),
+                    );
+                    return None;
+                };
+                if let Some(binding) = path.last() {
+                    self.borrowed_bindings.push((binding.clone(), *span));
+                }
+                let start = self.check_expr_with_expected(start, &prim(TypeKind::I64))?;
+                let end = self.check_expr_with_expected(end, &prim(TypeKind::I64))?;
+                let ty = Type {
+                    kind: TypeKind::View(Box::new(element)),
+                    span: *span,
+                };
+                Some(HirExpr::View {
+                    base: Box::new(base_checked),
+                    start: Box::new(start),
+                    end: Box::new(end),
                     span: *span,
                     ty,
                 })
@@ -6698,6 +7059,38 @@ fn option(payload: &Type, span: Span) -> Type {
 /// whether the elements are handles. `string` joined the set with M6 Task 10;
 /// the element operations that are still missing (`pop`) are refused at the call
 /// site, not here.
+/// Whether a method changes the storage behind its receiver.
+///
+/// These are the array methods that write through the binding's slot; a view of
+/// the array would be left pointing at storage that moved, shrank, or was
+/// freed.
+fn mutates_storage(method: &str) -> bool {
+    matches!(
+        method,
+        "push" | "pop" | "set" | "insert" | "remove" | "clear" | "reverse" | "sort" | "extend"
+            | "free"
+    )
+}
+
+/// Whether a fixed array can hold a value of this kind.
+///
+/// The element has to be a plain machine value: copying the array copies the
+/// bytes, and every kind listed here is exactly its bytes with no reference to
+/// retain. `string` is the notable exclusion -- a `[string; 3]` copy would
+/// duplicate three handles without taking a reference on any of them.
+fn fixed_array_element_is_supported(kind: &TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::I64
+            | TypeKind::F64
+            | TypeKind::Bool
+            | TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+    )
+}
+
 fn slice_element_is_operable(kind: &TypeKind) -> bool {
     matches!(
         kind,
@@ -6904,6 +7297,10 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
             span,
         },
         TypeKind::Slice(element) => TypeExpr::Slice(Box::new(type_to_expr(element)), span),
+        TypeKind::FixedArray(element, length) => {
+            TypeExpr::FixedArray(Box::new(type_to_expr(element)), *length, span)
+        }
+        TypeKind::View(element) => TypeExpr::View(Box::new(type_to_expr(element)), span),
         TypeKind::Map(key, value) => TypeExpr::Map(
             Box::new(type_to_expr(key)),
             Box::new(type_to_expr(value)),
@@ -7039,6 +7436,8 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Option(_, span) => *span,
         TypeExpr::Ptr { span, .. } => *span,
         TypeExpr::Slice(_, span) => *span,
+        TypeExpr::FixedArray(_, _, span) => *span,
+        TypeExpr::View(_, span) => *span,
         TypeExpr::Map(_, _, span) => *span,
         TypeExpr::Result(_, _, span) => *span,
         TypeExpr::Channel(_, span) => *span,

@@ -131,3 +131,63 @@ fn polymorphic_recursion_is_rejected() {
         "polymorphic recursion has no finite instantiation",
     );
 }
+
+#[test]
+fn a_view_borrows_its_source_until_the_function_ends() {
+    // Moving the array would hand its storage to a new owner while `view`
+    // still points into it. Rebinding is refused for the same reason.
+    assert_error(
+        "fn take(xs: []i64) -> i64 { return xs.len(); } \
+         fn main() { var xs = []i64 { 1, 2, 3 }; const view = xs[0..2]; \
+         print_i64(take(move xs)); }",
+        "cannot move `xs` while a view of it is alive",
+    );
+    assert_error(
+        "fn main() { var xs = []i64 { 1, 2, 3 }; const view = xs[0..2]; \
+         xs = []i64 { 4 }; }",
+        "cannot change `xs` while a view of it is alive",
+    );
+}
+
+#[test]
+fn changing_a_borrowed_array_is_rejected() {
+    // `push` grows the backing array, possibly to a new block; a view taken
+    // before it would be left pointing at the old one.
+    assert_error(
+        "fn main() { var xs = []i64 { 1, 2 }; const view = xs[0..1]; xs.push(3); }",
+        "cannot change `xs` while a view of it is alive",
+    );
+    assert_error(
+        "fn main() { var xs = []i64 { 1, 2 }; const view = xs[0..1]; xs.free(); }",
+        "cannot change `xs` while a view of it is alive",
+    );
+}
+
+#[test]
+fn a_view_type_is_not_a_spelling() {
+    // A view borrows storage in the frame that made it. Otter has no lifetime
+    // syntax, so letting a return type or a field name `[T]` would let the
+    // view outlive the array; the type is inferred at the range instead.
+    assert_error(
+        "fn f(x: [i64]) -> i64 { return 0; } fn main() { }",
+        "a view type cannot be written",
+    );
+}
+
+#[test]
+fn a_fixed_array_cannot_hold_a_reference() {
+    // Copying a fixed array copies bytes; a `string` element would duplicate a
+    // handle without taking a reference on it.
+    assert_error(
+        "fn main() { const xs = [\"a\", \"b\"]; }",
+        "a fixed array cannot hold `string`",
+    );
+}
+
+#[test]
+fn a_fixed_array_needs_a_length() {
+    assert_error(
+        "fn main() { const xs: [i64; 0] = [1]; }",
+        "a fixed array needs at least one element",
+    );
+}
