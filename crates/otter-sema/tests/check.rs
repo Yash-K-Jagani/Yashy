@@ -914,6 +914,64 @@ fn interpolating_a_type_with_no_text_form_is_an_error() {
 }
 
 #[test]
+fn a_debug_form_needs_a_type_that_has_one() {
+    // The debug form is richer than the display form, but it is not unlimited:
+    // a pointer has no surface to show, and printing its address would be a
+    // wrong answer that looks like a right one.
+    assert_error(
+        "fn f() { var p = alloc(1); const line = \"${p:?}\"; }",
+        "cannot format a `*mut i64`",
+    );
+    // A map has one either -- its keys and its values -- but not yet, so it is
+    // reported rather than half-printed.
+    assert_error(
+        "fn f() { var m: map[i64]i64 = map_new(); const line = \"${m:?}\"; }",
+        "cannot format a `map",
+    );
+}
+
+#[test]
+fn a_debug_form_builds_a_printer_for_the_type_it_names() {
+    // The printer is an ordinary function the checker appends to the program:
+    // one per type, shared by every use of that type.
+    let (result, _, _) = check_source(
+        "struct P { x: i64 } fn f(p: P) { const line = \"${p:?}\"; const other = \"${p:?}\"; }",
+    );
+    let hir = result.expect("a struct has a debug form");
+    let printers = hir
+        .items
+        .iter()
+        .filter(|item| matches!(item, HirItem::Fn(f) if f.name.starts_with("__debug.")))
+        .count();
+    assert_eq!(
+        printers, 1,
+        "two uses of one type share one printer: {printers}"
+    );
+}
+
+#[test]
+fn a_debug_form_of_a_string_is_a_call_to_the_quoting_runtime_entry() {
+    // The string's debug form is not a printer function: it is the runtime's
+    // quoting and escaping, which is a byte operation rather than something
+    // the checker could spell in the language.
+    let (result, _, _) = check_source("fn f(s: string) { const line = \"${s:?}\"; }");
+    let hir = result.expect("a string has a debug form");
+    let item = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("the function should exist");
+    let text = format!("{:?}", item.body);
+    assert!(
+        text.contains("str_debug"),
+        "the debug form of a string calls the runtime: {text}"
+    );
+}
+
+#[test]
 fn dealloc_wants_a_pointer_not_an_integer() {
     assert_error("fn f() { dealloc(1); }", "expected `*mut i64`, found `i64`");
 }

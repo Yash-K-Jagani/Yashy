@@ -1619,7 +1619,9 @@ fn gen_call(
             // differs, so the common path handles them.
             match name.as_str() {
                 "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64"
-                | "str_slice" => gen_borrowed_call(ctx, &format!("otter_{name}"), args, ty),
+                | "str_slice" | "str_debug" => {
+                    gen_borrowed_call(ctx, &format!("otter_{name}"), args, ty)
+                }
                 // These three cross the C boundary: a `string` argument becomes a
                 // NUL-terminated copy for the callee, and the copy is freed when
                 // the call returns. `write_file` additionally lends the text's

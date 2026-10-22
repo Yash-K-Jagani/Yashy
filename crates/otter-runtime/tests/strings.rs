@@ -152,6 +152,77 @@ fn from_f64_matches_the_print_format() {
 }
 
 #[test]
+fn the_debug_form_quotes_and_escapes_the_text() {
+    // The debug form is what `${s:?}` prints: a string that could be typed
+    // back to get the same text. So the quotes are there, the escapes are
+    // there, and a byte at or above 0x80 is left alone so that UTF-8 stays
+    // readable.
+    unsafe {
+        let plain = Static::new("abc");
+        assert_eq!(read(otter_runtime::otter_str_debug(plain.ptr())), "\"abc\"");
+
+        let quoted = Static::new("a\"b");
+        assert_eq!(read(otter_runtime::otter_str_debug(quoted.ptr())), "\"a\\\"b\"");
+
+        let backslash = Static::new("a\\b");
+        assert_eq!(
+            read(otter_runtime::otter_str_debug(backslash.ptr())),
+            "\"a\\\\b\""
+        );
+
+        let newline = Static::new("a\nb");
+        assert_eq!(read(otter_runtime::otter_str_debug(newline.ptr())), "\"a\\nb\"");
+
+        let tab = Static::new("a\tb");
+        assert_eq!(read(otter_runtime::otter_str_debug(tab.ptr())), "\"a\\tb\"");
+
+        let carriage = Static::new("a\rb");
+        assert_eq!(
+            read(otter_runtime::otter_str_debug(carriage.ptr())),
+            "\"a\\rb\""
+        );
+
+        // A byte that is not printable and has no short escape becomes
+        // `\xNN`, so the output is still text and still unambiguous.
+        let control = Static::new("a\u{01}b");
+        assert_eq!(
+            read(otter_runtime::otter_str_debug(control.ptr())),
+            "\"a\\x01b\""
+        );
+
+        // UTF-8 is copied through unchanged: escaping it would turn readable
+        // text into a byte dump.
+        let unicode = Static::new("a\u{00e9}b");
+        assert_eq!(
+            read(otter_runtime::otter_str_debug(unicode.ptr())),
+            "\"a\u{00e9}b\""
+        );
+
+        let empty = Static::new("");
+        assert_eq!(read(otter_runtime::otter_str_debug(empty.ptr())), "\"\"");
+    }
+}
+
+#[test]
+fn the_debug_form_does_not_touch_its_operand() {
+    // The result is a fresh string, so the text that was debugged is still
+    // readable afterwards -- which is what lets a program print a value and
+    // then keep using it.
+    unsafe {
+        let text = Static::new("abc");
+        let debugged = otter_runtime::otter_str_debug(text.ptr());
+        assert_eq!(read(debugged), "\"abc\"");
+        assert_eq!(read(text.ptr()), "abc", "the operand changed");
+        assert_eq!(
+            (*debugged).refcount,
+            1,
+            "a built string comes back owned by the caller"
+        );
+        otter_runtime::otter_str_release(debugged);
+    }
+}
+
+#[test]
 fn len_counts_bytes_not_characters() {
     unsafe {
         let text = Static::new("a\u{00e9}b"); // "aéb": four bytes in UTF-8

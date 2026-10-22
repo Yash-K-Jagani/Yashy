@@ -307,6 +307,12 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// The debug form of a string: the text in double quotes, with `"`, `\` and
+    /// the control characters escaped. The caller owns the result.
+    pub fn otter_str_debug(s: *const OtterStr) -> *mut OtterStr;
+}
+
+unsafe extern "C" {
     /// Byte equality. Null equals only null.
     pub fn otter_str_eq(a: *const OtterStr, b: *const OtterStr) -> c_int;
 

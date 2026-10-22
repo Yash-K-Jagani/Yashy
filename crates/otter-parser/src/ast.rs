@@ -749,8 +749,22 @@ pub enum Expr {
 pub enum InterpPart {
     /// Literal text between interpolations, already decoded.
     Text(StringLit),
-    /// `${ expr }`, the expression as written.
-    Expr(Expr),
+    /// `${ expr }`, the expression as written, and how it is formatted.
+    Expr(Expr, InterpFormat),
+}
+
+/// How one `${ ... }` part becomes text.
+///
+/// The suffix is parsed here and interpreted by the checker, which is the stage
+/// that knows the expression's type: `:?` asks for the debug form, where the
+/// surface of a value is shown (`Point { x: 3 }`, `"quoted"`) instead of the
+/// display form a user reads (`3`, `text`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InterpFormat {
+    /// `"${x}"` -- the display form.
+    Display,
+    /// `"${x:?}"` -- the debug form.
+    Debug,
 }
 
 /// A binary operator. Copy because the parser holds one while deciding whether

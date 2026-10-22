@@ -526,6 +526,9 @@ impl Module {
         out.push_str("declare i8* @otter_str_from_i64(i64)\n");
         out.push_str("declare i8* @otter_str_from_f64(double)\n");
         out.push_str("declare i8* @otter_str_from_bool(i64)\n");
+        // The `${value:?}` quoted form of a string (M15 Task 20). Declared up
+        // front like the rest of the string set.
+        out.push_str("declare i8* @otter_str_debug(i8*)\n");
         out.push_str("declare i1 @otter_str_eq(i8*, i8*)\n");
         out.push_str("declare i64 @otter_str_get(i8*, i64, ptr)\n");
         out.push_str("declare i64 @otter_str_index_of(i8*, i8*)\n");

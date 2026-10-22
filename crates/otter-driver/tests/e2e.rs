@@ -335,6 +335,27 @@ fn numeric_literals_come_in_four_forms() {
 }
 
 #[test]
+fn debug_formatting_shows_the_surface_of_a_value() {
+    // `${value:?}` prints the shape of the value -- a struct's name and
+    // fields, an enum's variant, a tuple's and an array's elements -- and a
+    // string is quoted and escaped, so a newline inside it stays visible.
+    let output = build_and_run("debug_format");
+    assert_eq!(
+        stdout_of(&output),
+        "Point { x: 3, y: 4 }\n\
+         [1, 2, 3]\n\
+         (1, true)\n\
+         Circle(2.5)\n\
+         Rect { w: 2, h: 3 }\n\
+         Empty\n\
+         Some(7)\n\
+         None\n\
+         \"a\\nb\\\"c\"\n\
+         42 42\n"
+    );
+}
+
+#[test]
 fn fibonacci_prints_the_tenth_number() {
     // 55, the tenth Fibonacci number, from an accumulating loop: this is the
     // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a

@@ -41,7 +41,12 @@ anonymous product: `(i64, i64)` is a type, `(a, b)` is its literal, and
 `const (n, rest) = pair;` unpacks one into separate bindings (`_` skips an
 element). An arm may carry a guard -- `case Circle(r) if r > 10.0` -- checked
 after the pattern has bound its names; a false guard sends the search on to the
-next arm exactly as a failed pattern would. A program can read its
+next arm exactly as a failed pattern would. An integer literal may be written
+with `_` between its digits (`1_000_000`) or in another base (`0xFF`, `0b1010`,
+`0o777`), and `"${value:?}"` is the *debug* form of an interpolation: it shows
+the surface of the value -- a struct's name and fields, an enum's variant, a
+tuple's and an array's elements -- with a string quoted and escaped, so that a
+newline inside it stays visible. A program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
@@ -263,6 +268,31 @@ fn main() {
     print_i64(total);
     print_str("\n");
 }
+```
+
+```otter
+// `${value}` shows a value the way a reader wants to read it. `${value:?}`
+// shows its shape instead: a struct's name and fields, the variant an enum
+// holds, the elements of a tuple or an array, and a string in quotes with its
+// control characters escaped -- so a newline inside a value stays visible.
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() {
+    const point = Point { x: 3, y: 4 };
+    print_str("${point:?}\n");
+    print_str("${[1, 2, 3]:?}\n");
+    print_str("${"a\nb":?}\n");
+}
+```
+
+```console
+$ otter build main.ot -o main && ./main
+Point { x: 3, y: 4 }
+[1, 2, 3]
+"a\nb"
 ```
 
 ```otter

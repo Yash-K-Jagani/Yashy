@@ -968,6 +968,81 @@ otter_str *otter_str_from_bool(long long value) {
     return otter_str_new(text, value != 0 ? 4u : 5u);
 }
 
+/* ---- Debug formatting -------------------------------------------------
+ *
+ * `otter_str_debug` returns the *debug* form of a string: wrapped in double
+ * quotes, with the bytes a reader would otherwise mistake for structure
+ * escaped. `${s}` prints the text; `${s:?}` prints something that could be
+ * typed back to get the same text -- `"a\nb"`, not a line break in the middle
+ * of a report.
+ *
+ * The escapes are the ones the language's own literals accept (`\"`, `\\`,
+ * `\n`, `\r`, `\t`, `\0`) plus `\xNN` for the remaining control bytes. Bytes
+ * at or above 0x80 are copied unchanged: they are part of a UTF-8 sequence,
+ * and escaping them would turn readable text into a byte dump. */
+
+otter_str *otter_str_debug(const otter_str *s) {
+    static const char hex[] = "0123456789abcdef";
+    if (s == NULL) {
+        return otter_str_new("\"\"", 2);
+    }
+    size_t length = (size_t)s->len;
+    /* Every byte is at worst `\xNN`, plus the two quotes. The check keeps the
+     * multiplication from wrapping on a length near SIZE_MAX. */
+    if (length > (SIZE_MAX - 3) / 4) {
+        return otter_str_new("\"\"", 2);
+    }
+    size_t capacity = length * 4 + 3;
+    char *buffer = (char *)malloc(capacity);
+    if (buffer == NULL) {
+        return NULL;
+    }
+    size_t at = 0;
+    buffer[at++] = '"';
+    for (size_t i = 0; i < length; i++) {
+        unsigned char byte = (unsigned char)s->data[i];
+        switch (byte) {
+        case '"':
+            buffer[at++] = '\\';
+            buffer[at++] = '"';
+            break;
+        case '\\':
+            buffer[at++] = '\\';
+            buffer[at++] = '\\';
+            break;
+        case '\n':
+            buffer[at++] = '\\';
+            buffer[at++] = 'n';
+            break;
+        case '\r':
+            buffer[at++] = '\\';
+            buffer[at++] = 'r';
+            break;
+        case '\t':
+            buffer[at++] = '\\';
+            buffer[at++] = 't';
+            break;
+        case '\0':
+            buffer[at++] = '\\';
+            buffer[at++] = '0';
+            break;
+        default:
+            if (byte < 0x20 || byte == 0x7f) {
+                buffer[at++] = '\\';
+                buffer[at++] = 'x';
+                buffer[at++] = hex[byte >> 4];
+                buffer[at++] = hex[byte & 0x0f];
+            } else {
+                buffer[at++] = (char)byte;
+            }
+        }
+    }
+    buffer[at++] = '"';
+    otter_str *out = otter_str_new(buffer, at);
+    free(buffer);
+    return out;
+}
+
 /* ---- Input ------------------------------------------------------------
  *
  * `otter_read_line` reads one line from standard input and returns it without

@@ -26,8 +26,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_parser::ast::{
-    BinOp, BindingKeyword, Block, Expr, InterpPart, Item, Literal, Param, Pattern, PtrKind, Stmt,
-    StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, Expr, InterpFormat, InterpPart, Item, Literal, Param, Pattern,
+    PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -37,6 +37,9 @@ use crate::hir::*;
 use crate::ownership::{linearity_of, Linearity, Ownership};
 use crate::scope::{Binding, Scope};
 use crate::ty::{Mutability, Type, TypeKind};
+
+/// Debug formatting (`${value:?}`), which synthesizes one printer per type.
+mod debug;
 
 /// A declared struct: its fields, in declaration order.
 #[derive(Clone, Debug)]
@@ -393,6 +396,15 @@ pub struct Checker<'src> {
     /// The root scope is never a capture: a top-level function is a global,
     /// and a closure may call one.
     closures: Vec<ClosureFrame>,
+    /// The debug printers `${value:?}` asked for, in the order they were
+    /// discovered. Each is an ordinary function appended to the program after
+    /// generics are instantiated, so the backend has no idea it was not
+    /// written by hand.
+    debug_printers: Vec<HirFn>,
+    /// The printer names already queued or emitted. A type with more than one
+    /// `:?` use gets one printer, and a printer that contains itself does not
+    /// ask for a second body while the first is being built.
+    debug_printer_names: HashSet<String>,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -604,6 +616,8 @@ impl<'src> Checker<'src> {
             uses_threads: false,
             iteration_borrows: Vec::new(),
             closures: Vec::new(),
+            debug_printers: Vec::new(),
+            debug_printer_names: HashSet::new(),
             sm,
         }
     }
@@ -835,6 +849,10 @@ impl<'src> Checker<'src> {
         // asked for. This has to follow every module: a generic body may call
         // anything the program declares.
         self.instantiate_generics(&mut items);
+        // The printers are ordinary functions with synthesized bodies. They are
+        // appended after every generic body has been checked, because a generic
+        // instantiation is one of the places a `${value:?}` part can appear.
+        items.extend(self.debug_printers.drain(..).map(HirItem::Fn));
         if self.errors.is_empty() {
             Ok(HirProgram {
                 items,
@@ -6268,9 +6286,21 @@ impl<'src> Checker<'src> {
                             *span,
                             prim(TypeKind::Str),
                         )),
-                        InterpPart::Expr(expr) => {
+                        InterpPart::Expr(expr, format) => {
                             let checked = self.check_expr(expr)?;
-                            match self.as_string(checked, *span) {
+                            let piece = match format {
+                                // Display is the form `str_from_*` builds.
+                                InterpFormat::Display => self.as_string(checked, *span),
+                                // Debug has no single conversion: the shape of
+                                // the value decides, and aggregates get a
+                                // synthesized printer. The diagnostic points at
+                                // the expression, not at the whole literal.
+                                InterpFormat::Debug => {
+                                    let site = expr_span(&checked);
+                                    self.debug_string(checked, site)
+                                }
+                            };
+                            match piece {
                                 Some(piece) => pieces.push(piece),
                                 None => return None,
                             }

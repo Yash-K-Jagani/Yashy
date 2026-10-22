@@ -320,8 +320,40 @@ fn the_number_to_string_conversions_call_the_runtime() {
     );
 }
 
-// --- panic -------------------------------------------------------------------
+#[test]
+fn a_debug_form_becomes_a_printer_function() {
+    // `${value:?}` is lowered by the checker into a call to a printer it
+    // synthesized, so the backend sees an ordinary function. The printer is
+    // emitted with the rest of the program, and the call names it.
+    let ir_text = ir_of(
+        "struct P { x: i64 }\n\
+         fn main() {\n\
+         \x20   const p = P { x: 3 };\n\
+         \x20   print_str(\"${p:?}\");\n\
+         \x20 }",
+    );
+    assert!(
+        ir_text.contains("define i8* @__debug."),
+        "the printer is a function in the module:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i8* @__debug."),
+        "and the interpolation calls it:\n{ir_text}"
+    );
+}
 
+#[test]
+fn the_debug_form_of_a_string_calls_the_runtime() {
+    // A string's debug form is a byte operation -- quoting and escaping --
+    // so it is the runtime's entry point rather than a synthesized printer.
+    let ir_text = ir_of("fn main() { const s = \"a\"; print_str(\"${s:?}\"); }");
+    assert!(
+        ir_text.contains("call i8* @otter_str_debug(i8* "),
+        "the quoted form is a runtime call:\n{ir_text}"
+    );
+}
+
+// --- panic -------------------------------------------------------------------
 #[test]
 fn a_panic_call_is_followed_by_unreachable_in_a_block_of_its_own() {
     // `panic` never returns, so the call cannot be followed by more instructions

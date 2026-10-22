@@ -148,6 +148,13 @@ otter_str *otter_str_from_f64(double value);
 otter_str *otter_str_from_bool(long long value);
 int otter_str_eq(const otter_str *a, const otter_str *b);
 
+/* The debug form of a string (M15 Task 20): the text in double quotes, with
+ * `"`, `\`, the common control characters and the remaining control bytes
+ * escaped. Bytes at or above 0x80 are copied unchanged, so UTF-8 stays
+ * readable. The result is owned by the caller, like every other `otter_str_*`
+ * constructor. */
+otter_str *otter_str_debug(const otter_str *s);
+
 /* String methods (M12 Task 5). These are byte operations: case mapping is
  * ASCII only and every separator or line boundary is one byte. `get` writes the
  * byte through `out` and returns 1 for a hit, 0 for an out-of-range index.

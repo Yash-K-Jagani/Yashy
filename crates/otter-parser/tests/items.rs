@@ -14,8 +14,8 @@
 use otter_common::{Diagnostic, FileId, SourceMap, Span};
 use otter_lexer::Lexer;
 use otter_parser::ast::{
-    BinOp, Expr, FieldDef, InterpPart, Item, Literal, Pattern, Program, Stmt, TypeExpr, UnOp,
-    VariantField,
+    BinOp, Expr, FieldDef, InterpFormat, InterpPart, Item, Literal, Pattern, Program, Stmt,
+    TypeExpr, UnOp, VariantField,
 };
 use otter_parser::{Parser, MAX_NESTING_DEPTH};
 
@@ -1513,13 +1513,70 @@ fn an_interpolated_string_is_one_node_of_text_and_expressions() {
         "the leading text, got {:?}",
         parts[0]
     );
-    let InterpPart::Expr(inner) = &parts[1] else {
+    let InterpPart::Expr(inner, InterpFormat::Display) = &parts[1] else {
         panic!("expected the expression part, got {:?}", parts[1]);
     };
     assert_eq!(
         span_of(src, "value + 1"),
         otter_parser::exprs::expr_span(inner),
         "the inner expression keeps the span of its own text, not the literal's"
+    );
+}
+
+#[test]
+fn a_debug_suffix_marks_one_interpolation_part() {
+    // `"${value:?}"`: the `:?` is a formatting request, not part of the
+    // expression. The parser keeps the two apart so the checker -- the stage
+    // that knows the expression's type -- can choose the debug form.
+    let src = "fn main() { print_str(\"${value:?}\"); }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
+        panic!("expected the print_str call, got {:?}", body.stmts[0]);
+    };
+    let Expr::Interp { parts, .. } = &args[0] else {
+        panic!("expected an interpolation, got {:?}", args[0]);
+    };
+    assert_eq!(parts.len(), 1, "one part: {parts:?}");
+    let InterpPart::Expr(inner, format) = &parts[0] else {
+        panic!("expected the expression part, got {:?}", parts[0]);
+    };
+    assert_eq!(*format, InterpFormat::Debug, "the `:?` suffix asks for debug");
+    assert_eq!(
+        span_of(src, "value"),
+        otter_parser::exprs::expr_span(inner),
+        "the expression is the text before the suffix"
+    );
+}
+
+#[test]
+fn a_display_interpolation_has_no_suffix() {
+    // The default is display, and the parts of a mixed literal each carry their
+    // own format: `"${a} ${b:?}"` is one display part and one debug part.
+    let src = "fn main() { print_str(\"${a} ${b:?}\"); }";
+    let program = parse_ok(src);
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
+        panic!("expected the print_str call, got {:?}", body.stmts[0]);
+    };
+    let Expr::Interp { parts, .. } = &args[0] else {
+        panic!("expected an interpolation, got {:?}", args[0]);
+    };
+    let formats: Vec<InterpFormat> = parts
+        .iter()
+        .filter_map(|part| match part {
+            InterpPart::Expr(_, format) => Some(*format),
+            InterpPart::Text(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        formats,
+        vec![InterpFormat::Display, InterpFormat::Debug],
+        "each part carries its own format"
     );
 }
 
@@ -1541,7 +1598,7 @@ fn adjacent_interpolations_have_no_text_between_them() {
     };
     assert_eq!(parts.len(), 2, "two expressions, no text: {parts:?}");
     assert!(
-        parts.iter().all(|p| matches!(p, InterpPart::Expr(_))),
+        parts.iter().all(|p| matches!(p, InterpPart::Expr(_, InterpFormat::Display))),
         "no text piece, got {parts:?}"
     );
 }

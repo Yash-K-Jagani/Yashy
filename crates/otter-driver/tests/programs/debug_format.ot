@@ -1,0 +1,50 @@
+// Debug formatting: `${value:?}` shows the surface of a value (M15 Task 20).
+//
+// Display (`${value}`) answers "what does this say?" and has a form for the
+// four scalar types only. Debug answers "what is this value?" and has a form
+// for the aggregates the language can build: a struct shows its name and its
+// fields, an enum shows the variant it holds, a tuple shows its elements, an
+// array shows its elements, and a string is quoted and escaped so that a
+// newline in it stays visible.
+//
+// The string case is the point of the last line: the text holds a newline and
+// a quote, and the debug form shows both as escapes rather than as the
+// characters they are.
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+enum Shape {
+    Circle(f64),
+    Rect { w: f64, h: f64 },
+    Empty,
+}
+
+fn main() {
+    const point = Point { x: 3, y: 4 };
+    print_str("${point:?}\n");
+
+    const numbers = [1, 2, 3];
+    print_str("${numbers:?}\n");
+
+    const pair = (1, true);
+    print_str("${pair:?}\n");
+
+    print_str("${Shape.Circle(2.5):?}\n");
+    print_str("${Shape.Rect { w: 2.0, h: 3.0 }:?}\n");
+    print_str("${Shape.Empty:?}\n");
+
+    const maybe = Some(7);
+    print_str("${maybe:?}\n");
+
+    const nothing: Option[i64] = None;
+    print_str("${nothing:?}\n");
+
+    print_str("${"a\nb\"c":?}\n");
+
+    // The display form is unchanged: `${x}` still prints the number, and the
+    // debug form of a number is the same text.
+    print_str("${42} ${42:?}\n");
+}

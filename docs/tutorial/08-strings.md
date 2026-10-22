@@ -237,6 +237,47 @@ The set is closed: a backslash followed by anything else is a diagnostic
 rather than a guess. `\$` exists so a literal `$` is expressible, because
 `${` begins an interpolation. A `//` inside a literal is text, not a comment.
 
+## Debug formatting
+
+`${value}` shows a value the way a reader wants to read it. `${value:?}` shows
+the *shape* of the value instead: a struct's name and fields, the variant an
+enum holds, the elements of a tuple or an array, and a string in quotes with
+its control characters escaped.
+
+```otter
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() {
+    const point = Point { x: 3, y: 4 };
+    print_str("${point:?}\n");
+    // => Point { x: 3, y: 4 }
+
+    print_str("${[1, 2, 3]:?}\n");
+    // => [1, 2, 3]
+
+    print_str("${"a\nb":?}\n");
+    // => "a\nb"
+}
+```
+
+The string case is the point of the last line. `"a\nb"` printed plainly is two
+lines, so a report that shows a value cannot say which bytes were in it. The
+debug form is quoted and escaped, so the newline is visible as `\n` and the
+text stays on one line.
+
+The debug form exists for the values that have a shape to show. A number, a
+`bool` and a `string` have one form each, and a struct, an enum, a tuple and
+an array have theirs. A pointer has none -- printing its address would succeed
+and mean nothing -- so `"${p:?}"` on a `*mut i64` is a diagnostic:
+
+```text
+error: cannot format a `*mut i64` with `:?`: only numbers, `bool`, `string`,
+structs, enums, tuples and arrays have a debug form
+```
+
 ## Common mistakes
 
 - **Indexing a string.** `s[0]` reports ``error: cannot index `string` ``.

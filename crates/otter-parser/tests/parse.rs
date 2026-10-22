@@ -10,8 +10,8 @@ use std::fmt::Debug;
 
 use otter_common::Span;
 use otter_parser::ast::{
-    BinOp, Block, Expr, ExternDecl, FieldDef, InterpPart, Item, Literal, Param, Pattern, Program,
-    Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
+    BinOp, Block, Expr, ExternDecl, FieldDef, InterpFormat, InterpPart, Item, Literal, Param,
+    Pattern, Program, Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
 };
 
 // -- helpers ---------------------------------------------------------------
@@ -1457,7 +1457,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
             Expr::Interp {
                 parts: vec![
                     InterpPart::Text(text("n = ")),
-                    InterpPart::Expr(int(1, here())),
+                    InterpPart::Expr(int(1, here()), InterpFormat::Display),
                 ],
                 span: here(),
             },

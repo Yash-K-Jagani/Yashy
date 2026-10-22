@@ -1,7 +1,7 @@
 use otter_common::Span;
 use otter_lexer::{Lexer, StringPiece, Token, TokenKind};
 
-use crate::ast::{BinOp, Expr, InterpPart, Literal, StringLit, TypeExpr, UnOp};
+use crate::ast::{BinOp, Expr, InterpFormat, InterpPart, Literal, StringLit, TypeExpr, UnOp};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
 
@@ -582,14 +582,20 @@ impl<'src> Parser<'src> {
                 StringPiece::Text(lit) => parts.push(InterpPart::Text(lit)),
                 StringPiece::Interpolation { start, end } => {
                     has_expr = true;
-                    if start == end {
+                    // `:?` is a formatting suffix, not part of the expression:
+                    // lexing `x:?` as an expression would ask the sub-parser to
+                    // read a `:` the language has no use for and a `?` that is
+                    // the try operator. So the suffix is trimmed here, and the
+                    // sub-parser only ever sees the expression.
+                    let (expr_end, format) = interpolation_format(raw, start, end);
+                    if start == expr_end {
                         return Err(self.error(
                             sub_span(span, start.saturating_sub(2), end.saturating_add(1)),
                             "this `${}` is empty: put an expression between `${` and `}`",
                         ));
                     }
-                    let expr = self.parse_interpolated_expr(span, start, end)?;
-                    parts.push(InterpPart::Expr(expr));
+                    let expr = self.parse_interpolated_expr(span, start, expr_end)?;
+                    parts.push(InterpPart::Expr(expr, format));
                 }
             }
         }
@@ -688,6 +694,29 @@ fn collect_callee(expr: &Expr, out: &mut Vec<String>) -> bool {
             },
         Expr::Index { base, .. } => collect_callee(base, out),
         _ => false,
+    }
+}
+
+/// Splits the formatting suffix `:?` off one interpolation.
+///
+/// Returns the offset the expression stops at, and the format the part asked
+/// for. A region that does not end in `:?` is display, and the whole region is
+/// the expression. The suffix is recognized on the *raw* text, before the
+/// sub-lexer sees it, so the `?` is never mistaken for the try operator.
+fn interpolation_format(raw: &str, start: usize, end: usize) -> (usize, InterpFormat) {
+    // The region came from this literal, so a failed slice means the offsets
+    // and the text disagree; display over the whole region is the reading that
+    // loses nothing and guesses nothing.
+    let Some(region) = raw.get(start..end) else {
+        return (end, InterpFormat::Display);
+    };
+    let trimmed = region.trim_end();
+    match trimmed.strip_suffix(":?") {
+        Some(head) => (
+            start.saturating_add(head.len()),
+            InterpFormat::Debug,
+        ),
+        None => (end, InterpFormat::Display),
     }
 }
 
