@@ -1198,27 +1198,28 @@ The proof:
 ### Task 15: Pointer receivers for mutating methods
 
 **Files:**
-- Modify: `crates/otter-sema/src/check_expr.rs`
-- Modify: `crates/otter-codegen/src/expr_gen.rs`
-- Test: `crates/otter-driver/tests/programs/mutating_methods.ot`
+- Modify: `crates/otter-parser/src/items.rs`
+- Modify: `crates/otter-sema/src/check_expr.rs`, `crates/otter-sema/src/hir.rs`
+- Modify: `crates/otter-codegen/src/expr_gen.rs`, `crates/otter-codegen/src/stmt_gen.rs`
+- Test: `crates/otter-driver/tests/programs/mutating_methods.ot`, `crates/otter-sema/tests/methods.rs`
 
 **Interfaces:**
 - Produces: `fn bump(self: *mut Counter)`; the receiver is the address of a `var` object; field writes through `self[0].field`.
 - Consumes: Task 13; existing pointer indexing and field assignment.
 
-- [ ] **Step 1: Write the failing e2e program**
+- [x] **Step 1: Write the failing e2e program**
 
 `mutating_methods.ot` declares a `Counter` with
 `fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; }`; a `var c`
 starts at `0`, `c.bump()` twice, and prints `2`. Calling `bump` on a `const`
 reports `error: \`bump\` needs a mutable object binding`.
 
-- [ ] **Step 2: Run it and verify it fails**
+- [x] **Step 2: Run it and verify it fails**
 
 Run: `cargo test -p otter-driver --test e2e a_pointer_receiver_mutates_its_object`
 Expected: FAIL; pointer receivers are not resolved.
 
-- [ ] **Step 3: Implement pointer receivers**
+- [x] **Step 3: Implement pointer receivers**
 
 A method whose first parameter type is `*mut T` receives the address of the
 receiver. The receiver must be a single-name `var` binding of type `T`; a
@@ -1226,17 +1227,52 @@ temporary, field, or `const` is rejected at the call span. Codegen passes the
 binding's slot; the body already supports `self[0].field` through pointer
 indexing.
 
-- [ ] **Step 4: Run the test**
+- [x] **Step 4: Run the test**
 
 Run: `cargo test -p otter-driver --test e2e a_pointer_receiver_mutates_its_object`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/otter-sema/src/check_expr.rs crates/otter-codegen/src/expr_gen.rs crates/otter-driver/tests/programs/mutating_methods.ot
 git commit -m "feat: pointer receivers for mutating methods"
 ```
+
+**As built:** the parser already special-cased `self`; it now accepts the one
+annotation a receiver may carry, so `self: *mut Counter` parses as an ordinary
+param. The checker recognises three receiver spellings: `self` (the value),
+`self: Self` (the same thing, written out), and `self: *mut T` (the address).
+A pointer whose pointee is not the `impl` block's own type is refused -- a
+method of `Counter` must not be able to write through a `*mut Other`.
+
+A pointer receiver is called on the *address* of its object, so the call site
+needs an expression the language cannot spell. The checker builds it: a new
+`HirExpr::AddrOf { name, ty }` names the binding whose storage is the value,
+and the backend answers with the alloca's own name -- there is nothing to
+emit, because a local's slot *is* the storage. The receiver must therefore be
+a mutable binding; a `const`, a temporary, or a field access is reported as
+`` `bump` needs a mutable object binding ``.
+
+The body's field write was the second half. `self[0].value = ...` is neither
+`p.x = v` (a read-modify-write of a binding's aggregate) nor `p[i] = v` (a
+store of one word): it is a store at a field's offset through an address. That
+is `HirStmt::FieldPtrAssign`, lowered to a `getelementptr` for the element, one
+more per field, and a `store` -- no load and no rebuild, because a pointer is
+already an address.
+
+Reaching that point generalised pointer indexing, which had been `*mut i64`
+only: `p[i]` now reads or writes the value the pointer points at, whatever it
+is, with the width taken from its representation. A pointer to `()` or to `!`
+is still refused, because there is nothing at that address to read or write.
+
+The proof:
+
+- `cargo check --workspace --all-targets` — clean, no warnings.
+- `cargo test -p otter-sema --test methods` — 15 PASS, including the new
+  pointer receiver and its `const` diagnostic.
+- `cargo test -p otter-driver --test e2e a_pointer_receiver_mutates_its_object`
+  — PASS; the program printed `2`.
 
 ---
 

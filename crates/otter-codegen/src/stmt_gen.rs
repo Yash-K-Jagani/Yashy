@@ -27,7 +27,7 @@
 //! Every lookup is total; a `break` outside a loop, or a missing loop label,
 //! lowers to a comment rather than an abort.
 
-use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, TypeKind};
+use otter_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind};
 
 use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, RefKind};
 use crate::expr_gen::retain_struct_fields;
@@ -368,19 +368,33 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             }
             Flow::Fallthrough
         }
-        HirStmt::IndexAssign { base, index, value, .. } => {
+        HirStmt::IndexAssign {
+            base,
+            index,
+            value,
+            span,
+        } => {
             // `p[i] = v`: getelementptr to the element's address, then store.
-            // The checker proved `base` is a `*mut i64` and both `index` and
-            // `value` are `i64`, so the types are known and correct here.
+            // The element is whatever the pointer points at -- the checker
+            // proved the value fits it -- so the width comes from the
+            // representation rather than from a fixed `i64`.
             let ptr = gen_expr(ctx, base);
             let idx = gen_expr(ctx, index);
             let val = gen_expr(ctx, value);
+            let element = match &ptr.ty {
+                TypeKind::Ptr(inner) => (**inner).clone(),
+                other => Type {
+                    kind: other.clone(),
+                    span: *span,
+                },
+            };
+            let repr = repr_type(&element.kind);
             let addr = ctx.tmp();
             ctx.push(format!(
-                "{addr} = getelementptr i64, ptr {}, i64 {}",
+                "{addr} = getelementptr {repr}, ptr {}, i64 {}",
                 ptr.value, idx.value
             ));
-            ctx.push(format!("store i64 {}, ptr {addr}", val.value));
+            ctx.push(format!("store {repr} {}, ptr {addr}", val.value));
             Flow::Fallthrough
         }
         HirStmt::FieldAssign {
@@ -410,6 +424,49 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             ctx.push(format!("{loaded} = load {repr}, ptr {slot}"));
             let updated = insert_field(ctx, &loaded, &root_ty, steps, &value);
             ctx.push(format!("store {repr} {updated}, ptr {slot}"));
+            Flow::Fallthrough
+        }
+        HirStmt::FieldPtrAssign {
+            pointer,
+            index,
+            steps,
+            value,
+            ty,
+            ..
+        } => {
+            // `p[i].field = v`: the pointer is an address, so the write is a
+            // store through it -- take the element's address, step to the
+            // field's offset, store. No load, no rebuild: a pointer is not an
+            // aggregate that has to be copied back.
+            let ptr = gen_expr(ctx, pointer);
+            let idx = gen_expr(ctx, index);
+            let element = match &ptr.ty {
+                TypeKind::Ptr(inner) => (**inner).clone(),
+                _ => ty.clone(),
+            };
+            let element_repr = repr_type(&element.kind);
+            let mut addr = ctx.tmp();
+            ctx.push(format!(
+                "{addr} = getelementptr {element_repr}, ptr {}, i64 {}",
+                ptr.value, idx.value
+            ));
+            let mut current = element;
+            for step in steps {
+                let repr = repr_type(&current.kind);
+                let next = ctx.tmp();
+                ctx.push(format!(
+                    "{next} = getelementptr {repr}, ptr {addr}, i32 0, i32 {}",
+                    step.index
+                ));
+                addr = next;
+                current = step.ty.clone();
+            }
+            let val = gen_expr(ctx, value);
+            ctx.push(format!(
+                "store {} {}, ptr {addr}",
+                repr_type(&current.kind),
+                val.value
+            ));
             Flow::Fallthrough
         }
         HirStmt::Return(value, _) => {

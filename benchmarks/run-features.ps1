@@ -112,6 +112,18 @@ $workloads = @(
            @{ Lang = 'Rust (rustc -O, value)';    Kind = 'rust';  Src = 'function.rs';        Out = 'function-rust' },
            @{ Lang = 'Rust (rustc -O, direct)';   Kind = 'rust';  Src = 'function_direct.rs'; Out = 'function-direct-rust' }
        ) },
+    # A mutating method: one call per iteration, each handing the object's
+    # address to a method that increments one field. The same loop in every
+    # language, so the number is the price of a pointer receiver rather than
+    # of an algorithm.
+    @{ Name = 'method';  Work = 10000000;  Unit = 'call';       Expected = '10000000';        Source = 'method.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'method.ot'; Out = 'method-otter' },
+           @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'method.c';  Out = 'method-clang' },
+           @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'method.c';  Out = 'method-gcc' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'method.go'; Out = 'method-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'method.rs'; Out = 'method-rust' }
+       ) },
     # The array mapping: the same loop in every language, building a second
     # array the size of the first.
     @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';

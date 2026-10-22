@@ -181,6 +181,55 @@ fn main() {
 method that needs a receiver cannot be called on the type: it says so, rather
 than pretending the type is a value of itself.
 
+## Mutating methods
+
+A method that takes `self` receives a *copy* of the object, so it can read the
+object but cannot change the caller's. To change it, the method takes the
+object's address instead:
+
+```otter
+object Counter {
+    value: i64,
+    fn new() -> Counter {
+        return Counter { value: 0 };
+    },
+    fn bump(self: *mut Counter) {
+        self[0].value = self[0].value + 1;
+    },
+    fn get(self) -> i64 {
+        return self.value;
+    },
+}
+
+fn main() {
+    var c = Counter.new();
+    c.bump();
+    c.bump();
+    print_i64(c.get());
+    print_str("\n");
+    // => 2
+}
+```
+
+Three things make this work, and each is a rule worth remembering:
+
+- `self: *mut Counter` is a **pointer receiver**. The parameter's type is an
+  address, so `self` is the caller's object rather than a copy.
+- `self[0]` is the object at that address. The index is `0` because the
+  receiver is exactly one object; a pointer indexes its own pointee, so
+  `self[1]` would be the next object, which there is no promise of.
+- `self[0].value = ...` writes through the address, so the write lands in the
+  caller's binding.
+
+Because the method writes through the address, the receiver has to be a
+mutable binding. Calling `bump` on a `const` is an error: "`bump` needs a
+mutable object binding". So is calling it on a temporary, such as the result
+of another call -- there is no address of a value that has no home.
+
+A pointer receiver's pointee must be the type the method belongs to. `fn bump(self:
+*mut Counter)` inside `impl Other` is refused, because a method of one type
+must not be able to write through another's address.
+
 ## The operations
 
 | Operation | Syntax | Meaning |
@@ -191,7 +240,8 @@ than pretending the type is a value of itself.
 | Assign a field | `q.x = 9` | The binding must be `var`. |
 | Copy | `var q = p;` | A new value; later changes are independent. |
 | Pass | `manhattan(p)` | The parameter receives a copy. |
-| Hold an owner | `struct Box { name: string }` | Allowed, but see the limitation below. |
+| Mutate through a method | `fn bump(self: *mut Point)` | The receiver is the object's address; call it on a `var`. |
+| Hold an owner | `struct Box { name: string }` | The struct owns the reference, and so does each copy. |
 
 Named fields are not only documentation. The declaration's order is the layout
 the compiler emits, while the literal's order is the order you happened to
@@ -259,16 +309,28 @@ struct that holds an array points at an array somebody else owns.
    point from the two `from` and `to` coordinates. Hint: read `line.from.x` and
    `line.to.x`; there is no operator to average a whole struct for you.
 
+3. Add `fn set_x(self: *mut Point, x: i64)` and `fn shifted(self, dx: i64) ->
+   Point` to `Point`. Confirm that `set_x` changes the caller's point and that
+   `shifted` does not. Hint: the first needs a `var` at the call site; the
+   second needs nothing.
+
 ## How it works
 
 A struct is an LLVM aggregate value, not a pointer. Assigning one loads and
 stores the whole aggregate, and passing one to a function passes its fields by
 value. Field assignment is a read-modify-write: the compiler loads the
 aggregate, replaces one field with `insertvalue`, and stores it back. That is
-also why there is no alias to worry about for a struct of numbers. Owning fields
-are the exception the backend deliberately does not track: storing a string in
-a field stores the pointer without a retain, and leaving scope does not emit a
-release, because the code generator has no per-field ownership information to
-act on.
+also why there is no alias to worry about for a struct of numbers.
+
+A `string` field is the one part of a struct that is tracked: the module records
+each struct's field types, so construction can retain a reference for a field
+that owns one, a copy can retain its own, and the binding's scope can release
+what it holds.
+
+A pointer receiver is the one path that writes without a read-modify-write. The
+receiver is an address, so `self[0].value = ...` is a `getelementptr` at the
+field's offset and a `store` — there is no aggregate to load and rebuild. That
+is also why the call site has to pass a binding: the pointer is the local's own
+storage, and a temporary has none.
 
 Continue to [05-patterns](05-patterns.md).

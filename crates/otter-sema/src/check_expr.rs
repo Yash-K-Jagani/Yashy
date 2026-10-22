@@ -73,6 +73,13 @@ struct MethodSig {
     /// A method with no `self` is a static method: it is called on the type
     /// rather than on a value.
     has_self: bool,
+    /// Whether the receiver is a pointer receiver -- `self: *mut T`.
+    ///
+    /// A pointer receiver is handed the address of the object it was called on,
+    /// which is what lets the method mutate that object. The binding it is
+    /// called on must therefore be a mutable `var`, and it must be a binding:
+    /// there is no address of a temporary.
+    receiver_is_pointer: bool,
 }
 
 /// Whether a block returns on every path out of it.
@@ -653,10 +660,49 @@ impl<'src> Checker<'src> {
             .first()
             .map(|param| param.name == "self")
             .unwrap_or(false);
+        let mut receiver_is_pointer = false;
         let mut param_tys = Vec::with_capacity(params.len());
         for (index, param) in params.iter().enumerate() {
             if index == 0 && has_self {
-                param_tys.push(receiver_ty.clone());
+                // The receiver is `self` (a value) or `self: *mut T` (a
+                // pointer). A pointer receiver's pointee must be the type the
+                // block is for: `self: *mut Other` in `impl Counter` would let
+                // a method of one type mutate another.
+                match &param.ty {
+                    TypeExpr::Name(written, _) if written == "Self" => {
+                        param_tys.push(receiver_ty.clone());
+                    }
+                    TypeExpr::Ptr {
+                        kind: PtrKind::Mut,
+                        pointee,
+                        ..
+                    } => {
+                        let pointee_ty = self.resolve_or_report(pointee, param.span);
+                        if !pointee_ty.eq_ignoring_span(receiver_ty) {
+                            self.error(
+                                param.span,
+                                format!(
+                                    "a pointer receiver of `{type_name}` must point at \
+                                     `{type_name}`, not `{pointee_ty}`"
+                                ),
+                            );
+                        }
+                        receiver_is_pointer = true;
+                        param_tys.push(Type {
+                            kind: TypeKind::Ptr(Box::new(pointee_ty)),
+                            span: param.span,
+                        });
+                    }
+                    _ => {
+                        self.error(
+                            param.span,
+                            format!(
+                                "a receiver is `self` or `self: *mut {type_name}`"
+                            ),
+                        );
+                        param_tys.push(receiver_ty.clone());
+                    }
+                }
                 continue;
             }
             param_tys.push(self.resolve_or_report(&param.ty, param.span));
@@ -671,6 +717,7 @@ impl<'src> Checker<'src> {
             params: param_tys,
             ret: ret_ty,
             has_self,
+            receiver_is_pointer,
         }
     }
 
@@ -1637,14 +1684,18 @@ impl<'src> Checker<'src> {
                         self.error(*span, format!("cannot assign to index of `{}`", base_ty));
                         return None;
                     };
-                    if !matches!(pointee.kind, TypeKind::I64) {
+                    if matches!(pointee.kind, TypeKind::Unit | TypeKind::Never) {
                         let _ = self.check_expr(value);
                         self.error(
                             *span,
-                            format!("only `*mut i64` can be indexed, found `*mut {}`", pointee),
+                            format!("a pointer to nothing cannot be written through: `*mut {pointee}`"),
                         );
                         return None;
                     }
+                    // The element type is whatever the pointer points at: a
+                    // pointer is an address, and an address does not care
+                    // whether it holds one `i64` or one struct.
+                    let element = (**pointee).clone();
                     let index = self.check_expr(index)?;
                     if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
                         let _ = self.check_expr(value);
@@ -1652,10 +1703,10 @@ impl<'src> Checker<'src> {
                         return None;
                     }
                     let value = self.check_expr(value)?;
-                    if !expr_ty(&value).eq_ignoring_span(&prim(TypeKind::I64)) {
+                    if !element.eq_ignoring_span(&expr_ty(&value)) {
                         self.error(
                             expr_span(&value),
-                            format!("expected `i64`, found `{}`", expr_ty(&value)),
+                            format!("expected `{element}`, found `{}`", expr_ty(&value)),
                         );
                         return None;
                     }
@@ -2811,6 +2862,39 @@ impl<'src> Checker<'src> {
             );
             return Some(None);
         }
+        // A pointer receiver is handed the address of the object it is called
+        // on, so the receiver must be a mutable binding: there is no address of
+        // a temporary, and a `const` promises not to change.
+        let receiver_checked = if sig.receiver_is_pointer {
+            let HirExpr::Ident(path, _, _) = &receiver_checked else {
+                self.error(
+                    span,
+                    format!("`{method}` needs a mutable object binding as the receiver"),
+                );
+                return Some(None);
+            };
+            let name = path.last().cloned().unwrap_or_default();
+            let mutable = self
+                .scope
+                .resolve(&name)
+                .map(|binding| binding.mutability.is_mutable())
+                .unwrap_or(false);
+            if !mutable {
+                self.error(span, format!("`{method}` needs a mutable object binding"));
+                return Some(None);
+            }
+            let pointee = expr_ty(&receiver_checked);
+            HirExpr::AddrOf {
+                name,
+                span,
+                ty: Type {
+                    kind: TypeKind::Ptr(Box::new(pointee)),
+                    span,
+                },
+            }
+        } else {
+            receiver_checked
+        };
         let mut arg_exprs = Vec::with_capacity(args.len() + 1);
         arg_exprs.push(receiver_checked);
         for (arg, param) in args.iter().zip(sig.params.iter().skip(1)) {
@@ -5036,14 +5120,17 @@ impl<'src> Checker<'src> {
                     }
                     option(&element, *span)
                 } else {
-                    if !matches!(element.kind, TypeKind::I64) {
+                    if matches!(element.kind, TypeKind::Unit | TypeKind::Never) {
                         self.error(
                             *span,
-                            format!("only `*mut i64` can be indexed, found `*mut {element}`"),
+                            format!("a pointer to nothing cannot be read through: `*mut {element}`"),
                         );
                         return None;
                     }
-                    prim(TypeKind::I64)
+                    // A pointer is an address; what it holds is whatever it
+                    // points at. `p[0]` is the value at that address, and for
+                    // a pointer to a struct that is the struct.
+                    element.clone()
                 };
                 Some(HirExpr::Index {
                     base: Box::new(base),
@@ -5401,6 +5488,13 @@ impl<'src> Checker<'src> {
     ///
     /// Returns `None` after reporting, like every other arm of `Stmt::Assign`.
     fn check_field_assign(&mut self, target: &Expr, value: &Expr, span: Span) -> Option<HirStmt> {
+        // A field write through a pointer -- `self[0].value = v` -- is a
+        // *store*, not a read-modify-write, so it takes a different shape.
+        if let Some((base, index, names)) = split_pointer_target(target) {
+            if !names.is_empty() {
+                return self.check_pointer_field_assign(&base, &index, &names, value, span);
+            }
+        }
         let (root, names) = self.split_field_target(target)?;
 
         // The bottom of the chain is an ordinary name: resolve it the way a bare
@@ -5424,11 +5518,96 @@ impl<'src> Checker<'src> {
         // Walk the chain against the type each step produced. `steps` is what
         // the backend rebuilds the aggregates from, so it is built here, where
         // the declarations are known.
+        let (steps, aggregate) = self.field_steps(binding.ty.clone(), &names)?;
+
+        let checked = self.check_expr_with_expected(value, &aggregate)?;
+        let found = expr_ty(&checked);
+        if !aggregate.eq_ignoring_span(&found) {
+            self.error(
+                expr_span(&checked),
+                format!("expected `{aggregate}`, found `{found}`"),
+            );
+        }
+        // A field of a linear type may not be overwritten with a bare name any
+        // more than a binding of one may: the same copy would be a second owner.
+        self.forbid_linear_copy(value, &checked);
+
+        Some(HirStmt::FieldAssign {
+            root,
+            steps,
+            value: checked,
+            ty: aggregate,
+            span,
+        })
+    }
+
+    /// `self[0].value = v` -- a field write through a pointer.
+    ///
+    /// The pointer is an address the program already has, so there is no
+    /// binding to look for and no aggregate to rebuild: the write is a store at
+    /// the field's offset. What the checker still owes the backend is the
+    /// element type (to take the address of) and the field chain (to step
+    /// through), and it resolves both here.
+    fn check_pointer_field_assign(
+        &mut self,
+        base: &Expr,
+        index: &Expr,
+        names: &[(String, Span)],
+        value: &Expr,
+        span: Span,
+    ) -> Option<HirStmt> {
+        let pointer = self.check_expr(base)?;
+        let pointer_ty = expr_ty(&pointer);
+        let TypeKind::Ptr(element) = pointer_ty.kind.clone() else {
+            self.error(
+                expr_span(&pointer),
+                format!("cannot write through `{pointer_ty}`: it is not a raw pointer"),
+            );
+            return None;
+        };
+        let index_checked = self.check_expr(index)?;
+        let index_ty = expr_ty(&index_checked);
+        if !matches!(index_ty.kind, TypeKind::I64) {
+            self.error(
+                expr_span(&index_checked),
+                format!("a pointer index must be an `i64`, found `{index_ty}`"),
+            );
+            return None;
+        }
+        let (steps, aggregate) = self.field_steps(*element, names)?;
+
+        let checked = self.check_expr_with_expected(value, &aggregate)?;
+        let found = expr_ty(&checked);
+        if !aggregate.eq_ignoring_span(&found) {
+            self.error(
+                expr_span(&checked),
+                format!("expected `{aggregate}`, found `{found}`"),
+            );
+        }
+        Some(HirStmt::FieldPtrAssign {
+            pointer,
+            index: index_checked,
+            steps,
+            value: checked,
+            ty: aggregate,
+            span,
+        })
+    }
+
+    /// Resolve a chain of field names against `aggregate`, outermost first.
+    ///
+    /// Returns the chain the backend steps through and the type the last field
+    /// has; `None` after reporting when a step does not name a struct field.
+    fn field_steps(
+        &mut self,
+        aggregate: Type,
+        names: &[(String, Span)],
+    ) -> Option<(Vec<FieldStep>, Type)> {
         let mut steps: Vec<FieldStep> = Vec::new();
-        let mut aggregate = binding.ty.clone();
-        for (field, fspan) in &names {
-            let TypeKind::Struct(sname) = &aggregate.kind else {
-                self.error(*fspan, format!("cannot access a field on `{aggregate}`"));
+        let mut current = aggregate;
+        for (field, fspan) in names {
+            let TypeKind::Struct(sname) = &current.kind else {
+                self.error(*fspan, format!("cannot access a field on `{current}`"));
                 return None;
             };
             if !self.structs.contains_key(sname) {
@@ -5452,28 +5631,9 @@ impl<'src> Checker<'src> {
                 index,
                 ty: field_ty.clone(),
             });
-            aggregate = field_ty;
+            current = field_ty;
         }
-
-        let checked = self.check_expr_with_expected(value, &aggregate)?;
-        let found = expr_ty(&checked);
-        if !aggregate.eq_ignoring_span(&found) {
-            self.error(
-                expr_span(&checked),
-                format!("expected `{aggregate}`, found `{found}`"),
-            );
-        }
-        // A field of a linear type may not be overwritten with a bare name any
-        // more than a binding of one may: the same copy would be a second owner.
-        self.forbid_linear_copy(value, &checked);
-
-        Some(HirStmt::FieldAssign {
-            root,
-            steps,
-            value: checked,
-            ty: aggregate,
-            span,
-        })
+        Some((steps, current))
     }
 
     /// Split an assignment target into the binding at the bottom of the chain and
@@ -6032,6 +6192,30 @@ fn map_key_is_supported(kind: &TypeKind) -> bool {
 /// The diagnostic for an element kind [`slice_element_is_operable`] rejects.
 fn unsupported_element_message(element: &Type) -> String {
     format!("an array of `{element}` is not supported yet: only numbers, `bool` and `string` can be elements")
+}
+
+/// Split `p[i].field` into the pointer it starts from, its index, and the
+/// fields above them, outermost first.
+///
+/// This is the target shape a *pointer* receiver's body uses to write a field:
+/// the address is already a value the program holds, so the write is a store
+/// through it rather than a read-modify-write of a binding. `None` when the
+/// target is not a chain of fields over an index.
+fn split_pointer_target(target: &Expr) -> Option<(Expr, Expr, Vec<(String, Span)>)> {
+    let mut names = Vec::new();
+    let mut current = target;
+    loop {
+        match current {
+            Expr::FieldAccess { base, field, span } => {
+                names.insert(0, (field.clone(), *span));
+                current = base;
+            }
+            Expr::Index { base, index, .. } => {
+                return Some((base.as_ref().clone(), index.as_ref().clone(), names));
+            }
+            _ => return None,
+        }
+    }
 }
 
 /// Whether a value of type `found` may stand where `expected` is wanted.

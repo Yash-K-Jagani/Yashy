@@ -554,6 +554,22 @@ fn release_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
 pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
     match expr {
         HirExpr::Literal(lit, _, ty) => gen_literal(ctx, lit, &ty.kind),
+        HirExpr::AddrOf { name, ty, .. } => match ctx.locals.get(name).cloned() {
+            // The local's slot *is* the storage the pointer designates, so the
+            // address is the alloca's own name -- there is nothing to emit.
+            Some((slot, _)) if !slot.is_empty() => GenValue {
+                value: slot,
+                ty: ty.kind.clone(),
+            },
+            // A pointer receiver can only be called on a binding the backend
+            // has a slot for; the checker has already refused anything else.
+            // A null here would be a dereference waiting to happen, so the
+            // value says so rather than pretending.
+            _ => GenValue {
+                value: "null".to_string(),
+                ty: ty.kind.clone(),
+            },
+        },
         HirExpr::Ident(path, _, ty) => {
             let name = path.last().cloned().unwrap_or_default();
             match ctx.locals.get(&name).cloned() {
@@ -658,17 +674,23 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                 // `xs[i]` is an `Option`: the runtime bounds test decides.
                 return crate::slices::gen_index(ctx, base, index, &ty.kind);
             }
-            // `p[i]` reads an element of a `*mut i64`: getelementptr to the
-            // element's address, then load.
+            // `p[i]` reads the element at an address: getelementptr to the
+            // element's address, then load. The element is whatever the
+            // pointer points at, so the width comes from its representation.
             let ptr = gen_expr(ctx, base);
             let idx = gen_expr(ctx, index);
+            let element = match &ptr.ty {
+                TypeKind::Ptr(inner) => (**inner).clone(),
+                _ => ty.clone(),
+            };
+            let repr = crate::ir::repr_type(&element.kind);
             let addr = ctx.tmp();
             ctx.push(format!(
-                "{addr} = getelementptr i64, ptr {}, i64 {}",
+                "{addr} = getelementptr {repr}, ptr {}, i64 {}",
                 ptr.value, idx.value
             ));
             let value = ctx.tmp();
-            ctx.push(format!("{value} = load i64, ptr {addr}"));
+            ctx.push(format!("{value} = load {repr}, ptr {addr}"));
             GenValue {
                 value,
                 ty: ty.kind.clone(),

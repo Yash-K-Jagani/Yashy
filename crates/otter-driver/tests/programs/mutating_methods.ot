@@ -1,0 +1,34 @@
+// A method that mutates the object it was called on.
+//
+// `bump` takes `self: *mut Counter`: the receiver is passed as the object's
+// address, not as a copy, so the write lands in the caller's binding. `get`
+// takes a plain `self` and only reads.
+
+struct Counter {
+    value: i64,
+}
+
+impl Counter {
+    // A method with no `self` belongs to the type, not to a value: it is the
+    // constructor here.
+    fn new() -> Counter {
+        return Counter { value: 0 };
+    }
+
+    fn bump(self: *mut Counter) {
+        self[0].value = self[0].value + 1;
+    }
+
+    fn get(self) -> i64 {
+        return self.value;
+    }
+}
+
+fn main() {
+    var c = Counter.new();
+    c.bump();
+    c.bump();
+    print_i64(c.get());
+    print_str("\n");
+    // => 2
+}

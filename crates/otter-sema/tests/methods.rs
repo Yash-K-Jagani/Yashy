@@ -163,3 +163,23 @@ fn a_method_that_is_not_there_on_the_type_is_reported() {
         "no method `missing` on `Counter`",
     );
 }
+
+#[test]
+fn a_pointer_receiver_mutates_a_var_binding() {
+    check_source(
+        "object Counter { value: i64, \
+         fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; } } \
+         fn main() { var c = Counter { value: 0 }; c.bump(); }",
+    )
+    .expect("a pointer receiver called on a `var` should type-check");
+}
+
+#[test]
+fn a_pointer_receiver_needs_a_mutable_binding() {
+    assert_error(
+        "object Counter { value: i64, \
+         fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; } } \
+         fn main() { const c = Counter { value: 0 }; c.bump(); }",
+        "`bump` needs a mutable object binding",
+    );
+}

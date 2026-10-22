@@ -263,6 +263,22 @@ pub enum HirStmt {
         ty: Type,
         span: Span,
     },
+    /// `p[i].field = value;` -- a field write through a pointer.
+    ///
+    /// A pointer is an address, so unlike [`HirStmt::FieldAssign`] this is a
+    /// plain store rather than a read-modify-write: the backend takes the
+    /// element's address, steps to the field's offset, and stores there. The
+    /// checker has already proved that `pointer` is a `*mut T` and resolved
+    /// each `.field` to its position, which is what `steps` carries.
+    FieldPtrAssign {
+        pointer: HirExpr,
+        index: HirExpr,
+        /// The chain of fields from the element, outermost first. Never empty.
+        steps: Vec<FieldStep>,
+        value: HirExpr,
+        ty: Type,
+        span: Span,
+    },
     Return(Option<HirExpr>, Span),
     If {
         init: Option<Box<HirStmt>>,
@@ -397,6 +413,21 @@ pub enum HirExpr {
         fault: Option<FaultSite>,
     },
     Move(Box<HirExpr>, Span, Type),
+    /// The address of a local binding: `&name`, written by the checker rather
+    /// than by the source.
+    ///
+    /// A pointer receiver is called on the address of the object it mutates,
+    /// so `c.bump()` lowers to a call whose first argument is `&c`. There is no
+    /// way to write an address of a local in the language, which is why this
+    /// variant is produced only by the checker's method resolution and has no
+    /// source spelling of its own.
+    AddrOf {
+        /// The binding whose storage is the value.
+        name: String,
+        span: Span,
+        /// The pointer type, `*mut T`.
+        ty: Type,
+    },
     Call {
         callee: Vec<String>,
         args: Vec<HirExpr>,
@@ -535,6 +566,7 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::Binary { span, .. } => *span,
         HirExpr::Unary { span, .. } => *span,
         HirExpr::Move(_, span, _) => *span,
+        HirExpr::AddrOf { span, .. } => *span,
         HirExpr::Call { span, .. } => *span,
         HirExpr::StructLit { span, .. } => *span,
         HirExpr::SliceLit { span, .. } => *span,
@@ -558,6 +590,7 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::Binary { ty, .. } => ty.clone(),
         HirExpr::Unary { ty, .. } => ty.clone(),
         HirExpr::Move(_, _, ty) => ty.clone(),
+        HirExpr::AddrOf { ty, .. } => ty.clone(),
         HirExpr::Call { ty, .. } => ty.clone(),
         HirExpr::StructLit { ty, .. } => ty.clone(),
         HirExpr::SliceLit { ty, .. } => ty.clone(),

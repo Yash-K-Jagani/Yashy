@@ -64,6 +64,7 @@ have a comparable standard-library primitive.
 | `array` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
+| `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -613,3 +614,28 @@ through a value slow; going through the pointer is.
 
 When these numbers change, update this file and the `Speed` section of the
 top-level `README.md` in the same commit, so the two cannot drift.
+
+#### Methods — 10,000,000 calls through a pointer receiver
+
+| Language | min ms | median ms | ns/call |
+|---|---:|---:|---:|
+| C (gcc -O2) | 16.8 | 17.5 | 1.68 |
+| C (clang -O2) | 18.0 | 19.2 | 1.80 |
+| Otter -O2 | 19.0 | 20.3 | 1.90 |
+| Rust (rustc -O, `&mut self`) | 19.4 | 22.0 | 1.94 |
+| Go (go build, pointer receiver) | 36.4 | 40.5 | 3.64 |
+
+Every row increments one field of one struct ten million times, through a
+method that takes the object's address: Otter's `self: *mut Counter`, C's
+`Counter *`, Rust's `&mut self`, Go's pointer receiver. The counter lives in
+the caller's frame and is never reallocated, so the number is the call and the
+store.
+
+Otter is 5.6% behind clang and 2% ahead of Rust. A pointer receiver lowers to
+a direct call whose first argument is the caller's slot — the local's own
+`alloca`, not a copy — and the field write is a `getelementptr` at the field's
+offset plus a `store`. There is nothing to box, no vtable to look up, and no
+aggregate to rebuild. The 1.6 ns gap to gcc is the checked add on
+`self[0].value + 1`: Otter's `+` traps on overflow, and that check is a
+`llvm.sadd.with.overflow` plus a branch, which gcc's `-O2` is free to omit.
+

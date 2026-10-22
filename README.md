@@ -8,7 +8,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 and M12 are complete; M13 is in progress.** Otter lexes,
+**Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Otter lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -26,9 +26,10 @@ working after that scope is gone. Three array methods take a function:
 methods, written in an `impl` block: `impl Point { fn sum(self) -> i64 { ... } }`
 is called as `point.sum()`. An `object` is a type with its fields and its
 methods together, and a method with no `self` is called on the type:
-`Counter.new(3)`. M14 is done; M15's correctness gaps are next. A program can
-read its
-its
+`Counter.new(3)`. A method that takes `self: *mut T` receives the object's
+address rather than a copy, so `self[0].value = ...` writes the caller's
+object, and the receiver at the call site has to be a mutable binding. A
+program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
@@ -679,4 +680,5 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M11 | Adoption: formatter polish, test runner, LSP, installer |
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
 | M13 ✅ | Function values: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures with refcounted environments, the `map`/`filter`/`fold` array methods, `impl` methods, `object` declarations, and static methods |
-| M14–M15 (in progress) | Objects and the remaining correctness gaps |
+| M14 ✅ | Objects: field-and-method declarations, static methods and constructors, and pointer receivers (`self: *mut T`) that mutate the object they are called on |
+| M15 (in progress) | Correctness gaps: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, and fixed arrays and views |

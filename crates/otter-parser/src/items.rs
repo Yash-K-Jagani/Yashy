@@ -393,6 +393,20 @@ impl<'src> Parser<'src> {
             // `self` is the receiver, and its type is the type the `impl`
             // block is for. The name `Self` is what the checker resolves to
             // that type, so the parameter needs no annotation of its own.
+            //
+            // A receiver *may* carry an annotation when it is written
+            // `self: *mut T`: that is a pointer receiver, which receives the
+            // object's address so it can mutate it. The spelling is parsed
+            // here and judged by the checker, which knows the `impl` block's
+            // type.
+            if self.eat(TokenKind::Colon) {
+                let ty = self.parse_type_expr()?;
+                return Ok(Param {
+                    span: cover(name_span, ty_span(&ty)),
+                    name,
+                    ty,
+                });
+            }
             return Ok(Param {
                 name,
                 ty: TypeExpr::Name("Self".to_string(), name_span),

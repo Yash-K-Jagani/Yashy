@@ -1448,10 +1448,13 @@ fn indexing_a_non_pointer_is_an_error() {
 }
 
 #[test]
-fn indexing_a_non_i64_pointer_is_an_error() {
+fn indexing_a_pointer_to_nothing_is_an_error() {
+    // A pointer is an address; what it holds is whatever it points at, so a
+    // `*mut f64` may be indexed. A pointer to `()` has nothing at that address
+    // to hand back, so there is no value to read.
     assert_error(
-        "fn f(p: *mut f64) { const x = p[0]; }",
-        "only `*mut i64` can be indexed",
+        "fn f(p: *mut ()) { const x = p[0]; }",
+        "a pointer to nothing cannot be read through",
     );
 }
 
