@@ -1859,7 +1859,9 @@ git commit -m "feat: const fn and stdlib method coverage"
 > - `cargo test -p otter-driver --test e2e a_const_fn_is_computed_by_the_compiler`
 >   — PASS; the program printed `81`, `10`, `55` and `16`.
 > - `cargo test -p otter-driver --test e2e the_map_methods_answer_with_arrays_and_a_bool`
->   — PASS; the program printed `3`, `3`, `60`, `has ada`, `no zz` and `9`.
+>   — PASS; the program printed `3`, `3`, `60`, `has ada`, `no zz`, `9` and
+>   `1` (the last one is a `bool`-valued map, whose value array's stride is a
+>   byte rather than a word).
 > - The feature suite gained two rows: `map_scan` (the table copied into two
 >   arrays, ten times over, then the key probes) and `debug_format` (a
 >   million formatted points). The numbers are in the benchmark README.
