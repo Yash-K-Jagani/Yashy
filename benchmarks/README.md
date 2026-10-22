@@ -64,6 +64,8 @@ have a comparable standard-library primitive.
 | `array` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
 | `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
+| `map_scan` | a 1,000,000-entry map, its keys and values copied into two arrays ten times over, then 2,000,000 `contains_key` probes | Go and Rust loops that collect the table into two slices or vectors |
+| `debug_format` | 1,000,000 debug-formatted points (`${value:?}`), and the total length of the text built | Rust's derived `Debug` |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
@@ -207,6 +209,31 @@ lexing, parsing, type checking and IR emission, and stops before any LLVM
 process starts. That is the part of the pipeline this repository actually
 implements — and it is a small fraction of the full build, because the rest is
 clang doing for Otter exactly what it does for C.
+
+### A `const fn` call is free at run time
+
+`benchmarks/const-fn.ot` asks the compiler for two tables: one hundred
+squares, summed by a recursive `const fn`, and the tenth Fibonacci number.
+`benchmarks/const-fn-values.ot` is the same program with the answers written
+out. The compiler folds the calls, so the first program carries the numbers
+and never calls anything at run time.
+
+| Measurement | `const-fn.ot` | `const-fn-values.ot` |
+|---|---:|---:|
+| Front end (`otter build --emit-ir`), best of 9 | 19.7 ms | 20.0 ms |
+| Run (whole process), best of 9 | 15.7 ms | 15.4 ms |
+
+Both rows are the same within the noise, and that is the result: the folded
+call costs nothing at run time, and the hundred calls the compiler made while
+folding are not visible in a measurement whose floor is the process start-up.
+A `const fn` is a compile-time feature, so the honest measurement of it is the
+front end — and here even that is below the noise, because the evaluator's
+hundred calls take less time than the process takes to start.
+
+The numeric literal forms are the same case and a stronger one:
+`1_000_000`, `0xF4240` and `1000000` are one constant, so the three spellings
+produce the same code and the same number, and there is nothing to time. The
+lexer reads the digits and the prefix; everything downstream sees the value.
 
 ## Reproducing
 
@@ -503,6 +530,49 @@ integer-key workload Otter is 14% behind Rust and 15% ahead of Go. Nothing is
 preallocated: the inserts include every rehash. A `string`-key workload would
 measure the hash function and key retention instead, so this table is about
 `i64` keys only.
+
+#### Walking a map — 1,000,000 entries, copied into two arrays ten times over
+
+| Language | min ms | median ms | ns/element |
+|---|---:|---:|---:|
+| Rust (rustc -O) | 567.3 | 574.8 | 28.36 |
+| Go (go build) | 761.4 | 784.3 | 38.07 |
+| Otter -O2 | 1065.4 | 1077.7 | 53.27 |
+
+The workload is `keys()` and `values()`: the whole table copied into two
+arrays, ten times over, and then 2,000,000 `contains_key` probes of a key that
+is there and one that is not. Go's row collects the map into two slices and
+Rust's into two vectors, which is the same work; the `contains_key` probe is
+Go's `v, ok := m[k]` and Rust's `contains_key`.
+
+Otter is 1.9× behind Rust and 1.4× behind Go here, and the gap is the copy.
+Otter's `keys()` and `values()` are runtime calls that walk the table's slots
+and `memcpy` each entry out into a fresh array; Rust's `keys()` and
+`values()` are borrows of the table's own storage, so the collect is the only
+copy either of them makes. That is the price of the shape Otter chose: the
+arrays are the caller's to keep and free, and the map may be freed while they
+are still alive.
+
+#### Debug formatting — 1,000,000 formatted points
+
+| Language | min ms | median ms | ns/format |
+|---|---:|---:|---:|
+| Rust (rustc -O) | 513.4 | 530.7 | 513.40 |
+| Otter -O2 | 1753.6 | 1772.4 | 1753.60 |
+
+`${value:?}` builds the text a programmer reads, and the two rows print the
+same text: `Point { x: 1, y: 2 }` in both, so the totals match and the
+comparison is of the same work. Rust's derived `Debug` is 3.4× faster here.
+The difference is where the formatting happens: Rust's `format!` writes into
+a `String` it grows in place, while Otter's interpolation builds the text in
+the runtime's own buffer and then copies it into the string the binding
+holds. The `{:?}` machinery is a `Debug` implementation in both, and the
+per-field work — the field names, the braces, the two numbers — is the same
+in both.
+
+These two tables are from the script's default run (5 runs, 2 passes) rather
+than the published 9 × 3, so their numbers carry a little more noise than the
+tables above them; the gaps they report are far larger than that noise.
 
 #### Enums — 50,000,000 constructions and matches
 

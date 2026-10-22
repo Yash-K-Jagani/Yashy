@@ -1,0 +1,26 @@
+// The cost of a debug-formatted value: `${value:?}` builds the text a
+// programmer reads, and building it is what the program pays for.
+//
+// A point is two numbers, so the shape is `Point { x: 1, y: 2 }`: the field
+// names, the braces and the spaces are all part of the cost, and so is the
+// text of the numbers themselves. The printed number is the total length of
+// every string built, so a formatter that printed less would print a
+// different number.
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() {
+    const rounds = 1000000;
+    var total = 0;
+    var i = 0;
+    while i < rounds {
+        var p = Point { x: i, y: i * 2 };
+        var text = "${p:?}";
+        total = wrapping_add(total, text.len());
+        i = wrapping_add(i, 1);
+    }
+    print_i64(total);
+    print_str("\n");
+}

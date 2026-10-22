@@ -1,0 +1,33 @@
+// A table computed by the compiler: `const fn` calls that the compiler
+// folds, so the program carries the numbers rather than the calls.
+//
+// The twin of this program is `const-fn-values.ot`, which carries the same
+// numbers written out. The two print the same thing and run at the same
+// speed -- that is the point of the measurement: a `const fn` call costs
+// nothing at run time, because there is no call left to make.
+//
+// The recursion is the interesting part: a hundred calls are made while the
+// compiler folds the constant, and none of them is made while the program
+// runs.
+const fn sum_squares(n: i64) -> i64 {
+    if n == 0 {
+        return 0;
+    }
+    return n * n + sum_squares(n - 1);
+}
+
+const fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    const squares = sum_squares(100);
+    const tenth = fib(10);
+    print_i64(squares);
+    print_str("\n");
+    print_i64(tenth);
+    print_str("\n");
+}

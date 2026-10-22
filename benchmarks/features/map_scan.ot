@@ -1,0 +1,53 @@
+// Walking a map: the table's contents copied into two arrays, and a key
+// looked up without its value.
+//
+// `keys()` and `values()` are the table's own order -- a hash table has no
+// insertion order to give away -- so the program sums the arrays rather than
+// printing them in order. Ten rounds of the copy make the new work dominate
+// the insert that sets the table up.
+//
+// The `contains_key` pass asks about a key that is there and about one that
+// is not, so a table that answered everything the same way would print a
+// different number.
+fn main() {
+    const n = 1000000;
+    const rounds = 10;
+    var m: map[i64]i64 = map_new();
+    var i = 0;
+    while i < n {
+        m.insert(i, i * 3);
+        i = wrapping_add(i, 1);
+    }
+
+    var total = 0;
+    var round = 0;
+    while round < rounds {
+        var keys: []i64 = m.keys();
+        var values: []i64 = m.values();
+        for k in keys {
+            total = wrapping_add(total, k);
+        }
+        for v in values {
+            total = wrapping_add(total, v);
+        }
+        keys.free();
+        values.free();
+        round = wrapping_add(round, 1);
+    }
+
+    var hits = 0;
+    var j = 0;
+    while j < n {
+        if m.contains_key(j) {
+            hits = wrapping_add(hits, 1);
+        }
+        if m.contains_key(j + n) {
+            hits = wrapping_add(hits, 1);
+        }
+        j = wrapping_add(j, 1);
+    }
+
+    print_i64(wrapping_add(total, hits));
+    print_str("\n");
+    m.free();
+}

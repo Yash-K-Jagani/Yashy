@@ -172,6 +172,24 @@ $workloads = @(
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'map_array.c';  Out = 'map_array-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map_array.go'; Out = 'map_array-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map_array.rs'; Out = 'map_array-rust' }
+       ) },
+    # Walking a map: the table's keys and values copied into two arrays, ten
+    # times over, and a probe of a key that is there and one that is not.
+    # Otter's `keys()`/`values()` copy the whole table; Go's row collects into
+    # two slices and Rust's into two vectors, which is the same work.
+    @{ Name = 'map_scan'; Work = 20000000; Unit = 'element'; Expected = '19999981000000'; Source = 'map_scan.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map_scan.ot'; Out = 'map_scan-otter' },
+           @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map_scan.go'; Out = 'map_scan-go' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map_scan.rs'; Out = 'map_scan-rust' }
+       ) },
+    # A debug-formatted value: `${value:?}` builds the text a programmer reads.
+    # Rust's derived `Debug` prints the same shape, so the two rows are the
+    # same work; there is no C row because C has no equivalent.
+    @{ Name = 'debug_format'; Work = 1000000; Unit = 'format'; Expected = '30333335'; Source = 'debug_format.ot';
+       Programs = @(
+           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'debug_format.ot'; Out = 'debug_format-otter' },
+           @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'debug_format.rs'; Out = 'debug_format-rust' }
        ) }
 )
 
