@@ -46,7 +46,10 @@ with `_` between its digits (`1_000_000`) or in another base (`0xFF`, `0b1010`,
 `0o777`), and `"${value:?}"` is the *debug* form of an interpolation: it shows
 the surface of the value -- a struct's name and fields, an enum's variant, a
 tuple's and an array's elements -- with a string quoted and escaped, so that a
-newline inside it stays visible. A program can read its
+newline inside it stays visible. A `const fn` is a function the compiler runs
+itself: a call to one in a `const` initializer is replaced by the value the
+compiler computed, so the program carries the number rather than the call. A
+program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the

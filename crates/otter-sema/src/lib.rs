@@ -6,6 +6,7 @@
 
 pub mod check_expr;
 pub mod check_pat;
+pub mod const_eval;
 pub mod error;
 pub mod exhaustive;
 pub mod hir;
@@ -15,6 +16,7 @@ pub mod ty;
 
 pub use check_expr::{check_modules_with, check_program, check_program_with, CheckOptions};
 pub use check_pat::check_pattern;
+pub use const_eval::{ConstFn, ConstValue};
 pub use error::TypeError;
 pub use exhaustive::{is_exhaustive, missing_cases};
 pub use hir::*;

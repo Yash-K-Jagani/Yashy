@@ -66,6 +66,10 @@ impl<'src> Parser<'src> {
             TokenKind::Struct => self.parse_struct(),
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Fn => self.parse_fn(),
+            // `const` is a binding keyword everywhere else, so it is an item
+            // only when a `fn` follows it. The second token is what says so,
+            // and `peek_second` is the only lookahead the parser has.
+            TokenKind::Const if self.peek_second() == TokenKind::Fn => self.parse_const_fn(),
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Object => self.parse_object(),
             TokenKind::Extern => self.parse_extern(),
@@ -377,6 +381,45 @@ impl<'src> Parser<'src> {
         Ok(Item::Fn {
             name,
             type_params,
+            params,
+            ret,
+            body,
+            span,
+        })
+    }
+
+    /// `const fn d(a: P) -> f64 { ... }` -- a function the compiler runs.
+    ///
+    /// The body is read exactly as an ordinary function's is; what makes it a
+    /// `const fn` is the `const` in front of it, and the checker reads that
+    /// as "this body may only use what a compile-time evaluation can do".
+    ///
+    /// There are no type parameters: a `const fn` is checked once, for one
+    /// signature, so a generic one would have to be checked once per
+    /// substitution and evaluated per substitution too. The language has no
+    /// way to write that call site yet.
+    fn parse_const_fn(&mut self) -> Result<Item, ParseError> {
+        let const_keyword = self.expect(TokenKind::Const)?;
+        let fn_keyword = self.expect(TokenKind::Fn)?;
+        let (name, _) = self.identifier()?;
+
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let (params, _) = self.parse_params_after_open()?;
+        self.close_open(TokenKind::RParen);
+
+        let ret = if self.eat(TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        let body = self.parse_block()?;
+        let span = cover(const_keyword.span, body.span);
+        let _ = fn_keyword;
+
+        Ok(Item::ConstFn {
+            name,
             params,
             ret,
             body,

@@ -122,6 +122,24 @@ pub enum Item {
         body: Block,
         span: Span,
     },
+    /// `const fn f(n: i64) -> i64 { ... }` -- a function the compiler runs
+    /// itself, when a `const` initializer calls it.
+    ///
+    /// A `const fn` has no run-time existence: its body is never compiled,
+    /// and a call to it is replaced by the value the compiler computed. That
+    /// is what makes the body a restricted language -- see
+    /// [`otter_sema::const_eval`] -- and what makes the call a compile-time
+    /// one.
+    ///
+    /// The shape is otherwise a function's: a name, parameters, an optional
+    /// return type, and a body.
+    ConstFn {
+        name: String,
+        params: Vec<Param>,
+        ret: Option<TypeExpr>,
+        body: Block,
+        span: Span,
+    },
     /// `extern "C" link "m" { unsafe fn puts(s: string) -> i64; }` and friends.
     ///
     /// Two names, two jobs, two fields:
@@ -338,6 +356,32 @@ pub enum TypeExpr {
 pub struct Block {
     pub stmts: Vec<Stmt>,
     pub span: Span,
+}
+
+impl Stmt {
+    /// The span of the statement, for a diagnostic that has to point at it.
+    ///
+    /// Every variant carries a span of its own, and a diagnostic about a
+    /// statement needs one that is the statement's rather than the block's.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Expr(_, span)
+            | Stmt::Const { span, .. }
+            | Stmt::Var { span, .. }
+            | Stmt::Let { span, .. }
+            | Stmt::Destructure { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Return(_, span)
+            | Stmt::If { span, .. }
+            | Stmt::ForRange { span, .. }
+            | Stmt::ForIn { span, .. }
+            | Stmt::ForC { span, .. }
+            | Stmt::Switch { span, .. }
+            | Stmt::Break(span)
+            | Stmt::Continue(span)
+            | Stmt::Defer { span, .. } => *span,
+        }
+    }
 }
 
 /// Which keyword introduced a binding statement.

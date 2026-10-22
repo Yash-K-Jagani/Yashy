@@ -385,7 +385,8 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
             | Item::Fn { span, .. }
             | Item::Extern { span, .. }
             | Item::Impl { span, .. }
-            | Item::Object { span, .. } => *span,
+            | Item::Object { span, .. }
+            | Item::ConstFn { span, .. } => *span,
         };
         assert_eq!(span, span_of(src, text), "the span of {text:?}");
     }
@@ -402,7 +403,8 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
             | Item::Fn { span, .. }
             | Item::Extern { span, .. }
             | Item::Impl { span, .. }
-            | Item::Object { span, .. } => span.start,
+            | Item::Object { span, .. }
+            | Item::ConstFn { span, .. } => span.start,
         })
         .collect();
     assert!(

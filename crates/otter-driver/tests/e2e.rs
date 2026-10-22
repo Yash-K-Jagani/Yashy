@@ -356,6 +356,15 @@ fn debug_formatting_shows_the_surface_of_a_value() {
 }
 
 #[test]
+fn a_const_fn_is_computed_by_the_compiler() {
+    // The calls are folded at compile time: the program carries the numbers,
+    // not the calls that produced them. `fib(10)` is the recursive case, and
+    // `max_of` is the `if` case.
+    let output = build_and_run("const_fn");
+    assert_eq!(stdout_of(&output), "81\n10\n55\n16\n");
+}
+
+#[test]
 fn fibonacci_prints_the_tenth_number() {
     // 55, the tenth Fibonacci number, from an accumulating loop: this is the
     // end-to-end proof that `symbol = expr;` reaches a real binary and mutates a

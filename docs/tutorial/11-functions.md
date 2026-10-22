@@ -6,6 +6,7 @@
 - How to hand a function to another function and call it there.
 - How to keep a function in a binding and call it through the binding.
 - How to write one function that works for more than one type.
+- How a `const fn` is computed by the compiler rather than at run time.
 - What the checker insists on, and what a function value is at runtime.
 
 A function name is a value. `fn(i64) -> i64` is the type of a function that
@@ -318,6 +319,122 @@ the callback takes the accumulator and the element, and returns the next
 accumulator. The accumulator's type is the type of the value `fold` starts
 from, so `xs.fold(0, ...)` folds into an `i64`.
 
+## A function the compiler runs
+
+A `const fn` is a function the compiler runs *itself*. It has no run-time
+existence: a call to one is replaced by the value the compiler computed, so
+the program carries the number rather than the call that produced it.
+
+```otter
+const fn square(n: i64) -> i64 {
+    return n * n;
+}
+
+fn main() {
+    const table = square(9);
+    print_i64(table);
+    print_str("\n");
+    // => 81
+}
+```
+
+A `const fn` may call itself, and it may call another `const fn`:
+
+```otter
+const fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+const fn max_of(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+const fn square(n: i64) -> i64 {
+    return n * n;
+}
+
+fn main() {
+    const tenth = fib(10);
+    print_i64(tenth);
+    print_str("\n");
+    // => 55
+
+    const bigger = max_of(square(3), 10);
+    print_i64(bigger);
+    print_str("\n");
+    // => 10
+}
+```
+
+### What a `const fn` may use
+
+Only what the compiler can compute without running the program:
+
+- literals, and the parameters the call supplied;
+- arithmetic and comparisons on those;
+- calls to other `const fn`s;
+- `if`, with a `return` in each arm.
+
+Anything else is a diagnostic, and it names what it found:
+
+```text
+const fn read_all() -> i64 {
+    return read_line();
+}
+```
+
+```text
+error: `read_line` is not allowed in a const fn
+```
+
+The rule is not a limitation of the implementation but of the idea: a value the
+compiler cannot compute is a value the program has to compute at run time, and
+a `const fn` has no run time to do it in.
+
+The arguments have to be constants for the same reason. A `const fn` call
+takes literals and other `const fn` calls:
+
+```text
+fn main() {
+    var n = 9;
+    const table = square(n);
+}
+```
+
+```text
+error: `n` is a run-time value: a `const fn` call can only use literals and
+other `const fn` calls
+```
+
+### Where a `const fn` may be called
+
+Only in a `const` initializer, because that is the only place a computed
+value can go. A `const fn` is not a runtime function, so there is no symbol to
+call:
+
+```text
+const fn square(n: i64) -> i64 {
+    return n * n;
+}
+
+fn main() {
+    var t = square(9);
+}
+```
+
+```text
+error: `square` is a `const fn`: it can only be called in a `const` initializer
+```
+
+A `const fn` that never returns a value is a mistake too: the compiler folds
+the body, and a path that fell off the end would have no value to give.
+
 ## Writing a function type
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.
@@ -353,6 +470,14 @@ The type of a function value is checked exactly, in both directions.
 A function value is a pair: a code pointer and an environment pointer. The
 environment is where a closure's captured values would live; a top-level
 function captures nothing, so its environment is null.
+
+A `const fn` is the one kind of function with no runtime form at all. The
+checker folds its body when a `const` initializer calls it, and the call is
+replaced by the literal the fold produced -- so the program carries `81` where
+it would otherwise carry a call. The folding is a tree walk over the body with
+the arguments bound to their values, and it is bounded: a `const fn` that
+recurses forever is reported rather than followed, because the compiler is
+running it and would run out of stack.
 
 Using a top-level function as a value makes the compiler synthesize a small
 thunk, `__fnvalue_square(i8* env, i64)`, that takes the environment and

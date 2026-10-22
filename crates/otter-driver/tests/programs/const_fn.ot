@@ -1,0 +1,45 @@
+// `const fn`: a function the compiler runs itself (M15 Task 21).
+//
+// The call is folded at compile time: what the program carries is the number
+// the compiler computed, not a call it would make at run time. That is why the
+// body is a restricted language -- arithmetic, comparisons, `if`, and calls to
+// other `const fn`s -- and why a `read_line` in one is a diagnostic rather than
+// something the evaluator refuses at the end.
+
+const fn square(n: i64) -> i64 {
+    return n * n;
+}
+
+const fn max_of(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+const fn fib(n: i64) -> i64 {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    // The argument is a literal, because that is all a `const fn` call can
+    // take: the value has to be known before the program runs.
+    const table = square(9);
+    print_i64(table);
+    print_str("\n");
+
+    const bigger = max_of(square(3), 10);
+    print_i64(bigger);
+    print_str("\n");
+
+    const tenth = fib(10);
+    print_i64(tenth);
+    print_str("\n");
+
+    const ok = square(4);
+    print_i64(ok);
+    print_str("\n");
+}

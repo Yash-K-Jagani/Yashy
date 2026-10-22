@@ -976,6 +976,125 @@ fn dealloc_wants_a_pointer_not_an_integer() {
     assert_error("fn f() { dealloc(1); }", "expected `*mut i64`, found `i64`");
 }
 
+// -- const fn -----------------------------------------------------------------
+
+#[test]
+fn a_const_fn_call_is_folded_into_the_value_it_computed() {
+    // The call is gone: what the tree holds is the number the compiler
+    // computed, so the program carries `81` and not a call to `square`.
+    let (result, _, _) = check_source(
+        "const fn square(n: i64) -> i64 { return n * n; }\n\
+         fn f() { const t = square(9); }",
+    );
+    let hir = result.expect("a const fn call should fold");
+    let item = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("the function should exist");
+    let text = format!("{:?}", item.body);
+    assert!(
+        text.contains("I64(81)"),
+        "the folded value is in the tree: {text}"
+    );
+    assert!(
+        !text.contains("square"),
+        "the call is not in the tree: {text}"
+    );
+}
+
+#[test]
+fn a_const_fn_is_not_emitted_as_a_function() {
+    // It has no run-time existence: there is no symbol for it to be called
+    // through, so the program does not carry one.
+    let (result, _, _) = check_source(
+        "const fn square(n: i64) -> i64 { return n * n; }\n\
+         fn f() { const t = square(9); }",
+    );
+    let hir = result.expect("the program should check");
+    assert!(
+        !hir
+            .items
+            .iter()
+            .any(|item| matches!(item, HirItem::Fn(f) if f.name == "square")),
+        "a const fn is not a runtime function"
+    );
+}
+
+#[test]
+fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
+    // A `read_line` in a const fn is a mistake the reader has to see, whether
+    // or not anything calls the function.
+    assert_error(
+        "const fn f() -> i64 { return read_line(); }\n\
+         fn g() { const t = f(); }",
+        "`read_line` is not allowed in a const fn",
+    );
+    // A loop is not a value the compiler can compute either.
+    assert_error(
+        "const fn f(n: i64) -> i64 { var i = 0; while i < n { i = i + 1; } return i; }\n\
+         fn g() { const t = f(3); }",
+        "is not allowed in a const fn",
+    );
+}
+
+#[test]
+fn a_const_fn_cannot_be_called_at_run_time() {
+    // There is no function to call, so the call is refused where it is
+    // written rather than left to fail at the link.
+    assert_error(
+        "const fn square(n: i64) -> i64 { return n * n; }\n\
+         fn f() { var t = square(9); }",
+        "is a `const fn`",
+    );
+}
+
+#[test]
+fn a_const_fn_call_needs_constant_arguments() {
+    // The value has to be known before the program runs, so a run-time
+    // binding is not an argument the compiler can supply.
+    assert_error(
+        "const fn square(n: i64) -> i64 { return n * n; }\n\
+         fn f() { var n = 9; const t = square(n); }",
+        "is a run-time value",
+    );
+}
+
+#[test]
+fn a_const_fn_may_call_another_const_fn() {
+    // The call is computed at compile time, so a const fn can use one.
+    let (result, _, _) = check_source(
+        "const fn square(n: i64) -> i64 { return n * n; }\n\
+         const fn fourth(n: i64) -> i64 { return square(square(n)); }\n\
+         fn f() { const t = fourth(3); }",
+    );
+    let hir = result.expect("a const fn may call another const fn");
+    let item = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(f),
+            _ => None,
+        })
+        .expect("the function should exist");
+    let text = format!("{:?}", item.body);
+    assert!(text.contains("I64(81)"), "the folded value is in the tree: {text}");
+}
+
+#[test]
+fn a_const_fn_that_recurses_forever_is_reported() {
+    // The compiler runs the body, so a call that never ends would never end
+    // here either. The depth limit is what turns that into a diagnostic.
+    assert_error(
+        "const fn loop(n: i64) -> i64 { return loop(n + 1); }\n\
+         fn f() { const t = loop(0); }",
+        "did not terminate",
+    );
+}
+
 #[test]
 fn freeing_in_both_branches_of_an_if_is_legal() {
     // The branch check restores the entry ownership state before checking the

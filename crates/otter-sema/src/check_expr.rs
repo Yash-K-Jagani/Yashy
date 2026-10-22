@@ -31,6 +31,7 @@ use otter_parser::ast::{
 };
 
 use crate::check_pat::check_pattern;
+use crate::const_eval::{self, ConstFn, ConstFns, Missing};
 use crate::error::TypeError;
 use crate::exhaustive::missing_cases;
 use crate::hir::*;
@@ -405,6 +406,14 @@ pub struct Checker<'src> {
     /// `:?` use gets one printer, and a printer that contains itself does not
     /// ask for a second body while the first is being built.
     debug_printer_names: HashSet<String>,
+    /// The `const fn`s the program declares, by name.
+    ///
+    /// A `const fn` has no run-time existence: it is evaluated by the
+    /// compiler, and the value it produces is what a `const` binding holds.
+    /// They are therefore *not* in the root scope -- there is no runtime
+    /// function of that name to call -- and a call to one is recognised by
+    /// the initializer it appears in.
+    const_fns: ConstFns,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -618,6 +627,7 @@ impl<'src> Checker<'src> {
             closures: Vec::new(),
             debug_printers: Vec::new(),
             debug_printer_names: HashSet::new(),
+            const_fns: ConstFns::new(),
             sm,
         }
     }
@@ -1299,10 +1309,55 @@ impl<'src> Checker<'src> {
                     }
                 }
                 Item::Import { .. } => {}
+                Item::ConstFn {
+                    name,
+                    params,
+                    ret,
+                    body,
+                    span,
+                } => {
+                    // A `const fn` is declared here and *checked* here too:
+                    // its body is the restricted language, and the checker
+                    // that owns the declaration table is the only stage that
+                    // knows which names are `const fn`s.
+                    let param_types: Vec<(String, Type)> = params
+                        .iter()
+                        .map(|param| {
+                            let ty = self.resolve_or_report(&param.ty, param.span);
+                            (param.name.clone(), ty)
+                        })
+                        .collect();
+                    let ret_ty = match ret {
+                        Some(annotation) => self.resolve_or_report(annotation, *span),
+                        None => Type {
+                            kind: TypeKind::Unit,
+                            span: *span,
+                        },
+                    };
+                    // A `const fn` has no run-time existence, so its name is
+                    // not in the root scope: there is no function of that
+                    // name for a call to reach.
+                    if self.const_fns.contains_key(name) {
+                        self.error(
+                            *span,
+                            format!("duplicate definition of `{name}`"),
+                        );
+                    }
+                    self.const_fns.insert(
+                        name.clone(),
+                        ConstFn {
+                            name: name.clone(),
+                            params: param_types,
+                            ret: ret_ty,
+                            body: body.clone(),
+                            span: *span,
+                            file: self.file,
+                        },
+                    );
+                }
             }
         }
     }
-
     /// Resolve a type in a declaration, with the FFI edge's context rules.
     ///
     /// `allow_c` turns on the C spellings; `is_return` turns on `void`. The two
@@ -2051,8 +2106,7 @@ impl<'src> Checker<'src> {
                     .collect(),
                 span: *span,
             })]),
-            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {
-                path: path.clone(),
+            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {                path: path.clone(),
                 span: *span,
             })]),
             Item::Extern {
@@ -2094,6 +2148,13 @@ impl<'src> Checker<'src> {
                 methods,
                 span: _,
             } => self.check_impl_methods(type_name, methods),
+            Item::ConstFn { name, .. } => {
+                // The body is checked here and the function is *not* emitted:
+                // a `const fn` exists only to be computed by the compiler, so
+                // there is no run-time symbol for it.
+                self.check_const_fn_body(name);
+                None
+            }
             Item::Object {
                 name,
                 fields,
@@ -2229,6 +2290,52 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// Fold a `const` initializer that calls a `const fn` into the value the
+    /// compiler computed.
+    ///
+    /// The result is a literal: the call is gone, and what is left is the
+    /// number, the flag or the text it produced. A fault -- a division by
+    /// zero, an overflow, a call that would not terminate -- is reported here,
+    /// at the call, because that is where the value was wanted.
+    fn fold_const_init(&mut self, init: &Expr, span: Span) -> Option<HirExpr> {
+        // The initializer's own scope is empty: a `const fn` call is computed
+        // from constants, so a name that is not one is a run-time value the
+        // compiler cannot know.
+        let mut work = const_eval::Work::default();
+        match const_eval::evaluate(
+            init,
+            &[],
+            &self.const_fns,
+            &mut work,
+            Missing::NotConstant,
+        ) {
+            Ok(value) => Some(value.to_expr(span)),
+            Err(error) => {
+                self.error(span, error.message);
+                None
+            }
+        }
+    }
+
+    /// Check a `const fn` body against the restricted language.
+    ///
+    /// The body is never compiled, so this is the only check it gets: a
+    /// `read_line` in it is a mistake the reader has to see, whether or not
+    /// anything calls the function.
+    fn check_const_fn_body(&mut self, name: &str) {
+        let Some(function) = self.const_fns.get(name).cloned() else {
+            return;
+        };
+        // The body belongs to the module that declared it, so a diagnostic
+        // about it is attributed there and not to the module being checked.
+        let outer = self.file;
+        self.file = function.file;
+        if let Err(error) = const_eval::check_body(&function, &self.const_fns) {
+            self.error(error.span, error.message);
+        }
+        self.file = outer;
+    }
+
     fn check_stmt(&mut self, stmt: &Stmt, ret: &Type) -> Option<HirStmt> {
         match stmt {
             Stmt::Expr(expr, span) => {
@@ -2258,9 +2365,20 @@ impl<'src> Checker<'src> {
                     },
                     None => None,
                 };
-                let init_expr = match &declared {
-                    Some(declared) => self.check_expr_with_expected(init, declared)?,
-                    None => self.check_expr(init)?,
+                // A `const` initializer that calls a `const fn` is computed by
+                // the compiler, not at run time: the call is folded into the
+                // value it produces, and the function itself has no run-time
+                // existence.
+                let init_expr = if const_eval::mentions_const_fn(init, &self.const_fns) {
+                    let Some(folded) = self.fold_const_init(init, *span) else {
+                        return None;
+                    };
+                    folded
+                } else {
+                    match &declared {
+                        Some(declared) => self.check_expr_with_expected(init, declared)?,
+                        None => self.check_expr(init)?,
+                    }
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
@@ -5754,6 +5872,20 @@ impl<'src> Checker<'src> {
                     ) {
                         return self.check_thread_builtin(&name, args, *span).flatten();
                     }
+                }
+                // A `const fn` has no run-time existence, so a call to one
+                // outside a `const` initializer cannot be compiled: there is
+                // no function of that name to call. The message says so
+                // rather than leaving the reader with "cannot find function".
+                if callee.len() == 1 && self.const_fns.contains_key(&name) {
+                    self.error(
+                        *span,
+                        format!(
+                            "`{name}` is a `const fn`: it can only be called in a \
+                             `const` initializer"
+                        ),
+                    );
+                    return None;
                 }
                 // The callee is resolved *before* the arguments are checked,
                 // because each argument is checked against its parameter's
