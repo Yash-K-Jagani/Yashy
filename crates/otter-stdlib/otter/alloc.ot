@@ -9,7 +9,7 @@
 
 // Ownership: the returned pointer owns `count` zeroed slots and must be
 // released with `dealloc`.
-fn alloc_zeroed(count: i64) -> *mut i64 {
+pub fn alloc_zeroed(count: i64) -> *mut i64 {
     assert(count >= 0);
     var buffer = alloc(count);
     var index = 0;
@@ -22,7 +22,7 @@ fn alloc_zeroed(count: i64) -> *mut i64 {
 
 // Ownership: the returned pointer owns one slot holding `value`; release it
 // with `dealloc`.
-fn alloc_one(value: i64) -> *mut i64 {
+pub fn alloc_one(value: i64) -> *mut i64 {
     var buffer = alloc(1);
     buffer[0] = value;
     return buffer;

@@ -7,6 +7,6 @@
 // spelling for `+` that reads well in a pipeline of stdlib helpers.
 
 // Ownership: a fresh string is returned; neither argument is consumed.
-fn concat(left: string, right: string) -> string {
+pub fn concat(left: string, right: string) -> string {
     return left + right;
 }

@@ -94,7 +94,7 @@ fn a_dotted_path_resolves_to_a_nested_file() {
         "main.ot",
         "import lib.util;\nfn main() { print_i64(seven()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "lib/util.ot", "fn seven() -> i64 { return 7; }\n");
+    write(&dir, "lib/util.ot", "pub fn seven() -> i64 { return 7; }\n");
 
     let output = build(&dir, &dir.join("main.ot"), None);
     assert!(
@@ -113,7 +113,7 @@ fn a_module_directory_containing_mod_ot_is_found() {
         "main.ot",
         "import pkg.nested;\nfn main() { print_i64(three()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "pkg/nested/mod.ot", "fn three() -> i64 { return 3; }\n");
+    write(&dir, "pkg/nested/mod.ot", "pub fn three() -> i64 { return 3; }\n");
 
     let output = build(&dir, &dir.join("main.ot"), None);
     assert!(
@@ -191,8 +191,8 @@ fn a_missing_module_is_a_diagnostic_naming_every_root_tried() {
 fn an_import_cycle_is_reported_not_looped_on() {
     let dir = work_dir("cycle");
     write(&dir, "main.ot", "import a;\nfn main() { }\n");
-    write(&dir, "a.ot", "import b;\nfn a() -> i64 { return b(); }\n");
-    write(&dir, "b.ot", "import a;\nfn b() -> i64 { return 1; }\n");
+    write(&dir, "a.ot", "import b;\npub fn a() -> i64 { return b(); }\n");
+    write(&dir, "b.ot", "import a;\npub fn b() -> i64 { return 1; }\n");
 
     let output = build(&dir, &dir.join("main.ot"), None);
     assert!(!output.status.success(), "a cycle must fail the build");
@@ -219,17 +219,17 @@ fn importing_the_same_module_from_two_files_defines_it_once() {
     write(
         &dir,
         "a.ot",
-        "import shared;\nfn from_a() -> i64 { return answer(); }\n",
+        "import shared;\npub fn from_a() -> i64 { return answer(); }\n",
     );
     write(
         &dir,
         "b.ot",
-        "import shared;\nfn from_b() -> i64 { return answer(); }\n",
+        "import shared;\npub fn from_b() -> i64 { return answer(); }\n",
     );
     write(
         &dir,
         "shared.ot",
-        "fn answer() -> i64 { return 21; }\n",
+        "pub fn answer() -> i64 { return 21; }\n",
     );
 
     let output = build(&dir, &dir.join("main.ot"), None);
@@ -249,8 +249,8 @@ fn a_name_defined_in_two_modules_is_an_ambiguity_error() {
         "main.ot",
         "import a;\nimport b;\nfn main() { print_i64(thing()); }\n",
     );
-    write(&dir, "a.ot", "fn thing() -> i64 { return 1; }\n");
-    write(&dir, "b.ot", "fn thing() -> i64 { return 2; }\n");
+    write(&dir, "a.ot", "pub fn thing() -> i64 { return 1; }\n");
+    write(&dir, "b.ot", "pub fn thing() -> i64 { return 2; }\n");
 
     let output = build(&dir, &dir.join("main.ot"), None);
     assert!(
@@ -276,7 +276,7 @@ fn otter_path_overrides_the_default_root() {
         "main.ot",
         "import vendor.helper;\nfn main() { print_i64(helper()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "external/vendor/helper.ot", "fn helper() -> i64 { return 9; }\n");
+    write(&dir, "external/vendor/helper.ot", "pub fn helper() -> i64 { return 9; }\n");
     let search = dir.join("external");
 
     let without = build(&dir, &dir.join("main.ot"), None);
@@ -302,7 +302,7 @@ fn check_accepts_a_multi_file_program_without_building_it() {
         "main.ot",
         "import lib.util;\nfn main() { print_i64(seven()); }\n",
     );
-    write(&dir, "lib/util.ot", "fn seven() -> i64 { return 7; }\n");
+    write(&dir, "lib/util.ot", "pub fn seven() -> i64 { return 7; }\n");
 
     let mut command = Command::new(otter());
     command
@@ -335,7 +335,7 @@ fn an_error_in_a_module_names_the_module_not_the_entry_point() {
     write(
         &dir,
         "lib/broken.ot",
-        "fn value() -> i64 { return \"not a number\"; }\n",
+        "pub fn value() -> i64 { return \"not a number\"; }\n",
     );
 
     let output = build(&dir, &dir.join("main.ot"), None);

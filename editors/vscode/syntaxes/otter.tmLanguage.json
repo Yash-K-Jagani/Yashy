@@ -89,7 +89,7 @@
         },
         {
           "name": "keyword.declaration.otter",
-          "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|as|move|impl|object)\\b"
+          "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|as|move|impl|object|pub)\\b"
         },
         {
           "name": "keyword.constant.otter",

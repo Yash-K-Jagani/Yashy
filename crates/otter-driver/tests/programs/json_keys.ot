@@ -6,8 +6,11 @@
 // exercise, so the only syntax it knows is "a quoted run of bytes".
 //
 // Ownership: the result is a fresh string; `line` is not consumed.
+//
+// The function is `pub` because `json_count.ot` is another module, and a
+// module's items are private to it unless they say otherwise.
 
-fn key_of(line: string) -> string {
+pub fn key_of(line: string) -> string {
     var open = -1;
     var index = 0;
     var length = line.len();

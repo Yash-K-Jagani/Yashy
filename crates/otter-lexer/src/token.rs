@@ -523,6 +523,11 @@ pub enum TokenKind {
     Move,
     True,
     False,
+    /// `pub` -- the visibility modifier on an item or a field.
+    ///
+    /// A module's own items are private to it unless they are marked `pub`;
+    /// another module may use a `pub` item and may not use a private one.
+    Pub,
 
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
@@ -595,10 +600,10 @@ impl TokenKind {
     /// (`crates/otter-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 27] = [
+    pub const KEYWORDS: [&'static str; 28] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl", "object",
+        "default", "as", "move", "true", "false", "impl", "object", "pub",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -630,6 +635,7 @@ impl TokenKind {
             "false" => TokenKind::False,
             "impl" => TokenKind::Impl,
             "object" => TokenKind::Object,
+            "pub" => TokenKind::Pub,
             _ => return None,
         })
     }
@@ -665,6 +671,7 @@ impl TokenKind {
                 | TokenKind::False
                 | TokenKind::Impl
                 | TokenKind::Object
+                | TokenKind::Pub
         )
     }
 
@@ -710,6 +717,7 @@ impl TokenKind {
             TokenKind::Move => Naming::Fixed("move"),
             TokenKind::True => Naming::Fixed("true"),
             TokenKind::False => Naming::Fixed("false"),
+            TokenKind::Pub => Naming::Fixed("pub"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -800,7 +808,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 27] = [
+    const KEYWORDS: [(&str, TokenKind); 28] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -828,6 +836,7 @@ mod tests {
         ("false", TokenKind::False),
         ("impl", TokenKind::Impl),
         ("object", TokenKind::Object),
+        ("pub", TokenKind::Pub),
     ];
 
     #[test]

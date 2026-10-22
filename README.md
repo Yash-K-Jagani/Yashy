@@ -408,6 +408,32 @@ $ otter build main.ot -o main && ./main
 otter is there
 ```
 
+A module's items belong to it. `import` loads the file; `pub` says which of
+its items another module may use. Without it, an item is private to the module
+that declares it, and another module's use of it is a compile error that names
+both the item and the module that keeps it.
+
+```otter
+// lib.ot
+pub fn seven() -> i64 { return 7; }   // another module's to call
+fn secret() -> i64 { return 13; }      // this module's own
+```
+
+```otter
+// main.ot
+import lib;
+
+fn main() {
+    print_i64(seven());   // fine: `seven` is `pub`
+    print_i64(secret());  // error: `secret` is private to module `lib`
+}
+```
+
+A field is private in the same way, so a `pub struct` whose fields another
+module may read and write marks them `pub` too: `pub struct Point { pub x:
+f64, pub y: f64 }`. A method is as visible as the type it belongs to, so
+`pub` on a method says nothing the type does not already say.
+
 ```otter
 // A channel is typed and bounded: `chan_new(1)` holds one value, so `send`
 // blocks when the channel is full and `recv` blocks when it is empty. The

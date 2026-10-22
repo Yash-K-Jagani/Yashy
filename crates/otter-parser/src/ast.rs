@@ -67,6 +67,17 @@ pub struct Program {
 pub enum Item {
     /// `import std.io;` -- a dotted path, one [`String`] per segment.
     Import { path: Vec<String>, span: Span },
+    /// `pub fn f() { ... }` -- an item another module may use.
+    ///
+    /// The modifier wraps the item it applies to rather than being a field on
+    /// every kind: one wrapper is one concept, and the item inside keeps the
+    /// shape it has without a modifier.
+    Public {
+        /// The item the `pub` applies to.
+        item: Box<Item>,
+        /// The span of the `pub` keyword.
+        span: Span,
+    },
     /// `struct P { x: f64 }`
     Struct {
         name: String,
@@ -172,6 +183,11 @@ pub enum Item {
 pub struct FieldDef {
     pub name: String,
     pub ty: TypeExpr,
+    /// Whether another module may read or write the field.
+    ///
+    /// A field is private to the module that declares it unless it is marked
+    /// `pub`, the same rule an item follows.
+    pub public: bool,
     pub span: Span,
 }
 

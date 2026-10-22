@@ -38,6 +38,25 @@ fn span_of(src: &str, text: &str) -> Span {
     )
 }
 
+/// The span of an item, looking through a `pub` wrapper.
+///
+/// A `pub` is a modifier in front of an item, so the item's span is still the
+/// item's own text: the modifier has its own span, and a diagnostic about the
+/// item must underline the item.
+fn item_span(item: &Item) -> Span {
+    match item {
+        Item::Public { item, .. } => item_span(item),
+        Item::Import { span, .. }
+        | Item::Struct { span, .. }
+        | Item::Enum { span, .. }
+        | Item::Fn { span, .. }
+        | Item::Extern { span, .. }
+        | Item::Impl { span, .. }
+        | Item::Object { span, .. }
+        | Item::ConstFn { span, .. } => *span,
+    }
+}
+
 /// Parses `src`, having lexed it, and returns whatever the parser decided.
 fn parse_src(src: &str) -> Result<Program, Vec<Diagnostic>> {
     let mut map = SourceMap::new();
@@ -378,16 +397,7 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
         "fn f() {\n}",
     ];
     for (item, text) in program.items.iter().zip(expected) {
-        let span = match item {
-            Item::Import { span, .. }
-            | Item::Struct { span, .. }
-            | Item::Enum { span, .. }
-            | Item::Fn { span, .. }
-            | Item::Extern { span, .. }
-            | Item::Impl { span, .. }
-            | Item::Object { span, .. }
-            | Item::ConstFn { span, .. } => *span,
-        };
+        let span = item_span(item);
         assert_eq!(span, span_of(src, text), "the span of {text:?}");
     }
 
@@ -396,16 +406,7 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
     let starts: Vec<u32> = program
         .items
         .iter()
-        .map(|item| match item {
-            Item::Import { span, .. }
-            | Item::Struct { span, .. }
-            | Item::Enum { span, .. }
-            | Item::Fn { span, .. }
-            | Item::Extern { span, .. }
-            | Item::Impl { span, .. }
-            | Item::Object { span, .. }
-            | Item::ConstFn { span, .. } => span.start,
-        })
+        .map(|item| item_span(item).start)
         .collect();
     assert!(
         starts.windows(2).all(|pair| pair[0] < pair[1]),

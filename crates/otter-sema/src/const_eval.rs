@@ -142,12 +142,18 @@ const MAX_CONST_CALLS: usize = 1_000_000;
 /// ends would take the compiler down with it. These two counters are the
 /// bound: the depth, which is what the stack would overflow on, and the number
 /// of calls, which is what a wide recursion would exhaust first.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Work {
     /// How many calls deep the evaluation is.
     pub depth: usize,
     /// How many calls the evaluation has made in total.
     pub calls: usize,
+    /// The `const fn`s the evaluation called, with the span of each call.
+    ///
+    /// A `const fn` belongs to the module that declares it, so a call to
+    /// another module's private one is a mistake. The evaluation is what
+    /// knows which functions it called.
+    pub called: Vec<(String, Span)>,
 }
 
 /// What an unknown name means, which depends on where the lookup happened.
@@ -201,14 +207,23 @@ impl ConstError {
 /// Reports the first thing that is not allowed, at the span of the offending
 /// expression. The message names the offending construct, so the reader knows
 /// what to remove.
-pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<(), TypeError> {
+///
+/// The `const fn`s the body calls are returned with the answer: a call to
+/// another module's `const fn` is a mistake, and the body check is what knows
+/// which functions the body called.
+pub fn check_body(
+    function: &ConstFn,
+    consts: &ConstFns,
+) -> Result<Vec<(String, Span)>, TypeError> {
     let env: Vec<(String, Type)> = function.params.clone();
+    let mut work = Work::default();
     check_block(
         &function.body,
         &env,
         &function.ret,
         consts,
         "a const fn",
+        &mut work,
     )?;
     // A `const fn` that returns a value must return one on every path: the
     // compiler folds the body, so a path that fell off the end would have no
@@ -219,7 +234,7 @@ pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<(), TypeError
             "a const fn that returns a value must return one on every path".to_string(),
         ));
     }
-    Ok(())
+    Ok(work.called)
 }
 
 /// Whether every path through a block ends in a `return`.
@@ -254,12 +269,13 @@ fn check_block(
     ret: &Type,
     consts: &ConstFns,
     context: &str,
+    work: &mut Work,
 ) -> Result<(), TypeError> {
     for statement in &block.stmts {
         match statement {
             Stmt::Return(value, span) => {
                 let actual = match value {
-                    Some(expr) => check_expr(expr, env, consts, context)?,
+                    Some(expr) => check_expr(expr, env, consts, context, work)?,
                     None => Type {
                         kind: TypeKind::Unit,
                         span: *span,
@@ -285,16 +301,16 @@ fn check_block(
                         format!("a condition binding is not allowed in {context}"),
                     ));
                 }
-                let condition = check_expr(cond, env, consts, context)?;
+                let condition = check_expr(cond, env, consts, context, work)?;
                 if condition.kind != TypeKind::Bool {
                     return Err(TypeError::new(
                         expr_span(cond),
                         format!("a condition must be `bool`, found `{condition}`"),
                     ));
                 }
-                check_block(then_block, env, ret, consts, context)?;
+                check_block(then_block, env, ret, consts, context, work)?;
                 if let Some(else_block) = else_block {
-                    check_block(else_block, env, ret, consts, context)?;
+                    check_block(else_block, env, ret, consts, context, work)?;
                 }
             }
             other => {
@@ -317,6 +333,7 @@ fn check_expr(
     env: &[(String, Type)],
     consts: &ConstFns,
     context: &str,
+    work: &mut Work,
 ) -> Result<Type, TypeError> {
     match expr {
         Expr::Literal(literal, span) => Ok(Type {
@@ -339,8 +356,8 @@ fn check_expr(
             rhs,
             span,
         } => {
-            let left = check_expr(lhs, env, consts, context)?;
-            let right = check_expr(rhs, env, consts, context)?;
+            let left = check_expr(lhs, env, consts, context, work)?;
+            let right = check_expr(rhs, env, consts, context, work)?;
             binary_kind(*op, &left, &right, *span)
         }
         Expr::Unary {
@@ -348,7 +365,7 @@ fn check_expr(
             operand,
             span,
         } => {
-            let inner = check_expr(operand, env, consts, context)?;
+            let inner = check_expr(operand, env, consts, context, work)?;
             match op {
                 UnOp::Neg if is_numeric(&inner.kind) => Ok(inner),
                 UnOp::Neg => Err(TypeError::new(
@@ -386,6 +403,9 @@ fn check_expr(
                     format!("`{name}` is not allowed in {context}"),
                 ));
             };
+            // The call is recorded, so a visibility check can see which
+            // functions the body reached for.
+            work.called.push((name.clone(), *span));
             if args.len() != function.params.len() {
                 return Err(TypeError::new(
                     *span,
@@ -397,7 +417,7 @@ fn check_expr(
                 ));
             }
             for (argument, (_, param)) in args.iter().zip(function.params.iter()) {
-                let actual = check_expr(argument, env, consts, context)?;
+                let actual = check_expr(argument, env, consts, context, work)?;
                 if actual.kind != param.kind {
                     return Err(TypeError::new(
                         expr_span(argument),
@@ -706,6 +726,9 @@ pub fn evaluate(
                 ));
             };
             work.calls = work.calls.saturating_add(1);
+            // The call is recorded, so a visibility check can see which
+            // functions the evaluation reached for.
+            work.called.push((name.clone(), *span));
             if work.depth >= MAX_CONST_DEPTH || work.calls > MAX_CONST_CALLS {
                 return Err(ConstError::new(
                     *span,

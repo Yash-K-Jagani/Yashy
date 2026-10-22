@@ -577,7 +577,12 @@ impl<'src> Parser<'src> {
 fn starts_item(kind: TokenKind) -> bool {
     matches!(
         kind,
-        TokenKind::Import | TokenKind::Struct | TokenKind::Enum | TokenKind::Fn | TokenKind::Extern
+        TokenKind::Import
+            | TokenKind::Struct
+            | TokenKind::Enum
+            | TokenKind::Fn
+            | TokenKind::Extern
+            | TokenKind::Pub
     )
 }
 

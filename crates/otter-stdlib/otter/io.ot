@@ -14,24 +14,24 @@
 // Ownership: none of these consume their argument. `print_str` copies the bytes
 // and keeps no pointer.
 
-fn print(text: string) {
+pub fn print(text: string) {
     print_str(text);
 }
 
 // Ownership: `text` is borrowed; printing does not release it.
-fn println(text: string) {
+pub fn println(text: string) {
     print_str(text);
     print_str("\n");
 }
 
 // Ownership: none; a number owns nothing.
-fn println_i64(value: i64) {
+pub fn println_i64(value: i64) {
     print_i64(value);
     print_str("\n");
 }
 
 // Ownership: none; a number owns nothing.
-fn println_f64(value: f64) {
+pub fn println_f64(value: f64) {
     print_f64(value);
     print_str("\n");
 }

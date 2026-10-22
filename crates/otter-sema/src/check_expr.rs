@@ -46,6 +46,39 @@ mod debug;
 #[derive(Clone, Debug)]
 struct StructSig {
     fields: Vec<(String, Type)>,
+    /// Whether each field may be used from another module, in the same order
+    /// as `fields`.
+    ///
+    /// A field is private to the module that declares it unless it is marked
+    /// `pub`, the same rule an item follows.
+    field_public: Vec<bool>,
+    /// Where the type came from, and whether another module may name it.
+    origin: ItemOrigin,
+}
+
+/// The item inside a `pub` wrapper, or the item itself.
+///
+/// A method may be written `pub`, which says nothing the type does not
+/// already say: a method is as visible as the type it belongs to. The
+/// wrapper is therefore looked through rather than refused.
+fn unwrap_public(item: &Item) -> &Item {
+    match item {
+        Item::Public { item, .. } => unwrap_public(item),
+        other => other,
+    }
+}
+
+/// Where an item was declared, and whether another module may use it.
+///
+/// A module's items belong to it: another module may use a `pub` item and may
+/// not use a private one. Every use of a name therefore has to know where the
+/// name came from, which is what this records.
+#[derive(Clone, Copy, Debug)]
+struct ItemOrigin {
+    /// The module that declares the item.
+    file: FileId,
+    /// Whether the item is marked `pub`.
+    public: bool,
 }
 
 /// A declared enum: its variants in declaration order, with payload types.
@@ -414,6 +447,13 @@ pub struct Checker<'src> {
     /// function of that name to call -- and a call to one is recognised by
     /// the initializer it appears in.
     const_fns: ConstFns,
+    /// Where each declared item came from, keyed by name.
+    ///
+    /// A module's items are private to it unless they are marked `pub`, so a
+    /// use of a name has to know which module declared it. The entry is
+    /// missing for a name that is not an item -- a builtin, or a local -- and
+    /// such a name is never private to anybody.
+    item_origins: HashMap<String, ItemOrigin>,
     /// The source text and its line index.
     ///
     /// Only the diagnostics builtins read this: `panic` reports the position it
@@ -628,6 +668,7 @@ impl<'src> Checker<'src> {
             debug_printers: Vec::new(),
             debug_printer_names: HashSet::new(),
             const_fns: ConstFns::new(),
+            item_origins: HashMap::new(),
             sm,
         }
     }
@@ -650,6 +691,13 @@ impl<'src> Checker<'src> {
         let Some(depth) = self.scope.resolve_depth(name) else {
             return NameLookup::Missing;
         };
+        // A name in the root scope is an item, and an item belongs to the
+        // module that declared it: another module may use it only if it is
+        // `pub`. A name in an inner scope is a local, and a local is nobody's
+        // private business.
+        if depth == 0 {
+            self.check_visibility(name, span);
+        }
         // A name that resolves above the closure being checked belongs to an
         // enclosing scope: a capture. The root scope is exempt -- a top-level
         // function is a global, and a closure may call one.
@@ -1030,38 +1078,374 @@ impl<'src> Checker<'src> {
         );
     }
 
+    /// Where an item declared right now comes from.
+    ///
+    /// The module being declared is the one the checker is standing in, so
+    /// this is the same for every item in a module.
+    fn origin(&self, public: bool) -> ItemOrigin {
+        ItemOrigin {
+            file: self.file,
+            public,
+        }
+    }
+
+    /// Record where a declared item came from, so a use of it elsewhere can
+    /// be checked.
+    fn record_origin(&mut self, name: &str, public: bool) {
+        self.item_origins
+            .insert(name.to_string(), self.origin(public));
+    }
+
+    /// Report a use of an item that belongs to another module and is
+    /// private.
+    ///
+    /// The use is where the mistake is visible: the item itself is fine, and
+    /// it is another module's use of it that is not. A name that is not an
+    /// item -- a builtin, or a local -- is nobody's private business.
+    fn check_visibility(&mut self, name: &str, span: Span) {
+        let Some(origin) = self.item_origins.get(name).copied() else {
+            return;
+        };
+        if origin.public || origin.file == self.file {
+            return;
+        }
+        let module = self.module_name(origin.file);
+        self.error(
+            span,
+            format!("`{name}` is private to module `{module}`"),
+        );
+    }
+
+    /// Report a use of a field that belongs to another module and is
+    /// private.
+    ///
+    /// A field is private to the module that declares it unless it is marked
+    /// `pub`, the same rule an item follows.
+    fn check_field_visibility(
+        &mut self,
+        struct_name: &str,
+        field: &str,
+        sig: &StructSig,
+        index: usize,
+        span: Span,
+    ) {
+        if sig.origin.file == self.file {
+            return;
+        }
+        if sig.field_public.get(index).copied().unwrap_or(false) {
+            return;
+        }
+        let module = self.module_name(sig.origin.file);
+        self.error(
+            span,
+            format!("field `{field}` of `{struct_name}` is private to module `{module}`"),
+        );
+    }
+
+    /// The name a module is known by in a diagnostic.
+    ///
+    /// A module is one source file, so the name is that file's own name
+    /// without its extension: `json_keys.ot` is the module `json_keys`.
+    fn module_name(&self, file: FileId) -> String {
+        let path = self.sm.path(file);
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        match name.rsplit_once('.') {
+            Some((stem, _)) => stem.to_string(),
+            None => name.to_string(),
+        }
+    }
+
     /// Pass 1: declare every item name so signatures can reference each other.
-    fn declare_items(&mut self, items: &[Item]) {        for item in items {
+    fn declare_items(&mut self, items: &[Item]) {
+        for item in items {
             match item {
-                Item::Fn {
-                    name,
-                    type_params,
-                    params,
-                    ret,
-                    body,
-                    span,
-                } => {
+                // `pub` is a modifier in front of an item: the item inside is
+                // declared as usual, and marked as one another module may use.
+                Item::Public { item, .. } => self.declare_item(item, true),
+                other => self.declare_item(other, false),
+            }
+        }
+    }
+
+    /// Declare one item's name, and record where it came from.
+    ///
+    /// `public` says whether the item is marked `pub`, which is what decides
+    /// whether another module may use it.
+    fn declare_item(&mut self, item: &Item, public: bool) {
+        match item {
+            Item::Public { item, .. } => self.declare_item(item, public),
+            Item::Fn {
+                name,
+                type_params,
+                params,
+                ret,
+                body,
+                span,
+            } => {
+                if !type_params.is_empty() {
+                    // A generic function is not a value: its signature has
+                    // type variables, so there is nothing to bind in the
+                    // root scope until a call says what they are. The call
+                    // path finds it in `generics` instead.
+                    self.declare_generic(
+                        name,
+                        type_params,
+                        params,
+                        ret,
+                        body,
+                        *span,
+                    );
+                    self.record_origin(name, public);
+                    return;
+                }
+                let param_tys: Vec<Type> = params
+                    .iter()
+                    .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
+                    .collect();
+                let ret_ty = match ret {
+                    Some(ty) => self.resolve_or_report(ty, *span),
+                    None => prim(TypeKind::Unit),
+                };
+                let sig = FnSig {
+                    params: param_tys.clone(),
+                    ret: ret_ty.clone(),
+                };
+                let binding = Binding {
+                    ty: Type {
+                        kind: TypeKind::Func(param_tys, Box::new(ret_ty)),
+                        span: *span,
+                    },
+                    mutability: Mutability::Const,
+                    span: *span,
+                    ownership: Ownership::Live,
+                };
+                if let Err(e) = self.scope.declare(name.clone(), binding) {
+                    self.error(e.span, e.message);
+                }
+                self.fns.insert(name.clone(), sig);
+                self.record_origin(name, public);
+            }
+            Item::Impl {
+                type_name,
+                methods,
+                span,
+            } => {
+                let Some(receiver_ty) = self.declared_type(type_name) else {
+                    self.error(
+                        *span,
+                        format!("no type named `{type_name}` for these methods"),
+                    );
+                    return;
+                };
+                for method in methods {
+                    let Item::Fn {
+                        name,
+                        type_params,
+                        params,
+                        ret,
+                        body: _,
+                        span: method_span,
+                    } = unwrap_public(method)
+                    else {
+                        self.error(*span, "an `impl` block holds only methods");
+                        continue;
+                    };
                     if !type_params.is_empty() {
-                        // A generic function is not a value: its signature has
-                        // type variables, so there is nothing to bind in the
-                        // root scope until a call says what they are. The call
-                        // path finds it in `generics` instead.
-                        self.declare_generic(
-                            name,
-                            type_params,
-                            params,
-                            ret,
-                            body,
-                            *span,
+                        self.error(
+                            *method_span,
+                            "a method cannot have type parameters yet",
                         );
                         continue;
                     }
-                    let param_tys: Vec<Type> = params
+                    let sig = self.method_signature(
+                        type_name,
+                        name,
+                        params,
+                        ret,
+                        &receiver_ty,
+                        *method_span,
+                    );
+                    let mangled = format!("{type_name}.{name}");
+                    if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
+                        if previous.name == *name {
+                            self.error(
+                                *method_span,
+                                format!("`{type_name}` already has a method named `{name}`"),
+                            );
+                        }
+                    }
+                }
+            }
+            Item::Object {
+                name,
+                fields,
+                methods,
+                span,
+            } => {
+                // An object is a struct and an `impl` block written
+                // together: the type is declared here, and the methods
+                // are registered the way an `impl` block's are.
+                let binding = Binding {
+                    ty: Type {
+                        kind: TypeKind::Struct(name.clone()),
+                        span: *span,
+                    },
+                    mutability: Mutability::Const,
+                    span: *span,
+                    ownership: Ownership::Live,
+                };
+                if let Err(e) = self.scope.declare(name.clone(), binding) {
+                    self.error(e.span, e.message);
+                }
+                let field_tys: Vec<(String, Type)> = fields
+                    .iter()
+                    .map(|f| {
+                        let ty = self.resolve_or_report(&f.ty, f.span);
+                        (f.name.clone(), ty)
+                    })
+                    .collect();
+                let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
+                self.structs.insert(
+                    name.clone(),
+                    StructSig {
+                        fields: field_tys,
+                        field_public,
+                        origin: self.origin(public),
+                    },
+                );
+                self.record_origin(name, public);
+                let receiver_ty = Type {
+                    kind: TypeKind::Struct(name.clone()),
+                    span: *span,
+                };
+                for method in methods {
+                    let Item::Fn {
+                        name: method_name,
+                        type_params,
+                        params,
+                        ret,
+                        body: _,
+                        span: method_span,
+                    } = unwrap_public(method)
+                    else {
+                        self.error(*span, "an `object` holds only methods");
+                        continue;
+                    };
+                    if !type_params.is_empty() {
+                        self.error(
+                            *method_span,
+                            "a method cannot have type parameters yet",
+                        );
+                        continue;
+                    }
+                    let sig = self.method_signature(
+                        name,
+                        method_name,
+                        params,
+                        ret,
+                        &receiver_ty,
+                        *method_span,
+                    );
+                    let mangled = format!("{name}.{method_name}");
+                    if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
+                        if previous.name == *method_name {
+                            self.error(
+                                *method_span,
+                                format!("`{name}` already has a method named `{method_name}`"),
+                            );
+                        }
+                    }
+                }
+            }
+            Item::Struct { name, fields, span } => {
+                let binding = Binding {
+                    ty: Type {
+                        kind: TypeKind::Struct(name.clone()),
+                        span: *span,
+                    },
+                    mutability: Mutability::Const,
+                    span: *span,
+                    ownership: Ownership::Live,
+                };
+                if let Err(e) = self.scope.declare(name.clone(), binding) {
+                    self.error(e.span, e.message);
+                }
+                let field_tys: Vec<(String, Type)> = fields
+                    .iter()
+                    .map(|f| {
+                        let ty = self.resolve_or_report(&f.ty, f.span);
+                        // A function value in a struct would be copied into
+                        // the aggregate without being counted, and the
+                        // aggregate has no way to release it: the copy would
+                        // outlive the environment it points at.
+                        if matches!(ty.kind, TypeKind::Func(_, _)) {
+                            self.error(
+                                f.span,
+                                "a struct field cannot have a function type yet",
+                            );
+                        }
+                        (f.name.clone(), ty)
+                    })
+                    .collect();
+                let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
+                self.structs.insert(
+                    name.clone(),
+                    StructSig {
+                        fields: field_tys,
+                        field_public,
+                        origin: self.origin(public),
+                    },
+                );
+                self.record_origin(name, public);
+            }
+            Item::Enum {
+                name,
+                variants,
+                span,
+            } => {
+                let binding = Binding {
+                    ty: Type {
+                        kind: TypeKind::Enum(name.clone()),
+                        span: *span,
+                    },
+                    mutability: Mutability::Const,
+                    span: *span,
+                    ownership: Ownership::Live,
+                };
+                if let Err(e) = self.scope.declare(name.clone(), binding) {
+                    self.error(e.span, e.message);
+                }
+                for variant in variants {
+                    for field in &variant.fields {
+                        let ty = self.resolve_or_report(field.ty(), field.span());
+                        // The same reason a struct field cannot have one:
+                        // an enum value is an aggregate, and an aggregate
+                        // does not count the references it holds.
+                        if matches!(ty.kind, TypeKind::Func(_, _)) {
+                            self.error(
+                                field.span(),
+                                "an enum field cannot have a function type yet",
+                            );
+                        }
+                    }
+                }
+                self.enums.insert(
+                    name.clone(),
+                    EnumSig {
+                        variants: variants.clone(),
+                    },
+                );
+                self.record_origin(name, public);
+            }
+            Item::Extern { decls, .. } => {
+                for decl in decls {
+                    let param_tys: Vec<Type> = decl
+                        .params
                         .iter()
-                        .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
+                        .map(|p| self.resolve_or_report_in(&p.ty, decl.span, true, false))
                         .collect();
-                    let ret_ty = match ret {
-                        Some(ty) => self.resolve_or_report(ty, *span),
+                    let ret_ty = match &decl.ret {
+                        Some(ty) => self.resolve_or_report_in(ty, decl.span, true, true),
                         None => prim(TypeKind::Unit),
                     };
                     let sig = FnSig {
@@ -1071,290 +1455,66 @@ impl<'src> Checker<'src> {
                     let binding = Binding {
                         ty: Type {
                             kind: TypeKind::Func(param_tys, Box::new(ret_ty)),
-                            span: *span,
-                        },
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                    };
-                    if let Err(e) = self.scope.declare(name.clone(), binding) {
-                        self.error(e.span, e.message);
-                    }
-                    self.fns.insert(name.clone(), sig);
-                }
-                Item::Impl {
-                    type_name,
-                    methods,
-                    span,
-                } => {
-                    let Some(receiver_ty) = self.declared_type(type_name) else {
-                        self.error(
-                            *span,
-                            format!("no type named `{type_name}` for these methods"),
-                        );
-                        continue;
-                    };
-                    for method in methods {
-                        let Item::Fn {
-                            name,
-                            type_params,
-                            params,
-                            ret,
-                            body: _,
-                            span: method_span,
-                        } = method
-                        else {
-                            self.error(*span, "an `impl` block holds only methods");
-                            continue;
-                        };
-                        if !type_params.is_empty() {
-                            self.error(
-                                *method_span,
-                                "a method cannot have type parameters yet",
-                            );
-                            continue;
-                        }
-                        let sig = self.method_signature(
-                            type_name,
-                            name,
-                            params,
-                            ret,
-                            &receiver_ty,
-                            *method_span,
-                        );
-                        let mangled = format!("{type_name}.{name}");
-                        if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
-                            if previous.name == *name {
-                                self.error(
-                                    *method_span,
-                                    format!("`{type_name}` already has a method named `{name}`"),
-                                );
-                            }
-                        }
-                    }
-                }
-                Item::Object {
-                    name,
-                    fields,
-                    methods,
-                    span,
-                } => {
-                    // An object is a struct and an `impl` block written
-                    // together: the type is declared here, and the methods
-                    // are registered the way an `impl` block's are.
-                    let binding = Binding {
-                        ty: Type {
-                            kind: TypeKind::Struct(name.clone()),
-                            span: *span,
-                        },
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                    };
-                    if let Err(e) = self.scope.declare(name.clone(), binding) {
-                        self.error(e.span, e.message);
-                    }
-                    let field_tys = fields
-                        .iter()
-                        .map(|f| {
-                            let ty = self.resolve_or_report(&f.ty, f.span);
-                            (f.name.clone(), ty)
-                        })
-                        .collect();
-                    self.structs
-                        .insert(name.clone(), StructSig { fields: field_tys });
-                    let receiver_ty = Type {
-                        kind: TypeKind::Struct(name.clone()),
-                        span: *span,
-                    };
-                    for method in methods {
-                        let Item::Fn {
-                            name: method_name,
-                            type_params,
-                            params,
-                            ret,
-                            body: _,
-                            span: method_span,
-                        } = method
-                        else {
-                            self.error(*span, "an `object` holds only methods");
-                            continue;
-                        };
-                        if !type_params.is_empty() {
-                            self.error(
-                                *method_span,
-                                "a method cannot have type parameters yet",
-                            );
-                            continue;
-                        }
-                        let sig = self.method_signature(
-                            name,
-                            method_name,
-                            params,
-                            ret,
-                            &receiver_ty,
-                            *method_span,
-                        );
-                        let mangled = format!("{name}.{method_name}");
-                        if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
-                            if previous.name == *method_name {
-                                self.error(
-                                    *method_span,
-                                    format!("`{name}` already has a method named `{method_name}`"),
-                                );
-                            }
-                        }
-                    }
-                }
-                Item::Struct { name, fields, span } => {
-                    let binding = Binding {
-                        ty: Type {
-                            kind: TypeKind::Struct(name.clone()),
-                            span: *span,
-                        },
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                    };
-                    if let Err(e) = self.scope.declare(name.clone(), binding) {
-                        self.error(e.span, e.message);
-                    }
-                    let field_tys = fields
-                        .iter()
-                        .map(|f| {
-                            let ty = self.resolve_or_report(&f.ty, f.span);
-                            // A function value in a struct would be copied into
-                            // the aggregate without being counted, and the
-                            // aggregate has no way to release it: the copy would
-                            // outlive the environment it points at.
-                            if matches!(ty.kind, TypeKind::Func(_, _)) {
-                                self.error(
-                                    f.span,
-                                    "a struct field cannot have a function type yet",
-                                );
-                            }
-                            (f.name.clone(), ty)
-                        })
-                        .collect();
-                    self.structs
-                        .insert(name.clone(), StructSig { fields: field_tys });
-                }
-                Item::Enum {
-                    name,
-                    variants,
-                    span,
-                } => {
-                    let binding = Binding {
-                        ty: Type {
-                            kind: TypeKind::Enum(name.clone()),
-                            span: *span,
-                        },
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                    };
-                    if let Err(e) = self.scope.declare(name.clone(), binding) {
-                        self.error(e.span, e.message);
-                    }
-                    for variant in variants {
-                        for field in &variant.fields {
-                            let ty = self.resolve_or_report(field.ty(), field.span());
-                            // The same reason a struct field cannot have one:
-                            // an enum value is an aggregate, and an aggregate
-                            // does not count the references it holds.
-                            if matches!(ty.kind, TypeKind::Func(_, _)) {
-                                self.error(
-                                    field.span(),
-                                    "an enum field cannot have a function type yet",
-                                );
-                            }
-                        }
-                    }
-                    self.enums.insert(
-                        name.clone(),
-                        EnumSig {
-                            variants: variants.clone(),
-                        },
-                    );
-                }
-                Item::Extern { decls, .. } => {
-                    for decl in decls {
-                        let param_tys: Vec<Type> = decl
-                            .params
-                            .iter()
-                            .map(|p| self.resolve_or_report_in(&p.ty, decl.span, true, false))
-                            .collect();
-                        let ret_ty = match &decl.ret {
-                            Some(ty) => self.resolve_or_report_in(ty, decl.span, true, true),
-                            None => prim(TypeKind::Unit),
-                        };
-                        let sig = FnSig {
-                            params: param_tys.clone(),
-                            ret: ret_ty.clone(),
-                        };
-                        let binding = Binding {
-                            ty: Type {
-                                kind: TypeKind::Func(param_tys, Box::new(ret_ty)),
-                                span: decl.span,
-                            },
-                            mutability: Mutability::Const,
                             span: decl.span,
-                            ownership: Ownership::Live,
-                        };
-                        if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
-                            self.error(e.span, e.message);
-                        }
-                        self.fns.insert(decl.name.clone(), sig);
-                        self.externs.insert(decl.name.clone());
-                    }
-                }
-                Item::Import { .. } => {}
-                Item::ConstFn {
-                    name,
-                    params,
-                    ret,
-                    body,
-                    span,
-                } => {
-                    // A `const fn` is declared here and *checked* here too:
-                    // its body is the restricted language, and the checker
-                    // that owns the declaration table is the only stage that
-                    // knows which names are `const fn`s.
-                    let param_types: Vec<(String, Type)> = params
-                        .iter()
-                        .map(|param| {
-                            let ty = self.resolve_or_report(&param.ty, param.span);
-                            (param.name.clone(), ty)
-                        })
-                        .collect();
-                    let ret_ty = match ret {
-                        Some(annotation) => self.resolve_or_report(annotation, *span),
-                        None => Type {
-                            kind: TypeKind::Unit,
-                            span: *span,
                         },
+                        mutability: Mutability::Const,
+                        span: decl.span,
+                        ownership: Ownership::Live,
                     };
-                    // A `const fn` has no run-time existence, so its name is
-                    // not in the root scope: there is no function of that
-                    // name for a call to reach.
-                    if self.const_fns.contains_key(name) {
-                        self.error(
-                            *span,
-                            format!("duplicate definition of `{name}`"),
-                        );
+                    if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
+                        self.error(e.span, e.message);
                     }
-                    self.const_fns.insert(
-                        name.clone(),
-                        ConstFn {
-                            name: name.clone(),
-                            params: param_types,
-                            ret: ret_ty,
-                            body: body.clone(),
-                            span: *span,
-                            file: self.file,
-                        },
+                    self.fns.insert(decl.name.clone(), sig);
+                    self.externs.insert(decl.name.clone());
+                }
+            }
+            Item::Import { .. } => {}
+            Item::ConstFn {
+                name,
+                params,
+                ret,
+                body,
+                span,
+            } => {
+                // A `const fn` is declared here and *checked* here too:
+                // its body is the restricted language, and the checker
+                // that owns the declaration table is the only stage that
+                // knows which names are `const fn`s.
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|param| {
+                        let ty = self.resolve_or_report(&param.ty, param.span);
+                        (param.name.clone(), ty)
+                    })
+                    .collect();
+                let ret_ty = match ret {
+                    Some(annotation) => self.resolve_or_report(annotation, *span),
+                    None => Type {
+                        kind: TypeKind::Unit,
+                        span: *span,
+                    },
+                };
+                // A `const fn` has no run-time existence, so its name is
+                // not in the root scope: there is no function of that
+                // name for a call to reach.
+                if self.const_fns.contains_key(name) {
+                    self.error(
+                        *span,
+                        format!("duplicate definition of `{name}`"),
                     );
                 }
+                self.const_fns.insert(
+                    name.clone(),
+                    ConstFn {
+                        name: name.clone(),
+                        params: param_types,
+                        ret: ret_ty,
+                        body: body.clone(),
+                        span: *span,
+                        file: self.file,
+                    },
+                );
+                self.record_origin(name, public);
             }
         }
     }
@@ -1401,7 +1561,14 @@ impl<'src> Checker<'src> {
     /// parameter.
     fn resolve_or_report(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
         match self.resolve_type(ty) {
-            Ok(resolved) => resolved,
+            Ok(resolved) => {
+                // A named type is an item too, so it is private to the module
+                // that declares it unless it is `pub`.
+                if let TypeExpr::Name(name, span) = ty {
+                    self.check_visibility(name, *span);
+                }
+                resolved
+            }
             Err(e) => {
                 self.error(e.span, e.message);
                 never(fallback_span)
@@ -2040,6 +2207,10 @@ impl<'src> Checker<'src> {
     /// method is an ordinary function item in the HIR, with a mangled name.
     fn check_item(&mut self, item: &Item) -> Option<Vec<HirItem>> {
         match item {
+            // `pub` is a modifier in front of an item: the item inside is
+            // checked as usual. The visibility was settled in the declaration
+            // pass, where the item's name was recorded.
+            Item::Public { item, .. } => self.check_item(item),
             Item::Fn {
                 name,
                 type_params,
@@ -2208,7 +2379,7 @@ impl<'src> Checker<'src> {
                 ret,
                 body,
                 span,
-            } = method
+            } = unwrap_public(method)
             else {
                 continue;
             };
@@ -2309,7 +2480,15 @@ impl<'src> Checker<'src> {
             &mut work,
             Missing::NotConstant,
         ) {
-            Ok(value) => Some(value.to_expr(span)),
+            Ok(value) => {
+                // Every `const fn` the evaluation called has to be one this
+                // module may use: a `const fn` belongs to its module like any
+                // other item.
+                for (name, call_span) in &work.called {
+                    self.check_visibility(name, *call_span);
+                }
+                Some(value.to_expr(span))
+            }
             Err(error) => {
                 self.error(span, error.message);
                 None
@@ -2330,8 +2509,15 @@ impl<'src> Checker<'src> {
         // about it is attributed there and not to the module being checked.
         let outer = self.file;
         self.file = function.file;
-        if let Err(error) = const_eval::check_body(&function, &self.const_fns) {
-            self.error(error.span, error.message);
+        match const_eval::check_body(&function, &self.const_fns) {
+            Ok(called) => {
+                // A `const fn` body may call another `const fn`, and that one
+                // has to be one this module may use.
+                for (name, call_span) in &called {
+                    self.check_visibility(name, *call_span);
+                }
+            }
+            Err(error) => self.error(error.span, error.message),
         }
         self.file = outer;
     }
@@ -6097,6 +6283,10 @@ impl<'src> Checker<'src> {
                 let sig = self.structs.get(&name).cloned();
                 match sig {
                     Some(sig) => {
+                        // The type is an item, and so are its fields: both are
+                        // private to the module that declares them unless they
+                        // are `pub`.
+                        self.check_visibility(&name, *span);
                         // Every value the literal wrote is type-checked, whether
                         // or not its field name belongs to the struct; the
                         // diagnostics below need the written order to report what
@@ -6132,6 +6322,16 @@ impl<'src> Checker<'src> {
                                 self.error(
                                     *span,
                                     format!("unknown field `{fname}` in struct `{name}`"),
+                                );
+                                continue;
+                            }
+                            // A field that is not `pub` may not be written from
+                            // another module.
+                            if let Some(index) =
+                                sig.fields.iter().position(|(n, _)| n == fname)
+                            {
+                                self.check_field_visibility(
+                                    &name, fname, &sig, index, *span,
                                 );
                             }
                         }
@@ -6726,12 +6926,15 @@ impl<'src> Checker<'src> {
                     return None;
                 }
             };
-            let resolved = self.structs.get(&struct_name).and_then(|sig| {
-                sig.fields
-                    .iter()
-                    .position(|(name, _)| name == field)
-                    .map(|index| (index, sig.fields[index].1.clone()))
-            });
+            let Some(sig) = self.structs.get(&struct_name).cloned() else {
+                self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                return None;
+            };
+            let resolved = sig
+                .fields
+                .iter()
+                .position(|(name, _)| name == field)
+                .map(|index| (index, sig.fields[index].1.clone()));
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
@@ -6739,6 +6942,9 @@ impl<'src> Checker<'src> {
                     return None;
                 }
             };
+            // A field is private to the module that declares it unless it is
+            // `pub`, so reading one from another module is the mistake.
+            self.check_field_visibility(&struct_name, field, &sig, index, span);
             current = HirExpr::FieldAccess {
                 base: Box::new(current),
                 field: field.clone(),

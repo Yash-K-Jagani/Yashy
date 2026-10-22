@@ -73,8 +73,26 @@ impl<'src> Parser<'src> {
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Object => self.parse_object(),
             TokenKind::Extern => self.parse_extern(),
+            // `pub` is a modifier, not an item: it wraps whatever item
+            // follows it, and the item inside keeps its own shape.
+            TokenKind::Pub => self.parse_public_item(),
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
+    }
+
+    /// `pub fn f() { ... }` -- an item another module may use.
+    ///
+    /// The `pub` wraps the item it applies to, so the modifier is one thing
+    /// in one place instead of a field on every kind of item. The item inside
+    /// is parsed by the ordinary item parser, which means `pub` works on
+    /// every kind an item can be.
+    fn parse_public_item(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Pub)?;
+        let item = self.parse_item()?;
+        Ok(Item::Public {
+            item: Box::new(item),
+            span: keyword.span,
+        })
     }
 
     /// `import std.io;` -- a dotted path, one [`String`] per segment.
@@ -182,7 +200,12 @@ impl<'src> Parser<'src> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.at_eof() {
-            if self.check(TokenKind::Fn) {
+            // A method is a `fn`, with or without a `pub` in front of it. The
+            // second token is what says so: `pub` on its own would be a
+            // field, and the two are told apart by what follows.
+            if self.check(TokenKind::Fn)
+                || (self.check(TokenKind::Pub) && self.peek_second() == TokenKind::Fn)
+            {
                 methods.push(self.parse_item()?);
             } else {
                 fields.push(self.parse_field_def()?);
@@ -204,12 +227,18 @@ impl<'src> Parser<'src> {
 
     /// `x: f64` -- one named field of a struct, or of a struct-shaped enum
     /// variant.
+    ///
+    /// A field may be marked `pub`, which is what lets another module read
+    /// and write it. A field with no `pub` is private to the module that
+    /// declares it.
     fn parse_field_def(&mut self) -> Result<FieldDef, ParseError> {
+        let public = self.eat(TokenKind::Pub);
         let (name, name_span) = self.identifier()?;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type_expr()?;
         Ok(FieldDef {
             name,
+            public,
             span: cover(name_span, ty_span(&ty)),
             ty,
         })

@@ -85,6 +85,7 @@ fn full_program(spans: &mut Spans) -> Program {
             fields: vec![FieldDef {
                 name: "x".to_string(),
                 ty: TypeExpr::Name("f64".to_string(), spans.take()),
+                public: false,
                 span: spans.take(),
             }],
             span: spans.take(),
@@ -118,27 +119,31 @@ fn full_program(spans: &mut Spans) -> Program {
             span: spans.take(),
         },
         // Item::Fn, with a Param, a Result type, an Option return type and a
-        // body that holds every statement.
-        Item::Fn {
-            name: "d".to_string(),
-            type_params: Vec::new(),
-            params: vec![Param {
-                name: "a".to_string(),
-                ty: TypeExpr::Result(
-                    Box::new(TypeExpr::Name("i64".to_string(), spans.take())),
-                    Box::new(TypeExpr::Tuple(
-                        vec![TypeExpr::Unit(spans.take())],
+        // body that holds every statement -- wrapped in `pub`, because the
+        // modifier is an item of its own and has to be built too.
+        Item::Public {
+            item: Box::new(Item::Fn {
+                name: "d".to_string(),
+                type_params: Vec::new(),
+                params: vec![Param {
+                    name: "a".to_string(),
+                    ty: TypeExpr::Result(
+                        Box::new(TypeExpr::Name("i64".to_string(), spans.take())),
+                        Box::new(TypeExpr::Tuple(
+                            vec![TypeExpr::Unit(spans.take())],
+                            spans.take(),
+                        )),
                         spans.take(),
-                    )),
+                    ),
+                    span: spans.take(),
+                }],
+                ret: Some(TypeExpr::Option(
+                    Box::new(TypeExpr::Name("f64".to_string(), spans.take())),
                     spans.take(),
-                ),
+                )),
+                body: full_block(spans),
                 span: spans.take(),
-            }],
-            ret: Some(TypeExpr::Option(
-                Box::new(TypeExpr::Name("f64".to_string(), spans.take())),
-                spans.take(),
-            )),
-            body: full_block(spans),
+            }),
             span: spans.take(),
         },
         // Item::Extern, with both an ABI and a library to link, and two
@@ -499,7 +504,7 @@ fn ast_nodes_round_trip_through_debug() {
 
     // One of every Item variant. `"Extern {"` rather than `"Extern"`, which
     // would match `ExternDecl` and prove nothing.
-    for name in ["Import", "Struct", "Enum", "Fn", "Extern {", "ExternDecl"] {
+    for name in ["Import", "Struct", "Enum", "Fn", "Extern {", "ExternDecl", "Public"] {
         assert!(
             debug.contains(name),
             "the tree must contain a {name}: {debug}"
@@ -592,6 +597,18 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             &["Import", "Struct", "Enum", "Fn"],
         ),
         case(
+            "Item::Public",
+            Item::Public {
+                item: Box::new(Item::Import {
+                    path: vec!["a".to_string()],
+                    span: here(),
+                }),
+                span: here(),
+            },
+            &["Public", "item", "span"],
+            &["Struct", "Enum", "Extern"],
+        ),
+        case(
             "ExternDecl",
             ExternDecl {
                 name: "puts".to_string(),
@@ -617,6 +634,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             FieldDef {
                 name: "x".to_string(),
                 ty: TypeExpr::Unit(here()),
+                public: false,
                 span: here(),
             },
             &["FieldDef", "name", "ty", "span"],

@@ -3,8 +3,11 @@
 // it -- so the separators here are the ones that can survive on a line.
 //
 // Ownership: pure; nothing is allocated and no argument is consumed.
+//
+// The function is `pub` because `wc.ot` is another module, and a module's
+// items are private to it unless they say otherwise.
 
-fn count_words(line: string) -> i64 {
+pub fn count_words(line: string) -> i64 {
     var words = 0;
     var inside = false;
     var index = 0;

@@ -1740,6 +1740,30 @@ git add crates/otter-parser crates/otter-sema crates/otter-codegen crates/otter-
 git commit -m "feat: debug formatting, numeric literals, and visibility"
 ```
 
+> **As built (three commits, not one).** The task names three unrelated
+> features, and they landed as three commits so each is reviewable on its own:
+> `b229a58` (numeric literals), `37965d5` (debug formatting), and the
+> visibility commit. The single `diagnostics_and_syntax.ot` program and the
+> single `debug_format_literals_and_visibility` test became three: the
+> programs are `numeric_literals.ot`, `debug_format.ot`, and the visibility
+> test `a_public_item_is_usable_from_another_module_and_a_private_one_is_not`
+> (which writes its two modules into a work directory, because a visibility
+> rule cannot be shown in one file).
+> The visibility rule as built: a module's items are private to it unless
+> they are marked `pub`, and another module's use of a private item is
+> `error: \`f\` is private to module \`m\`` at the use, where `m` is the
+> declaring file's name without its extension. A `struct`/`enum`/`object` and
+> a `fn`/`const fn` may all be `pub`; a *field* is private to its module
+> unless it is marked `pub` as well, so a `pub struct` another module may
+> read and write is `pub struct Point { pub x: f64, pub y: f64 }`. A
+> *method* is as visible as the type it belongs to, so `pub` on a method is
+> accepted and says nothing the type does not already say. An `extern`
+> declaration is not an Otter item and has no visibility rule.
+>
+> The AST carries the modifier as a wrapper (`Item::Public { item, span }`)
+> rather than as a field on every item variant: one wrapper is one concept,
+> and the item inside keeps the shape it has without a modifier.
+
 ### Task 21: `const fn` and the standard-library pass
 
 **Files:**
@@ -1787,6 +1811,32 @@ Expected: PASS.
 git add crates/otter-parser crates/otter-sema crates/otter-stdlib crates/otter-driver/tests/programs/const_fn.ot
 git commit -m "feat: const fn and stdlib method coverage"
 ```
+
+> **As built (two commits, and the map methods are builtins).** The task
+> names two unrelated things, and they landed as two commits: `3a5a2d8`
+> (`const fn`) and `e8c5bec` (the map methods, with the golden IR
+> regenerated in a commit of its own). The `const fn` e2e program is
+> `const_fn.ot` and its test is `a_const_fn_is_computed_by_the_compiler`.
+>
+> The three map methods are **builtin methods on a map receiver**, not
+> functions in the stdlib: a map is an opaque runtime table, so no Otter
+> source can walk one. `m.keys()` and `m.values()` answer with a fresh
+> array — the table's own order, which is a hash table's order and not the
+> order the keys went in — and `m.contains_key(k)` answers a `bool`. The
+> key array owns a reference of its own for every `string` key it holds, so
+> the map can be freed while the array is still alive. The e2e program is
+> `map_methods.ot` and its test is
+> `the_map_methods_answer_with_arrays_and_a_bool`.
+>
+> The `const fn` evaluator as built: a `const fn` has no run-time existence,
+> so its body is checked by a tree-walker over a restricted language
+> (literals, arithmetic, comparisons, `if`, and calls to other `const fn`s)
+> and a call is *folded* into the value the compiler computed. A `const fn`
+> call's arguments must be literals or other `const fn` calls; a run-time
+> value is `error: \`n\` is a run-time value: a \`const fn\` call can only use
+> literals and other \`const fn\` calls`. Recursion is allowed and is bounded
+> by a depth and a call budget, and an evaluation that runs out of budget is
+> `error: \`loop\` did not terminate: the evaluation is too deep`.
 
 ---
 

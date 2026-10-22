@@ -1150,6 +1150,71 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
 }
 
 #[test]
+fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
+    // `vis_lib.ot` declares one `pub fn` and one plain `fn`. A module's items
+    // are private to it unless they say otherwise, so the entry file may call
+    // the public one and may not call the private one -- and the diagnostic
+    // names the module that keeps it.
+    let dir = work_dir("visibility");
+    fs::write(
+        dir.join("vis_lib.ot"),
+        "pub fn seven() -> i64 { return 7; }\nfn secret() -> i64 { return 13; }\n",
+    )
+    .expect("write vis_lib.ot");
+
+    let public = dir.join("public.ot");
+    // The call is unqualified: Otter's modules share one root scope, so the
+    // name is the one the library declared.
+    fs::write(
+        &public,
+        "import vis_lib;\nfn main() { print_i64(seven()); }\n",
+    )
+    .expect("write public.ot");
+    let exe = dir.join(format!("public{}", std::env::consts::EXE_SUFFIX));
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&public)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run the otter CLI");
+    assert!(
+        compile.status.success(),
+        "a `pub fn` is another module's to use:\n{}",
+        stderr_of(&compile)
+    );
+    assert_eq!(stdout_of(&run(&exe)), "7");
+
+    let private = dir.join("private.ot");
+    fs::write(
+        &private,
+        "import vis_lib;\nfn main() { print_i64(secret()); }\n",
+    )
+    .expect("write private.ot");
+    let compile = Command::new(otter())
+        .arg("build")
+        .arg(&private)
+        .arg("-o")
+        .arg(dir.join(format!("private{}", std::env::consts::EXE_SUFFIX)))
+        .output()
+        .expect("run the otter CLI");
+    assert_eq!(
+        compile.status.code(),
+        Some(1),
+        "a private item is a compile error"
+    );
+    let stderr = stderr_of(&compile);
+    assert!(
+        stderr.contains("`secret` is private to module `vis_lib`"),
+        "the diagnostic must name the item and the module:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        "expected a caret underlining the use:\n{stderr}"
+    );
+}
+
+#[test]
 fn a_panic_prints_its_message_and_the_position_it_was_written_at() {
     // The whole pipeline on the diagnostic path: the message and the source
     // position reach standard error, the exit status is a failure, and nothing
