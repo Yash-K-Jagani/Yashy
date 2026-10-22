@@ -2233,9 +2233,11 @@ fn the_map_methods_answer_with_arrays_and_a_bool() {
     // that is not. The arrays are in the table's own order, so the program
     // measures them instead of printing them in order. The last line is the
     // proof that the key array owns its own references: the map is freed
-    // before it, and the keys are still readable.
+    // before it, and the keys are still readable. The `bool` map at the end
+    // is the one-byte case: a value array whose stride is a byte rather than
+    // a word.
     let output = build_and_run("map_methods");
-    assert_eq!(stdout_of(&output), "3\n3\n60\nhas ada\nno zz\n9\n");
+    assert_eq!(stdout_of(&output), "3\n3\n60\nhas ada\nno zz\n9\n1\n");
     assert_eq!(output.status.code(), Some(0));
 }
 

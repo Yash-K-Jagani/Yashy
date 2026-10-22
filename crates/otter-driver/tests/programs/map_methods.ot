@@ -50,4 +50,21 @@ fn main() {
 
     keys.free();
     values.free();
+
+    // A `bool` value is one byte, so the value array's stride is one byte
+    // rather than eight: the copy has to keep the bytes it copied.
+    var flags: map[i64]bool = map_new();
+    flags.insert(1, true);
+    flags.insert(2, false);
+    var flag_values: []bool = flags.values();
+    var trues = 0;
+    for v in flag_values {
+        if v {
+            trues = trues + 1;
+        }
+    }
+    print_i64(trues);
+    print_str("\n");
+    flag_values.free();
+    flags.free();
 }
