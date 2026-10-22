@@ -1766,6 +1766,16 @@ git commit -m "feat: debug formatting, numeric literals, and visibility"
 > The AST carries the modifier as a wrapper (`Item::Public { item, span }`)
 > rather than as a field on every item variant: one wrapper is one concept,
 > and the item inside keeps the shape it has without a modifier.
+>
+> The proof:
+>
+> - `cargo check --workspace --all-targets` — clean, no warnings.
+> - `cargo test -p otter-sema --test visibility` — 11 PASS.
+> - `cargo test -p otter-driver --test e2e a_public_item_is_usable_from_another_module_and_a_private_one_is_not`
+>   — PASS; the program printed `7`, and the private call reported
+>   `` `secret` is private to module `vis_lib` ``.
+> - `cargo test -p otter-driver --test modules` — 10 PASS.
+> - `cargo test -p otter-driver --test tutorial` — PASS.
 
 ### Task 21: `const fn` and the standard-library pass
 
@@ -1840,6 +1850,19 @@ git commit -m "feat: const fn and stdlib method coverage"
 > literals and other \`const fn\` calls`. Recursion is allowed and is bounded
 > by a depth and a call budget, and an evaluation that runs out of budget is
 > `error: \`loop\` did not terminate: the evaluation is too deep`.
+>
+> The proof:
+>
+> - `cargo check --workspace --all-targets` — clean, no warnings.
+> - `cargo test -p otter-sema --test maps` — 19 PASS.
+> - `cargo test -p otter-runtime --test maps` — 15 PASS.
+> - `cargo test -p otter-driver --test e2e a_const_fn_is_computed_by_the_compiler`
+>   — PASS; the program printed `81`, `10`, `55` and `16`.
+> - `cargo test -p otter-driver --test e2e the_map_methods_answer_with_arrays_and_a_bool`
+>   — PASS; the program printed `3`, `3`, `60`, `has ada`, `no zz` and `9`.
+> - The feature suite gained two rows: `map_scan` (the table copied into two
+>   arrays, ten times over, then the key probes) and `debug_format` (a
+>   million formatted points). The numbers are in the benchmark README.
 
 ---
 
