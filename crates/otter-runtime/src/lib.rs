@@ -257,6 +257,26 @@ unsafe extern "C" {
     pub fn otter_map_len(map: *const OtterMap) -> c_longlong;
 }
 
+unsafe extern "C" {
+    /// Answers 1 when `key` is in the table and 0 when it is not, without
+    /// copying the value out.
+    pub fn otter_map_contains_key(map: *const OtterMap, key: *const c_void) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Fills a fresh slice with the table's keys, in the order the table holds
+    /// them. A string key is retained, so the array owns a reference of its
+    /// own.
+    pub fn otter_map_keys(out: *mut OtterSlice, map: *const OtterMap);
+}
+
+unsafe extern "C" {
+    /// Fills a fresh slice with the table's values, in the same order as
+    /// `otter_map_keys`. A map value is always a number or a `bool`, so the
+    /// array owns nothing.
+    pub fn otter_map_values(out: *mut OtterSlice, map: *const OtterMap);
+}
+
 // The string half of the contract. A `string` value is a pointer to an
 // `OtterStr` in both the IR and here, so Rust tests can drive the same linked
 // operations the generated code calls.

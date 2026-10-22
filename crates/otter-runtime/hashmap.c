@@ -328,3 +328,118 @@ long long otter_map_remove(otter_map *map, const void *key, void *out) {
 long long otter_map_len(const otter_map *map) {
     return map == NULL ? 0 : map->len;
 }
+
+long long otter_map_contains_key(const otter_map *map, const void *key) {
+    int found = 0;
+
+    if (map == NULL || key == NULL || map->cap == 0) {
+        return 0;
+    }
+    otter_map_slot(map, key, &found);
+    return found ? 1 : 0;
+}
+
+/* Fills `out` with the table's keys, in the order the table holds them.
+ *
+ * The copy is a plain byte copy of the stored keys, so the array's element
+ * stride is the table's key stride and the two agree without the runtime
+ * needing to know the key type. A `string` key is a handle: the array
+ * retains it, so the array owns a reference of its own and the map can be
+ * freed without pulling the strings out from under it.
+ *
+ * A failed allocation leaves `out` empty, which is the only state a caller
+ * could observe -- the same rule `push` follows for slices. */
+void otter_map_keys(otter_slice *out, const otter_map *map) {
+    long long index;
+    long long count = 0;
+    unsigned char *data;
+
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (map == NULL || map->cap == 0) {
+        return;
+    }
+    for (index = 0; index < map->cap; index++) {
+        if (map->states[index] == OTTER_MAP_OCCUPIED) {
+            count++;
+        }
+    }
+    if (count == 0) {
+        return;
+    }
+    data = (unsigned char *)otter_alloc(count * map->key_size, 8);
+    if (data == NULL) {
+        return;
+    }
+    count = 0;
+    for (index = 0; index < map->cap; index++) {
+        if (map->states[index] != OTTER_MAP_OCCUPIED) {
+            continue;
+        }
+        if (map->key_kind == 2) {
+            otter_str_retain(
+                *(otter_str *const *)(map->keys + index * map->key_size)
+            );
+        }
+        memcpy(
+            data + count * map->key_size,
+            map->keys + index * map->key_size,
+            (size_t)map->key_size
+        );
+        count++;
+    }
+    out->data = data;
+    out->len = count;
+    out->cap = count;
+}
+
+/* Fills `out` with the table's values, in the same order as `otter_map_keys`.
+ *
+ * A map value is always a number or a `bool`, so the copy owns nothing and
+ * the table keeps every value it holds. */
+void otter_map_values(otter_slice *out, const otter_map *map) {
+    long long index;
+    long long count = 0;
+    unsigned char *data;
+
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (map == NULL || map->cap == 0) {
+        return;
+    }
+    for (index = 0; index < map->cap; index++) {
+        if (map->states[index] == OTTER_MAP_OCCUPIED) {
+            count++;
+        }
+    }
+    if (count == 0) {
+        return;
+    }
+    data = (unsigned char *)otter_alloc(count * map->value_size, 8);
+    if (data == NULL) {
+        return;
+    }
+    count = 0;
+    for (index = 0; index < map->cap; index++) {
+        if (map->states[index] != OTTER_MAP_OCCUPIED) {
+            continue;
+        }
+        memcpy(
+            data + count * map->value_size,
+            map->values + index * map->value_size,
+            (size_t)map->value_size
+        );
+        count++;
+    }
+    out->data = data;
+    out->len = count;
+    out->cap = count;
+}

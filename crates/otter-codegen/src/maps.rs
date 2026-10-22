@@ -9,7 +9,13 @@ use otter_sema::{HirExpr, TypeKind};
 
 use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 use crate::ir::{repr_type, size_of};
-use crate::slices::option_from_flag;
+use crate::slices::{bool_from_flag, option_from_flag};
+
+/// The slice header the runtime fills: data pointer, length, capacity.
+///
+/// The runtime's `otter_slice` has exactly this layout, which is what lets a
+/// map hand back an array through the same header `str_split` uses.
+const SLICE_REPR: &str = "{ i8*, i64, i64 }";
 
 /// The key tags shared with `hashmap.c`: `i64` = 0, `bool` = 1, `string` = 2.
 ///
@@ -156,4 +162,74 @@ pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let table = gen_expr(ctx, map);
     ctx.push(format!("call void @otter_map_free(i8* {})", table.value));
     unit()
+}
+
+/// Lower `map_keys(map) -> []K` and `map_values(map) -> []V`.
+///
+/// The runtime copies the stored bytes into a fresh array and fills a slice
+/// header, the same shape `str_split` uses. The array's element stride is
+/// the table's own stride, so the two agree without the backend repeating
+/// what the runtime already knows.
+fn gen_entries(
+    ctx: &mut FnCtx<'_>,
+    args: &[HirExpr],
+    slice_ty: &TypeKind,
+    function: &str,
+) -> GenValue {
+    if !matches!(slice_ty, TypeKind::Slice(_)) {
+        return unit();
+    }
+    let Some(map) = args.first() else {
+        return unit();
+    };
+    let table = gen_expr(ctx, map);
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {out_slot}"));
+    ctx.push(format!(
+        "call void @{function}(ptr {out_slot}, i8* {})",
+        table.value
+    ));
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
+    }
+}
+
+/// Lower `map_keys(map) -> []K`.
+///
+/// The array is a copy of the table's keys, in the table's own order, and it
+/// owns a reference of its own for every `string` key it holds.
+pub fn gen_keys(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> GenValue {
+    gen_entries(ctx, args, slice_ty, "otter_map_keys")
+}
+
+/// Lower `map_values(map) -> []V`.
+///
+/// The array is a copy of the table's values, in the same order as the keys.
+pub fn gen_values(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> GenValue {
+    gen_entries(ctx, args, slice_ty, "otter_map_values")
+}
+
+/// Lower `map_contains_key(map, key) -> bool`.
+///
+/// The runtime answers 0 or 1 without copying the value out; the comparison
+/// turns that into the language's one-bit `bool`.
+pub fn gen_contains_key(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let (Some(map), Some(key)) = (args.first(), args.get(1)) else {
+        return crate::slices::false_value();
+    };
+    let table = gen_expr(ctx, map);
+    let key_slot = gen_expr_to_slot(ctx, key);
+    if key_slot.is_empty() {
+        return crate::slices::false_value();
+    }
+    let flag = ctx.tmp();
+    ctx.push(format!(
+        "{flag} = call i64 @otter_map_contains_key(i8* {}, ptr {key_slot})",
+        table.value
+    ));
+    bool_from_flag(ctx, &flag)
 }

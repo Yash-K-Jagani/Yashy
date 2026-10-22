@@ -373,6 +373,41 @@ $ otter build main.ot -o main && ./main
 3
 ```
 
+A map also hands its contents back as arrays, and answers whether a key is
+there without looking the value up. `keys()` and `values()` return *fresh*
+arrays, so the caller owns them and frees them; the order is the table's own
+order, which is a hash table's order and not the order the keys went in.
+
+```otter
+fn main() {
+    var counts: map[string]i64 = map_new();
+    counts.insert("otter", 2);
+    counts.insert("river", 1);
+
+    var keys: []string = counts.keys();
+    var values: []i64 = counts.values();
+
+    print_i64(keys.len());
+    print_str("\n");
+    print_i64(values.len());
+    print_str("\n");
+    if counts.contains_key("otter") {
+        print_str("otter is there\n");
+    }
+
+    keys.free();
+    values.free();
+    counts.free();
+}
+```
+
+```console
+$ otter build main.ot -o main && ./main
+2
+2
+otter is there
+```
+
 ```otter
 // A channel is typed and bounded: `chan_new(1)` holds one value, so `send`
 // blocks when the channel is full and `recv` blocks when it is empty. The

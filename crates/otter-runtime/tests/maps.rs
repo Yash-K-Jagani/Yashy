@@ -9,8 +9,10 @@ use std::ffi::{c_void, CString};
 use std::ptr::null_mut;
 
 use otter_runtime::{
-    otter_map_free, otter_map_get, otter_map_insert, otter_map_len, otter_map_new,
-    otter_map_remove, otter_str_from_i64, otter_str_release, OtterMap, OtterStr,
+    otter_map_contains_key, otter_map_free, otter_map_get, otter_map_insert, otter_map_keys,
+    otter_map_len, otter_map_new, otter_map_remove, otter_map_values, otter_slice_free,
+    otter_slice_free_strings, otter_slice_get, otter_str_from_i64, otter_str_len, otter_str_release,
+    OtterMap, OtterSlice, OtterStr,
 };
 
 /// A `CString` and the static `OtterStr` that points at its bytes.
@@ -314,5 +316,194 @@ fn null_and_invalid_tables_are_rejected_without_crashing() {
         assert!(otter_map_new(3, 8, 8).is_null());
         assert!(otter_map_new(0, 0, 8).is_null());
         assert!(otter_map_new(0, 8, 0).is_null());
+    }
+}
+
+#[test]
+fn contains_key_answers_without_touching_the_value() {
+    unsafe {
+        let map = table(0, 8);
+        put(map, 5, 50);
+        assert_eq!(
+            otter_map_contains_key(map, &5_i64 as *const i64 as *const c_void),
+            1
+        );
+        assert_eq!(
+            otter_map_contains_key(map, &6_i64 as *const i64 as *const c_void),
+            0,
+            "a key the table never held is not in it"
+        );
+
+        // A removed key is gone, even though its slot is a tombstone.
+        remove(map, 5);
+        assert_eq!(
+            otter_map_contains_key(map, &5_i64 as *const i64 as *const c_void),
+            0
+        );
+        otter_map_free(map);
+    }
+}
+
+#[test]
+fn contains_key_answers_for_a_string_key_by_content() {
+    unsafe {
+        let map = table(2, 8);
+        let key = otter_str_from_i64(7);
+        let handle = key as *const OtterStr;
+        otter_map_insert(
+            map,
+            &handle as *const *const OtterStr as *const c_void,
+            &70_i64 as *const i64 as *const c_void,
+        );
+
+        let equal = Static::new("7");
+        let equal_handle = equal.handle();
+        assert_eq!(
+            otter_map_contains_key(
+                map,
+                &equal_handle as *const *const OtterStr as *const c_void
+            ),
+            1,
+            "a string key is found by its content"
+        );
+
+        let other = Static::new("8");
+        let other_handle = other.handle();
+        assert_eq!(
+            otter_map_contains_key(
+                map,
+                &other_handle as *const *const OtterStr as *const c_void
+            ),
+            0
+        );
+        otter_map_free(map);
+        otter_str_release(key);
+    }
+}
+
+/// The elements of a fresh slice, read back as `i64`.
+unsafe fn i64_elements(slice: &mut OtterSlice) -> Vec<i64> {
+    let mut values = Vec::with_capacity(slice.len as usize);
+    for index in 0..slice.len {
+        let mut value: i64 = 0;
+        let found = otter_slice_get(
+            slice,
+            index,
+            &mut value as *mut i64 as *mut c_void,
+            8,
+        );
+        assert_eq!(found, 1, "element {index} must be readable");
+        values.push(value);
+    }
+    values
+}
+
+#[test]
+fn keys_and_values_come_back_as_arrays() {
+    unsafe {
+        let map = table(0, 8);
+        put(map, 1, 10);
+        put(map, 2, 20);
+        put(map, 3, 30);
+
+        let mut keys = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_keys(&mut keys, map);
+        assert_eq!(keys.len, 3);
+        let mut sorted = i64_elements(&mut keys);
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![1, 2, 3], "every key is in the array");
+        otter_slice_free(&mut keys);
+
+        let mut values = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_values(&mut values, map);
+        assert_eq!(values.len, 3);
+        let mut sorted = i64_elements(&mut values);
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![10, 20, 30], "every value is in the array");
+        otter_slice_free(&mut values);
+
+        otter_map_free(map);
+    }
+}
+
+#[test]
+fn the_key_and_value_arrays_follow_the_table() {
+    unsafe {
+        let map = table(0, 8);
+        put(map, 1, 10);
+
+        let mut keys = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_keys(&mut keys, map);
+        assert_eq!(keys.len, 1, "a fresh table's array is empty");
+        otter_slice_free(&mut keys);
+
+        put(map, 2, 20);
+        let mut keys = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_keys(&mut keys, map);
+        assert_eq!(keys.len, 2, "the array is a copy of the table as it is now");
+        otter_slice_free(&mut keys);
+
+        remove(map, 1);
+        let mut values = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_values(&mut values, map);
+        assert_eq!(values.len, 1, "a removed entry is not in the array");
+        otter_slice_free(&mut values);
+
+        otter_map_free(map);
+    }
+}
+
+#[test]
+fn the_key_array_owns_its_string_keys() {
+    unsafe {
+        let map = table(2, 8);
+        let key = otter_str_from_i64(7);
+        let handle = key as *const OtterStr;
+        otter_map_insert(
+            map,
+            &handle as *const *const OtterStr as *const c_void,
+            &70_i64 as *const i64 as *const c_void,
+        );
+        assert_eq!((*key).refcount, 2, "the table keeps a reference");
+
+        let mut keys = OtterSlice {
+            data: null_mut(),
+            len: 0,
+            cap: 0,
+        };
+        otter_map_keys(&mut keys, map);
+        assert_eq!((*key).refcount, 3, "the array keeps a reference of its own");
+        assert_eq!(keys.len, 1);
+
+        // The table goes away. The array's own reference keeps the bytes alive.
+        otter_map_free(map);
+        assert_eq!((*key).refcount, 2, "the table's reference is gone");
+        let element = *(keys.data as *const *const OtterStr);
+        assert_eq!(otter_str_len(element), 1, "the key is still readable");
+
+        // The array goes away too: exactly one reference is left, the caller's.
+        otter_slice_free_strings(&mut keys);
+        assert_eq!((*key).refcount, 1, "the array's reference is gone");
+        otter_str_release(key);
     }
 }

@@ -502,6 +502,9 @@ impl Module {
         out.push_str("declare i64 @otter_map_get(i8*, ptr, ptr)\n");
         out.push_str("declare i64 @otter_map_remove(i8*, ptr, ptr)\n");
         out.push_str("declare i64 @otter_map_len(i8*)\n");
+        out.push_str("declare i64 @otter_map_contains_key(i8*, ptr)\n");
+        out.push_str("declare void @otter_map_keys(ptr, i8*)\n");
+        out.push_str("declare void @otter_map_values(ptr, i8*)\n");
         // Threads, mutexes and channels (M7). The entry is a function pointer,
         // so the spawn call hands the runtime its synthesized entry directly;
         // the argument block is a byte copy whose size the caller computes from

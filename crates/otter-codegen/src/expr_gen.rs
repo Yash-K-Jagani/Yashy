@@ -1391,6 +1391,9 @@ fn gen_call(
         "map_remove" => crate::maps::gen_remove(ctx, args, ty),
         "map_len" => crate::maps::gen_len(ctx, args),
         "map_free" => crate::maps::gen_free(ctx, args),
+        "map_keys" => crate::maps::gen_keys(ctx, args, ty),
+        "map_values" => crate::maps::gen_values(ctx, args, ty),
+        "map_contains_key" => crate::maps::gen_contains_key(ctx, args),
         // Threads, mutexes and channels (M7). `thread_spawn` is the only one
         // that synthesizes a function; the rest are one runtime call each.
         "thread_spawn" => {

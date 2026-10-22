@@ -608,7 +608,7 @@ pub fn gen_copy(ctx: &mut FnCtx<'_>, args: &[HirExpr], slice_ty: &TypeKind) -> G
 }
 
 /// A `false` value for a slice method that cannot be lowered.
-fn false_value() -> GenValue {
+pub fn false_value() -> GenValue {
     GenValue {
         value: "false".to_string(),
         ty: TypeKind::Bool,
@@ -616,7 +616,7 @@ fn false_value() -> GenValue {
 }
 
 /// Turn a runtime 0/1 flag into an LLVM `i1`.
-fn bool_from_flag(ctx: &mut FnCtx<'_>, flag: &str) -> GenValue {
+pub fn bool_from_flag(ctx: &mut FnCtx<'_>, flag: &str) -> GenValue {
     let ok = ctx.tmp();
     ctx.push(format!("{ok} = icmp ne i64 {flag}, 0"));
     GenValue {

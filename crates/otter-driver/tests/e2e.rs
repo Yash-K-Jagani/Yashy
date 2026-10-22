@@ -2162,6 +2162,19 @@ fn maps_insert_overwrite_remove_and_measure() {
 }
 
 #[test]
+fn the_map_methods_answer_with_arrays_and_a_bool() {
+    // `map_methods.ot` asks a three-entry map for its keys and its values, sums
+    // the values, and asks `contains_key` about a key that is there and one
+    // that is not. The arrays are in the table's own order, so the program
+    // measures them instead of printing them in order. The last line is the
+    // proof that the key array owns its own references: the map is freed
+    // before it, and the keys are still readable.
+    let output = build_and_run("map_methods");
+    assert_eq!(stdout_of(&output), "3\n3\n60\nhas ada\nno zz\n9\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn a_string_slice_can_be_built_iterated_and_freed() {
     // `string_slices.ot` starts from a two-element literal, pushes a third
     // literal and a freshly built number, then prints all four in order. The

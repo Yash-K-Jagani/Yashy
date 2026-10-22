@@ -158,3 +158,60 @@ fn len_measures_a_map() {
     )
     .expect("a map has the same `len` method as an array and a string");
 }
+
+#[test]
+fn the_map_methods_answer_with_the_types_the_table_holds() {
+    check(
+        "fn main() { var m: map[i64]i64 = map_new(); \
+         m.insert(1, 10); \
+         var keys: []i64 = m.keys(); \
+         var values: []i64 = m.values(); \
+         var has: bool = m.contains_key(1); \
+         keys.free(); values.free(); m.free(); }",
+    )
+    .expect("the keys and values are arrays of the table's own types");
+}
+
+#[test]
+fn a_string_key_map_answers_with_a_string_array() {
+    check(
+        "fn main() { var m: map[string]i64 = map_new(); \
+         m.insert(\"k\", 10); \
+         var keys: []string = m.keys(); \
+         var values: []i64 = m.values(); \
+         keys.free(); values.free(); m.free(); }",
+    )
+    .expect("a string key map answers with a string array");
+}
+
+#[test]
+fn a_key_of_the_wrong_type_is_reported_by_contains_key() {
+    assert_rejected(
+        "fn main() { var m: map[i64]i64 = map_new(); var has: bool = m.contains_key(\"k\"); m.free(); }",
+        "expected `i64`, found `string`",
+    );
+}
+
+#[test]
+fn contains_key_needs_a_key() {
+    assert_rejected(
+        "fn main() { var m: map[i64]i64 = map_new(); var has: bool = m.contains_key(); m.free(); }",
+        "takes 2 arguments",
+    );
+}
+
+#[test]
+fn keys_and_values_take_no_arguments() {
+    assert_rejected(
+        "fn main() { var m: map[i64]i64 = map_new(); var keys: []i64 = m.keys(1); m.free(); }",
+        "takes 1 argument",
+    );
+}
+
+#[test]
+fn the_map_methods_are_not_available_on_other_types() {
+    assert_rejected(
+        "fn main() { var xs = []i64 { 1 }; var keys: []i64 = xs.keys(); }",
+        "no method `keys` on `[]i64`",
+    );
+}

@@ -3592,7 +3592,8 @@ impl<'src> Checker<'src> {
             "push" | "pop" | "free_slice" => {
                 self.check_slice_builtin(builtin, &call_args, span).flatten()
             }
-            "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free" => {
+            "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free"
+            | "map_keys" | "map_values" | "map_contains_key" => {
                 self.check_map_builtin(builtin, &call_args, span).flatten()
             }
             "chan_send" | "chan_recv" | "chan_close" | "chan_free" | "mutex_lock"
@@ -5093,7 +5094,8 @@ impl<'src> Checker<'src> {
         })
     }
 
-    /// Check `map_get`, `map_insert`, `map_remove`, `map_len`, and `map_free`.
+    /// Check `map_get`, `map_insert`, `map_remove`, `map_len`, `map_free`,
+    /// `map_keys`, `map_values`, and `map_contains_key`.
     ///
     /// Every one takes the map as its first argument, so the key and value
     /// types are known before the other arguments are checked. The receiver
@@ -5111,7 +5113,7 @@ impl<'src> Checker<'src> {
     ) -> Option<Option<HirExpr>> {
         let arity = match name {
             "map_insert" => 3,
-            "map_get" | "map_remove" => 2,
+            "map_get" | "map_remove" | "map_contains_key" => 2,
             _ => 1,
         };
         if args.len() != arity {
@@ -5175,6 +5177,32 @@ impl<'src> Checker<'src> {
                 ty: prim(TypeKind::I64),
             }));
         }
+        if name == "map_keys" {
+            // The array is a fresh copy of the table's keys, so it is a linear
+            // value the caller owns and frees.
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: Type {
+                    kind: TypeKind::Slice(Box::new(key.clone())),
+                    span,
+                },
+            }));
+        }
+        if name == "map_values" {
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: Type {
+                    kind: TypeKind::Slice(Box::new(value.clone())),
+                    span,
+                },
+            }));
+        }
 
         let key_expr = match self.check_expr_with_expected(&args[1], &key) {
             Some(key_expr) => key_expr,
@@ -5194,6 +5222,15 @@ impl<'src> Checker<'src> {
                 unsafe_call: false,
                 span,
                 ty: option(&value, span),
+            }));
+        }
+        if name == "map_contains_key" {
+            return Some(Some(HirExpr::Call {
+                callee: vec![name.to_string()],
+                args: vec![receiver, key_expr],
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::Bool),
             }));
         }
         // `map_insert`
@@ -7212,6 +7249,9 @@ fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str
             "remove" => Some("map_remove"),
             "len" => Some("map_len"),
             "free" => Some("map_free"),
+            "keys" => Some("map_keys"),
+            "values" => Some("map_values"),
+            "contains_key" => Some("map_contains_key"),
             _ => None,
         },
         TypeKind::Channel(_) => match method {

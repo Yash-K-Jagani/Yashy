@@ -334,6 +334,9 @@ void otter_slice_slice_strings(otter_slice *out, otter_slice *source,
  *     declare i64 @otter_map_get(i8*, ptr, ptr)
  *     declare i64 @otter_map_remove(i8*, ptr, ptr)
  *     declare i64 @otter_map_len(i8*)
+ *     declare i64 @otter_map_contains_key(i8*, ptr)
+ *     declare void @otter_map_keys({ i8*, i64, i64 }*, i8*)
+ *     declare void @otter_map_values({ i8*, i64, i64 }*, i8*)
  *
  * A map value is an opaque pointer to an open-addressing table. `map_new`
  * records the *key kind* once -- 0 = `i64`, 1 = `bool`, 2 = `string` -- plus
@@ -352,7 +355,15 @@ void otter_slice_slice_strings(otter_slice *out, otter_slice *source,
  * defined even though they must not be read.
  *
  * `insert` reports nothing, like `push`: on a failed allocation the table is
- * left unchanged, which is the only state the caller could observe. */
+ * left unchanged, which is the only state the caller could observe.
+ *
+ * `otter_map_contains_key` answers 1 or 0 without copying the value out.
+ * `otter_map_keys` and `otter_map_values` fill a fresh slice header, in the
+ * order the table holds its entries -- which is the table's own order, not
+ * the order the keys were inserted in. The key array owns a reference of its
+ * own for every `string` key it copies, so the map can be freed without
+ * pulling the strings out from under the array. The value array owns nothing:
+ * a map value is always a number or a `bool`. */
 typedef struct otter_map otter_map;
 otter_map *otter_map_new(long long key_kind, long long key_size, long long value_size);
 void otter_map_free(otter_map *map);
@@ -360,6 +371,9 @@ void otter_map_insert(otter_map *map, const void *key, const void *value);
 long long otter_map_get(const otter_map *map, const void *key, void *out);
 long long otter_map_remove(otter_map *map, const void *key, void *out);
 long long otter_map_len(const otter_map *map);
+long long otter_map_contains_key(const otter_map *map, const void *key);
+void otter_map_keys(otter_slice *out, const otter_map *map);
+void otter_map_values(otter_slice *out, const otter_map *map);
 
 /* ---- Threads, mutexes and channels ------------------------------------
  *

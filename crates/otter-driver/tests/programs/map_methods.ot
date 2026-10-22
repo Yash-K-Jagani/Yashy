@@ -1,0 +1,53 @@
+// The map's key and value methods, end to end.
+//
+// `keys` and `values` hand back a fresh array of the table's own contents.
+// The order is the table's order -- a hash table has no insertion order to
+// give away -- so this program measures the arrays rather than printing them
+// in order: it counts them, sums the values, and asks `contains_key` about
+// each key. The key array owns its own reference to every string it holds,
+// so the map can be freed while the array is still alive.
+
+fn main() {
+    var scores: map[string]i64 = map_new();
+    scores.insert("ada", 10);
+    scores.insert("bram", 20);
+    scores.insert("cy", 30);
+
+    var keys: []string = scores.keys();
+    var values: []i64 = scores.values();
+
+    print_i64(keys.len());
+    print_str("\n");
+    print_i64(values.len());
+    print_str("\n");
+
+    var total: i64 = 0;
+    for v in values {
+        total = total + v;
+    }
+    print_i64(total);
+    print_str("\n");
+
+    if scores.contains_key("ada") {
+        print_str("has ada\n");
+    }
+    if scores.contains_key("zz") {
+        print_str("has zz\n");
+    } else {
+        print_str("no zz\n");
+    }
+
+    // The map goes first: the key array holds a reference of its own, so the
+    // strings it carries stay alive.
+    scores.free();
+
+    var kept: i64 = 0;
+    for k in keys {
+        kept = kept + k.len();
+    }
+    print_i64(kept);
+    print_str("\n");
+
+    keys.free();
+    values.free();
+}
