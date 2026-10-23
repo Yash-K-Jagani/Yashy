@@ -1,7 +1,7 @@
 //! Debug formatting: the `${value:?}` form of string interpolation.
 //!
 //! Display (`${value}`) answers "what does this say?" and has a form for the
-//! four scalar types only. Debug answers "what is this value?" and has a form
+//! five scalar types only. Debug answers "what is this value?" and has a form
 //! for the aggregate the language can build: structs and enums show their name
 //! and their fields, tuples and arrays show their elements, and a `string` is
 //! quoted and escaped so that whitespace and delimiters in it stay visible.
@@ -55,6 +55,7 @@ impl Checker<'_> {
             TypeKind::F64 => Some(runtime_call("str_from_f64", value, span)),
             TypeKind::Bool => Some(runtime_call("str_from_bool", value, span)),
             TypeKind::Str => Some(runtime_call("str_debug", value, span)),
+            TypeKind::Char => Some(runtime_call("str_debug_char", value, span)),
             TypeKind::Struct(_)
             | TypeKind::Enum(_)
             | TypeKind::Option(_)
@@ -76,8 +77,8 @@ impl Checker<'_> {
                 self.error(
                     span,
                     format!(
-                        "cannot format a `{ty}` with `:?`: only numbers, `bool`, `string`, \
-                         structs, enums, tuples and arrays have a debug form"
+                        "cannot format a `{ty}` with `:?`: only numbers, `bool`, `char`, \
+                         `string`, structs, enums, tuples and arrays have a debug form"
                     ),
                 );
                 None

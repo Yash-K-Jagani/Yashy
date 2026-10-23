@@ -141,6 +141,12 @@ fn scalar_conversions_have_one_spelling() {
 }
 
 #[test]
+fn a_char_interpolates_as_itself() {
+    let (result, _, _) = check_source("fn f(c: char) { const s = \"${c}\"; }");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
 fn function_parameters_and_returns_are_checked() {
     let (result, _, _) = check_source("fn f(a: int) -> int { return a; }");
     result.expect("fn with matching signature should type-check");

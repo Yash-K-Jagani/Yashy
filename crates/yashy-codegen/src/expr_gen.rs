@@ -1636,7 +1636,8 @@ fn gen_call(
             // differs, so the common path handles them.
             match name.as_str() {
                 "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64"
-                | "str_from_char" | "char_from_int" | "str_slice" | "str_debug" => {
+                | "str_from_char" | "char_from_int" | "str_debug_char" | "str_slice"
+                | "str_debug" => {
                     gen_borrowed_call(ctx, &format!("yashy_{name}"), args, ty)
                 }
                 // These three cross the C boundary: a `string` argument becomes a

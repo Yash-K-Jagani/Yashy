@@ -1076,6 +1076,53 @@ yashy_str *yashy_str_debug(const yashy_str *s) {
     return out;
 }
 
+/* The debug form of a char: `'A'`, with the same escapes the string form uses
+ * and `'\xNN'` for a byte that has no printable spelling. The quotes are single
+ * so that the text could be typed back into a program as a char literal. */
+yashy_str *yashy_str_debug_char(unsigned char value) {
+    static const char hex[] = "0123456789abcdef";
+    char buffer[8];
+    size_t at = 0;
+    buffer[at++] = '\'';
+    switch (value) {
+    case '\'':
+        buffer[at++] = '\\';
+        buffer[at++] = '\'';
+        break;
+    case '\\':
+        buffer[at++] = '\\';
+        buffer[at++] = '\\';
+        break;
+    case '\n':
+        buffer[at++] = '\\';
+        buffer[at++] = 'n';
+        break;
+    case '\r':
+        buffer[at++] = '\\';
+        buffer[at++] = 'r';
+        break;
+    case '\t':
+        buffer[at++] = '\\';
+        buffer[at++] = 't';
+        break;
+    case '\0':
+        buffer[at++] = '\\';
+        buffer[at++] = '0';
+        break;
+    default:
+        if (value < 0x20 || value >= 0x7f) {
+            buffer[at++] = '\\';
+            buffer[at++] = 'x';
+            buffer[at++] = hex[value >> 4];
+            buffer[at++] = hex[value & 0x0f];
+        } else {
+            buffer[at++] = (char)value;
+        }
+    }
+    buffer[at++] = '\'';
+    return yashy_str_new(buffer, at);
+}
+
 /* ---- Input ------------------------------------------------------------
  *
  * `yashy_read_line` reads one line from standard input and returns it without

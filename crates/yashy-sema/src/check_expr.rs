@@ -7396,11 +7396,12 @@ impl<'src> Checker<'src> {
             TypeKind::I64 => "str_from_i64",
             TypeKind::F64 => "str_from_f64",
             TypeKind::Bool => "str_from_bool",
+            TypeKind::Char => "str_from_char",
             _ => {
                 self.error(
                     expr_span(&expr),
                     format!(
-                        "cannot interpolate a `{ty}` into a string: only `string`, `int`, `float` and `bool` have a text form"
+                        "cannot interpolate a `{ty}` into a string: only `string`, `char`, `int`, `float` and `bool` have a text form"
                     ),
                 );
                 return None;

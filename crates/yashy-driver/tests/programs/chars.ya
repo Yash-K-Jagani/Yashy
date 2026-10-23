@@ -10,4 +10,8 @@ fn main() {
     print_str("\n");
     print_str('A'.to_string());
     print_str("\n");
+    print_str("${'B'}");
+    print_str("\n");
+    print_str("${'\n':?}");
+    print_str("\n");
 }

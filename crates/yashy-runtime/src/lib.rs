@@ -339,6 +339,13 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// The debug form of a char: the byte in single quotes, escaped the way a
+    /// string is, or `'\xNN'` when it has no printable spelling. The caller
+    /// owns the result.
+    pub fn yashy_str_debug_char(value: c_uchar) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
     /// The debug form of a string: the text in double quotes, with `"`, `\` and
     /// the control characters escaped. The caller owns the result.
     pub fn yashy_str_debug(s: *const YashyStr) -> *mut YashyStr;

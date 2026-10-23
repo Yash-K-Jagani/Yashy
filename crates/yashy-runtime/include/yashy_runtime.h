@@ -152,6 +152,9 @@ yashy_str *yashy_str_from_char(unsigned char value);
 /* The byte an `int` names, or a failure status and a message when it is outside
  * 0..=255. Truncating instead would turn a mistake into a plausible character. */
 unsigned char yashy_char_from_int(long long value);
+/* The debug form of a char: `'A'`, with the same escapes a string uses and
+ * `'\xNN'` for a byte with no printable spelling. */
+yashy_str *yashy_str_debug_char(unsigned char value);
 int yashy_str_eq(const yashy_str *a, const yashy_str *b);
 
 /* The debug form of a string (M15 Task 20): the text in double quotes, with

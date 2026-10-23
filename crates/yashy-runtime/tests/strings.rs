@@ -165,6 +165,21 @@ fn char_from_int_keeps_the_whole_byte_range() {
 }
 
 #[test]
+fn debug_char_quotes_and_escapes_the_byte() {
+    unsafe {
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(b'A')), "'A'");
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(b'\n')), "'\\n'");
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(b'\0')), "'\\0'");
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(b'\'')), "'\\''");
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(b'\\')), "'\\\\'");
+        // A byte with no printable spelling is shown as itself in hex, so the
+        // debug form stays typeable as a char literal.
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(0x1b)), "'\\x1b'");
+        assert_eq!(read(yashy_runtime::yashy_str_debug_char(0xFF)), "'\\xff'");
+    }
+}
+
+#[test]
 fn from_f64_matches_the_print_format() {
     unsafe {
         // `%.17g` is what `print_f64` writes, so the string form and the printed

@@ -311,11 +311,12 @@ fn hello_world_prints_and_exits_zero() {
 
 #[test]
 fn chars_convert_and_print() {
-    // `e\n101\n65\nA\nA\n`: the char's string form is the byte itself, its int
-    // form is the byte value, and `65.to_char()` is the literal-then-method
-    // parse (`65.` is not a float, because no digit follows the dot).
+    // The char's string form is the byte itself, its int form is the byte
+    // value, `65.to_char()` is the literal-then-method parse (`65.` is not a
+    // float, because no digit follows the dot), and the debug form quotes the
+    // byte and escapes what would not survive being typed back.
     let output = build_and_run("chars");
-    assert_eq!(stdout_of(&output), "e\n101\n65\nA\nA\n");
+    assert_eq!(stdout_of(&output), "e\n101\n65\nA\nA\nB\n'\\n'\n");
 }
 
 #[test]
