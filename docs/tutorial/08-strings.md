@@ -37,17 +37,17 @@ path.
 
 A string is UTF-8 bytes with a length, not an array of characters. The length
 of `"héllo"` is 6, because `é` is two bytes. `s.byte_at(i)` returns the byte at
-`i` as an `i64` in `0..255`, or `0` when `i` is negative or past the end.
+`i` as an `int` in `0..255`, or `0` when `i` is negative or past the end.
 `s.slice` also works in bytes, so `s.slice(0, 3)` is `"hé"` while
 `s.slice(0, 2)` stops in the middle of `é` and produces invalid UTF-8. That is
 not an error, and the compiler cannot see it: both arguments are ordinary
-`i64`s.
+`int`s.
 
 `slice` never faults. A negative start becomes `0`, an end past the length
 becomes the length, and an inverted range such as `s.slice(2, 1)` is empty.
 Out-of-range `byte_at` returns `0` for the same reason: a bad index has an
 answer, so there is no panic path. `get` is the checked alternative: it returns
-`Option[i64]`, with `None` outside `0..len`.
+`Option[int]`, with `None` outside `0..len`.
 
 ## Strings are copied, not moved
 
@@ -81,15 +81,15 @@ are equal. Ordering is not provided: `<` on strings is a type error.
 
 | Form | Result | Notes |
 |---|---|---|
-| `s.len()` | `i64` | Number of bytes, not characters. |
+| `s.len()` | `int` | Number of bytes, not characters. |
 | `s.is_empty()` | `bool` | `len() == 0`. |
-| `s.byte_at(i)` | `i64` | Byte value, or `0` when out of range. |
-| `s.get(i)` | `Option[i64]` | Byte value, or `None` when out of range. |
+| `s.byte_at(i)` | `int` | Byte value, or `0` when out of range. |
+| `s.get(i)` | `Option[int]` | Byte value, or `None` when out of range. |
 | `s.slice(start, end)` | `string` | New string over `[start, end)`, clamped. |
 | `s.contains(needle)` | `bool` | Whether `needle` occurs at least once. |
 | `s.starts_with(prefix)` | `bool` | Byte-prefix test. |
 | `s.ends_with(suffix)` | `bool` | Byte-suffix test. |
-| `s.index_of(needle)` | `Option[i64]` | First byte index, or `None`. |
+| `s.index_of(needle)` | `Option[int]` | First byte index, or `None`. |
 | `s.trim()` | `string` | Removes ASCII whitespace at both ends. |
 | `s.trim_start()` / `s.trim_end()` | `string` | Removes it at one end. |
 | `s.to_upper()` / `s.to_lower()` | `string` | ASCII-only case mapping. |
@@ -97,10 +97,10 @@ are equal. Ordering is not provided: `<` on strings is a type error.
 | `s.repeat(n)` | `string` | `n` copies; `n <= 0` is empty. |
 | `s.split(separator)` | `[]string` | Fresh array of fresh strings. |
 | `s.lines()` | `[]string` | Splits on `\n`, strips one `\r`, drops the final empty piece. |
-| `s.parse_i64()` / `s.parse_f64()` | `i64` / `f64` | `0` when the text is not a number. |
+| `s.parse_i64()` / `s.parse_f64()` | `int` / `float` | `0` when the text is not a number. |
 | `a + b` | `string` | New string; both operands are `string`. |
 | `a == b` | `bool` | Compares bytes, not identity. |
-| `"${expr}"` | `string` | `expr` may be `string`, `i64`, `f64`, or `bool`. |
+| `"${expr}"` | `string` | `expr` may be `string`, `int`, `float`, or `bool`. |
 | `str_from_i64(n)` and friends | `string` | The conversions interpolation uses. |
 
 Every transform returns a fresh owned string. `split` and `lines` return a
@@ -113,7 +113,7 @@ The string is the receiver, so the subject comes first and the method name is
 the operation:
 
 ```yashy
-fn show(o: Option[i64]) -> i64 {
+fn show(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -246,8 +246,8 @@ its control characters escaped.
 
 ```yashy
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 fn main() {
@@ -271,10 +271,10 @@ text stays on one line.
 The debug form exists for the values that have a shape to show. A number, a
 `bool` and a `string` have one form each, and a struct, an enum, a tuple and
 an array have theirs. A pointer has none -- printing its address would succeed
-and mean nothing -- so `"${p:?}"` on a `*mut i64` is a diagnostic:
+and mean nothing -- so `"${p:?}"` on a `*mut int` is a diagnostic:
 
 ```text
-error: cannot format a `*mut i64` with `:?`: only numbers, `bool`, `string`,
+error: cannot format a `*mut int` with `:?`: only numbers, `bool`, `string`,
 structs, enums, tuples and arrays have a debug form
 ```
 
@@ -283,7 +283,7 @@ structs, enums, tuples and arrays have a debug form
 - **Indexing a string.** `s[0]` reports ``error: cannot index `string` ``.
   Use `s.byte_at(0)` for a byte, or `s.slice(0, 1)` for a one-byte string.
 - **Adding a number to a string.** `"n = " + 1` reports
-  ``error: cannot apply `+` to `string` and `i64` ``. Write
+  ``error: cannot apply `+` to `string` and `int` ``. Write
   `"n = ${n}"`, which inserts the converted value.
 - **Using an escape Yashy does not have.** `"\q"` reports
   ``error: invalid escape sequence in string literal: unknown escape `\q` ``.
@@ -313,7 +313,7 @@ structs, enums, tuples and arrays have a debug form
 
 ## How it works
 
-A `string` value is an `i8*` pointing at `%yashy_str = { i64, i64, i64, i8* }`:
+A `string` value is an `i8*` pointing at `%yashy_str = { int, int, int, i8* }`:
 refcount, byte length, capacity, and data. The runtime creates owned strings
 with refcount 1; a literal is baked in with refcount `-1`, which the release
 path ignores, so literals are never freed. Codegen keeps a per-function set of

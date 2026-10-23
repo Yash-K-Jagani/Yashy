@@ -2,9 +2,9 @@
 // bytes, `to_upper`/`to_lower` map ASCII only, and `lines` treats one `\n` as
 // one boundary. Every transform returns a fresh owned string.
 //
-// `show` turns an `Option[i64]` into a printable number: -1 means `None`.
+// `show` turns an `Option[int]` into a printable number: -1 means `None`.
 
-fn show(o: Option[i64]) -> i64 {
+fn show(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -124,8 +124,8 @@ fn main() {
     print_str("\n");
     var decimal = "2.5";
     if decimal.parse_f64() == 2.5 {
-        print_str("f64 parse ok\n");
+        print_str("float parse ok\n");
     } else {
-        print_str("f64 parse wrong\n");
+        print_str("float parse wrong\n");
     }
 }

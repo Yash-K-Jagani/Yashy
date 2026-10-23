@@ -5,8 +5,8 @@
 // same field either way.
 
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 struct Line {
@@ -14,7 +14,7 @@ struct Line {
     to: Point,
 }
 
-fn manhattan(p: Point) -> i64 {
+fn manhattan(p: Point) -> int {
     return p.x + p.y;
 }
 

@@ -19,6 +19,6 @@
 // can spell yet -- only a builtin's signature uses it. At run time the call
 // still never comes back; the type system just cannot say so to the caller.
 
-pub fn exit_with(code: i64) {
+pub fn exit_with(code: int) {
     exit(code);
 }

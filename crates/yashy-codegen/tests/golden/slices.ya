@@ -1,8 +1,8 @@
-fn build() -> []i64 {
-    var xs = []i64 { 10, 20 };
+fn build() -> []int {
+    var xs = []int { 10, 20 };
     xs.push(30);
     xs.free();
-    return []i64 {};
+    return []int {};
 }
 
 fn main() {

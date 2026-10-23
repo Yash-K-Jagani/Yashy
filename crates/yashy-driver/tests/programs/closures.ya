@@ -1,8 +1,8 @@
 // A closure captures the values of the scope it is written in, and carries
 // them with it: the closure outlives the function that made it.
 
-fn adder(n: i64) -> fn(i64) -> i64 {
-    return |x: i64| -> i64 { return x + n; };
+fn adder(n: int) -> fn(int) -> int {
+    return |x: int| -> int { return x + n; };
 }
 
 fn greeter(greeting: string) -> fn() -> string {
@@ -22,5 +22,5 @@ fn main() {
 
     // A closure that is made and thrown away: its environment is released
     // with it, so it does not leak.
-    |x: i64| -> i64 { return x; };
+    |x: int| -> int { return x; };
 }

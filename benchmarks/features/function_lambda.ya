@@ -5,7 +5,7 @@
 // function on every iteration. The two rows therefore differ in one thing
 // only: what the value points at -- a thunk that calls a named function, or
 // the lambda's own function.
-fn apply(f: fn(i64, i64) -> i64, x: i64, k: i64) -> i64 {
+fn apply(f: fn(int, int) -> int, x: int, k: int) -> int {
     return f(x, k);
 }
 
@@ -15,7 +15,7 @@ fn main() {
     var sum = 0;
     var i = 0;
     while i < n {
-        sum = wrapping_add(sum, apply(|x: i64, k: i64| -> i64 { return x * k + x % 3; }, i, k));
+        sum = wrapping_add(sum, apply(|x: int, k: int| -> int { return x * k + x % 3; }, i, k));
         i = wrapping_add(i, 1);
     }
     print_i64(sum);

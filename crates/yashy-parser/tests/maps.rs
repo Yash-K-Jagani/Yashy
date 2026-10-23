@@ -30,26 +30,26 @@ fn first_param(src: &str) -> TypeExpr {
 
 #[test]
 fn a_map_type_is_a_bracketed_key_then_a_value() {
-    match first_param("fn f(m: map[string]i64) {}") {
+    match first_param("fn f(m: map[string]int) {}") {
         TypeExpr::Map(key, value, _) => {
             assert!(
                 matches!(&*key, TypeExpr::Name(name, _) if name == "string"),
                 "the key is the type inside the brackets: {key:?}"
             );
             assert!(
-                matches!(&*value, TypeExpr::Name(name, _) if name == "i64"),
+                matches!(&*value, TypeExpr::Name(name, _) if name == "int"),
                 "the value is the type after the bracket: {value:?}"
             );
         }
-        other => panic!("expected `map[string]i64`, got {other:?}"),
+        other => panic!("expected `map[string]int`, got {other:?}"),
     }
 }
 
 #[test]
 fn a_map_value_may_be_another_map() {
-    match first_param("fn f(m: map[i64]map[bool]f64) {}") {
+    match first_param("fn f(m: map[int]map[bool]float) {}") {
         TypeExpr::Map(key, value, _) => {
-            assert!(matches!(&*key, TypeExpr::Name(name, _) if name == "i64"));
+            assert!(matches!(&*key, TypeExpr::Name(name, _) if name == "int"));
             assert!(
                 matches!(&*value, TypeExpr::Map(_, _, _)),
                 "the value is parsed as a whole type: {value:?}"
@@ -61,7 +61,7 @@ fn a_map_value_may_be_another_map() {
 
 #[test]
 fn a_map_key_may_be_an_option() {
-    match first_param("fn f(m: map[Option[i64]]i64) {}") {
+    match first_param("fn f(m: map[Option[int]]int) {}") {
         TypeExpr::Map(key, _, _) => assert!(
             matches!(&*key, TypeExpr::Option(_, _)),
             "the bracketed type is parsed as a whole type: {key:?}"

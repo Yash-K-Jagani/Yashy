@@ -3,7 +3,7 @@
 // The method spelling is the one the M12 surface will keep.
 
 fn main() {
-    var xs = []i64 { 1, 2 };
+    var xs = []int { 1, 2 };
     print_i64(xs.len());
     print_str("\n");
     xs.push(3);

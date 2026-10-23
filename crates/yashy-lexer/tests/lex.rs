@@ -106,7 +106,7 @@ fn a_range_operator_does_not_become_a_float_or_an_extra_dot() {
 #[test]
 fn a_number_keeps_its_span_even_when_it_does_not_fit_in_an_i64() {
     // The token carries no value: the parser reads the bytes back out of the
-    // span. So a literal too big for `i64` must still lex cleanly, and must be
+    // span. So a literal too big for `int` must still lex cleanly, and must be
     // a *parser* error later rather than a lexer crash or a rejected token.
     // `literal_as_i64` is how that becomes an error, and it returns a
     // diagnostic rather than panicking.
@@ -126,16 +126,16 @@ fn a_number_too_large_for_an_i64_is_a_diagnostic_not_a_panic() {
     // no diagnostic.
     let big = "9".repeat(40);
     let d = match literal_as_i64(&big, Span::new(0, 40), file()) {
-        Ok(value) => panic!("40 digits cannot be an i64, got {value}"),
+        Ok(value) => panic!("40 digits cannot be an int, got {value}"),
         Err(d) => d,
     };
     assert!(d.is_error());
     assert_eq!(d.span, Span::new(0, 40), "the caret covers the whole literal");
     assert_eq!(d.file, file(), "the diagnostic names the file it was given");
-    assert!(d.message.contains("i64"), "got {:?}", d.message);
+    assert!(d.message.contains("int"), "got {:?}", d.message);
 
     // The boundaries, so an off-by-one in the range check shows up. Note that
-    // `i64::MIN` is not here: the lexer makes the `-` a separate token, so the
+    // `int::MIN` is not here: the lexer makes the `-` a separate token, so the
     // largest literal an `I64` token can stand for is `i64::MAX`, and folding a
     // sign into it is the parser's business.
     assert_eq!(literal_as_i64("9223372036854775807", Span::new(0, 19), file()), Ok(i64::MAX));
@@ -155,7 +155,7 @@ fn a_number_too_large_for_an_i64_is_a_diagnostic_not_a_panic() {
     // this argument exists to prevent.
     let other = FileId::from_index(7);
     let d = match literal_as_i64("99999999999999999999", Span::new(0, 20), other) {
-        Ok(value) => panic!("20 digits cannot be an i64, got {value}"),
+        Ok(value) => panic!("20 digits cannot be an int, got {value}"),
         Err(d) => d,
     };
     assert_eq!(d.file, other, "the diagnostic must not be pinned to file zero");
@@ -200,7 +200,7 @@ fn a_number_may_be_written_with_separators_or_a_radix_prefix() {
     }
 
     // A prefix with no digits, a digit of the wrong radix, a separator that is
-    // not between two digits, and a value too large for the radix's `i64` are
+    // not between two digits, and a value too large for the radix's `int` are
     // all diagnostics rather than guesses.
     for src in ["0x", "0xG", "0b102", "0o8", "0x_1", "0xFF_", "0xFFFFFFFFFFFFFFFFF"] {
         let end = u32::try_from(src.len()).unwrap_or(u32::MAX);
@@ -317,7 +317,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("case", TokenKind::Case),
     ("default", TokenKind::Default),
     // Spec §3.1 lists these two among the keywords, and Task 6 parses casts:
-    // without them `x as f64` is three identifiers and `move buf` is a name.
+    // without them `x as float` is three identifiers and `move buf` is a name.
     ("as", TokenKind::As),
     ("move", TokenKind::Move),
     ("true", TokenKind::True),
@@ -349,14 +349,14 @@ fn every_keyword_is_lexed_as_itself_and_the_table_is_complete() {
     assert!(!TokenKind::Eof.is_keyword());
 
     // A cast and a transfer use them, so they are exercised in the shape Task 6
-    // will parse: `x as f64`.
+    // will parse: `x as float`.
     assert_eq!(
-        tokens("x as f64"),
+        tokens("x as float"),
         vec![
             (TokenKind::Ident, Span::new(0, 1)),
             (TokenKind::As, Span::new(2, 4)),
-            (TokenKind::Ident, Span::new(5, 8)),
-            (TokenKind::Eof, Span::new(8, 8)),
+            (TokenKind::Ident, Span::new(5, 10)),
+            (TokenKind::Eof, Span::new(10, 10)),
         ]
     );
 }
@@ -400,7 +400,7 @@ fn every_token_span_slices_back_to_its_own_source_text() {
     // source that uses every kind of token: for every token but `Eof`, the
     // span is a range this file can be sliced with, and the slice is the text
     // that token stands for.
-    let src = "fn f(a: i64) -> i64 { let b = 3.5; return a + b * 2; } // done\n\"s\" @ ..\n";
+    let src = "fn f(a: int) -> int { let b = 3.5; return a + b * 2; } // done\n\"s\" @ ..\n";
     let lexed = tokens(src);
     assert!(lexed.len() > 20, "fixture must cover a lot of tokens, got {}", lexed.len());
 

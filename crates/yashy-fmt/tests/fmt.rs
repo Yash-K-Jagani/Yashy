@@ -176,10 +176,10 @@ fn empty_braces_collapse_to_one_pair() {
 fn a_lambda_bars_bind_to_their_parameter_list() {
     // `|x: i64|` reads as one thing: the bar opens the list, the bar closes
     // it, and neither takes air. The arrow after the closing bar does.
-    let source = "fn main() {\n    const f = |x: i64| -> i64 { return x; };\n}\n";
+    let source = "fn main() {\n    const f = |x: int| -> int { return x; };\n}\n";
     assert_eq!(
         format(source),
-        "fn main() {\n    const f = |x: i64| -> i64 {\n        return x;\n    };\n}\n"
+        "fn main() {\n    const f = |x: int| -> int {\n        return x;\n    };\n}\n"
     );
 }
 

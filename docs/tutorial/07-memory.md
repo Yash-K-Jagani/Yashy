@@ -7,7 +7,7 @@
 - When a `defer` body runs, in what order, and what it captures.
 - Why an unfreed allocation is a leak rather than an error.
 
-`alloc(n)` returns a `*mut i64` pointing at `n` slots; `dealloc(ptr)` releases
+`alloc(n)` returns a `*mut int` pointing at `n` slots; `dealloc(ptr)` releases
 it. Indexing works: `buffer[0] = 7` writes the first slot.
 
 ```yashy
@@ -56,14 +56,14 @@ Three rules make this safe without a garbage collector:
 
 | Operation | Type or form | Ownership effect |
 |---|---|---|
-| `alloc(n)` | `*mut i64` | Creates one owner; memory is uninitialised. |
-| `dealloc(p)` | `()` | Releases the block; the argument is moved. |
+| `alloc(n)` | `*mut int` | Creates one owner; memory is uninitialised. |
+| `dealloc(p)` | `void` | Releases the block; the argument is moved. |
 | `move x` | same type as `x` | Transfers the value; `x` is dead afterwards. |
 | `var y = move x;` | pointer | Gives the pointer a second name; the source is dead. |
 | `defer { ... }` | statement | Runs at scope exit, last registered first. |
 | `arena_new()` | arena handle | A bump allocator; one release for many blocks. |
-| `arena_alloc(a, n)` | `*mut i64` | The arena owns the block, not the binding. |
-| `arena_free_all(a)` | `()` | Releases every block from that arena. |
+| `arena_alloc(a, n)` | `*mut int` | The arena owns the block, not the binding. |
+| `arena_free_all(a)` | `void` | Releases every block from that arena. |
 
 A `defer` captures a linear value when the `defer` is reached, not when it
 runs. That is why a move after the registration is refused: the deferred body
@@ -76,7 +76,7 @@ defer { dealloc(b); }
 var c = move b;          // error: value `b` has already been moved
 ```
 
-Copy-typed values are different. A `defer` that reads an `i64` sees the value
+Copy-typed values are different. A `defer` that reads an `int` sees the value
 at scope exit, because there is nothing to capture and no free to get wrong.
 This distinction is deliberate: capturing every local would cost a slot per
 binding per defer, while capturing only the values whose ownership matters is

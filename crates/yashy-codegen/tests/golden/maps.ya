@@ -1,5 +1,5 @@
 fn main() {
-    var counts: map[string]i64 = map_new();
+    var counts: map[string]int = map_new();
     counts.insert("a", 1);
     counts.insert("b", 2);
     var found = counts.get("a");

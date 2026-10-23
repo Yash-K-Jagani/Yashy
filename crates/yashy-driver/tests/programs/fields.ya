@@ -9,8 +9,8 @@
 // inner and the outer aggregate.
 
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 struct Line {

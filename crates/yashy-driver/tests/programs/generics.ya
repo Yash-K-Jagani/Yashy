@@ -16,7 +16,7 @@ fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
     return f(f(x));
 }
 
-fn square(x: i64) -> i64 {
+fn square(x: int) -> int {
     return x * x;
 }
 

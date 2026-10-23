@@ -1,6 +1,6 @@
 // Summing a fixed array 50,000,000 times.
 //
-// `[i64; 8]` lives in the frame: no allocation, no capacity, no bounds field.
+// `[int; 8]` lives in the frame: no allocation, no capacity, no bounds field.
 // The inner `for` walks the elements through a pointer the compiler already
 // knows is eight elements long, so the only per-element cost is the load and
 // the add. Every element add updates the *outer* accumulator, so no optimiser

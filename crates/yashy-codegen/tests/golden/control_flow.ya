@@ -1,4 +1,4 @@
-fn control(x: bool, o: Option[i64]) -> i64 {
+fn control(x: bool, o: Option[int]) -> int {
     if x {
         print_i64(1);
     } else {

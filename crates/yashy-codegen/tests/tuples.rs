@@ -98,7 +98,7 @@ fn a_tuple_is_passed_and_returned_by_value() {
     // The aggregate is the calling convention here: one field per element, the
     // same `{ i1, i64 }` on both sides of the call, and no allocation.
     let ir = emit(
-        "fn swap(p: (i64, bool)) -> (bool, i64) { const (n, b) = p; return (b, n); } \
+        "fn swap(p: (int, bool)) -> (bool, int) { const (n, b) = p; return (b, n); } \
          fn main() { const out = swap((1, true)); }",
     );
     assert!(
@@ -121,8 +121,8 @@ fn a_guard_branches_back_into_the_search_when_it_fails() {
     // match. That is one extra block per guarded arm: the body on the accepted
     // edge, the next test on the rejected one. The unguarded arm gets neither.
     let ir = emit(
-        "enum Shape { Circle(f64), Dot } \
-         fn area(s: Shape) -> f64 { return switch s { \
+        "enum Shape { Circle(float), Dot } \
+         fn area(s: Shape) -> float { return switch s { \
              case Circle(r) if r > 10.0 { 1.0 } \
              case Circle(r) { 2.0 } \
              case Dot { 3.0 } \
@@ -162,8 +162,8 @@ fn two_guards_on_one_variant_get_two_accept_blocks() {
     // a tag mismatch would take. The unguarded arm below them is the one that
     // finally stores the result.
     let ir = emit(
-        "enum E { A(i64), B } \
-         fn f(e: E) -> i64 { return switch e { \
+        "enum E { A(int), B } \
+         fn f(e: E) -> int { return switch e { \
              case A(v) if v > 10 { 1 } \
              case A(v) if v > 0 { 2 } \
              case A(v) { 3 } \
@@ -189,7 +189,7 @@ fn a_guarded_catch_all_still_has_a_place_in_the_chain() {
     // rejected edge to the `default`, which is what makes `bucket(-5)` and
     // `bucket(5)` differ.
     let ir = emit(
-        "fn bucket(n: i64) -> i64 { return switch n { \
+        "fn bucket(n: int) -> int { return switch n { \
              case 0 { 100 } \
              case _ if n < 0 { 200 } \
              default { 300 } \

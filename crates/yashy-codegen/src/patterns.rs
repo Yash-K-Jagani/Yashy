@@ -77,7 +77,7 @@ fn test_for(ctx: &FnCtx<'_>, arm: &HirSwitchArm, subject: &TypeKind) -> Option<T
 }
 
 /// Lower a `switch` on `subject` against `arms`. Returns the name of the
-/// result alloca slot, or `""` when the result type is `()`.
+/// result alloca slot, or `""` when the result type is `void`.
 pub fn gen_match(
     ctx: &mut FnCtx<'_>,
     subject: &GenValue,

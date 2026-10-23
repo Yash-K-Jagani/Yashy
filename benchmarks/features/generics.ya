@@ -1,6 +1,6 @@
 // A generic function called 100,000,000 times.
 //
-// `scale[T]` is written once. The call in the loop fixes `T` as `i64`, so the
+// `scale[T]` is written once. The call in the loop fixes `T` as `int`, so the
 // compiler emits one ordinary `scale_i64` and the loop calls it directly --
 // there is no dispatch to measure. The workload is `function_direct.ya`'s, so
 // the two numbers are comparable: the difference is what a type parameter

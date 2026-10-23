@@ -12,10 +12,10 @@
 // Ownership: every function here is pure; no string, slice, or pointer is
 // created or consumed.
 
-// The magnitude of `n`. `abs(i64::MIN)` has no representable answer and panics
+// The magnitude of `n`. `abs(int::MIN)` has no representable answer and panics
 // rather than wrapping, like every other checked subtraction.
 // Ownership: pure; the result is a number.
-pub fn abs(n: i64) -> i64 {
+pub fn abs(n: int) -> int {
     if n < 0 {
         return 0 - n;
     }
@@ -23,7 +23,7 @@ pub fn abs(n: i64) -> i64 {
 }
 
 // Ownership: pure; the result is a number.
-pub fn min(left: i64, right: i64) -> i64 {
+pub fn min(left: int, right: int) -> int {
     if left < right {
         return left;
     }
@@ -31,7 +31,7 @@ pub fn min(left: i64, right: i64) -> i64 {
 }
 
 // Ownership: pure; the result is a number.
-pub fn max(left: i64, right: i64) -> i64 {
+pub fn max(left: int, right: int) -> int {
     if left > right {
         return left;
     }
@@ -41,7 +41,7 @@ pub fn max(left: i64, right: i64) -> i64 {
 // `base` raised to a non-negative `exponent`, by repeated multiplication.
 // Overflow panics. A negative exponent has no integer answer in this signature
 // and is refused by the assertion. Ownership: pure; the result is a number.
-pub fn pow(base: i64, exponent: i64) -> i64 {
+pub fn pow(base: int, exponent: int) -> int {
     assert(exponent >= 0);
     var result = 1;
     var step = 0;
@@ -60,7 +60,7 @@ pub fn pow(base: i64, exponent: i64) -> i64 {
 // A negative argument panics: there is no real answer, and returning NaN would
 // turn a programming mistake into a number that propagates.
 // Ownership: pure; the result is a number.
-pub fn sqrt(x: f64) -> f64 {
+pub fn sqrt(x: float) -> float {
     assert(x >= 0.0);
     if x == 0.0 {
         return 0.0;

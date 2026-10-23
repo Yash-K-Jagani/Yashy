@@ -67,7 +67,7 @@ it is not an error and it does not count down.
 | `if cond { ... } else { ... }` | Runs one branch. | `cond` must be `bool`; `else` is optional. |
 | `while cond { ... }` | Tests before each pass. | A false condition runs the body zero times. |
 | `while true { ... }` | Repeats until a `break`. | There is no `loop` keyword. |
-| `for n in start..end { ... }` | Walks `start` to `end - 1`. | Bounds are `i64`; the binding is immutable. |
+| `for n in start..end { ... }` | Walks `start` to `end - 1`. | Bounds are `int`; the binding is immutable. |
 | `break` | Leaves the innermost loop. | A loop inside a loop needs its own flag or `return`. |
 | `continue` | Starts the next pass. | The loop's update still happens for a `for` range. |
 | `switch value { ... }` | Chooses an arm by shape. | Chapter 5 covers the patterns. |
@@ -103,7 +103,7 @@ step.
 ## Common mistakes
 
 - **Using a number as a condition.** `if n { ... }` reports
-  ``error: expected `bool`, found `i64` ``. Write `if n != 0`.
+  ``error: expected `bool`, found `int` ``. Write `if n != 0`.
 - **Assigning to the loop variable.** `for i in 0..3 { i += 1; }` reports
   ``error: cannot assign to `i`, which is immutable``. Keep a separate `var`.
 - **Putting two statements in a switch arm.** The second statement is reported
@@ -113,7 +113,7 @@ step.
   Add the arm, or a `default`.
 - **Using literal arms without a `default`.** `switch n { case 0 { ... } }`
   reports ``error: switch over a non-enum type is not exhaustive: add a `default` arm``.
-  An `i64` has too many values to list.
+  An `int` has too many values to list.
 
 ## Try it
 

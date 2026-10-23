@@ -13,19 +13,19 @@ to the caller, and the function's return type is supposed to say so. This build
 enforces only part of that promise; the section below shows exactly where.
 
 ```yashy
-fn half(n: i64) -> Result[i64, string] {
+fn half(n: int) -> Result[int, string] {
     if n % 2 != 0 {
         return Err("odd");
     }
     return Ok(n / 2);
 }
 
-fn quarter(n: i64) -> Result[i64, string] {
+fn quarter(n: int) -> Result[int, string] {
     const h = half(n)?;
     return Ok(half(h)?);
 }
 
-fn report(result: Result[i64, string]) {
+fn report(result: Result[int, string]) {
     const message = switch result {
         case Ok(v) { "ok " + str_from_i64(v) }
         case Err(e) { "error " + e }
@@ -46,7 +46,7 @@ fn main() {
 `Err("odd")`; the `?` returns that `Err` from `quarter` immediately. No line
 after a failed `?` runs.
 
-The signature is the contract. A caller reading `Result[i64, string]` knows
+The signature is the contract. A caller reading `Result[int, string]` knows
 that the call can fail and what an error looks like. This is the trade for
 losing exception unwinding: the failure is visible where the function is
 declared, not only where it happens to be thrown.
@@ -62,8 +62,8 @@ declared, not only where it happens to be thrown.
 | `f(x)` used as a statement | `Result[T, E]`, then discarded | Allowed today; the value is dropped. |
 
 `?` is only legal on an expression whose type is a `Result`; applying it to an
-`i64` reports ``error: `?` can only be used on a `Result`, not `i64` ``. On an
-`Option`, the same message names `Option[i64]`: there is no `?` for `Option` in
+`int` reports ``error: `?` can only be used on a `Result`, not `int` ``. On an
+`Option`, the same message names `Option[int]`: there is no `?` for `Option` in
 this build.
 
 ## The rule, and what is checked
@@ -78,13 +78,13 @@ reported, and a `?` whose error type does not match the function's is
 reported:
 
 ```text
-fn bad(n: i64) -> i64 {
+fn bad(n: int) -> int {
     return half(n)?;   // error: `?` needs a function returning `Result`
 }
 ```
 
 ```text
-fn bad(n: i64) -> Result[i64, string] {
+fn bad(n: int) -> Result[int, string] {
     return half(n)?;   // error: error type mismatch: `bool` vs `string`
 }
 ```
@@ -97,7 +97,7 @@ A function that returns a value also has to return one on every path. A
 function whose last statement is an `if` without an `else` is reported:
 
 ```text
-fn half(n: i64) -> i64 {
+fn half(n: int) -> int {
     if n > 0 { return n; }   // error: missing return
 }
 ```
@@ -110,16 +110,16 @@ the result matters, match it or pass it to a function that takes a `Result`.
 ## Common mistakes
 
 - **Giving `Err` the wrong payload.** `return Err(1);` in a
-  `Result[i64, string]` function reports
-  ``error: expected `string`, found `i64` ``. Construct the error the signature
+  `Result[int, string]` function reports
+  ``error: expected `string`, found `int` ``. Construct the error the signature
   promises.
 - **Applying `?` to a number.** `const x = 3?;` reports
-  ``error: `?` can only be used on a `Result`, not `i64` ``.
+  ``error: `?` can only be used on a `Result`, not `int` ``.
 - **Using `?` in a function that does not return a `Result`.** It reports
   ``error: `?` needs a function returning `Result` ``. Change the function's
   return type to `Result[...]`, or match the result instead.
-- **Mixing the error types of two `?` calls.** A `?` on `Result[i64, bool]`
-  inside a `Result[i64, string]` function reports
+- **Mixing the error types of two `?` calls.** A `?` on `Result[int, bool]`
+  inside a `Result[int, string]` function reports
   ``error: error type mismatch: `bool` vs `string` ``. Keep one error type
   through the chain.
 - **Ignoring a result.** `half(3);` compiles and drops the `Err`. If the caller
@@ -127,7 +127,7 @@ the result matters, match it or pass it to a function that takes a `Result`.
 
 ## Try it
 
-1. Write `fn parse_positive(text: string) -> Result[i64, string]` that uses
+1. Write `fn parse_positive(text: string) -> Result[int, string]` that uses
    `parse_i64`, then rejects a value less than or equal to zero with `Err`.
    Call it with `"12"`, `"0"`, and `"abc"`. Hint: `parse_i64` returns `0` for
    text that is not a number, so `0` needs its own error message.

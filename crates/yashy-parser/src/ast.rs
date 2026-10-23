@@ -355,7 +355,7 @@ pub enum TypeExpr {
         ret: Box<TypeExpr>,
         span: Span,
     },
-    /// A parenthesised list of types, as in `(i64, f64)`.
+    /// A parenthesised list of types, as in `(int, float)`.
     ///
     /// **Never empty.** `()` is [`TypeExpr::Unit`], always, and a parser that
     /// produced an empty `Tuple` would be describing the same type two ways:
@@ -363,7 +363,7 @@ pub enum TypeExpr {
     /// AST golden dump would depend on which spelling the parser happened to
     /// choose.
     Tuple(Vec<TypeExpr>, Span),
-    /// The unit type, written `()`.
+    /// A written `()`, which the checker rejects: the no-value type is spelled\n    /// `void`.
     Unit(Span),
 }
 

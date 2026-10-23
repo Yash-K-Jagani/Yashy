@@ -37,7 +37,7 @@ fn read_file_yields_an_owned_string() {
 
 #[test]
 fn write_file_yields_a_status_integer() {
-    check("fn main() { var ok: i64 = write_file(\"notes.txt\", \"body\"); print_i64(ok); }")
+    check("fn main() { var ok: int = write_file(\"notes.txt\", \"body\"); print_i64(ok); }")
         .expect("write_file takes a path and a body and answers 1 or 0");
 }
 
@@ -75,6 +75,6 @@ fn file_builtins_check_their_argument_types() {
     );
     assert_rejected(
         "fn main() { var text = \"x\"; var word = text.slice(0.5, 1); }",
-        "expected `i64`",
+        "expected `int`",
     );
 }

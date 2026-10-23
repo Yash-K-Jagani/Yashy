@@ -43,38 +43,38 @@ fn assert_rejected(src: &str, needle: &str) {
 #[test]
 fn a_thread_body_is_checked_like_any_other_function() {
     check(
-        "fn work(n: i64) { print_i64(n); } \
-         fn main() { var h: i64 = thread_spawn(work, 7); thread_join(h); }",
+        "fn work(n: int) { print_i64(n); } \
+         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     )
     .expect("a body with a matching parameter is accepted");
 
     // The body is an ordinary function, so an error inside it is reported even
     // though nothing but `thread_spawn` refers to it.
     assert_rejected(
-        "fn work(n: i64) { print_i64(true); } \
-         fn main() { var h: i64 = thread_spawn(work, 7); thread_join(h); }",
-        "expected `i64`, found `bool`",
+        "fn work(n: int) { print_i64(true); } \
+         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
+        "expected `int`, found `bool`",
     );
 }
 
 #[test]
 fn spawn_requires_a_function_and_matching_arguments() {
     assert_rejected(
-        "fn main() { var x: i64 = 1; var h: i64 = thread_spawn(x); }",
+        "fn main() { var x: int = 1; var h: int = thread_spawn(x); }",
         "`thread_spawn` needs a function",
     );
     assert_rejected(
-        "fn work(n: i64) { print_i64(n); } fn main() { var h: i64 = thread_spawn(work); }",
+        "fn work(n: int) { print_i64(n); } fn main() { var h: int = thread_spawn(work); }",
         "expected 1 arguments, found 0",
     );
     assert_rejected(
-        "fn work(n: i64) { print_i64(n); } fn main() { var h: i64 = thread_spawn(work, true); }",
-        "expected `i64`, found `bool`",
+        "fn work(n: int) { print_i64(n); } fn main() { var h: int = thread_spawn(work, true); }",
+        "expected `int`, found `bool`",
     );
     assert_rejected(
-        "fn work(n: i64) -> i64 { return n; } \
-         fn main() { var h: i64 = thread_spawn(work, 1); }",
-        "a thread body must return `()`",
+        "fn work(n: int) -> int { return n; } \
+         fn main() { var h: int = thread_spawn(work, 1); }",
+        "a thread body must return `void`",
     );
 }
 
@@ -82,22 +82,22 @@ fn spawn_requires_a_function_and_matching_arguments() {
 fn channel_element_type_is_fixed_at_creation() {
     check(
         "fn main() { \
-           var c: Channel[i64] = chan_new(4); \
+           var c: Channel[int] = chan_new(4); \
            var ok: bool = c.send(1); \
-           var got: Option[i64] = c.recv(); \
+           var got: Option[int] = c.recv(); \
            c.close(); \
            c.free(); \
          }",
     )
-    .expect("a channel of i64 round-trips");
+    .expect("a channel of int round-trips");
 
     assert_rejected(
-        "fn main() { var c: Channel[i64] = chan_new(4); c.send(true); }",
-        "expected `i64`, found `bool`",
+        "fn main() { var c: Channel[int] = chan_new(4); c.send(true); }",
+        "expected `int`, found `bool`",
     );
     assert_rejected(
-        "fn main() { var c: Channel[f64] = chan_new(4); var n: i64 = c.recv(); }",
-        "found `Option[f64]`",
+        "fn main() { var c: Channel[float] = chan_new(4); var n: int = c.recv(); }",
+        "found `Option[float]`",
     );
     assert_rejected(
         "fn main() { var c = chan_new(4); }",
@@ -132,18 +132,18 @@ fn mutex_and_channel_handles_are_linear() {
         "moved",
     );
     assert_rejected(
-        "fn main() { var c: Channel[i64] = chan_new(1); var d: Channel[i64] = c; }",
+        "fn main() { var c: Channel[int] = chan_new(1); var d: Channel[int] = c; }",
         "without `move`",
     );
 }
 
 #[test]
 fn recv_yields_an_option_not_a_blocking_value() {
-    check("fn main() { var c: Channel[i64] = chan_new(1); var got: Option[i64] = c.recv(); }")
+    check("fn main() { var c: Channel[int] = chan_new(1); var got: Option[int] = c.recv(); }")
         .expect("recv is an Option");
     assert_rejected(
-        "fn main() { var c: Channel[i64] = chan_new(1); var n: i64 = c.recv(); }",
-        "found `Option[i64]`",
+        "fn main() { var c: Channel[int] = chan_new(1); var n: int = c.recv(); }",
+        "found `Option[int]`",
     );
 }
 
@@ -152,10 +152,10 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
     // A channel argument is borrowed, not moved: the parent still frees it
     // after the join, which is the only way two threads share a handle.
     check(
-        "fn work(c: Channel[i64]) { c.close(); } \
+        "fn work(c: Channel[int]) { c.close(); } \
          fn main() { \
-           var c: Channel[i64] = chan_new(1); \
-           var h: i64 = thread_spawn(work, c); \
+           var c: Channel[int] = chan_new(1); \
+           var h: int = thread_spawn(work, c); \
            thread_join(h); \
            c.free(); \
          }",
@@ -168,7 +168,7 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
         "fn work(s: string) { print_str(s); } \
          fn main() { \
            var s: string = \"hello\"; \
-           var h: i64 = thread_spawn(work, s); \
+           var h: int = thread_spawn(work, s); \
            thread_join(h); \
            print_str(s); \
          }",
@@ -179,8 +179,8 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
 #[test]
 fn a_linear_container_cannot_cross_a_thread_boundary_yet() {
     assert_rejected(
-        "fn work(xs: []i64) { } \
-         fn main() { var xs: []i64 = []i64 { 1, 2 }; var h: i64 = thread_spawn(work, xs); }",
+        "fn work(xs: []int) { } \
+         fn main() { var xs: []int = []int { 1, 2 }; var h: int = thread_spawn(work, xs); }",
         "cannot cross a thread boundary",
     );
 }

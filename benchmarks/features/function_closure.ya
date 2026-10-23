@@ -9,14 +9,14 @@
 // The other rows build the value inside the loop, so this one is not directly
 // comparable with them; it is the price of a call through a value that has
 // something to carry.
-fn apply(f: fn(i64, i64) -> i64, x: i64, k: i64) -> i64 {
+fn apply(f: fn(int, int) -> int, x: int, k: int) -> int {
     return f(x, k);
 }
 
 fn main() {
     const n = 100000000;
     const k = 1000;
-    const f = |x: i64, k: i64| -> i64 { return x * k + x % 3; };
+    const f = |x: int, k: int| -> int { return x * k + x % 3; };
 
     var sum = 0;
     var i = 0;

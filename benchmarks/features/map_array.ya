@@ -5,14 +5,14 @@
 // about how the language grows an array.
 fn main() {
     const n = 10000000;
-    var xs = []i64 {};
+    var xs = []int {};
     var i = 0;
     while i < n {
         xs.push(i);
         i = wrapping_add(i, 1);
     }
 
-    var doubled = xs.map(|x: i64| -> i64 { return x * 2; });
+    var doubled = xs.map(|x: int| -> int { return x * 2; });
 
     var sum = 0;
     for x in doubled {

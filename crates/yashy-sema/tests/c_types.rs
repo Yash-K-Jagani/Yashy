@@ -51,21 +51,22 @@ fn c_integer_spellings_map_to_widths() {
 
 #[test]
 fn the_shared_widths_name_the_existing_language_types() {
-    // A Yashy `i64` and a C `int64_t` are the same machine value; giving them
+    // A Yashy `int` and a C `int64_t` are the same machine value; giving them
     // separate type kinds would make every `extern` call a cast for no gain.
+    // The C spelling keeps the old name: `int64_t`'s alias is not a Yashy type.
     assert_eq!(TypeKind::from_c_spelling("i64"), Some(TypeKind::I64));
     assert_eq!(TypeKind::from_c_spelling("f64"), Some(TypeKind::F64));
 }
 
 #[test]
 fn only_the_ffi_only_spellings_are_marked_as_such() {
-    for spelling in ["i8", "i16", "i32", "u8", "u16", "u32", "u64", "f32", "usize", "void"] {
+    for spelling in ["i8", "i16", "i32", "u8", "u16", "u32", "u64", "f32", "usize"] {
         assert!(
             TypeKind::is_c_only_spelling(spelling),
             "`{spelling}` is an FFI-only spelling"
         );
     }
-    for spelling in ["i64", "f64", "bool", "string", "Point"] {
+    for spelling in ["int", "float", "void", "bool", "string", "Point"] {
         assert!(
             !TypeKind::is_c_only_spelling(spelling),
             "`{spelling}` is an ordinary Yashy spelling"
@@ -78,21 +79,21 @@ fn c_types_are_rejected_outside_an_extern_block() {
     assert_rejected("fn f(x: i32) {}", "extern");
     assert_rejected("fn f() -> u8 { }", "extern");
     assert_rejected("fn f(x: *const u8) {}", "extern");
-    assert_rejected("fn f() -> void { }", "extern");
+    assert_rejected("fn f(x: usize) {}", "extern");
 }
 
 #[test]
 fn an_yashy_pointer_is_still_an_yashy_pointer() {
     // `*mut T` predates the FFI edge and must keep its old meaning in ordinary
     // code: an owning, linear pointer. Only `*const`/bare pointers are new.
-    check("fn f(x: *mut i64) {}").expect("an owning pointer is ordinary Yashy code");
+    check("fn f(x: *mut int) {}").expect("an owning pointer is ordinary Yashy code");
 }
 
 #[test]
 fn a_c_numeric_type_is_allowed_as_a_cast_target() {
     // `as` is the one place outside an `extern` block where a C spelling is
     // legal: it is how a Yashy program produces the `usize` `malloc` wants.
-    check(r#"fn main() { const n = 64 as usize; print_i64(n as i64); }"#)
+    check(r#"fn main() { const n = 64 as usize; print_i64(n as int); }"#)
         .expect("an explicit cast may name a C type");
 }
 

@@ -1,4 +1,4 @@
-fn work(n: i64) {
+fn work(n: int) {
     print_i64(n);
 }
 
@@ -8,7 +8,7 @@ fn main() {
     m.unlock();
     m.free();
 
-    var c: Channel[i64] = chan_new(2);
+    var c: Channel[int] = chan_new(2);
     if c.send(1) {
         print_i64(1);
     }
@@ -23,6 +23,6 @@ fn main() {
     c.close();
     c.free();
 
-    var h: i64 = thread_spawn(work, 7);
+    var h: int = thread_spawn(work, 7);
     thread_join(h);
 }

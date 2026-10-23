@@ -7,14 +7,14 @@
 // followed. That last block is dead -- the process ends inside the runtime call
 // -- but it has to exist, or the module would have two terminators in one block
 // and `clang` would reject it.
-fn checked(n: i64) -> i64 {
+fn checked(n: int) -> int {
     if n < 0 {
         panic("negative");
     }
     return n;
 }
 
-fn pick(o: Option[i64]) -> i64 {
+fn pick(o: Option[int]) -> int {
     return switch o {
         case None { panic("empty") }
         case Some(v) { v }
@@ -23,7 +23,7 @@ fn pick(o: Option[i64]) -> i64 {
 
 // Never called, and never returns: the body falls off the end, so code
 // generation emits its zero return into the block after the panic.
-fn always() -> i64 {
+fn always() -> int {
     panic("always");
 }
 

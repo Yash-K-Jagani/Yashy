@@ -18,14 +18,14 @@ expression, so it can be returned; every shape must be covered.
 The two shapes every program meets are `Option[T]` and `Result[T, E]`:
 
 ```yashy
-fn describe(value: Option[i64]) -> string {
+fn describe(value: Option[int]) -> string {
     return switch value {
         case Some(n) { "some " + str_from_i64(n) }
         case None { "none" }
     };
 }
 
-fn divide(a: i64, b: i64) -> Result[i64, string] {
+fn divide(a: int, b: int) -> Result[int, string] {
     if b == 0 {
         return Err("division by zero");
     }
@@ -65,7 +65,7 @@ A `switch` may also compare literals. The subject has infinitely many values in
 that case, so a `default` arm is required to make the match exhaustive:
 
 ```yashy
-fn classify(n: i64) -> string {
+fn classify(n: int) -> string {
     return switch n {
         case 0 { "zero" }
         case 1 { "one" }
@@ -79,7 +79,7 @@ fn main() {
 }
 ```
 
-Literal arms work for `i64`, `f64`, `bool`, and `string`; a `string` compares
+Literal arms work for `int`, `float`, `bool`, and `string`; a `string` compares
 contents, not identity. They bind nothing and always need a `default`, and a
 literal cannot match an enum subject, because the literal's type and the enum's
 type differ.
@@ -91,12 +91,12 @@ or more positional fields, or named fields:
 
 ```yashy
 enum Shape {
-    Circle(f64),
-    Rect { w: f64, h: f64 },
+    Circle(float),
+    Rect { w: float, h: float },
     Point,
 }
 
-fn area(shape: Shape) -> f64 {
+fn area(shape: Shape) -> float {
     return switch shape {
         case Circle(r) { 3.0 * r * r }
         case Rect { w: w, h: h } { w * h }
@@ -123,7 +123,7 @@ fn main() {
 Construction spells the enum, then the variant: `Shape.Circle(2.0)` for
 positional fields, `Shape.Rect { w: 3.0, h: 4.0 }` for named ones (any order),
 and `Shape.Point` for a variant with no payload. A payload's type comes from
-the declaration, so `Shape.Circle(2)` is a type error: the field is `f64`.
+the declaration, so `Shape.Circle(2)` is a type error: the field is `float`.
 
 Arm shapes follow the variant's shape. A positional payload binds by position:
 `case Circle(r)`. A named payload binds by name, and the pattern names *every*
@@ -142,8 +142,8 @@ search continues with the next arm exactly as if the pattern had failed.
 
 ```yashy
 enum Shape {
-    Circle(f64),
-    Rect { w: f64, h: f64 },
+    Circle(float),
+    Rect { w: float, h: float },
 }
 
 fn describe(shape: Shape) -> string {
@@ -176,7 +176,7 @@ A guard may follow a pattern that matches everything, and then it still has a
 place in the search order:
 
 ```yashy
-fn bucket(n: i64) -> i64 {
+fn bucket(n: int) -> int {
     return switch n {
         case 0 { 100 }
         case _ if n < 0 { 200 }
@@ -209,13 +209,13 @@ claim about what the value can be.
 
 ## Tuples and destructuring
 
-A tuple is an anonymous product: `(i64, i64)` is two integers, in that order.
-Position is part of the type, so `(i64, bool)` and `(bool, i64)` are different
+A tuple is an anonymous product: `(int, int)` is two integers, in that order.
+Position is part of the type, so `(int, bool)` and `(bool, int)` are different
 types, and a tuple is not a struct -- its elements have no names. A function
 returns both of its answers as one tuple:
 
 ```yashy
-fn min_max(a: i64, b: i64) -> (i64, i64) {
+fn min_max(a: int, b: int) -> (int, int) {
     if a < b {
         return (a, b);
     }
@@ -282,13 +282,13 @@ fn main() {
 
 | Pattern | Used for | Binds | Example |
 |---|---|---|---|
-| `case Some(n)` | Positional payload. | `n` is the payload value. | `Option[i64]` |
-| `case None` | Unit variant. | Nothing. | `Option[i64]` |
-| `case Ok(v)` / `case Err(e)` | `Result` payloads. | The success or error value. | `Result[i64, string]` |
+| `case Some(n)` | Positional payload. | `n` is the payload value. | `Option[int]` |
+| `case None` | Unit variant. | Nothing. | `Option[int]` |
+| `case Ok(v)` / `case Err(e)` | `Result` payloads. | The success or error value. | `Result[int, string]` |
 | `case Circle(r)` | A user variant with one positional field. | `r`. | `Shape` |
 | `case Rect { w: w, h: h }` | Named fields; every field is written. | `w` and `h`. | `Shape` |
 | `case Point` | A variant with no payload. | Nothing. | `Shape` |
-| `case 0` / `default` | Literal arms. | Nothing; `default` is required. | `i64`, `f64`, `bool`, `string` |
+| `case 0` / `default` | Literal arms. | Nothing; `default` is required. | `int`, `float`, `bool`, `string` |
 | `case Circle(r) if r > 10.0` | An arm with a guard. | `r`, then the guard is checked. | Any pattern |
 | `const (a, b) = pair` | Destructuring statement. | Each name, by position; `_` skips. | A tuple value |
 
@@ -306,7 +306,7 @@ first name. Writing both halves shows which field binds to which local name.
 - **Writing `case Rect { w, h }`.** The parser reports
   ``error: expected `}`, found `,` ``. Write `case Rect { w: w, h: h }`.
 - **Passing the wrong payload type.** `Shape.Circle(2)` reports
-  ``error: expected `f64`, found `i64` ``. Write `2.0`.
+  ``error: expected `float`, found `int` ``. Write `2.0`.
 - **Writing `const x = None;` with no context.** The checker reports
   ``error: cannot infer the payload type of `None` ``. Annotate the binding or
   pass `None` where the expected type is known.
@@ -314,7 +314,7 @@ first name. Writing both halves shows which field binds to which local name.
   reports ``error: switch is not exhaustive: missing case `A` ``. The guard can
   be false, so add an unguarded `A` arm or a `default`.
 - **A guard that is not a `bool`.** `case A(v) if v` reports
-  ``error: a guard must be a `bool`, found `i64` ``. Write the comparison:
+  ``error: a guard must be a `bool`, found `int` ``. Write the comparison:
   `if v > 0`.
 - **Putting a `string` in a tuple.** `(1, "s")` reports
   ``error: a tuple cannot hold `string` ``. Keep the string in its own binding;
@@ -324,15 +324,15 @@ first name. Writing both halves shows which field binds to which local name.
 
 ## Try it
 
-1. Add `Square(f64)` to `Shape` and update `area`, then call it with each
+1. Add `Square(float)` to `Shape` and update `area`, then call it with each
    variant and print the four results. Hint: the compiler names the missing arm.
 
-2. Write `fn describe_result(r: Result[i64, string]) -> string` that returns a
+2. Write `fn describe_result(r: Result[int, string]) -> string` that returns a
    sentence for both `Ok` and `Err`. Call it with a successful division and
    with a division by zero. Hint: both arms must be `string`; use
    `str_from_i64` on the success value.
 
-3. Write `fn min_max(a: i64, b: i64) -> (i64, i64)` and a `switch` over the
+3. Write `fn min_max(a: int, b: int) -> (int, int)` and a `switch` over the
    smaller answer: `case 0` prints "tie", `case n if n < 10` prints "close",
    `default` prints "far". Call it with `(4, 4)`, `(3, 9)`, and `(1, 40)`.
    Hint: destructure the tuple first, then switch on one element.
@@ -356,7 +356,7 @@ pattern that matches everything gets an unconditional entry in that chain when
 it has a guard, which is what keeps `case _ if c` ahead of the arms below it.
 
 A tuple is an LLVM literal struct whose fields are the element types in order,
-so `(i64, f64)` is `{ i64, double }` and a nested tuple is a nested struct. The
+so `(int, float)` is `{ int, double }` and a nested tuple is a nested struct. The
 value is built with one `insertvalue` per element onto `undef`; there is no
 allocation and no owner. Destructuring is the inverse: one `extractvalue` per
 name into that binding's own stack slot, and `_` extracts nothing. Because the

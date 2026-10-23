@@ -2,11 +2,11 @@
 //
 // `const` rather than the plan's `let`: `let` is not a keyword in Yashy (spec
 // 3.2 keeps `const` and `var`, and rejects a third synonym on purpose).
-fn inner() -> Result[i64, string] {
+fn inner() -> Result[int, string] {
     return Ok(7);
 }
 
-fn outer() -> Result[i64, string] {
+fn outer() -> Result[int, string] {
     const v = inner()?;
     return Ok(v);
 }

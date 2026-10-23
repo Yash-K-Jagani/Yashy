@@ -1,20 +1,20 @@
 // A method on a struct or an enum: the receiver, the method, and the result.
 
-struct Point { x: i64, y: i64 }
+struct Point { x: int, y: int }
 
 impl Point {
-    fn sum(self) -> i64 {
+    fn sum(self) -> int {
         return self.x + self.y;
     }
 }
 
 enum Shape {
-    Circle(i64),
-    Square(i64),
+    Circle(int),
+    Square(int),
 }
 
 impl Shape {
-    fn area(self) -> i64 {
+    fn area(self) -> int {
         return switch self {
             case Circle(r) { r * r * 3 }
             case Square(s) { s * s }

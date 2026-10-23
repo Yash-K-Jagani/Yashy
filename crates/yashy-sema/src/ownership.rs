@@ -1,6 +1,6 @@
 //! Linear ownership: which types may be copied, and which have one owner.
 //!
-//! Most values in Yashy are `Copy`: `i64`, `f64`, `bool`, `string` (refcounted,
+//! Most values in Yashy are `Copy`: `int`, `float`, `bool`, `string` (refcounted,
 //! so a copy is a cheap retain), and structs and enums built from them. A raw
 //! pointer is different. `*mut T` names a heap allocation that must be freed
 //! exactly once, so the checker tracks, per binding, whether that binding still

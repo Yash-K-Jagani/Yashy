@@ -4,7 +4,7 @@
 // outer `total`, not the inner `var`.
 
 fn main() {
-    let x: i64 = 1;
+    let x: int = 1;
     x = x + 1;
     print_i64(x);
     print_str("\n");

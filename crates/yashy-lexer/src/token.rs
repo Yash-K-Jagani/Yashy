@@ -7,7 +7,7 @@
 //! reads the value back out of the span with [`str::get`], which keeps the
 //! value and the text it came from impossible to disagree, keeps `TokenKind`
 //! `Copy` so a parser can hold a lookahead cheaply, and means a literal that
-//! does not fit its type (`i64` overflow) is reported by the stage that gives
+//! does not fit its type (`int` overflow) is reported by the stage that gives
 //! it a type rather than by the lexer.
 //!
 //! The cost of that choice is that every stage past the lexer must have the

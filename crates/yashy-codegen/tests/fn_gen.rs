@@ -201,7 +201,7 @@ fn a_function_that_cannot_return_is_refused() {
     // The checker refuses a value-returning function that does not return on
     // every path, so the generator's `ret i64 0` fallback is only reachable
     // from a tree the checker let through.
-    let source = "fn f() -> i64 { }";
+    let source = "fn f() -> int { }";
     let mut sm = SourceMap::new();
     let file = sm.add_file("main.ya", source.to_string());
     let tokens = Lexer::new(source)
@@ -219,7 +219,7 @@ fn a_function_that_cannot_return_is_refused() {
 
 #[test]
 fn parameters_are_spilled_into_entry_block_slots() {
-    let ir_text = ir_of("fn f(a: i64, b: f64) -> i64 { return a; }");
+    let ir_text = ir_of("fn f(a: int, b: float) -> int { return a; }");
     assert!(
         ir_text.contains("define i64 @f(i64 %arg0, double %arg1)"),
         "the signature carries the parameter types:\n{ir_text}"
@@ -259,7 +259,7 @@ fn assignment_stores_into_the_bindings_own_slot() {
 fn assignment_inside_a_loop_body_accumulates() {
     // The reason the statement exists: a loop body that keeps a running total.
     let ir_text = ir_of(
-        "fn f() -> i64 { var sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
+        "fn f() -> int { var sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
     );
     assert!(
         ir_text.contains("add i64"),
@@ -299,7 +299,7 @@ fn assigning_other_reprs_stores_their_width() {
 
 /// `a * b + 1.0` with `a` and `b` behind bindings, so the checker cannot fold
 /// the arithmetic and the backend really sees a multiply feeding an add.
-const FMA_SOURCE: &str = "fn main() -> f64 { var a = 2.0; var b = 3.0; return a * b + 1.0; }";
+const FMA_SOURCE: &str = "fn main() -> float { var a = 2.0; var b = 3.0; return a * b + 1.0; }";
 
 #[test]
 fn floating_point_contraction_is_off_until_it_is_asked_for() {
@@ -341,7 +341,7 @@ fn contraction_covers_subtraction_and_not_division() {
     // can fuse with nothing, and a flag that cannot change the code is noise in
     // the IR, so it must not appear there.
     let difference = ir_of_with(
-        "fn main() -> f64 { var a = 2.0; var b = 3.0; return a * b - 1.0; }",
+        "fn main() -> float { var a = 2.0; var b = 3.0; return a * b - 1.0; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(
@@ -350,7 +350,7 @@ fn contraction_covers_subtraction_and_not_division() {
     );
 
     let quotient = ir_of_with(
-        "fn main() -> f64 { var a = 2.0; var b = 3.0; return a / b; }",
+        "fn main() -> float { var a = 2.0; var b = 3.0; return a / b; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(
@@ -364,7 +364,7 @@ fn contraction_leaves_integer_arithmetic_alone() {
     // `contract` is a floating-point flag; on `add`/`sub`/`mul`/`sdiv` it would
     // be an LLVM parse error, so enabling contraction must not reach them.
     let integers = ir_of_with(
-        "fn main() -> i64 { var a = 2; var b = 3; return a * b + 1; }",
+        "fn main() -> int { var a = 2; var b = 3; return a * b + 1; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(

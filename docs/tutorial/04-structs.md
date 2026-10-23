@@ -14,8 +14,8 @@ the declaration fixes the layout, not the literal.
 
 ```yashy
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 struct Line {
@@ -23,7 +23,7 @@ struct Line {
     to: Point,
 }
 
-fn manhattan(p: Point) -> i64 {
+fn manhattan(p: Point) -> int {
     return p.x + p.y;
 }
 
@@ -68,12 +68,12 @@ first parameter is the value it is called on, and it is written `self`.
 
 ```yashy
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 impl Point {
-    fn sum(self) -> i64 {
+    fn sum(self) -> int {
         return self.x + self.y;
     }
 }
@@ -98,12 +98,12 @@ receiver:
 
 ```yashy
 enum Shape {
-    Circle(i64),
-    Square(i64),
+    Circle(int),
+    Square(int),
 }
 
 impl Shape {
-    fn area(self) -> i64 {
+    fn area(self) -> int {
         return switch self {
             case Circle(r) { r * r * 3 }
             case Square(s) { s * s }
@@ -129,11 +129,11 @@ is a struct and an `impl` block written together.
 
 ```yashy
 object Counter {
-    value: i64,
-    fn get(self) -> i64 {
+    value: int,
+    fn get(self) -> int {
         return self.value;
     },
-    fn add(self, n: i64) -> Counter {
+    fn add(self, n: int) -> Counter {
         return Counter { value: self.value + n };
     },
 }
@@ -161,11 +161,11 @@ it is called on the type.
 
 ```yashy
 object Counter {
-    value: i64,
-    fn new(start: i64) -> Counter {
+    value: int,
+    fn new(start: int) -> Counter {
         return Counter { value: start };
     },
-    fn get(self) -> i64 {
+    fn get(self) -> int {
         return self.value;
     },
 }
@@ -189,14 +189,14 @@ object's address instead:
 
 ```yashy
 object Counter {
-    value: i64,
+    value: int,
     fn new() -> Counter {
         return Counter { value: 0 };
     },
     fn bump(self: *mut Counter) {
         self[0].value = self[0].value + 1;
     },
-    fn get(self) -> i64 {
+    fn get(self) -> int {
         return self.value;
     },
 }
@@ -234,7 +234,7 @@ must not be able to write through another's address.
 
 | Operation | Syntax | Meaning |
 |---|---|---|
-| Declare | `struct Point { x: i64, y: i64 }` | Names and types, in declaration order. |
+| Declare | `struct Point { x: int, y: int }` | Names and types, in declaration order. |
 | Construct | `Point { x: 3, y: 4 }` | Any field order; every field once. |
 | Read a field | `p.x`, `line.from.x` | A chain follows nested structs. |
 | Assign a field | `q.x = 9` | The binding must be `var`. |
@@ -260,7 +260,7 @@ that goes out of scope therefore leaves nothing behind.
 ```yashy
 struct Named {
     name: string,
-    count: i64,
+    count: int,
 }
 
 fn main() {
@@ -300,8 +300,8 @@ struct that holds an array points at an array somebody else owns.
 
 ## Try it
 
-1. Declare `struct Rectangle { width: i64, height: i64 }` and write
-   `fn area(r: Rectangle) -> i64`. Construct one with the fields in the
+1. Declare `struct Rectangle { width: int, height: int }` and write
+   `fn area(r: Rectangle) -> int`. Construct one with the fields in the
    opposite order from the declaration, and confirm the area is the same.
    Hint: only the names matter at the literal.
 
@@ -309,7 +309,7 @@ struct that holds an array points at an array somebody else owns.
    point from the two `from` and `to` coordinates. Hint: read `line.from.x` and
    `line.to.x`; there is no operator to average a whole struct for you.
 
-3. Add `fn set_x(self: *mut Point, x: i64)` and `fn shifted(self, dx: i64) ->
+3. Add `fn set_x(self: *mut Point, x: int)` and `fn shifted(self, dx: int) ->
    Point` to `Point`. Confirm that `set_x` changes the caller's point and that
    `shifted` does not. Hint: the first needs a `var` at the call site; the
    second needs nothing.

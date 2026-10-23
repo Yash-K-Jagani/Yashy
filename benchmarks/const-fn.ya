@@ -9,14 +9,14 @@
 // The recursion is the interesting part: a hundred calls are made while the
 // compiler folds the constant, and none of them is made while the program
 // runs.
-const fn sum_squares(n: i64) -> i64 {
+const fn sum_squares(n: int) -> int {
     if n == 0 {
         return 0;
     }
     return n * n + sum_squares(n - 1);
 }
 
-const fn fib(n: i64) -> i64 {
+const fn fib(n: int) -> int {
     if n < 2 {
         return n;
     }

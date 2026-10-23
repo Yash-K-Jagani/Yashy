@@ -1,11 +1,11 @@
 // A static method: one that belongs to the type rather than to a value of it.
 
 object Counter {
-    value: i64,
-    fn new(start: i64) -> Counter {
+    value: int,
+    fn new(start: int) -> Counter {
         return Counter { value: start };
     },
-    fn get(self) -> i64 {
+    fn get(self) -> int {
         return self.value;
     },
 }

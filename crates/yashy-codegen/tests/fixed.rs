@@ -148,7 +148,7 @@ fn a_slice_loop_re_reads_its_header_each_iteration() {
     // iteration. Hoisting them would stop the loop after one element (and read
     // freed memory after the reallocation).
     let ir = emit(
-        "fn main() { var xs = []i64 { 1, 2 }; for v in xs { xs.push(v); } xs.free(); }",
+        "fn main() { var xs = []int { 1, 2 }; for v in xs { xs.push(v); } xs.free(); }",
     );
     let condition = block(&ir, "bb0_cond");
     assert!(

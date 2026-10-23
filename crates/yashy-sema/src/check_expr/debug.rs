@@ -29,7 +29,7 @@
 //!
 //! # What has no debug form
 //!
-//! Maps, pointers, function values, `mutex`, channels and `()` have no debug
+//! Maps, pointers, function values, `mutex`, channels and `void` have no debug
 //! form yet. Formatting their address or their bytes would be a wrong answer
 //! that looks like a right one, so those are reported instead of guessed at.
 

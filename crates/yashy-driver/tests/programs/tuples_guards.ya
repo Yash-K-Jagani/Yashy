@@ -1,6 +1,6 @@
 // Tuples, destructuring, and pattern guards.
 //
-// `min_max` returns both answers at once as a `(i64, i64)`, and every binding
+// `min_max` returns both answers at once as a `(int, int)`, and every binding
 // in this program unpacks one: `const` for a fixed pair, `var`/`let` for the
 // mutable ones, `_` for the element that is not wanted, `(only,)` for the
 // one-element spelling, and a second destructuring for a nested tuple.
@@ -12,19 +12,19 @@
 // that covers everything, because it can always say no.
 
 enum Shape {
-    Circle(f64),
-    Rect { w: f64, h: f64 },
+    Circle(float),
+    Rect { w: float, h: float },
     Dot,
 }
 
-fn min_max(a: i64, b: i64) -> (i64, i64) {
+fn min_max(a: int, b: int) -> (int, int) {
     if a < b {
         return (a, b);
     }
     return (b, a);
 }
 
-fn sum(pair: (i64, i64)) -> i64 {
+fn sum(pair: (int, int)) -> int {
     const (a, b) = pair;
     return a + b;
 }
@@ -39,7 +39,7 @@ fn classify(shape: Shape) -> string {
     };
 }
 
-fn bucket(n: i64) -> i64 {
+fn bucket(n: int) -> int {
     return switch n {
         case 0 { 100 }
         // A guard on a pattern that matches everything still has a place in

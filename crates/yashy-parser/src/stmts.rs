@@ -121,7 +121,7 @@ impl<'src> Parser<'src> {
     /// Only names and `_` are accepted: the elements are bound positionally,
     /// so there is nothing else a pattern could say here. The list must not be
     /// empty -- `const () = x;` has no binding to make and no tuple to
-    /// destructure, since `()` is the unit type, not a zero-element tuple.
+    /// destructure, since `()` is the unit value, not a zero-element tuple.
     fn parse_destructure(
         &mut self,
         kind: BindingKeyword,

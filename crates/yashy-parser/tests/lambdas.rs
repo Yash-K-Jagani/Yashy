@@ -1,4 +1,4 @@
-//! The lambda syntax: `|x: i64| -> i64 { ... }`.
+//! The lambda syntax: `|x: int| -> int { ... }`.
 //!
 //! A lambda is a function without a name, so its parameters and its return
 //! type are written out: there is no declaration for the checker to take them
@@ -65,10 +65,10 @@ fn lambda(src: &str) -> (Vec<(String, TypeExpr)>, Option<TypeExpr>) {
 
 #[test]
 fn a_lambda_keeps_its_parameters_and_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |x: i64, y: string| -> bool { return true; }; }");
+    let (params, ret) = lambda("fn main() { const f = |x: int, y: string| -> bool { return true; }; }");
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "x");
-    assert!(matches!(&params[0].1, TypeExpr::Name(name, _) if name == "i64"));
+    assert!(matches!(&params[0].1, TypeExpr::Name(name, _) if name == "int"));
     assert_eq!(params[1].0, "y");
     assert!(matches!(&params[1].1, TypeExpr::Name(name, _) if name == "string"));
     assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "bool"));
@@ -76,22 +76,22 @@ fn a_lambda_keeps_its_parameters_and_return_type() {
 
 #[test]
 fn a_lambda_without_an_arrow_has_no_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |x: i64| { print_i64(x); }; }");
+    let (params, ret) = lambda("fn main() { const f = |x: int| { print_i64(x); }; }");
     assert_eq!(params.len(), 1);
     assert!(ret.is_none(), "no arrow means no declared return type");
 }
 
 #[test]
 fn a_lambda_may_take_no_parameters() {
-    let (params, ret) = lambda("fn main() { const f = || -> i64 { return 1; }; }");
+    let (params, ret) = lambda("fn main() { const f = || -> int { return 1; }; }");
     assert!(params.is_empty());
-    assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "i64"));
+    assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "int"));
 }
 
 #[test]
 fn a_lambda_is_an_expression() {
     // The point of the syntax: a lambda is a value, so it can be an argument.
-    let program = "fn main() { apply(|x: i64| -> i64 { return x; }, 1); }";
+    let program = "fn main() { apply(|x: int| -> int { return x; }, 1); }";
     let mut sources = SourceMap::new();
     let file = sources.add_file("test.ya", program.to_string());
     let tokens = Lexer::new(program)

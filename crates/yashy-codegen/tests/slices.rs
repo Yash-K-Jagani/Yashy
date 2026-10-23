@@ -29,7 +29,7 @@ fn emit(src: &str) -> String {
 
 #[test]
 fn a_slice_literal_allocates_and_stores_its_elements() {
-    let ir = emit("fn main() { var xs = []i64 { 10, 20 }; xs.free(); }");
+    let ir = emit("fn main() { var xs = []int { 10, 20 }; xs.free(); }");
     assert!(
         ir.contains("mul i64 2, 8"),
         "two `i64` elements are sixteen bytes:\n{ir}"
@@ -54,7 +54,7 @@ fn a_slice_literal_allocates_and_stores_its_elements() {
 
 #[test]
 fn an_empty_slice_literal_allocates_nothing() {
-    let ir = emit("fn main() { var xs = []i64 {}; xs.push(1); xs.free(); }");
+    let ir = emit("fn main() { var xs = []int {}; xs.push(1); xs.free(); }");
     assert!(
         !ir.contains("call i8* @yashy_alloc"),
         "an empty literal has a null backing pointer:\n{ir}"
@@ -67,7 +67,7 @@ fn an_empty_slice_literal_allocates_nothing() {
 
 #[test]
 fn pushing_passes_the_header_address_and_the_element_size() {
-    let ir = emit("fn main() { var xs = []i64 { 1 }; xs.push(2); xs.free(); }");
+    let ir = emit("fn main() { var xs = []int { 1 }; xs.push(2); xs.free(); }");
     assert!(
         ir.contains("call void @yashy_slice_push(ptr %slot") && ir.contains(", i64 8)"),
         "push takes the binding's slot and an 8-byte element:\n{ir}"
@@ -76,7 +76,7 @@ fn pushing_passes_the_header_address_and_the_element_size() {
 
 #[test]
 fn freeing_a_slice_calls_the_runtime_with_the_binding() {
-    let ir = emit("fn main() { var xs = []i64 { 1 }; xs.free(); }");
+    let ir = emit("fn main() { var xs = []int { 1 }; xs.free(); }");
     assert!(
         ir.contains("call void @yashy_slice_free(ptr %slot"),
         "free_slice passes the header's address:\n{ir}"
@@ -85,7 +85,7 @@ fn freeing_a_slice_calls_the_runtime_with_the_binding() {
 
 #[test]
 fn len_of_a_slice_extracts_the_length_field() {
-    let ir = emit("fn main() { var xs = []i64 { 1, 2 }; print_i64(xs.len()); }");
+    let ir = emit("fn main() { var xs = []int { 1, 2 }; print_i64(xs.len()); }");
     assert!(
         ir.contains("extractvalue { i8*, i64, i64 } %t") && ir.contains(", 1"),
         "the length is field 1 of the header, with no call:\n{ir}"
@@ -99,7 +99,7 @@ fn len_of_a_slice_extracts_the_length_field() {
 #[test]
 fn indexing_calls_the_runtime_and_builds_an_option() {
     let ir = emit(
-        "fn main() { var xs = []i64 { 7 }; \
+        "fn main() { var xs = []int { 7 }; \
          var o = switch xs[0] { case Some(v) { v } case None { 0 } }; \
          print_i64(o); }",
     );
@@ -115,7 +115,7 @@ fn indexing_calls_the_runtime_and_builds_an_option() {
 
 #[test]
 fn a_negative_index_reaches_the_runtime_as_written() {
-    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs[0 - 1]; xs.free(); }");
+    let ir = emit("fn main() { var xs = []int { 7 }; var o = xs[0 - 1]; xs.free(); }");
     assert!(
         (ir.contains("sub i64 0, 1") || ir.contains("i64 -1"))
             && ir.contains("@yashy_slice_get"),
@@ -125,7 +125,7 @@ fn a_negative_index_reaches_the_runtime_as_written() {
 
 #[test]
 fn pop_calls_the_runtime_with_the_binding() {
-    let ir = emit("fn main() { var xs = []i64 { 7 }; var o = xs.pop(); xs.free(); }");
+    let ir = emit("fn main() { var xs = []int { 7 }; var o = xs.pop(); xs.free(); }");
     assert!(
         ir.contains("call i64 @yashy_slice_pop(ptr %slot") && ir.contains(", i64 8)"),
         "pop updates the header in place and copies the element out:\n{ir}"
@@ -135,7 +135,7 @@ fn pop_calls_the_runtime_with_the_binding() {
 #[test]
 fn for_in_branches_on_the_length_and_reloads_the_header() {
     let ir = emit(
-        "fn main() { var xs = []i64 { 1 }; var s = 0; for x in xs { s = s + x; } print_i64(s); }",
+        "fn main() { var xs = []int { 1 }; var s = 0; for x in xs { s = s + x; } print_i64(s); }",
     );
     let cond = ir
         .split("_cond:")

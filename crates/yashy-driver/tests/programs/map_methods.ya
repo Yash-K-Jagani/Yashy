@@ -8,20 +8,20 @@
 // so the map can be freed while the array is still alive.
 
 fn main() {
-    var scores: map[string]i64 = map_new();
+    var scores: map[string]int = map_new();
     scores.insert("ada", 10);
     scores.insert("bram", 20);
     scores.insert("cy", 30);
 
     var keys: []string = scores.keys();
-    var values: []i64 = scores.values();
+    var values: []int = scores.values();
 
     print_i64(keys.len());
     print_str("\n");
     print_i64(values.len());
     print_str("\n");
 
-    var total: i64 = 0;
+    var total: int = 0;
     for v in values {
         total = total + v;
     }
@@ -41,7 +41,7 @@ fn main() {
     // strings it carries stay alive.
     scores.free();
 
-    var kept: i64 = 0;
+    var kept: int = 0;
     for k in keys {
         kept = kept + k.len();
     }
@@ -53,7 +53,7 @@ fn main() {
 
     // A `bool` value is one byte, so the value array's stride is one byte
     // rather than eight: the copy has to keep the bytes it copied.
-    var flags: map[i64]bool = map_new();
+    var flags: map[int]bool = map_new();
     flags.insert(1, true);
     flags.insert(2, false);
     var flag_values: []bool = flags.values();

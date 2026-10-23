@@ -7,7 +7,7 @@
 //
 // The first division is there so the output proves the program got that far; a
 // crash before it would print nothing.
-fn divide(a: i64, b: i64) -> i64 {
+fn divide(a: int, b: int) -> int {
     return a / b;
 }
 

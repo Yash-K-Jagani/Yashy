@@ -94,7 +94,7 @@ fn a_dotted_path_resolves_to_a_nested_file() {
         "main.ya",
         "import lib.util;\nfn main() { print_i64(seven()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "lib/util.ya", "pub fn seven() -> i64 { return 7; }\n");
+    write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
     let output = build(&dir, &dir.join("main.ya"), None);
     assert!(
@@ -113,7 +113,7 @@ fn a_module_directory_containing_mod_ot_is_found() {
         "main.ya",
         "import pkg.nested;\nfn main() { print_i64(three()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "pkg/nested/mod.ya", "pub fn three() -> i64 { return 3; }\n");
+    write(&dir, "pkg/nested/mod.ya", "pub fn three() -> int { return 3; }\n");
 
     let output = build(&dir, &dir.join("main.ya"), None);
     assert!(
@@ -127,8 +127,8 @@ fn a_module_directory_containing_mod_ot_is_found() {
 #[test]
 fn a_module_search_prefers_the_flat_file_then_the_directory() {
     let dir = work_dir("resolve");
-    write(&dir, "root/a/b.ya", "fn flat() -> i64 { return 1; }\n");
-    write(&dir, "root/a/c/mod.ya", "fn nested() -> i64 { return 2; }\n");
+    write(&dir, "root/a/b.ya", "fn flat() -> int { return 1; }\n");
+    write(&dir, "root/a/c/mod.ya", "fn nested() -> int { return 2; }\n");
     let roots = vec![dir.join("root")];
 
     assert_eq!(
@@ -191,8 +191,8 @@ fn a_missing_module_is_a_diagnostic_naming_every_root_tried() {
 fn an_import_cycle_is_reported_not_looped_on() {
     let dir = work_dir("cycle");
     write(&dir, "main.ya", "import a;\nfn main() { }\n");
-    write(&dir, "a.ya", "import b;\npub fn a() -> i64 { return b(); }\n");
-    write(&dir, "b.ya", "import a;\npub fn b() -> i64 { return 1; }\n");
+    write(&dir, "a.ya", "import b;\npub fn a() -> int { return b(); }\n");
+    write(&dir, "b.ya", "import a;\npub fn b() -> int { return 1; }\n");
 
     let output = build(&dir, &dir.join("main.ya"), None);
     assert!(!output.status.success(), "a cycle must fail the build");
@@ -219,17 +219,17 @@ fn importing_the_same_module_from_two_files_defines_it_once() {
     write(
         &dir,
         "a.ya",
-        "import shared;\npub fn from_a() -> i64 { return answer(); }\n",
+        "import shared;\npub fn from_a() -> int { return answer(); }\n",
     );
     write(
         &dir,
         "b.ya",
-        "import shared;\npub fn from_b() -> i64 { return answer(); }\n",
+        "import shared;\npub fn from_b() -> int { return answer(); }\n",
     );
     write(
         &dir,
         "shared.ya",
-        "pub fn answer() -> i64 { return 21; }\n",
+        "pub fn answer() -> int { return 21; }\n",
     );
 
     let output = build(&dir, &dir.join("main.ya"), None);
@@ -249,8 +249,8 @@ fn a_name_defined_in_two_modules_is_an_ambiguity_error() {
         "main.ya",
         "import a;\nimport b;\nfn main() { print_i64(thing()); }\n",
     );
-    write(&dir, "a.ya", "pub fn thing() -> i64 { return 1; }\n");
-    write(&dir, "b.ya", "pub fn thing() -> i64 { return 2; }\n");
+    write(&dir, "a.ya", "pub fn thing() -> int { return 1; }\n");
+    write(&dir, "b.ya", "pub fn thing() -> int { return 2; }\n");
 
     let output = build(&dir, &dir.join("main.ya"), None);
     assert!(
@@ -276,7 +276,7 @@ fn yashy_path_overrides_the_default_root() {
         "main.ya",
         "import vendor.helper;\nfn main() { print_i64(helper()); print_str(\"\\n\"); }\n",
     );
-    write(&dir, "external/vendor/helper.ya", "pub fn helper() -> i64 { return 9; }\n");
+    write(&dir, "external/vendor/helper.ya", "pub fn helper() -> int { return 9; }\n");
     let search = dir.join("external");
 
     let without = build(&dir, &dir.join("main.ya"), None);
@@ -302,7 +302,7 @@ fn check_accepts_a_multi_file_program_without_building_it() {
         "main.ya",
         "import lib.util;\nfn main() { print_i64(seven()); }\n",
     );
-    write(&dir, "lib/util.ya", "pub fn seven() -> i64 { return 7; }\n");
+    write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
     let mut command = Command::new(yashy());
     command
@@ -335,7 +335,7 @@ fn an_error_in_a_module_names_the_module_not_the_entry_point() {
     write(
         &dir,
         "lib/broken.ya",
-        "pub fn value() -> i64 { return \"not a number\"; }\n",
+        "pub fn value() -> int { return \"not a number\"; }\n",
     );
 
     let output = build(&dir, &dir.join("main.ya"), None);

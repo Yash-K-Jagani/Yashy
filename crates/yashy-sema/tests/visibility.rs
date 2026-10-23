@@ -54,7 +54,7 @@ fn a_public_function_is_usable_from_another_module() {
             "main.ya",
             "import lib;\nfn main() { print_i64(seven()); }\n",
         ),
-        ("lib.ya", "pub fn seven() -> i64 { return 7; }\n"),
+        ("lib.ya", "pub fn seven() -> int { return 7; }\n"),
     ])
     .expect("a `pub fn` is another module's to use");
 }
@@ -67,7 +67,7 @@ fn a_private_function_is_not_usable_from_another_module() {
                 "main.ya",
                 "import lib;\nfn main() { print_i64(seven()); }\n",
             ),
-            ("lib.ya", "fn seven() -> i64 { return 7; }\n"),
+            ("lib.ya", "fn seven() -> int { return 7; }\n"),
         ],
         "`seven` is private to module `lib`",
     );
@@ -82,7 +82,7 @@ fn a_module_may_use_its_own_private_items() {
         ),
         (
             "lib.ya",
-            "pub fn seven() -> i64 { return helper(); }\nfn helper() -> i64 { return 7; }\n",
+            "pub fn seven() -> int { return helper(); }\nfn helper() -> int { return 7; }\n",
         ),
     ])
     .expect("a module's own items are its own");
@@ -96,7 +96,7 @@ fn a_private_type_is_not_usable_from_another_module() {
                 "main.ya",
                 "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; }\n",
             ),
-            ("lib.ya", "struct Point { x: i64, y: i64 }\n"),
+            ("lib.ya", "struct Point { x: int, y: int }\n"),
         ],
         "`Point` is private to module `lib`",
     );
@@ -112,7 +112,7 @@ fn a_public_type_with_a_private_field_is_half_visible() {
                 "main.ya",
                 "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; }\n",
             ),
-            ("lib.ya", "pub struct Point { x: i64, y: i64 }\n"),
+            ("lib.ya", "pub struct Point { x: int, y: int }\n"),
         ],
         "field `x` of `Point` is private to module `lib`",
     );
@@ -127,7 +127,7 @@ fn a_public_type_with_a_public_field_is_fully_visible() {
         ),
         (
             "lib.ya",
-            "pub struct Point { pub x: i64, pub y: i64 }\n",
+            "pub struct Point { pub x: int, pub y: int }\n",
         ),
     ])
     .expect("a `pub` field is another module's to read and write");
@@ -143,7 +143,7 @@ fn a_private_field_may_not_be_read_from_another_module() {
             ),
             (
                 "lib.ya",
-                "pub struct Point { x: i64, pub y: i64 }\n",
+                "pub struct Point { x: int, pub y: int }\n",
             ),
         ],
         "field `x` of `Point` is private to module `lib`",
@@ -160,7 +160,7 @@ fn a_const_fn_is_private_too() {
                 "main.ya",
                 "import lib;\nfn main() { const n = square(9); print_i64(n); }\n",
             ),
-            ("lib.ya", "const fn square(n: i64) -> i64 { return n * n; }\n"),
+            ("lib.ya", "const fn square(n: int) -> int { return n * n; }\n"),
         ],
         "`square` is private to module `lib`",
     );
@@ -195,7 +195,7 @@ fn a_private_field_may_not_be_written_from_another_module() {
             ),
             (
                 "lib.ya",
-                "pub struct Point { x: i64, pub y: i64 }\n",
+                "pub struct Point { x: int, pub y: int }\n",
             ),
         ],
         "field `x` of `Point` is private to module `lib`",
@@ -211,7 +211,7 @@ fn a_public_type_is_usable_from_another_module() {
         ),
         (
             "lib.ya",
-            "pub struct Point { pub x: i64, pub y: i64 }\n",
+            "pub struct Point { pub x: int, pub y: int }\n",
         ),
     ])
     .expect("a `pub` type is another module's to name");

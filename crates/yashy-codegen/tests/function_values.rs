@@ -31,7 +31,7 @@ fn ir_of(src: &str) -> String {
 
 #[test]
 fn a_top_level_function_becomes_a_thunk_that_takes_the_environment() {
-    let ir_text = ir_of("fn square(x: i64) -> i64 { return x; } fn main() { const f = square; }");
+    let ir_text = ir_of("fn square(x: int) -> int { return x; } fn main() { const f = square; }");
     assert!(
         ir_text.contains("define i64 @__fnvalue_square(i8* %env, i64 %arg0)"),
         "the thunk takes the environment first, then the arguments:\n{ir_text}"
@@ -44,7 +44,7 @@ fn a_top_level_function_becomes_a_thunk_that_takes_the_environment() {
 
 #[test]
 fn a_function_value_is_a_code_pointer_and_a_null_environment() {
-    let ir_text = ir_of("fn square(x: i64) -> i64 { return x; } fn main() { const f = square; }");
+    let ir_text = ir_of("fn square(x: int) -> int { return x; } fn main() { const f = square; }");
     assert!(
         ir_text.contains("insertvalue { i8*, i8* } undef, i8* @__fnvalue_square, 0"),
         "the code pointer is the thunk's address:\n{ir_text}"
@@ -60,7 +60,7 @@ fn a_function_value_is_a_code_pointer_and_a_null_environment() {
 #[test]
 fn calling_a_function_value_goes_through_the_stored_code_pointer() {
     let ir_text = ir_of(
-        "fn square(x: i64) -> i64 { return x; } fn main() { const f = square; print_i64(f(4)); }",
+        "fn square(x: int) -> int { return x; } fn main() { const f = square; print_i64(f(4)); }",
     );
     assert!(
         ir_text.contains("load { i8*, i8* }, ptr"),
@@ -83,8 +83,8 @@ fn calling_a_function_value_goes_through_the_stored_code_pointer() {
 #[test]
 fn a_function_parameter_is_passed_as_the_same_pair() {
     let ir_text = ir_of(
-        "fn square(x: i64) -> i64 { return x; } \
-         fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); } \
+        "fn square(x: int) -> int { return x; } \
+         fn apply(f: fn(int) -> int, x: int) -> int { return f(x); } \
          fn main() { print_i64(apply(square, 7)); }",
     );
     assert!(
@@ -100,7 +100,7 @@ fn a_function_parameter_is_passed_as_the_same_pair() {
 #[test]
 fn one_thunk_is_shared_by_two_uses_of_the_same_function() {
     let ir_text = ir_of(
-        "fn square(x: i64) -> i64 { return x; } \
+        "fn square(x: int) -> int { return x; } \
          fn main() { const f = square; print_i64(f(4)); print_i64(square(5)); }",
     );
     assert_eq!(
@@ -115,8 +115,8 @@ fn a_function_that_receives_a_value_is_not_inlined() {
     // Inlining the receiver would let the optimizer see the value it was
     // handed and fold the indirect call back into a direct one.
     let ir_text = ir_of(
-        "fn square(x: i64) -> i64 { return x; } \
-         fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); } \
+        "fn square(x: int) -> int { return x; } \
+         fn apply(f: fn(int) -> int, x: int) -> int { return f(x); } \
          fn main() { print_i64(apply(square, 7)); }",
     );
     assert!(
@@ -130,7 +130,7 @@ fn a_lambda_is_emitted_as_a_private_function() {
     // The lambda has no name in the source, so the backend gives it one, and
     // the environment parameter is the convention every function value uses.
     let ir_text = ir_of(
-        "fn main() { const f = |x: i64| -> i64 { return x + 1; }; print_i64(f(1)); }",
+        "fn main() { const f = |x: int| -> int { return x + 1; }; print_i64(f(1)); }",
     );
     assert!(
         ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
@@ -149,8 +149,8 @@ fn a_lambda_is_emitted_as_a_private_function() {
 #[test]
 fn two_lambdas_get_two_functions() {
     let ir_text = ir_of(
-        "fn main() { const f = |x: i64| -> i64 { return x + 1; }; \
-         const g = |x: i64| -> i64 { return x + 2; }; print_i64(f(1)); print_i64(g(1)); }",
+        "fn main() { const f = |x: int| -> int { return x + 1; }; \
+         const g = |x: int| -> int { return x + 2; }; print_i64(f(1)); print_i64(g(1)); }",
     );
     assert!(
         ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
@@ -167,8 +167,8 @@ fn a_lambda_may_contain_another_lambda() {
     // The inner lambda's body is written while the outer one's body is still
     // open, so the two bodies must not be written into the same buffer.
     let ir_text = ir_of(
-        "fn main() { const f = |x: i64| -> i64 { \
-         const g = |y: i64| -> i64 { return y; }; return g(x); }; print_i64(f(1)); }",
+        "fn main() { const f = |x: int| -> int { \
+         const g = |y: int| -> int { return y; }; return g(x); }; print_i64(f(1)); }",
     );
     assert!(
         ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
@@ -190,8 +190,8 @@ fn a_closure_carries_its_captures_in_an_environment() {
     // it, and the closure reads it from there rather than from the scope it
     // was made in.
     let ir_text = ir_of(
-        "fn adder(n: i64) -> fn(i64) -> i64 { \
-         return |x: i64| -> i64 { return x + n; }; }",
+        "fn adder(n: int) -> fn(int) -> int { \
+         return |x: int| -> int { return x + n; }; }",
     );
     assert!(
         ir_text.contains("call i8* @yashy_env_new(i64 1, i64 8, i64 16)"),
@@ -208,7 +208,7 @@ fn a_thrown_away_closure_releases_its_environment() {
     // A closure that is made and never used still owns an environment, and the
     // environment has to come back.
     let ir_text = ir_of(
-        "fn main() { const n = 1; |x: i64| -> i64 { return x + n; }; }",
+        "fn main() { const n = 1; |x: int| -> int { return x + n; }; }",
     );
     assert!(
         ir_text.contains("call void @yashy_env_release(i8* %"),

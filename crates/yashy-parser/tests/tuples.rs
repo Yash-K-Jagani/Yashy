@@ -242,7 +242,7 @@ fn a_guard_is_parsed_after_the_pattern_in_a_switch_statement() {
 
 #[test]
 fn a_guard_is_parsed_in_a_switch_expression_too() {
-    let src = "fn f(n: i64) -> i64 { return switch n { case 1 if n > 0 { 1 } default { 0 } }; }";
+    let src = "fn f(n: int) -> int { return switch n { case 1 if n > 0 { 1 } default { 0 } }; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected a function");
@@ -278,7 +278,7 @@ fn a_guard_keeps_the_span_it_was_parsed_from() {
 
 #[test]
 fn a_tuple_type_is_written_in_parentheses() {
-    let program = parse_ok("fn f(p: (i64, bool)) -> (i64, bool) {}");
+    let program = parse_ok("fn f(p: (int, bool)) -> (int, bool) {}");
     let Item::Fn { params, ret, .. } = &program.items[0] else {
         panic!("expected a function");
     };
@@ -286,7 +286,7 @@ fn a_tuple_type_is_written_in_parentheses() {
         TypeExpr::Tuple(elements, _) => {
             assert_eq!(elements.len(), 2, "{elements:?}");
             assert!(
-                matches!(&elements[0], TypeExpr::Name(name, _) if name == "i64"),
+                matches!(&elements[0], TypeExpr::Name(name, _) if name == "int"),
                 "{elements:?}"
             );
             assert!(

@@ -7,7 +7,7 @@
 - Why mixed arithmetic needs an explicit `as` cast.
 - How a value becomes text, and when arithmetic stops the program.
 
-The scalar types are `i64`, `f64`, `bool`, and `string`. `const` binds a name
+The scalar types are `int`, `float`, `bool`, and `string`. `const` binds a name
 once and never rebinds. `let` and `var` bind a name that can be assigned again.
 `let` is the form to reach for in new code; `var` is kept for programs written
 before `let` existed. Assignment operators like `+=` are shorthand for the
@@ -35,7 +35,7 @@ fn main() {
 
     print_str("total = ${total}\n");
     print_str("half of total = ");
-    print_i64((total as f64 * ratio) as i64);
+    print_i64((total as float * ratio) as int);
     print_str("\n");
     print_str("ready = ${ready}\n");
     // => total = 22
@@ -50,8 +50,8 @@ Two things to notice:
   the same program as `"total = " + str_from_i64(total)`; the checker lowers it
   into exactly that. The braces hold an expression, not only a name: `${p.x}`
   and `${xs.len()}` are allowed.
-- Arithmetic between `i64` and `f64` needs an explicit cast, `as`. The language
-  will not silently pick one for you. The result is cast back to `i64` before
+- Arithmetic between `int` and `float` needs an explicit cast, `as`. The language
+  will not silently pick one for you. The result is cast back to `int` before
   printing: `print_f64`'s formatting is the C library's, and the tutorial only
   claims output that does not depend on it.
 
@@ -62,20 +62,20 @@ puts the decision in the program.
 
 ## Types and operators
 
-`i64` is the only integer type. `f64` is the only floating type. Integer
-literals such as `3` are `i64`; a fractional literal such as `0.5` is `f64`.
+`int` is the only integer type. `float` is the only floating type. Integer
+literals such as `3` are `int`; a fractional literal such as `0.5` is `float`.
 `bool` has `true` and `false`, and `string` is a counted sequence of bytes.
 
 | Type | Literal | Operators | Notes |
 |---|---|---|---|
-| `i64` | `42`, `-7` | `+ - * / %`, comparisons | Checked; a fault stops the program. |
-| `f64` | `0.5`, `-2.0` | `+ - * / %`, comparisons | No implicit `i64` operand. |
+| `int` | `42`, `-7` | `+ - * / %`, comparisons | Checked; a fault stops the program. |
+| `float` | `0.5`, `-2.0` | `+ - * / %`, comparisons | No implicit `int` operand. |
 | `bool` | `true`, `false` | `&& \|\| !`, `== !=` | Conditions must be `bool`. |
 | `string` | `"text"` | `+`, `== !=` | `+` concatenates; no ordering. |
 
 Both operands of an arithmetic or comparison operator must have the same type.
-`total as f64` and `value as i64` are the two numeric casts. Casting `f64` to
-`i64` truncates toward zero: `3.9 as i64` is `3`, and `-3.9 as i64` is `-3`.
+`total as float` and `value as int` are the two numeric casts. Casting `float` to
+`int` truncates toward zero: `3.9 as int` is `3`, and `-3.9 as int` is `-3`.
 There is no cast from `string` to a number; `parse_i64` exists for that.
 
 ## How a number is written
@@ -127,7 +127,7 @@ though the left side is false.
 ## Faults, not wrapping
 
 Integer arithmetic is checked. Overflow, division by zero, and the smallest
-`i64` divided by `-1` stop the program with a message and exit status 1 rather
+`int` divided by `-1` stop the program with a message and exit status 1 rather
 than wrapping silently. The message names the position and the operands:
 
 ```text
@@ -138,7 +138,7 @@ Remainder follows the same truncation as division: `-7 / 2` is `-3`, and
 `-7 % 2` is `-1`. The sign of the remainder is the sign of the dividend.
 
 If wrapping is what the program means, say so with `wrapping_add`,
-`wrapping_sub` or `wrapping_mul`. `checked_*` returns an `Option[i64]` instead,
+`wrapping_sub` or `wrapping_mul`. `checked_*` returns an `Option[int]` instead,
 and `saturating_*` clamps at the ends of the type. There is no wrapping
 division: a wrapped quotient is not the quotient of anything.
 
@@ -146,11 +146,11 @@ division: a wrapped quotient is not the quotient of anything.
 
 - **Assigning to a `const`.** `const n = 3; n = 4;` reports
   ``error: cannot assign to `n`, which is immutable``. Use `let n = 3;`.
-- **Mixing `i64` and `f64` in one expression.** `x + 1.5` where `x` is `i64`
-  reports ``error: cannot apply `+` to `i64` and `f64` ``. Cast one side:
-  `x as f64 + 1.5`.
+- **Mixing `int` and `float` in one expression.** `x + 1.5` where `x` is `int`
+  reports ``error: cannot apply `+` to `int` and `float` ``. Cast one side:
+  `x as float + 1.5`.
 - **Interpolating a struct or enum.** `"${p}"` reports
-  ``error: cannot interpolate a `Point` into a string: only `string`, `i64`, `f64` and `bool` have a text form``.
+  ``error: cannot interpolate a `Point` into a string: only `string`, `int`, `float` and `bool` have a text form``.
   Print the fields instead.
 - **Relying on `&&` to guard a fault.** As above, the right operand still
   runs. The program stops with `panic: division by zero: 10 / 0` even when the
@@ -161,12 +161,12 @@ division: a wrapped quotient is not the quotient of anything.
 
 ## Try it
 
-1. Compute the average of three `i64` values as an `f64`, then print it rounded
-   down to an `i64`. Hint: cast the sum to `f64` before dividing, and cast the
+1. Compute the average of three `int` values as a `float`, then print it rounded
+   down to an `int`. Hint: cast the sum to `float` before dividing, and cast the
    result back after.
 
 2. Swap two `let` bindings without a third variable. Hint: `+` and `-` work,
-   but only if the intermediate values stay inside `i64`. Then try it with a
+   but only if the intermediate values stay inside `int`. Then try it with a
    temporary `const` and decide which version you would rather read.
 
 ## How it works

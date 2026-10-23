@@ -1,11 +1,11 @@
 // An object declaration: a type with its fields and its methods together.
 
 object Counter {
-    value: i64,
-    fn get(self) -> i64 {
+    value: int,
+    fn get(self) -> int {
         return self.value;
     },
-    fn add(self, n: i64) -> Counter {
+    fn add(self, n: int) -> Counter {
         return Counter { value: self.value + n };
     },
 }

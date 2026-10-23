@@ -1,7 +1,7 @@
 // The function.ya loop calling the function directly: the same work, without
 // the function value. The difference between this row and the `function` row
 // is the price of calling through a value.
-fn scale(x: i64, k: i64) -> i64 {
+fn scale(x: int, k: int) -> int {
     return x * k + x % 3;
 }
 

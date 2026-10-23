@@ -1,8 +1,8 @@
-// A manual buffer, end to end: allocate 1024 `i64`s, fill and sum them through
+// A manual buffer, end to end: allocate 1024 `int`s, fill and sum them through
 // pointer indexing, and release the block with `defer`.
 //
 // The arithmetic is chosen so the answer is exact and checkable by hand:
-// `2 * (0 + 1 + ... + 1023)` is `1023 * 1024`, which is well inside `i64`.
+// `2 * (0 + 1 + ... + 1023)` is `1023 * 1024`, which is well inside `int`.
 //
 // `defer` registers after the loops rather than before them because registering
 // it *moves* `buf` -- a deferred `dealloc(buf)` is a use at the point the

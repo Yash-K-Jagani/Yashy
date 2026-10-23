@@ -2,24 +2,24 @@
 
 ## What you will learn
 
-- How to write a function type: `fn(i64) -> i64`.
+- How to write a function type: `fn(int) -> int`.
 - How to hand a function to another function and call it there.
 - How to keep a function in a binding and call it through the binding.
 - How to write one function that works for more than one type.
 - How a `const fn` is computed by the compiler rather than at run time.
 - What the checker insists on, and what a function value is at runtime.
 
-A function name is a value. `fn(i64) -> i64` is the type of a function that
-takes an `i64` and returns an `i64`, and a top-level function's name has that
+A function name is a value. `fn(int) -> int` is the type of a function that
+takes an `int` and returns an `int`, and a top-level function's name has that
 type, so it can be passed to another function, stored in a binding, and called
 later.
 
 ```yashy
-fn square(x: i64) -> i64 {
+fn square(x: int) -> int {
     return x * x;
 }
 
-fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+fn apply(f: fn(int) -> int, x: int) -> int {
     return f(x);
 }
 
@@ -31,7 +31,7 @@ fn main() {
 ```
 
 `apply` does not know what `square` is. Its first parameter says "a function
-of one `i64` that returns one `i64`", and `f(x)` is a call through that
+of one `int` that returns one `int`", and `f(x)` is a call through that
 value. The value that arrives is the name `square` itself: a function name
 used where a value is expected *is* that function.
 
@@ -42,11 +42,11 @@ binding's type is the function's type, so the checker knows what the call
 returns.
 
 ```yashy
-fn square(x: i64) -> i64 {
+fn square(x: int) -> int {
     return x * x;
 }
 
-fn double(x: i64) -> i64 {
+fn double(x: int) -> int {
     return x + x;
 }
 
@@ -74,16 +74,16 @@ A lambda is a function written where a value is expected. It has no name; it
 has parameters, an optional return type, and a body.
 
 ```yashy
-fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
+fn apply(f: fn(int) -> int, x: int) -> int {
     return f(x);
 }
 
 fn main() {
-    print_i64(apply(|x: i64| -> i64 { return x + 1; }, 41));
+    print_i64(apply(|x: int| -> int { return x + 1; }, 41));
     print_str("\n");
     // => 42
 
-    const double = |x: i64| -> i64 { return x * 2; };
+    const double = |x: int| -> int { return x * 2; };
     print_i64(double(20));
     print_str("\n");
     // => 40
@@ -103,7 +103,7 @@ use a variable of the function it is written in:
 ```text
 fn main() {
     const n = 1;
-    const f = |x: i64| -> i64 { return x + n; };
+    const f = |x: int| -> int { return x + n; };
 }
 ```
 
@@ -122,8 +122,8 @@ A closure is a function that carries the values of the scope it was written
 in. It is a lambda that captures something.
 
 ```yashy
-fn adder(n: i64) -> fn(i64) -> i64 {
-    return |x: i64| -> i64 { return x + n; };
+fn adder(n: int) -> fn(int) -> int {
+    return |x: int| -> int { return x + n; };
 }
 
 fn main() {
@@ -164,7 +164,7 @@ Yashy has no way to say which of the two owners releases it:
 ```text
 fn main() {
     const buf = alloc(16);
-    const f = |x: i64| -> i64 { return x; };
+    const f = |x: int| -> int { return x; };
 }
 ```
 
@@ -197,7 +197,7 @@ fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
     return f(f(x));
 }
 
-fn square(x: i64) -> i64 {
+fn square(x: int) -> int {
     return x * x;
 }
 
@@ -216,21 +216,21 @@ fn main() {
 }
 ```
 
-`identity(7)` infers `T = i64`; `identity("seven")` infers `T = string`. The
-call says what the type is by the value it passes — there is no `identity<i64>`
+`identity(7)` infers `T = int`; `identity("seven")` infers `T = string`. The
+call says what the type is by the value it passes — there is no `identity<int>`
 spelling, because there is only one thing a call can mean.
 
 A type parameter is inferred from the arguments, and a repeated one has to
 agree with itself. `apply_twice` mentions `T` three times, so the first
-argument fixes it: `square` has type `fn(i64) -> i64`, which means `T` is
-`i64`, which means `3` has to be an `i64` too. A call whose arguments disagree
+argument fixes it: `square` has type `fn(int) -> int`, which means `T` is
+`int`, which means `3` has to be an `int` too. A call whose arguments disagree
 reports the mismatch at the argument, in the same words an ordinary call does.
 
 Every type parameter must be inferred. One that appears nowhere in the
 parameters has nothing to say what it is:
 
 ```text
-fn make[T]() -> i64 { return 0; }
+fn make[T]() -> int { return 0; }
 fn main() { print_i64(make()); }
 ```
 
@@ -282,9 +282,9 @@ says to keep, and `fold` carries one value through the whole array.
 
 ```yashy
 fn main() {
-    var xs = []i64 { 1, 2, 3 };
+    var xs = []int { 1, 2, 3 };
 
-    var doubled = xs.map(|x: i64| -> i64 { return x * 2; });
+    var doubled = xs.map(|x: int| -> int { return x * 2; });
     for x in doubled {
         print_i64(x);
         print_str("\n");
@@ -294,7 +294,7 @@ fn main() {
     // => 6
     doubled.free();
 
-    var big = xs.filter(|x: i64| -> bool { return x > 2; });
+    var big = xs.filter(|x: int| -> bool { return x > 2; });
     for x in big {
         print_i64(x);
         print_str("\n");
@@ -302,7 +302,7 @@ fn main() {
     // => 3
     big.free();
 
-    print_i64(xs.fold(0, |acc: i64, x: i64| -> i64 { return acc + x; }));
+    print_i64(xs.fold(0, |acc: int, x: int| -> int { return acc + x; }));
     print_str("\n");
     // => 6
 
@@ -312,12 +312,12 @@ fn main() {
 
 `map` and `filter` build a *new* array; the source keeps its own elements, so
 the new array is freed on its own. The element type may change: `map` through
-`|x: i64| -> string { return str_from_i64(x); }` gives a `[]string`.
+`|x: int| -> string { return str_from_i64(x); }` gives a `[]string`.
 
 `fold` starts from the value in front of the callback and ends with one value:
 the callback takes the accumulator and the element, and returns the next
 accumulator. The accumulator's type is the type of the value `fold` starts
-from, so `xs.fold(0, ...)` folds into an `i64`.
+from, so `xs.fold(0, ...)` folds into an `int`.
 
 ## A function the compiler runs
 
@@ -326,7 +326,7 @@ existence: a call to one is replaced by the value the compiler computed, so
 the program carries the number rather than the call that produced it.
 
 ```yashy
-const fn square(n: i64) -> i64 {
+const fn square(n: int) -> int {
     return n * n;
 }
 
@@ -341,21 +341,21 @@ fn main() {
 A `const fn` may call itself, and it may call another `const fn`:
 
 ```yashy
-const fn fib(n: i64) -> i64 {
+const fn fib(n: int) -> int {
     if n < 2 {
         return n;
     }
     return fib(n - 1) + fib(n - 2);
 }
 
-const fn max_of(a: i64, b: i64) -> i64 {
+const fn max_of(a: int, b: int) -> int {
     if a > b {
         return a;
     }
     return b;
 }
 
-const fn square(n: i64) -> i64 {
+const fn square(n: int) -> int {
     return n * n;
 }
 
@@ -384,7 +384,7 @@ Only what the compiler can compute without running the program:
 Anything else is a diagnostic, and it names what it found:
 
 ```text
-const fn read_all() -> i64 {
+const fn read_all() -> int {
     return read_line();
 }
 ```
@@ -419,7 +419,7 @@ value can go. A `const fn` is not a runtime function, so there is no symbol to
 call:
 
 ```text
-const fn square(n: i64) -> i64 {
+const fn square(n: int) -> int {
     return n * n;
 }
 
@@ -439,12 +439,12 @@ the body, and a path that fell off the end would have no value to give.
 
 The type is `fn(T, U) -> R`: the parameter types, then the return type.
 
-- `fn(i64) -> i64` takes one `i64` and returns one `i64`.
-- `fn() -> i64` takes nothing and returns an `i64`.
-- `fn(i64, string) -> bool` takes an `i64` and a `string` and returns a
+- `fn(int) -> int` takes one `int` and returns one `int`.
+- `fn() -> int` takes nothing and returns an `int`.
+- `fn(int, string) -> bool` takes an `int` and a `string` and returns a
   `bool`.
-- `fn(i64)` is a function of one `i64` that returns nothing. The arrow is
-  optional, and an omitted arrow means `-> ()`.
+- `fn(int)` is a function of one `int` that returns nothing. The arrow is
+  optional, and an omitted arrow means `-> void`.
 
 The parameter *names* are not part of the type: a function type describes the
 calling convention, not the names the callee happens to use.
@@ -454,13 +454,13 @@ calling convention, not the names the callee happens to use.
 The type of a function value is checked exactly, in both directions.
 
 - **The types must match.** Handing `apply` a function of a different shape
-  reports ``error: expected `fn(i64) -> i64`, found `fn(string) -> i64` ``. A
-  function that takes a `string` is not a function that takes an `i64`, even
-  though both return an `i64`.
+  reports ``error: expected `fn(int) -> int`, found `fn(string) -> int` ``. A
+  function that takes a `string` is not a function that takes an `int`, even
+  though both return an `int`.
 - **The arity must match.** Calling a one-argument function with two
   arguments reports ``error: expected 1 arguments, found 2 ``.
 - **A value that is not a function cannot be called.** `const f = 1; f(2);`
-  reports ``error: `f` is not a function (it is `i64`) ``.
+  reports ``error: `f` is not a function (it is `int`) ``.
 - **`main` is the entry point, not a value.** `const f = main;` reports
   ``error: `main` is the entry point and cannot be used as a value ``, because
   the entry point is emitted with the operating system's own signature.
@@ -480,7 +480,7 @@ recurses forever is reported rather than followed, because the compiler is
 running it and would run out of stack.
 
 Using a top-level function as a value makes the compiler synthesize a small
-thunk, `__fnvalue_square(i8* env, i64)`, that takes the environment and
+thunk, `__fnvalue_square(i8* env, int)`, that takes the environment and
 ignores it, and calls the real function. The value is that thunk's address
 paired with a null environment. A call through a value loads the pair, takes
 the two halves, and calls the code pointer with the environment as its first
@@ -500,15 +500,15 @@ that call is an ordinary optimization of an ordinary program.
 
 ## Try it
 
-1. Write a function `twice(f: fn(i64) -> i64, x: i64) -> i64` that calls `f`
+1. Write a function `twice(f: fn(int) -> int, x: int) -> int` that calls `f`
    twice, and use it with `square` to compute `square(square(4))`.
 
 2. Write three functions of the same type — `negate`, `double` and
-   `identity` — and a function `pick(which: fn(i64) -> i64, x: i64) -> i64`
+   `identity` — and a function `pick(which: fn(int) -> int, x: int) -> int`
    that calls the one it is given. Call `pick` with each of the three.
 
 3. Write `fn first_of[T](x: T, y: T) -> T` that returns `x`, and call it once
-   with two `i64`s and once with two `string`s. Then change the second call so
+   with two `int`s and once with two `string`s. Then change the second call so
    the two arguments have different types and read the error.
 
 ## Where this leaves you

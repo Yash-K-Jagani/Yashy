@@ -205,7 +205,7 @@ pub fn find_main(items: &[HirItem]) -> Option<&HirFn> {
 }
 
 /// Check that the program has a `fn main` whose return type is an entry
-/// point (`()` or `i64`) and that takes no parameters.
+/// point (`void` or `int`) and that takes no parameters.
 ///
 /// The diagnostic's span is the synthetic `Span { start: 0, end: 0 }`: a
 /// missing `main` points at nothing in particular, and a file-level caret
@@ -250,7 +250,7 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
             } else {
                 Err(Diagnostic {
                     severity: Severity::Error,
-                    message: format!("`main` must return nothing or `i64`, found `{}`", main.ret),
+                    message: format!("`main` must return `void` or `int`, found `{}`", main.ret),
                     file,
                     span: main.span,
                     label: None,

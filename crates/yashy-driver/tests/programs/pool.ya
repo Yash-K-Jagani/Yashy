@@ -19,7 +19,7 @@
 // The switch arms are single expressions -- the grammar has no block arms yet
 // -- so collecting a payload is a `push` into a slice, and the sum is taken
 // once the loop is done.
-fn worker(jobs: Channel[i64], results: Channel[i64]) {
+fn worker(jobs: Channel[int], results: Channel[int]) {
     var taken = 0;
     while taken < 1250 {
         switch jobs.recv() {
@@ -37,10 +37,10 @@ fn worker(jobs: Channel[i64], results: Channel[i64]) {
 }
 
 fn main() {
-    var jobs: Channel[i64] = chan_new(64);
-    var results: Channel[i64] = chan_new(10000);
+    var jobs: Channel[int] = chan_new(64);
+    var results: Channel[int] = chan_new(10000);
 
-    var handles = []i64 { };
+    var handles = []int { };
     var w = 0;
     while w < 8 {
         handles.push(thread_spawn(worker, jobs, results));
@@ -53,7 +53,7 @@ fn main() {
         sent += 1;
     }
 
-    var collected = []i64 { };
+    var collected = []int { };
     var received = 0;
     while received < 10000 {
         switch results.recv() {

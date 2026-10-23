@@ -102,7 +102,7 @@ fn all_messages(diags: &[Diagnostic]) -> String {
 // -- the brief's five tests -------------------------------------------------
 
 /// One of every item kind the parser builds, from one source.
-const FOUR_ITEMS: &str = "import std.io;\nstruct P { x: f64, y: f64 }\nenum C { Red, Green }\nfn d(a: P, b: P) -> f64 { return 0.0; }\n";
+const FOUR_ITEMS: &str = "import std.io;\nstruct P { x: float, y: float }\nenum C { Red, Green }\nfn d(a: P, b: P) -> float { return 0.0; }\n";
 
 #[test]
 fn parses_import_struct_enum_and_fn() {
@@ -122,7 +122,7 @@ fn parses_import_struct_enum_and_fn() {
         other => panic!("expected an import first, got {other:?}"),
     }
 
-    // struct P { x: f64, y: f64 }
+    // struct P { x: float, y: float }
     match &program.items[1] {
         Item::Struct { name, fields, span } => {
             assert_eq!(name, "P");
@@ -131,15 +131,15 @@ fn parses_import_struct_enum_and_fn() {
             for field in fields {
                 match &field.ty {
                     TypeExpr::Name(type_name, _) => {
-                        assert_eq!(type_name, "f64", "the type the source wrote")
+                        assert_eq!(type_name, "float", "the type the source wrote")
                     }
                     other => panic!("a field type must be the named type written, got {other:?}"),
                 }
             }
-            // A field's span covers `x: f64`, not the whole struct.
-            assert_eq!(fields[0].span, span_of(FOUR_ITEMS, "x: f64"));
-            assert_eq!(fields[1].span, span_of(FOUR_ITEMS, "y: f64"));
-            assert_eq!(*span, span_of(FOUR_ITEMS, "struct P { x: f64, y: f64 }"));
+            // A field's span covers `x: float`, not the whole struct.
+            assert_eq!(fields[0].span, span_of(FOUR_ITEMS, "x: float"));
+            assert_eq!(fields[1].span, span_of(FOUR_ITEMS, "y: float"));
+            assert_eq!(*span, span_of(FOUR_ITEMS, "struct P { x: float, y: float }"));
         }
         other => panic!("expected a struct second, got {other:?}"),
     }
@@ -164,7 +164,7 @@ fn parses_import_struct_enum_and_fn() {
         other => panic!("expected an enum third, got {other:?}"),
     }
 
-    // fn d(a: P, b: P) -> f64 { return 0.0; }
+    // fn d(a: P, b: P) -> float { return 0.0; }
     match &program.items[3] {
         Item::Fn {
             name,
@@ -188,16 +188,16 @@ fn parses_import_struct_enum_and_fn() {
             assert_eq!(params[1].span, span_of(FOUR_ITEMS, "b: P"));
             match ret {
                 Some(TypeExpr::Name(type_name, _)) => {
-                    assert_eq!(type_name, "f64", "the return type the source wrote")
+                    assert_eq!(type_name, "float", "the return type the source wrote")
                 }
-                other => panic!("expected `-> f64`, got {other:?}"),
+                other => panic!("expected `-> float`, got {other:?}"),
             }
             // The block's span includes both braces, so a diagnostic about the
             // body points at the body rather than at its first statement.
             assert_eq!(body.span, span_of(FOUR_ITEMS, "{ return 0.0; }"));
             assert_eq!(
                 *span,
-                span_of(FOUR_ITEMS, "fn d(a: P, b: P) -> f64 { return 0.0; }")
+                span_of(FOUR_ITEMS, "fn d(a: P, b: P) -> float { return 0.0; }")
             );
         }
         other => panic!("expected a function fourth, got {other:?}"),
@@ -344,9 +344,9 @@ fn extern_blocks_are_parsed_in_both_their_spellings() {
     // A block with an ABI and a library, and the single-declaration form. The
     // AST has one shape for both: a list of declarations.
     for src in [
-        r#"extern "C" { unsafe fn puts(s: string) -> i64; }"#,
-        r#"extern "C" link "m" { unsafe fn puts(s: string) -> i64; }"#,
-        r#"extern "C" unsafe fn puts(s: string) -> i64;"#,
+        r#"extern "C" { unsafe fn puts(s: string) -> int; }"#,
+        r#"extern "C" link "m" { unsafe fn puts(s: string) -> int; }"#,
+        r#"extern "C" unsafe fn puts(s: string) -> int;"#,
     ] {
         let program = parse_ok(src);
         match program.items.first() {
@@ -383,7 +383,7 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
     let src = "// a comment\n\
                \n\
                import std.io;\n\
-               /* block */ struct P {\n    x: f64,\n}\n\
+               /* block */ struct P {\n    x: float,\n}\n\
                enum C {\n    Red,\n}\n\
                fn f() {\n}\n";
     let program = parse_ok(src);
@@ -392,7 +392,7 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
         "import std.io;",
         // The comment before the `struct` is not inside its span: a comment is
         // trivia, and a diagnostic about the struct must underline the struct.
-        "struct P {\n    x: f64,\n}",
+        "struct P {\n    x: float,\n}",
         "enum C {\n    Red,\n}",
         "fn f() {\n}",
     ];
@@ -418,7 +418,7 @@ fn every_item_span_covers_its_own_text_and_nothing_else() {
 
 #[test]
 fn an_unclosed_struct_body_points_at_the_opening_brace() {
-    let diags = parse_err("struct S {\n    x: f64\n");
+    let diags = parse_err("struct S {\n    x: float\n");
     let first = match diags.first() {
         Some(d) => d,
         None => panic!("there must be a diagnostic"),
@@ -465,7 +465,7 @@ fn a_stray_closer_is_not_reported_as_an_unclosed_opener() {
 
 #[test]
 fn struct_field_types_cover_the_whole_type_grammar() {
-    let src = "struct S { a: i64, b: Option[i64], c: Result[i64, string], d: (), e: (i64, f64), f: pkg.Thing }";
+    let src = "struct S { a: int, b: Option[int], c: Result[int, string], d: (), e: (int, float), f: pkg.Thing }";
     let program = parse_ok(src);
     let fields = match &program.items[0] {
         Item::Struct { fields, .. } => fields,
@@ -474,7 +474,7 @@ fn struct_field_types_cover_the_whole_type_grammar() {
     let shapes: Vec<String> = fields.iter().map(|f| format!("{:?}", f.ty)).collect();
 
     assert!(
-        shapes[0].starts_with("Name(\"i64\""),
+        shapes[0].starts_with("Name(\"int\""),
         "a primitive is a named type: {shapes:?}"
     );
     assert!(shapes[1].starts_with("Option("), "`Option[T]`: {shapes:?}");
@@ -488,7 +488,7 @@ fn struct_field_types_cover_the_whole_type_grammar() {
     );
     assert!(
         shapes[4].starts_with("Tuple("),
-        "`(i64, f64)` is a tuple type: {shapes:?}"
+        "`(int, float)` is a tuple type: {shapes:?}"
     );
     assert!(
         shapes[5].contains("pkg.Thing"),
@@ -508,9 +508,9 @@ fn struct_field_types_cover_the_whole_type_grammar() {
 
     // Each type's own span is the type's own text, so a diagnostic about one
     // field type does not point at its neighbour.
-    assert_eq!(fields[1].span, span_of(src, "b: Option[i64]"));
+    assert_eq!(fields[1].span, span_of(src, "b: Option[int]"));
     match &fields[1].ty {
-        TypeExpr::Option(_, span) => assert_eq!(*span, span_of(src, "Option[i64]")),
+        TypeExpr::Option(_, span) => assert_eq!(*span, span_of(src, "Option[int]")),
         other => panic!("expected Option, got {other:?}"),
     }
 }
@@ -522,12 +522,12 @@ fn struct_field_types_cover_the_whole_type_grammar() {
 /// clause is load-bearing rather than redundant, and this test is what keeps it
 /// that way: `parse_paren_type` is a bare `loop {}` with no `while !check(RParen)`
 /// guard above it, so `self.check(TokenKind::RParen)` is the only thing standing
-/// between `(i64,)` and "expected a type, found `)`". Deleting the clause turns
+/// between `(int,)` and "expected a type, found `)`". Deleting the clause turns
 /// both of these red.
 #[test]
 fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
-    // `(i64,)` -- one element, and the comma before `)` is not a separator.
-    let src = "struct S { e: (i64,) }";
+    // `(int,)` -- one element, and the comma before `)` is not a separator.
+    let src = "struct S { e: (int,) }";
     match &parse_ok(src).items[0] {
         Item::Struct { fields, .. } => match &fields[0].ty {
             TypeExpr::Tuple(elements, _) => assert_eq!(
@@ -535,14 +535,14 @@ fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
                 1,
                 "a trailing comma is not an element: {elements:?}"
             ),
-            other => panic!("`(i64,)` is a tuple type, got {other:?}"),
+            other => panic!("`(int,)` is a tuple type, got {other:?}"),
         },
         other => panic!("expected a struct, got {other:?}"),
     }
 
     // The same trailing comma inside a variant's positional payload: one field,
     // not two, and the comma loop there agrees with the struct case.
-    let src = "enum E { A(i64,) }";
+    let src = "enum E { A(int,) }";
     match &parse_ok(src).items[0] {
         Item::Enum { variants, .. } => assert_eq!(
             variants[0].fields.len(),
@@ -555,7 +555,7 @@ fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
 
     // The two-element form still works, so the trailing comma is not what is
     // making a one-element tuple parse.
-    match &parse_ok("struct S { e: (i64, f64) }").items[0] {
+    match &parse_ok("struct S { e: (int, float) }").items[0] {
         Item::Struct { fields, .. } => match &fields[0].ty {
             TypeExpr::Tuple(elements, _) => assert_eq!(elements.len(), 2, "{elements:?}"),
             other => panic!("expected a tuple, got {other:?}"),
@@ -565,10 +565,10 @@ fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
 
     // And a doubled comma inside a tuple type is still a diagnostic, not a
     // silently dropped element.
-    let message = all_messages(&parse_err("struct S { e: (i64,, f64) }"));
+    let message = all_messages(&parse_err("struct S { e: (int,, float) }"));
     assert!(message.contains("type"), "{message}");
     assert_eq!(
-        parse_err("struct S { e: (i64,, f64) }").len(),
+        parse_err("struct S { e: (int,, float) }").len(),
         1,
         "one mistake, one diagnostic: {message}"
     );
@@ -578,11 +578,11 @@ fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
 fn a_type_the_parser_cannot_read_is_a_diagnostic() {
     // Yashy has no generics, so `[` after any other name is a mistake worth
     // naming rather than a silent reading.
-    let message = all_messages(&parse_err("struct S { x: Vec[i64] }"));
+    let message = all_messages(&parse_err("struct S { x: Vec[int] }"));
     assert!(message.contains("generics"), "{message}");
     assert!(all_messages(&parse_err("struct S { x: Option[ }")).contains("Option"));
     assert!(
-        all_messages(&parse_err("struct S { x: Result[i64] }")).contains("two types"),
+        all_messages(&parse_err("struct S { x: Result[int] }")).contains("two types"),
         "`Result` needs both halves or neither"
     );
     assert!(all_messages(&parse_err("struct S { x: }")).contains("type"));
@@ -604,7 +604,7 @@ fn a_type_the_parser_cannot_read_is_a_diagnostic() {
 
 #[test]
 fn enum_variants_may_be_unit_tuple_or_struct() {
-    let src = "enum Shape {\n    Circle(f64),\n    Rect { w: f64, h: f64 },\n    Empty,\n}";
+    let src = "enum Shape {\n    Circle(float),\n    Rect { w: float, h: float },\n    Empty,\n}";
     let program = parse_ok(src);
     let variants = match &program.items[0] {
         Item::Enum { variants, .. } => variants,
@@ -619,16 +619,16 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
     match &variants[0].fields[0] {
         VariantField::Positional { ty, span } => match ty {
             TypeExpr::Name(name, _) => {
-                assert_eq!(name, "f64");
+                assert_eq!(name, "float");
                 assert_eq!(
                     *span,
-                    span_of(src, "f64"),
+                    span_of(src, "float"),
                     "the field carries the type's own text"
                 );
             }
-            other => panic!("expected `f64`, got {other:?}"),
+            other => panic!("expected `float`, got {other:?}"),
         },
-        other => panic!("`Circle(f64)` is a positional payload, got {other:?}"),
+        other => panic!("`Circle(float)` is a positional payload, got {other:?}"),
     }
 
     // A struct variant's fields are named, and the names are the ones written.
@@ -641,14 +641,14 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
         })
         .collect();
     assert_eq!(names, vec!["w", "h"], "a struct variant names its fields");
-    assert_eq!(variants[1].fields[1].span(), span_of(src, "h: f64"));
+    assert_eq!(variants[1].fields[1].span(), span_of(src, "h: float"));
 
     assert!(
         variants[2].fields.is_empty(),
         "a unit variant has no fields"
     );
-    assert_eq!(variants[0].span, span_of(src, "Circle(f64)"));
-    assert_eq!(variants[1].span, span_of(src, "Rect { w: f64, h: f64 }"));
+    assert_eq!(variants[0].span, span_of(src, "Circle(float)"));
+    assert_eq!(variants[1].span, span_of(src, "Rect { w: float, h: float }"));
     assert_eq!(variants[2].span, span_of(src, "Empty"));
 }
 
@@ -656,7 +656,7 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
 /// other -- a sentinel cannot creep back in without this failing.
 #[test]
 fn a_positional_payload_is_not_a_named_field_with_no_name() {
-    let src = "enum Shape { Circle(f64), Rect { w: f64 } }";
+    let src = "enum Shape { Circle(float), Rect { w: float } }";
     let variants = match &parse_ok(src).items[0] {
         Item::Enum { variants, .. } => variants.clone(),
         other => panic!("expected an enum, got {other:?}"),
@@ -667,10 +667,10 @@ fn a_positional_payload_is_not_a_named_field_with_no_name() {
     // downstream `name.is_empty()` check to forget.
     match &variants[0].fields[0] {
         VariantField::Positional { ty, span } => {
-            assert_eq!(span, &span_of(src, "f64"));
-            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "f64"));
+            assert_eq!(span, &span_of(src, "float"));
+            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "float"));
         }
-        other => panic!("`Circle(f64)` must be Positional, got {other:?}"),
+        other => panic!("`Circle(float)` must be Positional, got {other:?}"),
     }
     let positional = format!("{:?}", variants[0].fields[0]);
     assert!(
@@ -682,10 +682,10 @@ fn a_positional_payload_is_not_a_named_field_with_no_name() {
     match &variants[1].fields[0] {
         VariantField::Named { name, ty, span } => {
             assert_eq!(name, "w");
-            assert_eq!(span, &span_of(src, "w: f64"));
-            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "f64"));
+            assert_eq!(span, &span_of(src, "w: float"));
+            assert!(matches!(ty, TypeExpr::Name(name, _) if name == "float"));
         }
-        other => panic!("`Rect {{ w: f64 }}` must be Named, got {other:?}"),
+        other => panic!("`Rect {{ w: float }}` must be Named, got {other:?}"),
     }
 
     // The two are different values, and they are different *types*: a pattern
@@ -694,7 +694,7 @@ fn a_positional_payload_is_not_a_named_field_with_no_name() {
 
     // `FieldDef` -- a struct's field -- still has a plain `name`, and is not the
     // type a variant payload uses.
-    let struct_fields = match &parse_ok("struct P { x: f64 }").items[0] {
+    let struct_fields = match &parse_ok("struct P { x: float }").items[0] {
         Item::Struct { fields, .. } => fields.clone(),
         other => panic!("expected a struct, got {other:?}"),
     };
@@ -735,7 +735,7 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
     // A parameter without a type is a diagnostic: annotations are required at
     // the boundaries (spec 3.2), and the message names the missing `:`.
     assert!(all_messages(&parse_err("fn f(a) { }")).contains("`:`"));
-    assert!(all_messages(&parse_err("fn f(a: i64 { }")).contains("`)`"));
+    assert!(all_messages(&parse_err("fn f(a: int { }")).contains("`)`"));
 }
 
 /// A comma in a parameter list is either the separator or a trailing mark, and
@@ -743,7 +743,7 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
 #[test]
 fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
     // The baseline: two parameters, one comma between them.
-    match &parse_ok("fn f(a: i64, b: i64) { }").items[0] {
+    match &parse_ok("fn f(a: int, b: int) { }").items[0] {
         Item::Fn { params, .. } => {
             let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
             assert_eq!(names, vec!["a", "b"]);
@@ -753,7 +753,7 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
 
     // A trailing comma is accepted, and it does not invent a parameter: the
     // comma before `)` ends the list rather than introducing an empty one.
-    match &parse_ok("fn f(a: i64,) { }").items[0] {
+    match &parse_ok("fn f(a: int,) { }").items[0] {
         Item::Fn { params, .. } => assert_eq!(
             params.len(),
             1,
@@ -762,7 +762,7 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
         other => panic!("expected a function, got {other:?}"),
     }
     // And the same in a struct's field list, for the same reason.
-    match &parse_ok("struct S { x: f64, }").items[0] {
+    match &parse_ok("struct S { x: float, }").items[0] {
         Item::Struct { fields, .. } => assert_eq!(fields.len(), 1, "{fields:?}"),
         other => panic!("expected a struct, got {other:?}"),
     }
@@ -774,12 +774,12 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
     // their parameter-list equivalents are here, and they are the same comma
     // loop over the same delimiter, so what is pinned is the same rule.
     for src in [
-        "fn f(a: i64,, b: i64) { }", // f(1,,2)
+        "fn f(a: int,, b: int) { }", // f(1,,2)
         "fn f(,) { }",               // f(,)
-        "fn f(, a: i64) { }",        // f(,1)
-        "fn f(a: i64 b: i64) { }",
+        "fn f(, a: int) { }",        // f(,1)
+        "fn f(a: int b: int) { }",
         "fn f(a:) { }",
-        "fn f(a: i64,,, ) { }",
+        "fn f(a: int,,, ) { }",
     ] {
         let diags = parse_err(src);
         assert_eq!(
@@ -791,10 +791,10 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
         assert!(diags[0].is_error(), "{src:?}: {}", diags[0].message);
     }
 
-    // `struct S { a: i64, }` is asserted above: a trailing comma there is one
+    // `struct S { a: int, }` is asserted above: a trailing comma there is one
     // field, not two. The named-variant payload and the positional one are the
     // remaining two comma loops, and they agree.
-    match &parse_ok("enum E { A { w: f64, } }").items[0] {
+    match &parse_ok("enum E { A { w: float, } }").items[0] {
         Item::Enum { variants, .. } => assert_eq!(
             variants[0].fields.len(),
             1,
@@ -842,7 +842,7 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
     for src in [
         "struct S { , }",
         "enum E { , }",
-        "struct S { , x: f64 }",
+        "struct S { , x: float }",
         "enum E { Red, , }",
     ] {
         let diags = parse_err(src);
@@ -857,7 +857,7 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
     // And the bodies that are *not* empty parse, so the rejection above is a
     // decision about emptiness and not about braces.
     assert_eq!(parse_ok("enum E { Red }").items.len(), 1);
-    assert_eq!(parse_ok("struct S { x: f64 }").items.len(), 1);
+    assert_eq!(parse_ok("struct S { x: float }").items.len(), 1);
     assert_eq!(parse_ok("enum E { Red, Green }").items.len(), 1);
 
     // The ruling reaches inside the enum too: a variant with an *empty* payload
@@ -894,9 +894,9 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
 
     // A variant with a real payload in the same spelling still parses, so the
     // rejection is about emptiness and not about parentheses or braces.
-    assert_eq!(parse_ok("enum E { A(i64) }").items.len(), 1);
-    assert_eq!(parse_ok("enum E { A { w: f64 } }").items.len(), 1);
-    assert_eq!(parse_ok("enum E { A, B(f64), C { w: f64 } }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { A(int) }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { A { w: float } }").items.len(), 1);
+    assert_eq!(parse_ok("enum E { A, B(float), C { w: float } }").items.len(), 1);
 }
 
 #[test]
@@ -1022,12 +1022,12 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "struct S { , }",
         "struct S { x }",
         "struct S { x: }",
-        "struct S { x: : i64 }",
-        "struct S { x: i64,, y: i64 }",
-        "struct S { x: i64,,, }",
+        "struct S { x: : int }",
+        "struct S { x: int,, y: int }",
+        "struct S { x: int,,, }",
         "struct S { 5 }",
         "struct S { x: Option[ }",
-        "struct S { x: Option[i64",
+        "struct S { x: Option[int",
         "struct S { x: Result[] }",
         "enum",
         "enum E",
@@ -1041,12 +1041,12 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "fn f",
         "fn f(",
         "fn f(,)",
-        "fn f(, a: i64)",
-        "fn f(a: i64,)",
-        "fn f(a: i64,)",
-        "fn f(a: i64,, b: i64)",
-        "fn f(a: i64,,, )",
-        "fn f(a: i64 b: i64)",
+        "fn f(, a: int)",
+        "fn f(a: int,)",
+        "fn f(a: int,)",
+        "fn f(a: int,, b: int)",
+        "fn f(a: int,,, )",
+        "fn f(a: int b: int)",
         "fn f()",
         "fn f() -",
         "fn f() ->",
@@ -1059,14 +1059,14 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "fn f() { [ }",
         "extern",
         "extern \"C\" { }",
-        "extern \"C\" link \"m\" { unsafe fn puts(s: string) -> i64; }",
+        "extern \"C\" link \"m\" { unsafe fn puts(s: string) -> int; }",
         "\u{0}",
         "@",
         "@@@",
         "fn f() { @ }",
         "}}}}}}}}",
         "((((((((((",
-        "import std.io; struct P { x: f64 } enum C { Red } fn d() -> f64 { }",
+        "import std.io; struct P { x: float } enum C { Red } fn d() -> float { }",
     ];
     for src in sources {
         // A source that does not even lex is the lexer's business, not this
@@ -1144,7 +1144,7 @@ fn every_diagnostic_is_an_error_against_the_parsed_file() {
 
 #[test]
 fn field_and_variant_order_is_source_order() {
-    let src = "struct S { z: i64, a: i64, m: i64 }";
+    let src = "struct S { z: int, a: int, m: int }";
     let fields: Vec<FieldDef> = match &parse_ok(src).items[0] {
         Item::Struct { fields, .. } => fields.clone(),
         other => panic!("expected a struct, got {other:?}"),
@@ -1196,7 +1196,7 @@ fn an_empty_body_after_a_bare_name_is_a_block_not_a_struct_literal() {
     for (src, expected) in [
         ("fn f(flag: bool) { if flag { } }", "if flag { }"),
         ("fn g(flag: bool) { while flag { } }", "while flag { }"),
-        ("fn h(n: i64) { for i in 0..n { } }", "for i in 0..n { }"),
+        ("fn h(n: int) { for i in 0..n { } }", "for i in 0..n { }"),
     ] {
         let prog = parse_ok(src);
         let Item::Fn { body, .. } = &prog.items[0] else {
@@ -1340,7 +1340,7 @@ fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
 
 #[test]
 fn let_binding_parses_like_var() {
-    let src = "fn main() { let x: i64 = 1; }";
+    let src = "fn main() { let x: int = 1; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1703,7 +1703,7 @@ fn an_integer_literal_that_does_not_fit_an_i64_is_a_diagnostic_not_a_zero() {
     let src = "fn main() { print_i64(9223372036854775808); }";
     let diags = parse_err(src);
     assert!(
-        all_messages(&diags).contains("integer literal does not fit an i64"),
+        all_messages(&diags).contains("integer literal does not fit an int"),
         "expected the lexer's wording: {}",
         all_messages(&diags)
     );
@@ -1721,7 +1721,7 @@ fn an_integer_pattern_that_does_not_fit_is_a_diagnostic_too() {
     // the user never named.
     let diags = parse_err("fn f() { switch 1 { case 99999999999999999999 { print_i64(1); } } }");
     assert!(
-        all_messages(&diags).contains("integer literal does not fit an i64"),
+        all_messages(&diags).contains("integer literal does not fit an int"),
         "{}",
         all_messages(&diags)
     );
@@ -1730,8 +1730,8 @@ fn an_integer_pattern_that_does_not_fit_is_a_diagnostic_too() {
 #[test]
 fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
     // `-9223372036854775808` is the one integer a leading minus makes readable
-    // that the digits alone are not: they are one past `i64::MAX`, so the literal
-    // under the minus cannot stand on its own and `i64::MIN` would have no
+    // that the digits alone are not: they are one past `int::MAX`, so the literal
+    // under the minus cannot stand on its own and `int::MIN` would have no
     // spelling at all. The fold is narrow -- the digits must be out of range *and*
     // negate into range -- so `-5` is still a negation of `5`.
     let src = "fn f() { const big = -9223372036854775808; const small = -5; }";
@@ -1747,7 +1747,7 @@ fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
                 "the span covers the minus, not just the digits"
             );
         }
-        other => panic!("expected a folded i64::MIN literal, got {other:?}"),
+        other => panic!("expected a folded int::MIN literal, got {other:?}"),
     }
     let Stmt::Const { init, .. } = &body.stmts[1] else { panic!("expected const") };
     assert!(
@@ -1761,7 +1761,7 @@ fn the_three_bracket_types_parse_apart() {
     // One bracket pair, three meanings: empty brackets take the element after
     // them (`[]T`), `T; N` is a fixed array, and `T` alone is a view. Reading
     // the pair in one place is what keeps `[]T` from being read as a view.
-    let src = "struct S { grow: []i64, fixed: [i64; 3], view: [i64] }";
+    let src = "struct S { grow: []int, fixed: [int; 3], view: [int] }";
     let program = parse_ok(src);
     let fields = match &program.items[0] {
         Item::Struct { fields, .. } => fields,
@@ -1769,20 +1769,20 @@ fn the_three_bracket_types_parse_apart() {
     };
     assert!(
         matches!(&fields[0].ty, TypeExpr::Slice(_, _)),
-        "`[]i64` is a growable array: {:?}",
+        "`[]int` is a growable array: {:?}",
         fields[0].ty
     );
     match &fields[1].ty {
         TypeExpr::FixedArray(element, length, span) => {
             assert_eq!(*length, 3);
-            assert!(matches!(**element, TypeExpr::Name(ref name, _) if name == "i64"));
-            assert_eq!(*span, span_of(src, "[i64; 3]"));
+            assert!(matches!(**element, TypeExpr::Name(ref name, _) if name == "int"));
+            assert_eq!(*span, span_of(src, "[int; 3]"));
         }
-        other => panic!("`[i64; 3]` is a fixed array, got {other:?}"),
+        other => panic!("`[int; 3]` is a fixed array, got {other:?}"),
     }
     assert!(
         matches!(&fields[2].ty, TypeExpr::View(_, _)),
-        "`[i64]` is a view: {:?}",
+        "`[int]` is a view: {:?}",
         fields[2].ty
     );
 }
@@ -1790,11 +1790,11 @@ fn the_three_bracket_types_parse_apart() {
 #[test]
 fn a_fixed_array_length_must_be_a_and_fit_in_a_machine_word() {
     assert!(
-        all_messages(&parse_err("struct S { a: [i64; n] }")).contains("array length"),
+        all_messages(&parse_err("struct S { a: [int; n] }")).contains("array length"),
         "a length is a literal, not a name"
     );
     assert!(
-        all_messages(&parse_err("struct S { a: [i64; 99999999999999999999999] }"))
+        all_messages(&parse_err("struct S { a: [int; 99999999999999999999999] }"))
             .contains("machine word"),
         "a length that cannot be stored is reported, not truncated"
     );

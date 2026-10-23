@@ -13,7 +13,7 @@ extern "C" link "m" {
 
 fn main() {
     puts("hello from C");
-    print_i64(strlen("hello") as i64);
+    print_i64(strlen("hello") as int);
     print_str("\n");
 
     const buffer = malloc(64 as usize);

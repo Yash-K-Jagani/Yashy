@@ -167,7 +167,7 @@ fn integer_addition_is_checked_before_it_adds() {
     // to the block that reports it. This is the diff the golden was rewritten
     // for, and `nsw` is still absent -- the check is what makes the operation
     // defined, not a flag that turns it into UB.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a + b; }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = a + b; }");
     assert!(
         ir_text.contains("call { i64, i1 } @llvm.sadd.with.overflow.i64"),
         "expected the overflow intrinsic:\n{ir_text}"
@@ -196,7 +196,7 @@ fn subtraction_and_multiplication_use_their_own_intrinsics() {
     // multiply is the one that would have needed a hand-rolled `i128` widening
     // test, which is exactly the kind of predicate that is easier to get wrong
     // than to notice.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a - b; const y = a * b; }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = a - b; const y = a * b; }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("@llvm.ssub.with.overflow.i64"),
@@ -219,7 +219,7 @@ fn the_division_itself_is_emitted_behind_the_check() {
     // division has to be in the block the check *falls through to* rather than in
     // the block it guards: by the time the instruction runs, the divisor is known
     // to be safe.
-    let src = "fn f(a: i64, b: i64) { const q = a / b; const r = a % b; }";
+    let src = "fn f(a: int, b: int) { const q = a / b; const r = a % b; }";
     let ir_text = gen_body(src);
     let branch = ir_text.find("br i1").expect("a check must branch");
     let divide = ir_text.find("sdiv i64").expect("the quotient is still a sdiv");
@@ -245,7 +245,7 @@ fn a_fault_carries_the_operands_and_the_position_it_was_written_at() {
     // backend cannot work out for itself -- it is handed IR text and a path, and
     // no source map -- so the checker resolves it and this asserts it survived
     // the trip.
-    let src = "fn f(a: i64, b: i64) {\n    const q = a / b;\n}";
+    let src = "fn f(a: int, b: int) {\n    const q = a / b;\n}";
     let (line, column) = position_of(src, "a / b");
     let ir_text = gen_body(src);
     assert!(
@@ -268,7 +268,7 @@ fn the_fault_block_never_falls_through() {
     // block of its own: instructions appended after a terminator are not
     // well-formed IR, and a checked operation can appear anywhere an expression
     // may -- including as the argument of another call.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = a + b; }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = a + b; }");
     let lines: Vec<&str> = ir_text.lines().map(str::trim).collect();
     let unreachable = lines
         .iter()
@@ -290,7 +290,7 @@ fn negating_an_integer_checks_for_the_smallest_one() {
     // `-i64::MIN` has no answer in `i64`: it wraps to itself, so a silent
     // wraparound would turn a mistake into a plausible number. It reports as an
     // overflow of a subtraction from zero, which is what negation is.
-    let ir_text = gen_body("fn f(a: i64) { const b = -a; }");
+    let ir_text = gen_body("fn f(a: int) { const b = -a; }");
     assert!(
         ir_text.contains("icmp eq i64 %t0, -9223372036854775808"),
         "the one value that cannot be negated is the test:\n{ir_text}"
@@ -305,7 +305,7 @@ fn negating_an_integer_checks_for_the_smallest_one() {
 fn negating_a_float_is_not_checked() {
     // Negating any `f64`, infinity included, is exact. There is no fault to
     // report and no check to pay for.
-    let ir_text = gen_body("fn f(x: f64) { const y = -x; }");
+    let ir_text = gen_body("fn f(x: float) { const y = -x; }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("fsub double 0.0"),
@@ -322,7 +322,7 @@ fn comparisons_and_boolean_logic_are_never_checked() {
     // A comparison cannot overflow and `&&` is not arithmetic. This is the guard
     // against the checked path widening to operations it does not belong on.
     let ir_text =
-        gen_body("fn f(a: i64, b: i64) { const c = a < b; const d = (a < b) && (b < a); }");
+        gen_body("fn f(a: int, b: int) { const c = a < b; const d = (a < b) && (b < a); }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("icmp slt i64"),
@@ -342,7 +342,7 @@ fn comparisons_and_boolean_logic_are_never_checked() {
 fn float_arithmetic_carries_no_check() {
     // An `f64` that overflows becomes an infinity, which is a float answer
     // rather than a wrong one, and neither `fadd` nor `fdiv` traps.
-    let ir_text = gen_body("fn f(x: f64, y: f64) { const s = x + y; const q = x / y; }");
+    let ir_text = gen_body("fn f(x: float, y: float) { const s = x + y; const q = x / y; }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("fadd double") && body.contains("fdiv double"),
@@ -421,7 +421,7 @@ fn a_none_value_writes_only_the_tag() {
     // fell through to a call to a function named `@None`, which does not exist,
     // so the program failed at link time with an error naming a symbol the user
     // never wrote.
-    let ir_text = gen_body("fn f() { const empty: Option[i64] = None; }");
+    let ir_text = gen_body("fn f() { const empty: Option[int] = None; }");
     assert!(
         ir_text.contains("insertvalue { i8, i64 } undef, i8 0, 0"),
         "expected a tag-only construction:\n{ir_text}"
@@ -439,7 +439,7 @@ fn a_field_assignment_is_a_read_modify_write() {
     // result back. The field's position comes from the checker, so the
     // `insertvalue` names it rather than looking the declaration up again.
     let ir_text = gen_body(
-        "struct Point { x: i64, y: i64 }\n\
+        "struct Point { x: int, y: int }\n\
          fn f(p: Point) { var q = p; q.x = 1; }",
     );
     assert!(
@@ -462,7 +462,7 @@ fn a_nested_field_assignment_rebuilds_each_aggregate() {
     // inserts the rebuilt inner value back into the outer one: one
     // `insertvalue` per level, and an `extractvalue` for the level below.
     let ir_text = gen_body(
-        "struct Point { x: i64, y: i64 }\n\
+        "struct Point { x: int, y: int }\n\
          struct Line { from: Point, to: Point }\n\
          fn f(l: Line) { var m = l; m.from.x = 1; }",
     );
@@ -509,14 +509,14 @@ fn unary_negation_subtracts_from_zero() {
 
 #[test]
 fn cast_emits_sitofp_and_fptosi() {
-    let ir_text = gen_body("fn f() { const a = 1.0; const b = a as i64; }");
+    let ir_text = gen_body("fn f() { const a = 1.0; const b = a as int; }");
     assert!(ir_text.contains("fptosi double"), ":\n{ir_text}");
 }
 
 #[test]
 fn match_on_option_tests_the_tag_then_loads_the_payload() {
     let ir_text = gen_return(
-        "fn f(o: Option[i64]) -> i64 { return switch o { case None { 0 } case Some(x) { x } }; }",
+        "fn f(o: Option[int]) -> int { return switch o { case None { 0 } case Some(x) { x } }; }",
     );
     // The Some arm is tested: tag 1 against the loaded tag field.
     assert!(
@@ -543,7 +543,7 @@ fn match_on_option_tests_the_tag_then_loads_the_payload() {
 #[test]
 fn match_on_result_distinguishes_ok_and_err() {
     let ir_text = gen_return(
-        "fn f(r: Result[i64, string]) -> i64 { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
+        "fn f(r: Result[int, string]) -> int { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
     );
     // Ok is tag 0 and its payload is field 1.
     assert!(
@@ -578,7 +578,7 @@ fn comparisons_use_untyped_constants() {
     // error ("expected value token"), not a style preference. Every comparison
     // this backend emits must end in a bare value.
     let ir_text = gen_return(
-        "fn f(o: Option[i64]) -> i64 { return switch o { case Some(x) { x } case None { 0 } }; }",
+        "fn f(o: Option[int]) -> int { return switch o { case Some(x) { x } case None { 0 } }; }",
     );
     for line in ir_text
         .lines()
@@ -597,7 +597,7 @@ fn comparisons_use_untyped_constants() {
 fn wildcard_arm_needs_no_tag_test() {
     // With a default arm only the tested variant arm emits an icmp.
     let ir_text = gen_return(
-        "fn f(o: Option[i64]) -> i64 { return switch o { case None { 0 } default { 1 } }; }",
+        "fn f(o: Option[int]) -> int { return switch o { case None { 0 } default { 1 } }; }",
     );
     let icmps = ir_text.matches("icmp eq i8").count();
     assert_eq!(icmps, 1, "only the None arm tests a tag:\n{ir_text}");
@@ -625,7 +625,7 @@ fn wrapping_arithmetic_is_the_bare_operation_and_nothing_else() {
     // arithmetic became checked: one instruction, no flag, no branch, no cold
     // block. It is the escape hatch for code that has already decided the
     // arithmetic cannot overflow -- and the cheapest possible way to say so.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = wrapping_add(a, b); }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = wrapping_add(a, b); }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("add i64"),
@@ -645,7 +645,7 @@ fn wrapping_subtraction_and_multiplication_are_bare_too() {
     // The family is only worth having if all three are free; a `wrapping_mul`
     // that checked would be a different operation with the same name.
     let ir_text = gen_body(
-        "fn f(a: i64, b: i64) { const x = wrapping_sub(a, b); const y = wrapping_mul(a, b); }",
+        "fn f(a: int, b: int) { const x = wrapping_sub(a, b); const y = wrapping_mul(a, b); }",
     );
     let body = body_of(&ir_text);
     assert!(body.contains("sub i64"), "wrapping subtraction:\n{body}");
@@ -664,7 +664,7 @@ fn saturating_addition_and_subtraction_ask_for_the_intrinsic() {
         ("saturating_add", "@llvm.sadd.sat.i64"),
         ("saturating_sub", "@llvm.ssub.sat.i64"),
     ] {
-        let ir_text = gen_body(&format!("fn f(a: i64, b: i64) {{ const x = {name}(a, b); }}"));
+        let ir_text = gen_body(&format!("fn f(a: int, b: int) {{ const x = {name}(a, b); }}"));
         let body = body_of(&ir_text);
         assert!(
             body.contains(intrinsic),
@@ -685,7 +685,7 @@ fn saturating_multiplication_is_saturated_by_hand() {
     // which is negative exactly when the operands' signs differ -- neither
     // operand is zero when it overflowed. This is a real correctness trap, which
     // is why the intrinsic that does not exist must not be named anywhere.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = saturating_mul(a, b); }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = saturating_mul(a, b); }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("@llvm.smul.with.overflow.i64"),
@@ -710,7 +710,7 @@ fn checked_arithmetic_answers_with_an_option_instead_of_a_branch() {
     // `checked_add` is for code that can do something better than die. It spends
     // the same overflow flag on a `select` between `Some(value)` and `None`, so
     // the caller decides: no branch, no cold block, no runtime call.
-    let ir_text = gen_body("fn f(a: i64, b: i64) { const x = checked_add(a, b); }");
+    let ir_text = gen_body("fn f(a: int, b: int) { const x = checked_add(a, b); }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("@llvm.sadd.with.overflow.i64"),
@@ -740,7 +740,7 @@ fn a_checked_result_is_an_ordinary_option_that_matches() {
     // tests the tag like any other, which is what makes `checked_*` usable
     // rather than merely callable.
     let ir_text = gen_return(concat!(
-        "fn f(a: i64, b: i64) -> i64 {\n",
+        "fn f(a: int, b: int) -> int {\n",
         "    return switch checked_add(a, b) {\n",
         "        case Some(v) { v }\n",
         "        case None { 0 }\n",
@@ -762,7 +762,7 @@ fn assert_branches_to_the_report_and_continues() {
     // block that ends the program. That is the same shape every checked
     // arithmetic operation uses, and the same reason: the common case is cheap
     // and the report pays for itself.
-    let ir_text = gen_body("fn f(a: i64) { assert(a > 0); }");
+    let ir_text = gen_body("fn f(a: int) { assert(a > 0); }");
     let branch = ir_text.find("br i1").expect("the condition must branch");
     let report = ir_text
         .find("call void @yashy_panic")
@@ -782,7 +782,7 @@ fn a_failed_assertion_reports_the_text_the_checker_read() {
     // The expression's own text is a fact only the checker holds -- the backend
     // is handed IR text and a path, and no source map -- so the message arrives
     // as an interned constant rather than being recovered here.
-    let ir_text = gen_body("fn f(a: i64) { assert(a > 0); }");
+    let ir_text = gen_body("fn f(a: int) { assert(a > 0); }");
     assert!(
         ir_text.contains("assertion failed: a > 0"),
         "the message quotes the condition:\n{ir_text}"
@@ -794,9 +794,9 @@ fn assert_eq_compares_with_the_instruction_for_the_operand_type() {
     // `i64` and `bool` are integers to LLVM, `f64` needs a float comparison, and
     // `string` needs the runtime: three emitters behind one name, which is why
     // the operands travel down as expressions rather than as text.
-    let integers = gen_body("fn f(a: i64) { assert_eq(a, 0); }");
+    let integers = gen_body("fn f(a: int) { assert_eq(a, 0); }");
     assert!(integers.contains("icmp eq i64"), "{integers}");
-    let floats = gen_body("fn f(x: f64) { assert_eq(x, 0.5); }");
+    let floats = gen_body("fn f(x: float) { assert_eq(x, 0.5); }");
     assert!(floats.contains("fcmp oeq double"), "{floats}");
     let bools = gen_body("fn f(a: bool) { assert_eq(a, true); }");
     assert!(bools.contains("icmp eq i1"), "{bools}");
@@ -806,11 +806,11 @@ fn assert_eq_compares_with_the_instruction_for_the_operand_type() {
 
 #[test]
 fn assert_ne_inverts_the_same_comparison() {
-    let integers = gen_body("fn f(a: i64) { assert_ne(a, 0); }");
+    let integers = gen_body("fn f(a: int) { assert_ne(a, 0); }");
     assert!(integers.contains("icmp ne i64"), "{integers}");
     // `une` and not `one`: a `NaN` compares unordered, so it satisfies
     // `!=` -- and `assert_ne` is the assertion that a NaN should pass.
-    let floats = gen_body("fn f(x: f64) { assert_ne(x, 0.5); }");
+    let floats = gen_body("fn f(x: float) { assert_ne(x, 0.5); }");
     assert!(floats.contains("fcmp une double"), "{floats}");
     let strings = gen_body("fn f(s: string) { assert_ne(s, \"x\"); }");
     assert!(
@@ -823,7 +823,7 @@ fn assert_ne_inverts_the_same_comparison() {
 fn a_comparison_message_is_built_only_on_the_failure_path() {
     // Two conversions and three concatenations are what a report costs. Build
     // them before the branch and they are paid by every assertion that passes.
-    let ir_text = gen_body("fn f(a: i64) { assert_eq(a, 0); }");
+    let ir_text = gen_body("fn f(a: int) { assert_eq(a, 0); }");
     let fault = ir_text.find("_fault:").expect("a reporting block");
     let convert = ir_text
         .find("call i8* @yashy_str_from_i64")
@@ -840,8 +840,8 @@ fn an_asserted_operand_is_evaluated_once() {
     // is a call is run once: on the failure path it would otherwise produce a
     // *different* value than the one that failed.
     let src = concat!(
-        "fn f(a: i64) { assert_eq(g(a), 0); }\n",
-        "fn g(a: i64) -> i64 { return a + 1; }"
+        "fn f(a: int) { assert_eq(g(a), 0); }\n",
+        "fn g(a: int) -> int { return a + 1; }"
     );
     let ir_text = gen_body(src);
     assert_eq!(
@@ -855,7 +855,7 @@ fn an_asserted_operand_is_evaluated_once() {
 fn a_debug_assert_is_lowered_like_an_assert_in_a_debug_build() {
     // Same fault path, same message. The two names differ only in whether the
     // call survives a release build, which is a checker decision.
-    let ir_text = gen_body("fn f(a: i64) { debug_assert(a > 0); }");
+    let ir_text = gen_body("fn f(a: int) { debug_assert(a > 0); }");
     assert!(
         ir_text.contains("assertion failed: a > 0")
             && ir_text.contains("call void @yashy_panic")
@@ -868,7 +868,7 @@ fn a_debug_assert_is_lowered_like_an_assert_in_a_debug_build() {
 fn a_debug_assert_disappears_in_a_release_build() {
     // Nothing at all: no branch, no message, no call. The string is not even
     // interned, which is what makes the check free rather than merely skipped.
-    let ir_text = gen_body_in("fn f(a: i64) { debug_assert(a > 0); }", true);
+    let ir_text = gen_body_in("fn f(a: int) { debug_assert(a > 0); }", true);
     let body = body_of(&ir_text);
     for absent in ["yashy_panic", "_fault", "_assert_ok", "assertion failed"] {
         assert!(
@@ -881,7 +881,7 @@ fn a_debug_assert_disappears_in_a_release_build() {
 #[test]
 fn an_assert_survives_a_release_build() {
     // The other half of the pair: `assert` is not a debugging aid.
-    let ir_text = gen_body_in("fn f(a: i64) { assert(a > 0); }", true);
+    let ir_text = gen_body_in("fn f(a: int) { assert(a > 0); }", true);
     assert!(
         ir_text.contains("assertion failed: a > 0")
             && ir_text.contains("call void @yashy_panic"),
@@ -901,20 +901,20 @@ fn exit_ends_the_program_in_a_block_of_its_own() {
 
 #[test]
 fn exit_truncates_a_non_constant_status() {
-    let ir_text = gen_body("fn f(x: i64) { os.exit(x); }");
+    let ir_text = gen_body("fn f(x: int) { os.exit(x); }");
     assert!(ir_text.contains("call void @yashy_exit(i64 %t"));
 }
 
 #[test]
 fn exit_fits_in_a_value_position() {
-    let ir_text = gen_return("fn f() -> i64 { return os.exit(1); }");
+    let ir_text = gen_return("fn f() -> int { return os.exit(1); }");
     assert!(ir_text.contains("call void @yashy_exit(i64 1)"));
     assert!(ir_text.contains("trunc i64") || ir_text.contains("unreachable"));
 }
 
 #[test]
 fn indexing_reads_an_element_via_getelementptr() {
-    let ir_text = gen_body("fn f(p: *mut i64) { const x = p[0]; }");
+    let ir_text = gen_body("fn f(p: *mut int) { const x = p[0]; }");
     assert!(
         ir_text.contains("getelementptr i64"),
         "indexing must compute the element address:\n{ir_text}"
@@ -927,7 +927,7 @@ fn indexing_reads_an_element_via_getelementptr() {
 
 #[test]
 fn index_assignment_stores_through_getelementptr() {
-    let ir_text = gen_body("fn f(p: *mut i64, i: i64, v: i64) { p[i] = v; }");
+    let ir_text = gen_body("fn f(p: *mut int, i: int, v: int) { p[i] = v; }");
     assert!(
         ir_text.contains("getelementptr i64"),
         "index assignment must compute the element address:\n{ir_text}"
@@ -996,7 +996,7 @@ fn every_alloca_lands_in_the_entry_block() {
     // counter slots were emitted into the outer loop's body block, so they were
     // re-created on every outer iteration. LLVM wants all of a function's
     // allocas in `entry`, which executes once.
-    let f = first_fn("fn f(n: i64) { for i in 0..n { for j in 0..n { var x = i * j; } } }");
+    let f = first_fn("fn f(n: int) { for i in 0..n { for j in 0..n { var x = i * j; } } }");
     let mut module = Module::new();
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());

@@ -2,7 +2,7 @@
 // standard input until end of input.
 //
 // The program is the M6 container proof: an `[]string` accumulates the lines, a
-// `map[string]i64` deduplicates the keys, `for` walks the slice, and the last two
+// `map[string]int` deduplicates the keys, `for` walks the slice, and the last two
 // statements release both containers. Feeding it:
 //
 //     {"name": "yashy"}
@@ -24,7 +24,7 @@ fn main() {
         line = read_line();
     }
 
-    var keys: map[string]i64 = map_new();
+    var keys: map[string]int = map_new();
     var seen = 0;
     for text in lines {
         var key = key_of(text);

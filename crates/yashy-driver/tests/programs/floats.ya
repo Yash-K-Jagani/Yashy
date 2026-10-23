@@ -4,14 +4,14 @@
 // `add double`, and `3.0 * 4.0` to `mul double`. `add` and `mul` are LLVM's
 // *integer* opcodes: the emitted IR was rejected by `clang` outright. The unit
 // tests missed it because the golden file had recorded that broken IR as the
-// expected output, and no end-to-end program did any f64 arithmetic at all.
+// expected output, and no end-to-end program did any float arithmetic at all.
 //
 // So the point of this file is not the numbers. It is that every float operator
 // here has to survive `clang` before the test can pass, and that a literal small
 // enough to print in exponent form (`0.0000001`) has to be spelled in a way
 // LLVM's float grammar accepts.
 //
-// Each result is cast to i64 before printing so the expected output does not
+// Each result is cast to int before printing so the expected output does not
 // depend on how the C library formats a double.
 fn main() {
     const add = 1.0 + 2.0;
@@ -22,18 +22,18 @@ fn main() {
     const neg = -2.5;
     const tiny = 0.0000001;
 
-    print_i64(add as i64);
+    print_i64(add as int);
     print_str("\n");
-    print_i64(sub as i64);
+    print_i64(sub as int);
     print_str("\n");
-    print_i64(mul as i64);
+    print_i64(mul as int);
     print_str("\n");
-    print_i64(div as i64);
+    print_i64(div as int);
     print_str("\n");
-    print_i64(rem as i64);
+    print_i64(rem as int);
     print_str("\n");
-    print_i64(neg as i64);
+    print_i64(neg as int);
     print_str("\n");
-    print_i64(tiny as i64);
+    print_i64(tiny as int);
     print_str("\n");
 }

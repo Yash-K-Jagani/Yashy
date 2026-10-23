@@ -27,7 +27,7 @@ fn items_of(src: &str) -> Vec<Item> {
 #[test]
 fn an_impl_block_names_its_type_and_holds_its_methods() {
     let items = items_of(
-        "struct Point { x: i64 } impl Point { fn sum(self) -> i64 { return 1; } }",
+        "struct Point { x: int } impl Point { fn sum(self) -> int { return 1; } }",
     );
     let impl_block = items
         .iter()
@@ -52,7 +52,7 @@ fn an_impl_block_names_its_type_and_holds_its_methods() {
 fn the_receiver_needs_no_annotation() {
     // `self` is written without a type, because the block already says what
     // the receiver is. The type it stands for is `Self`.
-    let items = items_of("impl Point { fn sum(self) -> i64 { return 1; } }");
+    let items = items_of("impl Point { fn sum(self) -> int { return 1; } }");
     let Item::Impl { methods, .. } = &items[0] else {
         panic!("the program has an `impl` block");
     };
@@ -65,7 +65,7 @@ fn the_receiver_needs_no_annotation() {
 #[test]
 fn an_impl_block_may_hold_several_methods() {
     let items = items_of(
-        "impl Point { fn a(self) -> i64 { return 1; } fn b(self) -> i64 { return 2; } }",
+        "impl Point { fn a(self) -> int { return 1; } fn b(self) -> int { return 2; } }",
     );
     let Item::Impl { methods, .. } = &items[0] else {
         panic!("the program has an `impl` block");
@@ -76,7 +76,7 @@ fn an_impl_block_may_hold_several_methods() {
 #[test]
 fn an_object_holds_its_fields_and_its_methods() {
     let items = items_of(
-        "object Counter { value: i64, fn get(self) -> i64 { return self.value; } }",
+        "object Counter { value: int, fn get(self) -> int { return self.value; } }",
     );
     let Item::Object {
         name,

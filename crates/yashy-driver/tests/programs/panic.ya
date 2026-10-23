@@ -5,7 +5,7 @@
 // `checked_halve` panics from one call deeper than `main`, so this also pins
 // that a panic is not something a caller can catch or ignore -- there is no
 // recovery, only a stop.
-fn checked_halve(n: i64) -> i64 {
+fn checked_halve(n: int) -> int {
     if n % 2 != 0 {
         panic("cannot halve an odd number");
     }

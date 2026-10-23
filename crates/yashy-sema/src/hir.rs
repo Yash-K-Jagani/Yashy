@@ -251,7 +251,7 @@ pub enum HirStmt {
     ///
     /// Like `Assign`, the target is validated by the checker before it
     /// reaches here: `p` must be a mutable `*mut i64` binding and `i` an
-    /// `i64`. What remains is the three pieces of the store.
+    /// `int`. What remains is the three pieces of the store.
     IndexAssign {
         base: HirExpr,
         index: HirExpr,
@@ -427,7 +427,7 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
         /// `Some` when this operation has a runtime fault to report -- the
-        /// negation of the smallest `i64`. See [`FaultSite`].
+        /// negation of the smallest `int`. See [`FaultSite`].
         fault: Option<FaultSite>,
     },
     Move(Box<HirExpr>, Span, Type),

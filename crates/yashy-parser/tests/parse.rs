@@ -84,7 +84,7 @@ fn full_program(spans: &mut Spans) -> Program {
             name: "P".to_string(),
             fields: vec![FieldDef {
                 name: "x".to_string(),
-                ty: TypeExpr::Name("f64".to_string(), spans.take()),
+                ty: TypeExpr::Name("float".to_string(), spans.take()),
                 public: false,
                 span: spans.take(),
             }],
@@ -128,7 +128,7 @@ fn full_program(spans: &mut Spans) -> Program {
                 params: vec![Param {
                     name: "a".to_string(),
                     ty: TypeExpr::Result(
-                        Box::new(TypeExpr::Name("i64".to_string(), spans.take())),
+                        Box::new(TypeExpr::Name("int".to_string(), spans.take())),
                         Box::new(TypeExpr::Tuple(
                             vec![TypeExpr::Unit(spans.take())],
                             spans.take(),
@@ -138,7 +138,7 @@ fn full_program(spans: &mut Spans) -> Program {
                     span: spans.take(),
                 }],
                 ret: Some(TypeExpr::Option(
-                    Box::new(TypeExpr::Name("f64".to_string(), spans.take())),
+                    Box::new(TypeExpr::Name("float".to_string(), spans.take())),
                     spans.take(),
                 )),
                 body: full_block(spans),
@@ -159,7 +159,7 @@ fn full_program(spans: &mut Spans) -> Program {
                         ty: TypeExpr::Name("string".to_string(), spans.take()),
                         span: spans.take(),
                     }],
-                    ret: Some(TypeExpr::Name("i64".to_string(), spans.take())),
+                    ret: Some(TypeExpr::Name("int".to_string(), spans.take())),
                     span: spans.take(),
                 },
                 ExternDecl {
@@ -193,7 +193,7 @@ fn full_block(spans: &mut Spans) -> Block {
         // Stmt::Var
         Stmt::Var {
             name: "v".to_string(),
-            ty: Some(TypeExpr::Name("f64".to_string(), spans.take())),
+            ty: Some(TypeExpr::Name("float".to_string(), spans.take())),
             init: Expr::Literal(Literal::Bool(true), spans.take()),
             span: spans.take(),
         },
@@ -408,7 +408,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
     });
     ops.push(Expr::Cast {
         expr: bx(int(1, spans.take())),
-        ty: TypeExpr::Name("f64".to_string(), spans.take()),
+        ty: TypeExpr::Name("float".to_string(), spans.take()),
         span: spans.take(),
     });
     ops.push(Expr::Try {
@@ -696,7 +696,7 @@ fn debug_names_every_type_expr_variant() {
     run(vec![
         case(
             "TypeExpr::Name",
-            TypeExpr::Name("i64".to_string(), here()),
+            TypeExpr::Name("int".to_string(), here()),
             &["Name"],
             &["Option", "Result", "Tuple", "Unit"],
         ),
@@ -767,8 +767,8 @@ fn unit_is_not_an_empty_tuple_and_a_tuple_is_never_empty() {
     assert_ne!(one, TypeExpr::Tuple(Vec::new(), span));
 
     // Element order is part of the type.
-    let a = TypeExpr::Tuple(vec![TypeExpr::Name("i64".to_string(), span)], span);
-    let b = TypeExpr::Tuple(vec![TypeExpr::Name("f64".to_string(), span)], span);
+    let a = TypeExpr::Tuple(vec![TypeExpr::Name("int".to_string(), span)], span);
+    let b = TypeExpr::Tuple(vec![TypeExpr::Name("float".to_string(), span)], span);
     assert_ne!(a, b);
     assert_eq!(a.clone(), a);
 }
@@ -808,7 +808,7 @@ fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
                     ty: TypeExpr::Name("string".to_string(), ty_span),
                     span: param_span,
                 }],
-                ret: Some(TypeExpr::Name("i64".to_string(), ret_span)),
+                ret: Some(TypeExpr::Name("int".to_string(), ret_span)),
                 span: decl_span,
             },
             ExternDecl {
@@ -1600,7 +1600,7 @@ fn debug_names_every_expr_variant_and_its_fields() {
             "Expr::Cast",
             Expr::Cast {
                 expr: bx(int(1, here())),
-                ty: TypeExpr::Name("f64".to_string(), here()),
+                ty: TypeExpr::Name("float".to_string(), here()),
                 span: here(),
             },
             &["Cast", "expr", "ty", "span"],

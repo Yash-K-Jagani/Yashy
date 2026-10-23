@@ -37,8 +37,8 @@ fn assert_error(source: &str, needle: &str) {
 #[test]
 fn question_requires_a_result_function() {
     assert_error(
-        "fn f() -> i64 { const v = g()?; return v; } \
-         fn g() -> Result[i64, string] { return Ok(1); }",
+        "fn f() -> int { const v = g()?; return v; } \
+         fn g() -> Result[int, string] { return Ok(1); }",
         "`?` needs a function returning `Result`",
     );
 }
@@ -46,8 +46,8 @@ fn question_requires_a_result_function() {
 #[test]
 fn question_needs_the_same_error_type() {
     assert_error(
-        "fn f() -> Result[i64, string] { const v = g()?; return Ok(v); } \
-         fn g() -> Result[i64, bool] { return Ok(1); }",
+        "fn f() -> Result[int, string] { const v = g()?; return Ok(v); } \
+         fn g() -> Result[int, bool] { return Ok(1); }",
         "error type mismatch: `bool` vs `string`",
     );
 }
@@ -55,8 +55,8 @@ fn question_needs_the_same_error_type() {
 #[test]
 fn question_in_a_result_function_is_fine() {
     check_source(
-        "fn f() -> Result[i64, string] { const v = g()?; return Ok(v); } \
-         fn g() -> Result[i64, string] { return Ok(1); }",
+        "fn f() -> Result[int, string] { const v = g()?; return Ok(v); } \
+         fn g() -> Result[int, string] { return Ok(1); }",
     )
     .expect("a `?` that propagates the same error should type-check");
 }
@@ -64,7 +64,7 @@ fn question_in_a_result_function_is_fine() {
 #[test]
 fn a_value_returning_function_has_to_return() {
     assert_error(
-        "fn f(n: i64) -> i64 { if n > 0 { return 1; } }",
+        "fn f(n: int) -> int { if n > 0 { return 1; } }",
         "missing return",
     );
 }
@@ -72,21 +72,21 @@ fn a_value_returning_function_has_to_return() {
 #[test]
 fn a_function_that_returns_on_every_path_is_fine() {
     check_source(
-        "fn f(n: i64) -> i64 { if n > 0 { return 1; } else { return 0; } }",
+        "fn f(n: int) -> int { if n > 0 { return 1; } else { return 0; } }",
     )
     .expect("a function with an else that returns should type-check");
 }
 
 #[test]
 fn a_unit_function_needs_no_return() {
-    check_source("fn f(n: i64) { if n > 0 { print_i64(1); } }")
+    check_source("fn f(n: int) { if n > 0 { print_i64(1); } }")
         .expect("a function that returns nothing needs no return");
 }
 
 #[test]
 fn two_structs_are_compared_field_by_field() {
     check_source(
-        "struct Point { x: i64, y: i64 } \
+        "struct Point { x: int, y: int } \
          fn main() { const a = Point { x: 1, y: 2 }; const b = Point { x: 1, y: 2 }; \
          const same = a == b; }",
     )
@@ -96,8 +96,8 @@ fn two_structs_are_compared_field_by_field() {
 #[test]
 fn a_struct_with_a_field_that_has_no_equality_cannot_be_compared() {
     assert_error(
-        "struct Holder { xs: []i64 } \
-         fn main() { const a = Holder { xs: []i64 {} }; const b = Holder { xs: []i64 {} }; \
+        "struct Holder { xs: []int } \
+         fn main() { const a = Holder { xs: []int {} }; const b = Holder { xs: []int {} }; \
          const same = a == b; }",
         "`==` needs fields with equality",
     );
@@ -108,7 +108,7 @@ fn a_generic_call_has_to_infer_every_type_parameter() {
     // `T` appears nowhere in the parameters, so there is nothing at the call
     // to replace it with. The error belongs at the call, not in the body.
     assert_error(
-        "fn make[T]() -> i64 { return 0; } fn main() { print_i64(make()); }",
+        "fn make[T]() -> int { return 0; } fn main() { print_i64(make()); }",
         "cannot infer type parameter `T`",
     );
 }
@@ -116,17 +116,17 @@ fn a_generic_call_has_to_infer_every_type_parameter() {
 #[test]
 fn a_generic_function_cannot_shadow_a_type() {
     assert_error(
-        "struct T { x: i64 } fn f[T](x: i64) -> i64 { return x; }",
+        "struct T { x: int } fn f[T](x: int) -> int { return x; }",
         "type parameter `T` shadows a type of the same name",
     );
 }
 
 #[test]
 fn polymorphic_recursion_is_rejected() {
-    // The instantiation for `(i64, string)` asks for `(string, i64)`, which
+    // The instantiation for `(int, string)` asks for `(string, int)`, which
     // would ask for the first again: there is no finite family to emit.
     assert_error(
-        "fn swap[T, U](x: T, y: U) -> i64 { return swap(y, x); } \
+        "fn swap[T, U](x: T, y: U) -> int { return swap(y, x); } \
          fn main() { print_i64(swap(1, \"x\")); }",
         "polymorphic recursion has no finite instantiation",
     );
@@ -137,14 +137,14 @@ fn a_view_borrows_its_source_until_the_function_ends() {
     // Moving the array would hand its storage to a new owner while `view`
     // still points into it. Rebinding is refused for the same reason.
     assert_error(
-        "fn take(xs: []i64) -> i64 { return xs.len(); } \
-         fn main() { var xs = []i64 { 1, 2, 3 }; const view = xs[0..2]; \
+        "fn take(xs: []int) -> int { return xs.len(); } \
+         fn main() { var xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
          print_i64(take(move xs)); }",
         "cannot move `xs` while a view of it is alive",
     );
     assert_error(
-        "fn main() { var xs = []i64 { 1, 2, 3 }; const view = xs[0..2]; \
-         xs = []i64 { 4 }; }",
+        "fn main() { var xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
+         xs = []int { 4 }; }",
         "cannot change `xs` while a view of it is alive",
     );
 }
@@ -154,11 +154,11 @@ fn changing_a_borrowed_array_is_rejected() {
     // `push` grows the backing array, possibly to a new block; a view taken
     // before it would be left pointing at the old one.
     assert_error(
-        "fn main() { var xs = []i64 { 1, 2 }; const view = xs[0..1]; xs.push(3); }",
+        "fn main() { var xs = []int { 1, 2 }; const view = xs[0..1]; xs.push(3); }",
         "cannot change `xs` while a view of it is alive",
     );
     assert_error(
-        "fn main() { var xs = []i64 { 1, 2 }; const view = xs[0..1]; xs.free(); }",
+        "fn main() { var xs = []int { 1, 2 }; const view = xs[0..1]; xs.free(); }",
         "cannot change `xs` while a view of it is alive",
     );
 }
@@ -169,7 +169,7 @@ fn a_view_type_is_not_a_spelling() {
     // syntax, so letting a return type or a field name `[T]` would let the
     // view outlive the array; the type is inferred at the range instead.
     assert_error(
-        "fn f(x: [i64]) -> i64 { return 0; } fn main() { }",
+        "fn f(x: [int]) -> int { return 0; } fn main() { }",
         "a view type cannot be written",
     );
 }
@@ -187,7 +187,7 @@ fn a_fixed_array_cannot_hold_a_reference() {
 #[test]
 fn a_fixed_array_needs_a_length() {
     assert_error(
-        "fn main() { const xs: [i64; 0] = [1]; }",
+        "fn main() { const xs: [int; 0] = [1]; }",
         "a fixed array needs at least one element",
     );
 }

@@ -349,7 +349,7 @@ impl<'src> Parser<'src> {
     ///
     /// # Errors
     ///
-    /// The lexer's "integer literal does not fit an i64" when the digits do not
+    /// The lexer's "integer literal does not fit an int" when the digits do not
     /// fit. A token carries no value, so this question gets asked wherever
     /// integer digits are read, and the wrong answer is easy to write:
     /// `text.parse::<i64>()` with a fallback of zero compiles

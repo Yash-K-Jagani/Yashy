@@ -12,13 +12,13 @@
 // characters they are.
 
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 enum Shape {
-    Circle(f64),
-    Rect { w: f64, h: f64 },
+    Circle(float),
+    Rect { w: float, h: float },
     Empty,
 }
 
@@ -39,7 +39,7 @@ fn main() {
     const maybe = Some(7);
     print_str("${maybe:?}\n");
 
-    const nothing: Option[i64] = None;
+    const nothing: Option[int] = None;
     print_str("${nothing:?}\n");
 
     print_str("${"a\nb\"c":?}\n");

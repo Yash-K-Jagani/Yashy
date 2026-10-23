@@ -5,7 +5,7 @@
 // lookup visible in the printed sum rather than merely slow.
 fn main() {
     const n = 1000000;
-    var m: map[i64]i64 = map_new();
+    var m: map[int]int = map_new();
     var i = 0;
     while i < n {
         m.insert(i, i * 3);

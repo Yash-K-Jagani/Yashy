@@ -1,8 +1,8 @@
 // Integer overflow is a fault, not a wrap.
 //
-// `i64::MAX + 1` is the canonical case, and printing the maximum first is the
+// `int::MAX + 1` is the canonical case, and printing the maximum first is the
 // point: the number in the diagnostic can be compared with the number the
-// program printed. A wrapped result would be `i64::MIN`, which is a plausible
+// program printed. A wrapped result would be `int::MIN`, which is a plausible
 // answer and a wrong one -- exactly the failure checked arithmetic removes.
 fn main() {
     var big = 9223372036854775807;

@@ -8,7 +8,7 @@
 // methods exercises their runtime entry points. Those calls are outside the
 // measured loop, so the growth comparison is unchanged, but the benchmark stops
 // compiling if method resolution or a new runtime entry point regresses.
-fn option_i64(o: Option[i64]) -> i64 {
+fn option_i64(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -17,7 +17,7 @@ fn option_i64(o: Option[i64]) -> i64 {
 
 fn main() {
     const n = 10000000;
-    var xs = []i64 {};
+    var xs = []int {};
     var i = 0;
     while i < n {
         xs.push(i);
@@ -52,7 +52,7 @@ fn main() {
     if option_i64(xs.index_of(9999999)) != 9999999 {
         print_str("bad index_of\n");
     }
-    var extra = []i64 { 1, 2 };
+    var extra = []int { 1, 2 };
     xs.extend(extra);
     var copy = xs.slice(0, 3);
     if copy.len() != 3 {

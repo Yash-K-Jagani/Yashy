@@ -160,7 +160,7 @@ struct MethodSig {
 
 /// The LLVM symbol a generic function has at one substitution.
 ///
-/// `identity[T]` called with `i64` is `identity_i64`. The names are built from
+/// `identity[T]` called with `int` is `identity_i64`. The names are built from
 /// the type names, so a symbol reads like the type it was made for. A struct's
 /// own name is used as-is; the element types of a slice or a map are folded in,
 /// which keeps `[]i64` and `[]string` apart.
@@ -179,7 +179,7 @@ fn mangled_type_name(ty: &Type) -> String {
         TypeKind::F64 => "f64".to_string(),
         TypeKind::Bool => "bool".to_string(),
         TypeKind::Str => "string".to_string(),
-        TypeKind::Unit => "unit".to_string(),
+        TypeKind::Unit => "void".to_string(),
         TypeKind::Never => "never".to_string(),
         TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
         TypeKind::Option(inner) => format!("option_{}", mangled_type_name(inner)),
@@ -258,7 +258,7 @@ fn type_expr_name(ty: &TypeExpr) -> String {
             let items: Vec<String> = items.iter().map(type_expr_name).collect();
             format!("({})", items.join(", "))
         }
-        TypeExpr::Unit(_) => "()".to_string(),
+        TypeExpr::Unit(_) => "void".to_string(),
     }
 }
 
@@ -470,7 +470,7 @@ impl<'src> Checker<'src> {
         // Builtins are predeclared in the root scope. They are functions, so a
         // call resolves through the same path as a user call.
         //
-        // `alloc` returns a pointer to `i64`, not `u8`. Yashy has no byte type,
+        // `alloc` returns a pointer to `int`, not `u8`. Yashy has no byte type,
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
@@ -482,7 +482,7 @@ impl<'src> Checker<'src> {
             ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
             // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
-            // `i64`s; `arena_free_all(arena)` releases every block at once.
+            // `int`s; `arena_free_all(arena)` releases every block at once.
             // No per-allocation free, and no automatic release -- the program
             // calls `arena_free_all` when it is done, or leaks until exit.
             (
@@ -536,7 +536,7 @@ impl<'src> Checker<'src> {
             ("str_from_bool", vec![prim(TypeKind::Bool)], prim(TypeKind::Str)),
             // The way out of a situation the program cannot continue from.
             //
-            // Its result type is `Never`, not `()`, and that is the whole point:
+            // Its result type is `Never`, not `void`, and that is the whole point:
             // a call that cannot return has no value, so a program cannot go on
             // to use one, and the checker's `!` is where that is recorded. The
             // backend lowers it to a call that ends the process.
@@ -591,7 +591,7 @@ impl<'src> Checker<'src> {
             // (`Checker::assert_call`): the source text and the position are
             // facts only it holds.
             //
-            // The type is `()`, not `Never`: an assertion that *passes* returns
+            // The type is `void`, not `Never`: an assertion that *passes* returns
             // normally, so treating it as diverging would let a program assign
             // its non-existent value to anything.
             ("assert", vec![prim(TypeKind::Bool)], prim(TypeKind::Unit)),
@@ -606,9 +606,9 @@ impl<'src> Checker<'src> {
                 prim(TypeKind::Unit),
             ),
             // `assert_eq(a, b)` and `assert_ne(a, b)` are the comparison forms.
-            // The declared pair is an `i64` one, but the checker never consults
+            // The declared pair is an `int` one, but the checker never consults
             // it: every call is built generically in `Checker::assert_cmp_call`,
-            // so the two operands may be any pair of `i64`, `f64`, `bool` or
+            // so the two operands may be any pair of `int`, `float`, `bool` or
             // `string`. The entry is here for what the table is actually for --
             // a name, declared once, that a program therefore cannot redefine.
             ("assert_eq", i64_pair(), prim(TypeKind::Unit)),
@@ -626,7 +626,7 @@ impl<'src> Checker<'src> {
             //
             // The type is `!`: exiting produces no value, and the same argument
             // that lets `panic` stand in a `return` position applies. Taking an
-            // `i64` rather than an `i32` is because `i64` is the only integer
+            // `int` rather than an `i32` is because `int` is the only integer
             // type there is; the runtime narrows it.
             ("exit", vec![prim(TypeKind::I64)], never(Span::new(0, 0))),
         ];
@@ -1009,7 +1009,7 @@ impl<'src> Checker<'src> {
             param_tys.push(self.resolve_or_report(&param.ty, param.span));
         }
         let ret_ty = match ret {
-            Some(ty) => self.resolve_or_report(ty, span),
+            Some(ty) => self.resolve_or_report_return(ty, span),
             None => prim(TypeKind::Unit),
         };
         MethodSig {
@@ -1203,7 +1203,7 @@ impl<'src> Checker<'src> {
                     .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
                     .collect();
                 let ret_ty = match ret {
-                    Some(ty) => self.resolve_or_report(ty, *span),
+                    Some(ty) => self.resolve_or_report_return(ty, *span),
                     None => prim(TypeKind::Unit),
                 };
                 let sig = FnSig {
@@ -1488,7 +1488,7 @@ impl<'src> Checker<'src> {
                     })
                     .collect();
                 let ret_ty = match ret {
-                    Some(annotation) => self.resolve_or_report(annotation, *span),
+                    Some(annotation) => self.resolve_or_report_return(annotation, *span),
                     None => Type {
                         kind: TypeKind::Unit,
                         span: *span,
@@ -1533,15 +1533,10 @@ impl<'src> Checker<'src> {
     ) -> Type {
         match self.resolve_type_in(ty, allow_c) {
             Ok(resolved) => {
-                if !is_return && is_void_value(&resolved.kind) {
-                    self.error(
-                        type_expr_span(ty),
-                        "`void` is only allowed as the return type of an `extern` declaration"
-                            .to_string(),
-                    );
-                    never(fallback_span)
-                } else {
+                if is_return || !self.refuse_void_value(ty, &resolved) {
                     resolved
+                } else {
+                    never(fallback_span)
                 }
             }
             Err(e) => {
@@ -1559,11 +1554,56 @@ impl<'src> Checker<'src> {
     /// accepted and the mistake surfaced later as garbage IR. Reporting here
     /// is what makes `fn f(b: double)` a diagnostic rather than a `void`
     /// parameter.
+    ///
+    /// A `void` value is refused: it is only legal as a function's return
+    /// type, and a parameter, field, binding or element type is a value
+    /// position. Use [`CheckCtx::resolve_or_report_return`] for a return
+    /// annotation.
     fn resolve_or_report(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
         match self.resolve_type(ty) {
             Ok(resolved) => {
                 // A named type is an item too, so it is private to the module
                 // that declares it unless it is `pub`.
+                if let TypeExpr::Name(name, span) = ty {
+                    self.check_visibility(name, *span);
+                }
+                if self.refuse_void_value(ty, &resolved) {
+                    never(fallback_span)
+                } else {
+                    resolved
+                }
+            }
+            Err(e) => {
+                self.error(e.span, e.message);
+                never(fallback_span)
+            }
+        }
+    }
+
+    /// Report `resolved` when it is a `void` value, and say whether it did.
+    ///
+    /// `void` is legal only as a function's return type, so every value
+    /// position -- a parameter, field, binding, element or payload -- refuses
+    /// it with the same message.
+    fn refuse_void_value(&mut self, ty: &TypeExpr, resolved: &Type) -> bool {
+        if is_void_value(&resolved.kind) {
+            self.error(
+                type_expr_span(ty),
+                "`void` is only allowed as a function's return type".to_string(),
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Resolve a function's return annotation.
+    ///
+    /// The return position is the one place `void` is legal, so this is
+    /// [`CheckCtx::resolve_or_report`] without the void refusal.
+    fn resolve_or_report_return(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
+        match self.resolve_type(ty) {
+            Ok(resolved) => {
                 if let TypeExpr::Name(name, span) = ty {
                     self.check_visibility(name, *span);
                 }
@@ -1580,7 +1620,7 @@ impl<'src> Checker<'src> {
     /// `Result[T, E]` are resolved structurally, because their shape is
     /// self-describing and they need no scope entry.
     ///
-    /// C-only spellings are rejected here: ordinary Yashy code writes `i64`,
+    /// C-only spellings are rejected here: ordinary Yashy code writes `int`,
     /// never `i32`. An `extern` declaration resolves through
     /// [`CheckCtx::resolve_type_in`] with `allow_c` set.
     fn resolve_type(&self, ty: &TypeExpr) -> Result<Type, TypeError> {
@@ -1611,10 +1651,27 @@ impl<'src> Checker<'src> {
                         *span,
                         format!(
                             "`{name}` is a C type and is only allowed in an `extern` \
-                             declaration; ordinary Yashy code uses `i64`, `f64`, `bool`, \
+                             declaration; ordinary Yashy code uses `int`, `float`, `bool`, \
                              or `string`"
                         ),
                     ));
+                }
+                // `i64` and `f64` are the old spellings. The FFI edge still
+                // needs them (`int64_t` is `i64` in a C signature), so they
+                // are rejected only where the program is speaking Yashy, and
+                // the message names the word to write instead.
+                if !allow_c {
+                    let replacement = match name.as_str() {
+                        "i64" => Some("int"),
+                        "f64" => Some("float"),
+                        _ => None,
+                    };
+                    if let Some(replacement) = replacement {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("`{name}` is spelled `{replacement}` in Yashy"),
+                        ));
+                    }
                 }
                 // `Self` is the type the method being checked belongs to.
                 if name == "Self" {
@@ -1630,14 +1687,19 @@ impl<'src> Checker<'src> {
                     ));
                 }
                 let kind = match name.as_str() {
+                    "int" => Some(TypeKind::I64),
+                    "float" => Some(TypeKind::F64),
                     "bool" => Some(TypeKind::Bool),
                     "string" => Some(TypeKind::Str),
-                    "()" => Some(TypeKind::Unit),
+                    // A return position spells the no-value type `void`. In an
+                    // `extern` declaration the same word is the C `void` and
+                    // resolves through `from_c_spelling` below.
+                    "void" if !allow_c => Some(TypeKind::Unit),
                     "Mutex" => Some(TypeKind::Mutex),
                     "Channel" => {
                         return Err(TypeError::new(
                             *span,
-                            "`Channel` takes an element type, as in `Channel[i64]`".to_string(),
+                            "`Channel` takes an element type, as in `Channel[int]`".to_string(),
                         ))
                     }
                     _ => {
@@ -1797,7 +1859,7 @@ impl<'src> Checker<'src> {
                     return Err(TypeError::new(
                         key.span,
                         format!(
-                            "a map key must be `i64`, `bool`, or `string`, found `{key}`: \
+                            "a map key must be `int`, `bool`, or `string`, found `{key}`: \
                              those are the kinds the runtime can hash"
                         ),
                     ));
@@ -1837,10 +1899,10 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
-            TypeExpr::Unit(span) => Ok(Type {
-                kind: TypeKind::Unit,
-                span: *span,
-            }),
+            TypeExpr::Unit(span) => Err(TypeError::new(
+                *span,
+                "`()` is spelled `void` in Yashy".to_string(),
+            )),
         }
     }
 
@@ -1976,7 +2038,7 @@ impl<'src> Checker<'src> {
             .map(|param| self.resolve_or_report(&param.ty, param.span))
             .collect();
         let ret_ty = match &generic.ret {
-            Some(ty) => self.resolve_or_report(ty, span),
+            Some(ty) => self.resolve_or_report_return(ty, span),
             None => prim(TypeKind::Unit),
         };
         self.type_subst = outer_subst;
@@ -2179,7 +2241,7 @@ impl<'src> Checker<'src> {
                 .map(|param| self.resolve_or_report(&param.ty, param.span))
                 .collect();
             let ret_ty = match &generic.ret {
-                Some(ty) => self.resolve_or_report(ty, job.span),
+                Some(ty) => self.resolve_or_report_return(ty, job.span),
                 None => prim(TypeKind::Unit),
             };
             let mangled = mangled_generic_name(&job.name, &job.subst);
@@ -2262,13 +2324,28 @@ impl<'src> Checker<'src> {
                             name: vname.clone(),
                             fields: fields
                                 .iter()
-                                .map(|f| HirVariantField {
-                                    name: match f {
-                                        VariantField::Named { name, .. } => Some(name.clone()),
-                                        VariantField::Positional { .. } => None,
-                                    },
-                                    ty: self.resolve_type(f.ty()).unwrap_or_else(|_| never(*vspan)),
-                                    span: f.span(),
+                                .map(|f| {
+                                    let ty = match self.resolve_type(f.ty()) {
+                                        Ok(ty) => {
+                                            if self.refuse_void_value(f.ty(), &ty) {
+                                                never(*vspan)
+                                            } else {
+                                                ty
+                                            }
+                                        }
+                                        Err(e) => {
+                                            self.error(e.span, e.message);
+                                            never(*vspan)
+                                        }
+                                    };
+                                    HirVariantField {
+                                        name: match f {
+                                            VariantField::Named { name, .. } => Some(name.clone()),
+                                            VariantField::Positional { .. } => None,
+                                        },
+                                        ty,
+                                        span: f.span(),
+                                    }
                                 })
                                 .collect(),
                             span: *vspan,
@@ -2543,7 +2620,12 @@ impl<'src> Checker<'src> {
                 // rather than typed by its own annotation.
                 let declared = match ty {
                     Some(annotation) => match self.resolve_type(annotation) {
-                        Ok(declared) => Some(declared),
+                        Ok(declared) => {
+                            if self.refuse_void_value(annotation, &declared) {
+                                return None;
+                            }
+                            Some(declared)
+                        }
                         Err(error) => {
                             self.error(error.span, error.message);
                             return None;
@@ -2611,7 +2693,12 @@ impl<'src> Checker<'src> {
                 // initializer's expected type.
                 let declared = match ty {
                     Some(annotation) => match self.resolve_type(annotation) {
-                        Ok(declared) => Some(declared),
+                        Ok(declared) => {
+                            if self.refuse_void_value(annotation, &declared) {
+                                return None;
+                            }
+                            Some(declared)
+                        }
                         Err(error) => {
                             self.error(error.span, error.message);
                             return None;
@@ -2773,12 +2860,12 @@ impl<'src> Checker<'src> {
                     }
                     // The element type is whatever the pointer points at: a
                     // pointer is an address, and an address does not care
-                    // whether it holds one `i64` or one struct.
+                    // whether it holds one `int` or one struct.
                     let element = (**pointee).clone();
                     let index = self.check_expr(index)?;
                     if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
                         let _ = self.check_expr(value);
-                        self.error(expr_span(&index), "index must be `i64`");
+                        self.error(expr_span(&index), "index must be `int`");
                         return None;
                     }
                     let value = self.check_expr(value)?;
@@ -2883,7 +2970,7 @@ impl<'src> Checker<'src> {
                 }
                 None => {
                     if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
-                        self.error(*span, format!("expected `{ret}`, found `()`"));
+                        self.error(*span, format!("expected `{ret}`, found `void`"));
                     }
                     Some(HirStmt::Return(None, *span))
                 }
@@ -2908,8 +2995,8 @@ impl<'src> Checker<'src> {
                 }
                 // Nested blocks belong to the same function, so `return` inside
                 // them must still yield the *function's* return type. Checking
-                // them against `()` rejected every `return` inside an `if` or a
-                // loop body with a bogus "expected `()`, found `i64`".
+                // them against `void` rejected every `return` inside an `if` or a
+                // loop body with a bogus "expected `void`, found `int`".
                 // Ownership across branches: check each branch from the state on
                 // entry, then treat a binding as moved after the `if` if *either*
                 // branch moved it. Without the restore, the `then` branch's moves
@@ -2953,13 +3040,13 @@ impl<'src> Checker<'src> {
                 if !expr_ty(&start_expr).eq_ignoring_span(&prim(TypeKind::I64)) {
                     self.error(
                         expr_span(&start_expr),
-                        format!("expected `i64`, found `{}`", expr_ty(&start_expr)),
+                        format!("expected `int`, found `{}`", expr_ty(&start_expr)),
                     );
                 }
                 if !expr_ty(&end_expr).eq_ignoring_span(&prim(TypeKind::I64)) {
                     self.error(
                         expr_span(&end_expr),
-                        format!("expected `i64`, found `{}`", expr_ty(&end_expr)),
+                        format!("expected `int`, found `{}`", expr_ty(&end_expr)),
                     );
                 }
                 self.scope.push();
@@ -4340,13 +4427,13 @@ impl<'src> Checker<'src> {
         Some(checked)
     }
 
-    /// Check one argument that must be an `i64`.
+    /// Check one argument that must be an `int`.
     fn check_i64_argument(&mut self, arg: &Expr) -> Option<HirExpr> {
         let checked = self.check_expr_with_expected(arg, &prim(TypeKind::I64))?;
         if !fits(&prim(TypeKind::I64), &expr_ty(&checked)) {
             self.error(
                 expr_span(&checked),
-                format!("expected `i64`, found `{}`", expr_ty(&checked)),
+                format!("expected `int`, found `{}`", expr_ty(&checked)),
             );
             return None;
         }
@@ -4793,7 +4880,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
             self.error(
                 expr_span(&index),
-                format!("expected `i64`, found `{}`", expr_ty(&index)),
+                format!("expected `int`, found `{}`", expr_ty(&index)),
             );
             return None;
         }
@@ -4838,7 +4925,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
             self.error(
                 expr_span(&index),
-                format!("expected `i64`, found `{}`", expr_ty(&index)),
+                format!("expected `int`, found `{}`", expr_ty(&index)),
             );
             return None;
         }
@@ -5025,7 +5112,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &expr_ty(&start)) {
             self.error(
                 expr_span(&start),
-                format!("expected `i64`, found `{}`", expr_ty(&start)),
+                format!("expected `int`, found `{}`", expr_ty(&start)),
             );
             return None;
         }
@@ -5033,7 +5120,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &expr_ty(&end)) {
             self.error(
                 expr_span(&end),
-                format!("expected `i64`, found `{}`", expr_ty(&end)),
+                format!("expected `int`, found `{}`", expr_ty(&end)),
             );
             return None;
         }
@@ -5085,7 +5172,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &expr_ty(&index)) {
             self.error(
                 expr_span(&index),
-                format!("expected `i64`, found `{}`", expr_ty(&index)),
+                format!("expected `int`, found `{}`", expr_ty(&index)),
             );
             return None;
         }
@@ -5489,7 +5576,7 @@ impl<'src> Checker<'src> {
     ///
     /// The first argument names an ordinary function, and the rest are checked
     /// against its parameters exactly as a direct call's arguments would be.
-    /// The body must return `()`: a thread has no caller to hand a value back
+    /// The body must return `void`: a thread has no caller to hand a value back
     /// to, and silently dropping one (a linear value especially) would be a
     /// leak the source never spelled.
     ///
@@ -5542,7 +5629,7 @@ impl<'src> Checker<'src> {
         if !matches!(ret.kind, TypeKind::Unit | TypeKind::Never) {
             self.error(
                 *ident_span,
-                format!("a thread body must return `()`; `{body_name}` returns `{ret}`"),
+                format!("a thread body must return `void`; `{body_name}` returns `{ret}`"),
             );
             return None;
         }
@@ -5597,7 +5684,7 @@ impl<'src> Checker<'src> {
 
     /// `thread_join(handle)`.
     ///
-    /// The handle is an `i64` at the source level even though the runtime ABI
+    /// The handle is an `int` at the source level even though the runtime ABI
     /// is `i32`: ordinary Yashy code cannot spell a C width, and a handle is
     /// only ever handed back to `thread_join` or forgotten.
     fn check_thread_join(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
@@ -5613,7 +5700,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &found) {
             self.error(
                 expr_span(&handle),
-                format!("expected `i64`, found `{found}`"),
+                format!("expected `int`, found `{found}`"),
             );
             return None;
         }
@@ -5717,7 +5804,7 @@ impl<'src> Checker<'src> {
         if !fits(&prim(TypeKind::I64), &found) {
             self.error(
                 expr_span(&capacity),
-                format!("expected `i64`, found `{found}`"),
+                format!("expected `int`, found `{found}`"),
             );
             return None;
         }
@@ -6159,7 +6246,7 @@ impl<'src> Checker<'src> {
                             // `assert_eq` and `assert_ne` compare two values of
                             // *the same* type, which is any of the four with an
                             // equality, so they are built before the declared
-                            // parameter types are applied and the table's `i64`
+                            // parameter types are applied and the table's `int`
                             // pair is never consulted. See
                             // `Checker::assert_cmp_call`.
                             if callee.len() == 1 && (name == "assert_eq" || name == "assert_ne") {
@@ -6441,7 +6528,7 @@ impl<'src> Checker<'src> {
             }
             Expr::Index { base, index, span } => {
                 // `p[i]` reads (or, in an assignment target, writes) an
-                // element of a pointer, and always an `i64`. `xs[i]` reads an
+                // element of a pointer, and always an `int`. `xs[i]` reads an
                 // element of an array -- growable, fixed, or a view -- and is
                 // *always* an `Option`: indexing never traps, and out of range
                 // including negative is `None`.
@@ -6461,7 +6548,7 @@ impl<'src> Checker<'src> {
                 if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
                     self.error(
                         expr_span(&index),
-                        "index must be `i64`",
+                        "index must be `int`",
                     );
                     return None;
                 }
@@ -6720,6 +6807,24 @@ impl<'src> Checker<'src> {
                 // and the only way a Yashy program can produce one is to say
                 // so. This is also the one place a C spelling is legal outside
                 // an `extern` block, because the conversion is explicit.
+                //
+                // The old wide spellings are the exception: they are not C
+                // types the program should reach for, and `allow_c` would
+                // otherwise keep `x as i64` working as a second spelling.
+                if let TypeExpr::Name(name, name_span) = ty {
+                    let replacement = match name.as_str() {
+                        "i64" => Some("int"),
+                        "f64" => Some("float"),
+                        _ => None,
+                    };
+                    if let Some(replacement) = replacement {
+                        self.error(
+                            *name_span,
+                            format!("`{name}` is spelled `{replacement}` in Yashy"),
+                        );
+                        return None;
+                    }
+                }
                 let target = self.resolve_or_report_in(ty, *span, true, false);
                 let source = expr_ty(&inner);
                 if !is_numeric(&source) || !is_numeric(&target) || source.eq_ignoring_span(&target)
@@ -6813,7 +6918,7 @@ impl<'src> Checker<'src> {
                     .map(|param| self.resolve_or_report(&param.ty, param.span))
                     .collect();
                 let ret_ty = match ret {
-                    Some(ty) => self.resolve_or_report(ty, *span),
+                    Some(ty) => self.resolve_or_report_return(ty, *span),
                     None => prim(TypeKind::Unit),
                 };
 
@@ -7068,7 +7173,7 @@ impl<'src> Checker<'src> {
         if !matches!(index_ty.kind, TypeKind::I64) {
             self.error(
                 expr_span(&index_checked),
-                format!("a pointer index must be an `i64`, found `{index_ty}`"),
+                format!("a pointer index must be an `int`, found `{index_ty}`"),
             );
             return None;
         }
@@ -7180,10 +7285,10 @@ impl<'src> Checker<'src> {
     /// The `string` an interpolated expression contributes, converting with the
     /// `str_from_*` builtin that matches its type.
     ///
-    /// A `string` needs no conversion and is returned as it is. `i64`, `f64` and
+    /// A `string` needs no conversion and is returned as it is. `int`, `float` and
     /// `bool` each have exactly one conversion, named here so the piece and the
     /// builtin table cannot drift. Anything else -- a struct, an enum, a pointer,
-    /// `()` -- has no text form, and formatting its bytes or its address would be
+    /// `void` -- has no text form, and formatting its bytes or its address would be
     /// a wrong answer that looks like a right one, so it is reported instead.
     ///
     /// Returns `None` after reporting when there is no conversion.
@@ -7198,7 +7303,7 @@ impl<'src> Checker<'src> {
                 self.error(
                     expr_span(&expr),
                     format!(
-                        "cannot interpolate a `{ty}` into a string: only `string`, `i64`, `f64` and `bool` have a text form"
+                        "cannot interpolate a `{ty}` into a string: only `string`, `int`, `float` and `bool` have a text form"
                     ),
                 );
                 return None;
@@ -7218,7 +7323,7 @@ impl<'src> Checker<'src> {
     ///
     /// Integer arithmetic is **checked**: `+`, `-`, `*`, `/` and `%` stop the
     /// program with a message and a position rather than continuing with a
-    /// wrong number, and so does negating the smallest `i64`. Which operations
+    /// wrong number, and so does negating the smallest `int`. Which operations
     /// those are is a decision about the *language*, so it is made here and
     /// recorded in the tree; the backend only decides how to check.
     ///
@@ -7251,7 +7356,7 @@ impl<'src> Checker<'src> {
     ///
     /// The type stays `Never`, so nothing downstream can use a value that does
     /// not exist, and the extra arguments are ordinary literals: a `string` and
-    /// two `i64`s, which the runtime prints.
+    /// two `int`s, which the runtime prints.
     fn panic_call(&mut self, message: HirExpr, span: Span) -> HirExpr {
         let mut args = vec![message];
         args.extend(self.position_args(span));
@@ -7271,7 +7376,7 @@ impl<'src> Checker<'src> {
     /// fact only this stage holds. It is a single literal -- everything in it is
     /// known now -- so the backend lowers it exactly as it lowers a `panic`.
     ///
-    /// The result type is `()` rather than `Never`: a condition that holds is
+    /// The result type is `void` rather than `Never`: a condition that holds is
     /// not a fault, and typing it as diverging would let the value that is never
     /// produced flow into anything at all.
     fn assert_call(&mut self, condition: HirExpr, span: Span) -> HirExpr {
@@ -7323,8 +7428,8 @@ impl<'src> Checker<'src> {
             self.error(
                 expr_span(&left),
                 format!(
-                    "`{name}` cannot compare `{left_ty}` values: it compares `i64`, \
-                     `f64`, `bool` and `string`"
+                    "`{name}` cannot compare `{left_ty}` values: it compares `int`, \
+                     `float`, `bool` and `string`"
                 ),
             );
             return None;
@@ -7614,7 +7719,7 @@ fn ptr(pointee: Type) -> Type {
     }
 }
 
-/// The two `i64` parameters shared by all nine arithmetic builtins.
+/// The two `int` parameters shared by all nine arithmetic builtins.
 fn i64_pair() -> Vec<Type> {
     vec![prim(TypeKind::I64), prim(TypeKind::I64)]
 }
@@ -7745,7 +7850,7 @@ fn map_value_is_supported(kind: &TypeKind) -> bool {
 /// Whether a map key can be hashed and compared by the runtime.
 ///
 /// The key travels as a machine word, so the runtime needs to know how to read
-/// it: `i64` bytes, a `bool` byte, or a `string` handle it hashes by content.
+/// it: `int` bytes, a `bool` byte, or a `string` handle it hashes by content.
 /// Anything else would need a user-supplied hash and equality, which M6 does
 /// not have.
 fn map_key_is_supported(kind: &TypeKind) -> bool {
@@ -7817,9 +7922,12 @@ fn ffi_string_fits(expected: &Type, found: &Type) -> bool {
 /// and it is a perfectly good parameter type.
 fn is_void_value(kind: &TypeKind) -> bool {
     match kind {
-        TypeKind::CVoid => true,
+        TypeKind::Unit | TypeKind::CVoid => true,
         TypeKind::Option(inner) => is_void_value(&inner.kind),
         TypeKind::Result(ok, err) => is_void_value(&ok.kind) || is_void_value(&err.kind),
+        TypeKind::Slice(element) => is_void_value(&element.kind),
+        TypeKind::FixedArray(element, _) => is_void_value(&element.kind),
+        TypeKind::Ptr(pointee) => is_void_value(&pointee.kind),
         _ => false,
     }
 }
@@ -7858,7 +7966,7 @@ fn never(span: Span) -> Type {
 
 /// The type of a value-producing expression with nothing in it, at its span.
 ///
-/// Used for the assertions, which return normally when they hold: `()` is the
+/// Used for the assertions, which return normally when they hold: `void` is the
 /// honest type, and it is what keeps `assert(cond)` out of value positions.
 fn unit(span: Span) -> Type {
     Type {
@@ -7868,12 +7976,12 @@ fn unit(span: Span) -> Type {
 }
 
 /// The `T` of an `Option[T]`, as a [`TypeExpr`] for synthesized variant defs.
-/// Falls back to `()` when the subject is not an `Option` (which cannot
+/// Falls back to `void` when the subject is not an `Option` (which cannot
 /// happen: callers only call this under a `TypeKind::Option` match).
 fn option_inner(subject_ty: &Type) -> TypeExpr {
     match &subject_ty.kind {
         TypeKind::Option(inner) => type_to_expr(inner),
-        _ => TypeExpr::Unit(Span::new(0, 0)),
+        _ => TypeExpr::Name("void".to_string(), Span::new(0, 0)),
     }
 }
 
@@ -7883,8 +7991,8 @@ fn result_inners(subject_ty: &Type) -> (TypeExpr, TypeExpr) {
     match &subject_ty.kind {
         TypeKind::Result(ok, err) => (type_to_expr(ok), type_to_expr(err)),
         _ => (
-            TypeExpr::Unit(Span::new(0, 0)),
-            TypeExpr::Unit(Span::new(0, 0)),
+            TypeExpr::Name("void".to_string(), Span::new(0, 0)),
+            TypeExpr::Name("void".to_string(), Span::new(0, 0)),
         ),
     }
 }
@@ -7896,11 +8004,11 @@ fn result_inners(subject_ty: &Type) -> (TypeExpr, TypeExpr) {
 fn type_to_expr(ty: &Type) -> TypeExpr {
     let span = Span::new(0, 0);
     match &ty.kind {
-        TypeKind::I64 => TypeExpr::Name("i64".to_string(), span),
-        TypeKind::F64 => TypeExpr::Name("f64".to_string(), span),
+        TypeKind::I64 => TypeExpr::Name("int".to_string(), span),
+        TypeKind::F64 => TypeExpr::Name("float".to_string(), span),
         TypeKind::Bool => TypeExpr::Name("bool".to_string(), span),
         TypeKind::Str => TypeExpr::Name("string".to_string(), span),
-        TypeKind::Unit => TypeExpr::Unit(span),
+        TypeKind::Unit => TypeExpr::Name("void".to_string(), span),
         TypeKind::Struct(name) | TypeKind::Enum(name) => TypeExpr::Name(name.clone(), span),
         TypeKind::Option(inner) => TypeExpr::Option(Box::new(type_to_expr(inner)), span),
         TypeKind::Result(ok, err) => TypeExpr::Result(
@@ -7943,17 +8051,17 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
         TypeKind::Tuple(elements) => {
             TypeExpr::Tuple(elements.iter().map(type_to_expr).collect(), span)
         }
-        TypeKind::Never => TypeExpr::Unit(span),
+        TypeKind::Never => TypeExpr::Name("void".to_string(), span),
     }
 }
 
-/// True for the numeric primitives: `i64` and `f64`, plus the C numeric kinds.
+/// True for the numeric primitives: `int` and `float`, plus the C numeric kinds.
 ///
 /// The C kinds are numeric only in an `as` target and in values that came back
 /// from an `extern` call, which is exactly where they are useful: `malloc`
 /// wants a `usize`, `strlen` returns one, and narrowing to `u8` is how a
 /// program reaches a `char` parameter. Equality still governs arithmetic, so a
-/// `i32` and an `i64` need an explicit cast rather than silently widening.
+/// `i32` and an `int` need an explicit cast rather than silently widening.
 fn is_numeric(ty: &Type) -> bool {
     matches!(
         ty.kind,

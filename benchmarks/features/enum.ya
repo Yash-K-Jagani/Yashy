@@ -1,16 +1,16 @@
 // Building and matching a three-variant enum, 50 million times.
 //
-// The payload is an i64, so the enum is the same shape as the C tagged struct
+// The payload is an int, so the enum is the same shape as the C tagged struct
 // in enum.c: one tag byte and one payload slot. `make` chooses a variant from
 // the iteration index and `score` switches on it; every iteration crosses both
 // calls, so the row measures construction and dispatch rather than arithmetic.
 enum Msg {
-    Num(i64),
-    Twice(i64),
+    Num(int),
+    Twice(int),
     Nothing,
 }
 
-fn make(i: i64) -> Msg {
+fn make(i: int) -> Msg {
     const r = i % 3;
     if r == 0 {
         return Msg.Num(i);
@@ -21,7 +21,7 @@ fn make(i: i64) -> Msg {
     return Msg.Nothing;
 }
 
-fn score(m: Msg) -> i64 {
+fn score(m: Msg) -> int {
     return switch m {
         case Num(n) { n }
         case Twice(n) { wrapping_add(n, n) }

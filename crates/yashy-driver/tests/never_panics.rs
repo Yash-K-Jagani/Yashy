@@ -77,7 +77,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("unbalanced opener", "(((((".to_string()),
         ("openers of every kind", "([{[(".to_string()),
         ("struct with no fields", "struct S { x:".to_string()),
-        ("struct never closed", "struct S { x: f64".to_string()),
+        ("struct never closed", "struct S { x: float".to_string()),
         ("enum never closed", "enum E {".to_string()),
         ("enum variant never closed", "enum E { A(".to_string()),
         ("import with no semicolon", "import std.io".to_string()),
@@ -214,12 +214,12 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "panic in a switch arm whose other arm is a value",
-            "fn f(o: Option[i64]) -> i64 { return switch o { case None { panic(\"n\") } case Some(v) { v } }; }"
+            "fn f(o: Option[int]) -> int { return switch o { case None { panic(\"n\") } case Some(v) { v } }; }"
                 .to_string(),
         ),
         (
             "panic on every path of a function",
-            "fn f() -> i64 { panic(\"a\"); } fn main() { print_i64(f()); }".to_string(),
+            "fn f() -> int { panic(\"a\"); } fn main() { print_i64(f()); }".to_string(),
         ),
         (
             "panic returning from a unit function",
@@ -394,25 +394,25 @@ impl Rng {
 /// hand-written scanners.
 const ALPHABET: &[u8] = b"fn mainstruct enum import extern switch case default \
 const var return if else for defer break continue true false Ok Err Some None \
-print_str print_i64 print_f64 Option Result i64 f64 bool string \
+print_str print_i64 print_f64 Option Result int float bool string \
 {}()[]<>:;,.=+-*/%!&|?@#$_'\"\\ \t\n\r\0\x7f\x1b";
 
 /// Programs the random mutator starts from, so mutations land inside the
 /// grammar rather than beside it.
 const TEMPLATES: &[&str] = &[
     "fn main() { print_str(\"hi\"); }\n",
-    "fn f(n: i64) -> i64 { if n < 2 { return n; } return f(n - 1) + f(n - 2); }\n",
-    "fn f(o: Option[i64]) -> i64 { return switch o { case None { 0 } case Some(v) { v } }; }\n",
-    "fn f(r: Result[i64, string]) -> i64 { const v = r?; return v; }\n",
-    "enum E { A, B(i64) } fn f(e: E) -> i64 { return switch e { case A { 0 } case B(v) { v } }; }\n",
-    "struct S { x: i64, y: f64 } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
+    "fn f(n: int) -> int { if n < 2 { return n; } return f(n - 1) + f(n - 2); }\n",
+    "fn f(o: Option[int]) -> int { return switch o { case None { 0 } case Some(v) { v } }; }\n",
+    "fn f(r: Result[int, string]) -> int { const v = r?; return v; }\n",
+    "enum E { A, B(int) } fn f(e: E) -> int { return switch e { case A { 0 } case B(v) { v } }; }\n",
+    "struct S { x: int, y: float } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
     "fn f() { defer { print_i64(1); } for i in 0..3 { print_i64(i); } }\n",
     "fn f() { var sum = 0; for i in 0..3 { sum = sum + i; } }\n",
     "fn f(x: bool) { if x { break; } }\n",
-    "fn f() -> Result[i64, string] { return Err(\"no\"); }\n",
-    "import std.io;\nextern \"C\" { fn puts(s: string) -> i64; }\n",
-    "fn f(g: fn(i64) -> i64, x: i64) -> i64 { return g(x); }\n",
-    "fn f() { const g = |x: i64| -> i64 { return x + 1; }; print_i64(g(1)); }\n",
+    "fn f() -> Result[int, string] { return Err(\"no\"); }\n",
+    "import std.io;\nextern \"C\" { fn puts(s: string) -> int; }\n",
+    "fn f(g: fn(int) -> int, x: int) -> int { return g(x); }\n",
+    "fn f() { const g = |x: int| -> int { return x + 1; }; print_i64(g(1)); }\n",
 ];
 
 #[test]

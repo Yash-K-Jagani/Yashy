@@ -6,18 +6,18 @@
 // other `const fn`s -- and why a `read_line` in one is a diagnostic rather than
 // something the evaluator refuses at the end.
 
-const fn square(n: i64) -> i64 {
+const fn square(n: int) -> int {
     return n * n;
 }
 
-const fn max_of(a: i64, b: i64) -> i64 {
+const fn max_of(a: int, b: int) -> int {
     if a > b {
         return a;
     }
     return b;
 }
 
-const fn fib(n: i64) -> i64 {
+const fn fib(n: int) -> int {
     if n < 2 {
         return n;
     }

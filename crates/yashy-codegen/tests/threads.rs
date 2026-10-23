@@ -39,8 +39,8 @@ fn emit(src: &str) -> String {
 #[test]
 fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
     let ir = emit(
-        "fn work(n: i64) { print_i64(n); } \
-         fn main() { var h: i64 = thread_spawn(work, 7); thread_join(h); }",
+        "fn work(n: int) { print_i64(n); } \
+         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
         ir.contains("declare i32 @yashy_thread_spawn(i8*, i8*, i64)"),
@@ -57,8 +57,8 @@ fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
 #[test]
 fn the_thread_body_is_emitted_as_its_own_function() {
     let ir = emit(
-        "fn work(n: i64) { print_i64(n); } \
-         fn main() { var h: i64 = thread_spawn(work, 7); thread_join(h); }",
+        "fn work(n: int) { print_i64(n); } \
+         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
         ir.contains("define void @yashy_thread_entry_0(i8* %raw)"),
@@ -74,8 +74,8 @@ fn the_thread_body_is_emitted_as_its_own_function() {
 #[test]
 fn arguments_are_copied_into_the_thread_entry_struct() {
     let ir = emit(
-        "fn work(n: i64, flag: bool) { print_i64(n); if flag { print_str(\"y\"); } } \
-         fn main() { var h: i64 = thread_spawn(work, 7, true); thread_join(h); }",
+        "fn work(n: int, flag: bool) { print_i64(n); if flag { print_str(\"y\"); } } \
+         fn main() { var h: int = thread_spawn(work, 7, true); thread_join(h); }",
     );
     // The parent builds the struct in its own frame: one store per argument.
     assert!(
@@ -93,7 +93,7 @@ fn arguments_are_copied_into_the_thread_entry_struct() {
 #[test]
 fn join_emits_a_blocking_call() {
     let ir = emit(
-        "fn work() { } fn main() { var h: i64 = thread_spawn(work); thread_join(h); }",
+        "fn work() { } fn main() { var h: int = thread_spawn(work); thread_join(h); }",
     );
     assert!(ir.contains("define void @yashy_thread_entry_0(i8* %raw)"), "{ir}");
     // A body with no arguments passes no struct at all.
@@ -126,9 +126,9 @@ fn a_locked_mutex_makes_lock_block() {
 fn channels_send_a_slot_and_receive_an_option() {
     let ir = emit(
         "fn main() { \
-           var c: Channel[i64] = chan_new(4); \
+           var c: Channel[int] = chan_new(4); \
            var ok: bool = c.send(7); \
-           var got: Option[i64] = c.recv(); \
+           var got: Option[int] = c.recv(); \
            c.close(); \
            c.free(); \
          }",

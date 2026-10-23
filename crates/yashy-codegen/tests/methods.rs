@@ -29,8 +29,8 @@ fn ir_of(src: &str) -> String {
 #[test]
 fn a_method_is_emitted_under_its_mangled_name() {
     let ir_text = ir_of(
-        "struct Point { x: i64, y: i64 } \
-         impl Point { fn sum(self) -> i64 { return self.x + self.y; } } \
+        "struct Point { x: int, y: int } \
+         impl Point { fn sum(self) -> int { return self.x + self.y; } } \
          fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
     );
     assert!(
@@ -46,8 +46,8 @@ fn a_method_is_emitted_under_its_mangled_name() {
 #[test]
 fn a_method_reads_the_receivers_fields() {
     let ir_text = ir_of(
-        "struct Point { x: i64, y: i64 } \
-         impl Point { fn sum(self) -> i64 { return self.x + self.y; } } \
+        "struct Point { x: int, y: int } \
+         impl Point { fn sum(self) -> int { return self.x + self.y; } } \
          fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
     );
     assert!(
@@ -59,8 +59,8 @@ fn a_method_reads_the_receivers_fields() {
 #[test]
 fn an_enum_method_switches_on_the_receiver() {
     let ir_text = ir_of(
-        "enum Shape { Circle(i64), Square(i64) } \
-         impl Shape { fn area(self) -> i64 { return switch self { \
+        "enum Shape { Circle(int), Square(int) } \
+         impl Shape { fn area(self) -> int { return switch self { \
          case Circle(r) { r * r } case Square(s) { s * s } }; } } \
          fn main() { const c = Shape.Circle(2); print_i64(c.area()); }",
     );
@@ -77,7 +77,7 @@ fn an_enum_method_switches_on_the_receiver() {
 #[test]
 fn a_pointer_receiver_takes_the_binding_and_stores_through_it() {
     let ir_text = ir_of(
-        "struct Counter { value: i64 } \
+        "struct Counter { value: int } \
          impl Counter { fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; } } \
          fn main() { var c = Counter { value: 0 }; c.bump(); }",
     );

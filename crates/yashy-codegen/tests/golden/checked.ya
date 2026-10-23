@@ -1,4 +1,4 @@
-fn checked(a: i64, b: i64) {
+fn checked(a: int, b: int) {
     const sum = a + b;
     const difference = a - b;
     const product = a * b;

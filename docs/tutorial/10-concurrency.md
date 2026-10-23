@@ -12,7 +12,7 @@ handle; `thread_join(handle)` waits for it. A worker returns nothing: the
 result comes back through a channel or shared state, not through the thread.
 
 ```yashy
-fn worker(out: Channel[i64]) {
+fn worker(out: Channel[int]) {
     var i = 1;
     while i <= 3 {
         out.send(i * i);
@@ -21,7 +21,7 @@ fn worker(out: Channel[i64]) {
 }
 
 fn main() {
-    var results: Channel[i64] = chan_new(1);
+    var results: Channel[int] = chan_new(1);
     var handle = thread_spawn(worker, results);
 
     var total = 0;
@@ -49,7 +49,7 @@ send waits for the matching receive, and the loop drains the channel as the
 producer fills it. `14` is `1 + 4 + 9`.
 
 The type annotation on the binding is required:
-`var results: Channel[i64] = chan_new(1);`. `chan_new` takes only a capacity, so
+`var results: Channel[int] = chan_new(1);`. `chan_new` takes only a capacity, so
 there is no element type to infer from the call; the annotation is what says
 what the channel carries.
 
@@ -70,18 +70,18 @@ A channel and a mutex are linear: each is freed exactly once. A spawned worker
 *borrows* a channel argument, so the parent frees it after `thread_join`, never
 while the worker may still use it.
 
-A channel element must be copyable and must not be a `string`. `i64`, `bool`,
-`f64`, and a struct of them are fine; `string` is refused because the runtime
+A channel element must be copyable and must not be a `string`. `int`, `bool`,
+`float`, and a struct of them are fine; `string` is refused because the runtime
 copies the slot and the two sides would share one refcount.
 
 ## Thread arguments
 
 Arguments after the function name are passed in order:
 `thread_spawn(worker, results)` calls `worker(results)`. The handle is an
-`i64`, which `thread_join(handle)` takes. The runtime copies the argument bytes
+`int`, which `thread_join(handle)` takes. The runtime copies the argument bytes
 into the thread, so the rules differ by type:
 
-- `i64`, `f64`, `bool`, and copyable structs are copied by value.
+- `int`, `float`, `bool`, and copyable structs are copied by value.
 - A `string` is retained for the thread. The thread releases its reference when
   the body returns, so the parent's string stays valid.
 - A `Mutex` or `Channel` is borrowed, never copied. The parent keeps the
@@ -126,30 +126,30 @@ avoid one.
 
 | Form | Result | Notes |
 |---|---|---|
-| `thread_spawn(f, args...)` | `i64` handle | Starts `f`; `f` must return `()`. |
-| `thread_join(h)` | `()` | Waits for the thread to finish. |
+| `thread_spawn(f, args...)` | `int` handle | Starts `f`; `f` must return `void`. |
+| `thread_join(h)` | `void` | Waits for the thread to finish. |
 | `mutex_new()` | `Mutex` | Linear; release with `.free()`. |
-| `m.lock()` / `m.unlock()` | `()` | Borrow `m`; block until the lock is free. |
-| `m.free()` | `()` | Consumes `m`. |
+| `m.lock()` / `m.unlock()` | `void` | Borrow `m`; block until the lock is free. |
+| `m.free()` | `void` | Consumes `m`. |
 | `chan_new(n)` | `Channel[T]` | `n` is elements; values below 1 act as 1. |
 | `c.send(v)` | `bool` | Blocks when full; `false` when closed. |
 | `c.recv()` | `Option[T]` | Blocks when empty; `None` when closed and drained. |
-| `c.close()` | `()` | Wakes blocked senders and receivers. |
-| `c.free()` | `()` | Consumes `c`. |
+| `c.close()` | `void` | Wakes blocked senders and receivers. |
+| `c.free()` | `void` | Consumes `c`. |
 
 ## Common mistakes
 
 - **Letting `chan_new` infer its element type.** `var c = chan_new(1);`
   reports ``error: cannot infer the channel's element type: write
-  `var c: Channel[i64] = chan_new(4)` ``. Add the annotation.
+  `var c: Channel[int] = chan_new(4)` ``. Add the annotation.
 - **Putting strings in a channel.** `Channel[string]` reports ``error: a
   channel cannot carry `string` yet: a slot copy would share one refcount
   between the sender and the receiver``. Send an index or a number instead.
-- **Returning a value from a worker.** `fn worker() -> i64` reports ``error: a
-  thread body must return `()`; `worker` returns `i64` ``. Send the value on a
+- **Returning a value from a worker.** `fn worker() -> int` reports ``error: a
+  thread body must return `void`; `worker` returns `int` ``. Send the value on a
   channel and return nothing.
 - **Passing an array to a thread.** `thread_spawn(worker, xs)` where `xs` is
-  `[]i64` reports ``error: a `[]i64` argument cannot cross a thread boundary
+  `[]int` reports ``error: a `[]int` argument cannot cross a thread boundary
   yet: the runtime copies the value, so the body and the parent would both own
   it``. Copy the data into a channel element by element.
 - **Calling a method on a temporary.** `mutex_new().lock()` is not a method call

@@ -35,7 +35,7 @@ const TOKEN_COMMENT: u32 = 5;
 
 /// The names spelled as types in Yashy source.
 const TYPE_NAMES: [&str; 10] = [
-    "i64", "f64", "bool", "string", "void", "usize", "Option", "Result", "Channel", "map",
+    "int", "float", "bool", "string", "void", "usize", "Option", "Result", "Channel", "map",
 ];
 
 /// Run the server on `reader` until end of input, `shutdown`, or `exit`.
@@ -515,15 +515,15 @@ fn severity(severity: yashy_common::Severity) -> i64 {
 fn builtin_signature(name: &str) -> Option<&'static str> {
     Some(match name {
         "print_str" => "fn print_str(value: string)",
-        "print_i64" => "fn print_i64(value: i64)",
-        "print_f64" => "fn print_f64(value: f64)",
-        "alloc" => "fn alloc(count: i64) -> *mut i64",
-        "dealloc" => "fn dealloc(pointer: *mut i64)",
-        "len" => "fn len(value) -> i64",
-        "str_from_i64" => "fn str_from_i64(value: i64) -> string",
+        "print_i64" => "fn print_i64(value: int)",
+        "print_f64" => "fn print_f64(value: float)",
+        "alloc" => "fn alloc(count: int) -> *mut int",
+        "dealloc" => "fn dealloc(pointer: *mut int)",
+        "len" => "fn len(value) -> int",
+        "str_from_i64" => "fn str_from_i64(value: int) -> string",
         "read_line" => "fn read_line() -> string",
         "assert" => "fn assert(condition: bool)",
-        "exit" => "fn exit(code: i64)",
+        "exit" => "fn exit(code: int)",
         _ => return None,
     })
 }

@@ -49,7 +49,7 @@ pub enum TypeKind {
     ///
     /// Linear like a slice: the binding owns the table, `map_free` gives it
     /// up, and `map_insert`/`map_get` borrow it. The runtime hashes and
-    /// compares keys by kind, so the key is restricted to `i64`, `bool`, and
+    /// compares keys by kind, so the key is restricted to `int`, `bool`, and
     /// `string`; values are restricted to numbers and `bool` for now, because
     /// an owned value would need a destructor on removal.
     Map(Box<Type>, Box<Type>),
@@ -71,14 +71,14 @@ pub enum TypeKind {
     Ptr(Box<Type>),
     /// A signed C integer of the given bit width: `i8`, `i16`, `i32`.
     ///
-    /// `i64` does not appear here: it is the same type as [`TypeKind::I64`],
-    /// so a C `int64_t` and a Yashy `i64` meet without a cast.
+    /// `int` does not appear here: it is the same type as [`TypeKind::I64`],
+    /// so a C `int64_t` and a Yashy `int` meet without a cast.
     CInt(u32),
     /// An unsigned C integer: `u8`, `u16`, `u32`, `u64`.
     CUInt(u32),
     /// A C floating-point type of the given bit width: `f32`.
     ///
-    /// `f64` is [`TypeKind::F64`], for the same reason `i64` is.
+    /// `float` is [`TypeKind::F64`], for the same reason `int` is.
     CFloat(u32),
     /// C `void`. Only legal as an `extern` declaration's return type.
     CVoid,
@@ -142,11 +142,11 @@ impl std::fmt::Display for Type {
 impl std::fmt::Display for TypeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeKind::I64 => write!(f, "i64"),
-            TypeKind::F64 => write!(f, "f64"),
+            TypeKind::I64 => write!(f, "int"),
+            TypeKind::F64 => write!(f, "float"),
             TypeKind::Bool => write!(f, "bool"),
             TypeKind::Str => write!(f, "string"),
-            TypeKind::Unit => write!(f, "()"),
+            TypeKind::Unit => write!(f, "void"),
             TypeKind::Struct(name) => write!(f, "{name}"),
             TypeKind::Enum(name) => write!(f, "{name}"),
             TypeKind::Option(inner) => write!(f, "Option[{inner}]"),
@@ -200,9 +200,9 @@ impl TypeKind {
     /// The type a C spelling names, or `None` when the word is not one of the
     /// spellings the FFI edge adds.
     ///
-    /// The widths Yashy already had keep their own kinds: `i64` is
-    /// [`TypeKind::I64`] and `f64` is [`TypeKind::F64`], not `CInt(64)` /
-    /// `CFloat(64)`. A C `int64_t` and a Yashy `i64` are the same machine
+    /// The widths Yashy already had keep their own kinds: `int64_t` is
+    /// [`TypeKind::I64`] and `double` is [`TypeKind::F64`], not `CInt(64)` /
+    /// `CFloat(64)`. A C `int64_t` and a Yashy `int` are the same machine
     /// value, and two kinds for it would turn every boundary into a cast
     /// without adding a single check.
     pub fn from_c_spelling(name: &str) -> Option<TypeKind> {
@@ -225,12 +225,15 @@ impl TypeKind {
 
     /// Whether `name` may appear only inside an `extern` declaration.
     ///
-    /// `i64` and `f64` are deliberately absent: they are ordinary Yashy types
-    /// that the FFI edge happens to spell the same way.
+    /// The Yashy spellings are deliberately absent: `int`, `float` and `void`
+    /// are ordinary types, so nothing here needs to gate them. `i64` and `f64`
+    /// are absent for the opposite reason -- they are rejected outside `extern`
+    /// by the resolver itself, which can name the replacement, rather than by
+    /// this generic message.
     pub fn is_c_only_spelling(name: &str) -> bool {
         matches!(
             name,
-            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "u64" | "f32" | "usize" | "void"
+            "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "u64" | "f32" | "usize"
         )
     }
 }

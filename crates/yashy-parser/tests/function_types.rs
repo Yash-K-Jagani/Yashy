@@ -62,31 +62,35 @@ fn parameter_types(spelling: &str) -> Vec<String> {
 #[test]
 fn a_function_type_keeps_its_parameters_and_return_type() {
     assert_eq!(
-        parameter_types("fn(i64, string) -> bool"),
-        vec!["i64".to_string(), "string".to_string()]
+        parameter_types("fn(int, string) -> bool"),
+        vec!["int".to_string(), "string".to_string()]
     );
     assert!(matches!(
-        return_type("fn(i64, string) -> bool"),
+        return_type("fn(int, string) -> bool"),
         TypeExpr::Name(name, _) if name == "bool"
     ));
 }
 
 #[test]
-fn a_function_type_without_an_arrow_returns_unit() {
-    assert!(matches!(
-        return_type("fn(i64)"),
-        TypeExpr::Unit(_)
-    ));
-    assert!(matches!(
-        return_type("fn()"),
-        TypeExpr::Unit(_)
-    ));
+fn a_function_type_without_an_arrow_returns_void() {
+    // The missing arrow means the no-value type, and the parser synthesizes
+    // its Yashy spelling rather than the legacy `()` node: nothing was
+    // written, so there is no written `()` for the checker to reject.
+    for source in ["fn(int)", "fn()"] {
+        assert!(
+            matches!(return_type(source), TypeExpr::Name(name, _) if name == "void"),
+            "`{source}` should return `void`"
+        );
+    }
 }
 
 #[test]
-fn a_function_type_may_return_unit_explicitly() {
+fn a_written_unit_type_still_parses() {
+    // `()` parses to its own node so the checker can name the replacement.
+    // The parser's job here is only to produce that node; rejecting it
+    // belongs with the other type errors.
     assert!(matches!(
-        return_type("fn(i64) -> ()"),
+        return_type("fn(int) -> ()"),
         TypeExpr::Unit(_)
     ));
 }
@@ -95,7 +99,7 @@ fn a_function_type_may_return_unit_explicitly() {
 fn a_function_type_may_nest() {
     // A function that takes a function: the inner type is a function type in
     // its own right, not a name.
-    let nested = param_type("fn(fn(i64) -> i64, i64) -> i64");
+    let nested = param_type("fn(fn(int) -> int, int) -> int");
     let TypeExpr::Fn { params, .. } = nested else {
         panic!("expected a function type");
     };

@@ -13,21 +13,21 @@ helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
 **Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Yashy lexes,
-parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
+parses, type-checks and compiles programs with `int`, `float`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
 written as `var` or `let` (block-scoped and mutable) or `const` (block-scoped
 and immutable). Arrays and strings have a method surface: `xs.push(1)`,
 `xs.slice(0, 3)`, `s.trim()`, `s.split(",")`, and the rest of the string
 method table.
-A function name is a value: `fn(i64) -> i64` is a type, a top-level function
+A function name is a value: `fn(int) -> int` is a type, a top-level function
 can be handed to another function and called through the parameter, and a
-binding can hold one and call it. A lambda -- `|x: i64| -> i64 { return x + 1; }`
+binding can hold one and call it. A lambda -- `|x: int| -> int { return x + 1; }`
 -- is a function written where a value is expected, and a *closure* is a
 lambda that carries the values of the scope it was written in, so it keeps
 working after that scope is gone. Three array methods take a function:
 `xs.map(f)`, `xs.filter(f)` and `xs.fold(init, f)`. A type can have its own
-methods, written in an `impl` block: `impl Point { fn sum(self) -> i64 { ... } }`
+methods, written in an `impl` block: `impl Point { fn sum(self) -> int { ... } }`
 is called as `point.sum()`. An `object` is a type with its fields and its
 methods together, and a method with no `self` is called on the type:
 `Counter.new(3)`. A method that takes `self: *mut T` receives the object's
@@ -36,12 +36,12 @@ object, and the receiver at the call site has to be a mutable binding. A
 function can be generic: `fn identity[T](x: T) -> T` is written once, checked
 once for each type the program calls it with, and emitted as an ordinary
 function for each, so nothing is dispatched at run time. An array whose length
-is part of its type is a fixed array: `[i64; 3]` stores its elements in the
+is part of its type is a fixed array: `[int; 3]` stores its elements in the
 frame, `[1, 2, 3]` is its literal, and indexing is checked like any other array
 (`grid[i]` is an `Option`). `grid[0..2]` is a *view*: a length and a pointer
 into the array that owns nothing, with clamped bounds, and the checker refuses
 to move or change the array until the view is out of scope. A tuple is an
-anonymous product: `(i64, i64)` is a type, `(a, b)` is its literal, and
+anonymous product: `(int, int)` is a type, `(a, b)` is its literal, and
 `const (n, rest) = pair;` unpacks one into separate bindings (`_` skips an
 element). An arm may carry a guard -- `case Circle(r) if r > 10.0` -- checked
 after the pattern has bound its names; a false guard sends the search on to the
@@ -67,7 +67,7 @@ is checked, with `wrapping_*`/`checked_*`/`saturating_*` as the named opt-outs.
 The assertions — `assert(cond)`, `assert_eq(a, b)`, `assert_ne(a, b)` — are the
 same fault path with a test in front of it, and they quote the expression that
 failed back in the message; `debug_assert` is the one `--release` compiles away.
-A program can choose its exit status by returning `i64` from `main`, or by
+A program can choose its exit status by returning `int` from `main`, or by
 calling `os.exit(code)` from anywhere. Faults and `defer` cleanup run for the
 panicking function's scopes; full stack unwinding is the one M4 item the host
 toolchain blocks (see [Roadmap](#roadmap)).
@@ -102,7 +102,7 @@ stops — useful on a machine with no LLVM backend at all. `-O0` through `-O3`
 control the optimization level passed to `clang`; the default is `-O2`.
 `--release` is a separate question from optimization: it is the flag that makes
 this a build a user runs, and the one build-mode decision the compiler makes —
-`debug_assert` is compiled out. A `main` returning `i64` is the process exit
+`debug_assert` is compiled out. A `main` returning `int` is the process exit
 status, and `os.exit(code)` ends the program with a chosen status from anywhere.
 
 `yashy fmt file.ya` prints the canonical formatting to stdout, and
@@ -115,7 +115,7 @@ each chapter is a complete program you can build and run.
 ```yashy
 // `let` and `var` bindings are mutable, `const` bindings are not. `for i in 0..n`
 // is a range loop whose end is exclusive.
-fn fib(n: i64) -> i64 {
+fn fib(n: int) -> int {
     let a = 0;
     let b = 1;
     let next = 0;
@@ -136,7 +136,7 @@ fn main() {
 ```yashy
 // Sum types are switched over, and the checker requires the arms to be
 // exhaustive. A `switch` used as an expression yields a value.
-fn describe(o: Option[i64]) -> i64 {
+fn describe(o: Option[int]) -> int {
     return switch o {
         case Some(x) { x }
         case None { 0 }
@@ -150,11 +150,11 @@ fn describe(o: Option[i64]) -> i64 {
 // a literal may spell the fields in any order and `p.x` still means the declared
 // `x`.
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
-fn manhattan(p: Point) -> i64 {
+fn manhattan(p: Point) -> int {
     return p.x + p.y;
 }
 
@@ -174,8 +174,8 @@ fn main() {
 ```
 
 ```yashy
-// Heap memory is explicit and linear. `alloc(n)` reserves room for n `i64`s and
-// returns a `*mut i64`; `defer` releases it when the scope exits, and the
+// Heap memory is explicit and linear. `alloc(n)` reserves room for n `int`s and
+// returns a `*mut int`; `defer` releases it when the scope exits, and the
 // checker rejects a second use before code generation ever runs:
 //
 //     var buf = alloc(16);
@@ -288,8 +288,8 @@ fn main() {
 // holds, the elements of a tuple or an array, and a string in quotes with its
 // control characters escaped -- so a newline inside a value stays visible.
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 fn main() {
@@ -315,7 +315,7 @@ Point { x: 3, y: 4 }
 // behaviour asks for it by name, and the three ways of asking are different
 // questions with three different answers.
 fn main() {
-    var big = 9223372036854775807;      // the largest i64
+    var big = 9223372036854775807;      // the largest int
     print_i64(wrapping_add(big, 1));    // wraps:  -9223372036854775808
     print_str("\n");
     print_i64(saturating_add(big, 1));  // clamps:  9223372036854775807
@@ -331,7 +331,7 @@ fn main() {
 The same family exists for `-` and `*` (`wrapping_sub`, `checked_mul`,
 `saturating_mul`, ...). There is deliberately no `wrapping_div`: a wrapped
 quotient is not the quotient of anything, and the two ways a division has no
-answer -- a zero divisor, and `i64::MIN / -1` -- are reported either way.
+answer -- a zero divisor, and `int::MIN / -1` -- are reported either way.
 
 ```yashy
 // An assertion is the same fault path with a test in front of it. The message
@@ -358,7 +358,7 @@ checking while writing the program and worth nothing in front of a user.
 // A lookup answers in an `Option`, so a missing key is a `None` to handle,
 // not a crash.
 fn main() {
-    var counts: map[string]i64 = map_new();
+    var counts: map[string]int = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
     counts.insert("yashy", 3);
@@ -389,12 +389,12 @@ order, which is a hash table's order and not the order the keys went in.
 
 ```yashy
 fn main() {
-    var counts: map[string]i64 = map_new();
+    var counts: map[string]int = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
 
     var keys: []string = counts.keys();
-    var values: []i64 = counts.values();
+    var values: []int = counts.values();
 
     print_i64(keys.len());
     print_str("\n");
@@ -424,8 +424,8 @@ both the item and the module that keeps it.
 
 ```yashy
 // lib.ya
-pub fn seven() -> i64 { return 7; }   // another module's to call
-fn secret() -> i64 { return 13; }      // this module's own
+pub fn seven() -> int { return 7; }   // another module's to call
+fn secret() -> int { return 13; }      // this module's own
 ```
 
 ```yashy
@@ -440,7 +440,7 @@ fn main() {
 
 A field is private in the same way, so a `pub struct` whose fields another
 module may read and write marks them `pub` too: `pub struct Point { pub x:
-f64, pub y: f64 }`. A method is as visible as the type it belongs to, so
+float, pub y: float }`. A method is as visible as the type it belongs to, so
 `pub` on a method says nothing the type does not already say.
 
 ```yashy
@@ -448,7 +448,7 @@ f64, pub y: f64 }`. A method is as visible as the type it belongs to, so
 // blocks when the channel is full and `recv` blocks when it is empty. The
 // worker receives, doubles, and answers; the main thread joins it and frees
 // each channel exactly once.
-fn worker(inbox: Channel[i64], outbox: Channel[i64]) {
+fn worker(inbox: Channel[int], outbox: Channel[int]) {
     switch inbox.recv() {
         case Some(n) { outbox.send(n * 2); }
         case None { outbox.send(-1); }
@@ -456,8 +456,8 @@ fn worker(inbox: Channel[i64], outbox: Channel[i64]) {
 }
 
 fn main() {
-    var inbox: Channel[i64] = chan_new(1);
-    var outbox: Channel[i64] = chan_new(1);
+    var inbox: Channel[int] = chan_new(1);
+    var outbox: Channel[int] = chan_new(1);
     var t = thread_spawn(worker, inbox, outbox);
     inbox.send(21);
     switch outbox.recv() {
@@ -517,7 +517,7 @@ and sometimes pay for it.
 | Yashy (clang -O0) | 1717 | 8.58 |
 | CPython 3.14 | 26476 | 132 |
 
-**100,000,000 iterations of an `f64` dependency chain:**
+**100,000,000 iterations of a `float` dependency chain:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
@@ -739,7 +739,7 @@ and little else. Measured on one machine: ratios should be stable, absolute
 times will not be.
 
 The benchmark suite exists in part because it caught two real compiler bugs that
-the test suite could not: `f64` `+`, `-` and `*` were lowering to LLVM's
+the test suite could not: `float` `+`, `-` and `*` were lowering to LLVM's
 *integer* opcodes, so any program with float arithmetic failed to compile — and
 the golden file had pinned that invalid IR as the expected output. See
 [`docs/performance-improvements.md`](docs/performance-improvements.md).
@@ -785,7 +785,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
 | M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
-| M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `i64::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `i64`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
+| M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `int::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `int`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
 | M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, array storage, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
 | M6 ✅ | Arrays (`[]T`, `push`/`pop`/`len`/indexing, `free`), hash maps (`map_new` plus `.insert`/`.get`/`.remove`/`.len`/`.free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |
 | M7 ✅ | Threads (`thread_spawn`/`thread_join`), linear mutexes with `.lock`/`.unlock`/`.free`, and bounded `Channel[T]` channels with blocking `.send`/`.recv`, `.close` to unblock both sides, and copyable elements |

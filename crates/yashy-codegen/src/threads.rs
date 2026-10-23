@@ -47,7 +47,7 @@ fn size_in_bytes(ctx: &mut FnCtx<'_>, repr: &str) -> String {
 
 /// Lower `thread_spawn(body, args...) -> i64`.
 ///
-/// The checker has already rejected a body that returns anything but `()` and
+/// The checker has already rejected a body that returns anything but `void` and
 /// any argument the copy cannot carry, so the only shape that reaches here is
 /// one the synthesized entry can unpack.
 pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -> GenValue {

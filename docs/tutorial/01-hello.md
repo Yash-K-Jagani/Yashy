@@ -58,11 +58,11 @@ does not become the function's result by being last.
 
 | Form | Meaning | Notes |
 |---|---|---|
-| `fn f(a: i64) -> i64 { ... }` | A function taking one `i64` and returning one. | Every path should return a value. |
-| `fn f() { ... }` | A function returning `()`. | `return;` and falling off the end are both allowed. |
+| `fn f(a: int) -> int { ... }` | A function taking one `int` and returning one. | Every path should return a value. |
+| `fn f() { ... }` | A function returning `void`. | `return;` and falling off the end are both allowed. |
 | `return expr;` | Returns `expr` to the caller. | `expr` must match the return type. |
 | `f(1, 2)` | A call. | Argument count and types are checked at the call. |
-| `main` | The entry point. | Takes no arguments; may return `i64` as the exit status. |
+| `main` | The entry point. | Takes no arguments; may return `int` as the exit status. |
 | `print_str`, `print_i64`, `print_f64` | Builtins. | In scope everywhere; cannot be redeclared. |
 
 Declaration order does not matter. The checker reads every signature in the
@@ -75,7 +75,7 @@ every use into "cannot find function".
 
 A call is an expression. It may be used where a value is expected, or stand
 alone as a statement, in which case its result is discarded. `print_i64` is a
-call like any other; it just happens to return `()`.
+call like any other; it just happens to return `void`.
 
 `return` leaves the function as soon as it runs. A `return` inside an `if`
 therefore skips everything after the `if`, which is how a guard clause works:
@@ -96,21 +96,21 @@ pass that makes declaration order irrelevant.
 - **Calling with the wrong number of arguments.** A function declared with two
   parameters and called with one is reported at the call:
   ``error: expected 2 arguments, found 1``.
-- **Returning the wrong type.** `fn f() -> i64 { return "x"; }` reports
-  ``error: expected `i64`, found `string` `` at the returned expression.
+- **Returning the wrong type.** `fn f() -> int { return "x"; }` reports
+  ``error: expected `int`, found `string` `` at the returned expression.
 - **Declaring the same function twice.** The second declaration reports
   ``error: duplicate definition of `f` ``. Rename one, or delete it.
 - **Joining a string and a number with `+`.** `"n = " + 1` reports
-  ``error: cannot apply `+` to `string` and `i64` ``. Convert with
+  ``error: cannot apply `+` to `string` and `int` ``. Convert with
   `str_from_i64` first, or use interpolation.
 - **Falling off the end of a value-returning function.** A function declared
-  `-> i64` whose body has no `return` is accepted today, and the call yields
+  `-> int` whose body has no `return` is accepted today, and the call yields
   `0`. Do not rely on that: write the `return`. The missing-return check is not
   yet enforced, and a function that returns a real value should say so.
 
 ## Try it
 
-1. Write `fn square(n: i64) -> i64` and `fn cube(n: i64) -> i64`, where `cube`
+1. Write `fn square(n: int) -> int` and `fn cube(n: int) -> int`, where `cube`
    calls `square`. Print `cube(3)`. Hint: `cube` needs only one expression, but
    the `return` keyword is still required.
 
@@ -125,7 +125,7 @@ The checker makes two passes over the program. The first declares every
 `struct`, `enum` and `fn` signature in one shared root scope; the second checks
 each body with a scope holding its parameters. Code generation then emits one
 LLVM function per `fn`. `main` is special: the C runtime calls it and reads an
-`i32`, so a Yashy `main` returning `i64` has its result narrowed to that width,
+`i32`, so a Yashy `main` returning `int` has its result narrowed to that width,
 the same truncation C performs for `int main`.
 
 Continue to [02-values](02-values.md).

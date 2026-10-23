@@ -788,6 +788,81 @@ git push origin main
 
 ---
 
+### Phase 2, as built
+
+Both tasks landed in one commit. They are one spelling change: a program that
+writes `x as i64` and one that writes `()` as a return type are the same mistake
+seen from two sides, and splitting them would have swept the corpus and run the
+gate twice to prove one thing. The cast target's refusal, which the plan's
+placement note called for, is in `Expr::Cast` before it calls the resolver, and
+carries its own test. What follows is everything that differed from the plan.
+
+1. **`void` is refused wherever a value is declared, not only in parameters.**
+   The rule is "only as a function's return type", so `const`/`var` annotations
+   and enum-variant payloads pass through `refuse_void_value` as well, not just
+   parameters and fields. The six return annotations reach
+   `resolve_or_report_return`, the same helper without the refusal; `extern`
+   keeps `resolve_or_report_in(..., is_return)`.
+
+2. **`[]void` keeps the message it already had.** The plan's test expected the
+   return-position message, but the slice arm of `resolve_type_in` already
+   refuses an element with no size: "an array cannot hold `void`: its elements
+   would have no size". That names the real problem better, and no value can be
+   produced from such a slice, so the test asserts it instead.
+
+3. **Every synthesized type says `void`, including two fallbacks the plan did
+   not name.** `type_to_expr` and the `Never` fallback were in the plan;
+   `option_inner` and `result_inners` now answer `TypeExpr::Name("void")` too,
+   so no type the checker builds can hit the new "`()` is spelled `void`"
+   error. The parser's missing arrow does the same.
+
+4. **The lexer's literal-range message moved with the types.** "integer literal
+   does not fit an i64" is "…an int" now, and the parser's citation of it, the
+   lexer unit test and the driver's e2e expectation follow. It is the only
+   diagnostic below the checker that named a language type.
+
+5. **Mangled names keep the short width fragments.** `mangled_type_name` still
+   writes `i64`/`f64` (`identity_tuple_i64_bool` keeps its name) and writes
+   `void` where it used to write `unit` for the no-value type. Renaming the
+   fragments would churn every golden that instantiates a generic over a width,
+   and no program sees a mangled name.
+
+6. **The corpus sweep is literal-aware.** 85 `.ya` files and 15 `.md` files were
+   rewritten directly; the 40 Rust test files went through a script that
+   rewrites string literals only, and inside `yashy-codegen`'s tests only
+   literals that contain a Yashy keyword: those files mix Yashy sources with
+   LLVM IR assertions, and the IR keeps `i64` and `double`. The keyword rule
+   still matched `%struct.` inside three IR assertions (`define i64 @Point.sum`,
+   `call i64 @Point.sum`, `%struct.P = type { i64, double }`); each test caught
+   it and each is restored. The 18 source files were edited by hand, because a
+   pass over them would also have to tell Rust's `i64` from the language's.
+
+7. **One `.ya` string is language-facing.** `string_methods.ya` printed
+   "f64 parse ok"; it prints "float parse ok" now, and the e2e expectation
+   follows. No other `.ya` string literal named a type.
+
+8. **Benchmarks were updated, not added.** The `.ya` benchmark sources are the
+   language surface and were swept. A spelling change emits the same
+   instructions, so a new case would measure identical code.
+   `benchmarks/README.md` keeps its four `i64`/`f64` mentions: they describe the
+   LLVM layout and the Rust harness, not Yashy.
+
+9. **The tutorials state the rule instead of showing `()`.** Every `-> ()`
+   became `-> void`, and prose that introduced `()` as the unit type now says
+   `void` — or "the no-value type", where it describes the value rather than
+   the spelling. The tutorial harness compiles all of it.
+
+Gate: `cargo check --workspace --all-targets` is warning-free. 73 test
+binaries and 962 tests are green: 63 binaries covering 800 tests outside the
+driver, and the driver's ten covering 162 — `e2e` 106/106 and the tutorial
+included. Doctests pass. Two driver tests were refused on their first launch
+with os error 4551 (Application Control) and passed on their rerun:
+`leaks::a_struct_releases_the_strings_its_fields_hold` and
+`modules::importing_the_same_module_from_two_files_defines_it_once`. That is
+this host's usual verdict on a freshly linked binary, not a failed assertion.
+
+---
+
 ## Phase 3 — `char`
 
 ### Task 3.1: Lex `'A'` into a `Char` token and a `Literal::Char`

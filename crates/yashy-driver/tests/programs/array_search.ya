@@ -3,9 +3,9 @@
 // copies a clamped range into a fresh array. The `[]string` section checks the
 // retain/release path for both extend and slice.
 //
-// `show` turns an `Option[i64]` into a printable number: -1 means `None`.
+// `show` turns an `Option[int]` into a printable number: -1 means `None`.
 
-fn show(o: Option[i64]) -> i64 {
+fn show(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -13,7 +13,7 @@ fn show(o: Option[i64]) -> i64 {
 }
 
 fn main() {
-    var xs = []i64 { 10, 20, 30 };
+    var xs = []int { 10, 20, 30 };
     if xs.contains(20) {
         print_str("contains 20\n");
     }
@@ -27,7 +27,7 @@ fn main() {
     print_i64(show(xs.index_of(99)));
     print_str("\n");
 
-    xs.extend([]i64 { 40, 50 });
+    xs.extend([]int { 40, 50 });
     print_i64(xs.len());
     print_str("\n");
     for x in xs {

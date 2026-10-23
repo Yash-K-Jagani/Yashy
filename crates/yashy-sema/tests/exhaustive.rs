@@ -24,7 +24,7 @@ fn positional(name: &str) -> VariantDef {
     VariantDef {
         name: name.to_string(),
         fields: vec![VariantField::Positional {
-            ty: TypeExpr::Name("i64".to_string(), span()),
+            ty: TypeExpr::Name("int".to_string(), span()),
             span: span(),
         }],
         span: span(),

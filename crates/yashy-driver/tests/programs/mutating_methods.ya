@@ -5,7 +5,7 @@
 // takes a plain `self` and only reads.
 
 struct Counter {
-    value: i64,
+    value: int,
 }
 
 impl Counter {
@@ -19,7 +19,7 @@ impl Counter {
         self[0].value = self[0].value + 1;
     }
 
-    fn get(self) -> i64 {
+    fn get(self) -> int {
         return self.value;
     }
 }

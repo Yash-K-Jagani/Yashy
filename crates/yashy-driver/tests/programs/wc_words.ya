@@ -7,7 +7,7 @@
 // The function is `pub` because `wc.ya` is another module, and a module's
 // items are private to it unless they say otherwise.
 
-pub fn count_words(line: string) -> i64 {
+pub fn count_words(line: string) -> int {
     var words = 0;
     var inside = false;
     var index = 0;

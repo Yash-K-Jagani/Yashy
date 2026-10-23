@@ -9,7 +9,7 @@
 //
 // The switch arms are single expressions, so the answers are collected into a
 // slice and checked after the loop.
-fn echo(inbox: Channel[i64], outbox: Channel[i64]) {
+fn echo(inbox: Channel[int], outbox: Channel[int]) {
     var answered = 0;
     while answered < 10000 {
         switch inbox.recv() {
@@ -26,11 +26,11 @@ fn echo(inbox: Channel[i64], outbox: Channel[i64]) {
 }
 
 fn main() {
-    var inbox: Channel[i64] = chan_new(1);
-    var outbox: Channel[i64] = chan_new(1);
+    var inbox: Channel[int] = chan_new(1);
+    var outbox: Channel[int] = chan_new(1);
     var handle = thread_spawn(echo, inbox, outbox);
 
-    var answers = []i64 { };
+    var answers = []int { };
     var i = 0;
     while i < 10000 {
         inbox.send(i);

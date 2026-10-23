@@ -9,14 +9,14 @@
 - How a fixed array `[T; N]` differs from a growable `[]T`, and what a view
   `a[start..end]` borrows.
 
-An array is a growable sequence. `[]i64 { ... }` is a literal, `xs.push(v)`
+An array is a growable sequence. `[]int { ... }` is a literal, `xs.push(v)`
 appends, `xs.len()` counts, `for` walks, and `xs.free()` releases the backing
 storage. The runtime still calls the three-word value it stores a *slice
 header*; the public surface is arrays and methods.
 
 ```yashy
 fn main() {
-    var xs = []i64 { 10, 20 };
+    var xs = []int { 10, 20 };
     xs.push(30);
     print_i64(xs.len());
     print_str("\n");
@@ -56,7 +56,7 @@ fn main() {
 }
 ```
 
-`xs[1]` is an `Option[i64]`, not an `i64`. An index may be out of bounds, and
+`xs[1]` is an `Option[int]`, not an `int`. An index may be out of bounds, and
 the type says so: `None` is the answer, and the compiler makes you match it.
 There is no panic path for a bad index; `xs[99]` on a three-element array is
 exactly the `None` printed above. A negative index is also a miss, not a
@@ -83,14 +83,14 @@ The edit methods change the array in place. `xs.insert(i, v)` accepts
 `false`. `xs.remove(i)` accepts `0..len` and answers `Some(value)`, or `None`
 for an out-of-range index. `xs.clear()` sets the length to zero but keeps the
 backing array, so a later push reuses its capacity. `xs.reverse()` swaps the
-elements end to end, and `xs.sort()` orders an `[]i64` ascending. `insert` and
+elements end to end, and `xs.sort()` orders an `[]int` ascending. `insert` and
 `remove` refuse `[]string` for the same ownership reason as `pop`; `clear` on a
 `[]string` is allowed because it releases every element before dropping the
 length.
 
 `xs.contains(v)` and `xs.index_of(v)` search by value. `contains` answers a
 `bool`; `index_of` answers `Some(i)` for the first match and `None` when the
-value is absent. Both work for `i64`, `f64`, `bool`, and `string` elements; a
+value is absent. Both work for `int`, `float`, `bool`, and `string` elements; a
 struct or enum element has no equality and is rejected.
 
 `xs.extend(other)` appends every element of `other`. It **consumes** `other`:
@@ -110,7 +110,7 @@ An array is linear: it has one owner and cannot be copied. **Passing it to a
 function moves it**, because a parameter takes ownership:
 
 ```yashy
-fn total(xs: []i64) -> i64 {
+fn total(xs: []int) -> int {
     var sum = 0;
     for x in xs {
         sum += x;
@@ -120,7 +120,7 @@ fn total(xs: []i64) -> i64 {
 }
 
 fn main() {
-    var xs = []i64 { 1, 2, 3 };
+    var xs = []int { 1, 2, 3 };
     print_i64(total(xs));
     print_str("\n");
     // => 6
@@ -158,44 +158,44 @@ element's reference would leave the array without a matching release.
 | Form | Result | Notes |
 |---|---|---|
 | `[]T { a, b }` | `[]T` | An empty literal is valid and allocates nothing. |
-| `xs.push(v)` | `()` | Appends; grows by doubling from capacity four. |
-| `xs.len()` | `i64` | Number of elements. |
+| `xs.push(v)` | `void` | Appends; grows by doubling from capacity four. |
+| `xs.len()` | `int` | Number of elements. |
 | `xs[i]` / `xs.get(i)` | `Option[T]` | `None` when `i` is negative or past the end. |
 | `xs.first()` / `xs.last()` | `Option[T]` | `None` on an empty array. |
 | `xs.is_empty()` | `bool` | `xs.len() == 0`. |
 | `xs.set(i, v)` | `bool` | Writes in range; refused for `[]string`. |
 | `xs.insert(i, v)` | `bool` | Accepts `0..=len`; refused for `[]string`. |
 | `xs.remove(i)` | `Option[T]` | Accepts `0..len`; refused for `[]string`. |
-| `xs.clear()` | `()` | Length zero; keeps the backing array. |
-| `xs.reverse()` | `()` | Reverses in place. |
-| `xs.sort()` | `()` | Ascending; `[]i64` only in this phase. |
+| `xs.clear()` | `void` | Length zero; keeps the backing array. |
+| `xs.reverse()` | `void` | Reverses in place. |
+| `xs.sort()` | `void` | Ascending; `[]int` only in this phase. |
 | `xs.contains(v)` | `bool` | Element types with equality. |
-| `xs.index_of(v)` | `Option[i64]` | First match; `None` when absent. |
-| `xs.extend(other)` | `()` | Consumes `other`; strings are retained. |
+| `xs.index_of(v)` | `Option[int]` | First match; `None` when absent. |
+| `xs.extend(other)` | `void` | Consumes `other`; strings are retained. |
 | `xs.slice(start, end)` | `[]T` | Fresh array over the clamped range. |
 | `xs.pop()` | `Option[T]` | Removes the last element; refused for `[]string`. |
 | `for x in xs { ... }` | statement | Reads each element; the array stays borrowed. |
-| `xs.free()` | `()` | Releases the elements (if strings) and the array. |
+| `xs.free()` | `void` | Releases the elements (if strings) and the array. |
 | `[T; N]` | type | Fixed array in the frame; length is part of the type. |
 | `[a, b, c]` | `[T; 3]` | Fixed array literal; at least one element. |
 | `grid[i]` / `grid.get(i)` | `Option[T]` | Checked against the array's own length. |
 | `grid.first()` / `grid.last()` | `Option[T]` | `None` only for a view of length zero. |
-| `grid.len()` | `i64` | The length in the type, or the view's word. |
+| `grid.len()` | `int` | The length in the type, or the view's word. |
 | `a[start..end]` | `[T]` view | Clamped range borrowing `a` for the rest of the function. |
 
-The element type is part of the array type, so `[]i64` and `[]string` are
+The element type is part of the array type, so `[]int` and `[]string` are
 different types and an array cannot change element type. The element type is
-written in the literal, and `[]i64 {}` is the empty array of `i64`.
+written in the literal, and `[]int {}` is the empty array of `int`.
 
 ## Fixed arrays and views
 
 `[T; N]` is an array whose length is part of its type. The elements live in the
 frame that declares the binding, so there is no allocation, no owner, and
-nothing to free: `[i64; 3]` and `[i64; 4]` are two different types, and a
+nothing to free: `[int; 3]` and `[int; 4]` are two different types, and a
 function that returns the first cannot hand back the second.
 
 ```yashy
-fn show(o: Option[i64]) -> i64 {
+fn show(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -203,7 +203,7 @@ fn show(o: Option[i64]) -> i64 {
 }
 
 fn main() {
-    const grid: [i64; 3] = [1, 2, 3];
+    const grid: [int; 3] = [1, 2, 3];
 
     print_i64(grid.len());
     print_str("\n");
@@ -232,7 +232,7 @@ fn main() {
 }
 ```
 
-`grid[1]` is an `Option[i64]` for the same reason `xs[1]` is: the index may be
+`grid[1]` is an `Option[int]` for the same reason `xs[1]` is: the index may be
 past the end, and the type says so. There is no panic path, and the backend
 guards the load with a `select` so even the machine code never reads outside the
 array.
@@ -248,7 +248,7 @@ function returns**:
 
 ```yashy
 fn main() {
-    var xs = []i64 { 1, 2, 3 };
+    var xs = []int { 1, 2, 3 };
     const view = xs[0..2];
     // xs.push(4);   error: cannot change `xs` while a view of it is alive
     // move xs;      error: cannot move `xs` while a view of it is alive
@@ -258,7 +258,7 @@ fn main() {
 }
 ```
 
-Views are not a type you can write. `fn f(x: [i64])` and `fn f() -> [i64]` are
+Views are not a type you can write. `fn f(x: [int])` and `fn f() -> [int]` are
 both rejected, because Yashy has no lifetime syntax to say which array a
 borrowed view came from, and a view that outlived its array would read freed
 storage. A view is inferred at the range and lives in the function that made
@@ -271,7 +271,7 @@ the function returns, so an owned array that has been viewed is never released:
 a leak, not a corruption. This is the honest cost of views without lifetimes:
 
 ```yashy
-fn middle_sum(xs: []i64) -> i64 {
+fn middle_sum(xs: []int) -> int {
     const mid = xs[1..3];
     var sum = 0;
     for value in mid {
@@ -282,7 +282,7 @@ fn middle_sum(xs: []i64) -> i64 {
 
 fn main() {
     // => 50
-    print_i64(middle_sum([]i64 { 10, 20, 30, 40 }));
+    print_i64(middle_sum([]int { 10, 20, 30, 40 }));
     print_str("\n");
 }
 ```
@@ -309,7 +309,7 @@ that owns a reference.
 ## Common mistakes
 
 - **Treating an index as a value.** `print_i64(xs[0])` reports
-  ``error: expected `i64`, found `Option[i64]` ``. Match the `Option`, or use
+  ``error: expected `int`, found `Option[int]` ``. Match the `Option`, or use
   `pop` when the last element is the one you want.
 - **Copying an array binding.** `var ys = xs;` reports
   ``error: cannot assign linear value `xs` without `move` ``. Do not follow
@@ -326,8 +326,8 @@ that owns a reference.
 - **Freeing inside a `for` loop.** `xs.free()` in the body reports
   ``error: cannot move `xs` while it is being iterated``. Move the call after
   the loop.
-- **Sorting something other than `[]i64`.** `xs.sort()` on a `[]string` reports
-  ``error: `sort` is only implemented for arrays of i64``. Sort the array you
+- **Sorting something other than `[]int`.** `xs.sort()` on a `[]string` reports
+  ``error: `sort` is only implemented for arrays of int``. Sort the array you
   have, or build a numeric key array first.
 - **Using an extended array again.** `xs.extend(ys); print_i64(ys.len());`
   reports ``error: value `ys` has already been moved``. `extend` consumed `ys`;
@@ -336,20 +336,20 @@ that owns a reference.
   reports ``error: cannot change `xs` while a view of it is alive``. Any write
   -- `push`, `pop`, `set`, `insert`, `remove`, `clear`, `reverse`, `sort`,
   `extend`, `free`, or an assignment -- is refused until the function returns.
-- **Writing a view type.** `fn total(xs: [i64]) -> i64` reports
+- **Writing a view type.** `fn total(xs: [int]) -> int` reports
   ``error: a view type cannot be written``. Yashy cannot say which array a
   borrowed parameter would point at, so views stay in the function that made
-  them; take `[]i64` and free it, or copy the elements first.
+  them; take `[]int` and free it, or copy the elements first.
 - **A fixed array of strings.** `[\"a\", \"b\"]` reports
   ``error: a fixed array cannot hold `string` ``. Copying the array would
   duplicate the handles without taking a reference; use a `[]string` today.
 - **Assigning to a fixed array element.** `grid[0] = 9;` reports ``error:
-  cannot assign to index of `[i64; 3]` ``. A fixed array is built once, at its
-  literal or its return; use a `[]i64` when the elements have to change.
+  cannot assign to index of `[int; 3]` ``. A fixed array is built once, at its
+  literal or its return; use a `[]int` when the elements have to change.
 
 ## Try it
 
-1. Build a `[]i64` of the numbers 1 through 5 with a loop and `push`, then use
+1. Build a `[]int` of the numbers 1 through 5 with a loop and `push`, then use
    another loop to sum them and print the total. Free the array once, after
    both loops. Hint: `xs.push(i)` appends the loop index, which is already the
    value you want.
@@ -359,7 +359,7 @@ that owns a reference.
    confirm the output is unchanged. Hint: both literals and owned strings are
    retained by the array, so `xs.free()` handles either.
 
-3. Write a function that returns `[i64; 4]` holding the first four square
+3. Write a function that returns `[int; 4]` holding the first four square
    numbers, then print `grid.len()`, `grid.last()`, and the sum of
    `grid[1..3]`. Hint: build the literal directly with `return [...]`; a fixed
    array is a value, so returning one copies the elements and nothing is freed.
@@ -386,7 +386,7 @@ that owns a reference.
 ## How it works
 
 An array value is represented by the three-word slice header
-`{ i8*, i64, i64 }`: data pointer, length, capacity. The header is a value stored
+`{ i8*, int, int }`: data pointer, length, capacity. The header is a value stored
 in the binding's stack slot; the backing storage is one heap block owned by that
 binding. `push` takes the address
 of the header because growing must update the length and capacity in place. The
@@ -401,7 +401,7 @@ A fixed array is an LLVM aggregate `[N x T]` with no indirection: the elements
 sit in the binding's `alloca`, a literal is a chain of `insertvalue`s, and
 `grid[i]` takes the aggregate's address, tests `0 <= i < N`, and loads an element
 through a `select`ed in-range index so the load is always defined. A view is
-`{ i8*, i64 }` -- the address of its first element plus a length; `a[start..end]`
+`{ i8*, int }` -- the address of its first element plus a length; `a[start..end]`
 clamps both bounds with `select`s and computes the pointer with `mul` and
 `getelementptr`, and never touches the source's header. Neither form calls the
 allocator, which is why neither has a `free`.

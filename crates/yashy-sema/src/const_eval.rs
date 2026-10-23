@@ -44,7 +44,7 @@ use crate::ty::{Type, TypeKind};
 
 /// A value a `const fn` can produce.
 ///
-/// The four kinds are the ones the plan names: `i64`, `f64`, `bool` and
+/// The four kinds are the ones the plan names: `int`, `float`, `bool` and
 /// `string`. A `const fn` that returns anything else has no value the
 /// compiler could put in a `const` binding.
 #[derive(Clone, Debug, PartialEq)]

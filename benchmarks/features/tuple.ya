@@ -1,13 +1,13 @@
 // Returning two answers as one tuple, 50,000,000 times.
 //
-// `min_max` returns `(i64, i64)`; the caller destructures it with
+// `min_max` returns `(int, int)`; the caller destructures it with
 // `const (lo, hi) = ...`. The value is an LLVM literal struct, so both halves
 // come back in the return value and the destructuring is one extraction per
 // name -- no allocation, no out-parameter, no second call.
 //
 // The printed number is the sum of `3 * lo + hi` over every iteration:
 // 3,750,000,000,000,000.
-fn min_max(a: i64, b: i64) -> (i64, i64) {
+fn min_max(a: int, b: int) -> (int, int) {
     if a < b {
         return (a, b);
     }

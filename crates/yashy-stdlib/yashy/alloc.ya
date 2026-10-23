@@ -5,11 +5,11 @@
 // linear: the binding that holds it owns it, `move` transfers it, and `dealloc`
 // is the only release. Both helpers return an owned pointer.
 //
-// `alloc(count)` counts `i64` slots, not bytes; Yashy has no byte type yet.
+// `alloc(count)` counts `int` slots, not bytes; Yashy has no byte type yet.
 
 // Ownership: the returned pointer owns `count` zeroed slots and must be
 // released with `dealloc`.
-pub fn alloc_zeroed(count: i64) -> *mut i64 {
+pub fn alloc_zeroed(count: int) -> *mut int {
     assert(count >= 0);
     var buffer = alloc(count);
     var index = 0;
@@ -22,7 +22,7 @@ pub fn alloc_zeroed(count: i64) -> *mut i64 {
 
 // Ownership: the returned pointer owns one slot holding `value`; release it
 // with `dealloc`.
-pub fn alloc_one(value: i64) -> *mut i64 {
+pub fn alloc_one(value: int) -> *mut int {
     var buffer = alloc(1);
     buffer[0] = value;
     return buffer;

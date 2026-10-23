@@ -92,9 +92,9 @@ pub(crate) fn invalid_integer_literal(file: FileId, span: Span) -> Diagnostic {
     error(file, span, "expected an integer literal")
 }
 
-/// An integer literal whose value does not fit an `i64`.
+/// An integer literal whose value does not fit an `int`.
 pub(crate) fn integer_literal_out_of_range(file: FileId, span: Span) -> Diagnostic {
-    error(file, span, "integer literal does not fit an i64")
+    error(file, span, "integer literal does not fit an int")
 }
 
 /// A number that runs straight into something that cannot be part of one, such
@@ -256,7 +256,7 @@ mod tests {
     fn the_numeric_messages_say_which_literal_is_wrong() {
         assert_eq!(invalid_integer_literal(file(), Span::new(0, 1)).message, "expected an integer literal");
         let out_of_range = integer_literal_out_of_range(file(), Span::new(0, 40));
-        assert_eq!(out_of_range.message, "integer literal does not fit an i64");
+        assert_eq!(out_of_range.message, "integer literal does not fit an int");
 
         // A label is what turns "invalid numeric literal" into something the
         // user can act on, so its presence is pinned rather than incidental.

@@ -2,19 +2,19 @@
 // where it can be, a value-returning function returns on every path, and `&&`
 // does not evaluate its right operand when the left one decides.
 
-fn divide(n: i64) -> i64 {
+fn divide(n: int) -> int {
     if n != 0 && 10 / n > 1 {
         return 10 / n;
     }
     return 0;
 }
 
-fn parse(s: string) -> Result[i64, string] {
+fn parse(s: string) -> Result[int, string] {
     const n = s.parse_i64();
     return Ok(n);
 }
 
-fn unwrap_or(s: string) -> Result[i64, string] {
+fn unwrap_or(s: string) -> Result[int, string] {
     const n = parse(s)?;
     return Ok(n);
 }

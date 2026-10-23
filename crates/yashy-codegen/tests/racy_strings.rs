@@ -61,7 +61,7 @@ fn a_string_passed_to_spawn_uses_the_atomic_retain() {
         "fn work(s: string) { print_str(s); } \
          fn main() { \
            var s: string = \"a\"; \
-           var h: i64 = thread_spawn(work, s); \
+           var h: int = thread_spawn(work, s); \
            thread_join(h); \
          }",
     );
@@ -78,7 +78,7 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
          fn work() { var t: string = helper(); print_str(t); } \
          fn main() { \
            var s: string = \"a\"; \
-           var h: i64 = thread_spawn(work); \
+           var h: int = thread_spawn(work); \
            thread_join(h); \
            print_str(s); \
          }",
@@ -93,7 +93,7 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
 fn the_thread_entry_releases_its_argument_atomically() {
     let ir = emit(
         "fn work(s: string) { print_str(s); } \
-         fn main() { var s: string = \"a\"; var h: i64 = thread_spawn(work, s); thread_join(h); }",
+         fn main() { var s: string = \"a\"; var h: int = thread_spawn(work, s); thread_join(h); }",
     );
     // The synthesized entry drops the thread's own reference after the body.
     assert!(ir.contains("call void @yashy_str_release_atomic(i8* %arg0_v)"), "{ir}");

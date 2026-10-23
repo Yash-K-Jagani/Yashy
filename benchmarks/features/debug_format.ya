@@ -7,8 +7,8 @@
 // every string built, so a formatter that printed less would print a
 // different number.
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 fn main() {

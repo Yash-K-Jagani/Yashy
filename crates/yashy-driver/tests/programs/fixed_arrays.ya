@@ -10,14 +10,14 @@
 // view itself is only usable inside this function, which is what keeps the
 // pointer from outliving the array.
 
-fn show(o: Option[i64]) -> i64 {
+fn show(o: Option[int]) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
     };
 }
 
-fn make_grid() -> [i64; 3] {
+fn make_grid() -> [int; 3] {
     return [1, 2, 3];
 }
 
@@ -26,7 +26,7 @@ fn make_grid() -> [i64; 3] {
 // has no way to end early, and freeing under a live view is exactly the
 // dangling pointer the rule exists to prevent. That is a leak, not a
 // corruption -- the price of views in a language with no lifetime syntax.
-fn middle_sum(xs: []i64) -> i64 {
+fn middle_sum(xs: []int) -> int {
     const mid = xs[1..3];
     var sum = 0;
     for value in mid {
@@ -83,12 +83,12 @@ fn main() {
     print_str("\n");
 
     // Fixed arrays can be named in a type too.
-    const typed: [i64; 2] = [7, 8];
+    const typed: [int; 2] = [7, 8];
     print_i64(show(typed[1]));
     print_str("\n");
 
     // A view over a growable array: 20 + 30.
-    print_i64(middle_sum([]i64 { 10, 20, 30, 40 }));
+    print_i64(middle_sum([]int { 10, 20, 30, 40 }));
     print_str("\n");
     // => 3
     //    2

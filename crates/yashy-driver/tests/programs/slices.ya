@@ -1,5 +1,5 @@
 fn main() {
-    var xs = []i64 { 10, 20 };
+    var xs = []int { 10, 20 };
     xs.push(30);
     xs.push(40);
     xs.free();

@@ -23,7 +23,7 @@ pwsh benchmarks/run-features.ps1   # the feature suite
 |---|---|---|
 | `fib` | recursive `fib(35)` | function calls, call overhead, how well recursion is optimised |
 | `loop` | 200,000,000 iterations of an integer loop with a data-dependent branch | loop code, integer arithmetic, branch handling |
-| `float` | 100,000,000 iterations of `x = x * a + b` | `f64` arithmetic on a serial dependency chain |
+| `float` | 100,000,000 iterations of `x = x * a + b` | `float` arithmetic on a serial dependency chain |
 | `fib-wrap`, `loop-wrap` | the two integer programs again, with `wrapping_*` in place of bare `+`, `-`, `*` | what Yashy's checked arithmetic costs, and the row that is strictly comparable with C, Rust, Go, Node and Python — all of whose arithmetic wraps |
 
 Yashy's arithmetic is checked, so `fib.ya` is not quite the same program as
@@ -43,7 +43,7 @@ difference in the code the compiler emitted, not in library code.
 
 `fib` cannot be flattened by an optimiser. `loop`'s accumulator is a sum with a
 branch, which resists collapsing to a closed form while keeping every
-intermediate value well inside `i64` — no language's overflow rule changes the
+intermediate value well inside `int` — no language's overflow rule changes the
 answer, and C's signed-overflow undefined behaviour never fires. `float` is a
 strict dependency chain, so no compiler may reassociate or vectorise it without
 a wide target — and every row built for the portable baseline computes
@@ -62,14 +62,14 @@ have a comparable standard-library primitive.
 |---|---|---|
 | `ffi` | 100,000,000 calls to libc's `getpid` | C, clang and gcc |
 | `array` | 10,000,000 appends to a growable array, a sum, then one query/edit/search/extend/copy and string-method pass | C (`realloc`), Go `append`, Rust `Vec` |
-| `map` | 1,000,000 `i64` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
+| `map` | 1,000,000 `int` inserts, then 1,000,000 lookups | Go's built-in map, Rust's `HashMap` |
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
 | `map_scan` | a 1,000,000-entry map, its keys and values copied into two arrays ten times over, then 2,000,000 `contains_key` probes | Go and Rust loops that collect the table into two slices or vectors |
 | `debug_format` | 1,000,000 debug-formatted points (`${value:?}`), and the total length of the text built | Rust's derived `Debug` |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
-| `tuple` | 50,000,000 calls returning a `(i64, i64)`, each destructured by the caller and both elements folded into the accumulator | C struct returned by value (clang and gcc), Go multiple returns, Rust tuple |
+| `tuple` | 50,000,000 calls returning a `(int, int)`, each destructured by the caller and both elements folded into the accumulator | C struct returned by value (clang and gcc), Go multiple returns, Rust tuple |
 | `enum` | 50,000,000 three-variant enum constructions and matches | C tagged struct |
 | `threads` | 200,000 channel round trips between two threads | Go channels |
 | `mutex` | 1,000,000 contended lock/unlock pairs across four threads | Go `sync.Mutex` |
@@ -450,7 +450,7 @@ Methodology, beyond the shared rules above:
   first draft of these numbers was taken with 5 × 2 and the channel row moved
   by almost 2× between runs — the reason this table uses more samples.
 - **No preallocation** in any array or map row. Yashy's `map_new()` and
-  `[]i64 {}` start empty; Go's `make(map)` and `Vec::new()` do too, and the C
+  `[]int {}` start empty; Go's `make(map)` and `Vec::new()` do too, and the C
   array doubles from four elements like the Yashy runtime does.
 - **The implementations are not the same code.** Yashy's map is an
   open-addressed table with linear probing that grows at 70% occupancy; Go's
@@ -529,7 +529,7 @@ occupancy; Rust and Go have their own layouts and hash functions. On this
 integer-key workload Yashy is 14% behind Rust and 15% ahead of Go. Nothing is
 preallocated: the inserts include every rehash. A `string`-key workload would
 measure the hash function and key retention instead, so this table is about
-`i64` keys only.
+`int` keys only.
 
 #### Walking a map — 1,000,000 entries, copied into two arrays ten times over
 
@@ -726,13 +726,13 @@ aggregate to rebuild. The 1.6 ns gap to gcc is the checked add on
 Every row runs the same loop: `scale(i, 1000)` over 100,000,000 iterations,
 summed with wrapping addition, and every row prints
 `4999999950099999999`. The two Yashy rows are `scale[T]` and a `scale` written
-with `i64`; the other languages use their own generic function, except C, which
+with `int`; the other languages use their own generic function, except C, which
 has none — its row is the specialized function a generic call would compile to.
 
 The two Yashy rows differ by 1.5%, which is inside this machine's run-to-run
 spread (the direct row's median is the *lower* of the two). That is the result:
 a generic function costs what the concrete one costs, because it *is* the
-concrete one. `scale(i, 1000)` infers `T = i64`, the checker checks one body at
+concrete one. `scale(i, 1000)` infers `T = int`, the checker checks one body at
 that substitution, and the backend emits `scale_i64` as an ordinary function
 with an ordinary name. The call site is a direct call; no value is built, no
 type is inspected, and nothing is dispatched. Rust and Go monomorphize the same
@@ -761,7 +761,7 @@ does not measure it.
 
 Every row walks the same eight-element `[1, 2, 3, 4, 5, 6, 7, 8]` fifty
 million times and adds each element into one accumulator, then prints
-`1800000000`. The array is in the frame in every language: `[i64; 8]` in Yashy,
+`1800000000`. The array is in the frame in every language: `[int; 8]` in Yashy,
 `int64_t grid[8]` in C, `[8]int64` in Go, `[i64; 8]` in Rust. Nothing is
 allocated, nothing is freed, and no bounds field is read.
 
@@ -816,7 +816,7 @@ the increment), so the Yashy row is 1.47x clang and 1.79x gcc. Rust's `-O`
 turns overflow checks off and lands next to clang; gcc reassociates the sum
 into one multiply-add chain and wins. A tuple itself has no run-time
 representation to pay for: the number would be the same if `min_max` returned
-one `i64` and the loop multiplied it.
+one `int` and the loop multiplied it.
 
 The Go row is BLOCKED: Application Control refused every freshly linked
 `tuple-go` binary during the run, and this suite does not time a binary that

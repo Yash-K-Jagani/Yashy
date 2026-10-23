@@ -41,7 +41,7 @@ fn a_narrowing_cast_truncates_and_a_signed_widening_cast_sign_extends() {
            }
 
            fn main() {
-               print_i64(take(258 as i32) as i64);
+               print_i64(take(258 as i32) as int);
            }
            "#,
     );
@@ -67,9 +67,9 @@ fn an_unsigned_source_zero_extends_and_floats_choose_their_instruction() {
            }
 
            fn main() {
-               print_i64(byte_of(1 as u8) as i64);
-               print_f64(1 as f32 as f64);
-               print_i64(2.5 as i32 as i64);
+               print_i64(byte_of(1 as u8) as int);
+               print_f64(1 as f32 as float);
+               print_i64(2.5 as i32 as int);
            }
            "#,
     );

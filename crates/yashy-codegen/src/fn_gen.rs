@@ -22,7 +22,7 @@ use crate::module::Module;
 use crate::stmt_gen::{gen_block, run_defers, Flow};
 use crate::FnCtx;
 
-/// The LLVM type a function returns: `void` for `()`, else the type's
+/// The LLVM type a function returns: `void` for the no-value type, else the type's
 /// representation.
 pub fn fn_return_repr(kind: &TypeKind) -> String {
     match kind {

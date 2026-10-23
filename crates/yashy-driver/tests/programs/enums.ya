@@ -8,29 +8,29 @@
 // makes the payload a struct, so the variant carries an aggregate and a
 // binding on it still supports field access.
 struct Pair {
-    left: i64,
-    right: i64,
+    left: int,
+    right: int,
 }
 
 enum Shape {
-    Circle(f64),
-    Rect { w: f64, h: f64 },
+    Circle(float),
+    Rect { w: float, h: float },
     Point,
 }
 
 enum Message {
     Nothing,
     Text(string),
-    Count(i64),
+    Count(int),
 }
 
 enum Item {
     Nothing,
     Two(Pair),
-    Number(i64),
+    Number(int),
 }
 
-fn area(s: Shape) -> f64 {
+fn area(s: Shape) -> float {
     return switch s {
         case Circle(r) { 3.0 * r * r }
         case Rect { w: w, h: h } { w * h }
@@ -46,7 +46,7 @@ fn label(m: Message) -> string {
     };
 }
 
-fn total(item: Item) -> i64 {
+fn total(item: Item) -> int {
     return switch item {
         case Two(p) { p.left + p.right }
         case Number(n) { n }

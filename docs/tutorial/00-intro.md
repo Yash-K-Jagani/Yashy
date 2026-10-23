@@ -60,7 +60,7 @@ fn main() {
 }
 ```
 
-`main` takes no arguments and returns nothing, or returns an `i64` that becomes
+`main` takes no arguments and returns nothing, or returns an `int` that becomes
 the process exit status. `print_str` is a builtin: it is in scope in every
 file, imported or not, so the first example needs no `import`.
 
@@ -123,7 +123,7 @@ promises; the explanations are there to make the promises make sense.
    Hint: the source file's directory, not the shell's directory, is the one
    that matters.
 
-2. Break the program on purpose: declare `const n: i64 = "three";` and run
+2. Break the program on purpose: declare `const n: int = "three";` and run
    `yashy check first.ya`. Read the four lines of the diagnostic, from the
    `path:line:column` header to the caret under the expression. Hint: the
    caret points at the value that does not fit the declared type, not at the

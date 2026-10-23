@@ -278,7 +278,7 @@ fn string_methods_transform_bytes_and_ownership() {
     let output = build_and_run("string_methods");
     assert_eq!(
         stdout_of(&output),
-        "16\nnot empty\n72\n72\n-1\nHello\ncontains Yashy\nmissing cat\nstarts He\nends spaces\n9\n-1\nHello, Yashy\n14\n14\n16\nHELLO, YASHY\nhello, yashy\nHello, world\nababab\n0\n3\na\nb\nc\n1\n2\n3\none\ntwo\nthree\nempty is empty\n0\n42\nf64 parse ok\n"
+        "16\nnot empty\n72\n72\n-1\nHello\ncontains Yashy\nmissing cat\nstarts He\nends spaces\n9\n-1\nHello, Yashy\n14\n14\n16\nHELLO, YASHY\nhello, yashy\nHello, world\nababab\n0\n3\na\nb\nc\n1\n2\n3\none\ntwo\nthree\nempty is empty\n0\n42\nfloat parse ok\n"
     );
 }
 
@@ -1258,7 +1258,7 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
     let dir = work_dir("visibility");
     fs::write(
         dir.join("vis_lib.ya"),
-        "pub fn seven() -> i64 { return 7; }\nfn secret() -> i64 { return 13; }\n",
+        "pub fn seven() -> int { return 7; }\nfn secret() -> int { return 13; }\n",
     )
     .expect("write vis_lib.ya");
 
@@ -1373,7 +1373,7 @@ fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
     assert_eq!(compile.status.code(), Some(1), "the literal cannot compile");
     let stderr = stderr_of(&compile);
     assert!(
-        stderr.contains("integer literal does not fit an i64"),
+        stderr.contains("integer literal does not fit an int"),
         "the diagnostic must name the mistake:\n{stderr}"
     );
     // The caret is checked for position, not just for existence: it has to sit
@@ -1508,7 +1508,7 @@ fn a_returned_i64_becomes_the_exit_status() {
     // so `i64` is the spelling, truncated to the width the operating system reads.
     let output = compile_and_run(
         "exit-return",
-        "fn main() -> i64 { return 3; }\n",
+        "fn main() -> int { return 3; }\n",
     );
     assert_eq!(output.status.code(), Some(3));
 }
@@ -1520,7 +1520,7 @@ fn os_exit_can_be_reached_through_a_helper() {
     let output = compile_and_run(
         "exit-helper",
         concat!(
-            "fn quit(code: i64) {\n",
+            "fn quit(code: int) {\n",
             "    print_str(\"leaving\\n\");\n",
             "    os.exit(code);\n",
             "    print_str(\"never\\n\");\n",
@@ -1860,7 +1860,7 @@ fn the_arithmetic_opt_outs_do_what_their_names_say() {
     let output = compile_and_run(
         "arithmetic-opt-outs",
         concat!(
-            "fn show(o: Option[i64]) -> i64 {\n",
+            "fn show(o: Option[int]) -> int {\n",
             "    return switch o {\n",
             "        case None { 999 }\n",
             "        case Some(v) { v }\n",
@@ -2139,7 +2139,7 @@ fn an_asserted_operand_runs_exactly_once() {
     // operand to print it would run its side effect twice -- and, on the failure
     // path, could print a number that is not the one that failed.
     let source = concat!(
-        "fn tick() -> i64 {\n",
+        "fn tick() -> int {\n",
         "    print_str(\"tick\\n\");\n",
         "    return 1;\n",
         "}\n",
@@ -2537,4 +2537,19 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
         fs::read_to_string(&broken).expect("the untouched file must be readable"),
         "fn main( {\n"
     );
+}
+#[test]
+fn an_i64_annotation_is_reported_with_a_caret() {
+    let dir = work_dir("old-int-spelling");
+    let source = dir.join("old.ya");
+    fs::write(&source, "fn main() { const n: i64 = 1; }\n").expect("write the program");
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run check");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("`i64` is spelled `int` in Yashy"), "{stderr}");
+    assert!(stderr.contains('^'), "expected a caret:\n{stderr}");
 }

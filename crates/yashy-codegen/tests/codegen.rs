@@ -95,7 +95,7 @@ fn string_global_is_nul_terminated_and_escaped() {
 
 #[test]
 fn missing_main_is_a_diagnostic_not_a_link_failure() {
-    let program = check_source("fn helper() -> i64 { return 1; }");
+    let program = check_source("fn helper() -> int { return 1; }");
     assert!(find_main(&program.items).is_none());
     let err = check_main_exists(&program.items)
         .expect_err("a program with no main must fail here, not at link time");
@@ -117,7 +117,7 @@ fn main_may_be_absent_or_return_i64() {
     assert_eq!(found.name, "main");
     assert!(check_main_exists(&unit.items).is_ok());
 
-    let i64_ret = check_source("fn main() -> i64 { return 0; }");
+    let i64_ret = check_source("fn main() -> int { return 0; }");
     let _found = find_main(&i64_ret.items).expect("main must be found");
     assert!(check_main_exists(&i64_ret.items).is_ok());
 
@@ -136,7 +136,7 @@ fn main_may_not_take_parameters() {
     // The C runtime calls the entry point with its own argument convention, and
     // the symbol this backend emits takes none. Accepting a parameter would
     // produce a `main` the loader cannot call.
-    let with_param = check_source("fn main(argc: i64) { print_i64(argc); }");
+    let with_param = check_source("fn main(argc: int) { print_i64(argc); }");
     let err = check_main_exists(&with_param.items)
         .expect_err("a `main` with a parameter is not callable");
     assert!(
@@ -196,7 +196,7 @@ fn an_explicit_unit_return_in_main_still_yields_zero() {
 
 #[test]
 fn an_i64_main_truncates_to_the_entry_point_width() {
-    let ir_text = ir_of("fn main() -> i64 { return 7; }");
+    let ir_text = ir_of("fn main() -> int { return 7; }");
     assert!(
         ir_text.contains("define i32 @main()"),
         "the entry point is still `i32`:\n{ir_text}"
@@ -210,7 +210,7 @@ fn an_i64_main_truncates_to_the_entry_point_width() {
 #[test]
 fn an_ordinary_function_keeps_its_own_return_type() {
     // The `i32` rule is the entry point's, not every function's.
-    let ir_text = ir_of("fn seven() -> i64 { return 7; }\nfn main() { print_i64(seven()); }");
+    let ir_text = ir_of("fn seven() -> int { return 7; }\nfn main() { print_i64(seven()); }");
     assert!(
         ir_text.contains("define i64 @seven()"),
         "a helper keeps `i64`:\n{ir_text}"
@@ -257,7 +257,7 @@ fn a_struct_field_is_read_with_the_declaration_order_index() {
     // needs no address. The index is the declaration order position: this
     // literal writes `y` first, and `p.x` must still extract field 0.
     let ir_text = ir_of(
-        "struct P { x: i64, y: f64 }\n\
+        "struct P { x: int, y: float }\n\
          fn main() {\n\
          \x20   const p = P { y: 2.0, x: 1 };\n\
          \x20   print_i64(p.x);\n\
@@ -326,7 +326,7 @@ fn a_debug_form_becomes_a_printer_function() {
     // synthesized, so the backend sees an ordinary function. The printer is
     // emitted with the rest of the program, and the call names it.
     let ir_text = ir_of(
-        "struct P { x: i64 }\n\
+        "struct P { x: int }\n\
          fn main() {\n\
          \x20   const p = P { x: 3 };\n\
          \x20   print_str(\"${p:?}\");\n\
@@ -452,7 +452,7 @@ fn a_returned_panic_terminates_the_block_with_unreachable() {
     // `return panic("...")` has no value to return, so the block that would have
     // returned is unreachable. Falling through to the ordinary `ret` would emit
     // `ret i64 ` with a missing operand, which is not valid IR.
-    let ir_text = ir_of("fn f() -> i64 { return panic(\"nope\"); }\nfn main() { f(); }");
+    let ir_text = ir_of("fn f() -> int { return panic(\"nope\"); }\nfn main() { f(); }");
     for line in ir_text.lines() {
         assert!(
             line.trim_end() != "ret i64"
@@ -481,7 +481,7 @@ fn a_switch_whose_every_arm_diverges_is_lowered_with_no_result_slot() {
     // arms still have to be well formed, which is what the fresh block after each
     // panic is for.
     let ir_text = ir_of(
-        "fn f(o: Option[i64]) -> i64 {\n\
+        "fn f(o: Option[int]) -> int {\n\
          \x20   return switch o {\n\
          \x20       case None { panic(\"none\") }\n\
          \x20       case Some(v) { panic(\"some\") }\n\

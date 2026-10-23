@@ -40,7 +40,7 @@ fn directives(src: &str) -> Vec<String> {
 fn a_link_directive_adds_the_library_flag() {
     let flags = directives(
         r#"extern "C" link "m" {
-               unsafe fn sqrt(x: f64) -> f64;
+               unsafe fn sqrt(x: float) -> float;
            }
 
            fn main() {}
@@ -69,11 +69,11 @@ fn one_library_named_by_two_blocks_is_linked_once() {
     // library.
     let flags = directives(
         r#"extern "C" link "m" {
-               unsafe fn sqrt(x: f64) -> f64;
+               unsafe fn sqrt(x: float) -> float;
            }
 
            extern "C" link "m" {
-               unsafe fn cos(x: f64) -> f64;
+               unsafe fn cos(x: float) -> float;
            }
 
            fn main() {}
@@ -86,7 +86,7 @@ fn one_library_named_by_two_blocks_is_linked_once() {
 fn two_different_libraries_keep_source_order() {
     let flags = directives(
         r#"extern "C" link "m" {
-               unsafe fn sqrt(x: f64) -> f64;
+               unsafe fn sqrt(x: float) -> float;
            }
 
            extern "C" link "pthread" {
@@ -150,7 +150,7 @@ fn the_same_program_produces_identical_output_on_both_platforms() {
     fs::write(
         &source,
         r#"extern "C" {
-    unsafe fn sqrt(x: f64) -> f64;
+    unsafe fn sqrt(x: float) -> float;
 }
 
 fn main() {

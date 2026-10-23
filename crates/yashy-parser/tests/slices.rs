@@ -33,30 +33,30 @@ fn body_expr(src: &str) -> Expr {
 
 #[test]
 fn a_slice_type_is_empty_brackets_then_the_element_type() {
-    let program = parse("fn f(x: []i64) {}");
+    let program = parse("fn f(x: []int) {}");
     let Item::Fn { params, .. } = program.items.into_iter().next().unwrap() else {
         panic!("expected a function");
     };
     match &params[0].ty {
         TypeExpr::Slice(element, _) => {
             assert!(
-                matches!(&**element, TypeExpr::Name(name, _) if name == "i64"),
-                "the element type must be `i64`: {element:?}"
+                matches!(&**element, TypeExpr::Name(name, _) if name == "int"),
+                "the element type must be `int`: {element:?}"
             );
         }
-        other => panic!("expected `[]i64`, got {other:?}"),
+        other => panic!("expected `[]int`, got {other:?}"),
     }
 }
 
 #[test]
 fn a_slice_literal_names_its_element_type_and_keeps_source_order() {
-    let expr = body_expr(r#"fn main() { const xs = []i64 { 1, 2, 3 }; }"#);
+    let expr = body_expr(r#"fn main() { const xs = []int { 1, 2, 3 }; }"#);
     match expr {
         Expr::SliceLit {
             elem, elements, ..
         } => {
             assert!(
-                matches!(&*elem, TypeExpr::Name(name, _) if name == "i64"),
+                matches!(&*elem, TypeExpr::Name(name, _) if name == "int"),
                 "the literal names its element type: {elem:?}"
             );
             assert_eq!(elements.len(), 3, "all three elements are kept");
@@ -93,7 +93,7 @@ fn statements(src: &str) -> Vec<Stmt> {
 
 #[test]
 fn for_in_over_a_slice_binds_one_name() {
-    let stmts = statements("fn main() { var xs = []i64 { 1 }; for x in xs { print_i64(x); } }");
+    let stmts = statements("fn main() { var xs = []int { 1 }; for x in xs { print_i64(x); } }");
     match &stmts[1] {
         Stmt::ForIn {
             name, iterable, ..

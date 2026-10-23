@@ -64,7 +64,7 @@ use crate::module::Module;
 #[derive(Clone, Debug)]
 pub struct GenValue {
     /// An LLVM SSA name (`%t3`) or a literal (`42`, `1.0`, `true`, `null`).
-    /// The empty string means "no value" — a `()`-valued expression.
+    /// The empty string means "no value" — a `void`-valued expression.
     pub value: String,
     /// The Yashy type of the value.
     pub ty: TypeKind,
@@ -262,7 +262,7 @@ impl<'a> FnCtx<'a> {
     ///
     /// A name that is not owned is left alone: a literal is a static string
     /// (releasing it is a no-op, but there is nothing to say), a name bound to
-    /// a local belongs to that local, and an integer or `()` value is not a
+    /// a local belongs to that local, and an integer or `void` value is not a
     /// reference at all. Emitting the release only for an owned name is what
     /// keeps this from dropping a reference the program still holds.
     pub(crate) fn release_owned(&mut self, name: &str) {
@@ -609,7 +609,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                     }
                 }
                 // `None` (and any other value-position variant name) has no
-                // slot, and a `()` binding has no loadable value; both take a
+                // slot, and a `void` binding has no loadable value; both take a
                 // zero of the type the expression already carries.
                 _ => zero_of(&ty.kind, ctx),
             }
@@ -761,7 +761,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
 
 /// Lower `expr` into a fresh alloca slot, returning the slot's name.
 ///
-/// A `()`-valued expression emits no slot and returns `""`: `void` cannot be
+/// A `void`-valued expression emits no slot and returns `""`: `void` cannot be
 /// allocated, and its "value" is the effect of the instructions already
 /// pushed.
 pub fn gen_expr_to_slot(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> String {
@@ -1874,7 +1874,7 @@ fn operand_of(value: &GenValue) -> String {
     format!("{} {}", repr_type(&value.ty), value.value)
 }
 
-/// The result of a statement-shaped builtin: no register, and `()` for a type.
+/// The result of a statement-shaped builtin: no register, and `void` for a type.
 fn unit() -> GenValue {
     GenValue {
         value: String::new(),

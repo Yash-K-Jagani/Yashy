@@ -1,4 +1,4 @@
-//! Type expressions: `i64`, `Option[T]`, `Result[T, E]`, `(i64, f64)`, `()`.
+//! Type expressions: `int`, `Option[T]`, `Result[T, E]`, `(int, float)`, `void`.
 //!
 //! # Why this lives in Task 4 and not Task 6
 //!
@@ -12,7 +12,7 @@
 //!
 //! So this is the real implementation, not a placeholder, and Task 6 inherits
 //! it rather than writing it twice. Two implementations of "what is a type" are
-//! two chances to disagree about whether `Option[i64]` is one node or two.
+//! two chances to disagree about whether `Option[int]` is one node or two.
 //!
 //! # `()` is [`TypeExpr::Unit`]
 //!
@@ -94,7 +94,11 @@ impl<'src> Parser<'src> {
         let ret = if self.eat(TokenKind::Arrow) {
             self.parse_type_expr()?
         } else {
-            TypeExpr::Unit(close.span)
+            // A function type with no arrow returns the no-value type, which
+            // the checker spells `void`. Synthesizing the *name* rather than
+            // `TypeExpr::Unit` keeps it distinct from a written `()`, which is
+            // a spelling mistake in a type position.
+            TypeExpr::Name("void".to_string(), close.span)
         };
         Ok(TypeExpr::Fn {
             params,
@@ -217,7 +221,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// `()` or `(T, U)`.
+    /// `()` (the legacy spelling) or `(T, U)`.
     fn parse_paren_type(&mut self) -> Result<TypeExpr, ParseError> {
         let open = self.expect(TokenKind::LParen)?;
         let _ = self.push_open(TokenKind::LParen, open.span)?;
@@ -365,7 +369,7 @@ impl<'src> Parser<'src> {
         self.error(
             self.peek_span(),
             format!(
-                "expected a type: an identifier, `Option[..]`, `Result[.., ..]`, `(..)`, `()`, or a pointer, found {}",
+                "expected a type: an identifier, `Option[..]`, `Result[.., ..]`, `(..)`, or a pointer, found {}",
                 self.peek().describe()
             ),
         )

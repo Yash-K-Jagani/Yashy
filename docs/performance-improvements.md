@@ -23,7 +23,7 @@ asserted; see [`../benchmarks/README.md`](../benchmarks/README.md).
 A second defect surfaced while building the suite: `1.0 + 2.0` lowered to
 `add double`, and `3.0 * 4.0` to `mul double`. `add` and `mul` are LLVM's
 *integer* opcodes, so the emitted IR was rejected by `clang` outright — nothing
-had ever compiled an `f64` arithmetic expression end to end. Worse, the golden
+had ever compiled an `float` arithmetic expression end to end. Worse, the golden
 file `crates/yashy-codegen/tests/golden/ops.expected.ll` had **pinned the
 invalid IR as the expected contract**, so the test that should have caught it
 was actively protecting it. Both are fixed, and the golden file now matches
@@ -50,7 +50,7 @@ runs once per iteration.
 **Evidence it was real.** This program
 
 ```yashy
-fn f(n: i64) { for i in 0..n { for j in 0..n { var x = i * j; } } }
+fn f(n: int) { for i in 0..n { for j in 0..n { var x = i * j; } } }
 ```
 
 put the inner loop's counter slots in the *outer* loop's body block — `%slot3`
@@ -139,7 +139,7 @@ benchmark suite's own run:
 
 `loop` is the result: a **3.7× speed-up**, and the fastest native row in the
 whole table. It is a vectorisable accumulator — the baseline is allowed to add
-two `i64` per instruction and AVX2 adds four — and the C reference built with the
+two `int` per instruction and AVX2 adds four — and the C reference built with the
 same flag lands in the same place (`clang -O2 -march=native`, 74.9 ms), which is
 the point: what is being unlocked is the instruction set, not Yashy. The other
 two rows are unmoved because there is nothing to unlock — `float` is a serial
@@ -162,7 +162,7 @@ never seen, so `--native` is opt-in and the portable numbers stay the headline.
 Two tests pin it: `only_the_native_target_un_conserves_the_instruction_set` for
 the flag itself, and the end-to-end
 `native_optimization_does_not_change_what_the_program_prints`, which builds the
-same `f64` program both ways and requires the identical printed value.
+same `float` program both ways and requires the identical printed value.
 
 (`--native` was the only way to say this at first. It is now a synonym for
 `--cpu native`, added in item 5 below; the flag itself is unchanged.)
@@ -350,7 +350,7 @@ Left alone.
 
 `FnCtx::locals` is a `HashMap<String, (String, TypeKind)>` looked up and cloned
 on every identifier, sema clones `Type` (which may own a `Vec`), and type
-spellings like `i64` are re-formatted per instruction. Interned `Symbol` ids
+spellings like `int` are re-formatted per instruction. Interned `Symbol` ids
 would remove the string work from all three stages at once.
 
 This is the item with the largest gap between effort and current payoff: the
@@ -379,7 +379,7 @@ measure with a wide enum before changing anything.
 ### 9. Re-measure when checked arithmetic lands — M4, done
 
 The language contract says integer overflow panics (§6.1 of the design spec) and
-M4 implemented it: `+ - * / %` and unary `-` on `i64` now branch to a runtime
+M4 implemented it: `+ - * / %` and unary `-` on `int` now branch to a runtime
 report that names the operands and the source position, and `wrapping_*`,
 `checked_*` and `saturating_*` are the named opt-outs. The before-and-after
 numbers, and the reason they are not what was expected:
@@ -433,7 +433,7 @@ portable rows, which are currently free.
 
 ### 11. Make the benchmarks a CI gate with stored baselines — process
 
-The f64 defect above was found by a human running a new program, not by the
+The float defect above was found by a human running a new program, not by the
 test suite, because the suite compared IR text against a recorded expectation
 and never asked whether the text was valid. Two additions close that class of
 hole: run every benchmark program through `clang` in CI (which the end-to-end

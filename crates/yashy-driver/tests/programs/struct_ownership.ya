@@ -2,17 +2,17 @@
 // and a struct that holds a string owns that string.
 
 struct Point {
-    x: i64,
-    y: i64,
+    x: int,
+    y: int,
 }
 
 struct Named {
     name: string,
-    count: i64,
+    count: int,
 }
 
-fn make() -> []i64 {
-    return []i64 { 1, 2, 3 };
+fn make() -> []int {
+    return []int { 1, 2, 3 };
 }
 
 fn main() {

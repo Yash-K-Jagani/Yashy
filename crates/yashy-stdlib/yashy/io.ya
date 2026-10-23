@@ -25,13 +25,13 @@ pub fn println(text: string) {
 }
 
 // Ownership: none; a number owns nothing.
-pub fn println_i64(value: i64) {
+pub fn println_i64(value: int) {
     print_i64(value);
     print_str("\n");
 }
 
 // Ownership: none; a number owns nothing.
-pub fn println_f64(value: f64) {
+pub fn println_f64(value: float) {
     print_f64(value);
     print_str("\n");
 }
