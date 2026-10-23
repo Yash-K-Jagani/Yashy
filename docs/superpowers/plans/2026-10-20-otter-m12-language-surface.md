@@ -1866,6 +1866,30 @@ git commit -m "feat: const fn and stdlib method coverage"
 >   arrays, ten times over, then the key probes) and `debug_format` (a
 >   million formatted points). The numbers are in the benchmark README.
 
+> **As built — the closing gate.** `cargo check --workspace --all-targets` is
+> clean, and `cargo test -p otter-codegen --test ffi --tests` runs all 22 of
+> that package's suites green. `cargo test -p otter-driver --test e2e` reported
+> 25 passed and 79 failed, and every one of the 79 failures was `os error 4551`
+> raised by `run()` before the program started; no assertion failed.
+>
+> The cause is host policy, not the compiler. Smart App Control is enforcing
+> (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` →
+> `VerifiedAndReputablePolicyState = 1`), and the CodeIntegrity log names it:
+> event 3077 records that `const_fn.exe` "did not meet the Enterprise signing
+> level requirements" under policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`.
+> The verdict follows the file's content, not its path — a blocked binary
+> copied to `D:\Otter\target\probe` and to `%TEMP%\opencode\probe` stayed
+> blocked — but it is not stable per source, because the linker stamps a fresh
+> timestamp into every build.
+>
+> About one fresh build in three is allowed, so a suite that runs 79 separate
+> binaries cannot be brought green by retrying the suite. Each of the eight
+> milestone programs was instead rebuilt until one build started, and all eight
+> then pass: `numeric_literals`, `debug_formatting`, `fixed_arrays`, `generics`
+> (3rd rebuild), `tuples_guards` (14th), `const_fn` (7th), `map_methods` (1st)
+> and the `visibility` program (12th). No test was counted as a pass without
+> its program running.
+
 ---
 
 ## Backlog (recorded, not scheduled)
