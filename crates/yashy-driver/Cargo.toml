@@ -1,0 +1,17 @@
+[package]
+name = "yashy-driver"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yashy"
+path = "src/main.rs"
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-codegen = { path = "../yashy-codegen" }
+yashy-fmt = { path = "../yashy-fmt" }
+yashy-lexer = { path = "../yashy-lexer" }
+yashy-parser = { path = "../yashy-parser" }
+yashy-sema = { path = "../yashy-sema" }
+yashy-runtime = { path = "../yashy-runtime" }

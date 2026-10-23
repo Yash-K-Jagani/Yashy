@@ -1,4 +1,4 @@
-// The debug_format.ot loop with Rust's derived Debug: the same point, the
+// The debug_format.ya loop with Rust's derived Debug: the same point, the
 // same million format calls, and the same total length.
 #[derive(Debug)]
 struct Point {

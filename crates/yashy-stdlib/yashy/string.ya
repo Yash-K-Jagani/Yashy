@@ -1,0 +1,12 @@
+// Text helpers written in Yashy (M6 Task 10).
+//
+// The string surface is methods now: `len`, `byte_at`, `slice`, `trim`,
+// `contains`, `starts_with`, `split` and the rest are called on a string
+// binding. The wrappers this module used to export were removed in M12 so
+// there is one spelling per operation. What remains is `concat`, a named
+// spelling for `+` that reads well in a pipeline of stdlib helpers.
+
+// Ownership: a fresh string is returned; neither argument is consumed.
+pub fn concat(left: string, right: string) -> string {
+    return left + right;
+}

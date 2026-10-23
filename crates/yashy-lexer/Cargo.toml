@@ -1,0 +1,7 @@
+[package]
+name = "yashy-lexer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }

@@ -11,7 +11,7 @@
 the top, `while true { ... }` is the infinite loop (there is no separate `loop`
 keyword), and `break` and `continue` leave and restart it.
 
-```otter
+```yashy
 fn main() {
     var i = 1;
     while i <= 5 {

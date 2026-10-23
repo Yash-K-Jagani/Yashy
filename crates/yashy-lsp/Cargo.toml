@@ -1,0 +1,15 @@
+[package]
+name = "yashy-lsp"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yashy-lsp"
+path = "src/main.rs"
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-driver = { path = "../yashy-driver" }
+yashy-lexer = { path = "../yashy-lexer" }
+yashy-parser = { path = "../yashy-parser" }
+yashy-sema = { path = "../yashy-sema" }

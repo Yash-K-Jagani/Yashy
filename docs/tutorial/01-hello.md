@@ -11,16 +11,16 @@ A program is a list of items: functions, structs, enums, imports. `main` is
 where execution starts. A function is `fn name(parameters) -> return_type`,
 and the body is a block of statements ending, optionally, in `return`.
 
-```otter
+```yashy
 fn greeting(name: string) -> string {
     return "Hello, " + name + "!";
 }
 
 fn main() {
     // A comment the compiler ignores.
-    print_str(greeting("Otter"));
+    print_str(greeting("Yashy"));
     print_str("\n");
-    // => Hello, Otter!
+    // => Hello, Yashy!
 }
 ```
 
@@ -32,7 +32,7 @@ whether the program meant the number or its decimal spelling.
 
 A function that returns nothing writes no `->`:
 
-```otter
+```yashy
 fn banner() {
     print_str("===\n");
 }
@@ -125,7 +125,7 @@ The checker makes two passes over the program. The first declares every
 `struct`, `enum` and `fn` signature in one shared root scope; the second checks
 each body with a scope holding its parameters. Code generation then emits one
 LLVM function per `fn`. `main` is special: the C runtime calls it and reads an
-`i32`, so an Otter `main` returning `i64` has its result narrowed to that width,
+`i32`, so a Yashy `main` returning `i64` has its result narrowed to that width,
 the same truncation C performs for `int main`.
 
 Continue to [02-values](02-values.md).

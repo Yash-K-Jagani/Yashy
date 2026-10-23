@@ -1,0 +1,33 @@
+// Building strings, end to end, and releasing each one.
+//
+// Two shapes, because they exercise different release points:
+//
+// 1. An accumulator rebound in a loop. Every `acc = acc + "x"` builds a new
+//    string, secures its reference, and *then* releases the previous one, so
+//    the program holds one string at a time rather than one per iteration.
+// 2. A fresh string each iteration. The loop body is a scope, so the binding
+//    gives its reference back when the iteration ends.
+//
+// The leak test in `leaks.rs` runs this with `YASHY_LEAK_REPORT=1` and asserts
+// the report says zero: the printed lengths prove the values are right, and
+// the report proves the references came back.
+fn main() {
+    var acc = "";
+    var i = 0;
+    while i < 100 {
+        acc = acc + "x";
+        i += 1;
+    }
+    print_i64(acc.len());
+    print_str("\n");
+
+    var last = 0;
+    i = 0;
+    while i < 100 {
+        var fresh = "item " + str_from_i64(i);
+        last = fresh.len();
+        i += 1;
+    }
+    print_i64(last);
+    print_str("\n");
+}

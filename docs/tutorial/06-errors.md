@@ -12,7 +12,7 @@ There is no exception stack and no hidden unwinding. `?` propagates an `Err`
 to the caller, and the function's return type is supposed to say so. This build
 enforces only part of that promise; the section below shows exactly where.
 
-```otter
+```yashy
 fn half(n: i64) -> Result[i64, string] {
     if n % 2 != 0 {
         return Err("odd");

@@ -1,0 +1,47 @@
+// Counts the quoted keys of a JSON-ish document, one key per line, read from
+// standard input until end of input.
+//
+// The program is the M6 container proof: an `[]string` accumulates the lines, a
+// `map[string]i64` deduplicates the keys, `for` walks the slice, and the last two
+// statements release both containers. Feeding it:
+//
+//     {"name": "yashy"}
+//     {"age": 3}
+//     {"name": "again"}
+//
+// prints 3 (keys seen) and 2 (distinct keys).
+//
+// `key_of` lives in `json_keys.ya`; `import` searches the entry file's directory,
+// so the second file is found without any path configuration.
+
+import json_keys;
+
+fn main() {
+    var lines = []string {};
+    var line = read_line();
+    while line.len() > 0 {
+        lines.push(line);
+        line = read_line();
+    }
+
+    var keys: map[string]i64 = map_new();
+    var seen = 0;
+    for text in lines {
+        var key = key_of(text);
+        // A line with no quoted pair yields an empty key, which is not a key
+        // this program counts. An empty JSON key (`"": 1`) is skipped too; the
+        // trade is documented rather than hidden behind an `Option`.
+        if key.len() > 0 {
+            keys.insert(key, 1);
+            seen = seen + 1;
+        }
+    }
+
+    print_i64(seen);
+    print_str("\n");
+    print_i64(keys.len());
+    print_str("\n");
+
+    lines.free();
+    keys.free();
+}

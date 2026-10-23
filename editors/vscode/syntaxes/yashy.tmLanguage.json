@@ -1,0 +1,101 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Yashy",
+  "scopeName": "source.yashy",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#keywords" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.yashy",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.yashy",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.yashy",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.yashy",
+              "match": "\\\\."
+            },
+            {
+              "name": "meta.interpolation.yashy",
+              "begin": "\\$\\{",
+              "end": "\\}"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.yashy",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.yashy",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "entity.name.function.yashy",
+          "match": "\\bfn\\s+([A-Za-z_][A-Za-z0-9_]*)"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.yashy",
+          "match": "\\b(?:i64|f64|bool|string|void|usize|Option|Result|Channel|map)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.yashy",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\("
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.yashy",
+          "match": "\\b(?:if|else|for|while|in|switch|case|default|break|continue|return|defer)\\b"
+        },
+        {
+          "name": "keyword.declaration.yashy",
+          "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|as|move|impl|object|pub)\\b"
+        },
+        {
+          "name": "keyword.constant.yashy",
+          "match": "\\b(?:true|false)\\b"
+        }
+      ]
+    }
+  }
+}

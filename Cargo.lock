@@ -19,85 +19,85 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
-name = "otter-codegen"
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "yashy-codegen"
 version = "0.1.0"
 dependencies = [
- "otter-common",
- "otter-lexer",
- "otter-parser",
- "otter-sema",
+ "yashy-common",
+ "yashy-lexer",
+ "yashy-parser",
+ "yashy-sema",
 ]
 
 [[package]]
-name = "otter-common"
+name = "yashy-common"
 version = "0.1.0"
 
 [[package]]
-name = "otter-driver"
+name = "yashy-driver"
 version = "0.1.0"
 dependencies = [
- "otter-codegen",
- "otter-common",
- "otter-fmt",
- "otter-lexer",
- "otter-parser",
- "otter-runtime",
- "otter-sema",
+ "yashy-codegen",
+ "yashy-common",
+ "yashy-fmt",
+ "yashy-lexer",
+ "yashy-parser",
+ "yashy-runtime",
+ "yashy-sema",
 ]
 
 [[package]]
-name = "otter-fmt"
+name = "yashy-fmt"
 version = "0.1.0"
 dependencies = [
- "otter-common",
- "otter-lexer",
- "otter-parser",
+ "yashy-common",
+ "yashy-lexer",
+ "yashy-parser",
 ]
 
 [[package]]
-name = "otter-lexer"
+name = "yashy-lexer"
 version = "0.1.0"
 dependencies = [
- "otter-common",
+ "yashy-common",
 ]
 
 [[package]]
-name = "otter-lsp"
+name = "yashy-lsp"
 version = "0.1.0"
 dependencies = [
- "otter-common",
- "otter-driver",
- "otter-lexer",
- "otter-parser",
- "otter-sema",
+ "yashy-common",
+ "yashy-driver",
+ "yashy-lexer",
+ "yashy-parser",
+ "yashy-sema",
 ]
 
 [[package]]
-name = "otter-parser"
+name = "yashy-parser"
 version = "0.1.0"
 dependencies = [
- "otter-common",
- "otter-lexer",
+ "yashy-common",
+ "yashy-lexer",
 ]
 
 [[package]]
-name = "otter-runtime"
+name = "yashy-runtime"
 version = "0.1.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
-name = "otter-sema"
+name = "yashy-sema"
 version = "0.1.0"
 dependencies = [
- "otter-common",
- "otter-lexer",
- "otter-parser",
+ "yashy-common",
+ "yashy-lexer",
+ "yashy-parser",
 ]
-
-[[package]]
-name = "shlex"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"

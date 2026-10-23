@@ -1,0 +1,23 @@
+// A generic function called 100,000,000 times.
+//
+// `scale[T]` is written once. The call in the loop fixes `T` as `i64`, so the
+// compiler emits one ordinary `scale_i64` and the loop calls it directly --
+// there is no dispatch to measure. The workload is `function_direct.ya`'s, so
+// the two numbers are comparable: the difference is what a type parameter
+// costs, which should be nothing.
+fn scale[T](x: T, k: T) -> T {
+    return x * k + x % 3;
+}
+
+fn main() {
+    const n = 100000000;
+    const k = 1000;
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        sum = wrapping_add(sum, scale(i, k));
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}

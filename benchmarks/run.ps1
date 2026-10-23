@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Build and time the Otter benchmark suite against C, Rust, Go, Node and Python.
+  Build and time the Yashy benchmark suite against C, Rust, Go, Node and Python.
 
 .DESCRIPTION
   Two questions are measured, and they are different questions:
 
-    1. How fast is the code Otter produces?   -> the runtime table
-    2. How fast does Otter compile it?        -> the compile-time table
+    1. How fast is the code Yashy produces?   -> the runtime table
+    2. How fast does Yashy compile it?        -> the compile-time table
 
   For (1) every language runs the same algorithm with the same input, compiled
   with its own native optimizer at -O2 (Rust -O, which is the same thing). Node
@@ -14,11 +14,11 @@
   rows, because an interpreting runtime is a different category and pretending
   otherwise would flatter the native numbers.
 
-  Otter is additionally built at -O0, so the table shows what enabling
+  Yashy is additionally built at -O0, so the table shows what enabling
   optimization actually buys rather than just asserting that it helps.
 
-  The integer benchmarks have a second Otter row, built from `<name>-wrap.ot`:
-  the same algorithm with `wrapping_*` in place of bare `+`/`-`/`*`. Otter's
+  The integer benchmarks have a second Yashy row, built from `<name>-wrap.ya`:
+  the same algorithm with `wrapping_*` in place of bare `+`/`-`/`*`. Yashy's
   arithmetic is checked by default, which C, Go, Rust, Node and Python's is not,
   so the plain row promises more than the rows it is compared against and the
   wrapping row is the strictly like-for-like one. The gap between the two is
@@ -28,7 +28,7 @@
   which build for the CPU of the machine running the benchmark, and
   `--cpu=x86-64-v3` / `-march=x86-64-v3`, which build for an AVX2-era CPU
   instead of the architecture's baseline. Each pair is always listed together,
-  one Otter and one clang, because the gain comes from the instruction set
+  one Yashy and one clang, because the gain comes from the instruction set
   rather than from the compiler, and none of them is comparable with the
   portable rows above it.
 
@@ -68,7 +68,7 @@ $ErrorActionPreference = 'Continue'
 $bench = $PSScriptRoot
 $root = Split-Path -Parent $bench
 $build = Join-Path $bench 'build'
-$otter = Join-Path $root 'target\release\otter.exe'
+$yashy = Join-Path $root 'target\release\yashy.exe'
 $exe = '.exe'
 
 # Input sizes, and the work each one implies. `fib` reports calls into the
@@ -83,14 +83,14 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 # Compile the C benchmarks for the same target the compiler targets.
 #
 # This is not cosmetic. On a Windows machine with no MSVC CRT, bare `clang`
-# defaults to the MSVC triple and fails with "'stdio.h' file not found". Otter
+# defaults to the MSVC triple and fails with "'stdio.h' file not found". Yashy
 # passes the host triple to clang on every build, so the C rows are compiled the
-# same way; the triple is read back out of Otter's own IR so the two cannot
+# same way; the triple is read back out of Yashy's own IR so the two cannot
 # drift apart. On a host whose triple needs no help (Linux), no `--target` is
 # passed and clang uses its default.
 $clangTarget = @()
-if (Test-Path $otter) {
-    $triple = & $otter build "$bench\fib.ot" --emit-ir 2>$null |
+if (Test-Path $yashy) {
+    $triple = & $yashy build "$bench\fib.ya" --emit-ir 2>$null |
         Select-String -Pattern '^target triple = ' |
         ForEach-Object { ($_.Line -split '"')[1] }
     if ($triple -like '*windows*') {
@@ -107,47 +107,47 @@ function Invoke-Tool {
 }
 
 function Build-All {
-    if (-not (Test-Path $otter)) {
-        throw "no release binary at $otter - run: cargo build --release --workspace"
+    if (-not (Test-Path $yashy)) {
+        throw "no release binary at $yashy - run: cargo build --release --workspace"
     }
 
     foreach ($name in $benchmarks) {
-        # Otter at the old default (-O0) and the new one (-O2), so the runtime
+        # Yashy at the old default (-O0) and the new one (-O2), so the runtime
         # table shows the effect of the change instead of asserting it.
-        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-O0$exe", '-O0') "otter build $name -O0"
-        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-O2$exe") "otter build $name -O2"
+        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O0$exe", '-O0') "yashy build $name -O0"
+        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-O2$exe") "yashy build $name -O2"
 
-        # `<name>-wrap.ot` is the same algorithm with `wrapping_*` instead of
+        # `<name>-wrap.ya` is the same algorithm with `wrapping_*` instead of
         # bare `+`/`-`/`*`, and it is the row that is strictly comparable with the
-        # C/Go/Rust/Node/Python rows: those languages wrap, and Otter's default
+        # C/Go/Rust/Node/Python rows: those languages wrap, and Yashy's default
         # checks. Only the integer benchmarks have one -- the float benchmark has
         # no integer arithmetic to opt out of.
-        if (Test-Path "$bench\$name-wrap.ot") {
-            Invoke-Tool $otter @('build', "$bench\$name-wrap.ot", '-o', "$build\$name-otter-wrap$exe") "otter build $name-wrap"
+        if (Test-Path "$bench\$name-wrap.ya") {
+            Invoke-Tool $yashy @('build', "$bench\$name-wrap.ya", '-o', "$build\$name-yashy-wrap$exe") "yashy build $name-wrap"
         }
 
         # `--native` targets the machine that builds, so its C counterpart is
         # compiled with `-march=native` too. The pair answers "what is the flag
         # worth" without either side quietly receiving a flag the other did not.
-        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-native$exe", '--native') "otter build $name --native"
+        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-native$exe", '--native') "yashy build $name --native"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=native', "$bench\$name.c", '-o', "$build\$name-clang-native$exe")) "clang $name -march=native"
 
         # `x86-64-v3` is the same idea with the portability spent more carefully:
         # an AVX2-era CPU rather than this exact one, so the binary is the same
         # on every machine of that generation. It is the tier to compare when
         # `--native`'s numbers look unrepeatable across two machines.
-        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-v3$exe", '--cpu=x86-64-v3') "otter build $name --cpu=x86-64-v3"
+        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3$exe", '--cpu=x86-64-v3') "yashy build $name --cpu=x86-64-v3"
         Invoke-Tool 'clang' ($clangTarget + @('-O2', '-march=x86-64-v3', "$bench\$name.c", '-o', "$build\$name-clang-v3$exe")) "clang $name -march=x86-64-v3"
 
         # The `v3` pair above is *not* a like-for-like comparison on its own.
         # Clang contracts floating-point by default (C's `-ffp-contract=on`), so
-        # its `v3` row already has a fused multiply-add, while Otter has to be
-        # asked for one. This row is Otter asking, and it is the one to read
+        # its `v3` row already has a fused multiply-add, while Yashy has to be
+        # asked for one. This row is Yashy asking, and it is the one to read
         # beside `C (clang -O2, -march=x86-64-v3)`.
-        Invoke-Tool $otter @('build', "$bench\$name.ot", '-o', "$build\$name-otter-v3-fast$exe", '--cpu=x86-64-v3', '--fast-math') "otter build $name --cpu=x86-64-v3 --fast-math"
+        Invoke-Tool $yashy @('build', "$bench\$name.ya", '-o', "$build\$name-yashy-v3-fast$exe", '--cpu=x86-64-v3', '--fast-math') "yashy build $name --cpu=x86-64-v3 --fast-math"
 
-        # Two C compilers, so the Otter numbers are not graded against one
-        # backend's quirks. clang gets the same target Otter passes.
+        # Two C compilers, so the Yashy numbers are not graded against one
+        # backend's quirks. clang gets the same target Yashy passes.
         Invoke-Tool 'clang' ($clangTarget + @('-O2', "$bench\$name.c", '-o', "$build\$name-clang$exe")) "clang $name"
         Invoke-Tool 'gcc' @('-O2', "$bench\$name.c", '-o', "$build\$name-gcc$exe") "gcc $name"
 
@@ -190,14 +190,14 @@ function Invoke-Runtime {
     $rows = @()
     foreach ($name in $benchmarks) {
         $programs = @(
-            @{ Lang = 'Otter (clang -O0)'; Path = "$build\$name-otter-O0$exe" },
-            @{ Lang = 'Otter (clang -O2)'; Path = "$build\$name-otter-O2$exe" },
-            @{ Lang = 'Otter (-O2, wrapping_*)'; Path = "$build\$name-otter-wrap$exe"; Optional = $true },
-            @{ Lang = 'Otter (-O2, --native)'; Path = "$build\$name-otter-native$exe" },
-            @{ Lang = 'Otter (-O2, --cpu=x86-64-v3)'; Path = "$build\$name-otter-v3$exe" },
+            @{ Lang = 'Yashy (clang -O0)'; Path = "$build\$name-yashy-O0$exe" },
+            @{ Lang = 'Yashy (clang -O2)'; Path = "$build\$name-yashy-O2$exe" },
+            @{ Lang = 'Yashy (-O2, wrapping_*)'; Path = "$build\$name-yashy-wrap$exe"; Optional = $true },
+            @{ Lang = 'Yashy (-O2, --native)'; Path = "$build\$name-yashy-native$exe" },
+            @{ Lang = 'Yashy (-O2, --cpu=x86-64-v3)'; Path = "$build\$name-yashy-v3$exe" },
             @{ Lang = 'C (clang -O2)';     Path = "$build\$name-clang$exe" },
             @{ Lang = 'C (clang -O2, -march=native)'; Path = "$build\$name-clang-native$exe" },
-            @{ Lang = 'Otter (-O2, --cpu=x86-64-v3 --fast-math)'; Path = "$build\$name-otter-v3-fast$exe" },
+            @{ Lang = 'Yashy (-O2, --cpu=x86-64-v3 --fast-math)'; Path = "$build\$name-yashy-v3-fast$exe" },
             @{ Lang = 'C (clang -O2, -march=x86-64-v3)'; Path = "$build\$name-clang-v3$exe" },
             @{ Lang = 'C (gcc -O2)';       Path = "$build\$name-gcc$exe" },
             @{ Lang = 'Rust (rustc -O)';   Path = "$build\$name-rust$exe" },
@@ -234,8 +234,8 @@ function Invoke-Runtime {
 
 function Invoke-CompileTime {
     $cases = @(
-        @{ Lang = 'Otter (front end only)'; Exe = $otter;  Args = @('build', "$bench\fib.ot", '--emit-ir') },
-        @{ Lang = 'Otter (full, -O2)';      Exe = $otter;  Args = @('build', "$bench\fib.ot", '-o', "$build\ct-otter$exe") },
+        @{ Lang = 'Yashy (front end only)'; Exe = $yashy;  Args = @('build', "$bench\fib.ya", '--emit-ir') },
+        @{ Lang = 'Yashy (full, -O2)';      Exe = $yashy;  Args = @('build', "$bench\fib.ya", '-o', "$build\ct-yashy$exe") },
         @{ Lang = 'C (clang -O2)';          Exe = 'clang'; Args = ($clangTarget + @('-O2', "$bench\fib.c", '-o', "$build\ct-clang$exe")) },
         @{ Lang = 'Rust (rustc -O)';        Exe = 'rustc'; Args = @('-O', "$bench\fib.rs", '-o', "$build\ct-rust$exe") },
         @{ Lang = 'Go (go build)';          Exe = 'go';    Args = @('build', '-o', "$build\ct-go$exe", "$bench\fib.go") }

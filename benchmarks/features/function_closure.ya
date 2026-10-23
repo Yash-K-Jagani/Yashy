@@ -1,0 +1,29 @@
+// The function.ya loop calling through a closure.
+//
+// The closure captures `k` from the scope it is written in, so the value it
+// calls through carries an environment: the call passes the environment
+// pointer, and the closure reads the captured value out of it. The closure is
+// made once, outside the loop, so the row measures the call and not the
+// allocation.
+//
+// The other rows build the value inside the loop, so this one is not directly
+// comparable with them; it is the price of a call through a value that has
+// something to carry.
+fn apply(f: fn(i64, i64) -> i64, x: i64, k: i64) -> i64 {
+    return f(x, k);
+}
+
+fn main() {
+    const n = 100000000;
+    const k = 1000;
+    const f = |x: i64, k: i64| -> i64 { return x * k + x % 3; };
+
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        sum = wrapping_add(sum, apply(f, i, k));
+        i = wrapping_add(i, 1);
+    }
+    print_i64(sum);
+    print_str("\n");
+}

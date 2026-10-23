@@ -1,0 +1,18 @@
+// A fault deep in a recursion.
+//
+// The recursion is deliberately *not* a tail call: `n + descend(n - 1)` keeps
+// every frame alive, so the panic happens with 5000 Yashy frames on the C
+// stack. The process must still exit through the runtime's diagnostic path
+// rather than overflowing the stack or crashing, which is what makes "a fault
+// is a defined stop" true at depth as well as at the top.
+fn descend(n: i64) -> i64 {
+    if n == 0 {
+        panic("bottom reached");
+    }
+    return n + descend(n - 1);
+}
+
+fn main() {
+    print_i64(descend(5000));
+    print_str("this line must never be printed\n");
+}

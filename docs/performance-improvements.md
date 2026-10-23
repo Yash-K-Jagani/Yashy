@@ -9,22 +9,22 @@ than being presented as wins.
 
 ## The defect that mattered
 
-`otter build` invoked `clang` without an optimization flag, which means `-O0`.
-Every binary Otter produced ran unoptimized, including the runtime C source
+`yashy build` invoked `clang` without an optimization flag, which means `-O0`.
+Every binary Yashy produced ran unoptimized, including the runtime C source
 compiled at link time. The compiler's design puts *all* optimization in LLVM —
-`otter-codegen` deliberately emits readable, unoptimized IR — so omitting the
+`yashy-codegen` deliberately emits readable, unoptimized IR — so omitting the
 flag silently discarded the entire performance strategy of the language.
 
-The fix is `OptLevel` in `crates/otter-driver/src/pipeline.rs`, defaulting to
+The fix is `OptLevel` in `crates/yashy-driver/src/pipeline.rs`, defaulting to
 `-O2`, with `-O0`…`-O3` selectable on the command line. The benchmark suite
-builds Otter at both `-O0` and `-O2` so the difference is measured rather than
+builds Yashy at both `-O0` and `-O2` so the difference is measured rather than
 asserted; see [`../benchmarks/README.md`](../benchmarks/README.md).
 
 A second defect surfaced while building the suite: `1.0 + 2.0` lowered to
 `add double`, and `3.0 * 4.0` to `mul double`. `add` and `mul` are LLVM's
 *integer* opcodes, so the emitted IR was rejected by `clang` outright — nothing
 had ever compiled an `f64` arithmetic expression end to end. Worse, the golden
-file `crates/otter-codegen/tests/golden/ops.expected.ll` had **pinned the
+file `crates/yashy-codegen/tests/golden/ops.expected.ll` had **pinned the
 invalid IR as the expected contract**, so the test that should have caught it
 was actively protecting it. Both are fixed, and the golden file now matches
 valid IR.
@@ -35,7 +35,7 @@ whether the text is *valid*, let alone fast.
 
 ## What was done
 
-Six items were implemented. Three make Otter *compile* faster; three make the
+Six items were implemented. Three make Yashy *compile* faster; three make the
 programs it produces *run* faster. The CPU tier is the largest single result in
 this document; the fused multiply-add is the second.
 
@@ -49,7 +49,7 @@ runs once per iteration.
 
 **Evidence it was real.** This program
 
-```otter
+```yashy
 fn f(n: i64) { for i in 0..n { for j in 0..n { var x = i * j; } } }
 ```
 
@@ -76,7 +76,7 @@ move by construction; the movement is the machine, not the change.
 ### 2. Compile the runtime once per toolchain, not once per build — done
 
 The link step passed the runtime's C source to `clang` along with the object
-file, so **every** `otter build` recompiled an identical `runtime.c`. The item
+file, so **every** `yashy build` recompiled an identical `runtime.c`. The item
 said to measure that invocation before doing anything, and the answer was
 decisive: it was **135 ms of a 403 ms build**, a third of every build, to
 recompile a file whose bytes never change.
@@ -90,14 +90,14 @@ recompile a file whose bytes never change.
 | **total** | **402.9** |
 
 **What changed.** `cached_runtime_object` compiles the runtime to
-`<cache>/otter-runtime-<hash>.o` on first use and links that object afterwards.
+`<cache>/yashy-runtime-<hash>.o` on first use and links that object afterwards.
 The hash covers the runtime bytes, the header, the target triple, the
 optimization level, and the toolchain's path and modification time, so a changed
 runtime, a different target, a different `-O`, or an upgraded `clang` each
 address a different object — the hash *is* the staleness check, which is what
 keeps the original "no archive can go stale" decision intact. The object is
 written to a staged name and renamed into place, so an interrupted build cannot
-leave a truncated object behind. `OTTER_CACHE_DIR` relocates the cache. Any
+leave a truncated object behind. `YASHY_CACHE_DIR` relocates the cache. Any
 failure — an unwritable directory, a toolchain that will not compile the runtime
 on its own — returns `None` and the build falls back to the previous link,
 because a cache that can fail a build is worse than no cache.
@@ -110,7 +110,7 @@ because a cache that can fail a build is worse than no cache.
 The cold path is 115 ms slower because it compiles the runtime and links it in
 two invocations where the old path did both in one; that is paid once per
 (toolchain, optimization level) pair. The steady state is **30% faster**, and it
-matters for how the language is perceived: `otter build` is now within 8% of
+matters for how the language is perceived: `yashy build` is now within 8% of
 `clang -O2` on the equivalent C file (282.8 ms against 263.0 ms), where it was
 53% slower (402.9 against 263.0).
 
@@ -141,7 +141,7 @@ benchmark suite's own run:
 whole table. It is a vectorisable accumulator — the baseline is allowed to add
 two `i64` per instruction and AVX2 adds four — and the C reference built with the
 same flag lands in the same place (`clang -O2 -march=native`, 74.9 ms), which is
-the point: what is being unlocked is the instruction set, not Otter. The other
+the point: what is being unlocked is the instruction set, not Yashy. The other
 two rows are unmoved because there is nothing to unlock — `float` is a serial
 dependency chain that cannot be vectorised, and `fib` is calls rather than
 arithmetic. A separate interleaved 21-run measurement of `fib` put `-O2` at
@@ -232,7 +232,7 @@ is what makes it safe to expose as a flag rather than a language semantic.
 Item 3 of "deliberately not done" (below) records why this was *not* done at
 first, and gets a fact wrong; this item is the correction and the implementation.
 
-`CodegenOptions { fp_contract }` travels from the driver to `otter-codegen`,
+`CodegenOptions { fp_contract }` travels from the driver to `yashy-codegen`,
 which adds LLVM's `contract` flag to `fadd`, `fsub` and `fmul` — and to nothing
 else. `fdiv` and `frem` are never contracted (there is no fused divide), and
 integer arithmetic is untouched. `--fast-math` on the command line turns it on.
@@ -247,7 +247,7 @@ integer arithmetic is untouched. `--fast-math` on the command line turns it on.
 | `clang -O2 -march=x86-64-v3` (contracts by default) | 308.6 | `44051.909807502794` |
 
 **1.70×**, and it lands within 1% of `clang` doing the same thing — which is the
-point: with the same target and the same permission, Otter and clang produce the
+point: with the same target and the same permission, Yashy and clang produce the
 same code. The last six digits of the result change, because a fused multiply-add
 rounds once instead of twice, so the flag is opt-in and never applies to the
 portable rows the benchmark suite treats as comparable.
@@ -270,7 +270,7 @@ that "not done" is visibly a decision rather than an oversight.
 `Module::push` takes a `String` per instruction and `finish` joins them, so a
 module allocates once per emitted instruction. A single `String` with `write!`
 would remove that. The item said to measure with a large generated program
-before deciding, so here is that measurement — `otter build --emit-ir` on
+before deciding, so here is that measurement — `yashy build --emit-ir` on
 generated sources of *n* small functions, output discarded, best of 3:
 
 | functions | IR lines | front end | front end + codegen | codegen |
@@ -331,16 +331,16 @@ barely: 152.4 ms, a 4% difference that is inside the spread of repeated identica
 links, in exchange for depending on a linker that is not guaranteed to be
 installed. `-fuse-ld=lld` stays unset.
 
-### 5. Delete the `cc` build of the runtime from `otter-runtime` — no
+### 5. Delete the `cc` build of the runtime from `yashy-runtime` — no
 
-`otter-runtime`'s `build.rs` compiles `runtime.c` with the `cc` crate at *cargo*
+`yashy-runtime`'s `build.rs` compiles `runtime.c` with the `cc` crate at *cargo*
 build time, and the driver never calls those symbols — it embeds the C source and
 hands it to `clang`. That looks like dead weight in every `cargo build`, and it
-was the next thing to delete. It is not dead: `crates/otter-runtime/tests/print.rs`
-is a `harness = false` test binary that calls `otter_print_str`/`_i64`/`_f64`
+was the next thing to delete. It is not dead: `crates/yashy-runtime/tests/print.rs`
+is a `harness = false` test binary that calls `yashy_print_str`/`_i64`/`_f64`
 through the `extern` declarations in `lib.rs`, so the static library this
 `build.rs` produces is what links those calls — and the M3 `tests/memory.rs`
-reaches `otter_alloc`/`otter_arena_*` the same way. Removing it would not speed the
+reaches `yashy_alloc`/`yashy_arena_*` the same way. Removing it would not speed the
 driver up at all; it would break the tests that exercise the runtime for real.
 Left alone.
 
@@ -437,13 +437,13 @@ The f64 defect above was found by a human running a new program, not by the
 test suite, because the suite compared IR text against a recorded expectation
 and never asked whether the text was valid. Two additions close that class of
 hole: run every benchmark program through `clang` in CI (which the end-to-end
-suite now does for `floats.ot`), and store a baseline so a codegen regression
+suite now does for `floats.ya`), and store a baseline so a codegen regression
 shows up as a number that moved.
 
 ### 12. Add size and speed checks for aggregate passing — codegen, unknown
 
 `struct` values are LLVM aggregate types passed and returned by value
-(`%otter_str = type { i32, i32, i8* }`). LLVM's SROA splits small ones into
+(`%yashy_str = type { i32, i32, i8* }`). LLVM's SROA splits small ones into
 scalars, which is why this has not hurt yet. Once `struct`s can be large (M6)
 the right shape is `byval`/`sret` pointers, or emitting scalars directly. No
 evidence yet that it matters; no struct-heavy benchmark exists.
@@ -451,7 +451,7 @@ evidence yet that it matters; no struct-heavy benchmark exists.
 ## Gaps in the tooling, not in the code
 
 - **Timing a command that writes a lot to stdout through PowerShell times
-  PowerShell, not the command.** Piping `otter build --emit-ir` into `Out-Null`
+  PowerShell, not the command.** Piping `yashy build --emit-ir` into `Out-Null`
   reported 2,492 ms for a 3,000-function program — PowerShell materialises one
   object per output line. The same command redirected with `cmd /c … > nul`
   reported 279 ms. That 9× artifact briefly looked like a quadratic codegen bug.
@@ -490,7 +490,7 @@ evidence yet that it matters; no struct-heavy benchmark exists.
   clippy would add a lint pass this project currently does not have.
 - **`cargo-fuzz` and a nightly toolchain are not installed**, so the targets in
   `fuzz/` have never been executed. The deterministic no-panic suite
-  (`crates/otter-driver/tests/never_panics.rs`) stands in: it runs several
+  (`crates/yashy-driver/tests/never_panics.rs`) stands in: it runs several
   thousand malformed and mutated inputs in well under a second and is the reason
   the never-panics criterion is verified at all rather than merely intended.
 
@@ -509,7 +509,7 @@ from 253 ms to 62 ms — a 4.1× speed-up — by letting the backend use AVX2, a
 `--fast-math` takes `float` from 529 ms to 320 ms — 1.7× — by fusing multiply-add.
 Both are opt-in because they cost something real (portability, exact results), and
 both are honest because the C reference, given the same flag, lands in the same
-place: what is being unlocked is the target and the permission, not Otter. Otter's
+place: what is being unlocked is the target and the permission, not Yashy. Yashy's
 ceiling is clang's ceiling, because clang is the backend.
 
 M4 then put a check on every integer operation, and the tier result above turned

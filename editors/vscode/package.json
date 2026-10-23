@@ -1,9 +1,9 @@
 {
-  "name": "otter",
-  "displayName": "Otter",
-  "description": "Syntax highlighting for the Otter language",
+  "name": "yashy",
+  "displayName": "Yashy",
+  "description": "Syntax highlighting for the Yashy language",
   "version": "0.1.0",
-  "publisher": "otter",
+  "publisher": "yashy",
   "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
@@ -12,17 +12,17 @@
   "contributes": {
     "languages": [
       {
-        "id": "otter",
-        "aliases": ["Otter", "otter"],
-        "extensions": [".ot"],
+        "id": "yashy",
+        "aliases": ["Yashy", "yashy"],
+        "extensions": [".ya"],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "otter",
-        "scopeName": "source.otter",
-        "path": "./syntaxes/otter.tmLanguage.json"
+        "language": "yashy",
+        "scopeName": "source.yashy",
+        "path": "./syntaxes/yashy.tmLanguage.json"
       }
     ]
   }

@@ -1,4 +1,4 @@
-// Benchmark 3: floating-point dependency chain. See float.ot.
+// Benchmark 3: floating-point dependency chain. See float.ya.
 fn work(n: i64) -> f64 {
     let mut x: f64 = 1.0;
     for _ in 0..n {

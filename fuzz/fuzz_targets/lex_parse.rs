@@ -11,9 +11,9 @@
 //! or a stack overflow, both of which libFuzzer reports as a crash.
 
 use libfuzzer_sys::fuzz_target;
-use otter_common::SourceMap;
-use otter_lexer::Lexer;
-use otter_parser::Parser;
+use yashy_common::SourceMap;
+use yashy_lexer::Lexer;
+use yashy_parser::Parser;
 
 fuzz_target!(|data: &[u8]| {
     let source = String::from_utf8_lossy(data);
@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
     // File id zero, because `Lexer::new` reports against file zero and the map
     // has to have it -- the same arrangement the driver uses.
     let mut sources = SourceMap::new();
-    let file = sources.add_file("fuzz.ot", source.to_string());
+    let file = sources.add_file("fuzz.ya", source.to_string());
 
     if let Ok(tokens) = Lexer::new(&source).tokenize() {
         let mut parser = Parser::new(tokens, &sources, file);

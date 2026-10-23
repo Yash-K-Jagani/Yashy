@@ -1,4 +1,4 @@
-// The map.ot loop with Rust's std HashMap: one million inserts, one million
+// The map.ya loop with Rust's std HashMap: one million inserts, one million
 // lookups of the same keys.
 use std::collections::HashMap;
 

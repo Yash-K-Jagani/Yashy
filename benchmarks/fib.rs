@@ -1,4 +1,4 @@
-// Benchmark 1: recursive Fibonacci. See fib.ot for what it measures.
+// Benchmark 1: recursive Fibonacci. See fib.ya for what it measures.
 fn fib(n: i64) -> i64 {
     if n < 2 {
         return n;

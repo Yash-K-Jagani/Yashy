@@ -24,7 +24,7 @@ All three are block-scoped today. `let` is not JavaScript's function-scoped
 `undefined` value to read before the declaration. This keeps every binding
 initialized and every owned string releasable.
 
-```otter
+```yashy
 fn main() {
     const count = 3;
     let total = count * 7;
@@ -83,7 +83,7 @@ There is no cast from `string` to a number; `parse_i64` exists for that.
 An integer is written in decimal by default, and it may be written in another
 base or with separators. All four of these are the same number:
 
-```otter
+```yashy
 fn main() {
     print_i64(1_000_000);
     print_str(" ");
@@ -131,7 +131,7 @@ Integer arithmetic is checked. Overflow, division by zero, and the smallest
 than wrapping silently. The message names the position and the operands:
 
 ```text
-main.ot:3:15: panic: integer overflow: 9223372036854775807 + 1
+main.ya:3:15: panic: integer overflow: 9223372036854775807 + 1
 ```
 
 Remainder follows the same truncation as division: `-7 / 2` is `-3`, and

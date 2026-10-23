@@ -1,6 +1,10 @@
-# Otter
+# Yashy
 
-Otter is a general-purpose, statically typed programming language with C-shaped
+> **Formerly Otter.** The language, binary, crates and file extension were
+> renamed on 2026-10-23; dated design records under `docs/superpowers/` keep the
+> old name because they are history.
+
+Yashy is a general-purpose, statically typed programming language with C-shaped
 syntax, compiled to native binaries through LLVM. The compiler is written in
 Rust; the generated code is textual LLVM IR that `clang` assembles and links.
 
@@ -8,7 +12,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Otter lexes,
+**Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Yashy lexes,
 parses, type-checks and compiles programs with `i64`, `f64`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -73,8 +77,8 @@ declarations for C interop, `[]T` arrays and `map[K]V` maps, multi-file builds
 with `import`, and threads, mutexes and bounded `Channel[T]`s. Programs can
 declare their own structs and enums and construct enum values
 (`Shape.Circle(2)`, `Shape.Rect { w: w, h: h }`, `Shape.Point`) before matching
-them with `switch`. Tooling ships in the same workspace: `otter fmt` rewrites a
-file in the canonical style, and `otter-lsp` is a language server for editors.
+them with `switch`. Tooling ships in the same workspace: `yashy fmt` rewrites a
+file in the canonical style, and `yashy-lsp` is a language server for editors.
 The [language tutorial](docs/tutorial/00-intro.md) walks through all of it,
 example by example; a test compiles and runs every example in that tutorial, so
 it cannot drift either.
@@ -83,17 +87,17 @@ it cannot drift either.
 
 ```console
 $ cargo build --release --workspace
-$ ./target/release/otter build crates/otter-driver/tests/programs/fib.ot -o fib
+$ ./target/release/yashy build crates/yashy-driver/tests/programs/fib.ya -o fib
 $ ./fib
 55
 ```
 
-(The programs under `crates/otter-driver/tests/programs/` are the language's
+(The programs under `crates/yashy-driver/tests/programs/` are the language's
 worked examples — they are what the end-to-end suite compiles and runs, so they
 cannot drift out of date.)
 
-`otter build` compiles to a native executable, `otter check` type-checks without
-emitting anything, and `otter build --emit-ir` prints the generated LLVM IR and
+`yashy build` compiles to a native executable, `yashy check` type-checks without
+emitting anything, and `yashy build --emit-ir` prints the generated LLVM IR and
 stops — useful on a machine with no LLVM backend at all. `-O0` through `-O3`
 control the optimization level passed to `clang`; the default is `-O2`.
 `--release` is a separate question from optimization: it is the flag that makes
@@ -101,14 +105,14 @@ this a build a user runs, and the one build-mode decision the compiler makes —
 `debug_assert` is compiled out. A `main` returning `i64` is the process exit
 status, and `os.exit(code)` ends the program with a chosen status from anywhere.
 
-`otter fmt file.ot` prints the canonical formatting to stdout, and
-`otter fmt -w file.ot` writes it back. For a guided tour rather than a
+`yashy fmt file.ya` prints the canonical formatting to stdout, and
+`yashy fmt -w file.ya` writes it back. For a guided tour rather than a
 reference, start at [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md):
 each chapter is a complete program you can build and run.
 
-## A taste of Otter
+## A taste of Yashy
 
-```otter
+```yashy
 // `let` and `var` bindings are mutable, `const` bindings are not. `for i in 0..n`
 // is a range loop whose end is exclusive.
 fn fib(n: i64) -> i64 {
@@ -129,7 +133,7 @@ fn main() {
 }
 ```
 
-```otter
+```yashy
 // Sum types are switched over, and the checker requires the arms to be
 // exhaustive. A `switch` used as an expression yields a value.
 fn describe(o: Option[i64]) -> i64 {
@@ -140,7 +144,7 @@ fn describe(o: Option[i64]) -> i64 {
 }
 ```
 
-```otter
+```yashy
 // A struct is a value: built with a literal, read field by field with `.`, and
 // written the same way on a `var`. The layout follows the declaration order, so
 // a literal may spell the fields in any order and `p.x` still means the declared
@@ -169,7 +173,7 @@ fn main() {
 }
 ```
 
-```otter
+```yashy
 // Heap memory is explicit and linear. `alloc(n)` reserves room for n `i64`s and
 // returns a `*mut i64`; `defer` releases it when the scope exits, and the
 // checker rejects a second use before code generation ever runs:
@@ -201,7 +205,7 @@ fn main() {
 }
 ```
 
-```otter
+```yashy
 // An arena is many allocations with one release. `arena_alloc` is the one
 // builtin that borrows a linear handle instead of consuming it, so the same
 // arena serves every block; `arena_free_all` consumes it, which is why a second
@@ -220,20 +224,20 @@ fn main() {
 }
 ```
 
-Set `OTTER_LEAK_REPORT=1` to have the runtime print the allocations still live
+Set `YASHY_LEAK_REPORT=1` to have the runtime print the allocations still live
 when the process exits:
 
 ```console
-$ OTTER_LEAK_REPORT=1 ./buffer
+$ YASHY_LEAK_REPORT=1 ./buffer
 1047552
-otter: leak report: 0 live allocations
+yashy: leak report: 0 live allocations
 ```
 
 Arena blocks are deliberately not counted: an arena is one allocation with one
 release, so counting its bump blocks individually would report a leak for
 correct code. The manual buffer and the string builder above both report zero.
 
-```otter
+```yashy
 // Strings are values: `+` concatenates, `len()` counts bytes, and `==`/`!=`
 // compare contents rather than addresses. `str_from_i64` puts a number inside
 // one, so a whole line is a single string. The string methods return new
@@ -243,14 +247,14 @@ fn label(name: string) -> string {
 }
 
 fn main() {
-    const greeting = "Hello, " + "Otter!";
+    const greeting = "Hello, " + "Yashy!";
     print_str(greeting + "\n");
     print_str("length = " + str_from_i64(greeting.len()) + "\n");
     print_str(label("x") + "\n");
-    if greeting == "Hello, Otter!" {
+    if greeting == "Hello, Yashy!" {
         print_str("equal\n");
     }
-    var padded = "  Otter  ";
+    var padded = "  Yashy  ";
     print_str(padded.trim() + "\n");
     var csv = "a,b";
     var parts = csv.split(",");
@@ -260,7 +264,7 @@ fn main() {
 }
 ```
 
-```otter
+```yashy
 // A program can read its input. `for ;;` is the unbounded loop; `read_line`
 // returns the empty string at end of input, which the loop's `break` uses as its
 // only stopping condition.
@@ -278,7 +282,7 @@ fn main() {
 }
 ```
 
-```otter
+```yashy
 // `${value}` shows a value the way a reader wants to read it. `${value:?}`
 // shows its shape instead: a struct's name and fields, the variant an enum
 // holds, the elements of a tuple or an array, and a string in quotes with its
@@ -297,13 +301,13 @@ fn main() {
 ```
 
 ```console
-$ otter build main.ot -o main && ./main
+$ yashy build main.ya -o main && ./main
 Point { x: 3, y: 4 }
 [1, 2, 3]
 "a\nb"
 ```
 
-```otter
+```yashy
 // Integer arithmetic is checked. `big + 1` stops the program with
 // `panic: integer overflow: 9223372036854775807 + 1` rather than continuing with
 // a wrapped number that looks exactly like an answer -- a language with no
@@ -329,7 +333,7 @@ The same family exists for `-` and `*` (`wrapping_sub`, `checked_mul`,
 quotient is not the quotient of anything, and the two ways a division has no
 answer -- a zero divisor, and `i64::MIN / -1` -- are reported either way.
 
-```otter
+```yashy
 // An assertion is the same fault path with a test in front of it. The message
 // quotes the condition that was written, and the comparison forms print both
 // values, so a failure says what was expected and not merely that something was.
@@ -341,27 +345,27 @@ fn main() {
 ```
 
 ```console
-$ otter build main.ot -o main && ./main
-main.ot:4:5: panic: assertion failed: n == 4, left = 3, right = 4
+$ yashy build main.ya -o main && ./main
+main.ya:4:5: panic: assertion failed: n == 4, left = 3, right = 4
 ```
 
 `debug_assert` is the same assertion, compiled out by `--release`: a claim worth
 checking while writing the program and worth nothing in front of a user.
 
-```otter
+```yashy
 // `map[K]V` is a hash map. String keys are hashed by content, so inserting
-// "otter" twice overwrites the value and `len()` still counts one entry.
+// "yashy" twice overwrites the value and `len()` still counts one entry.
 // A lookup answers in an `Option`, so a missing key is a `None` to handle,
 // not a crash.
 fn main() {
     var counts: map[string]i64 = map_new();
-    counts.insert("otter", 2);
+    counts.insert("yashy", 2);
     counts.insert("river", 1);
-    counts.insert("otter", 3);
+    counts.insert("yashy", 3);
     print_i64(counts.len());
     print_str("\n");
 
-    print_str(switch counts.get("otter") {
+    print_str(switch counts.get("yashy") {
         case Some(n) { str_from_i64(n) }
         case None { "missing" }
     });
@@ -373,7 +377,7 @@ fn main() {
 ```
 
 ```console
-$ otter build main.ot -o main && ./main
+$ yashy build main.ya -o main && ./main
 2
 3
 ```
@@ -383,10 +387,10 @@ there without looking the value up. `keys()` and `values()` return *fresh*
 arrays, so the caller owns them and frees them; the order is the table's own
 order, which is a hash table's order and not the order the keys went in.
 
-```otter
+```yashy
 fn main() {
     var counts: map[string]i64 = map_new();
-    counts.insert("otter", 2);
+    counts.insert("yashy", 2);
     counts.insert("river", 1);
 
     var keys: []string = counts.keys();
@@ -396,8 +400,8 @@ fn main() {
     print_str("\n");
     print_i64(values.len());
     print_str("\n");
-    if counts.contains_key("otter") {
-        print_str("otter is there\n");
+    if counts.contains_key("yashy") {
+        print_str("yashy is there\n");
     }
 
     keys.free();
@@ -407,10 +411,10 @@ fn main() {
 ```
 
 ```console
-$ otter build main.ot -o main && ./main
+$ yashy build main.ya -o main && ./main
 2
 2
-otter is there
+yashy is there
 ```
 
 A module's items belong to it. `import` loads the file; `pub` says which of
@@ -418,14 +422,14 @@ its items another module may use. Without it, an item is private to the module
 that declares it, and another module's use of it is a compile error that names
 both the item and the module that keeps it.
 
-```otter
-// lib.ot
+```yashy
+// lib.ya
 pub fn seven() -> i64 { return 7; }   // another module's to call
 fn secret() -> i64 { return 13; }      // this module's own
 ```
 
-```otter
-// main.ot
+```yashy
+// main.ya
 import lib;
 
 fn main() {
@@ -439,7 +443,7 @@ module may read and write marks them `pub` too: `pub struct Point { pub x:
 f64, pub y: f64 }`. A method is as visible as the type it belongs to, so
 `pub` on a method says nothing the type does not already say.
 
-```otter
+```yashy
 // A channel is typed and bounded: `chan_new(1)` holds one value, so `send`
 // blocks when the channel is full and `recv` blocks when it is empty. The
 // worker receives, doubles, and answers; the main thread joins it and frees
@@ -468,7 +472,7 @@ fn main() {
 ```
 
 ```console
-$ otter build main.ot -o main && ./main
+$ yashy build main.ya -o main && ./main
 42
 ```
 
@@ -478,11 +482,11 @@ Same algorithm, same input, every language compiled by its own native
 optimizer at `-O2`. Lower is better. Full methodology and caveats in
 [`benchmarks/README.md`](benchmarks/README.md).
 
-One row needs explaining before the numbers mean anything. Otter's arithmetic is
-**checked**, and C's, Rust's, Go's, Node's and Python's is not: `a + b` in Otter
-stops the program if it overflows. Rows labeled ``Otter (-O2, `wrapping_*`)`` are
+One row needs explaining before the numbers mean anything. Yashy's arithmetic is
+**checked**, and C's, Rust's, Go's, Node's and Python's is not: `a + b` in Yashy
+stops the program if it overflows. Rows labeled ``Yashy (-O2, `wrapping_*`)`` are
 the same program with the opt-out (§ Checks in [`README`](#arithmetic-is-checked)),
-and they are the strictly like-for-like rows; the plain Otter rows promise more
+and they are the strictly like-for-like rows; the plain Yashy rows promise more
 and sometimes pay for it.
 
 **`fib(35)` — about 30 million calls** (function call overhead):
@@ -491,11 +495,11 @@ and sometimes pay for it.
 |---|---:|---:|
 | C (gcc -O2) | 49 | 1.63 |
 | C (clang -O2) | 82 | 2.75 |
-| **Otter (-O2, `wrapping_*`)** | **82** | **2.75** |
+| **Yashy (-O2, `wrapping_*`)** | **82** | **2.75** |
 | Rust (rustc -O) | 87 | 2.91 |
 | Go (go build) | 140 | 4.67 |
-| **Otter (clang -O2)** | **149** | **4.99** |
-| Otter (clang -O0) | 176 | 5.91 |
+| **Yashy (clang -O2)** | **149** | **4.99** |
+| Yashy (clang -O0) | 176 | 5.91 |
 | Node 24 | 362 | 12.1 |
 | CPython 3.14 | 3418 | 114 |
 
@@ -503,32 +507,32 @@ and sometimes pay for it.
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| **Otter (clang -O2)** | **241** | **1.20** |
+| **Yashy (clang -O2)** | **241** | **1.20** |
 | C (gcc -O2) | 243 | 1.21 |
 | Rust (rustc -O) | 249 | 1.25 |
-| **Otter (-O2, `wrapping_*`)** | **251** | **1.25** |
+| **Yashy (-O2, `wrapping_*`)** | **251** | **1.25** |
 | C (clang -O2) | 267 | 1.33 |
 | Go (go build) | 293 | 1.47 |
 | Node 24 | 688 | 3.44 |
-| Otter (clang -O0) | 1717 | 8.58 |
+| Yashy (clang -O0) | 1717 | 8.58 |
 | CPython 3.14 | 26476 | 132 |
 
 **100,000,000 iterations of an `f64` dependency chain:**
 
 | Language | ms | ns/iteration |
 |---|---:|---:|
-| **Otter (clang -O2)** | **535** | **5.35** |
+| **Yashy (clang -O2)** | **535** | **5.35** |
 | C (gcc -O2) | 537 | 5.37 |
 | Rust (rustc -O) | 542 | 5.42 |
 | C (clang -O2) | 546 | 5.46 |
 | Go (go build) | 549 | 5.49 |
 | Node 24 | 684 | 6.84 |
-| Otter (clang -O0) | 827 | 8.27 |
+| Yashy (clang -O0) | 827 | 8.27 |
 | CPython 3.14 | 9421 | 94.2 |
 
 Laptops are laptops, and these three tables come from two runs of one script on
 one machine, each row reporting the best of the ten runs. The ordering of rows
-that are close together — Otter, `clang` and Rust on `loop`, for instance — moves
+that are close together — Yashy, `clang` and Rust on `loop`, for instance — moves
 between runs. The `ns/iteration` column is there because it travels better than
 the millisecond column, and so does a ratio measured within one pass: this
 machine's clock varies by up to 3× between windows (a background scan or a
@@ -537,15 +541,15 @@ together and moves nothing between them.
 
 What the tables say:
 
-- **Otter's scalar code is in the same band as C and Rust, and that is the whole
+- **Yashy's scalar code is in the same band as C and Rust, and that is the whole
   claim.** On `loop` it is ahead of `clang` and level with `gcc`; on `float` it is
   ahead of both C compilers; on `fib` with the arithmetic opt-out it is within a
   percent of `clang` and ahead of Rust. It is sometimes ahead of C built by the
-  same `clang` — evidence the IR is clean, not evidence that Otter is better than
-  C. It is not a claim that `otter-codegen` optimizes anything: it contains no
+  same `clang` — evidence the IR is clean, not evidence that Yashy is better than
+  C. It is not a claim that `yashy-codegen` optimizes anything: it contains no
   optimization passes, and hands everything to LLVM.
 - **Checked arithmetic is free where the backend can see the answer and 1.8× on
-  `fib` where it cannot**, which is the one place Otter's default is behind Go.
+  `fib` where it cannot**, which is the one place Yashy's default is behind Go.
   See [what the check costs](#what-the-check-costs) below.
 - **Two opt-in flags buy most of the remaining speed.** `--cpu=<tier>` spends
   portability for instruction-set width (which is what lets the backend vectorise the
@@ -562,7 +566,7 @@ What the tables say:
   `fib` gets nothing from the tier — it is calls, not instruction width. `float`
   gets the fusion, and that is the whole story there: `clang` gets it for free at
   `-march=x86-64-v3` (C's `-ffp-contract=on` is the default), which is why the
-  `float` row that matches `clang` needs the flag — it is Otter asking for what C
+  `float` row that matches `clang` needs the flag — it is Yashy asking for what C
   does by default. `loop` is the one that changed: the tier buys 1.31× where it
   used to buy 4.1×, because the check is what stops the loop from vectorising.
   With `wrapping_*` the same build reaches 69 ms. That is [what the check
@@ -571,15 +575,15 @@ What the tables say:
 - **The tiers are graded against the same tier in C.** `--cpu=x86-64-v3` is compared
   with `clang -march=x86-64-v3`, never against a baseline C build that went without.
   At that tier the like-for-like rows are within a percent of `clang` — `float` 320
-  vs 322 ms, and `loop` with `wrapping_*` 69 vs 68 ms in one pass — while Otter's
+  vs 322 ms, and `loop` with `wrapping_*` 69 vs 68 ms in one pass — while Yashy's
   default trails on `fib` (146 vs 80 ms) and on `loop` (184 vs 64 ms), both because
   of the same check. `--native` is the last tier, tuned to the build machine; its
   numbers travel worse between machines, which is why the portable scale and
   `x86-64-v3` are the ones quoted.
-- **Enabling optimization mattered enormously.** `otter build` used to pass `clang`
-  no optimization flag at all, so every Otter binary ran at `-O0`. Fixing that is
+- **Enabling optimization mattered enormously.** `yashy build` used to pass `clang`
+  no optimization flag at all, so every Yashy binary ran at `-O0`. Fixing that is
   worth **7.1×** on the loop, 1.2× on `fib` and 1.5× on the float chain — the rows
-  above labeled `-O0` are what Otter shipped before.
+  above labeled `-O0` are what Yashy shipped before.
 
 | Benchmark | `-O0` | `-O2` | Speedup |
 |---|---:|---:|---:|
@@ -591,16 +595,16 @@ What the tables say:
 
 | Toolchain | ms |
 |---|---:|
-| Otter (front end only: lex, parse, check, emit IR) | 22 |
+| Yashy (front end only: lex, parse, check, emit IR) | 22 |
 | C (`clang -O2`) | 252 |
-| Otter (full build) | 259 |
+| Yashy (full build) | 259 |
 | Go (`go build`) | 281 |
 | Rust (`rustc -O`) | 602 |
 
 The front end — everything this repository implements — is 22 ms. The rest of
-`otter build` is `clang` doing the same job it does for C, and it is now a *single*
+`yashy build` is `clang` doing the same job it does for C, and it is now a *single*
 `clang` invocation: compile the IR and link, in one step, with no intermediate
-object file. That is why `otter build` sits about 3% above `clang -O2` on the same
+object file. That is why `yashy build` sits about 3% above `clang -O2` on the same
 program instead of double it. An earlier version ran `clang` twice and compiled the
 runtime's C source from scratch on *every* build, which cost 135 ms of the 403 ms
 it took then; the runtime object is cached in a content-addressed directory now.
@@ -630,7 +634,7 @@ which they do not across passes — minimum of seven runs, `-O2`.
   are provably within range, so LLVM deletes every check: 261 ms checked against
   262 ms opted out, and both are ahead of `clang`'s 273 ms.
 - **`fib` costs 1.8–1.9×**: three checks inside a function called thirty million
-  times. This is the one row where Otter's default falls behind Go, and the one
+  times. This is the one row where Yashy's default falls behind Go, and the one
   where the opt-out matters most.
 - **At `--cpu=x86-64-v3` the check costs 2.5× on `loop`, for a specific reason: it
   stops the loop from vectorising.** The baseline loop is scalar and the checks are
@@ -646,15 +650,15 @@ the check rather than in a later one. Making the checked form itself vectorisabl
 is an open optimisation, recorded in
 [`docs/performance-improvements.md`](docs/performance-improvements.md).
 
-### How fast can Otter get
+### How fast can Yashy get
 
-Otter's ceiling is C's ceiling, and for a plain reason: the backend *is* `clang`.
-Compiling with `--cpu=x86-64-v3 --fast-math` puts Otter within a few percent of
+Yashy's ceiling is C's ceiling, and for a plain reason: the backend *is* `clang`.
+Compiling with `--cpu=x86-64-v3 --fast-math` puts Yashy within a few percent of
 `clang -O2 -march=x86-64-v3` on every benchmark here — the same compiler on the same
 IR shape — which is the honest upper bound, not a promise of beating it. Measured
 against what each language actually reached in the run above, that ceiling is:
 
-| Row | Otter's best | Language's own best | Otter's ratio |
+| Row | Yashy's best | Language's own best | Yashy's ratio |
 |---|---:|---:|---:|
 | `loop`, vs `gcc -O2` | 69 ms (`v3`, `wrapping_*`) | 243 ms | 3.5× faster |
 | `loop`, vs Rust | 69 ms | 249 ms | 3.6× faster |
@@ -682,12 +686,12 @@ program rather than a loop: FFI, arrays, maps, enums, channels and mutexes.
 Each is compared with the nearest built-in equivalent in another language, not
 with an identical source file, and each row must print the same expected
 number — a wrong hash or a lost update fails the run instead of becoming a fast
-row. Times are milliseconds, lower is better, and the ratio is Otter's time
-divided by the comparison's, so below 1.0 means Otter was faster. Published
+row. Times are milliseconds, lower is better, and the ratio is Yashy's time
+divided by the comparison's, so below 1.0 means Yashy was faster. Published
 numbers are 9 runs over 3 passes at `-O2` on the same machine as the tables
 above.
 
-| Feature | Otter | Fastest comparison | Otter / comparison |
+| Feature | Yashy | Fastest comparison | Yashy / comparison |
 |---|---:|---:|---:|
 | FFI, 100,000,000 `getpid` calls | 248 ms | C (clang) 237 ms | 1.05× |
 | Arrays, 10,000,000 appends | 207 ms | C (clang) 141 ms | 1.47× |
@@ -696,10 +700,10 @@ above.
 | Channels, 200,000 round trips | 179 ms | Go 296 ms | 0.61× |
 | Mutexes, 1,000,000 lock pairs | 74 ms | Go 66 ms | 1.12× |
 
-Read these as cost checks, not a scoreboard. Otter's `push` is an out-of-line
-runtime call; C's `realloc` loop inlines the common path. Otter's map is an
+Read these as cost checks, not a scoreboard. Yashy's `push` is an out-of-line
+runtime call; C's `realloc` loop inlines the common path. Yashy's map is an
 open-addressed table; Rust's `HashMap` and Go's map use their own layouts.
-Otter's threads are OS threads and its channels block on condition variables;
+Yashy's threads are OS threads and its channels block on condition variables;
 Go's goroutine is multiplexed by the Go scheduler. The full workload sizes,
 methodology and caveats are in
 [`benchmarks/README.md`](benchmarks/README.md#feature-benchmarks).
@@ -751,26 +755,26 @@ The workspace is one crate per pipeline stage:
 
 | Crate | Job |
 |---|---|
-| `otter-common` | `Span`, `SourceMap`, `Diagnostic`, and diagnostic rendering |
-| `otter-lexer` | bytes to tokens, with byte spans |
-| `otter-parser` | tokens to AST |
-| `otter-sema` | name resolution, type inference, exhaustiveness checking |
-| `otter-codegen` | typed AST to textual LLVM IR |
-| `otter-driver` | CLI, pipeline orchestration, toolchain detection |
-| `otter-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, array storage, hash maps, threads/channels/mutexes, and fault diagnostics |
-| `otter-stdlib` | Otter-source library modules: `alloc`, `io`, `math`, `os`, `string` |
-| `otter-fmt` | the canonical formatter behind `otter fmt` |
-| `otter-lsp` | the language server: diagnostics, hover, go-to-definition, and semantic tokens |
+| `yashy-common` | `Span`, `SourceMap`, `Diagnostic`, and diagnostic rendering |
+| `yashy-lexer` | bytes to tokens, with byte spans |
+| `yashy-parser` | tokens to AST |
+| `yashy-sema` | name resolution, type inference, exhaustiveness checking |
+| `yashy-codegen` | typed AST to textual LLVM IR |
+| `yashy-driver` | CLI, pipeline orchestration, toolchain detection |
+| `yashy-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, array storage, hash maps, threads/channels/mutexes, and fault diagnostics |
+| `yashy-stdlib` | Yashy-source library modules: `alloc`, `io`, `math`, `os`, `string` |
+| `yashy-fmt` | the canonical formatter behind `yashy fmt` |
+| `yashy-lsp` | the language server: diagnostics, hover, go-to-definition, and semantic tokens |
 
 The compiler never panics on malformed input; that is an acceptance criterion,
 not an aspiration, and it has its own test suite
-(`crates/otter-driver/tests/never_panics.rs`) that feeds it malformed programs
+(`crates/yashy-driver/tests/never_panics.rs`) that feeds it malformed programs
 and asserts a diagnostic comes back instead of a Rust backtrace.
 
 ## Documentation
 
 - [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in eleven chapters
-- [`docs/superpowers/specs/2026-10-16-otter-language-design.md`](docs/superpowers/specs/2026-10-16-otter-language-design.md) — the language design
+- [`docs/superpowers/specs/2026-10-16-yashy-language-design.md`](docs/superpowers/specs/2026-10-16-yashy-language-design.md) — the language design
 - [`docs/superpowers/plans/`](docs/superpowers/plans) — the milestone plans
 - [`benchmarks/README.md`](benchmarks/README.md) — benchmark methodology and results
 - [`docs/performance-improvements.md`](docs/performance-improvements.md) — where the remaining performance work is
@@ -780,12 +784,12 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%otter_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
+| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
 | M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `i64::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `i64`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
 | M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, array storage, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
 | M6 ✅ | Arrays (`[]T`, `push`/`pop`/`len`/indexing, `free`), hash maps (`map_new` plus `.insert`/`.get`/`.remove`/`.len`/`.free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |
 | M7 ✅ | Threads (`thread_spawn`/`thread_join`), linear mutexes with `.lock`/`.unlock`/`.free`, and bounded `Channel[T]` channels with blocking `.send`/`.recv`, `.close` to unblock both sides, and copyable elements |
-| M8 ✅ | `otter fmt`, the eleven-chapter tutorial (every example compiled and run by a test), an LSP server, and editor modes for VS Code, Vim, and Emacs |
+| M8 ✅ | `yashy fmt`, the eleven-chapter tutorial (every example compiled and run by a test), an LSP server, and editor modes for VS Code, Vim, and Emacs |
 | M9 | Escape analysis |
 | M10 | Self-hosting bootstrap |
 | M11 | Adoption: formatter polish, test runner, LSP, installer |

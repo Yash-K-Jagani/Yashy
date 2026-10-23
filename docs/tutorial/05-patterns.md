@@ -17,7 +17,7 @@ expression, so it can be returned; every shape must be covered.
 
 The two shapes every program meets are `Option[T]` and `Result[T, E]`:
 
-```otter
+```yashy
 fn describe(value: Option[i64]) -> string {
     return switch value {
         case Some(n) { "some " + str_from_i64(n) }
@@ -64,7 +64,7 @@ error, the same job `null` checks do elsewhere.
 A `switch` may also compare literals. The subject has infinitely many values in
 that case, so a `default` arm is required to make the match exhaustive:
 
-```otter
+```yashy
 fn classify(n: i64) -> string {
     return switch n {
         case 0 { "zero" }
@@ -89,7 +89,7 @@ type differ.
 An enum declares a fixed set of variants. A variant may carry no payload, one
 or more positional fields, or named fields:
 
-```otter
+```yashy
 enum Shape {
     Circle(f64),
     Rect { w: f64, h: f64 },
@@ -140,7 +140,7 @@ pattern binds its names first, then the guard is checked, and only then does the
 body run. A guard that is false means the arm did not match after all: the
 search continues with the next arm exactly as if the pattern had failed.
 
-```otter
+```yashy
 enum Shape {
     Circle(f64),
     Rect { w: f64, h: f64 },
@@ -175,7 +175,7 @@ unguarded `Circle` arm below it.
 A guard may follow a pattern that matches everything, and then it still has a
 place in the search order:
 
-```otter
+```yashy
 fn bucket(n: i64) -> i64 {
     return switch n {
         case 0 { 100 }
@@ -214,7 +214,7 @@ Position is part of the type, so `(i64, bool)` and `(bool, i64)` are different
 types, and a tuple is not a struct -- its elements have no names. A function
 returns both of its answers as one tuple:
 
-```otter
+```yashy
 fn min_max(a: i64, b: i64) -> (i64, i64) {
     if a < b {
         return (a, b);
@@ -246,7 +246,7 @@ there is never a question about which one was written.
 
 Destructuring is a statement, with the same three keywords as any binding:
 
-```otter
+```yashy
 fn main() {
     const pair = (1, (2, 3));
     const (x, rest) = pair;
@@ -268,7 +268,7 @@ copied by copying its bytes, and a second copy of a reference is not yet defined
 for those types. There is also no field access (`pair.0`) and no tuple equality:
 unpack the tuple and compare the parts.
 
-```otter
+```yashy
 fn main() {
     const pair = (1, 2);
     const (a, _) = pair;

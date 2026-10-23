@@ -11,7 +11,7 @@
 handle; `thread_join(handle)` waits for it. A worker returns nothing: the
 result comes back through a channel or shared state, not through the thread.
 
-```otter
+```yashy
 fn worker(out: Channel[i64]) {
     var i = 1;
     while i <= 3 {
@@ -93,7 +93,7 @@ into the thread, so the rules differ by type:
 
 A mutex serialises a section. `lock` and `unlock` borrow, and `free` consumes:
 
-```otter
+```yashy
 fn worker(gate: Mutex) {
     gate.lock();
     print_str("worker\n");

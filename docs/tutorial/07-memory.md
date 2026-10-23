@@ -10,7 +10,7 @@
 `alloc(n)` returns a `*mut i64` pointing at `n` slots; `dealloc(ptr)` releases
 it. Indexing works: `buffer[0] = 7` writes the first slot.
 
-```otter
+```yashy
 fn main() {
     var buffer = alloc(4);
     buffer[0] = 7;

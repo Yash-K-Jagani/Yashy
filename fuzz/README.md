@@ -26,7 +26,7 @@ letters of `fn`.
 
 ## When cargo-fuzz is not available
 
-`crates/otter-driver/tests/never_panics.rs` covers the same invariant on stable,
+`crates/yashy-driver/tests/never_panics.rs` covers the same invariant on stable,
 with no dependencies: a table of malformed shapes (truncated tokens, unbalanced
 delimiters, NUL bytes, absurd nesting) plus a seeded pseudo-random generator that
 mutates real programs. If you are looking for a regression that used to crash,

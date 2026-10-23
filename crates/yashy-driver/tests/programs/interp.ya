@@ -1,0 +1,20 @@
+// String interpolation, end to end: `"n = ${n}"` is sugar for the conversion
+// and the `+` this file also spells out by hand.
+//
+// The last line is the point. The checker lowers `${n}` into `str_from_i64(n)`
+// and joins the pieces with `+`, so interpolation and the written-out form are
+// the *same* program -- and if they ever stopped being, the two lines here would
+// stop agreeing and this test would say so.
+fn main() {
+    const n = 7;
+    const d = 1.5;
+    const flag = true;
+    const name = "Yashy";
+
+    print_str("n = ${n}\n");
+    print_str("d = ${d}\n");
+    print_str("flag = ${flag}\n");
+    print_str("hello, ${name}!\n");
+    print_str("${n} + 1 = ${n + 1}\n");
+    print_str("same, written out: " + str_from_i64(n) + "\n");
+}

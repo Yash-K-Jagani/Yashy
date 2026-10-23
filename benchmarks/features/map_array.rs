@@ -1,4 +1,4 @@
-// The map_array.ot loop in Rust: build a vector, map it into a second one,
+// The map_array.ya loop in Rust: build a vector, map it into a second one,
 // and sum the second one.
 const N: i64 = 10_000_000;
 

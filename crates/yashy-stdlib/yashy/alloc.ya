@@ -1,0 +1,29 @@
+// Allocator helpers written in Yashy (M6 Task 10).
+//
+// `alloc(n)` and `dealloc(p)` are builtins over the runtime allocator. The
+// helpers cover the two shapes a program reaches for constantly. A pointer is
+// linear: the binding that holds it owns it, `move` transfers it, and `dealloc`
+// is the only release. Both helpers return an owned pointer.
+//
+// `alloc(count)` counts `i64` slots, not bytes; Yashy has no byte type yet.
+
+// Ownership: the returned pointer owns `count` zeroed slots and must be
+// released with `dealloc`.
+pub fn alloc_zeroed(count: i64) -> *mut i64 {
+    assert(count >= 0);
+    var buffer = alloc(count);
+    var index = 0;
+    while index < count {
+        buffer[index] = 0;
+        index = index + 1;
+    }
+    return buffer;
+}
+
+// Ownership: the returned pointer owns one slot holding `value`; release it
+// with `dealloc`.
+pub fn alloc_one(value: i64) -> *mut i64 {
+    var buffer = alloc(1);
+    buffer[0] = value;
+    return buffer;
+}

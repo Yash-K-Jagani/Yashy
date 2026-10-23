@@ -1,0 +1,35 @@
+// Strings, end to end: `+` concatenates, `len` counts bytes, and `==`/`!=`
+// compare contents rather than addresses.
+//
+// Every one of those is a runtime call, because a `string` value is a pointer to
+// bytes rather than something the arithmetic instructions can take. The program
+// also pins the entry point's exit status: its last statement is a comparison
+// that returns 1, which is exactly what a `void main` would have left as the
+// process exit code. The test asserting this program exits zero is therefore
+// also the regression test for that.
+
+fn bracket(text: string) -> string {
+    return "[" + text + "]";
+}
+
+fn main() {
+    const greeting = "Hello, " + "Yashy!";
+    print_str(greeting);
+    print_str("\n");
+    print_i64(greeting.len());
+    print_str("\n");
+    print_str(bracket("x"));
+    print_str("\n");
+    const empty = "";
+    print_i64(empty.len());
+    print_str("\n");
+    if greeting == "Hello, Yashy" {
+        print_str("unexpected: the `!` was dropped\n");
+    }
+    if greeting != "Hello, Yashy" {
+        print_str("different\n");
+    }
+    if greeting == "Hello, Yashy!" {
+        print_str("equal\n");
+    }
+}

@@ -1,4 +1,4 @@
-// The function.ot loop with a Rust fn pointer.
+// The function.ya loop with a Rust fn pointer.
 //
 // `black_box` keeps the optimiser from seeing which function the pointer
 // names, so the call inside `apply` stays indirect: the point of the row is

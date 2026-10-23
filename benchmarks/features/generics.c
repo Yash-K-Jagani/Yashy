@@ -1,6 +1,6 @@
 /* C has no generic functions, so the honest comparison is the code the
  * compiler emits for the one instantiation: a plain function. This is the
- * "generic row" compiled away, and it should be as fast as Otter's.
+ * "generic row" compiled away, and it should be as fast as Yashy's.
  */
 #include <stdio.h>
 

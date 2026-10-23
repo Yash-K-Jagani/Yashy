@@ -1,4 +1,4 @@
-// The map_scan.ot loop with Rust's std HashMap: the same table, the same ten
+// The map_scan.ya loop with Rust's std HashMap: the same table, the same ten
 // rounds of collecting its keys and its values into two vectors, and the same
 // probe of a key that is there and one that is not.
 use std::collections::HashMap;

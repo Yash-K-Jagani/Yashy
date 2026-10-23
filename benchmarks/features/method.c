@@ -1,6 +1,6 @@
 /* 10,000,000 calls to a function that mutates its receiver through a pointer.
  *
- * The C equivalent of Otter's `self: *mut Counter`: the same struct, the same
+ * The C equivalent of Yashy's `self: *mut Counter`: the same struct, the same
  * address, the same increment in a loop. */
 #include <stdio.h>
 

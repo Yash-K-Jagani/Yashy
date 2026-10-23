@@ -1,0 +1,4 @@
+fn main() {
+    print_str("Hello, Yashy!");
+    print_str("\n");
+}

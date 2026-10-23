@@ -14,7 +14,7 @@ appends, `xs.len()` counts, `for` walks, and `xs.free()` releases the backing
 storage. The runtime still calls the three-word value it stores a *slice
 header*; the public surface is arrays and methods.
 
-```otter
+```yashy
 fn main() {
     var xs = []i64 { 10, 20 };
     xs.push(30);
@@ -109,7 +109,7 @@ The result is independent: freeing it does not free the source, and for a
 An array is linear: it has one owner and cannot be copied. **Passing it to a
 function moves it**, because a parameter takes ownership:
 
-```otter
+```yashy
 fn total(xs: []i64) -> i64 {
     var sum = 0;
     for x in xs {
@@ -149,7 +149,7 @@ a compile error because the second call uses a moved value.
 given; `push` retains a borrowed value and takes over an owned temporary; and
 `xs.free()` releases every element before the array. That element-aware free is
 why it is not just `dealloc`: the checker knows the element type and
-emits `otter_slice_free_strings` for `[]string` and the plain array free for
+emits `yashy_slice_free_strings` for `[]string` and the plain array free for
 everything else. Popping a `[]string` is refused for the same reason: the
 element's reference would leave the array without a matching release.
 
@@ -194,7 +194,7 @@ frame that declares the binding, so there is no allocation, no owner, and
 nothing to free: `[i64; 3]` and `[i64; 4]` are two different types, and a
 function that returns the first cannot hand back the second.
 
-```otter
+```yashy
 fn show(o: Option[i64]) -> i64 {
     return switch o {
         case Some(v) { v }
@@ -246,7 +246,7 @@ A view owns nothing, so the array it borrows must not move or change while the
 view exists. The checker treats a view as borrowing its source **until the
 function returns**:
 
-```otter
+```yashy
 fn main() {
     var xs = []i64 { 1, 2, 3 };
     const view = xs[0..2];
@@ -259,7 +259,7 @@ fn main() {
 ```
 
 Views are not a type you can write. `fn f(x: [i64])` and `fn f() -> [i64]` are
-both rejected, because Otter has no lifetime syntax to say which array a
+both rejected, because Yashy has no lifetime syntax to say which array a
 borrowed view came from, and a view that outlived its array would read freed
 storage. A view is inferred at the range and lives in the function that made
 it; pass the array itself, or copy the elements into a `[]T`, to hand the data
@@ -270,7 +270,7 @@ function**. `xs.free()` under a live view is refused, and the view lives until
 the function returns, so an owned array that has been viewed is never released:
 a leak, not a corruption. This is the honest cost of views without lifetimes:
 
-```otter
+```yashy
 fn middle_sum(xs: []i64) -> i64 {
     const mid = xs[1..3];
     var sum = 0;
@@ -337,7 +337,7 @@ that owns a reference.
   -- `push`, `pop`, `set`, `insert`, `remove`, `clear`, `reverse`, `sort`,
   `extend`, `free`, or an assignment -- is refused until the function returns.
 - **Writing a view type.** `fn total(xs: [i64]) -> i64` reports
-  ``error: a view type cannot be written``. Otter cannot say which array a
+  ``error: a view type cannot be written``. Yashy cannot say which array a
   borrowed parameter would point at, so views stay in the function that made
   them; take `[]i64` and free it, or copy the elements first.
 - **A fixed array of strings.** `[\"a\", \"b\"]` reports
@@ -366,7 +366,7 @@ that owns a reference.
 
 4. Predict the output, then run it:
 
-   ```otter
+   ```yashy
    fn main() {
        const grid = [1, 2, 3];
        const whole = grid[0..99];
@@ -394,8 +394,8 @@ runtime's `get` and `pop` return a flag and copy the element into an output
 slot only on success; codegen turns that flag into the `Some`/`None` tag, which
 is why a bad index is a value rather than a trap. `set` uses the same bounds
 test and copies the new value only in range. `xs.free()` dispatches on the
-element type: `[]string` calls `otter_slice_free_strings`, which releases each
-handle, then frees the array; every other type calls `otter_slice_free`.
+element type: `[]string` calls `yashy_slice_free_strings`, which releases each
+handle, then frees the array; every other type calls `yashy_slice_free`.
 
 A fixed array is an LLVM aggregate `[N x T]` with no indirection: the elements
 sit in the binding's `alloca`, a literal is a chain of `insertvalue`s, and

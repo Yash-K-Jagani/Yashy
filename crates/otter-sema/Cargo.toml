@@ -1,9 +1,0 @@
-[package]
-name = "otter-sema"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-otter-common = { path = "../otter-common" }
-otter-lexer = { path = "../otter-lexer" }
-otter-parser = { path = "../otter-parser" }

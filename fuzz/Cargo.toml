@@ -1,5 +1,5 @@
 [package]
-name = "otter-fuzz"
+name = "yashy-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -10,11 +10,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-otter-codegen = { path = "../crates/otter-codegen" }
-otter-common = { path = "../crates/otter-common" }
-otter-lexer = { path = "../crates/otter-lexer" }
-otter-parser = { path = "../crates/otter-parser" }
-otter-sema = { path = "../crates/otter-sema" }
+yashy-codegen = { path = "../crates/yashy-codegen" }
+yashy-common = { path = "../crates/yashy-common" }
+yashy-lexer = { path = "../crates/yashy-lexer" }
+yashy-parser = { path = "../crates/yashy-parser" }
+yashy-sema = { path = "../crates/yashy-sema" }
 
 # Its own workspace root: the fuzz package needs a nightly compiler and
 # `libfuzzer-sys`, and the main workspace must stay buildable on stable with no

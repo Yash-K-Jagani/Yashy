@@ -1,4 +1,4 @@
-// Benchmark 2: integer loop with a data-dependent branch. See loop.ot.
+// Benchmark 2: integer loop with a data-dependent branch. See loop.ya.
 fn work(n: i64) -> i64 {
     let mut acc: i64 = 0;
     for i in 0..n {

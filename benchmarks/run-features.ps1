@@ -4,7 +4,7 @@
   channels, mutexes and function values.
 
 .DESCRIPTION
-  The scalar suite (run.ps1) answers "how fast is the arithmetic Otter emits?".
+  The scalar suite (run.ps1) answers "how fast is the arithmetic Yashy emits?".
   This suite answers a different question: "what does each language feature
   cost, and how does it compare with the same idea written in another
   language?". Every row runs the same algorithm with the same input and the
@@ -12,8 +12,8 @@
   (a C hash map, a user-level shared pointer across threads) the row is
   omitted and the README says why.
 
-  Programs are built at -O2. Otter's binary is benchmarks/build/features/*;
-  the C rows use the same target triple Otter passes to clang, and gcc, rustc
+  Programs are built at -O2. Yashy's binary is benchmarks/build/features/*;
+  the C rows use the same target triple Yashy passes to clang, and gcc, rustc
   and go build themselves as usual.
 
   Timing is the minimum of N runs after one untimed warm-up, and each table is
@@ -47,7 +47,7 @@ $bench = $PSScriptRoot
 $root = Split-Path -Parent $bench
 $features = Join-Path $bench 'features'
 $build = Join-Path $bench 'build\features'
-$otter = Join-Path $root 'target\release\otter.exe'
+$yashy = Join-Path $root 'target\release\yashy.exe'
 $exe = '.exe'
 
 # One workload per feature. `Work` is the number of operations the printed
@@ -56,40 +56,40 @@ $exe = '.exe'
 # language must print -- a wrong hash, a lost update, or an array growth bug
 # shows up as a mismatch instead of a speed number.
 $workloads = @(
-    @{ Name = 'ffi';     Work = 100000000; Unit = 'call';       Expected = '100000000'; Source = 'ffi.ot';
+    @{ Name = 'ffi';     Work = 100000000; Unit = 'call';       Expected = '100000000'; Source = 'ffi.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'ffi.ot'; Out = 'ffi-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'ffi.ya'; Out = 'ffi-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'ffi.c';  Out = 'ffi-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'ffi.c';  Out = 'ffi-gcc' }
        ) },
-    @{ Name = 'array';   Work = 10000000;  Unit = 'element';    Expected = '49999995000000';   Source = 'array.ot';
+    @{ Name = 'array';   Work = 10000000;  Unit = 'element';    Expected = '49999995000000';   Source = 'array.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'array.ot'; Out = 'array-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'array.ya'; Out = 'array-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'array.c'; Out = 'array-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'array.c'; Out = 'array-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'array.go'; Out = 'array-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'array.rs'; Out = 'array-rust' }
        ) },
-    @{ Name = 'map';     Work = 2000000;    Unit = 'operation'; Expected = '1499998500000';    Source = 'map.ot';
+    @{ Name = 'map';     Work = 2000000;    Unit = 'operation'; Expected = '1499998500000';    Source = 'map.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map.ot'; Out = 'map-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'map.ya'; Out = 'map-yashy' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map.go'; Out = 'map-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map.rs'; Out = 'map-rust' }
        ) },
-    @{ Name = 'enum';    Work = 50000000;  Unit = 'iteration';  Expected = '1250000008333333'; Source = 'enum.ot';
+    @{ Name = 'enum';    Work = 50000000;  Unit = 'iteration';  Expected = '1250000008333333'; Source = 'enum.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'enum.ot'; Out = 'enum-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'enum.ya'; Out = 'enum-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'enum.c'; Out = 'enum-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'enum.c'; Out = 'enum-gcc' }
        ) },
-    @{ Name = 'threads'; Work = 200000;    Unit = 'round trip'; Expected = '20000100000';      Source = 'threads.ot';
+    @{ Name = 'threads'; Work = 200000;    Unit = 'round trip'; Expected = '20000100000';      Source = 'threads.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'threads.ot'; Out = 'threads-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'threads.ya'; Out = 'threads-yashy' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'threads.go'; Out = 'threads-go' }
        ) },
-    @{ Name = 'mutex';   Work = 1000000;   Unit = 'lock pair';  Expected = '1000000';          Source = 'mutex.ot';
+    @{ Name = 'mutex';   Work = 1000000;   Unit = 'lock pair';  Expected = '1000000';          Source = 'mutex.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'mutex.ot'; Out = 'mutex-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'mutex.ya'; Out = 'mutex-yashy' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'mutex.go'; Out = 'mutex-go' }
        ) },
     # The function-value workload has two rows per language: one that calls
@@ -97,12 +97,12 @@ $workloads = @(
     # The gap between them is the price of the value. Every row prints the same
     # number, so a row that computed the wrong thing shows up as a mismatch
     # instead of as a speed number.
-    @{ Name = 'function'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'function.ot';
+    @{ Name = 'function'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'function.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2 (value)';         Kind = 'otter'; Src = 'function.ot';         Out = 'function-otter' },
-           @{ Lang = 'Otter -O2 (direct)';        Kind = 'otter'; Src = 'function_direct.ot'; Out = 'function-direct-otter' },
-           @{ Lang = 'Otter -O2 (lambda)';        Kind = 'otter'; Src = 'function_lambda.ot'; Out = 'function-lambda-otter' },
-           @{ Lang = 'Otter -O2 (closure)';       Kind = 'otter'; Src = 'function_closure.ot'; Out = 'function-closure-otter' },
+           @{ Lang = 'Yashy -O2 (value)';         Kind = 'yashy'; Src = 'function.ya';         Out = 'function-yashy' },
+           @{ Lang = 'Yashy -O2 (direct)';        Kind = 'yashy'; Src = 'function_direct.ya'; Out = 'function-direct-yashy' },
+           @{ Lang = 'Yashy -O2 (lambda)';        Kind = 'yashy'; Src = 'function_lambda.ya'; Out = 'function-lambda-yashy' },
+           @{ Lang = 'Yashy -O2 (closure)';       Kind = 'yashy'; Src = 'function_closure.ya'; Out = 'function-closure-yashy' },
            @{ Lang = 'C (clang -O2, value)';      Kind = 'clang'; Src = 'function.c';         Out = 'function-clang' },
            @{ Lang = 'C (clang -O2, direct)';     Kind = 'clang'; Src = 'function_direct.c'; Out = 'function-direct-clang' },
            @{ Lang = 'C (gcc -O2, value)';        Kind = 'gcc';   Src = 'function.c';         Out = 'function-gcc' },
@@ -116,9 +116,9 @@ $workloads = @(
     # address to a method that increments one field. The same loop in every
     # language, so the number is the price of a pointer receiver rather than
     # of an algorithm.
-    @{ Name = 'method';  Work = 10000000;  Unit = 'call';       Expected = '10000000';        Source = 'method.ot';
+    @{ Name = 'method';  Work = 10000000;  Unit = 'call';       Expected = '10000000';        Source = 'method.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'method.ot'; Out = 'method-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'method.ya'; Out = 'method-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'method.c';  Out = 'method-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'method.c';  Out = 'method-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'method.go'; Out = 'method-go' },
@@ -128,10 +128,10 @@ $workloads = @(
     # the same loop with the type written out, so the gap between the two rows
     # is the cost of the type parameter -- which monomorphization should make
     # nothing.
-    @{ Name = 'generics'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'generics.ot';
+    @{ Name = 'generics'; Work = 100000000; Unit = 'call';       Expected = '4999999950099999999'; Source = 'generics.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2 (generic)';     Kind = 'otter'; Src = 'generics.ot';        Out = 'generics-otter' },
-           @{ Lang = 'Otter -O2 (direct)';      Kind = 'otter'; Src = 'generics_direct.ot'; Out = 'generics-direct-otter' },
+           @{ Lang = 'Yashy -O2 (generic)';     Kind = 'yashy'; Src = 'generics.ya';        Out = 'generics-yashy' },
+           @{ Lang = 'Yashy -O2 (direct)';      Kind = 'yashy'; Src = 'generics_direct.ya'; Out = 'generics-direct-yashy' },
            @{ Lang = 'C (clang -O2)';           Kind = 'clang'; Src = 'generics.c';          Out = 'generics-clang' },
            @{ Lang = 'C (gcc -O2)';             Kind = 'gcc';   Src = 'generics.c';          Out = 'generics-gcc' },
            @{ Lang = 'Go (go build)';           Kind = 'go';    Src = 'generics.go';         Out = 'generics-go' },
@@ -141,10 +141,10 @@ $workloads = @(
     # There is no allocation and no capacity in the loop, so the gap to the C
     # row is the cost of iterating an aggregate the compiler knows the length
     # of rather than of a growable array.
-    @{ Name = 'fixed_array'; Work = 400000000; Unit = 'element'; Expected = '1800000000'; Source = 'fixed_array.ot';
+    @{ Name = 'fixed_array'; Work = 400000000; Unit = 'element'; Expected = '1800000000'; Source = 'fixed_array.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2 (checked +)'; Kind = 'otter'; Src = 'fixed_array.ot';          Out = 'fixed_array-otter' },
-           @{ Lang = 'Otter -O2 (wrapping)';  Kind = 'otter'; Src = 'fixed_array_wrapping.ot'; Out = 'fixed_array-wrapping-otter' },
+           @{ Lang = 'Yashy -O2 (checked +)'; Kind = 'yashy'; Src = 'fixed_array.ya';          Out = 'fixed_array-yashy' },
+           @{ Lang = 'Yashy -O2 (wrapping)';  Kind = 'yashy'; Src = 'fixed_array_wrapping.ya'; Out = 'fixed_array-wrapping-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'fixed_array.c';  Out = 'fixed_array-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'fixed_array.c';  Out = 'fixed_array-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'fixed_array.go'; Out = 'fixed_array-go' },
@@ -155,9 +155,9 @@ $workloads = @(
     # as a struct by value, Go returns two values, and Rust returns a tuple.
     # There is no allocation anywhere, so the row measures the aggregate return
     # and the extraction, not a data structure.
-    @{ Name = 'tuple'; Work = 50000000; Unit = 'iteration'; Expected = '3750000000000000'; Source = 'tuple.ot';
+    @{ Name = 'tuple'; Work = 50000000; Unit = 'iteration'; Expected = '3750000000000000'; Source = 'tuple.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'tuple.ot'; Out = 'tuple-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'tuple.ya'; Out = 'tuple-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'tuple.c';  Out = 'tuple-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'tuple.c';  Out = 'tuple-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'tuple.go'; Out = 'tuple-go' },
@@ -165,9 +165,9 @@ $workloads = @(
        ) },
     # The array mapping: the same loop in every language, building a second
     # array the size of the first.
-    @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ot';
+    @{ Name = 'map_array'; Work = 10000000; Unit = 'element'; Expected = '99999990000000'; Source = 'map_array.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map_array.ot'; Out = 'map_array-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'map_array.ya'; Out = 'map_array-yashy' },
            @{ Lang = 'C (clang -O2)';   Kind = 'clang'; Src = 'map_array.c';  Out = 'map_array-clang' },
            @{ Lang = 'C (gcc -O2)';     Kind = 'gcc';   Src = 'map_array.c';  Out = 'map_array-gcc' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map_array.go'; Out = 'map_array-go' },
@@ -175,32 +175,32 @@ $workloads = @(
        ) },
     # Walking a map: the table's keys and values copied into two arrays, ten
     # times over, and a probe of a key that is there and one that is not.
-    # Otter's `keys()`/`values()` copy the whole table; Go's row collects into
+    # Yashy's `keys()`/`values()` copy the whole table; Go's row collects into
     # two slices and Rust's into two vectors, which is the same work.
-    @{ Name = 'map_scan'; Work = 20000000; Unit = 'element'; Expected = '19999981000000'; Source = 'map_scan.ot';
+    @{ Name = 'map_scan'; Work = 20000000; Unit = 'element'; Expected = '19999981000000'; Source = 'map_scan.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'map_scan.ot'; Out = 'map_scan-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'map_scan.ya'; Out = 'map_scan-yashy' },
            @{ Lang = 'Go (go build)';   Kind = 'go';    Src = 'map_scan.go'; Out = 'map_scan-go' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'map_scan.rs'; Out = 'map_scan-rust' }
        ) },
     # A debug-formatted value: `${value:?}` builds the text a programmer reads.
     # Rust's derived `Debug` prints the same shape, so the two rows are the
     # same work; there is no C row because C has no equivalent.
-    @{ Name = 'debug_format'; Work = 1000000; Unit = 'format'; Expected = '30333335'; Source = 'debug_format.ot';
+    @{ Name = 'debug_format'; Work = 1000000; Unit = 'format'; Expected = '30333335'; Source = 'debug_format.ya';
        Programs = @(
-           @{ Lang = 'Otter -O2';       Kind = 'otter'; Src = 'debug_format.ot'; Out = 'debug_format-otter' },
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'debug_format.ya'; Out = 'debug_format-yashy' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'debug_format.rs'; Out = 'debug_format-rust' }
        ) }
 )
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
-# The C rows must target the same triple Otter does; on a machine with no MSVC
+# The C rows must target the same triple Yashy does; on a machine with no MSVC
 # CRT a bare clang picks the MSVC triple and cannot find stdio.h. Read the
-# triple out of Otter's own IR so the two cannot drift.
+# triple out of Yashy's own IR so the two cannot drift.
 $clangTarget = @()
-if (Test-Path $otter) {
-    $triple = & $otter build (Join-Path $features 'ffi.ot') --emit-ir 2>$null |
+if (Test-Path $yashy) {
+    $triple = & $yashy build (Join-Path $features 'ffi.ya') --emit-ir 2>$null |
         Select-String -Pattern '^target triple = ' |
         ForEach-Object { ($_.Line -split '"')[1] }
     if ($triple -like '*windows*') {
@@ -217,15 +217,15 @@ function Invoke-Tool {
 }
 
 function Build-All {
-    if (-not (Test-Path $otter)) {
-        throw "no release binary at $otter - run: cargo build --release --workspace"
+    if (-not (Test-Path $yashy)) {
+        throw "no release binary at $yashy - run: cargo build --release --workspace"
     }
     foreach ($workload in $workloads) {
         foreach ($program in $workload.Programs) {
             $src = Join-Path $features $program.Src
             $out = Join-Path $build "$($program.Out)$exe"
             switch ($program.Kind) {
-                'otter' { Invoke-Tool $otter @('build', $src, '-o', $out) "otter build $($program.Src)" }
+                'yashy' { Invoke-Tool $yashy @('build', $src, '-o', $out) "yashy build $($program.Src)" }
                 'clang' { Invoke-Tool 'clang' ($clangTarget + @('-O2', $src, '-o', $out)) "clang $($program.Src)" }
                 'gcc'   { Invoke-Tool 'gcc' @('-O2', $src, '-o', $out) "gcc $($program.Src)" }
                 'rust'  { Invoke-Tool 'rustc' @('-O', $src, '-o', $out) "rustc $($program.Src)" }

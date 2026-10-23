@@ -11,9 +11,9 @@ A `string` is a counted sequence of bytes. `+` concatenates, `len()` counts
 bytes, `==` compares contents, and `s.slice(start, end)` returns a substring.
 Bounds are clamped, so a wrong index gives an empty string rather than a fault.
 
-```otter
+```yashy
 fn main() {
-    const greeting = "Hello, " + "Otter!";
+    const greeting = "Hello, " + "Yashy!";
     print_i64(greeting.len());
     print_str("\n");
     // => 13
@@ -23,11 +23,11 @@ fn main() {
     // => Hello
 
     print_str("${greeting} again\n");
-    // => Hello, Otter! again
+    // => Hello, Yashy! again
 }
 ```
 
-`greeting.len()` is 13 because `"Hello, "` is seven bytes and `"Otter!"` is
+`greeting.len()` is 13 because `"Hello, "` is seven bytes and `"Yashy!"` is
 six. `greeting.slice(0, 5)` takes the half-open range `[0, 5)`, which is the
 five bytes of `Hello`. `"${greeting} again"` lowers to
 `greeting + " again"`; interpolation is a spelling, not a separate runtime
@@ -51,7 +51,7 @@ answer, so there is no panic path. `get` is the checked alternative: it returns
 
 ## Strings are copied, not moved
 
-Most owning values in Otter are linear: a pointer or an array has exactly one
+Most owning values in Yashy are linear: a pointer or an array has exactly one
 owner, and passing it to a function transfers it. A `string` is the exception.
 It is a small handle to a reference-counted buffer, and the language declares
 it *copyable*:
@@ -112,7 +112,7 @@ releases both the backing block and every piece.
 The string is the receiver, so the subject comes first and the method name is
 the operation:
 
-```otter
+```yashy
 fn show(o: Option[i64]) -> i64 {
     return switch o {
         case Some(v) { v }
@@ -121,11 +121,11 @@ fn show(o: Option[i64]) -> i64 {
 }
 
 fn main() {
-    var s = "  Otter,otter  ";
+    var s = "  Yashy,yashy  ";
 
     print_str(s.trim());
     print_str("\n");
-    // => Otter,otter
+    // => Yashy,yashy
 
     print_i64(s.len());
     print_str("\n");
@@ -140,11 +140,11 @@ fn main() {
 
     print_i64(s.byte_at(2));
     print_str("\n");
-    // => 79
+    // => 89
 
     print_i64(show(s.get(2)));
     print_str("\n");
-    // => 79
+    // => 89
 
     print_i64(show(s.get(99)));
     print_str("\n");
@@ -152,14 +152,14 @@ fn main() {
 
     print_str(s.slice(2, 7));
     print_str("\n");
-    // => Otter
+    // => Yashy
 
-    if s.contains("otter") {
-        print_str("found otter\n");
+    if s.contains("yashy") {
+        print_str("found yashy\n");
     }
-    // => found otter
+    // => found yashy
 
-    if s.starts_with("  Ot") {
+    if s.starts_with("  Ya") {
         print_str("starts with spaces\n");
     }
     // => starts with spaces
@@ -169,19 +169,19 @@ fn main() {
     }
     // => ends with spaces
 
-    print_i64(show(s.index_of("otter")));
+    print_i64(show(s.index_of("yashy")));
     print_str("\n");
     // => 8
 
     var upper = s.to_upper();
     print_str(upper.trim());
     print_str("\n");
-    // => OTTER,OTTER
+    // => YASHY,YASHY
 
-    var replaced = s.replace("otter", "seal");
+    var replaced = s.replace("yashy", "seal");
     print_str(replaced.trim());
     print_str("\n");
-    // => Otter,seal
+    // => Yashy,seal
 
     var dash = "-";
     print_str(dash.repeat(3));
@@ -244,7 +244,7 @@ the *shape* of the value instead: a struct's name and fields, the variant an
 enum holds, the elements of a tuple or an array, and a string in quotes with
 its control characters escaped.
 
-```otter
+```yashy
 struct Point {
     x: i64,
     y: i64,
@@ -285,7 +285,7 @@ structs, enums, tuples and arrays have a debug form
 - **Adding a number to a string.** `"n = " + 1` reports
   ``error: cannot apply `+` to `string` and `i64` ``. Write
   `"n = ${n}"`, which inserts the converted value.
-- **Using an escape Otter does not have.** `"\q"` reports
+- **Using an escape Yashy does not have.** `"\q"` reports
   ``error: invalid escape sequence in string literal: unknown escape `\q` ``.
 - **Ordering strings.** `a < b` reports
   ``error: cannot apply `<` to `string` and `string` ``. Compare with `==`,
@@ -313,18 +313,18 @@ structs, enums, tuples and arrays have a debug form
 
 ## How it works
 
-A `string` value is an `i8*` pointing at `%otter_str = { i64, i64, i64, i8* }`:
+A `string` value is an `i8*` pointing at `%yashy_str = { i64, i64, i64, i8* }`:
 refcount, byte length, capacity, and data. The runtime creates owned strings
 with refcount 1; a literal is baked in with refcount `-1`, which the release
 path ignores, so literals are never freed. Codegen keeps a per-function set of
-owned SSA names and emits `otter_str_release` when a scope or a consumer is
+owned SSA names and emits `yashy_str_release` when a scope or a consumer is
 done with one. If the program contains a `thread_spawn`, generated code calls
 the atomic retain/release pair instead, because two threads may drop the last
 reference at once.
 
 One hole remains. A struct field holding a `string` is not itself retained or
-released. `otter build --emit-ir` on a function that returns a struct built
-from a locally concatenated string shows `otter_str_release` before the `ret`,
+released. `yashy build --emit-ir` on a function that returns a struct built
+from a locally concatenated string shows `yashy_str_release` before the `ret`,
 and the field then points at freed bytes. Until that is fixed, put literals in
 struct fields or keep the owning string alive in the caller's scope; do not
 return ownership of a string inside a struct and expect the struct to keep it.

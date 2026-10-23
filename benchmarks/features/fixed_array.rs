@@ -1,4 +1,4 @@
-// The Rust counterpart of fixed_array.ot: a stack array, summed 50,000,000
+// The Rust counterpart of fixed_array.ya: a stack array, summed 50,000,000
 // times through one loop-carried accumulator.
 fn main() {
     const ROUNDS: i64 = 50_000_000;

@@ -1,9 +1,9 @@
-# Otter benchmarks
+# Yashy benchmarks
 
 Two suites live here:
 
 - **Scalar** (`run.ps1`) — `fib`, `loop` and `float`, written in six languages,
-  answering **how fast is the code Otter produces** and **how fast does Otter
+  answering **how fast is the code Yashy produces** and **how fast does Yashy
   compile it**.
 - **Features** (`run-features.ps1`) — FFI, arrays, maps, enums, channels and
   mutexes, answering **what each language feature costs** against the same idea
@@ -24,9 +24,9 @@ pwsh benchmarks/run-features.ps1   # the feature suite
 | `fib` | recursive `fib(35)` | function calls, call overhead, how well recursion is optimised |
 | `loop` | 200,000,000 iterations of an integer loop with a data-dependent branch | loop code, integer arithmetic, branch handling |
 | `float` | 100,000,000 iterations of `x = x * a + b` | `f64` arithmetic on a serial dependency chain |
-| `fib-wrap`, `loop-wrap` | the two integer programs again, with `wrapping_*` in place of bare `+`, `-`, `*` | what Otter's checked arithmetic costs, and the row that is strictly comparable with C, Rust, Go, Node and Python — all of whose arithmetic wraps |
+| `fib-wrap`, `loop-wrap` | the two integer programs again, with `wrapping_*` in place of bare `+`, `-`, `*` | what Yashy's checked arithmetic costs, and the row that is strictly comparable with C, Rust, Go, Node and Python — all of whose arithmetic wraps |
 
-Otter's arithmetic is checked, so `fib.ot` is not quite the same program as
+Yashy's arithmetic is checked, so `fib.ya` is not quite the same program as
 `fib.c`: it stops with a message if an addition overflows, where C carries on
 with a wrapped value. The `-wrap` variants withdraw that promise using the
 language's own opt-out, and they are what a like-for-like comparison runs on.
@@ -48,7 +48,7 @@ answer, and C's signed-overflow undefined behaviour never fires. `float` is a
 strict dependency chain, so no compiler may reassociate or vectorise it without
 a wide target — and every row built for the portable baseline computes
 bit-identical results. The rows that do not are those built for a wider one:
-`clang -march=x86-64-v3` fuses `x * a + b` into a single FMA, and Otter does the
+`clang -march=x86-64-v3` fuses `x * a + b` into a single FMA, and Yashy does the
 same only under `--fast-math`. That turns two roundings into one and moves the
 last six digits. Those rows are labelled, and they are discussed below.
 
@@ -80,14 +80,14 @@ there because "what does a function value cost" is a question about the
 difference between two calls, not about one number: every language has a
 direct call, and the interesting measurement is what the *value* adds to it.
 Each language therefore contributes a `value` row and a `direct` row, and the
-gap between them is the price of the function value. Otter contributes two
+gap between them is the price of the function value. Yashy contributes two
 more: a `lambda` row, which calls through a lambda, and a `closure` row,
 which calls through a closure that captured a value.
 
 The `value` rows keep the call indirect on purpose, because a call the
 optimizer can see through is not a call through a value:
 
-- Otter marks a function that *receives* a function value `noinline`, so the
+- Yashy marks a function that *receives* a function value `noinline`, so the
   call it makes through that value stays indirect. This is the same reason
   WebAssembly keeps `call_indirect` indirect.
 - C hides the pointer behind an empty `asm` barrier.
@@ -99,7 +99,7 @@ Without those, every row would measure a direct call and the workload would
 answer a question nobody asked.
 
 There is no C row for `map`: C has no hash map in its standard library, and a
-hand-written one would measure the author of that C file rather than Otter.
+hand-written one would measure the author of that C file rather than Yashy.
 There is likewise no C row for `threads` and `mutex`: the portable C answer is
 pthreads on Linux and the Win32 API on Windows, so a single source would not be
 the same program on both. Go is the comparison there, with the caveat that a
@@ -107,17 +107,17 @@ goroutine is not an OS thread.
 
 ## What the comparison does and does not mean
 
-It means: **for scalar arithmetic and function calls, Otter's output is
+It means: **for scalar arithmetic and function calls, Yashy's output is
 competitive with what C, Rust and Go produce.** That is the claim being tested,
 and the numbers support or refute it.
 
-It does not mean "Otter is as fast as C". Read the caveats:
+It does not mean "Yashy is as fast as C". Read the caveats:
 
-- **Otter's binary is clang's output.** `otter-codegen` emits unoptimized
+- **Yashy's binary is clang's output.** `yashy-codegen` emits unoptimized
   textual LLVM IR and `clang -O2` optimizes it. So the honest comparison is "the
-  IR Otter emits vs. the IR clang and rustc emit, given the same optimizer",
+  IR Yashy emits vs. the IR clang and rustc emit, given the same optimizer",
   which is a real and useful measurement, but it is not a claim that
-  `otter-codegen` contains optimization passes — it contains none. Otter's
+  `yashy-codegen` contains optimization passes — it contains none. Yashy's
   advantage, where it has one, is that it hands LLVM clean, fully-typed IR.
 - **The scalar suite does not allocate; the feature suite does.** `fib`, `loop`
   and `float` still measure arithmetic and calls only, so that table remains a
@@ -125,13 +125,13 @@ It does not mean "Otter is as fast as C". Read the caveats:
   threads are measured separately under [Feature
   benchmarks](#feature-benchmarks), where allocation *is* the workload. The two
   tables answer different questions and are not comparable row for row.
-- **Otter's arithmetic is checked, and the others' is not.** `a + b` in Otter
+- **Yashy's arithmetic is checked, and the others' is not.** `a + b` in Yashy
   reports an integer overflow at the position it happened and ends the program; in
   C, Rust, Go, Node and Python it wraps. That is a difference in what the program
   *promises*, not in how well it is compiled, so the benchmark set carries
   `fib-wrap` and `loop-wrap`: the same source with the opt-out
   (`wrapping_add`/`_sub`/`_mul`) in place of `+ - *`. Those are the rows to read
-  against the other languages, and the gap between a benchmark's two Otter rows is
+  against the other languages, and the gap between a benchmark's two Yashy rows is
   what the check costs there: nothing at all on `loop` at the default tier, 1.9× on
   `fib`, and 2.5× on `loop` at `--cpu=x86-64-v3`, where the check is what stops the
   loop from vectorising. The README's [what the check
@@ -150,20 +150,20 @@ It does not mean "Otter is as fast as C". Read the caveats:
 - **Same algorithm, same input** for every language, so a row is a difference in
   the compiler and not in the workload.
 - **Native rows compile at `-O2`** (`rustc -O`, which is equivalent), each with
-  its own native compiler. `clang` is given the same `--target=` triple Otter
-  uses, read back out of Otter's own IR — on Windows a bare `clang` defaults to
+  its own native compiler. `clang` is given the same `--target=` triple Yashy
+  uses, read back out of Yashy's own IR — on Windows a bare `clang` defaults to
   the MSVC triple and cannot find `stdio.h` on a machine without the MSVC CRT.
-- **Two C compilers** (`clang` and `gcc`), so the Otter numbers are not graded
+- **Two C compilers** (`clang` and `gcc`), so the Yashy numbers are not graded
   against one backend's quirks.
-- **Otter is built twice**, at `-O0` and at `-O2`, so the table shows what
+- **Yashy is built twice**, at `-O0` and at `-O2`, so the table shows what
   enabling optimization actually buys instead of asserting that it helps. The
-  integer benchmarks are built a third time from `<name>-wrap.ot`, which is what
+  integer benchmarks are built a third time from `<name>-wrap.ya`, which is what
   the checked-arithmetic comparison uses.
 - **Wider-target rows are opt-in and always paired.** `--cpu=x86-64-v3` and
-  `--native` each build an Otter row *and* the matching `clang` row
+  `--native` each build a Yashy row *and* the matching `clang` row
   (`-march=x86-64-v3`, `-march=native`), so the table shows what the *flag* buys
-  rather than what Otter buys over a compiler that was not given it. They are
-  never the headline; the portable rows are. The `--fast-math` Otter row is
+  rather than what Yashy buys over a compiler that was not given it. They are
+  never the headline; the portable rows are. The `--fast-math` Yashy row is
   paired against the `clang -march=x86-64-v3` row, because clang contracts
   floating-point by default and that is the C row doing the same arithmetic.
 - **One untimed warm-up run per program**, then the reported number is the
@@ -204,23 +204,23 @@ It does not mean "Otter is as fast as C". Read the caveats:
 `fib` is used, and the `clang`/`rustc`/`go` rows are their full build, so the
 comparison is end-to-end invocations rather than self-reported phase times.
 
-The interesting row is **Otter (front end only)**: `otter build --emit-ir` runs
+The interesting row is **Yashy (front end only)**: `yashy build --emit-ir` runs
 lexing, parsing, type checking and IR emission, and stops before any LLVM
 process starts. That is the part of the pipeline this repository actually
 implements — and it is a small fraction of the full build, because the rest is
-clang doing for Otter exactly what it does for C.
+clang doing for Yashy exactly what it does for C.
 
 ### A `const fn` call is free at run time
 
-`benchmarks/const-fn.ot` asks the compiler for two tables: one hundred
+`benchmarks/const-fn.ya` asks the compiler for two tables: one hundred
 squares, summed by a recursive `const fn`, and the tenth Fibonacci number.
-`benchmarks/const-fn-values.ot` is the same program with the answers written
+`benchmarks/const-fn-values.ya` is the same program with the answers written
 out. The compiler folds the calls, so the first program carries the numbers
 and never calls anything at run time.
 
-| Measurement | `const-fn.ot` | `const-fn-values.ot` |
+| Measurement | `const-fn.ya` | `const-fn-values.ya` |
 |---|---:|---:|
-| Front end (`otter build --emit-ir`), best of 9 | 19.7 ms | 20.0 ms |
+| Front end (`yashy build --emit-ir`), best of 9 | 19.7 ms | 20.0 ms |
 | Run (whole process), best of 9 | 15.7 ms | 15.4 ms |
 
 Both rows are the same within the noise, and that is the result: the folded
@@ -259,10 +259,10 @@ the better of two passes of the script — best of 5 runs within a pass, after o
 untimed warm-up, and best of 3 for the interpreted rows. Two passes rather than
 one because of the clock-state problem described under Methodology.
 
-Rows in **bold** are the portable Otter rows. Rows named
-``Otter (`-O2`, `wrapping_*`)`` are the same program with the arithmetic opt-out;
+Rows in **bold** are the portable Yashy rows. Rows named
+``Yashy (`-O2`, `wrapping_*`)`` are the same program with the arithmetic opt-out;
 they are the rows to compare against every other language here, and the plain
-Otter rows are the checked default.
+Yashy rows are the checked default.
 
 ### `fib(35)` — about 30 million calls
 
@@ -272,27 +272,27 @@ Otter rows are the checked default.
 | C (clang -O2, `-march=x86-64-v3`) | 80.0 | 81.9 | 2.679 |
 | C (clang -O2, `-march=native`) | 81.5 | 83.8 | 2.729 |
 | C (clang -O2) | 82.0 | 84.9 | 2.746 |
-| **Otter (`-O2`, `wrapping_*`)** | **82.2** | **89.6** | **2.753** |
+| **Yashy (`-O2`, `wrapping_*`)** | **82.2** | **89.6** | **2.753** |
 | Rust (rustc -O) | 86.7 | 87.3 | 2.904 |
 | Go (go build) | 139.6 | 150.4 | 4.675 |
-| Otter (`-O2 --cpu=x86-64-v3 --fast-math`) | 142.5 | 157.8 | 4.772 |
-| Otter (`-O2 --cpu=x86-64-v3`) | 146.1 | 151.5 | 4.893 |
-| Otter (`-O2 --native`) | 146.3 | 156.3 | 4.900 |
-| **Otter (clang -O2)** | **149.0** | **150.3** | **4.990** |
-| Otter (clang -O0) | 176.4 | 178.1 | 5.908 |
+| Yashy (`-O2 --cpu=x86-64-v3 --fast-math`) | 142.5 | 157.8 | 4.772 |
+| Yashy (`-O2 --cpu=x86-64-v3`) | 146.1 | 151.5 | 4.893 |
+| Yashy (`-O2 --native`) | 146.3 | 156.3 | 4.900 |
+| **Yashy (clang -O2)** | **149.0** | **150.3** | **4.990** |
+| Yashy (clang -O0) | 176.4 | 178.1 | 5.908 |
 | Node 24 | 362.1 | 364.9 | 12.126 |
 | CPython 3.14 | 3417.9 | 3497.9 | 114.463 |
 
 `gcc` is consistently the fastest here and the reason is not codegen quality: it
-inlines across the recursive call differently. Between `clang`, Rust and Otter's
+inlines across the recursive call differently. Between `clang`, Rust and Yashy's
 `wrapping_*` row the spread is about 6%, and which of the three wins moves from
 run to run — `fib` is a small function called 30 million times, so it is dominated
 by how the recursion is inlined and by call overhead, not by the quality of the
-surrounding IR. Otter's opt-out row is within a percent of `clang`'s here and ahead
+surrounding IR. Yashy's opt-out row is within a percent of `clang`'s here and ahead
 of Rust's, which is the honest reading: a tie inside the noise.
 
 The checked default is a different story — it is the only row in this whole suite
-where Otter lands behind Go. Three checks inside a function called thirty million
+where Yashy lands behind Go. Three checks inside a function called thirty million
 times cost 1.8–1.9×, and the tier rows are the checked build too, so the tier does
 not buy anything back: the cost is the checks, not the instruction set.
 
@@ -302,17 +302,17 @@ not buy anything back: the cost is the checks, not the instruction set.
 |---|---:|---:|---:|
 | C (clang -O2, `-march=x86-64-v3`) | 63.5 | 64.3 | 0.318 |
 | C (clang -O2, `-march=native`) | 68.3 | 69.5 | 0.342 |
-| Otter (`-O2 --cpu=x86-64-v3 --fast-math`) | 168.5 | 171.2 | 0.843 |
-| Otter (`-O2 --native`) | 170.4 | 177.9 | 0.852 |
-| Otter (`-O2 --cpu=x86-64-v3`) | 184.1 | 188.5 | 0.921 |
-| **Otter (clang -O2)** | **240.8** | **261.9** | **1.204** |
+| Yashy (`-O2 --cpu=x86-64-v3 --fast-math`) | 168.5 | 171.2 | 0.843 |
+| Yashy (`-O2 --native`) | 170.4 | 177.9 | 0.852 |
+| Yashy (`-O2 --cpu=x86-64-v3`) | 184.1 | 188.5 | 0.921 |
+| **Yashy (clang -O2)** | **240.8** | **261.9** | **1.204** |
 | C (gcc -O2) | 242.7 | 243.6 | 1.214 |
 | Rust (rustc -O) | 249.1 | 272.9 | 1.246 |
-| **Otter (`-O2`, `wrapping_*`)** | **250.6** | **254.8** | **1.253** |
+| **Yashy (`-O2`, `wrapping_*`)** | **250.6** | **254.8** | **1.253** |
 | C (clang -O2) | 266.5 | 275.3 | 1.333 |
 | Go (go build) | 293.4 | 346.9 | 1.467 |
 | Node 24 | 688.4 | 697.3 | 3.442 |
-| Otter (clang -O0) | 1716.5 | 1729.9 | 8.583 |
+| Yashy (clang -O0) | 1716.5 | 1729.9 | 8.583 |
 | CPython 3.14 | 26475.8 | 34453.2 | 132.379 |
 
 Node's total is `29999999922509360`, not `29999999900000000`: JavaScript has no
@@ -335,32 +335,32 @@ costs](../README.md#what-the-check-costs).
 
 | Language | min ms | median ms | ns/iteration |
 |---|---:|---:|---:|
-| Otter (`-O2 --cpu=x86-64-v3 --fast-math`) | 319.9 | 331.6 | 3.199 |
+| Yashy (`-O2 --cpu=x86-64-v3 --fast-math`) | 319.9 | 331.6 | 3.199 |
 | C (clang -O2, `-march=native`) | 320.0 | 331.9 | 3.200 |
 | C (clang -O2, `-march=x86-64-v3`) | 321.8 | 324.0 | 3.218 |
-| **Otter (clang -O2)** | **534.5** | **542.6** | **5.345** |
+| **Yashy (clang -O2)** | **534.5** | **542.6** | **5.345** |
 | C (gcc -O2) | 537.0 | 555.6 | 5.370 |
 | Rust (rustc -O) | 541.7 | 567.5 | 5.417 |
-| Otter (`-O2 --cpu=x86-64-v3`) | 542.7 | 556.6 | 5.427 |
+| Yashy (`-O2 --cpu=x86-64-v3`) | 542.7 | 556.6 | 5.427 |
 | C (clang -O2) | 545.6 | 551.4 | 5.456 |
-| Otter (`-O2 --native`) | 546.3 | 555.5 | 5.463 |
+| Yashy (`-O2 --native`) | 546.3 | 555.5 | 5.463 |
 | Go (go build) | 549.3 | 593.6 | 5.493 |
 | Node 24 | 684.3 | 689.9 | 6.843 |
-| Otter (clang -O0) | 827.1 | 934.0 | 8.271 |
+| Yashy (clang -O0) | 827.1 | 934.0 | 8.271 |
 | CPython 3.14 | 9421.3 | 9430.3 | 94.213 |
 
-There is no `float-wrap.ot`: the benchmark contains no integer arithmetic, so
-there is no check in it to opt out of, and the portable Otter row is the best in
+There is no `float-wrap.ya`: the benchmark contains no integer arithmetic, so
+there is no check in it to opt out of, and the portable Yashy row is the best in
 the table.
 
 The three fast rows print `44051.909807502794`; every other row prints
 `44051.909822450085`. That is not a typo. `clang` contracts `x * a + b` into a
 single fused multiply-add at `-march=x86-64-v3` (C contracts by default), and
-Otter does the same under `--fast-math`. The FMA rounds once instead of twice, so
+Yashy does the same under `--fast-math`. The FMA rounds once instead of twice, so
 the last six digits differ — a 1.7× win bought by changing the answer. The two
 fused rows land at 320 and 322 ms, which is the point: given the same target and
-the same permission, Otter and clang produce the same speed. On the portable
-baseline, where no row is allowed to fuse, Otter is 534.5 ms against clang's 545.6
+the same permission, Yashy and clang produce the same speed. On the portable
+baseline, where no row is allowed to fuse, Yashy is 534.5 ms against clang's 545.6
 and gcc's 537.0.
 
 ### The effect of the CPU tier
@@ -396,7 +396,7 @@ Three things are deliberately *not* the default, and each was measured:
   headline.
 - **FMA contraction is not the default.** `--fast-math` puts LLVM's `contract`
   flag on our `fmul`/`fadd`, and at `x86-64-v3` the backend fuses them — that is
-  how Otter reaches 312 ms on `float`, matching clang. It is opt-in because it
+  how Yashy reaches 312 ms on `float`, matching clang. It is opt-in because it
   changes the number a program prints, and the portable rows are the ones the
   suite promises compute the same answer. (An earlier revision of this file said
   the `contract` flag did not fuse. That was measured on the portable baseline,
@@ -407,7 +407,7 @@ Three things are deliberately *not* the default, and each was measured:
 
 ### The effect of the optimization level
 
-Otter built at `-O0` and at `-O2`, same source, same machine:
+Yashy built at `-O0` and at `-O2`, same source, same machine:
 
 | Benchmark | `-O0` | `-O2` | Speedup |
 |---|---:|---:|---:|
@@ -419,13 +419,13 @@ Otter built at `-O0` and at `-O2`, same source, same machine:
 
 | Toolchain | min ms | median ms |
 |---|---:|---:|
-| Otter (front end only, `--emit-ir`) | 25.4 | 28.3 |
+| Yashy (front end only, `--emit-ir`) | 25.4 | 28.3 |
 | C (`clang -O2`) | 244.8 | 252.4 |
-| Otter (full build, `-O2`) | 256.2 | 263.0 |
+| Yashy (full build, `-O2`) | 256.2 | 263.0 |
 | Go (`go build`) | 261.9 | 265.6 |
 | Rust (`rustc -O`) | 558.9 | 600.2 |
 
-`otter build` is a single `clang` invocation now — compile the IR and link, with
+`yashy build` is a single `clang` invocation now — compile the IR and link, with
 no intermediate object file — which is why a full build lands 5% above
 `clang -O2` on the same program rather than double it. It used to run `clang`
 twice and recompile the runtime's C source on every build (135 ms of a 403 ms
@@ -449,19 +449,19 @@ Methodology, beyond the shared rules above:
   caveat applies; a row measured in a bad window gets two more chances. The
   first draft of these numbers was taken with 5 × 2 and the channel row moved
   by almost 2× between runs — the reason this table uses more samples.
-- **No preallocation** in any array or map row. Otter's `map_new()` and
+- **No preallocation** in any array or map row. Yashy's `map_new()` and
   `[]i64 {}` start empty; Go's `make(map)` and `Vec::new()` do too, and the C
-  array doubles from four elements like the Otter runtime does.
-- **The implementations are not the same code.** Otter's map is an
+  array doubles from four elements like the Yashy runtime does.
+- **The implementations are not the same code.** Yashy's map is an
   open-addressed table with linear probing that grows at 70% occupancy; Go's
-  map and Rust's `HashMap` have their own layouts and hash functions. Otter's
+  map and Rust's `HashMap` have their own layouts and hash functions. Yashy's
   array grows by doubling from four; Go and Rust use their own growth
   policies. The row measures each language's implementation, not an algorithm
   race.
-- **Threads are not goroutines.** Otter spawns an OS thread and blocks on
+- **Threads are not goroutines.** Yashy spawns an OS thread and blocks on
   condition variables; Go multiplexes a goroutine onto its runtime scheduler.
   The comparison is useful as a cost check, not as a claim that the two are the
-  same mechanism. Mutex rows differ too: Otter takes the OS mutex immediately,
+  same mechanism. Mutex rows differ too: Yashy takes the OS mutex immediately,
   while Go's `sync.Mutex` spins briefly before parking.
 - **`ns/op` counts the unit in the `Workload` column**: one C call, one array
   element, one map insert-or-lookup, one enum iteration, one channel round
@@ -481,10 +481,10 @@ script rather than timed.
 |---|---:|---:|---:|
 | C (clang -O2) | 237.0 | 247.4 | 2.37 |
 | C (gcc -O2) | 239.6 | 249.6 | 2.40 |
-| Otter -O2 | 247.8 | 267.7 | 2.48 |
+| Yashy -O2 | 247.8 | 267.7 | 2.48 |
 
 `getpid` is opaque to the optimizer, so every iteration is a real call; the
-loop cannot be folded away, which an earlier draft using `llabs` was. Otter is
+loop cannot be folded away, which an earlier draft using `llabs` was. Yashy is
 4.6% behind clang and 3.4% behind gcc, all in the same band. There is no thunk
 or wrapper in that path: an `extern` call is lowered as an ordinary LLVM call,
 with the C ABI's argument and return conventions.
@@ -496,14 +496,14 @@ with the C ABI's argument and return conventions.
 | C (clang -O2) | 141.1 | 143.8 | 14.11 |
 | C (gcc -O2) | 143.3 | 146.1 | 14.33 |
 | Rust (rustc -O) | 159.4 | 165.6 | 15.94 |
-| Otter -O2 | 207.2 | 218.9 | 20.72 |
+| Yashy -O2 | 207.2 | 218.9 | 20.72 |
 | Go (go build) | 258.2 | 294.8 | 25.82 |
 
-Otter's `push` is an out-of-line runtime call: check capacity, maybe grow and
+Yashy's `push` is an out-of-line runtime call: check capacity, maybe grow and
 copy, then `memcpy` the element. The C loop inlines the common case and only
 calls `realloc` every doubling, and Rust's `Vec::push` inlines its fast path;
 that is the 1.5× gap to C and 1.3× to Rust. Go's `append` is slower here than
-Otter's push, despite the same doubling idea. The 10,000,000-element array is
+Yashy's push, despite the same doubling idea. The 10,000,000-element array is
 about 80 MB, so allocation and the growth copies are part of the measurement,
 not background noise.
 
@@ -521,12 +521,12 @@ entry point fails the run instead of hiding behind a number.
 | Language | min ms | median ms | ns/operation |
 |---|---:|---:|---:|
 | Rust (rustc -O) | 281.5 | 321.1 | 140.75 |
-| Otter -O2 | 322.1 | 329.9 | 161.05 |
+| Yashy -O2 | 322.1 | 329.9 | 161.05 |
 | Go (go build) | 370.7 | 420.0 | 185.35 |
 
-Otter's map is an open-addressed table with linear probing that grows at 70%
+Yashy's map is an open-addressed table with linear probing that grows at 70%
 occupancy; Rust and Go have their own layouts and hash functions. On this
-integer-key workload Otter is 14% behind Rust and 15% ahead of Go. Nothing is
+integer-key workload Yashy is 14% behind Rust and 15% ahead of Go. Nothing is
 preallocated: the inserts include every rehash. A `string`-key workload would
 measure the hash function and key retention instead, so this table is about
 `i64` keys only.
@@ -537,7 +537,7 @@ measure the hash function and key retention instead, so this table is about
 |---|---:|---:|---:|
 | Rust (rustc -O) | 567.3 | 574.8 | 28.36 |
 | Go (go build) | 761.4 | 784.3 | 38.07 |
-| Otter -O2 | 1065.4 | 1077.7 | 53.27 |
+| Yashy -O2 | 1065.4 | 1077.7 | 53.27 |
 
 The workload is `keys()` and `values()`: the whole table copied into two
 arrays, ten times over, and then 2,000,000 `contains_key` probes of a key that
@@ -545,11 +545,11 @@ is there and one that is not. Go's row collects the map into two slices and
 Rust's into two vectors, which is the same work; the `contains_key` probe is
 Go's `v, ok := m[k]` and Rust's `contains_key`.
 
-Otter is 1.9× behind Rust and 1.4× behind Go here, and the gap is the copy.
-Otter's `keys()` and `values()` are runtime calls that walk the table's slots
+Yashy is 1.9× behind Rust and 1.4× behind Go here, and the gap is the copy.
+Yashy's `keys()` and `values()` are runtime calls that walk the table's slots
 and `memcpy` each entry out into a fresh array; Rust's `keys()` and
 `values()` are borrows of the table's own storage, so the collect is the only
-copy either of them makes. That is the price of the shape Otter chose: the
+copy either of them makes. That is the price of the shape Yashy chose: the
 arrays are the caller's to keep and free, and the map may be freed while they
 are still alive.
 
@@ -558,13 +558,13 @@ are still alive.
 | Language | min ms | median ms | ns/format |
 |---|---:|---:|---:|
 | Rust (rustc -O) | 513.4 | 530.7 | 513.40 |
-| Otter -O2 | 1753.6 | 1772.4 | 1753.60 |
+| Yashy -O2 | 1753.6 | 1772.4 | 1753.60 |
 
 `${value:?}` builds the text a programmer reads, and the two rows print the
 same text: `Point { x: 1, y: 2 }` in both, so the totals match and the
 comparison is of the same work. Rust's derived `Debug` is 3.4× faster here.
 The difference is where the formatting happens: Rust's `format!` writes into
-a `String` it grows in place, while Otter's interpolation builds the text in
+a `String` it grows in place, while Yashy's interpolation builds the text in
 the runtime's own buffer and then copies it into the string the binding
 holds. The `{:?}` machinery is a `Debug` implementation in both, and the
 per-field work — the field names, the braces, the two numbers — is the same
@@ -580,9 +580,9 @@ tables above them; the gaps they report are far larger than that noise.
 |---|---:|---:|---:|
 | C (clang -O2) | 101.2 | 130.2 | 2.02 |
 | C (gcc -O2) | 120.4 | 129.4 | 2.41 |
-| Otter -O2 | 150.1 | 166.6 | 3.00 |
+| Yashy -O2 | 150.1 | 166.6 | 3.00 |
 
-Both sides build a 16-byte tagged value and switch on the tag. Otter's enum is
+Both sides build a 16-byte tagged value and switch on the tag. Yashy's enum is
 `{ i8, i64 }` with the tag in field 0 and the payload in field 1; the C struct
 uses an `int` tag. The 1.5× gap is LLVM's handling of the aggregate through the
 two calls, not a different data representation: the value does not allocate and
@@ -592,14 +592,14 @@ the match has no fallback path.
 
 | Language | min ms | median ms | ns/round trip |
 |---|---:|---:|---:|
-| Otter -O2 | 179.3 | 253.0 | 896.5 |
+| Yashy -O2 | 179.3 | 253.0 | 896.5 |
 | Go (go build) | 296.2 | 318.1 | 1481.0 |
 
 One capacity-one channel in each direction, so the two sides alternate strictly
-and every send waits for the matching receive. Otter pays for two condition
+and every send waits for the matching receive. Yashy pays for two condition
 variables and an OS thread; Go pays for a goroutine wakeup in its scheduler.
-The minimum and median disagree by 40% on the Otter row, which is scheduling
-noise, not a bimodal implementation — the earlier 5 × 2 run had Otter at
+The minimum and median disagree by 40% on the Yashy row, which is scheduling
+noise, not a bimodal implementation — the earlier 5 × 2 run had Yashy at
 1822 ns and Go at 1764 ns on the same binaries. Treat this row as "the same
 order", not as a scheduler comparison.
 
@@ -608,12 +608,12 @@ order", not as a scheduler comparison.
 | Language | min ms | median ms | ns/pair |
 |---|---:|---:|---:|
 | Go (go build) | 65.6 | 67.4 | 65.60 |
-| Otter -O2 | 73.5 | 84.5 | 73.50 |
+| Yashy -O2 | 73.5 | 84.5 | 73.50 |
 
 Four threads and four goroutines, an empty critical section, one million pairs
-in total. Otter takes the OS mutex immediately; Go's `sync.Mutex` spins briefly
+in total. Yashy takes the OS mutex immediately; Go's `sync.Mutex` spins briefly
 before parking. The 12% gap is what that difference and the lock implementation
-cost under contention. A shared counter cannot be written in Otter user code
+cost under contention. A shared counter cannot be written in Yashy user code
 yet: a `*mut` may not cross a thread boundary, so the runtime's own C test
 covers that case.
 
@@ -625,16 +625,16 @@ covers that case.
 | C (clang -O2) | 112.6 | 125.4 | 11.26 |
 | Rust (rustc -O) | 116.2 | 123.1 | 11.62 |
 | Go (go build) | 144.9 | 167.8 | 14.49 |
-| Otter -O2 | 417.1 | 458.4 | 41.71 |
+| Yashy -O2 | 417.1 | 458.4 | 41.71 |
 
 Every row builds an array of ten million elements, maps it into a second
 array, and sums the second one. The C, Go and Rust rows map with a plain
-loop; Otter's row maps through a function value, so every element costs a
+loop; Yashy's row maps through a function value, so every element costs a
 call through a pointer as well.
 
-That is the 30 ns an element Otter spends over C's 11: the call through the
+That is the 30 ns an element Yashy spends over C's 11: the call through the
 function value is about 4 ns of it, and the rest is the array the mapping
-builds — Otter's `push` is an out-of-line runtime call that checks the
+builds — Yashy's `push` is an out-of-line runtime call that checks the
 capacity and copies the element, where C's loop writes into an array it
 already knows the size of. The [function
 values](#function-values--100000000-calls-through-a-value-and-directly)
@@ -646,36 +646,36 @@ table has the same story in one number: a call through a value costs about
 | Language | min ms | median ms | ns/call |
 |---|---:|---:|---:|
 | C (clang -O2, direct) | 158.8 | 165.9 | 1.59 |
-| Otter -O2 (direct) | 160.7 | 163.9 | 1.61 |
+| Yashy -O2 (direct) | 160.7 | 163.9 | 1.61 |
 | Rust (rustc -O, direct) | 162.1 | 165.4 | 1.62 |
 | C (gcc -O2, direct) | 201.2 | 207.7 | 2.01 |
 | Go (go build, direct) | 232.3 | 241.0 | 2.32 |
 | C (gcc -O2, value) | 306.3 | 314.9 | 3.06 |
 | C (clang -O2, value) | 343.5 | 355.9 | 3.44 |
 | Rust (rustc -O, value) | 374.9 | 389.8 | 3.75 |
-| Otter -O2 (lambda) | 414.6 | 423.8 | 4.15 |
-| Otter -O2 (closure) | 417.3 | 426.1 | 4.17 |
-| Otter -O2 (value) | 453.4 | 466.1 | 4.53 |
+| Yashy -O2 (lambda) | 414.6 | 423.8 | 4.15 |
+| Yashy -O2 (closure) | 417.3 | 426.1 | 4.17 |
+| Yashy -O2 (value) | 453.4 | 466.1 | 4.53 |
 | Go (go build, value) | 548.5 | 569.2 | 5.49 |
 
 The direct rows call the function by name; the value rows call the same
 function through a value, so the difference between the two rows of a language
 is the price of the value and nothing else.
 
-The price is about 1.5 ns more per call in C, 2.1 ns in Rust, 2.9 ns in Otter
+The price is about 1.5 ns more per call in C, 2.1 ns in Rust, 2.9 ns in Yashy
 and 3.2 ns in Go. A function value is a pair of pointers — the code and the
 environment — and the call goes through the code pointer, which the processor
 cannot predict. The direct rows are the same program with the call folded to a
 direct one, which is why they are 1.6 to 2.3 ns.
 
-Otter's value row is 31% behind clang's and 18% ahead of Go's. Otter's
+Yashy's value row is 31% behind clang's and 18% ahead of Go's. Yashy's
 function value is a `{ i8* code, i8* env }` pair in memory: the call site
 loads the pair out of the binding's slot, takes the two halves, and calls the
 code pointer with the environment as its first argument. The environment is
 null for a top-level function, but the argument is still passed, because that
 is the convention a closure will use.
 
-The two Otter rows that are not a direct call are the same program through
+The two Yashy rows that are not a direct call are the same program through
 different values. The `lambda` row calls through a lambda written inside the
 loop, so the value is built on every iteration exactly as the value row builds
 it, and the two differ only in what the value points at. The `closure` row
@@ -694,42 +694,42 @@ top-level `README.md` in the same commit, so the two cannot drift.
 |---|---:|---:|---:|
 | C (gcc -O2) | 16.8 | 17.5 | 1.68 |
 | C (clang -O2) | 18.0 | 19.2 | 1.80 |
-| Otter -O2 | 19.0 | 20.3 | 1.90 |
+| Yashy -O2 | 19.0 | 20.3 | 1.90 |
 | Rust (rustc -O, `&mut self`) | 19.4 | 22.0 | 1.94 |
 | Go (go build, pointer receiver) | 36.4 | 40.5 | 3.64 |
 
 Every row increments one field of one struct ten million times, through a
-method that takes the object's address: Otter's `self: *mut Counter`, C's
+method that takes the object's address: Yashy's `self: *mut Counter`, C's
 `Counter *`, Rust's `&mut self`, Go's pointer receiver. The counter lives in
 the caller's frame and is never reallocated, so the number is the call and the
 store.
 
-Otter is 5.6% behind clang and 2% ahead of Rust. A pointer receiver lowers to
+Yashy is 5.6% behind clang and 2% ahead of Rust. A pointer receiver lowers to
 a direct call whose first argument is the caller's slot — the local's own
 `alloca`, not a copy — and the field write is a `getelementptr` at the field's
 offset plus a `store`. There is nothing to box, no vtable to look up, and no
 aggregate to rebuild. The 1.6 ns gap to gcc is the checked add on
-`self[0].value + 1`: Otter's `+` traps on overflow, and that check is a
+`self[0].value + 1`: Yashy's `+` traps on overflow, and that check is a
 `llvm.sadd.with.overflow` plus a branch, which gcc's `-O2` is free to omit.
 
 #### Generic functions — 100,000,000 calls
 
 | Language | min ms | median ms | ns/call |
 |---|---:|---:|---:|
-| Otter -O2 (generic) | 162.1 | 173.3 | 1.62 |
+| Yashy -O2 (generic) | 162.1 | 173.3 | 1.62 |
 | C (clang -O2) | 163.7 | 200.6 | 1.64 |
-| Otter -O2 (direct) | 164.6 | 172.9 | 1.65 |
+| Yashy -O2 (direct) | 164.6 | 172.9 | 1.65 |
 | Rust (rustc -O) | 169.0 | 179.2 | 1.69 |
 | C (gcc -O2) | 209.4 | 241.1 | 2.09 |
 | Go (go build) | 264.2 | 290.1 | 2.64 |
 
 Every row runs the same loop: `scale(i, 1000)` over 100,000,000 iterations,
 summed with wrapping addition, and every row prints
-`4999999950099999999`. The two Otter rows are `scale[T]` and a `scale` written
+`4999999950099999999`. The two Yashy rows are `scale[T]` and a `scale` written
 with `i64`; the other languages use their own generic function, except C, which
 has none — its row is the specialized function a generic call would compile to.
 
-The two Otter rows differ by 1.5%, which is inside this machine's run-to-run
+The two Yashy rows differ by 1.5%, which is inside this machine's run-to-run
 spread (the direct row's median is the *lower* of the two). That is the result:
 a generic function costs what the concrete one costs, because it *is* the
 concrete one. `scale(i, 1000)` infers `T = i64`, the checker checks one body at
@@ -753,15 +753,15 @@ does not measure it.
 | Language | min ms | median ms | ns/element |
 |---|---:|---:|---:|
 | C (clang -O2) | 16.9 | 19.9 | 0.042 |
-| Otter -O2 (`wrapping_add`) | 17.9 | 19.8 | 0.045 |
+| Yashy -O2 (`wrapping_add`) | 17.9 | 19.8 | 0.045 |
 | Rust (rustc -O) | 21.4 | 25.6 | 0.053 |
 | C (gcc -O2) | 176.3 | 196.6 | 0.441 |
-| Otter -O2 (`+`) | 192.8 | 218.3 | 0.482 |
+| Yashy -O2 (`+`) | 192.8 | 218.3 | 0.482 |
 | Go (go build) | 333.6 | 352.6 | 0.834 |
 
 Every row walks the same eight-element `[1, 2, 3, 4, 5, 6, 7, 8]` fifty
 million times and adds each element into one accumulator, then prints
-`1800000000`. The array is in the frame in every language: `[i64; 8]` in Otter,
+`1800000000`. The array is in the frame in every language: `[i64; 8]` in Yashy,
 `int64_t grid[8]` in C, `[8]int64` in Go, `[i64; 8]` in Rust. Nothing is
 allocated, nothing is freed, and no bounds field is read.
 
@@ -773,11 +773,11 @@ counted loop. The Go row is slow for an unrelated reason — Go's compiler does
 not reassociate the sum — and gcc's `-O2` does not either, which is why those
 two rows are near 180 ms.
 
-The second measurement is the checked add. Otter's `+` is an overflow test plus
+The second measurement is the checked add. Yashy's `+` is an overflow test plus
 a branch on every element, and that branch is loop-carried, so the optimiser
 cannot reassociate the sum away. That row is 11x the `wrapping_add` row with
 the *same* array code, and it is the one place in this suite where the cost of
-Otter's arithmetic rules is larger than the cost of the feature being measured.
+Yashy's arithmetic rules is larger than the cost of the feature being measured.
 C and Rust get the fast row by default: C's signed overflow is undefined, and
 Rust's `-O` turns overflow checks off. Go defines wrapping but does not
 reassociate, so its row is the slow one despite having no checks at all. The
@@ -795,13 +795,13 @@ array, and its length is already a word in a register.
 | C (gcc -O2) | 74.7 | 80.1 | 1.494 |
 | C (clang -O2) | 90.6 | 97.8 | 1.812 |
 | Rust (rustc -O) | 97.7 | 102.9 | 1.953 |
-| Otter -O2 | 133.6 | 135.4 | 2.672 |
+| Yashy -O2 | 133.6 | 135.4 | 2.672 |
 | Go (go build) | BLOCKED | — | — |
 
 Every row runs the same loop: `min_max(i, rounds - i)` returns the smaller and
 the larger of its two arguments as one value, the caller destructures that value
 into `lo` and `hi`, and folds `3 * lo + hi` into an accumulator. The program
-prints `3750000000000000`. The pair travels by value: Otter returns a
+prints `3750000000000000`. The pair travels by value: Yashy returns a
 `{ i64, i64 }` literal struct, C returns a two-field struct, Rust returns a
 tuple (also a two-field struct), and Go returns two results — which its ABI also
 turns into a register pair.
@@ -809,10 +809,10 @@ turns into a register pair.
 The rows are within 1.8x of each other and the ordering is arithmetic policy
 again, not layout. All four compilers inline a function this small, so the
 aggregate return and the destructuring disappear and what is left is the
-`if`, the multiply, and the adds. Otter's `+`, `-`, and `*` each test for
+`if`, the multiply, and the adds. Yashy's `+`, `-`, and `*` each test for
 overflow and branch, and this loop does five of them per iteration (the
 subtraction in the argument, the multiply, two adds into the accumulator, and
-the increment), so the Otter row is 1.47x clang and 1.79x gcc. Rust's `-O`
+the increment), so the Yashy row is 1.47x clang and 1.79x gcc. Rust's `-O`
 turns overflow checks off and lands next to clang; gcc reassociates the sum
 into one multiply-add chain and wins. A tuple itself has no run-time
 representation to pay for: the number would be the same if `min_max` returned
@@ -820,7 +820,7 @@ one `i64` and the loop multiplied it.
 
 The Go row is BLOCKED: Application Control refused every freshly linked
 `tuple-go` binary during the run, and this suite does not time a binary that
-has not printed its expected output. The Otter row was produced by the same
+has not printed its expected output. The Yashy row was produced by the same
 compiler source built in debug mode (`-O2` output is unchanged by the compiler
 binary's own optimization), because the freshly built release driver was
 blocked at the time; re-running `run-features.ps1` rebuilds and times every row

@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/otter-common",
-    "crates/otter-lexer",
-    "crates/otter-parser",
-    "crates/otter-sema",
-    "crates/otter-codegen",
-    "crates/otter-driver",
-    "crates/otter-runtime",
-    "crates/otter-fmt",
-    "crates/otter-lsp",
+    "crates/yashy-common",
+    "crates/yashy-lexer",
+    "crates/yashy-parser",
+    "crates/yashy-sema",
+    "crates/yashy-codegen",
+    "crates/yashy-driver",
+    "crates/yashy-runtime",
+    "crates/yashy-fmt",
+    "crates/yashy-lsp",
 ]
 
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.

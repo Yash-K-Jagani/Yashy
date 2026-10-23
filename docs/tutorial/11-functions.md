@@ -14,7 +14,7 @@ takes an `i64` and returns an `i64`, and a top-level function's name has that
 type, so it can be passed to another function, stored in a binding, and called
 later.
 
-```otter
+```yashy
 fn square(x: i64) -> i64 {
     return x * x;
 }
@@ -41,7 +41,7 @@ A binding can hold a function, and the binding can be called like one. The
 binding's type is the function's type, so the checker knows what the call
 returns.
 
-```otter
+```yashy
 fn square(x: i64) -> i64 {
     return x * x;
 }
@@ -73,7 +73,7 @@ work just as well, because a function value is a value like any other.
 A lambda is a function written where a value is expected. It has no name; it
 has parameters, an optional return type, and a body.
 
-```otter
+```yashy
 fn apply(f: fn(i64) -> i64, x: i64) -> i64 {
     return f(x);
 }
@@ -112,7 +112,7 @@ error: closures are not captured yet; this lambda needs `n`
 ```
 
 Using `n` there would be a *capture*: the lambda would have to carry `n`
-with it, wherever it goes. Otter has no way to take a capture yet, so the
+with it, wherever it goes. Yashy has no way to take a capture yet, so the
 compiler says so rather than quietly copying the value or quietly reading
 the wrong one.
 
@@ -121,7 +121,7 @@ the wrong one.
 A closure is a function that carries the values of the scope it was written
 in. It is a lambda that captures something.
 
-```otter
+```yashy
 fn adder(n: i64) -> fn(i64) -> i64 {
     return |x: i64| -> i64 { return x + n; };
 }
@@ -142,7 +142,7 @@ A closure may capture a number or a string. A string it captured is a
 reference the closure owns: the closure holds it alive, and releases it when
 the closure itself is gone.
 
-```otter
+```yashy
 fn greeter(greeting: string) -> fn() -> string {
     return || -> string { return greeting; };
 }
@@ -159,7 +159,7 @@ fn main() {
 
 A closure may not capture a *linear* value — an array, a map, a pointer, a
 channel. The closure would have to own a value the program still owns, and
-Otter has no way to say which of the two owners releases it:
+Yashy has no way to say which of the two owners releases it:
 
 ```text
 fn main() {
@@ -185,7 +185,7 @@ A function can work for more than one type. `[T]` after the function's name
 declares a *type parameter*: `T` is a type the function does not name yet, and
 each call says what it is.
 
-```otter
+```yashy
 // One body, for any type.
 fn identity[T](x: T) -> T {
     return x;
@@ -280,7 +280,7 @@ Three array methods take a function: `map` builds a new array from what the
 function returns for each element, `filter` keeps the elements the function
 says to keep, and `fold` carries one value through the whole array.
 
-```otter
+```yashy
 fn main() {
     var xs = []i64 { 1, 2, 3 };
 
@@ -325,7 +325,7 @@ A `const fn` is a function the compiler runs *itself*. It has no run-time
 existence: a call to one is replaced by the value the compiler computed, so
 the program carries the number rather than the call that produced it.
 
-```otter
+```yashy
 const fn square(n: i64) -> i64 {
     return n * n;
 }
@@ -340,7 +340,7 @@ fn main() {
 
 A `const fn` may call itself, and it may call another `const fn`:
 
-```otter
+```yashy
 const fn fib(n: i64) -> i64 {
     if n < 2 {
         return n;
@@ -514,5 +514,5 @@ that call is an ordinary optimization of an ordinary program.
 ## Where this leaves you
 
 That is the language. The [introduction](00-intro.md) restates the three
-decisions, and the programs under `crates/otter-driver/tests/programs` show
+decisions, and the programs under `crates/yashy-driver/tests/programs` show
 the rest.

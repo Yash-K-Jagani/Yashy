@@ -12,7 +12,7 @@ A struct groups named fields. It is a value: assigning it or passing it copies
 it, and a field is read with `.`. A literal may spell its fields in any order;
 the declaration fixes the layout, not the literal.
 
-```otter
+```yashy
 struct Point {
     x: i64,
     y: i64,
@@ -66,7 +66,7 @@ borrowed or mutated.
 An `impl` block gives a type its own methods. A method is a function whose
 first parameter is the value it is called on, and it is written `self`.
 
-```otter
+```yashy
 struct Point {
     x: i64,
     y: i64,
@@ -96,7 +96,7 @@ of the receiver.
 An enum may have methods too, and a method on an enum usually switches on the
 receiver:
 
-```otter
+```yashy
 enum Shape {
     Circle(i64),
     Square(i64),
@@ -127,7 +127,7 @@ A method that does not exist is reported by name and by type:
 An `object` is a type with its fields and its methods in one declaration. It
 is a struct and an `impl` block written together.
 
-```otter
+```yashy
 object Counter {
     value: i64,
     fn get(self) -> i64 {
@@ -159,7 +159,7 @@ result of another one, as `counter.add(4).get()` does.
 A method with no `self` belongs to the type rather than to a value of it, and
 it is called on the type.
 
-```otter
+```yashy
 object Counter {
     value: i64,
     fn new(start: i64) -> Counter {
@@ -187,7 +187,7 @@ A method that takes `self` receives a *copy* of the object, so it can read the
 object but cannot change the caller's. To change it, the method takes the
 object's address instead:
 
-```otter
+```yashy
 object Counter {
     value: i64,
     fn new() -> Counter {
@@ -257,17 +257,17 @@ takes the reference over from the value it was given, a copy retains one of
 its own, and the binding's scope releases what it holds when it ends. A struct
 that goes out of scope therefore leaves nothing behind.
 
-```otter
+```yashy
 struct Named {
     name: string,
     count: i64,
 }
 
 fn main() {
-    const named = Named { name: "ott" + "er", count: 2 };
+    const named = Named { name: "yas" + "hy", count: 2 };
     print_str(named.name);
     print_str("\n");
-    // => otter
+    // => yashy
 }
 ```
 

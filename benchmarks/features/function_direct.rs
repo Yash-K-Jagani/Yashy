@@ -1,4 +1,4 @@
-// The function.ot loop calling the function directly: the same work, without
+// The function.ya loop calling the function directly: the same work, without
 // the fn pointer. The difference between this row and the `function` row is
 // the price of calling through a value.
 fn scale(x: i64, k: i64) -> i64 {

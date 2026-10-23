@@ -1,0 +1,8 @@
+[package]
+name = "yashy-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-lexer = { path = "../yashy-lexer" }

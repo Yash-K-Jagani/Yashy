@@ -8,14 +8,14 @@
 # the workspace grows its own `tests/golden/` directory as its tests do, and a
 # pattern that only covered the first crate would leave the next one to fail on
 # a fresh clone.
-**/tests/golden/*.ot        text eol=lf
+**/tests/golden/*.ya        text eol=lf
 **/tests/golden/*.expected text eol=lf
 **/tests/golden/*.expected.ll text eol=lf
 
 # The end-to-end programs are compiled and their output compared as bytes. A
 # checkout that rewrote their line endings would still compile, but the pinned
 # expected stdout in `e2e.rs` would no longer describe the same program.
-**/tests/programs/*.ot      text eol=lf
+**/tests/programs/*.ya      text eol=lf
 
 # A fuzz corpus entry is an arbitrary blob of input bytes, not a text file. Git
 # rewrites the line endings of anything it treats as text, which would quietly

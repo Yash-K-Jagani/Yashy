@@ -72,7 +72,7 @@
 - Modify: every `*.rs` that names a crate (`use otter_common::…`)
 
 **Interfaces:**
-- Produces: crate paths `yashy_common`, `yashy_lexer`, `yashy_parser`, `yashy_sema`, `yashy_codegen`, `yashy_driver`, `yashy_runtime`, `yashy_fmt`, `yashy_lsp`, and directories `crates/yashy-*`.
+- Produces: crate paths `yashy_common`, `yashy_lexer`, `yashy_parser`, `yashy_sema`, `yashy_codegen`, `yashy_driver`, `yashy_runtime`, `yashy_fmt`, `yashy_lsp`, and directories `crates/yashy-*`; the fuzz package becomes `yashy-fuzz`.
 - Consumes: nothing. This task changes no type, function, or diagnostic.
 
 - [ ] **Step 1: Record the baseline**
@@ -84,7 +84,7 @@ cargo test --workspace --no-fail-fast 2>&1 | Tee-Object -FilePath "$env:TEMP\pre
 Select-String -Path "$env:TEMP\pre-rename-tests.log" -Pattern 'test result:'
 ```
 
-Expected: 76 `test result: ok.` lines, 0 failed (after the launch retries). Record the total passed count in the commit message.
+Expected, as measured on 2026-10-23: **84** `test result:` lines; all green except the suites the host's Application Control policy blocks with os error 4551. That run produced `otter-driver --test e2e` 95 passed / 9 failed, `--test leaks` 9 failed, `--test modules` 1, `--test tutorial` 1, and `otter-runtime --test racy_strings` 1 — every failure the same 4551 refusal, and every failing test passed when rerun alone. Record that baseline in the commit message; the gate for later tasks compares against it, and a 4551 failure is rerun rather than counted.
 
 - [ ] **Step 2: Move the directories**
 
@@ -105,18 +105,21 @@ Two moves beyond the ten crates belong here. The header moves because Step 3's c
 Only the crate identifier changes in this step. The runtime symbols (`otter_print_str`) and the binary (`otter`) are separate tasks, so a pattern restricted to the ten known suffixes is what keeps this step from doing too much.
 
 ```powershell
-Get-ChildItem -Recurse -File -Include *.rs,*.toml |
-  Where-Object { $_.FullName -notmatch '\\target\\|\\.git\\' } |
+Get-ChildItem -Recurse -File -Include *.rs,*.toml,*.c,*.h |
+  Where-Object { $_.FullName -notmatch '\\target\\|\\.git\\|\\benchmarks\\build\\' } |
   ForEach-Object {
     $path = $_.FullName
-    $text = Get-Content -Raw -LiteralPath $path
-    $next = $text -replace 'otter_(common|lexer|parser|sema|codegen|driver|runtime|fmt|lsp|stdlib)','yashy_$1'
-    $next = $next -replace 'otter-(common|lexer|parser|sema|codegen|driver|runtime|fmt|lsp|stdlib)','yashy-$1'
-    $next = $next -replace '\.join\("otter"\)','.join("yashy")'
-    if ($next -ne $text) { Set-Content -LiteralPath $path -Value $next -NoNewline -Encoding utf8NoBOM }
+    $text = [System.IO.File]::ReadAllText($path)
+    $next = $text -creplace 'otter_(common|lexer|parser|sema|codegen|driver|runtime|fmt|lsp|stdlib)','yashy_$1'
+    $next = $next -creplace 'otter-(common|lexer|parser|sema|codegen|driver|runtime|fmt|lsp|stdlib|fuzz)','yashy-$1'
+    $next = $next -creplace '\.join\("otter"\)','.join("yashy")'
+    $next = $next -creplace 'otter_runtime\.h','yashy_runtime.h'
+    if ($next -cne $text) { [System.IO.File]::WriteAllText($path, $next, (New-Object System.Text.UTF8Encoding($false))) }
   }
 Select-String -Path Cargo.toml -Pattern 'yashy'
 ```
+
+Two details are load-bearing in that snippet. `-creplace`, not `-replace`: PowerShell's operator ignores case by default, and `-replace 'otter_(runtime)'` would rewrite the header guard `OTTER_RUNTIME_H` into `yashy_RUNTIME_H`. And `[System.IO.File]::WriteAllText` with a BOM-less `UTF8Encoding`, because this host's `powershell` is 5.1, where `Set-Content -Encoding utf8NoBOM` does not exist and fails the whole write. The `.c`/`.h` files are in scope because `runtime.c` and `hashmap.c` `#include "otter_runtime.h"`; the crate-suffix patterns cannot touch a symbol like `otter_print_str`.
 
 Expected: `Cargo.toml` lists `crates/yashy-common` … `crates/yashy-lsp`; no `otter` remains in any manifest. The third replacement is for `crates/yashy-driver/tests/stdlib.rs`, which builds the stdlib path as `.join("otter-stdlib").join("otter")` — the first two replacements catch `otter-stdlib`, only this one catches the trailing component.
 
@@ -127,7 +130,7 @@ cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 > $null
 Select-String -Path fuzz/Cargo.lock -Pattern 'otter'
 ```
 
-Expected: the second command prints nothing.
+Expected: the second command prints nothing. `fuzz/Cargo.lock` is ignored by `fuzz/.gitignore` and is therefore regenerated locally but never staged.
 
 - [ ] **Step 4: Check and test**
 
@@ -136,15 +139,17 @@ cargo check --workspace --all-targets
 cargo test --workspace --no-fail-fast
 ```
 
-Expected: `cargo check` produces no warnings; the same 76 suites and the same pass count as Step 1.
+Expected: `cargo check` produces no warnings; the same 84 suites and the same pass count as Step 1 (modulo 4551 reruns).
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add Cargo.toml Cargo.lock fuzz/Cargo.toml fuzz/Cargo.lock crates
+git add Cargo.toml Cargo.lock fuzz/Cargo.toml crates
 git commit -m "refactor: rename the crates from otter-* to yashy-*"
 git push origin main
 ```
+
+`fuzz/Cargo.lock` is not in that list on purpose: `fuzz/.gitignore` line 5 ignores `Cargo.lock`, so staging it would fail with "paths are ignored". It is regenerated locally so the fuzz workspace resolves the new package names, and it stays untracked exactly as it was before this rename.
 
 The body records the baseline counts: `N suites, M tests, unchanged.`
 
@@ -230,13 +235,15 @@ Get-ChildItem -Recurse -File -Include *.rs,*.md,*.ps1,*.sh,*.yml,*.c,*.h |
                  $_.FullName -notmatch '\\docs\\superpowers\\' } |
   ForEach-Object {
     $path = $_.FullName; $text = Get-Content -Raw -LiteralPath $path
-    $next = $text -replace 'OTTER_','YASHY_' -replace 'otter-(e2e|tutorial|stdlib|link|modules|lsp)','yashy-$1'
+    $next = $text -replace 'OTTER_','YASHY_' -replace 'otter-([a-z])','yashy-$1'
     if ($next -ne $text) { Set-Content -LiteralPath $path -Value $next -NoNewline -Encoding utf8NoBOM }
   }
 Select-String -Path crates/yashy-driver/src/toolchain.rs -Pattern 'YASHY_LLC'
 ```
 
 Expected: `pub const LLC_ENV_VAR: &str = "YASHY_LLC";`.
+
+The dashed rule is generic on purpose. Beyond the `yashy-*` crates (already renamed by 1.1, so no longer matching), the sources name temp directories by language, and they are not all obvious: `otter-e2e`, `otter-tutorial`, `otter-link`, `otter-modules`, `otter-leaks`, `otter-racy`, `otter-test`, `otter-threads`, `otter-path`, `otter-cache`. A list of alternatives was tried on paper and missed five of them; `otter-([a-z])` catches every one and cannot touch a symbol (`otter_print_str` is not dashed).
 
 - [ ] **Step 6: Regenerate the goldens and prove the diff is only names**
 
@@ -464,6 +471,64 @@ git add -A
 git commit -m "docs: rename the remaining prose, editors and CI to Yashy"
 git push origin main
 ```
+
+---
+
+### Task 1, as built
+
+Five things differed from the plan above; each is recorded because a later task
+depends on the outcome.
+
+1. **This host's `powershell` is 5.1.** `Set-Content -Encoding utf8NoBOM` does not
+   exist there, and the first rewrite pass failed every write while the loop kept
+   going. Every bulk rewrite used
+   `[System.IO.File]::WriteAllText($path, $next, (New-Object System.Text.UTF8Encoding($false)))`
+   instead. `-creplace` replaced `-replace` everywhere: PowerShell's default is
+   case-insensitive, so `-replace 'otter_(runtime)','yashy_$1'` would have
+   rewritten the header guard `OTTER_RUNTIME_H` into `yashy_RUNTIME_H`.
+
+2. **The header move belongs to 1.1's rewrite.** `runtime.c` and `hashmap.c`
+   `#include "otter_runtime.h"`, so the `.c`/`.h` files joined that scan; a
+   crate-identifier pass over `.rs`/`.toml` alone cannot compile.
+
+3. **Two `"ot"` spellings are not path suffixes.** `crates/yashy-driver/src/modules.rs`
+   appends the extension with `set_extension("ot")`, and the lexer's golden test
+   filters with `ext == "ot"`. A `\.ot\b` textual pass cannot see either; both
+   are `"ya"` now.
+
+4. **The runtime's Rust mirror is three types, not one.** Besides `OtterStr`,
+   `OtterMap` and `OtterSlice` name the same layouts on the Rust side; all three
+   became `Yashy*`.
+
+5. **Two programs spell the language name in fragments.** `04-structs.md` and
+   `tests/programs/struct_ownership.ya` build it as `"ott" + "er"`, so the prose
+   pass changed the expected line but not the printed value. Both now build
+   `"yas" + "hy"`. Likewise `benchmarks/loop.mjs` is a `.mjs` file, outside the
+   sweep's extension list; it named the language and `loop.ot`, and now names
+   neither.
+
+The goldens were regenerated three times, once per kind of change, and each time
+the diff was proven to be exactly the substitution: `.ot`→`.ya` in the embedded
+source path, `otter_`→`yashy_` in the symbols, `Otter`→`Yashy` in the emitted
+header comment.
+
+`fuzz/corpus/lex_parse/hello` still contains `"Hello, Otter!"`. It is an
+untouched corpus entry, not a name: rewriting test data would change the input
+the corpus exists to preserve.
+
+The only live occurrences of the old name left in the tree are the README's
+former-name note and the help test's regression assertion, which has to name what
+it forbids.
+
+Gate: `cargo check --workspace --all-targets` is warning-free. The first
+`cargo test --workspace --no-fail-fast` ran 84 test binaries and failed 130
+tests, every one of them this host's Application Control refusal (os error 4551;
+Smart App Control is on) rather than an assertion. Each failure was rerun and
+every rerun passed: e2e 105/105, tutorial, modules, stdlib, link, `parser --doc`,
+and all ten leak tests individually. The refusal fell on a freshly rebuilt
+`yashy.exe` as well, so the evidence run rebuilt the driver alone and reused the
+already-trusted binary; `cargo test -p yashy-driver -p yashy-runtime` relinks the
+binary under a different feature set and loses that trust.
 
 ---
 

@@ -1,13 +1,13 @@
-# 0. What Otter is
+# 0. What Yashy is
 
 ## What you will learn
 
-- What Otter is, and the three decisions that shape the rest of the language.
+- What Yashy is, and the three decisions that shape the rest of the language.
 - How to build the compiler and compile a program to a native executable.
 - How to read a compiler diagnostic that points at your source.
 - How this tutorial is checked, so you know which claims are tested.
 
-Otter is a small compiled language: static types, no garbage collector, no
+Yashy is a small compiled language: static types, no garbage collector, no
 `null`, and no exceptions. It compiles to LLVM IR, which `clang` turns into a
 native executable.
 
@@ -25,7 +25,7 @@ syntax:
 - **Memory is owned.** A value has one owner; `move` transfers it; `defer`
   releases it when the scope exits. The type checker refuses a use after a
   move, and the runtime holds no hidden bookkeeping to save a program that
-  ignores one. This is how Otter avoids a tracing collector without making
+  ignores one. This is how Yashy avoids a tracing collector without making
   every allocation a stack value.
 
 ## Build and run
@@ -37,12 +37,12 @@ cargo build --release
 ```
 
 Then compile a program and run it. The compiler lives at
-`target/release/otter.exe` on Windows and `target/release/otter` elsewhere; the
+`target/release/yashy.exe` on Windows and `target/release/yashy` elsewhere; the
 output is `hello.exe` on Windows and `hello` on Linux and macOS. A debug build
-works the same way and compiles faster: `cargo build`, then `target/debug/otter`.
+works the same way and compiles faster: `cargo build`, then `target/debug/yashy`.
 
 ```text
-target/release/otter build hello.ot -o hello
+target/release/yashy build hello.ya -o hello
 ./hello
 ```
 
@@ -53,10 +53,10 @@ the same stem in different directories.
 
 The first program is the smallest complete one:
 
-```otter
+```yashy
 fn main() {
-    print_str("Otter speaks.\n");
-    // => Otter speaks.
+    print_str("Yashy speaks.\n");
+    // => Yashy speaks.
 }
 ```
 
@@ -68,11 +68,11 @@ file, imported or not, so the first example needs no `import`.
 
 | Command | What it does | When to use it |
 |---|---|---|
-| `otter build file.ot -o name` | Compiles to a native executable. | Running the program. |
-| `otter check file.ot` | Lexes, parses and type-checks; writes no executable. | Fast feedback while editing. |
-| `otter build file.ot --emit-ir` | Prints the generated LLVM IR and stops. | Seeing what the compiler produced. |
-| `otter fmt [-w] file.ot` | Rewrites a file in the canonical style; `-w` writes it back. | Keeping a file consistent. |
-| `otter version` | Prints the compiler version. | Reporting a problem. |
+| `yashy build file.ya -o name` | Compiles to a native executable. | Running the program. |
+| `yashy check file.ya` | Lexes, parses and type-checks; writes no executable. | Fast feedback while editing. |
+| `yashy build file.ya --emit-ir` | Prints the generated LLVM IR and stops. | Seeing what the compiler produced. |
+| `yashy fmt [-w] file.ya` | Rewrites a file in the canonical style; `-w` writes it back. | Keeping a file consistent. |
+| `yashy version` | Prints the compiler version. | Reporting a problem. |
 
 `build` accepts `-O0` through `-O3` (the default is `-O2`), `--release` (which
 drops `debug_assert` calls), `--fast-math` (which allows fused multiply-add and
@@ -81,14 +81,14 @@ use unless you know the machine that will run the binary).
 
 ## How the tutorial is checked
 
-The tutorial is executable. Every fenced block tagged `otter` is a whole
+The tutorial is executable. Every fenced block tagged `yashy` is a whole
 program with a `fn main`, and the lines beginning `// =>` inside that block are
 the exact stdout the program must print, in order, one line each. The test
-extracts each block, writes it to a temporary file, runs `otter build`, runs
+extracts each block, writes it to a temporary file, runs `yashy build`, runs
 the result, and compares the output.
 
 ```text
-cargo test -p otter-driver --test tutorial --target-dir D:\Otter\target\probe1
+cargo test -p yashy-driver --test tutorial --target-dir D:\Yashy\target\probe1
 ```
 
 On another platform, pass any writable target directory. A failure names the
@@ -104,34 +104,34 @@ promises; the explanations are there to make the promises make sense.
 
 - **Running the compiler with no command.** It prints `error: no command given`
   followed by the usage text.
-- **Forgetting the source file.** `otter build` prints
+- **Forgetting the source file.** `yashy build` prints
   ``error: `build` needs a source file``.
 - **Naming a file that is not there.** The error begins
   `error: cannot read <path>:` and includes the operating system's reason.
 - **Expecting the executable in the current directory after `build` without
   `-o`.** It is written next to the source. Use `-o hello` when the location
   matters.
-- **Editing an `otter` block without updating its `// =>` lines.** This is the
+- **Editing an `yashy` block without updating its `// =>` lines.** This is the
   one mistake the test is designed to catch: it compiles and runs the block you
   wrote, then reports the first line where stdout and the claims disagree.
 
 ## Try it
 
-1. Put the first program in a file named `first.ot`, build it with
-   `otter build first.ot -o first`, and run it. Change the text, rebuild, and
+1. Put the first program in a file named `first.ya`, build it with
+   `yashy build first.ya -o first`, and run it. Change the text, rebuild, and
    confirm the change. Then delete `-o` and find where the executable landed.
    Hint: the source file's directory, not the shell's directory, is the one
    that matters.
 
 2. Break the program on purpose: declare `const n: i64 = "three";` and run
-   `otter check first.ot`. Read the four lines of the diagnostic, from the
+   `yashy check first.ya`. Read the four lines of the diagnostic, from the
    `path:line:column` header to the caret under the expression. Hint: the
    caret points at the value that does not fit the declared type, not at the
    declaration.
 
 ## How it works
 
-`otter build` runs a pipeline: lexer, parser, type checker, code generator, then
+`yashy build` runs a pipeline: lexer, parser, type checker, code generator, then
 the system's `clang`. The compiler writes LLVM IR as text rather than
 building it through a library, so `--emit-ir` is a real view of the last stage
 and a code-generation bug can be read as a diff. The type checker runs before

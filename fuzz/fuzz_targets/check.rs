@@ -9,17 +9,17 @@
 //! almost never produce and a corpus of real programs plus mutations does.
 
 use libfuzzer_sys::fuzz_target;
-use otter_codegen::{emit_program, CodegenOptions};
-use otter_common::SourceMap;
-use otter_lexer::Lexer;
-use otter_parser::Parser;
-use otter_sema::check_program;
+use yashy_codegen::{emit_program, CodegenOptions};
+use yashy_common::SourceMap;
+use yashy_lexer::Lexer;
+use yashy_parser::Parser;
+use yashy_sema::check_program;
 
 fuzz_target!(|data: &[u8]| {
     let source = String::from_utf8_lossy(data);
 
     let mut sources = SourceMap::new();
-    let file = sources.add_file("fuzz.ot", source.to_string());
+    let file = sources.add_file("fuzz.ya", source.to_string());
 
     let Ok(tokens) = Lexer::new(&source).tokenize() else {
         return;
@@ -33,7 +33,7 @@ fuzz_target!(|data: &[u8]| {
     };
     // The emitter is infallible by contract: it must return a `String` for every
     // HIR the checker accepted, however odd.
-    let ir = emit_program(&hir, "fuzz.ot", CodegenOptions::default());
+    let ir = emit_program(&hir, "fuzz.ya", CodegenOptions::default());
     // A cheap shape check. A panic would already have been caught, so this is
     // here for the case where the emitter silently returns nothing at all.
     assert!(ir.contains("target triple"), "the emitter produced no module");
