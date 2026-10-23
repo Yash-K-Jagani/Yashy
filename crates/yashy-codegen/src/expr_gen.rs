@@ -816,6 +816,13 @@ pub(crate) fn gen_literal(ctx: &mut FnCtx<'_>, lit: &Literal, ty: &TypeKind) -> 
             value: if *b { "1".to_string() } else { "0".to_string() },
             ty: ty.clone(),
         },
+        // The byte as an unsigned decimal constant: `i8 255` is the same eight
+        // bits as `i8 -1`, and LLVM accepts either. Printing it unsigned keeps
+        // the IR readable next to the literal the user wrote.
+        Literal::Char(byte) => GenValue {
+            value: byte.to_string(),
+            ty: ty.clone(),
+        },
         Literal::Str(s) => GenValue {
             value: ctx.module.intern_bytes_ptr(&s.bytes),
             ty: ty.clone(),
@@ -911,7 +918,7 @@ fn gen_binary(
         BinOp::And => ("and", TypeKind::Bool),
         BinOp::Or => ("or", TypeKind::Bool),
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            let pred = cmp_predicate(op, is_float);
+            let pred = cmp_predicate(op, is_float, matches!(l.ty, TypeKind::Char));
             let cmp_ty = repr_type(&l.ty);
             let tmp = ctx.tmp();
             ctx.push(format!("{tmp} = {pred} {cmp_ty} {}, {}", l.value, r.value));
@@ -947,18 +954,25 @@ fn gen_binary(
 
 /// The compare predicate for a comparison operator. Comparisons are the only
 /// ops that reach here; the fallback arm is unreachable but total.
-fn cmp_predicate(op: BinOp, is_float: bool) -> String {
-    let (int, float) = match op {
-        BinOp::Eq => ("eq", "oeq"),
-        BinOp::Ne => ("ne", "one"),
-        BinOp::Lt => ("slt", "olt"),
-        BinOp::Le => ("sle", "ole"),
-        BinOp::Gt => ("sgt", "ogt"),
-        BinOp::Ge => ("sge", "oge"),
-        _ => ("eq", "oeq"),
+///
+/// A char is compared unsigned: it is a byte, so `'\xFF'` is 255 and not -1.
+/// That is the one place the mnemonic and the storage type disagree -- the
+/// value is an `i8` and the predicate is `ult` -- which is why the golden
+/// program exists.
+fn cmp_predicate(op: BinOp, is_float: bool, is_char: bool) -> String {
+    let (int, float, unsigned) = match op {
+        BinOp::Eq => ("eq", "oeq", "eq"),
+        BinOp::Ne => ("ne", "one", "ne"),
+        BinOp::Lt => ("slt", "olt", "ult"),
+        BinOp::Le => ("sle", "ole", "ule"),
+        BinOp::Gt => ("sgt", "ogt", "ugt"),
+        BinOp::Ge => ("sge", "oge", "uge"),
+        _ => ("eq", "oeq", "eq"),
     };
     if is_float {
         format!("fcmp {float}")
+    } else if is_char {
+        format!("icmp {unsigned}")
     } else {
         format!("icmp {int}")
     }

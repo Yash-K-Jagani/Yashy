@@ -45,6 +45,7 @@ pub fn check_pattern(
                     yashy_parser::ast::Literal::F64(_) => TypeKind::F64,
                     yashy_parser::ast::Literal::Bool(_) => TypeKind::Bool,
                     yashy_parser::ast::Literal::Str(_) => TypeKind::Str,
+                    yashy_parser::ast::Literal::Char(_) => TypeKind::Char,
                 },
                 span: *span,
             };

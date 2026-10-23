@@ -118,6 +118,20 @@ fn infers_f64_from_float_literal() {
 }
 
 #[test]
+fn a_char_has_its_own_type() {
+    let expr = expr_of_statement("fn f() { const c = 'A'; }", "f", 0);
+    assert_eq!(expr_ty(&expr).kind, TypeKind::Char);
+}
+
+#[test]
+fn chars_compare_with_each_other_only() {
+    let (ok, _, _) = check_source("fn f() { if 'A' < 'B' { } if 'A' == 'A' { } }");
+    assert!(ok.is_ok(), "chars compare with chars: {ok:?}");
+    assert_error("fn f() { if 'A' == 65 { } }", "cannot compare `char` with `int`");
+    assert_error("fn f() { const n = 'A' + 1; }", "no arithmetic on `char`");
+}
+
+#[test]
 fn function_parameters_and_returns_are_checked() {
     let (result, _, _) = check_source("fn f(a: int) -> int { return a; }");
     result.expect("fn with matching signature should type-check");
@@ -1387,7 +1401,7 @@ fn assert_eq_reports_operands_it_cannot_compare() {
     // message is about.
     assert_error(
         "fn f() { const o = Some(1); const p = Some(2); assert_eq(o, p); }",
-        "`assert_eq` cannot compare `Option[int]` values: it compares `int`, `float`, `bool` and `string`",
+        "`assert_eq` cannot compare `Option[int]` values: it compares `int`, `float`, `bool`, `char` and `string`",
     );
     // A `Never` operand is reported as uncomparable rather than as a mismatch
     // against `!`, which is what the order of the two checks is for.

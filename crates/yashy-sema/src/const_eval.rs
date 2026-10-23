@@ -53,6 +53,8 @@ pub enum ConstValue {
     F64(f64),
     Bool(bool),
     Str(String),
+    /// One byte, from a char literal or a folded char comparison.
+    Char(u8),
 }
 
 impl ConstValue {
@@ -63,6 +65,7 @@ impl ConstValue {
             ConstValue::F64(_) => TypeKind::F64,
             ConstValue::Bool(_) => TypeKind::Bool,
             ConstValue::Str(_) => TypeKind::Str,
+            ConstValue::Char(_) => TypeKind::Char,
         }
     }
 
@@ -76,6 +79,7 @@ impl ConstValue {
             ConstValue::I64(value) => (Literal::I64(*value), TypeKind::I64),
             ConstValue::F64(value) => (Literal::F64(*value), TypeKind::F64),
             ConstValue::Bool(value) => (Literal::Bool(*value), TypeKind::Bool),
+            ConstValue::Char(value) => (Literal::Char(*value), TypeKind::Char),
             ConstValue::Str(value) => {
                 let text = StringLit {
                     value: value.clone(),
@@ -441,6 +445,7 @@ fn literal_kind(literal: &Literal) -> TypeKind {
         Literal::F64(_) => TypeKind::F64,
         Literal::Bool(_) => TypeKind::Bool,
         Literal::Str(_) => TypeKind::Str,
+        Literal::Char(_) => TypeKind::Char,
     }
 }
 
@@ -483,7 +488,9 @@ fn binary_kind(op: BinOp, left: &Type, right: &Type, span: Span) -> Result<Type,
             ))
         }
         BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            if left.kind == right.kind && is_numeric(&left.kind) {
+            if left.kind == right.kind
+                && (is_numeric(&left.kind) || left.kind == TypeKind::Char)
+            {
                 return Ok(bool_type());
             }
             Err(TypeError::new(
@@ -664,6 +671,7 @@ pub fn evaluate(
             Literal::F64(value) => ConstValue::F64(*value),
             Literal::Bool(value) => ConstValue::Bool(*value),
             Literal::Str(text) => ConstValue::Str(text.value.clone()),
+            Literal::Char(byte) => ConstValue::Char(*byte),
         }),
         Expr::Ident(path, span) => {
             let name = path.last().cloned().unwrap_or_default();
@@ -892,6 +900,10 @@ fn evaluate_binary(
         (BinOp::Le, ConstValue::F64(a), ConstValue::F64(b)) => Ok(ConstValue::Bool(a <= b)),
         (BinOp::Gt, ConstValue::F64(a), ConstValue::F64(b)) => Ok(ConstValue::Bool(a > b)),
         (BinOp::Ge, ConstValue::F64(a), ConstValue::F64(b)) => Ok(ConstValue::Bool(a >= b)),
+        (BinOp::Lt, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a < b)),
+        (BinOp::Le, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a <= b)),
+        (BinOp::Gt, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a > b)),
+        (BinOp::Ge, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a >= b)),
         (BinOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => {
             Ok(ConstValue::Bool(*a && *b))
         }

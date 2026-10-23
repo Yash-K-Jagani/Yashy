@@ -27,6 +27,10 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         TypeKind::I64 => "i64".to_string(),
         TypeKind::F64 => "double".to_string(),
         TypeKind::Bool => "i1".to_string(),
+        // A char is one byte with no valid bit patterns outside 0..=255, and
+        // `i8` is the integer that size. Whether the comparison is signed is
+        // decided by the predicate at the comparison, not by this type.
+        TypeKind::Char => "i8".to_string(),
         TypeKind::Str => "{ i32, i32, i8* }".to_string(),
         TypeKind::Unit | TypeKind::Never => "void".to_string(),
         // Every pointer is `i8*` under LLVM's opaque pointers: the pointee type
@@ -142,7 +146,7 @@ fn alignment_of(kind: &TypeKind) -> u64 {
             .map(|element| alignment_of(&element.kind))
             .max()
             .unwrap_or(1),
-        TypeKind::Bool | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
+        TypeKind::Bool | TypeKind::Char | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
         TypeKind::CInt(16) | TypeKind::CUInt(16) => 2,
         TypeKind::CInt(32) | TypeKind::CUInt(32) | TypeKind::CFloat(32) => 4,
         other => size_of(other).max(1),
@@ -161,7 +165,7 @@ fn alignment_of(kind: &TypeKind) -> u64 {
 /// wrong in a test.
 pub fn size_of(kind: &TypeKind) -> u64 {
     match kind {
-        TypeKind::Bool | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
+        TypeKind::Bool | TypeKind::Char | TypeKind::CInt(8) | TypeKind::CUInt(8) => 1,
         TypeKind::CInt(16) | TypeKind::CUInt(16) => 2,
         TypeKind::CInt(32) | TypeKind::CUInt(32) | TypeKind::CFloat(32) => 4,
         TypeKind::I64

@@ -16,6 +16,9 @@ pub enum TypeKind {
     I64,
     F64,
     Bool,
+    /// A single byte, written `char`. Copyable, and ordered by unsigned byte
+    /// value: `'\xFF'` is 255, not -1.
+    Char,
     Str,
     Unit,
     /// A declared struct, named by its declaration name.
@@ -145,6 +148,7 @@ impl std::fmt::Display for TypeKind {
             TypeKind::I64 => write!(f, "int"),
             TypeKind::F64 => write!(f, "float"),
             TypeKind::Bool => write!(f, "bool"),
+            TypeKind::Char => write!(f, "char"),
             TypeKind::Str => write!(f, "string"),
             TypeKind::Unit => write!(f, "void"),
             TypeKind::Struct(name) => write!(f, "{name}"),

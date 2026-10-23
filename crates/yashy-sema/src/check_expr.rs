@@ -178,6 +178,7 @@ fn mangled_type_name(ty: &Type) -> String {
         TypeKind::I64 => "i64".to_string(),
         TypeKind::F64 => "f64".to_string(),
         TypeKind::Bool => "bool".to_string(),
+        TypeKind::Char => "char".to_string(),
         TypeKind::Str => "string".to_string(),
         TypeKind::Unit => "void".to_string(),
         TypeKind::Never => "never".to_string(),
@@ -1690,6 +1691,7 @@ impl<'src> Checker<'src> {
                     "int" => Some(TypeKind::I64),
                     "float" => Some(TypeKind::F64),
                     "bool" => Some(TypeKind::Bool),
+                    "char" => Some(TypeKind::Char),
                     "string" => Some(TypeKind::Str),
                     // A return position spells the no-value type `void`. In an
                     // `extern` declaration the same word is the C `void` and
@@ -4036,7 +4038,9 @@ impl<'src> Checker<'src> {
     /// value.
     fn has_equality(&self, ty: &TypeKind) -> bool {
         match ty {
-            TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str => true,
+            TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str | TypeKind::Char => {
+                true
+            }
             TypeKind::Struct(name) => self
                 .structs
                 .get(name)
@@ -5944,6 +5948,11 @@ impl<'src> Checker<'src> {
                 *span,
                 prim(TypeKind::Str),
             )),
+            Expr::Literal(Literal::Char(byte), span) => Some(HirExpr::Literal(
+                Literal::Char(*byte),
+                *span,
+                prim(TypeKind::Char),
+            )),
             Expr::Ident(path, span) => {
                 // `None` is a value constructor, not a variable. It has no
                 // payload to infer from on its own, so `check_constructor`
@@ -7429,7 +7438,7 @@ impl<'src> Checker<'src> {
                 expr_span(&left),
                 format!(
                     "`{name}` cannot compare `{left_ty}` values: it compares `int`, \
-                     `float`, `bool` and `string`"
+                     `float`, `bool`, `char` and `string`"
                 ),
             );
             return None;
@@ -7612,7 +7621,7 @@ fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str
 fn has_equality(ty: &Type) -> bool {
     matches!(
         ty.kind,
-        TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str
+        TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str | TypeKind::Char
     )
 }
 
@@ -8007,6 +8016,7 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
         TypeKind::I64 => TypeExpr::Name("int".to_string(), span),
         TypeKind::F64 => TypeExpr::Name("float".to_string(), span),
         TypeKind::Bool => TypeExpr::Name("bool".to_string(), span),
+        TypeKind::Char => TypeExpr::Name("char".to_string(), span),
         TypeKind::Str => TypeExpr::Name("string".to_string(), span),
         TypeKind::Unit => TypeExpr::Name("void".to_string(), span),
         TypeKind::Struct(name) | TypeKind::Enum(name) => TypeExpr::Name(name.clone(), span),
@@ -8078,8 +8088,17 @@ fn is_numeric(ty: &Type) -> bool {
 /// the operands do not fit it.
 fn binary_result_type(op: BinOp, lhs: &Type, rhs: &Type) -> Result<Type, String> {
     let numeric = is_numeric(lhs) && is_numeric(rhs);
+    let lhs_char = lhs.kind == TypeKind::Char;
+    let rhs_char = rhs.kind == TypeKind::Char;
     match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+            // A `char` is a byte, not a number: `'A' + 1` has no answer that
+            // stays a `char`, and one that silently became an `int` would make
+            // arithmetic and comparison disagree about what a char is. The
+            // conversion is the way to do arithmetic on the byte.
+            if lhs_char || rhs_char {
+                return Err("no arithmetic on `char`: convert with `to_int()`".to_string());
+            }
             // `+` is the one arithmetic operator that means something else for
             // a second type: two strings concatenate. Keeping it inside this
             // arm rather than before the table means `-`, `*`, `/` and `%` stay
@@ -8101,6 +8120,12 @@ fn binary_result_type(op: BinOp, lhs: &Type, rhs: &Type) -> Result<Type, String>
             Ok(lhs.clone())
         }
         BinOp::Eq | BinOp::Ne => {
+            // Comparing a char with an int asks whether two different kinds of
+            // thing are equal, and there is no answer that is not a guess about
+            // which of the two conversions the author meant.
+            if lhs_char != rhs_char {
+                return Err(format!("cannot compare `{lhs}` with `{rhs}`"));
+            }
             if !lhs.eq_ignoring_span(rhs) {
                 return Err(format!(
                     "cannot apply `{}` to `{}` and `{}`",
@@ -8112,7 +8137,10 @@ fn binary_result_type(op: BinOp, lhs: &Type, rhs: &Type) -> Result<Type, String>
             Ok(prim(TypeKind::Bool))
         }
         BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            if !numeric || !lhs.eq_ignoring_span(rhs) {
+            if lhs_char != rhs_char {
+                return Err(format!("cannot compare `{lhs}` with `{rhs}`"));
+            }
+            if !(numeric || (lhs_char && rhs_char)) || !lhs.eq_ignoring_span(rhs) {
                 return Err(format!(
                     "cannot apply `{}` to `{}` and `{}`",
                     binop_symbol(op),
