@@ -146,6 +146,12 @@ yashy_str *yashy_str_slice(const yashy_str *s, long long start, long long end);
 yashy_str *yashy_str_from_i64(long long value);
 yashy_str *yashy_str_from_f64(double value);
 yashy_str *yashy_str_from_bool(long long value);
+/* The one-byte string the byte spells: `'\xFF'` is a length-1 string holding
+ * 0xFF, with no encoding applied. */
+yashy_str *yashy_str_from_char(unsigned char value);
+/* The byte an `int` names, or a failure status and a message when it is outside
+ * 0..=255. Truncating instead would turn a mistake into a plausible character. */
+unsigned char yashy_char_from_int(long long value);
 int yashy_str_eq(const yashy_str *a, const yashy_str *b);
 
 /* The debug form of a string (M15 Task 20): the text in double quotes, with

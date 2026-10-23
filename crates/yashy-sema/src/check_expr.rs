@@ -3818,6 +3818,22 @@ impl<'src> Checker<'src> {
         }
         let binding = self.scope.resolve(receiver)?;
         let receiver_ty = binding.ty.clone();
+        // The scalar conversions are methods on a value, so they are resolved
+        // before a user method of the same name could be: `to_int` on a `char`
+        // is not something a program declares.
+        if matches!(method.as_str(), "to_int" | "to_char" | "to_string")
+            && matches!(receiver_ty.kind, TypeKind::Char | TypeKind::I64)
+        {
+            if let Some(receiver_checked) =
+                self.check_expr(&Expr::Ident(vec![receiver.clone()], span))
+            {
+                if let Some(converted) =
+                    self.check_scalar_method(receiver_checked, method, args, span)
+                {
+                    return Some(Some(converted));
+                }
+            }
+        }
         // The receiver's type is an item, so it is private to the module that
         // declares it unless it is `pub`.
         if let TypeKind::Struct(name) = &receiver_ty.kind {
@@ -4206,6 +4222,57 @@ impl<'src> Checker<'src> {
     ///
     /// The outer `Option` says "this was a string method"; the inner one is the
     /// checked expression, `None` after a reported error.
+    /// The conversions between `char` and the types around it.
+    ///
+    /// Each has exactly one spelling, and none of them is `as`: a cast says
+    /// "the same value at a different width", while these three say what
+    /// actually changes. `to_int` is a zero-extension and needs no call;
+    /// `to_char` checks the range at run time, because 300 is not a character;
+    /// `to_string` produces the one-byte string the byte spells.
+    ///
+    /// Returns `None` when this is not one of the three, so the ordinary method
+    /// paths keep their own error for a method that does not exist.
+    fn check_scalar_method(
+        &mut self,
+        receiver: HirExpr,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let known = match (expr_ty(&receiver).kind, method) {
+            (TypeKind::Char, "to_int" | "to_string") | (TypeKind::I64, "to_char") => true,
+            _ => false,
+        };
+        if !known {
+            return None;
+        }
+        if !args.is_empty() {
+            self.error(span, format!("`{method}` takes 0 arguments"));
+            return None;
+        }
+        Some(match method {
+            "to_int" => HirExpr::Cast {
+                expr: Box::new(receiver),
+                ty: prim(TypeKind::I64),
+                span,
+            },
+            "to_char" => HirExpr::Call {
+                callee: vec!["char_from_int".to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::Char),
+            },
+            _ => HirExpr::Call {
+                callee: vec!["str_from_char".to_string()],
+                args: vec![receiver],
+                unsafe_call: false,
+                span,
+                ty: prim(TypeKind::Str),
+            },
+        })
+    }
+
     fn check_string_method(
         &mut self,
         receiver: &str,
@@ -6111,6 +6178,11 @@ impl<'src> Checker<'src> {
                     return None;
                 };
                 let receiver_ty = expr_ty(&receiver_checked);
+                if let Some(converted) =
+                    self.check_scalar_method(receiver_checked.clone(), method, args, *span)
+                {
+                    return Some(converted);
+                }
                 match self.check_user_method_on(receiver_checked, method, args, *span) {
                     Some(checked) => checked,
                     None => {
@@ -6836,6 +6908,22 @@ impl<'src> Checker<'src> {
                 }
                 let target = self.resolve_or_report_in(ty, *span, true, false);
                 let source = expr_ty(&inner);
+                // A char is a byte, not a number, and the conversion has a name
+                // that says what it does. `as` would be a second spelling.
+                if source.kind == TypeKind::Char {
+                    self.error(
+                        *span,
+                        "a `char` is not cast with `as`: use `to_int()` to read its byte",
+                    );
+                    return None;
+                }
+                if target.kind == TypeKind::Char {
+                    self.error(
+                        *span,
+                        "`as` cannot produce a `char`: use `to_char()` to convert an `int`",
+                    );
+                    return None;
+                }
                 if !is_numeric(&source) || !is_numeric(&target) || source.eq_ignoring_span(&target)
                 {
                     self.error(*span, format!("cannot cast `{source}` to `{target}`"));

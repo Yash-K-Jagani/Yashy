@@ -141,6 +141,30 @@ fn from_bool_spells_true_and_false() {
 }
 
 #[test]
+fn from_char_is_the_one_byte_string() {
+    unsafe {
+        assert_eq!(read(yashy_runtime::yashy_str_from_char(b'A')), "A");
+        // A byte with no ASCII meaning is still one byte of text: the
+        // conversion does not encode, escape or reject it.
+        let high = yashy_runtime::yashy_str_from_char(0xFF);
+        assert_eq!((*high).len, 1);
+        let bytes = std::slice::from_raw_parts((*high).data as *const u8, 1);
+        assert_eq!(bytes, &[0xFF]);
+        assert_eq!((*high).refcount, 1, "a produced string is owned by the caller");
+        yashy_runtime::yashy_str_release(high);
+    }
+}
+
+#[test]
+fn char_from_int_keeps_the_whole_byte_range() {
+    unsafe {
+        assert_eq!(yashy_runtime::yashy_char_from_int(0), 0);
+        assert_eq!(yashy_runtime::yashy_char_from_int(65), b'A');
+        assert_eq!(yashy_runtime::yashy_char_from_int(255), 0xFF);
+    }
+}
+
+#[test]
 fn from_f64_matches_the_print_format() {
     unsafe {
         // `%.17g` is what `print_f64` writes, so the string form and the printed

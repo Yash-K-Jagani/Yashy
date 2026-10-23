@@ -132,6 +132,15 @@ fn chars_compare_with_each_other_only() {
 }
 
 #[test]
+fn scalar_conversions_have_one_spelling() {
+    let (ok, _, _) = check_source("fn f(c: char, n: int) { const a = c.to_int(); const b = n.to_char(); const s = c.to_string(); }");
+    assert!(ok.is_ok(), "conversions: {ok:?}");
+    assert_error("fn f(c: char) { const n = c as int; }", "use `to_int()`");
+    assert_error("fn f(n: int) { const c = n as char; }", "use `to_char()`");
+    assert_error("fn f(c: char) { const s = c + 1; }", "no arithmetic on `char`");
+}
+
+#[test]
 fn function_parameters_and_returns_are_checked() {
     let (result, _, _) = check_source("fn f(a: int) -> int { return a; }");
     result.expect("fn with matching signature should type-check");

@@ -1,0 +1,13 @@
+fn main() {
+    const ch = 'e';
+    print_str(ch.to_string());
+    print_str("\n");
+    print_i64(ch.to_int());
+    print_str("\n");
+    print_i64('A'.to_int());
+    print_str("\n");
+    print_str(65.to_char().to_string());
+    print_str("\n");
+    print_str('A'.to_string());
+    print_str("\n");
+}

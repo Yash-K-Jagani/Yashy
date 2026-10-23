@@ -968,6 +968,39 @@ yashy_str *yashy_str_from_bool(long long value) {
     return yashy_str_new(text, value != 0 ? 4u : 5u);
 }
 
+/* ---- Chars ------------------------------------------------------------
+ *
+ *     declare i8* @yashy_str_from_char(i8)
+ *     declare i8  @yashy_char_from_int(i64)
+ *
+ * A `char` is one byte, so its string form is a one-byte string: no encoding,
+ * no locale, just the byte. `'\xFF'` is a string of length 1 holding 0xFF.
+ *
+ * The other direction is where a number can stop being a character. 0..=255 is
+ * the whole of what a byte can hold, and 300 or -1 has no byte that means it,
+ * so the conversion refuses with a message and a failure status rather than
+ * truncating. Truncating would turn a program's mistake into a plausible wrong
+ * character. */
+
+yashy_str *yashy_str_from_char(unsigned char value) {
+    char text = (char)value;
+    return yashy_str_new(&text, 1);
+}
+
+unsigned char yashy_char_from_int(long long value) {
+    if (value < 0 || value > 255) {
+        fflush(stdout);
+        fprintf(
+            stderr,
+            "panic: value %lld is not a character (0-255)\n",
+            value
+        );
+        fflush(stderr);
+        exit(1);
+    }
+    return (unsigned char)value;
+}
+
 /* ---- Debug formatting -------------------------------------------------
  *
  * `yashy_str_debug` returns the *debug* form of a string: wrapped in double

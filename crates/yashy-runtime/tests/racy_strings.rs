@@ -5,8 +5,8 @@
 //! compiler `build.rs` found is the only faithful harness. A codegen test sees
 //! the IR that calls these symbols but never their concurrency.
 
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 fn runtime_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -82,12 +82,59 @@ fn build_racy_program() -> PathBuf {
     executable
 }
 
+/// How many copies of the test program the host may refuse before giving up.
+///
+/// The same bound the driver's end-to-end tests use: a freshly linked binary is
+/// what an Application Control policy refuses, and about nine copies in ten
+/// start, so forty leaves a refusal with probability below `1e-4`.
+const LAUNCH_ATTEMPTS: usize = 40;
+
+/// Whether an error is the host refusing to start a binary rather than the
+/// program failing.
+fn blocked_by_policy(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+        || error.raw_os_error() == Some(4551)
+        || error.to_string().contains("blocked")
+        || error.to_string().contains("Application Control")
+}
+
+/// Run the built program, stepping around a host that refuses to start it.
+///
+/// An Application Control policy judges content, so a refused path stays
+/// refused while a copy with a few zero bytes past the end of the image is a
+/// different question. The padding is never executed.
+fn run_retrying(exe: &Path) -> Output {
+    let mut last = None;
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let candidate = if attempt == 0 {
+            exe.to_path_buf()
+        } else {
+            let padded = exe.with_file_name(format!(
+                "racy_launch{attempt}{}",
+                std::env::consts::EXE_SUFFIX
+            ));
+            let mut bytes = std::fs::read(exe).expect("read the built racy program");
+            bytes.resize(bytes.len() + attempt, 0);
+            std::fs::write(&padded, bytes).expect("write a padded copy of the racy program");
+            padded
+        };
+        match Command::new(&candidate).output() {
+            Ok(output) => return output,
+            Err(error) if blocked_by_policy(&error) => last = Some(error),
+            Err(error) => panic!("could not start {}: {error}", exe.display()),
+        }
+    }
+    panic!(
+        "the host blocked {} on every attempt: {}",
+        exe.display(),
+        last.map(|error| error.to_string()).unwrap_or_default()
+    );
+}
+
 #[test]
 fn concurrent_retain_and_release_do_not_double_free() {
     let executable = build_racy_program();
-    let run = Command::new(&executable)
-        .output()
-        .expect("run the compiled racy strings test");
+    let run = run_retrying(&executable);
     assert!(
         run.status.success(),
         "tests/racy_strings.c failed with {:?}:\nstdout:\n{}\nstderr:\n{}",

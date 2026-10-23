@@ -12,11 +12,47 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// The `yashy` binary cargo built for this test run.
+/// The `yashy` binary cargo built for this test run, as a path the host will
+/// actually start.
+///
+/// Every test drives the CLI, and a freshly linked binary is exactly what an
+/// Application Control policy refuses. The refusal is decided by content, so
+/// the same workaround the compiled programs get applies here: a copy with a
+/// few zero bytes past the end of the image is a new question. The copy is made
+/// once per test process, because the binary cannot change while the run is in
+/// progress, and the returned path is the image cargo built with nothing but
+/// trailing padding added.
 fn yashy() -> &'static str {
-    env!("CARGO_BIN_EXE_yashy")
+    static RUNNABLE: OnceLock<String> = OnceLock::new();
+    RUNNABLE.get_or_init(runnable_cli).as_str()
+}
+
+/// Find a copy of the CLI the host will start, padding until it does.
+fn runnable_cli() -> String {
+    let original = Path::new(env!("CARGO_BIN_EXE_yashy"));
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let Ok(candidate) = launch_candidate(original, attempt) else {
+            continue;
+        };
+        // Any exit status is a success here: the question is only whether the
+        // loader started the program, not what the program decided to do.
+        match Command::new(&candidate).output() {
+            Ok(_) => return candidate.to_string_lossy().into_owned(),
+            Err(error) if blocked_by_policy(&error) => continue,
+            Err(error) => panic!(
+                "the yashy CLI at {} must start: {error}",
+                original.display()
+            ),
+        }
+    }
+    panic!(
+        "the yashy CLI at {} was blocked by an Application Control / Device \
+         Guard policy on all {LAUNCH_ATTEMPTS} attempts",
+        original.display()
+    )
 }
 
 fn programs_dir() -> PathBuf {
@@ -271,6 +307,15 @@ fn build_and_run(name: &str) -> Output {
 fn hello_world_prints_and_exits_zero() {
     let output = build_and_run("hello");
     assert_eq!(stdout_of(&output), "Hello, Yashy!\n");
+}
+
+#[test]
+fn chars_convert_and_print() {
+    // `e\n101\n65\nA\nA\n`: the char's string form is the byte itself, its int
+    // form is the byte value, and `65.to_char()` is the literal-then-method
+    // parse (`65.` is not a float, because no digit follows the dot).
+    let output = build_and_run("chars");
+    assert_eq!(stdout_of(&output), "e\n101\n65\nA\nA\n");
 }
 
 #[test]

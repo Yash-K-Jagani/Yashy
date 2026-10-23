@@ -529,6 +529,11 @@ impl Module {
         out.push_str("declare i8* @yashy_str_from_i64(i64)\n");
         out.push_str("declare i8* @yashy_str_from_f64(double)\n");
         out.push_str("declare i8* @yashy_str_from_bool(i64)\n");
+        // The char conversions. `char` is one byte, so both take or return an
+        // `i8`; the range check in `yashy_char_from_int` is what makes an `int`
+        // into a character.
+        out.push_str("declare i8* @yashy_str_from_char(i8)\n");
+        out.push_str("declare i8 @yashy_char_from_int(i64)\n");
         // The `${value:?}` quoted form of a string (M15 Task 20). Declared up
         // front like the rest of the string set.
         out.push_str("declare i8* @yashy_str_debug(i8*)\n");

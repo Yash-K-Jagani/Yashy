@@ -17,7 +17,7 @@
 //! None of them writes a newline. A program prints one explicitly, as the
 //! `print_str("\n")` calls in the plan's examples do.
 
-use std::ffi::{c_char, c_double, c_int, c_longlong, c_void};
+use std::ffi::{c_char, c_double, c_int, c_longlong, c_uchar, c_void};
 
 /// The runtime's refcounted string value, as C lays it out:
 /// `struct yashy_str { long long refcount; long long len; long long cap; char *data; }`.
@@ -324,6 +324,18 @@ unsafe extern "C" {
     /// `"true"` or `"false"`, as a fresh owned string. Takes an `i64` where the
     /// IR passes a zero-extended `i1`, because C has no one-bit type.
     pub fn yashy_str_from_bool(value: c_longlong) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// The one-byte string the byte spells, as a fresh owned string. No
+    /// encoding is applied: the byte is the text.
+    pub fn yashy_str_from_char(value: c_uchar) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// The byte an `int` names. Outside 0..=255 the runtime reports
+    /// `value N is not a character (0-255)` and exits with a failure status.
+    pub fn yashy_char_from_int(value: c_longlong) -> c_uchar;
 }
 
 unsafe extern "C" {
