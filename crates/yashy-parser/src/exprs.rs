@@ -305,6 +305,11 @@ impl<'src> Parser<'src> {
                 let raw = self.text(tok.span)?;
                 self.parse_string_literal(&raw, tok.span)
             }
+            TokenKind::Char => {
+                let tok = self.advance();
+                let value = self.char_literal(tok.span)?;
+                Ok(Expr::Literal(Literal::Char(value), tok.span))
+            }
             TokenKind::True => {
                 let tok = self.advance();
                 Ok(Expr::Literal(Literal::Bool(true), tok.span))

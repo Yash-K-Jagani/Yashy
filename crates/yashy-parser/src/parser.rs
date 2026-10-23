@@ -36,7 +36,7 @@
 //! in it.
 
 use yashy_common::{Diagnostic, DiagnosticBag, FileId, SourceMap, Span};
-use yashy_lexer::{literal_as_i64, Token, TokenKind};
+use yashy_lexer::{char_literal_value, literal_as_i64, Token, TokenKind};
 
 use crate::ast::Program;
 use crate::error::{self, ParseError};
@@ -358,6 +358,20 @@ impl<'src> Parser<'src> {
     /// failure is a diagnostic here.
     pub fn integer_literal(&self, span: Span) -> Result<i64, ParseError> {
         literal_as_i64(self.source.file(self.file), span, self.file)
+            .map_err(|diagnostic| ParseError::new(diagnostic.span, diagnostic.message))
+    }
+
+    /// The byte a char token stands for.
+    ///
+    /// # Errors
+    ///
+    /// The lexer's char diagnostics when the token is not exactly one byte. The
+    /// lexer has already checked every char literal it emits, so this is the
+    /// same guard [`Self::integer_literal`] is: a token carries no value, and a
+    /// caller that sliced the wrong span must get a diagnostic rather than a
+    /// byte read out of the middle of something else.
+    pub fn char_literal(&self, span: Span) -> Result<u8, ParseError> {
+        char_literal_value(self.source.file(self.file), span, self.file)
             .map_err(|diagnostic| ParseError::new(diagnostic.span, diagnostic.message))
     }
 

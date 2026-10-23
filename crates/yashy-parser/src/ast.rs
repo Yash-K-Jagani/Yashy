@@ -635,6 +635,8 @@ pub enum Literal {
     F64(f64),
     Bool(bool),
     Str(StringLit),
+    /// A char literal's byte: `'A'` is `Char(65)`, `'\n'` is `Char(10)`.
+    Char(u8),
 }
 
 /// An expression: the things that can appear where a value is expected.

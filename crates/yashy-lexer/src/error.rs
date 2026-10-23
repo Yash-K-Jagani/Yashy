@@ -81,6 +81,36 @@ pub fn unterminated_string(file: FileId, span: Span, reason: &str) -> Diagnostic
     )
 }
 
+/// A char literal with no closing quote. `reason` says where the literal ran
+/// out, the same way [`unterminated_string`] does.
+pub fn unterminated_char(file: FileId, span: Span, reason: &str) -> Diagnostic {
+    error(
+        file,
+        span,
+        format!("unterminated character literal: {reason}"),
+    )
+}
+
+/// A char literal that does not hold exactly one byte, or whose span does not
+/// name a quoted literal at all.
+pub(crate) fn invalid_char_literal(file: FileId, span: Span, detail: &str) -> Diagnostic {
+    error(
+        file,
+        span,
+        format!("invalid character literal: {detail}"),
+    )
+}
+
+/// An escape sequence Yashy does not have inside a char literal, including a
+/// `\x` that is not followed by two hex digits.
+pub(crate) fn invalid_char_escape(file: FileId, span: Span, detail: &str) -> Diagnostic {
+    error(
+        file,
+        span,
+        format!("invalid escape sequence in character literal: {detail}"),
+    )
+}
+
 /// A `/*` with no matching `*/`.
 pub fn unterminated_block_comment(file: FileId, span: Span) -> Diagnostic {
     error(file, span, "unterminated block comment: no `*/` closes it")
@@ -240,6 +270,9 @@ mod tests {
             invalid_escape(file(), Span::new(1, 2), "unknown escape `\\q`"),
             invalid_interpolation(file(), Span::new(1, 2), "the line ends before the `}` that closes this `${`"),
             unterminated_string(file(), Span::new(0, 4), "the file ends before the closing quote"),
+            unterminated_char(file(), Span::new(0, 4), "the file ends before the closing quote"),
+            invalid_char_literal(file(), Span::new(0, 4), "a character literal must hold exactly one byte"),
+            invalid_char_escape(file(), Span::new(1, 2), "unknown escape `\\q`"),
             unterminated_block_comment(file(), Span::new(0, 2)),
             invalid_integer_literal(file(), Span::new(0, 3)),
             integer_literal_out_of_range(file(), Span::new(0, 40)),

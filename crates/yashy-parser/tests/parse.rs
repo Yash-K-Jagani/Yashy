@@ -1430,6 +1430,12 @@ fn debug_names_every_literal_variant() {
             &["Str", "value", "bytes"],
             &["I64", "F64", "Bool"],
         ),
+        case(
+            "Literal::Char",
+            Literal::Char(b'A'),
+            &["Char"],
+            &["I64", "F64", "Bool", "Str"],
+        ),
     ]);
 }
 

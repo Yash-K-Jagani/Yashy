@@ -57,4 +57,7 @@ pub(crate) mod error;
 
 pub use error::LitError;
 pub use lexer::Lexer;
-pub use token::{literal_as_i64, split_interpolation, StringLit, StringPiece, Token, TokenKind};
+pub use token::{
+    char_literal_value, literal_as_i64, split_interpolation, StringLit, StringPiece, Token,
+    TokenKind,
+};

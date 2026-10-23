@@ -221,6 +221,10 @@ impl<'src> Lexer<'src> {
                 self.scan_string()?;
                 Ok(Some(TokenKind::Str))
             }
+            b'\'' => {
+                self.scan_char()?;
+                Ok(Some(TokenKind::Char))
+            }
             b'0'..=b'9' => self.scan_number().map(Some),
             byte if is_ident_start(byte) => Ok(Some(self.scan_identifier())),
             byte => self.scan_punctuation(byte),
@@ -452,6 +456,78 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Scans a `'...'` literal.
+    ///
+    /// The extent is found first and the meaning is decided by
+    /// [`crate::token::char_literal_value`], so there is one description of what
+    /// a char literal holds and the lexer cannot accept something the parser
+    /// will then reject. Finding the extent is the lexer's job because an
+    /// unclosed literal is a scanning error: the closing quote is what says where
+    /// the literal stops.
+    ///
+    /// A char literal, like a string, does not run past the end of its line: a
+    /// forgotten quote would otherwise swallow the rest of the file.
+    fn scan_char(&mut self) -> Result<(), Failed> {
+        let bytes = self.src.as_bytes();
+        let start = self.pos;
+        let mut at = self.pos.saturating_add(1); // Past the opening quote.
+
+        let end = loop {
+            match peek(bytes, at) {
+                None => {
+                    let span = self.span_of(start, at);
+                    return self.report(error::unterminated_char(
+                        self.file,
+                        span,
+                        "the file ends before the closing quote",
+                    ));
+                }
+                Some(b'\n') => {
+                    let span = self.span_of(start, at);
+                    return self.report(error::unterminated_char(
+                        self.file,
+                        span,
+                        "the line ends before the closing quote",
+                    ));
+                }
+                Some(b'\'') => break at.saturating_add(1),
+                // A backslash swallows the next byte, so `'\''` holds a quote
+                // instead of ending at it.
+                Some(b'\\') => match peek_at(bytes, at, 1) {
+                    None => {
+                        let span = self.span_of(start, at);
+                        return self.report(error::unterminated_char(
+                            self.file,
+                            span,
+                            "the file ends after a backslash",
+                        ));
+                    }
+                    Some(b'\n') => {
+                        let span = self.span_of(start, at);
+                        return self.report(error::unterminated_char(
+                            self.file,
+                            span,
+                            "the line ends after a backslash",
+                        ));
+                    }
+                    Some(_) => at = at.saturating_add(2),
+                },
+                // Every byte of a multi-byte character is >= 0x80, so walking
+                // byte by byte never mistakes one for a quote or a backslash.
+                _ => at = at.saturating_add(1),
+            }
+        };
+
+        let span = self.span_of(start, end);
+        match crate::token::char_literal_value(self.src, span, self.file) {
+            Ok(_) => {
+                self.pos = end;
+                Ok(())
+            }
+            Err(diagnostic) => self.report(diagnostic),
+        }
+    }
+
     /// Scans one operator or delimiter.
     ///
     /// Two-character operators are matched before one-character ones, which is
@@ -628,6 +704,43 @@ mod tests {
                 diags.remove(0)
             }
         }
+    }
+
+    /// The byte a lone char literal stands for, in a file of its own.
+    fn char_value(src: &str) -> Result<u8, Diagnostic> {
+        let mut sm = yashy_common::SourceMap::new();
+        let file = sm.add_file("t.ya", src.to_string());
+        let tokens = Lexer::new(src).tokenize().expect("the lexer does not panic");
+        crate::token::char_literal_value(src, tokens[0].span, file)
+    }
+
+    #[test]
+    fn a_char_literal_is_one_value_token() {
+        let tokens = lex("'A'");
+        assert_eq!(tokens[0].kind, TokenKind::Char);
+        assert_eq!(char_value("'A'"), Ok(65));
+    }
+
+    #[test]
+    fn char_escapes_are_decoded() {
+        assert_eq!(char_value("'\\n'"), Ok(10));
+        assert_eq!(char_value("'\\x41'"), Ok(65));
+    }
+
+    #[test]
+    fn an_empty_char_literal_is_reported() {
+        assert!(first_error("''").message.contains("one byte"));
+    }
+
+    #[test]
+    fn a_multi_byte_literal_is_reported() {
+        assert!(first_error("'AB'").message.contains("one byte"));
+        assert!(first_error("'é'").message.contains("one byte"));
+    }
+
+    #[test]
+    fn a_hex_escape_past_ff_is_reported() {
+        assert!(first_error("'\\x1FF'").message.contains("one byte"));
     }
 
     #[test]

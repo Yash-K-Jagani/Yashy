@@ -101,6 +101,143 @@ pub fn literal_as_i64(src: &str, span: Span, file: FileId) -> Result<i64, Diagno
     }
 }
 
+/// The byte a char literal stands for.
+///
+/// A char literal is exactly one byte: `'A'`, or one escape such as `'\n'` or
+/// `'\x41'`. The token carries no value (see [`TokenKind`]), so the byte is read
+/// back out of the source here, the same way [`literal_as_i64`] reads a number.
+/// `src` and `span` must be the source and span the lexer produced together; a
+/// hand-sliced span that does not name a quoted literal is a diagnostic, not a
+/// panic, because this is reachable from code that builds spans itself.
+///
+/// # Errors
+///
+/// A diagnostic against `file` when the span does not name exactly one byte: an
+/// empty body, more than one byte (including one multi-byte UTF-8 character), an
+/// escape Yashy does not have, or a `\x` without two hex digits. The span is
+/// narrowed to the byte that is wrong, so the caret lands on the mistake rather
+/// than on the whole literal.
+pub fn char_literal_value(src: &str, span: Span, file: FileId) -> Result<u8, Diagnostic> {
+    let start = usize::try_from(span.start).unwrap_or(usize::MAX);
+    let end = usize::try_from(span.end).unwrap_or(usize::MAX);
+    let text = match src.get(start..end) {
+        Some(text) => text,
+        None => {
+            return Err(error::invalid_char_literal(
+                file,
+                span,
+                "the literal could not be read",
+            ))
+        }
+    };
+    let body = match text.strip_prefix('\'').and_then(|rest| rest.strip_suffix('\'')) {
+        Some(body) => body,
+        None => {
+            return Err(error::invalid_char_literal(
+                file,
+                span,
+                "a character literal must hold exactly one byte",
+            ))
+        }
+    };
+
+    let bytes = body.as_bytes();
+    let mut decoded: Vec<u8> = Vec::with_capacity(1);
+    let mut at = 0usize;
+    while let Some(&byte) = bytes.get(at) {
+        if byte != b'\\' {
+            decoded.push(byte);
+            at = at.saturating_add(1);
+            continue;
+        }
+        let Some(&escaped) = bytes.get(at.saturating_add(1)) else {
+            return Err(error::invalid_char_escape(
+                file,
+                byte_span(start, at, end),
+                "the literal ends after a backslash",
+            ));
+        };
+        if escaped == b'x' {
+            let high = bytes.get(at.saturating_add(2)).and_then(|b| hex_value(*b));
+            let low = bytes.get(at.saturating_add(3)).and_then(|b| hex_value(*b));
+            match (high, low) {
+                (Some(high), Some(low)) => {
+                    decoded.push(high.saturating_mul(16).saturating_add(low));
+                    at = at.saturating_add(4);
+                }
+                _ => {
+                    return Err(error::invalid_char_escape(
+                        file,
+                        byte_span(start, at, end),
+                        "`\\x` needs two hex digits",
+                    ))
+                }
+            }
+            continue;
+        }
+        match decode_escape(escaped) {
+            Some(value) => {
+                decoded.push(value);
+                at = at.saturating_add(2);
+            }
+            None => {
+                return Err(error::invalid_char_escape(
+                    file,
+                    byte_span(start, at, end),
+                    &format!("unknown escape `\\{}`", printable_byte(escaped)),
+                ))
+            }
+        }
+    }
+
+    match decoded.as_slice() {
+        [value] => Ok(*value),
+        [] => Err(error::invalid_char_literal(
+            file,
+            span,
+            "a character literal must hold exactly one byte, but this one is empty",
+        )),
+        other => Err(error::invalid_char_literal(
+            file,
+            span,
+            &format!(
+                "a character literal must hold exactly one byte, but this one holds {} bytes",
+                other.len()
+            ),
+        )),
+    }
+}
+
+/// The span of one byte inside a literal, clamped to the literal's own span.
+///
+/// `start` is the literal's first byte and `offset` is measured from the body's
+/// first byte, so the `'` between them is accounted for here. The end is clamped
+/// so a span can never run past the literal it came from.
+fn byte_span(start: usize, offset: usize, end: usize) -> Span {
+    let at = start.saturating_add(1).saturating_add(offset);
+    let stop = at.saturating_add(1).min(end).max(at);
+    Span::new(to_offset(at), to_offset(stop))
+}
+
+/// The value of one ASCII hex digit, or `None` for anything else.
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte.saturating_sub(b'0')),
+        b'a'..=b'f' => Some(byte.saturating_sub(b'a').saturating_add(10)),
+        b'A'..=b'F' => Some(byte.saturating_sub(b'A').saturating_add(10)),
+        _ => None,
+    }
+}
+
+/// A byte offset as the `u32` a [`Span`] holds, saturating.
+///
+/// Saturating rather than wrapping for the same reason the lexer saturates: a
+/// wrapped offset is a caret in the wrong place, while a saturated one is a
+/// limit reached.
+fn to_offset(offset: usize) -> u32 {
+    u32::try_from(offset).unwrap_or(u32::MAX)
+}
+
 /// The digits of a literal with their separators removed, or `None` when a
 /// separator does not sit between two digits.
 ///
@@ -582,6 +719,12 @@ pub enum TokenKind {
     I64,
     F64,
     Str,
+    /// A char literal: `'A'`, or one escape such as `'\n'`.
+    ///
+    /// The token carries no value, like every other token in this crate; the
+    /// byte it stands for is read back out of the source by
+    /// [`char_literal_value`].
+    Char,
 
     /// The end of the file. Always the last token.
     Eof,
@@ -755,12 +898,13 @@ impl TokenKind {
             TokenKind::OrOr => Naming::Fixed("||"),
             TokenKind::Pipe => Naming::Fixed("|"),
 
-            // The five kinds whose text is their value have no spelling: there
+            // The six kinds whose text is their value have no spelling: there
             // is no one way to write `an identifier`, only many.
             TokenKind::Ident => Naming::Class("an identifier"),
             TokenKind::I64 => Naming::Class("an integer literal"),
             TokenKind::F64 => Naming::Class("a float literal"),
             TokenKind::Str => Naming::Class("a string literal"),
+            TokenKind::Char => Naming::Class("a character literal"),
             TokenKind::Eof => Naming::Class("end of file"),
         }
     }
@@ -941,6 +1085,7 @@ mod tests {
             TokenKind::I64,
             TokenKind::F64,
             TokenKind::Str,
+            TokenKind::Char,
             TokenKind::Eof,
         ];
 
@@ -955,7 +1100,7 @@ mod tests {
                 None => assert!(
                     matches!(
                         described.as_str(),
-                        "an identifier" | "an integer literal" | "a float literal" | "a string literal" | "end of file"
+                        "an identifier" | "an integer literal" | "a float literal" | "a string literal" | "a character literal" | "end of file"
                     ),
                     "{kind:?} has no spelling, so it must be named by what it is: {described}"
                 ),
