@@ -33,7 +33,7 @@ phase changes no behavior at all and the existing suite proves it.
 | Test targets in the workspace | 76 suites |
 | Runtime C symbols named `otter_*` | ~150 |
 | Environment variables named `OTTER_*` | 17 |
-| Scalar type spellings | `i64`, `f64`, `bool`, `string`, `unit` |
+| Scalar type spellings | `i64`, `f64`, `bool`, `string`, `()` (no value) |
 | Print builtins | `print_str`, `print_i64`, `print_f64` (no bool, no char, no newline) |
 | Binding forms | `const`, `let`, `var` (`var` duplicates `let`) |
 | Free spellings | `free_slice(x)`, `map_free(m)`, `dealloc(p)` |
@@ -43,9 +43,9 @@ Two mechanisms already exist and are reused rather than replaced:
 
 - **Interpolation.** `"total = ${total}"` already lowers to concatenation, so
   `println("x = ${x}")` needs no new syntax.
-- **Debug formatting.** Structs, enums, tuples, arrays and options already
-  render as `Point { x: 3, y: 4 }`, `Circle(2.5)`, `Empty`, `(1, true)`,
-  `[1, 2, 3]`, `Some(7)`, `None`, `"a\nb\"c"`.
+- **Debug formatting.** Structs, enums, tuples, arrays, slices and the built-in
+  sum types already render as `Point { x: 3, y: 4 }`, `Circle(2.5)`, `Empty`,
+  `(1, true)`, `[1, 2, 3]`, `Some(7)`, `None`, `Ok(7)`, `"a\nb\"c"`.
 
 ---
 
@@ -117,6 +117,9 @@ and `i64`, because they are history, not instructions.
 - `void` may be written only as a function's return type. `fn f()` and
   `fn f() -> void` mean the same thing; `let x: void`, `[]void` and
   `Option[void]` are errors, because a value of that type cannot exist.
+- `()` stops being a type spelling. The no-value type is written `void`
+  everywhere it may appear; `-> ()` is an error that names `void`. (Until now
+  `()` was the spelling and `void` was C-only.)
 - C widths (`i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `u64`, `f32`, `usize`)
   remain available, but only inside `extern`, exactly as today. `void` leaves
   that C-only list and becomes an ordinary Yashy spelling, subject to the
@@ -174,9 +177,10 @@ and `i64`, because they are history, not instructions.
 - Composites use the debug formatter; scalars use the plain form. This is the
   one distinction to learn: a top-level `string` prints raw, a string *inside*
   a composite prints quoted.
-- The formatter already covers structs, enums, tuples, fixed arrays and
-  `Option`. Phase 4 adds `[]T` and `Result[T, E]`, both of which are
-  element-wise and need no new machinery.
+- The formatter already covers structs, enums, tuples, fixed arrays, slices and
+  `Result`; nothing new is needed for composites.
+- A `char` gains a display form (the character) and a debug form (`'A'`,
+  quoted, so a newline in a `char` stays visible).
 - Not printable: `map[K]V` (its order is not stable, so there is no honest
   text form without sorting), `Channel[T]`, `Mutex` and raw pointers. Passing
   one to `print`/`println` is a compile error that names the type, not a panic.
@@ -196,8 +200,7 @@ and `i64`, because they are history, not instructions.
 
 `let` is the only reassignable binding. `const` still means "never reassigned".
 `var` produces: `` `var` was removed: use `let` ``. Every program that uses
-`var` is migrated to `let`; the three that spell `unit` are migrated to `void`
-in phase 2.
+`var` is migrated to `let`.
 
 ### 7.2 One `.free()`
 
@@ -235,7 +238,7 @@ error, so an old snippet says what to do:
 |---|---|
 | `i64` | `` `i64` is spelled `int` in Yashy `` |
 | `f64` | `` `f64` is spelled `float` in Yashy `` |
-| `unit` | `` `unit` is spelled `void` in Yashy `` |
+| `()` as a type | `` `()` is spelled `void` in Yashy `` |
 | `var` | `` `var` was removed: use `let` `` |
 | `print_str(x)` | `` `print_str` was replaced: use `println` (or `print`) `` |
 | `print_i64(x)` / `print_f64(x)` | same |
@@ -312,6 +315,6 @@ phase depends on a later one:
   but a tutorial sentence and an inferred binding use it. Mitigation: phase 5
   rewrites the tutorial section and adds the "cannot be named" test.
 - **Printing composites depends on the debug formatter being total.** Mitigation:
-  the accepted set is the shapes the debug-format task already proves, plus
-  slices and `Result`, which phase 4 adds. A map, channel, mutex or pointer is a
-  compile error naming the type, never a panic.
+  the accepted set is the shapes the formatter already proves; a map, channel,
+  mutex, pointer or function value is a compile error naming the type, never a
+  panic.
