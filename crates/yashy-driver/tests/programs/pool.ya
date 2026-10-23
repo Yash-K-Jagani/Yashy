@@ -83,6 +83,6 @@ fn main() {
     results.free();
     jobs.free();
 
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

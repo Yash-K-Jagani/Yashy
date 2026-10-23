@@ -27,6 +27,6 @@ fn main() {
         sum = wrapping_add(sum, apply(scale, i, k));
         i = wrapping_add(i, 1);
     }
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 }

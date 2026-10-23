@@ -13,119 +13,119 @@ fn show(o: Option[int]) -> int {
 
 fn main() {
     var s = "  Hello, Yashy  ";
-    print_i64(s.len());
-    print_str("\n");
+    print(s.len());
+    println("");
     if s.is_empty() {
-        print_str("unexpected empty\n");
+        println("unexpected empty");
     } else {
-        print_str("not empty\n");
+        println("not empty");
     }
 
-    print_i64(s.byte_at(2));
-    print_str("\n");
-    print_i64(show(s.get(2)));
-    print_str("\n");
-    print_i64(show(s.get(99)));
-    print_str("\n");
+    print(s.byte_at(2));
+    println("");
+    print(show(s.get(2)));
+    println("");
+    print(show(s.get(99)));
+    println("");
 
-    print_str(s.slice(2, 7));
-    print_str("\n");
+    print(s.slice(2, 7));
+    println("");
 
     if s.contains("Yashy") {
-        print_str("contains Yashy\n");
+        println("contains Yashy");
     }
     if s.contains("cat") {
-        print_str("unexpected: contains cat\n");
+        println("unexpected: contains cat");
     } else {
-        print_str("missing cat\n");
+        println("missing cat");
     }
     if s.starts_with("  He") {
-        print_str("starts He\n");
+        println("starts He");
     }
     if s.ends_with("  ") {
-        print_str("ends spaces\n");
+        println("ends spaces");
     }
 
-    print_i64(show(s.index_of("Yashy")));
-    print_str("\n");
-    print_i64(show(s.index_of("cat")));
-    print_str("\n");
+    print(show(s.index_of("Yashy")));
+    println("");
+    print(show(s.index_of("cat")));
+    println("");
 
-    print_str(s.trim());
-    print_str("\n");
+    print(s.trim());
+    println("");
     var trimmed_start = s.trim_start();
-    print_i64(trimmed_start.len());
-    print_str("\n");
+    print(trimmed_start.len());
+    println("");
     var trimmed_end = s.trim_end();
-    print_i64(trimmed_end.len());
-    print_str("\n");
+    print(trimmed_end.len());
+    println("");
     var upper = s.to_upper();
-    print_i64(upper.len());
-    print_str("\n");
-    print_str(upper.trim());
-    print_str("\n");
+    print(upper.len());
+    println("");
+    print(upper.trim());
+    println("");
     var lower = s.to_lower();
-    print_str(lower.trim());
-    print_str("\n");
+    print(lower.trim());
+    println("");
     var replaced = s.replace("Yashy", "world");
-    print_str(replaced.trim());
-    print_str("\n");
+    print(replaced.trim());
+    println("");
 
     var ab = "ab";
-    print_str(ab.repeat(3));
-    print_str("\n");
+    print(ab.repeat(3));
+    println("");
     var nothing = ab.repeat(0);
-    print_i64(nothing.len());
-    print_str("\n");
+    print(nothing.len());
+    println("");
 
     var csv = "a, b, c";
     var parts = csv.split(", ");
-    print_i64(parts.len());
-    print_str("\n");
+    print(parts.len());
+    println("");
     for part in parts {
-        print_str(part);
-        print_str("\n");
+        print(part);
+        println("");
     }
     parts.free();
 
     var one = "abc";
     var whole = one.split("");
-    print_i64(whole.len());
-    print_str("\n");
+    print(whole.len());
+    println("");
     whole.free();
 
     var trailing = "a,";
     var trailing_parts = trailing.split(",");
-    print_i64(trailing_parts.len());
-    print_str("\n");
+    print(trailing_parts.len());
+    println("");
     trailing_parts.free();
 
     var text = "one\r\ntwo\nthree\n";
     var lines = text.lines();
-    print_i64(lines.len());
-    print_str("\n");
+    print(lines.len());
+    println("");
     for line in lines {
-        print_str(line);
-        print_str("\n");
+        print(line);
+        println("");
     }
     lines.free();
 
     var empty = "";
     if empty.is_empty() {
-        print_str("empty is empty\n");
+        println("empty is empty");
     }
     var no_lines = empty.lines();
-    print_i64(no_lines.len());
-    print_str("\n");
+    print(no_lines.len());
+    println("");
     no_lines.free();
 
     var number = "42";
-    print_i64(number.parse_i64());
-    print_str("\n");
+    print(number.parse_i64());
+    println("");
     var decimal = "2.5";
     if decimal.parse_f64() == 2.5 {
-        print_str("float parse ok\n");
+        println("float parse ok");
     } else {
-        print_str("float parse wrong\n");
+        println("float parse wrong");
     }
 }

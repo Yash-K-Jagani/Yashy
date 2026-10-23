@@ -24,10 +24,10 @@ impl Shape {
 
 fn main() {
     const point = Point { x: 2, y: 3 };
-    print_i64(point.sum());
-    print_str("\n");
+    print(point.sum());
+    println("");
 
     const circle = Shape.Circle(4);
-    print_i64(circle.area());
-    print_str("\n");
+    print(circle.area());
+    println("");
 }

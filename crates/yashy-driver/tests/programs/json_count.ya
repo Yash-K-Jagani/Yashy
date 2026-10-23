@@ -37,10 +37,10 @@ fn main() {
         }
     }
 
-    print_i64(seen);
-    print_str("\n");
-    print_i64(keys.len());
-    print_str("\n");
+    print(seen);
+    println("");
+    print(keys.len());
+    println("");
 
     lines.free();
     keys.free();

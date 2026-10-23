@@ -1494,7 +1494,7 @@ fn an_interpolated_string_is_one_node_of_text_and_expressions() {
     // The conversion of the expression to text is *not* decided here -- the
     // parser does not know its type, and choosing `str_from_i64` would be a
     // guess the checker would then have to trust.
-    let src = "fn main() { var value = 3; print_str(\"n = ${value + 1}\"); }";
+    let src = "fn main() { var value = 3; print(\"n = ${value + 1}\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1531,7 +1531,7 @@ fn a_debug_suffix_marks_one_interpolation_part() {
     // `"${value:?}"`: the `:?` is a formatting request, not part of the
     // expression. The parser keeps the two apart so the checker -- the stage
     // that knows the expression's type -- can choose the debug form.
-    let src = "fn main() { print_str(\"${value:?}\"); }";
+    let src = "fn main() { print(\"${value:?}\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1558,7 +1558,7 @@ fn a_debug_suffix_marks_one_interpolation_part() {
 fn a_display_interpolation_has_no_suffix() {
     // The default is display, and the parts of a mixed literal each carry their
     // own format: `"${a} ${b:?}"` is one display part and one debug part.
-    let src = "fn main() { print_str(\"${a} ${b:?}\"); }";
+    let src = "fn main() { print(\"${a} ${b:?}\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1588,7 +1588,7 @@ fn adjacent_interpolations_have_no_text_between_them() {
     // `"${a}${b}"` is two expressions and no text. An empty text piece would
     // have to be handled -- and could be mishandled -- by every later stage, so
     // the split drops it rather than recording it.
-    let src = "fn main() { print_str(\"${a}${b}\"); }";
+    let src = "fn main() { print(\"${a}${b}\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1610,7 +1610,7 @@ fn adjacent_interpolations_have_no_text_between_them() {
 fn a_literal_without_interpolation_is_a_plain_string_not_an_interp_node() {
     // Code that handles strings must not have to look for an `Interp` case that
     // cannot occur: `"hi"` is a `Literal`, and only `${` makes it an `Interp`.
-    let src = "fn main() { print_str(\"hi\"); }";
+    let src = "fn main() { print(\"hi\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1629,7 +1629,7 @@ fn a_literal_without_interpolation_is_a_plain_string_not_an_interp_node() {
 fn an_empty_or_overfull_interpolation_is_reported() {
     // `${}` has nothing to convert; the message has to say so rather than build
     // an expression out of nothing.
-    let diags = parse_err("fn main() { print_str(\"${}\"); }");
+    let diags = parse_err("fn main() { print(\"${}\"); }");
     assert!(
         all_messages(&diags).contains("empty"),
         "an empty interpolation must be named as empty: {}",
@@ -1638,7 +1638,7 @@ fn an_empty_or_overfull_interpolation_is_reported() {
 
     // `${a b}` is two expressions where one was expected: the second should have
     // been the `}`.
-    let diags = parse_err("fn main() { var a = 1; print_str(\"${a b}\"); }");
+    let diags = parse_err("fn main() { var a = 1; print(\"${a b}\"); }");
     assert!(
         all_messages(&diags).contains("`}`"),
         "the missing `}}` must be named: {}",
@@ -1700,7 +1700,7 @@ fn an_integer_literal_that_does_not_fit_an_i64_is_a_diagnostic_not_a_zero() {
     // silently wrong `0`. That is the worst outcome a compiler has: a wrong
     // answer that looks like a right one. The lexer answers the question once
     // (`literal_as_i64`) and the parser asks it.
-    let src = "fn main() { print_i64(9223372036854775808); }";
+    let src = "fn main() { print(9223372036854775808); }";
     let diags = parse_err(src);
     assert!(
         all_messages(&diags).contains("integer literal does not fit an int"),
@@ -1719,7 +1719,7 @@ fn an_integer_pattern_that_does_not_fit_is_a_diagnostic_too() {
     // The same question is asked when a `case` arm's arm is a number, and it has
     // the same wrong answer available: a pattern compiled to `0` matches a value
     // the user never named.
-    let diags = parse_err("fn f() { switch 1 { case 99999999999999999999 { print_i64(1); } } }");
+    let diags = parse_err("fn f() { switch 1 { case 99999999999999999999 { print(1); } } }");
     assert!(
         all_messages(&diags).contains("integer literal does not fit an int"),
         "{}",

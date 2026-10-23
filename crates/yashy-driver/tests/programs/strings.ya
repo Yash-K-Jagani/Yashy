@@ -14,22 +14,22 @@ fn bracket(text: string) -> string {
 
 fn main() {
     const greeting = "Hello, " + "Yashy!";
-    print_str(greeting);
-    print_str("\n");
-    print_i64(greeting.len());
-    print_str("\n");
-    print_str(bracket("x"));
-    print_str("\n");
+    print(greeting);
+    println("");
+    print(greeting.len());
+    println("");
+    print(bracket("x"));
+    println("");
     const empty = "";
-    print_i64(empty.len());
-    print_str("\n");
+    print(empty.len());
+    println("");
     if greeting == "Hello, Yashy" {
-        print_str("unexpected: the `!` was dropped\n");
+        println("unexpected: the `!` was dropped");
     }
     if greeting != "Hello, Yashy" {
-        print_str("different\n");
+        println("different");
     }
     if greeting == "Hello, Yashy!" {
-        print_str("equal\n");
+        println("equal");
     }
 }

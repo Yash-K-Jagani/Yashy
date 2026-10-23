@@ -83,7 +83,7 @@ fn assert_one_terminator_per_block(ir: &str) {
 
 #[test]
 fn if_else_emits_one_conditional_branch_and_a_merge_label() {
-    let ir_text = ir_of("fn f(x: bool) { if x { print_i64(1); } else { print_i64(2); } }");
+    let ir_text = ir_of("fn f(x: bool) { if x { print(1); } else { print(2); } }");
     assert_eq!(
         ir_text.matches("br i1").count(),
         1,
@@ -97,7 +97,7 @@ fn if_else_emits_one_conditional_branch_and_a_merge_label() {
 
 #[test]
 fn range_for_lowers_to_a_counted_loop() {
-    let ir_text = ir_of("fn f() { for i in 0..10 { print_i64(i); } }");
+    let ir_text = ir_of("fn f() { for i in 0..10 { print(i); } }");
     // A counted loop: load the index, compare against the (exclusive) end.
     assert!(
         ir_text.contains("icmp slt i64"),
@@ -115,7 +115,7 @@ fn range_for_lowers_to_a_counted_loop() {
 
 #[test]
 fn three_clause_for_lowers_to_a_counted_loop() {
-    let ir_text = ir_of("fn f() { for i := 0; i < 3; print_i64(i) { print_i64(i); } }");
+    let ir_text = ir_of("fn f() { for i := 0; i < 3; print(i) { print(i); } }");
     assert!(
         ir_text.contains("br i1"),
         "the condition is the loop test:\n{ir_text}"
@@ -147,13 +147,13 @@ fn break_and_continue_branch_to_the_loop_labels() {
 #[test]
 fn defer_emits_in_reverse_order_before_return() {
     let ir_text = ir_of(
-        "fn f() { print_i64(1); defer { print_i64(2); } defer { print_i64(3); } return; }",
+        "fn f() { print(1); defer { print(2); } defer { print(3); } return; }",
     );
     let three = ir_text
-        .find("call void @yashy_print_i64(i64 3)")
+        .find("call i8* @yashy_str_from_i64(i64 3)")
         .expect("the second defer must be emitted");
     let two = ir_text
-        .find("call void @yashy_print_i64(i64 2)")
+        .find("call i8* @yashy_str_from_i64(i64 2)")
         .expect("the first defer must be emitted");
     assert!(
         three < two,
@@ -163,9 +163,9 @@ fn defer_emits_in_reverse_order_before_return() {
 
 #[test]
 fn defer_runs_on_the_return_path_only_once() {
-    let ir_text = ir_of("fn f() { defer { print_i64(7); } return; }");
+    let ir_text = ir_of("fn f() { defer { print(7); } return; }");
     assert_eq!(
-        ir_text.matches("call void @yashy_print_i64(i64 7)").count(),
+        ir_text.matches("call i8* @yashy_str_from_i64(i64 7)").count(),
         1,
         "the deferred body runs exactly once:\n{ir_text}"
     );
@@ -174,10 +174,10 @@ fn defer_runs_on_the_return_path_only_once() {
 #[test]
 fn nested_scope_defer_does_not_leak_to_the_outer_scope() {
     let ir_text = ir_of(
-        "fn f() { for i in 0..1 { defer { print_i64(9); } } return; }",
+        "fn f() { for i in 0..1 { defer { print(9); } } return; }",
     );
     assert_eq!(
-        ir_text.matches("call void @yashy_print_i64(i64 9)").count(),
+        ir_text.matches("call i8* @yashy_str_from_i64(i64 9)").count(),
         1,
         "a body defer fires at the body's exit, not the function's:\n{ir_text}"
     );

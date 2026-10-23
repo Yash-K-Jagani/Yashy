@@ -13,8 +13,8 @@ fn checked_halve(n: int) -> int {
 }
 
 fn main() {
-    print_i64(checked_halve(20));
-    print_str("\n");
-    print_i64(checked_halve(7));
-    print_str("this line must never be printed\n");
+    print(checked_halve(20));
+    println("");
+    print(checked_halve(7));
+    println("this line must never be printed");
 }

@@ -4,10 +4,10 @@
 // pieces of it: `read_line` gets the input, and `str_from_i64` puts a number
 // inside a string, so the whole sentence is one value.
 fn main() {
-    print_str("name? ");
+    print("name? ");
     const name = read_line();
-    print_str("age? ");
+    print("age? ");
     const age_text = read_line();
     const age = age_text.parse_i64();
-    print_str(name + " is " + str_from_i64(age) + " years old\n");
+    print(name + " is " + str_from_i64(age) + " years old\n");
 }

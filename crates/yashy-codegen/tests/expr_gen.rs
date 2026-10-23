@@ -605,12 +605,12 @@ fn wildcard_arm_needs_no_tag_test() {
 
 #[test]
 fn call_emits_a_call_instruction_naming_the_runtime_symbol() {
-    let ir_text = gen_body("fn f() { print_i64(1); }");
+    let ir_text = gen_body("fn f() { print(1); }");
     assert!(
-        ir_text.contains("call void @yashy_print_i64(i64 1)"),
+        ir_text.contains("call void @yashy_print_str(i8*") && ir_text.contains("@yashy_str_from_i64(i64 1)"),
         ":\n{ir_text}"
     );
-    let ir_text = gen_body("fn f() { print_str(\"hi\"); }");
+    let ir_text = gen_body("fn f() { print(\"hi\"); }");
     assert!(
         ir_text.contains("call void @yashy_print_str(i8*"),
         ":\n{ir_text}"

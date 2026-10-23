@@ -11,6 +11,6 @@ fn unwrap_or_zero(o: Option[int]) -> int {
 }
 
 fn main() {
-    print_i64(unwrap_or_zero(Some(42)));
-    print_str("\n");
+    print(unwrap_or_zero(Some(42)));
+    println("");
 }

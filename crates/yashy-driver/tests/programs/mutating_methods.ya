@@ -28,7 +28,7 @@ fn main() {
     var c = Counter.new();
     c.bump();
     c.bump();
-    print_i64(c.get());
-    print_str("\n");
+    print(c.get());
+    println("");
     // => 2
 }

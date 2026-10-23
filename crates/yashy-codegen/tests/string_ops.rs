@@ -42,7 +42,7 @@ fn concat_is_one_call_and_does_not_touch_its_operands() {
     // Two literals: neither is an owned temporary, so the concatenation releases
     // neither. The module's one release is the *binding* — the concatenation's
     // result was taken over by `s` and dropped when `s`'s scope ended.
-    let ir_text = ir("fn main() { const s = \"Hello, \" + \"Yashy!\"; print_str(s); }");
+    let ir_text = ir("fn main() { const s = \"Hello, \" + \"Yashy!\"; print(s); }");
     assert_eq!(
         call_count(&ir_text, "@yashy_str_concat"),
         1,
@@ -65,7 +65,7 @@ fn a_temporary_an_operation_built_is_released_when_consumed() {
     // owns one of its operands and releases it; `print_str` then consumes the
     // concatenation itself and releases that. Two releases, and a program that
     // formats a number in a loop stops growing.
-    let ir_text = ir("fn main() { const n = 7; print_str(\"n = ${n}\"); }");
+    let ir_text = ir("fn main() { const n = 7; print(\"n = ${n}\"); }");
     assert_eq!(
         call_count(&ir_text, "@yashy_str_release"),
         2,
@@ -85,7 +85,7 @@ fn a_bound_string_is_released_at_scope_exit_not_by_the_read() {
     let ir_text = ir(
         "fn main() {\n\
          \x20   const s = \"x\" + \"y\";\n\
-         \x20   if s == \"xy\" { print_str(s); }\n\
+         \x20   if s == \"xy\" { print(s); }\n\
          }",
     );
     assert_eq!(
@@ -114,7 +114,7 @@ fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
         "fn main() {\n\
          \x20   var s = \"a\";\n\
          \x20   s = s + \"x\";\n\
-         \x20   print_str(s);\n\
+         \x20   print(s);\n\
          }",
     );
     let concat = ir_text
@@ -133,7 +133,7 @@ fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
 fn chained_concat_is_one_call_per_operator() {
     // `"a" + "b" + "c"` groups left, so it is two concatenations and the result
     // of the first feeds the second.
-    let ir_text = ir("fn main() { const s = \"a\" + \"b\" + \"c\"; print_str(s); }");
+    let ir_text = ir("fn main() { const s = \"a\" + \"b\" + \"c\"; print(s); }");
     assert_eq!(
         call_count(&ir_text, "@yashy_str_concat"),
         2,
@@ -145,7 +145,7 @@ fn chained_concat_is_one_call_per_operator() {
 fn equality_compares_bytes_through_the_runtime() {
     // `icmp eq i8*` would compare the two addresses, and two identical literals
     // are not required to be the same address. The runtime compares contents.
-    let ir_text = ir("fn main() { if \"a\" == \"b\" { print_str(\"same\"); } }");
+    let ir_text = ir("fn main() { if \"a\" == \"b\" { print(\"same\"); } }");
     assert_eq!(call_count(&ir_text, "@yashy_str_eq"), 1, "{ir_text}");
     assert!(
         !ir_text.contains("icmp eq i8*"),
@@ -155,7 +155,7 @@ fn equality_compares_bytes_through_the_runtime() {
 
 #[test]
 fn inequality_is_the_equality_call_negated() {
-    let ir_text = ir("fn main() { if \"a\" != \"b\" { print_str(\"differ\"); } }");
+    let ir_text = ir("fn main() { if \"a\" != \"b\" { print(\"differ\"); } }");
     assert_eq!(call_count(&ir_text, "@yashy_str_eq"), 1, "{ir_text}");
     assert!(
         ir_text.contains("xor i1 ") && ir_text.contains(", true"),
@@ -165,7 +165,7 @@ fn inequality_is_the_equality_call_negated() {
 
 #[test]
 fn len_is_a_runtime_call_and_yields_i64() {
-    let ir_text = ir("fn main() { var hello = \"hello\"; print_i64(hello.len()); }");
+    let ir_text = ir("fn main() { var hello = \"hello\"; print(hello.len()); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_len"), 1, "{ir_text}");
     assert!(
         ir_text.contains("call i64 @yashy_str_len(i8* "),
@@ -179,10 +179,10 @@ fn byte_at_is_a_runtime_call_and_yields_i64() {
     // reachable from Yashy: a declared symbol nothing calls is a contract with
     // no implementation behind it in practice. Out-of-range answers zero, which
     // the runtime test pins; this pins the call and the type.
-    let ir_text = ir("fn main() { var abc = \"abc\"; print_i64(abc.byte_at(1)); }");
+    let ir_text = ir("fn main() { var abc = \"abc\"; print(abc.byte_at(1)); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_byte_at"), 1, "{ir_text}");
     assert!(
-        ir_text.contains("call i8 @yashy_str_byte_at(i8* ") && ir_text.contains(", i8 1)"),
+        ir_text.contains("call i8 @yashy_str_byte_at(i8* ") && ir_text.contains(", i64 1)"),
         "the byte is an `i8` and the index is passed through:\n{ir_text}"
     );
 }
@@ -195,7 +195,7 @@ fn a_string_operation_result_can_be_bound_and_reassigned() {
         "fn main() {\n\
          \x20   var s = \"a\" + \"b\";\n\
          \x20   s = s + \"c\";\n\
-         \x20   print_str(s);\n\
+         \x20   print(s);\n\
          }",
     );
     assert_eq!(call_count(&ir_text, "@yashy_str_concat"), 2, "{ir_text}");
@@ -211,7 +211,7 @@ fn interpolation_is_a_conversion_call_and_a_concatenation() {
     // code generation sees the program it is an ordinary call and an ordinary
     // `+`. One conversion, one concat -- and nothing named `interp` for the
     // backend to know about.
-    let ir_text = ir("fn main() { const n = 7; print_str(\"n = ${n}\"); }");
+    let ir_text = ir("fn main() { const n = 7; print(\"n = ${n}\"); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_from_i64"), 1, "{ir_text}");
     assert_eq!(call_count(&ir_text, "@yashy_str_concat"), 1, "{ir_text}");
     assert!(
@@ -225,7 +225,7 @@ fn interpolating_a_string_needs_no_conversion() {
     // A `string` already *is* text, so `${s}` is just `s`: the module calls no
     // `str_from_*` at all. A conversion here would be a needless copy and a
     // second place for the value and its text to disagree.
-    let ir_text = ir("fn main() { const s = \"x\"; print_str(\"${s}\"); }");
+    let ir_text = ir("fn main() { const s = \"x\"; print(\"${s}\"); }");
     assert_eq!(
         call_count(&ir_text, "@yashy_str_from_"),
         0,

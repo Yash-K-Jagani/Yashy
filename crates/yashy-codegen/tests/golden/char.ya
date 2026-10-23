@@ -1,6 +1,6 @@
 fn main() {
     let low = '\x00';
     let high = '\xFF';
-    if low < high { print_str("a"); }
-    if high > 'A' { print_str("b"); }
+    if low < high { print("a"); }
+    if high > 'A' { print("b"); }
 }

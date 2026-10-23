@@ -5,10 +5,10 @@ fn checked(a: int, b: int) {
     const quotient = a / b;
     const remainder = a % b;
     const negated = -a;
-    print_i64(sum);
-    print_i64(difference);
-    print_i64(product);
-    print_i64(quotient);
-    print_i64(remainder);
-    print_i64(negated);
+    print(sum);
+    print(difference);
+    print(product);
+    print(quotient);
+    print(remainder);
+    print(negated);
 }

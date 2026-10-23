@@ -14,7 +14,7 @@ fn main() {
     for number in numbers {
         total = total + number.len();
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
     numbers.free();
 }

@@ -16,10 +16,10 @@ fn main() {
     /* A block comment
        with a second line. */
     if total > 50 {
-        print_str("big");
+        print("big");
     } else {
-        print_str("small");
+        print("small");
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

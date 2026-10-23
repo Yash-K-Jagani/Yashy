@@ -58,24 +58,24 @@ fn main() {
     const c = Shape.Circle(2.0);
     const r = Shape.Rect { h: 3.0, w: 4.0 };
     const p = Shape.Point;
-    print_f64(area(c));
-    print_str("\n");
-    print_f64(area(r));
-    print_str("\n");
-    print_f64(area(p));
-    print_str("\n");
+    print(area(c));
+    println("");
+    print(area(r));
+    println("");
+    print(area(p));
+    println("");
 
-    print_str(label(Message.Text("hi")));
-    print_str("\n");
-    print_str(label(Message.Count(7)));
-    print_str("\n");
-    print_str(label(Message.Nothing));
-    print_str("\n");
+    print(label(Message.Text("hi")));
+    println("");
+    print(label(Message.Count(7)));
+    println("");
+    print(label(Message.Nothing));
+    println("");
 
-    print_i64(total(Item.Two(Pair { right: 3, left: 4 })));
-    print_str("\n");
-    print_i64(total(Item.Number(5)));
-    print_str("\n");
-    print_i64(total(Item.Nothing));
-    print_str("\n");
+    print(total(Item.Two(Pair { right: 3, left: 4 })));
+    println("");
+    print(total(Item.Number(5)));
+    println("");
+    print(total(Item.Nothing));
+    println("");
 }

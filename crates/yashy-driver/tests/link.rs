@@ -154,7 +154,7 @@ fn the_same_program_produces_identical_output_on_both_platforms() {
 }
 
 fn main() {
-    print_f64(sqrt(2.0));
+    print(sqrt(2.0));
 }
 "#,
     )

@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -107,8 +108,8 @@ declare void @yashy_exit(i64)
 @.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.0.data }
 @.str.1.data = private unnamed_addr constant [2 x i8] c"b\00"
 @.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.1.data }
-@.str.2.data = private unnamed_addr constant [2 x i8] c"\0A\00"
-@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.2.data }
+@.str.2.data = private unnamed_addr constant [1 x i8] c"\00"
+@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 0, i64 0, i8* @.str.2.data }
 define i32 @main() {
 entry:
 %slot0 = alloca i8*
@@ -155,9 +156,11 @@ store { i8, i64 } %t14, ptr %slot10
 %t16 = call i64 @yashy_map_len(i8* %t15)
 store i64 %t16, ptr %slot11
 %t17 = load i64, ptr %slot11
-call void @yashy_print_i64(i64 %t17)
-call void @yashy_print_str(i8* @.str.2)
-%t18 = load i8*, ptr %slot0
-call void @yashy_map_free(i8* %t18)
+%t18 = call i8* @yashy_str_from_i64(i64 %t17)
+call void @yashy_print_str(i8* %t18)
+call void @yashy_str_release(i8* %t18)
+call void @yashy_print_line_str(i8* @.str.2)
+%t19 = load i8*, ptr %slot0
+call void @yashy_map_free(i8* %t19)
 ret i32 0
 }

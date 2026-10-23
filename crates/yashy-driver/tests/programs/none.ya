@@ -28,11 +28,11 @@ fn main() {
     // Typed by the annotation, because there is no payload to infer from.
     const absent: Option[int] = None;
 
-    print_i64(unwrap_or_zero(present));
-    print_str("\n");
-    print_i64(unwrap_or_zero(absent));
-    print_str("\n");
+    print(unwrap_or_zero(present));
+    println("");
+    print(unwrap_or_zero(absent));
+    println("");
     // Typed by the parameter it is passed to.
-    print_i64(unwrap_or_zero(None));
-    print_str("\n");
+    print(unwrap_or_zero(None));
+    println("");
 }

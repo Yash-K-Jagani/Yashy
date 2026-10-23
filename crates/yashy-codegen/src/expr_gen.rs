@@ -140,7 +140,7 @@ pub struct FnCtx<'a> {
     /// released when its scope exits — on fall-through, and on a
     /// `return`/`break`/`continue` from a statement in that scope. The release
     /// happens *after* the scope's deferred bodies have run, because
-    /// `defer print_str(s)` reads `s` at exit and a `string` is a copy type, so
+    /// `defer print(s)` reads `s` at exit and a `string` is a copy type, so
     /// the deferred body is not given a snapshot of it the way a linear binding
     /// is.
     ///
@@ -1558,7 +1558,7 @@ fn gen_call(
                 ty: ty.clone(),
             }
         }
-        "print_i64" | "print_f64" | "print_str" => {
+        "print_i64" | "print_f64" | "print_str" | "print_line_str" => {
             let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
             let arg_list: Vec<String> = lowered
                 .iter()

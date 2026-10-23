@@ -61,8 +61,8 @@ fn main() {
     inbox.free();
 
     if ok {
-        print_str("pingpong ok\n");
+        println("pingpong ok");
     } else {
-        print_str("pingpong bad\n");
+        println("pingpong bad");
     }
 }

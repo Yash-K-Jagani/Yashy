@@ -24,6 +24,7 @@ typedef struct yashy_str yashy_str;
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
 void yashy_print_str(const yashy_str *s);
+void yashy_print_line_str(const yashy_str *s);
 
 /* Writes a decimal integer to stdout, no newline. */
 void yashy_print_i64(long long value);

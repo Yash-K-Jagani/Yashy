@@ -31,7 +31,7 @@ fn a_method_is_emitted_under_its_mangled_name() {
     let ir_text = ir_of(
         "struct Point { x: int, y: int } \
          impl Point { fn sum(self) -> int { return self.x + self.y; } } \
-         fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
+         fn main() { const p = Point { x: 1, y: 2 }; print(p.sum()); }",
     );
     assert!(
         ir_text.contains("define i64 @Point.sum(%struct.Point"),
@@ -48,7 +48,7 @@ fn a_method_reads_the_receivers_fields() {
     let ir_text = ir_of(
         "struct Point { x: int, y: int } \
          impl Point { fn sum(self) -> int { return self.x + self.y; } } \
-         fn main() { const p = Point { x: 1, y: 2 }; print_i64(p.sum()); }",
+         fn main() { const p = Point { x: 1, y: 2 }; print(p.sum()); }",
     );
     assert!(
         ir_text.contains("extractvalue %struct.Point"),
@@ -62,7 +62,7 @@ fn an_enum_method_switches_on_the_receiver() {
         "enum Shape { Circle(int), Square(int) } \
          impl Shape { fn area(self) -> int { return switch self { \
          case Circle(r) { r * r } case Square(s) { s * s } }; } } \
-         fn main() { const c = Shape.Circle(2); print_i64(c.area()); }",
+         fn main() { const c = Shape.Circle(2); print(c.area()); }",
     );
     assert!(
         ir_text.contains("define i64 @Shape.area("),

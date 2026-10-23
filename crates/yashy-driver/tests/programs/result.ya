@@ -13,8 +13,8 @@ fn outer() -> Result[int, string] {
 
 fn main() {
     switch outer() {
-        case Ok(v) { print_i64(v) }
-        case Err(e) { print_i64(0) }
+        case Ok(v) { print(v) }
+        case Err(e) { print(0) }
     }
-    print_str("\n");
+    println("");
 }

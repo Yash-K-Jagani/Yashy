@@ -21,28 +21,28 @@ struct Line {
 fn main() {
     var p = Point { x: 1, y: 2 };
     p.x = 10;
-    print_i64(p.x);
-    print_str(" ");
-    print_i64(p.y);
-    print_str("\n");
+    print(p.x);
+    print(" ");
+    print(p.y);
+    println("");
 
     // The compound form is the plain assignment of the expanded binary, so it
     // reads the field it is about to write.
     p.y += 5;
-    print_i64(p.y);
-    print_str("\n");
+    print(p.y);
+    println("");
 
     // A nested chain: only `from.x` changes, so `from.y` and both of `to`'s
     // fields have to come out of the rebuild intact.
     var line = Line { from: Point { x: 1, y: 2 }, to: Point { x: 3, y: 4 } };
     line.from.x = 100;
-    print_i64(line.from.x + line.from.y);
-    print_str(" ");
-    print_i64(line.to.x + line.to.y);
-    print_str("\n");
+    print(line.from.x + line.from.y);
+    print(" ");
+    print(line.to.x + line.to.y);
+    println("");
 
     // A whole struct field can be replaced with a value of the field's type.
     line.to = Point { x: 7, y: 8 };
-    print_i64(line.to.x + line.to.y);
-    print_str("\n");
+    print(line.to.x + line.to.y);
+    println("");
 }

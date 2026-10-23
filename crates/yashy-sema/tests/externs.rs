@@ -130,7 +130,7 @@ fn a_wrong_signature_is_caught_by_yashy_not_c() {
     // checker refuses the mismatch at the call site, before anything is linked.
     assert_rejected(
         r#"extern "C" { unsafe fn strlen(s: *const u8) -> i32; }
-           fn main() { print_i64(strlen("hi")); }"#,
+           fn main() { print(strlen("hi")); }"#,
         "i32",
     );
 }

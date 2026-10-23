@@ -6,8 +6,8 @@
 // answer and a wrong one -- exactly the failure checked arithmetic removes.
 fn main() {
     var big = 9223372036854775807;
-    print_i64(big);
-    print_str("\n");
-    print_i64(big + 1);
-    print_str("this line must never be printed\n");
+    print(big);
+    println("");
+    print(big + 1);
+    println("this line must never be printed");
 }

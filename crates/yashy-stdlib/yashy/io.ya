@@ -15,23 +15,23 @@
 // and keeps no pointer.
 
 pub fn print(text: string) {
-    print_str(text);
+    print(text);
 }
 
 // Ownership: `text` is borrowed; printing does not release it.
 pub fn println(text: string) {
-    print_str(text);
-    print_str("\n");
+    print(text);
+    println("");
 }
 
 // Ownership: none; a number owns nothing.
 pub fn println_i64(value: int) {
-    print_i64(value);
-    print_str("\n");
+    print(value);
+    println("");
 }
 
 // Ownership: none; a number owns nothing.
 pub fn println_f64(value: float) {
-    print_f64(value);
-    print_str("\n");
+    print(value);
+    println("");
 }

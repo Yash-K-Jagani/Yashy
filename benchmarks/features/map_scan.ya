@@ -47,7 +47,7 @@ fn main() {
         j = wrapping_add(j, 1);
     }
 
-    print_i64(wrapping_add(total, hits));
-    print_str("\n");
+    print(wrapping_add(total, hits));
+    println("");
     m.free();
 }

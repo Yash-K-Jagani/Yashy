@@ -76,7 +76,7 @@ fn a_lambda_keeps_its_parameters_and_return_type() {
 
 #[test]
 fn a_lambda_without_an_arrow_has_no_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |x: int| { print_i64(x); }; }");
+    let (params, ret) = lambda("fn main() { const f = |x: int| { print(x); }; }");
     assert_eq!(params.len(), 1);
     assert!(ret.is_none(), "no arrow means no declared return type");
 }

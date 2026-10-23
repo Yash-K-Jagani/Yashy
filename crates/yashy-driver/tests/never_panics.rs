@@ -55,7 +55,7 @@ fn run_pipeline(src: &str) -> bool {
 fn malformed_inputs() -> Vec<(&'static str, String)> {
     let long_ident = format!("fn {}() {{ }}", "a".repeat(100_000));
     let many_delimiters = format!("fn main() {{ const x = {}; }}", "([{".repeat(200));
-    let long_string = format!("fn main() {{ print_str(\"{}\"); }}", "x".repeat(100_000));
+    let long_string = format!("fn main() {{ print(\"{}\"); }}", "x".repeat(100_000));
 
     vec![
         ("empty file", String::new()),
@@ -83,7 +83,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("import with no semicolon", "import std.io".to_string()),
         ("return outside a function", "return 1;".to_string()),
         ("nul bytes", "\0\0\0".to_string()),
-        ("nul inside a string", "fn main() { print_str(\"\0\"); }".to_string()),
+        ("nul inside a string", "fn main() { print(\"\0\"); }".to_string()),
         ("unterminated string", "fn main() { const x = \"unterminated }".to_string()),
         (
             "unterminated block comment",
@@ -95,7 +95,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "unterminated block comment inside a string",
-            "fn main() { print_str(\"/*\"); }".to_string(),
+            "fn main() { print(\"/*\"); }".to_string(),
         ),
         ("switch with no subject", "fn main() { switch }".to_string()),
         (
@@ -155,12 +155,12 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "integer literal past i64 in a pattern",
-            "fn main() { switch 1 { case 999999999999999999999999999 { print_i64(1); } default { print_i64(2); } } }"
+            "fn main() { switch 1 { case 999999999999999999999999999 { print(1); } default { print(2); } } }"
                 .to_string(),
         ),
         (
             "the i64::MIN literal, which is the one negation that fits",
-            "fn main() { print_i64(-9223372036854775808); }".to_string(),
+            "fn main() { print(-9223372036854775808); }".to_string(),
         ),
         (
             "float literal past f64",
@@ -180,23 +180,23 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "unterminated interpolation",
-            "fn main() { print_str(\"${x\"); }".to_string(),
+            "fn main() { print(\"${x\"); }".to_string(),
         ),
         (
             "empty interpolation",
-            "fn main() { print_str(\"${}\"); }".to_string(),
+            "fn main() { print(\"${}\"); }".to_string(),
         ),
         (
             "interpolation ending on an operator",
-            "fn main() { print_str(\"${1 +}\"); }".to_string(),
+            "fn main() { print(\"${1 +}\"); }".to_string(),
         ),
         (
             "interpolation whose nested string runs on",
-            "fn main() { print_str(\"${f(\"x)}\"); }".to_string(),
+            "fn main() { print(\"${f(\"x)}\"); }".to_string(),
         ),
         (
             "unbalanced braces inside an interpolation",
-            "fn main() { print_str(\"${ {{ }\"); }".to_string(),
+            "fn main() { print(\"${ {{ }\"); }".to_string(),
         ),
         (
             "interpolation at the end of the file",
@@ -219,7 +219,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "panic on every path of a function",
-            "fn f() -> int { panic(\"a\"); } fn main() { print_i64(f()); }".to_string(),
+            "fn f() -> int { panic(\"a\"); } fn main() { print(f()); }".to_string(),
         ),
         (
             "panic returning from a unit function",
@@ -243,7 +243,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("carriage returns", "fn main() {\r\n    const x = 1;\r\n}\r\n".to_string()),
         ("non-ascii identifier", "fn na\u{ef}ve() { const caf\u{e9} = 1; }".to_string()),
         ("non-ascii identifier outside latin-1", "fn main() { const \u{65e5}\u{672c}\u{8a9e} = 1; }".to_string()),
-        ("emoji in a string", "fn main() { print_str(\"\u{1f600}\"); }".to_string()),
+        ("emoji in a string", "fn main() { print(\"\u{1f600}\"); }".to_string()),
         ("replacement character", "\u{fffd}".to_string()),
         ("very long identifier", long_ident),
         ("very long string", long_string),
@@ -400,19 +400,19 @@ print_str print_i64 print_f64 Option Result int float bool string \
 /// Programs the random mutator starts from, so mutations land inside the
 /// grammar rather than beside it.
 const TEMPLATES: &[&str] = &[
-    "fn main() { print_str(\"hi\"); }\n",
+    "fn main() { print(\"hi\"); }\n",
     "fn f(n: int) -> int { if n < 2 { return n; } return f(n - 1) + f(n - 2); }\n",
     "fn f(o: Option[int]) -> int { return switch o { case None { 0 } case Some(v) { v } }; }\n",
     "fn f(r: Result[int, string]) -> int { const v = r?; return v; }\n",
     "enum E { A, B(int) } fn f(e: E) -> int { return switch e { case A { 0 } case B(v) { v } }; }\n",
     "struct S { x: int, y: float } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
-    "fn f() { defer { print_i64(1); } for i in 0..3 { print_i64(i); } }\n",
+    "fn f() { defer { print(1); } for i in 0..3 { print(i); } }\n",
     "fn f() { var sum = 0; for i in 0..3 { sum = sum + i; } }\n",
     "fn f(x: bool) { if x { break; } }\n",
     "fn f() -> Result[int, string] { return Err(\"no\"); }\n",
     "import std.io;\nextern \"C\" { fn puts(s: string) -> int; }\n",
     "fn f(g: fn(int) -> int, x: int) -> int { return g(x); }\n",
-    "fn f() { const g = |x: int| -> int { return x + 1; }; print_i64(g(1)); }\n",
+    "fn f() { const g = |x: int| -> int { return x + 1; }; print(g(1)); }\n",
 ];
 
 #[test]

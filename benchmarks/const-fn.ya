@@ -26,8 +26,8 @@ const fn fib(n: int) -> int {
 fn main() {
     const squares = sum_squares(100);
     const tenth = fib(10);
-    print_i64(squares);
-    print_str("\n");
-    print_i64(tenth);
-    print_str("\n");
+    print(squares);
+    println("");
+    print(tenth);
+    println("");
 }

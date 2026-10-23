@@ -1073,7 +1073,7 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
     let source = dir.join("entry_exit_status.ya");
     fs::write(
         &source,
-        "fn main() {\n    if \"a\" == \"a\" {\n        print_str(\"equal\\n\");\n    }\n}\n",
+        "fn main() {\n    if \"a\" == \"a\" {\n        print(\"equal\\n\");\n    }\n}\n",
     )
     .expect("write entry_exit_status.ya");
     let exe = dir.join(format!(
@@ -1203,7 +1203,7 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
          \x20   }\n\
          \x20   buf = alloc(32);\n\
          \x20   dealloc(buf);\n\
-         \x20   print_str(\"survived\\n\");\n\
+         \x20   print(\"survived\\n\");\n\
          }\n",
     )
     .expect("write deferred_free_rebind.ya");
@@ -1313,7 +1313,7 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
     // name is the one the library declared.
     fs::write(
         &public,
-        "import vis_lib;\nfn main() { print_i64(seven()); }\n",
+        "import vis_lib;\nfn main() { print(seven()); }\n",
     )
     .expect("write public.ya");
     let exe = dir.join(format!("public{}", std::env::consts::EXE_SUFFIX));
@@ -1334,7 +1334,7 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
     let private = dir.join("private.ya");
     fs::write(
         &private,
-        "import vis_lib;\nfn main() { print_i64(secret()); }\n",
+        "import vis_lib;\nfn main() { print(secret()); }\n",
     )
     .expect("write private.ya");
     let compile = Command::new(yashy())
@@ -1403,7 +1403,7 @@ fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
     let source = dir.join("huge_literal.ya");
     fs::write(
         &source,
-        "fn main() {\n    print_i64(9223372036854775808);\n}\n",
+        "fn main() {\n    print(9223372036854775808);\n}\n",
     )
     .expect("write huge_literal.ya");
 
@@ -1464,7 +1464,7 @@ fn the_smallest_i64_can_be_written_and_printed() {
     let source = dir.join("i64_min.ya");
     fs::write(
         &source,
-        "fn main() {\n    print_i64(-9223372036854775808);\n    print_str(\"\\n\");\n}\n",
+        "fn main() {\n    print(-9223372036854775808);\n    print(\"\\n\");\n}\n",
     )
     .expect("write i64_min.ya");
     let exe = dir.join(format!("i64_min{}", std::env::consts::EXE_SUFFIX));
@@ -1523,9 +1523,9 @@ fn os_exit_ends_the_process_with_the_status_it_names() {
         "exit-status",
         concat!(
             "fn main() {\n",
-            "    print_str(\"before\\n\");\n",
+            "    print(\"before\\n\");\n",
             "    os.exit(7);\n",
-            "    print_str(\"after\\n\");\n",
+            "    print(\"after\\n\");\n",
             "}\n"
         ),
     );
@@ -1567,15 +1567,15 @@ fn os_exit_can_be_reached_through_a_helper() {
         "exit-helper",
         concat!(
             "fn quit(code: int) {\n",
-            "    print_str(\"leaving\\n\");\n",
+            "    print(\"leaving\\n\");\n",
             "    os.exit(code);\n",
-            "    print_str(\"never\\n\");\n",
+            "    print(\"never\\n\");\n",
             "}\n",
             "\n",
             "fn main() {\n",
-            "    print_str(\"start\\n\");\n",
+            "    print(\"start\\n\");\n",
             "    quit(7);\n",
-            "    print_str(\"after\\n\");\n",
+            "    print(\"after\\n\");\n",
             "}\n"
         ),
     );
@@ -1593,10 +1593,10 @@ fn a_switch_arm_may_end_with_a_semicolon() {
             "fn main() {\n",
             "    var o = Some(42);\n",
             "    switch o {\n",
-            "        case Some(v) { print_i64(v); }\n",
-            "        case None { print_str(\"none\"); }\n",
+            "        case Some(v) { print(v); }\n",
+            "        case None { print(\"none\"); }\n",
             "    }\n",
-            "    print_str(\"\\n\");\n",
+            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -1640,7 +1640,7 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // "these two added to too much".
     let output = compile_and_run(
         "overflow-add",
-        "fn main() {\n    print_str(\"before\\n\");\n    var big = 9223372036854775807;\n    print_i64(big + 1);\n    print_str(\"after\\n\");\n}\n",
+        "fn main() {\n    print(\"before\\n\");\n    var big = 9223372036854775807;\n    print(big + 1);\n    print(\"after\\n\");\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -1671,7 +1671,7 @@ fn an_overflowing_multiplication_is_a_fault_too() {
     // is why it goes through LLVM's `smul.with.overflow`.
     let output = compile_and_run(
         "overflow-mul",
-        "fn main() {\n    var big = 4000000000000000000;\n    print_i64(big * 3);\n}\n",
+        "fn main() {\n    var big = 4000000000000000000;\n    print(big * 3);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1690,12 +1690,12 @@ fn dividing_or_taking_the_remainder_by_zero_names_the_operator() {
     for (name, source, expected) in [
         (
             "divide-by-zero",
-            "fn main() {\n    var a = 5;\n    var b = 0;\n    print_i64(a / b);\n}\n",
+            "fn main() {\n    var a = 5;\n    var b = 0;\n    print(a / b);\n}\n",
             "panic: division by zero: 5 / 0",
         ),
         (
             "remainder-by-zero",
-            "fn main() {\n    var a = 5;\n    var b = 0;\n    print_i64(a % b);\n}\n",
+            "fn main() {\n    var a = 5;\n    var b = 0;\n    print(a % b);\n}\n",
             "panic: division by zero: 5 % 0",
         ),
     ] {
@@ -1717,7 +1717,7 @@ fn dividing_the_smallest_i64_by_minus_one_is_an_overflow() {
     // check in generated code is a single branch for both.
     let output = compile_and_run(
         "overflow-div-min",
-        "fn main() {\n    var m = -9223372036854775808;\n    var minus_one = 0 - 1;\n    print_i64(m / minus_one);\n}\n",
+        "fn main() {\n    var m = -9223372036854775808;\n    var minus_one = 0 - 1;\n    print(m / minus_one);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1736,7 +1736,7 @@ fn negating_the_smallest_i64_is_an_overflow() {
     // is what negation is.
     let output = compile_and_run(
         "overflow-neg",
-        "fn main() {\n    var m = -9223372036854775808;\n    print_i64(-m);\n}\n",
+        "fn main() {\n    var m = -9223372036854775808;\n    print(-m);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1882,10 +1882,10 @@ fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
         "byte-at",
         "fn main() {\n\
          \x20   const abc = \"abc\";\n\
-         \x20   print_i64(abc.byte_at(1));\n\
-         \x20   print_str(\"\\n\");\n\
-         \x20   print_i64(abc.byte_at(99));\n\
-         \x20   print_str(\"\\n\");\n\
+         \x20   print(abc.byte_at(1));\n\
+         \x20   print(\"\\n\");\n\
+         \x20   print(abc.byte_at(99));\n\
+         \x20   print(\"\\n\");\n\
          }",
     );
     assert_eq!(stdout_of(&output), "98\n0\n");
@@ -1916,30 +1916,30 @@ fn the_arithmetic_opt_outs_do_what_their_names_say() {
             "fn main() {\n",
             "    var big = 9223372036854775807;\n",
             "    var small = -9223372036854775808;\n",
-            "    print_i64(wrapping_add(big, 1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_add(big, 1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(wrapping_sub(small, 1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_sub(small, 1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(wrapping_mul(big, 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(big, 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(small, 0 - 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(3, 4));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(show(checked_add(big, 1)));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(show(checked_add(1, 2)));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(show(checked_sub(small, 1)));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(show(checked_mul(big, 2)));\n",
-            "    print_str(\"\\n\");\n",
+            "    print(wrapping_add(big, 1));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_add(big, 1));\n",
+            "    print(\"\\n\");\n",
+            "    print(wrapping_sub(small, 1));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_sub(small, 1));\n",
+            "    print(\"\\n\");\n",
+            "    print(wrapping_mul(big, 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(big, 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(small, 0 - 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(3, 4));\n",
+            "    print(\"\\n\");\n",
+            "    print(show(checked_add(big, 1)));\n",
+            "    print(\"\\n\");\n",
+            "    print(show(checked_add(1, 2)));\n",
+            "    print(\"\\n\");\n",
+            "    print(show(checked_sub(small, 1)));\n",
+            "    print(\"\\n\");\n",
+            "    print(show(checked_mul(big, 2)));\n",
+            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -1980,20 +1980,20 @@ fn the_saturating_multiply_clamps_at_both_ends_and_is_exact_inside() {
             "fn main() {\n",
             "    var big = 9223372036854775807;\n",
             "    var small = -9223372036854775808;\n",
-            "    print_i64(saturating_mul(big, -1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(big, 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(small, 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(small, -1));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(4611686018427387903, 2));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(-3, 4));\n",
-            "    print_str(\"\\n\");\n",
-            "    print_i64(saturating_mul(6, 7));\n",
-            "    print_str(\"\\n\");\n",
+            "    print(saturating_mul(big, -1));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(big, 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(small, 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(small, -1));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(4611686018427387903, 2));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(-3, 4));\n",
+            "    print(\"\\n\");\n",
+            "    print(saturating_mul(6, 7));\n",
+            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -2019,7 +2019,7 @@ fn arithmetic_that_fits_runs_to_completion() {
     // the check on `sum + i` is inside it.
     let output = compile_and_run(
         "arithmetic-ok",
-        "fn main() {\n    var sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print_i64(sum);\n    print_str(\"\\n\");\n    print_i64(7 / 2);\n    print_str(\"\\n\");\n    print_i64(-7 % 2);\n    print_str(\"\\n\");\n    print_i64(-sum);\n    print_str(\"\\n\");\n}\n",
+        "fn main() {\n    var sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print(sum);\n    print(\"\\n\");\n    print(7 / 2);\n    print(\"\\n\");\n    print(-7 % 2);\n    print(\"\\n\");\n    print(-sum);\n    print(\"\\n\");\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -2050,7 +2050,7 @@ fn assertions_that_hold_do_nothing_at_all() {
             "    assert_eq(true, true);\n",
             "    assert_eq(\"yashy\", \"yashy\");\n",
             "    assert_ne(\"yashy\", \"other\");\n",
-            "    print_str(\"done\\n\");\n",
+            "    print(\"done\\n\");\n",
             "}\n"
         ),
     );
@@ -2078,9 +2078,9 @@ fn a_failed_assertion_quotes_the_condition_it_was_given() {
         concat!(
             "fn main() {\n",
             "    var n = 0;\n",
-            "    print_str(\"before\\n\");\n",
+            "    print(\"before\\n\");\n",
             "    assert(n > 0);\n",
-            "    print_str(\"after\\n\");\n",
+            "    print(\"after\\n\");\n",
             "}\n"
         ),
     );
@@ -2186,7 +2186,7 @@ fn an_asserted_operand_runs_exactly_once() {
     // path, could print a number that is not the one that failed.
     let source = concat!(
         "fn tick() -> int {\n",
-        "    print_str(\"tick\\n\");\n",
+        "    print(\"tick\\n\");\n",
         "    return 1;\n",
         "}\n",
         "\n",
@@ -2216,12 +2216,12 @@ fn a_release_build_compiles_debug_asserts_away_and_keeps_asserts() {
     // nothing in front of a user; `assert` is a claim the program depends on.
     let source = concat!(
         "fn main() {\n",
-        "    print_str(\"start\\n\");\n",
+        "    print(\"start\\n\");\n",
         "    var n = 0;\n",
         "    debug_assert(n > 0);\n",   // false, and dropped by --release
-        "    print_str(\"checked\\n\");\n",
+        "    print(\"checked\\n\");\n",
         "    assert(n == 0);\n",         // true, and kept by both
-        "    print_str(\"done\\n\");\n",
+        "    print(\"done\\n\");\n",
         "}\n"
     );
     let release = compile_and_run_with("debug-release", source, &["--release"]);
@@ -2549,7 +2549,7 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
     let dir = work_dir("fmt-cli");
 
     let messy = dir.join("messy.ya");
-    fs::write(&messy, "fn  main( ){print_str(\"hi\") ;}\n")
+    fs::write(&messy, "fn  main( ){print(\"hi\") ;}\n")
         .expect("the test file must be writable");
     let output = Command::new(yashy())
         .arg("fmt")
@@ -2564,7 +2564,7 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
     );
     assert_eq!(
         fs::read_to_string(&messy).expect("the formatted file must be readable"),
-        "fn main() {\n    print_str(\"hi\");\n}\n"
+        "fn main() {\n    print(\"hi\");\n}\n"
     );
 
     let broken = dir.join("broken.ya");

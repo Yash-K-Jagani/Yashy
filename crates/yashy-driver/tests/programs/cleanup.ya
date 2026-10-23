@@ -12,20 +12,20 @@
 // the expected stdout is its whole assertion.
 fn main() {
     defer {
-        print_str("outer\n");
+        println("outer");
     }
 
     if true {
         defer {
-            print_str("middle 1\n");
+            println("middle 1");
         }
 
         if true {
             defer {
-                print_str("middle 2\n");
+                println("middle 2");
             }
             defer {
-                print_str("inner\n");
+                println("inner");
             }
             panic("cleanup");
         }

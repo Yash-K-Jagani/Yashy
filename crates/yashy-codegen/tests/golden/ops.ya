@@ -19,7 +19,7 @@ fn ops() {
     const flt = 1.0 < 2.0;
     const and_ = true && false;
     const or_ = true || false;
-    print_str("hi");
-    print_i64(1);
-    print_f64(1.0);
+    print("hi");
+    print(1);
+    print(1.0);
 }

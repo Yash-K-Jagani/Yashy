@@ -15,24 +15,24 @@ fn show(o: Option[int]) -> int {
 fn main() {
     var xs = []int { 10, 20, 30 };
     xs.push(40);
-    print_i64(xs.len());
-    print_str("\n");
+    print(xs.len());
+    println("");
 
-    print_i64(show(xs[0]));
-    print_str("\n");
-    print_i64(show(xs[3]));
-    print_str("\n");
-    print_i64(show(xs[4]));
-    print_str("\n");
-    print_i64(show(xs[0 - 1]));
-    print_str("\n");
+    print(show(xs[0]));
+    println("");
+    print(show(xs[3]));
+    println("");
+    print(show(xs[4]));
+    println("");
+    print(show(xs[0 - 1]));
+    println("");
 
     var sum = 0;
     for value in xs {
         sum = sum + value;
     }
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 
     var before = 0;
     for value in xs {
@@ -41,16 +41,16 @@ fn main() {
         }
         before = before + 1;
     }
-    print_i64(before);
-    print_str("\n");
+    print(before);
+    println("");
 
     var empty = []int {};
     var count = 0;
     for value in empty {
         count = count + 1;
     }
-    print_i64(count);
-    print_str("\n");
+    print(count);
+    println("");
 
     // The loop must see a `push` that happens while it runs. A cached length or
     // data pointer would stop after the first iteration (or read freed memory).
@@ -63,15 +63,15 @@ fn main() {
         growing.push(value + 1);
         pushed = pushed + 1;
     }
-    print_i64(growing.len());
-    print_str("\n");
+    print(growing.len());
+    println("");
 
-    print_i64(show(xs.pop()));
-    print_str("\n");
-    print_i64(show(xs.pop()));
-    print_str("\n");
-    print_i64(xs.len());
-    print_str("\n");
+    print(show(xs.pop()));
+    println("");
+    print(show(xs.pop()));
+    println("");
+    print(xs.len());
+    println("");
 
     empty.free();
     growing.free();

@@ -79,6 +79,15 @@ void yashy_print_str(const yashy_str *s) {
     fputs(yashy_str_data(s), stdout);
 }
 
+void yashy_print_line_str(const yashy_str *s) {
+    if (s == NULL) {
+        return;
+    }
+    yashy_stdout_binary();
+    fputs(yashy_str_data(s), stdout);
+    fputc('\n', stdout);
+}
+
 void yashy_print_i64(long long value) {
     yashy_stdout_binary();
     printf("%lld", value);

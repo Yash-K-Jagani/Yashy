@@ -31,26 +31,26 @@ fn assert_rejected(src: &str, needle: &str) {
 
 #[test]
 fn read_file_yields_an_owned_string() {
-    check("fn main() { var text: string = read_file(\"notes.txt\"); print_str(text); }")
+    check("fn main() { var text: string = read_file(\"notes.txt\"); print(text); }")
         .expect("read_file takes a path and answers with a string");
 }
 
 #[test]
 fn write_file_yields_a_status_integer() {
-    check("fn main() { var ok: int = write_file(\"notes.txt\", \"body\"); print_i64(ok); }")
+    check("fn main() { var ok: int = write_file(\"notes.txt\", \"body\"); print(ok); }")
         .expect("write_file takes a path and a body and answers 1 or 0");
 }
 
 #[test]
 fn getenv_yields_a_string() {
-    check("fn main() { var home: string = getenv(\"HOME\"); print_str(home); }")
+    check("fn main() { var home: string = getenv(\"HOME\"); print(home); }")
         .expect("getenv takes a name and answers with the value or an empty string");
 }
 
 #[test]
 fn slice_takes_two_bounds() {
     check(
-        "fn main() { var hello = \"hello\"; var word: string = hello.slice(1, 3); print_str(word); }",
+        "fn main() { var hello = \"hello\"; var word: string = hello.slice(1, 3); print(word); }",
     )
     .expect("`slice` is (start, end) -> string");
     assert_rejected(

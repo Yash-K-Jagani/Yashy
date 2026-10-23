@@ -6,7 +6,7 @@ fn main() {
     var y = x + 1; /* Trailing block comment. */
     /* Standalone block comment. */
     /* A nested /* block */ comment. */
-    print_i64(y);
+    print(y);
     // A comment just before the closing brace.
 }
 // A comment after the last item.

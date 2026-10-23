@@ -83,7 +83,7 @@ pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
 /// * `fn main()` becomes an `i32` function whose `return` and fall-off-the-end
 ///   both yield 0. Emitting `void main` instead leaves the exit status as
 ///   whatever the last call happened to leave in the return register, which is
-///   a real bug and not a theoretical one: `fn main() { print_str("hello"); }`
+///   a real bug and not a theoretical one: `fn main() { print("hello"); }`
 ///   exits with the number of bytes its last runtime call returned, so adding a
 ///   `==` on strings to a program silently changed its exit code.
 /// * `fn main() -> i64` keeps its `i64` body but truncates the result to `i32`

@@ -28,35 +28,35 @@ fn main() {
     for x in xs {
         sum = wrapping_add(sum, x);
     }
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 
     if xs.is_empty() {
-        print_str("unexpected empty\n");
+        println("unexpected empty");
     }
     if option_i64(xs.first()) != 0 {
-        print_str("bad first\n");
+        println("bad first");
     }
     if option_i64(xs.last()) != 9999999 {
-        print_str("bad last\n");
+        println("bad last");
     }
     if !xs.set(0, 0) {
-        print_str("set failed\n");
+        println("set failed");
     }
     if option_i64(xs.get(0)) != 0 {
-        print_str("bad get\n");
+        println("bad get");
     }
     if !xs.contains(0) {
-        print_str("missing contains\n");
+        println("missing contains");
     }
     if option_i64(xs.index_of(9999999)) != 9999999 {
-        print_str("bad index_of\n");
+        println("bad index_of");
     }
     var extra = []int { 1, 2 };
     xs.extend(extra);
     var copy = xs.slice(0, 3);
     if copy.len() != 3 {
-        print_str("bad array\n");
+        println("bad array");
     }
     copy.free();
     xs.free();
@@ -67,67 +67,67 @@ fn main() {
     var text = "  Yashy,yashy  ";
     var trimmed = text.trim();
     if trimmed.len() != 11 {
-        print_str("bad trim\n");
+        println("bad trim");
     }
     var upper = text.to_upper();
     if upper.len() != 15 {
-        print_str("bad to_upper\n");
+        println("bad to_upper");
     }
     var lower = text.to_lower();
     if lower.len() != 15 {
-        print_str("bad to_lower\n");
+        println("bad to_lower");
     }
     var replaced = text.replace("yashy", "seal");
     if replaced.len() != 14 {
-        print_str("bad replace\n");
+        println("bad replace");
     }
     var piece = text.slice(2, 7);
     if piece.len() != 5 {
-        print_str("bad string slice\n");
+        println("bad string slice");
     }
     var dash = "-";
     var repeated = dash.repeat(3);
     if repeated.len() != 3 {
-        print_str("bad repeat\n");
+        println("bad repeat");
     }
     var parts = text.split(",");
     if parts.len() != 2 {
-        print_str("bad split\n");
+        println("bad split");
     }
     parts.free();
     var lines = text.lines();
     if lines.len() != 1 {
-        print_str("bad lines\n");
+        println("bad lines");
     }
     lines.free();
     if !text.contains("yashy") {
-        print_str("missing contains\n");
+        println("missing contains");
     }
     if !text.starts_with("  ") {
-        print_str("bad starts_with\n");
+        println("bad starts_with");
     }
     if !text.ends_with("  ") {
-        print_str("bad ends_with\n");
+        println("bad ends_with");
     }
     if text.byte_at(2) != 89 {
-        print_str("bad byte_at\n");
+        println("bad byte_at");
     }
     if option_i64(text.get(2)) != 89 {
-        print_str("bad string get\n");
+        println("bad string get");
     }
     if option_i64(text.index_of("yashy")) != 8 {
-        print_str("bad string index_of\n");
+        println("bad string index_of");
     }
     var empty = "";
     if !empty.is_empty() {
-        print_str("empty string is not empty\n");
+        println("empty string is not empty");
     }
     var number = "42";
     if number.parse_i64() != 42 {
-        print_str("bad parse_i64\n");
+        println("bad parse_i64");
     }
     var decimal = "2.5";
     if decimal.parse_f64() != 2.5 {
-        print_str("bad parse_f64\n");
+        println("bad parse_f64");
     }
 }

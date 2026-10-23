@@ -43,7 +43,7 @@ fn assert_rejected(src: &str, needle: &str) {
 #[test]
 fn a_thread_body_is_checked_like_any_other_function() {
     check(
-        "fn work(n: int) { print_i64(n); } \
+        "fn work(n: int) { print(n); } \
          fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     )
     .expect("a body with a matching parameter is accepted");
@@ -51,7 +51,7 @@ fn a_thread_body_is_checked_like_any_other_function() {
     // The body is an ordinary function, so an error inside it is reported even
     // though nothing but `thread_spawn` refers to it.
     assert_rejected(
-        "fn work(n: int) { print_i64(true); } \
+        "fn work(n: int) { var x: int = true; } \
          fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
         "expected `int`, found `bool`",
     );
@@ -64,11 +64,11 @@ fn spawn_requires_a_function_and_matching_arguments() {
         "`thread_spawn` needs a function",
     );
     assert_rejected(
-        "fn work(n: int) { print_i64(n); } fn main() { var h: int = thread_spawn(work); }",
+        "fn work(n: int) { print(n); } fn main() { var h: int = thread_spawn(work); }",
         "expected 1 arguments, found 0",
     );
     assert_rejected(
-        "fn work(n: int) { print_i64(n); } fn main() { var h: int = thread_spawn(work, true); }",
+        "fn work(n: int) { print(n); } fn main() { var h: int = thread_spawn(work, true); }",
         "expected `int`, found `bool`",
     );
     assert_rejected(
@@ -165,12 +165,12 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
     // A string is copy-typed, so the parent keeps its binding while the thread
     // holds a retained reference.
     check(
-        "fn work(s: string) { print_str(s); } \
+        "fn work(s: string) { print(s); } \
          fn main() { \
            var s: string = \"hello\"; \
            var h: int = thread_spawn(work, s); \
            thread_join(h); \
-           print_str(s); \
+           print(s); \
          }",
     )
     .expect("a string is shared by retain");

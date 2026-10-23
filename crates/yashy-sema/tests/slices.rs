@@ -114,7 +114,7 @@ fn moving_the_slice_while_iterating_is_rejected() {
 fn a_slice_of_strings_can_be_built_and_iterated() {
     check(
         "fn main() { var xs = []string { \"a\", \"b\" }; xs.push(\"c\"); \
-         for x in xs { print_str(x); } xs.free(); }",
+         for x in xs { print(x); } xs.free(); }",
     )
     .expect("a `[]string` owns its elements: a literal and push retain, free releases");
 }

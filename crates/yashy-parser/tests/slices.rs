@@ -93,7 +93,7 @@ fn statements(src: &str) -> Vec<Stmt> {
 
 #[test]
 fn for_in_over_a_slice_binds_one_name() {
-    let stmts = statements("fn main() { var xs = []int { 1 }; for x in xs { print_i64(x); } }");
+    let stmts = statements("fn main() { var xs = []int { 1 }; for x in xs { print(x); } }");
     match &stmts[1] {
         Stmt::ForIn {
             name, iterable, ..
@@ -110,7 +110,7 @@ fn for_in_over_a_slice_binds_one_name() {
 
 #[test]
 fn for_in_still_reads_the_range_form() {
-    let stmts = statements("fn main() { for i in 0..3 { print_i64(i); } }");
+    let stmts = statements("fn main() { for i in 0..3 { print(i); } }");
     match &stmts[0] {
         Stmt::ForRange {
             name, start, end, ..

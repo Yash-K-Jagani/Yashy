@@ -68,14 +68,14 @@ fn check_all() -> Result<(), String> {
     expect(&out, b"", "print_str of an empty string writes nothing")?;
 
     let out = capture("i64_negative")?;
-    expect(&out, b"-42", "print_i64(-42)")?;
+    expect(&out, b"-42", "print(-42)")?;
     expect_no_newline(&out, "print_i64 must not append a newline")?;
 
     let out = capture("i64_zero")?;
-    expect(&out, b"0", "print_i64(0)")?;
+    expect(&out, b"0", "print(0)")?;
 
     let out = capture("f64_exact")?;
-    expect(&out, b"3.5", "print_f64(3.5) must round-trip as 3.5")?;
+    expect(&out, b"3.5", "print(3.5) must round-trip as 3.5")?;
 
     // %.17g, not %g: a value that is not representable in fewer digits has to
     // come back with all of them, or it cannot round-trip.
@@ -83,7 +83,7 @@ fn check_all() -> Result<(), String> {
     expect(
         &out,
         b"0.10000000000000001",
-        "print_f64(0.1) must carry enough digits to round-trip",
+        "print(0.1) must carry enough digits to round-trip",
     )?;
 
     println!("runtime print helpers: all cases produced the expected bytes");

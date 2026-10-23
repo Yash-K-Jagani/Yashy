@@ -39,7 +39,7 @@ fn emit(src: &str) -> String {
 #[test]
 fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
     let ir = emit(
-        "fn work(n: int) { print_i64(n); } \
+        "fn work(n: int) { print(n); } \
          fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
@@ -57,7 +57,7 @@ fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
 #[test]
 fn the_thread_body_is_emitted_as_its_own_function() {
     let ir = emit(
-        "fn work(n: int) { print_i64(n); } \
+        "fn work(n: int) { print(n); } \
          fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
@@ -74,7 +74,7 @@ fn the_thread_body_is_emitted_as_its_own_function() {
 #[test]
 fn arguments_are_copied_into_the_thread_entry_struct() {
     let ir = emit(
-        "fn work(n: int, flag: bool) { print_i64(n); if flag { print_str(\"y\"); } } \
+        "fn work(n: int, flag: bool) { print(n); if flag { print(\"y\"); } } \
          fn main() { var h: int = thread_spawn(work, 7, true); thread_join(h); }",
     );
     // The parent builds the struct in its own frame: one store per argument.

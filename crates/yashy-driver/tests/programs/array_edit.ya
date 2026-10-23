@@ -16,51 +16,51 @@ fn main() {
     var xs = []int { 10, 20, 30 };
 
     if xs.insert(0, 5) {
-        print_str("front ok\n");
+        println("front ok");
     }
     if xs.insert(2, 15) {
-        print_str("middle ok\n");
+        println("middle ok");
     }
     if xs.insert(xs.len(), 35) {
-        print_str("end ok\n");
+        println("end ok");
     }
     if xs.insert(xs.len() + 1, 99) {
-        print_str("unexpected: past-end insert accepted\n");
+        println("unexpected: past-end insert accepted");
     } else {
-        print_str("past end rejected\n");
+        println("past end rejected");
     }
 
-    print_i64(xs.len());
-    print_str("\n");
-    print_i64(show(xs.remove(1)));
-    print_str("\n");
-    print_i64(show(xs.remove(99)));
-    print_str("\n");
-    print_i64(xs.len());
-    print_str("\n");
+    print(xs.len());
+    println("");
+    print(show(xs.remove(1)));
+    println("");
+    print(show(xs.remove(99)));
+    println("");
+    print(xs.len());
+    println("");
 
     for x in xs {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
 
     xs.reverse();
     for x in xs {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
 
     xs.sort();
     for x in xs {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
 
     xs.clear();
-    print_i64(xs.len());
-    print_str("\n");
+    print(xs.len());
+    println("");
     if xs.is_empty() {
-        print_str("cleared\n");
+        println("cleared");
     }
 
     xs.free();
@@ -68,7 +68,7 @@ fn main() {
     var names = []string { "a", "b" };
     names.clear();
     if names.is_empty() {
-        print_str("strings cleared\n");
+        println("strings cleared");
     }
     names.free();
 }

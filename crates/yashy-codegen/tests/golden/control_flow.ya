@@ -1,8 +1,8 @@
 fn control(x: bool, o: Option[int]) -> int {
     if x {
-        print_i64(1);
+        print(1);
     } else {
-        print_i64(2);
+        print(2);
     }
 
     for i in 0..10 {
@@ -14,23 +14,23 @@ fn control(x: bool, o: Option[int]) -> int {
         }
     }
 
-    for i := 0; i < 3; print_i64(i) {
-        print_i64(i);
+    for i := 0; i < 3; print(i) {
+        print(i);
     }
 
     defer {
-        print_i64(4);
+        print(4);
     }
     defer {
-        print_i64(5);
+        print(5);
     }
 
     switch o {
         case None {
-            print_i64(0)
+            print(0)
         }
         default {
-            print_i64(1)
+            print(1)
         }
     }
 

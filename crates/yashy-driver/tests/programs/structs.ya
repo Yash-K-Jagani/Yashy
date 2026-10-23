@@ -22,18 +22,18 @@ fn main() {
     // Written out of order on purpose: `x` first in the output, but second in
     // the literal.
     const p = Point { y: 4, x: 3 };
-    print_i64(p.x);
-    print_str(" ");
-    print_i64(p.y);
-    print_str("\n");
+    print(p.x);
+    print(" ");
+    print(p.y);
+    println("");
 
     // A field of a field, and a struct literal nested in another literal.
     const line = Line { to: p, from: Point { x: 1, y: 2 } };
-    print_i64(line.from.x + line.to.y);
-    print_str("\n");
+    print(line.from.x + line.to.y);
+    println("");
 
     // A struct crosses a call boundary by value and its fields are readable on
     // the other side.
-    print_i64(manhattan(line.from));
-    print_str("\n");
+    print(manhattan(line.from));
+    println("");
 }

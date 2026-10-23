@@ -44,6 +44,6 @@ fn main() {
     thread_join(worker);
     outbox.free();
     inbox.free();
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 }

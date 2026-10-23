@@ -5,7 +5,7 @@ fn main() {
     var found = counts.get("a");
     var removed = counts.remove("b");
     var n = counts.len();
-    print_i64(n);
-    print_str("\n");
+    print(n);
+    println("");
     counts.free();
 }

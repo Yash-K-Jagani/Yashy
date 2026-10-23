@@ -3,5 +3,5 @@ fn main() {
     xs.push(30);
     xs.push(40);
     xs.free();
-    print_str("slices freed\n");
+    println("slices freed");
 }

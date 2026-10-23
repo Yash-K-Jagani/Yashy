@@ -28,6 +28,6 @@ fn main() {
     thread_join(d);
 
     gate.free();
-    print_i64(wrapping_mul(rounds, 4));
-    print_str("\n");
+    print(wrapping_mul(rounds, 4));
+    println("");
 }

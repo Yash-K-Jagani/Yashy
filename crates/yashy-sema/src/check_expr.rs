@@ -475,10 +475,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 30] = [
-            ("print_str", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
-            ("print_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
-            ("print_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Unit)),
+        let builtins: [(&str, Vec<Type>, Type); 27] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
@@ -6239,6 +6236,71 @@ impl<'src> Checker<'src> {
                 if let Some(checked) = self.check_builtin_method(callee, args, *span) {
                     return checked;
                 }
+                // `print` and `println` are the new spelling. They take one value
+                // of any printable type (or none, for `println()`), convert it
+                // to a string internally, and print it. The old names are handled
+                // by the migration table below.
+                if callee.len() == 1 {
+                    let call_name = callee.last().cloned().unwrap_or_default();
+                    match call_name.as_str() {
+                        "print" => {
+                            if args.len() != 1 {
+                                self.error(*span, "`print` takes one value".to_string());
+                                return None;
+                            }
+                            let Some(arg) = args.first() else {
+                                return None;
+                            };
+                            let checked = match self.check_expr(arg) {
+                                Some(c) => c,
+                                None => return None,
+                            };
+                            let string = self.as_string(checked, *span)?;
+                            return Some(HirExpr::Call {
+                                callee: vec!["print_str".to_string()],
+                                args: vec![string],
+                                unsafe_call: false,
+                                span: *span,
+                                ty: prim(TypeKind::Unit),
+                            });
+                        }
+                        "println" => {
+                            if args.is_empty() {
+                                return Some(HirExpr::Call {
+                                    callee: vec!["print_line_str".to_string()],
+                                    args: vec![HirExpr::Literal(
+                                        Literal::Str(str_lit(String::new())),
+                                        *span,
+                                        prim(TypeKind::Str),
+                                    )],
+                                    unsafe_call: false,
+                                    span: *span,
+                                    ty: prim(TypeKind::Unit),
+                                });
+                            }
+                            if args.len() != 1 {
+                                self.error(*span, "`println` takes one value".to_string());
+                                return None;
+                            }
+                            let Some(arg) = args.first() else {
+                                return None;
+                            };
+                            let checked = match self.check_expr(arg) {
+                                Some(c) => c,
+                                None => return None,
+                            };
+                            let string = self.as_string(checked, *span)?;
+                            return Some(HirExpr::Call {
+                                callee: vec!["print_line_str".to_string()],
+                                args: vec![string],
+                                unsafe_call: false,
+                                span: *span,
+                                ty: prim(TypeKind::Unit),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
                 let name = callee.last().cloned().unwrap_or_default();
                 // A generic function is found by name like an ordinary one, but
                 // its signature has type variables: the substitution comes from
@@ -6438,7 +6500,19 @@ impl<'src> Checker<'src> {
                         }
                     },
                     None => {
-                        self.error(*span, format!("cannot find function `{name}`"));
+                        // Migration table for retired builtins.
+                        let last_name = callee.last().cloned().unwrap_or_default();
+                        let migration_msg = match last_name.as_str() {
+                            "print_str" => Some("`print_str` was replaced: use `println` (or `print`)"),
+                            "print_i64" => Some("`print_i64` was replaced"),
+                            "print_f64" => Some("`print_f64` was replaced"),
+                            _ => None,
+                        };
+                        if let Some(msg) = migration_msg {
+                            self.error(*span, msg.to_string());
+                            return None;
+                        }
+                        self.error(*span, format!("cannot find function `{}`", last_name));
                         // Check the arguments anyway, each one standing alone.
                         //
                         // Resolving the callee first is what lets `f(None)`

@@ -92,7 +92,7 @@ fn a_dotted_path_resolves_to_a_nested_file() {
     write(
         &dir,
         "main.ya",
-        "import lib.util;\nfn main() { print_i64(seven()); print_str(\"\\n\"); }\n",
+        "import lib.util;\nfn main() { print(seven()); print(\"\\n\"); }\n",
     );
     write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
@@ -111,7 +111,7 @@ fn a_module_directory_containing_mod_ot_is_found() {
     write(
         &dir,
         "main.ya",
-        "import pkg.nested;\nfn main() { print_i64(three()); print_str(\"\\n\"); }\n",
+        "import pkg.nested;\nfn main() { print(three()); print(\"\\n\"); }\n",
     );
     write(&dir, "pkg/nested/mod.ya", "pub fn three() -> int { return 3; }\n");
 
@@ -214,7 +214,7 @@ fn importing_the_same_module_from_two_files_defines_it_once() {
         &dir,
         "main.ya",
         "import a;\nimport b;\n\
-         fn main() { print_i64(from_a() + from_b()); print_str(\"\\n\"); }\n",
+         fn main() { print(from_a() + from_b()); print(\"\\n\"); }\n",
     );
     write(
         &dir,
@@ -247,7 +247,7 @@ fn a_name_defined_in_two_modules_is_an_ambiguity_error() {
     write(
         &dir,
         "main.ya",
-        "import a;\nimport b;\nfn main() { print_i64(thing()); }\n",
+        "import a;\nimport b;\nfn main() { print(thing()); }\n",
     );
     write(&dir, "a.ya", "pub fn thing() -> int { return 1; }\n");
     write(&dir, "b.ya", "pub fn thing() -> int { return 2; }\n");
@@ -274,7 +274,7 @@ fn yashy_path_overrides_the_default_root() {
     write(
         &dir,
         "main.ya",
-        "import vendor.helper;\nfn main() { print_i64(helper()); print_str(\"\\n\"); }\n",
+        "import vendor.helper;\nfn main() { print(helper()); print(\"\\n\"); }\n",
     );
     write(&dir, "external/vendor/helper.ya", "pub fn helper() -> int { return 9; }\n");
     let search = dir.join("external");
@@ -300,7 +300,7 @@ fn check_accepts_a_multi_file_program_without_building_it() {
     write(
         &dir,
         "main.ya",
-        "import lib.util;\nfn main() { print_i64(seven()); }\n",
+        "import lib.util;\nfn main() { print(seven()); }\n",
     );
     write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
@@ -330,7 +330,7 @@ fn an_error_in_a_module_names_the_module_not_the_entry_point() {
     write(
         &dir,
         "main.ya",
-        "import lib.broken;\nfn main() { print_i64(value()); }\n",
+        "import lib.broken;\nfn main() { print(value()); }\n",
     );
     write(
         &dir,

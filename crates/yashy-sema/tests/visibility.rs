@@ -52,7 +52,7 @@ fn a_public_function_is_usable_from_another_module() {
     check(&[
         (
             "main.ya",
-            "import lib;\nfn main() { print_i64(seven()); }\n",
+            "import lib;\nfn main() { print(seven()); }\n",
         ),
         ("lib.ya", "pub fn seven() -> int { return 7; }\n"),
     ])
@@ -65,7 +65,7 @@ fn a_private_function_is_not_usable_from_another_module() {
         &[
             (
                 "main.ya",
-                "import lib;\nfn main() { print_i64(seven()); }\n",
+                "import lib;\nfn main() { print(seven()); }\n",
             ),
             ("lib.ya", "fn seven() -> int { return 7; }\n"),
         ],
@@ -78,7 +78,7 @@ fn a_module_may_use_its_own_private_items() {
     check(&[
         (
             "main.ya",
-            "import lib;\nfn main() { print_i64(seven()); }\n",
+            "import lib;\nfn main() { print(seven()); }\n",
         ),
         (
             "lib.ya",
@@ -123,7 +123,7 @@ fn a_public_type_with_a_public_field_is_fully_visible() {
     check(&[
         (
             "main.ya",
-            "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print_i64(p.x); }\n",
+            "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print(p.x); }\n",
         ),
         (
             "lib.ya",
@@ -139,7 +139,7 @@ fn a_private_field_may_not_be_read_from_another_module() {
         &[
             (
                 "main.ya",
-                "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print_i64(p.x); }\n",
+                "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print(p.x); }\n",
             ),
             (
                 "lib.ya",
@@ -158,7 +158,7 @@ fn a_const_fn_is_private_too() {
         &[
             (
                 "main.ya",
-                "import lib;\nfn main() { const n = square(9); print_i64(n); }\n",
+                "import lib;\nfn main() { const n = square(9); print(n); }\n",
             ),
             ("lib.ya", "const fn square(n: int) -> int { return n * n; }\n"),
         ],
@@ -174,7 +174,7 @@ fn a_private_generic_function_is_not_usable_from_another_module() {
         &[
             (
                 "main.ya",
-                "import lib;\nfn main() { print_i64(identity(3)); }\n",
+                "import lib;\nfn main() { print(identity(3)); }\n",
             ),
             (
                 "lib.ya",
@@ -207,7 +207,7 @@ fn a_public_type_is_usable_from_another_module() {
     check(&[
         (
             "main.ya",
-            "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print_i64(p.y); }\n",
+            "import lib;\nfn main() { var p = Point { x: 1, y: 2 }; print(p.y); }\n",
         ),
         (
             "lib.ya",

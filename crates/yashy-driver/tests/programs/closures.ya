@@ -11,14 +11,14 @@ fn greeter(greeting: string) -> fn() -> string {
 
 fn main() {
     const add5 = adder(5);
-    print_i64(add5(10));
-    print_str("\n");
+    print(add5(10));
+    println("");
 
     // The closure is still alive after `greeter` has returned: its environment
     // is a block of its own, and the captured string is in it.
     const greet = greeter("hello");
-    print_str(greet());
-    print_str("\n");
+    print(greet());
+    println("");
 
     // A closure that is made and thrown away: its environment is released
     // with it, so it does not leak.

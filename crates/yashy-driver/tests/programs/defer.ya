@@ -5,10 +5,10 @@ fn main() {
     var buf = alloc(16);
     defer {
         dealloc(buf);
-        print_str("second\n");
+        println("second");
     }
     defer {
-        print_str("first\n");
+        println("first");
     }
-    print_str("body\n");
+    println("body");
 }

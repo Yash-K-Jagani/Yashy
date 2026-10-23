@@ -21,6 +21,6 @@ fn main() {
         total = wrapping_add(total, text.len());
         i = wrapping_add(i, 1);
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

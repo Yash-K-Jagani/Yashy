@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -107,8 +108,8 @@ declare void @yashy_exit(i64)
 @.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.0.data }
 @.str.1.data = private unnamed_addr constant [10 x i8] c"slices.ya\00"
 @.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 9, i64 9, i8* @.str.1.data }
-@.str.2.data = private unnamed_addr constant [2 x i8] c"\0A\00"
-@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.2.data }
+@.str.2.data = private unnamed_addr constant [1 x i8] c"\00"
+@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 0, i64 0, i8* @.str.2.data }
 define i32 @main() {
 entry:
 %slot0 = alloca { i8*, i64, i64 }
@@ -193,11 +194,13 @@ bb3_done:
 %t41 = extractvalue { i64, i1 } %t39, 1
 br i1 %t41, label %bb6_fault, label %bb7_ok
 bb6_fault:
-call void @yashy_panic_overflow(i8* @.str.0, i64 %t37, i64 %t38, i8* @.str.1, i64 10, i64 15)
+call void @yashy_panic_overflow(i8* @.str.0, i64 %t37, i64 %t38, i8* @.str.1, i64 10, i64 11)
 unreachable
 bb7_ok:
-call void @yashy_print_i64(i64 %t40)
-call void @yashy_print_str(i8* @.str.2)
+%t42 = call i8* @yashy_str_from_i64(i64 %t40)
+call void @yashy_print_str(i8* %t42)
+call void @yashy_str_release(i8* %t42)
+call void @yashy_print_line_str(i8* @.str.2)
 call void @yashy_slice_free(ptr %slot0)
 ret i32 0
 }

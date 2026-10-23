@@ -23,5 +23,5 @@ fn main() {
     var big = alloc(1000000);
     dealloc(big);
 
-    print_str("memory ok\n");
+    println("memory ok");
 }

@@ -46,7 +46,7 @@ fn block<'a>(ir: &'a str, name: &str) -> &'a str {
 fn a_fixed_array_literal_lives_in_the_frame() {
     // The whole point of `[T; N]`: the elements are the local's own storage.
     // There is no allocation, so there is nothing to free and no owner.
-    let ir = emit("fn main() { const grid = [1, 2, 3]; print_i64(grid.len()); }");
+    let ir = emit("fn main() { const grid = [1, 2, 3]; print(grid.len()); }");
     assert!(
         ir.contains("%slot0 = alloca [3 x i64]"),
         "the elements are a stack aggregate:\n{ir}"
@@ -62,7 +62,7 @@ fn a_fixed_array_literal_lives_in_the_frame() {
         "a fixed array never reaches the allocator:\n{ir}"
     );
     assert!(
-        ir.contains("call void @yashy_print_i64(i64 3)"),
+        ir.contains("call i8* @yashy_str_from_i64(i64 3)"),
         "`len` is the length in the type, folded to a constant:\n{ir}"
     );
 }

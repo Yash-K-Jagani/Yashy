@@ -93,7 +93,7 @@ fn an_yashy_pointer_is_still_an_yashy_pointer() {
 fn a_c_numeric_type_is_allowed_as_a_cast_target() {
     // `as` is the one place outside an `extern` block where a C spelling is
     // legal: it is how a Yashy program produces the `usize` `malloc` wants.
-    check(r#"fn main() { const n = 64 as usize; print_i64(n as int); }"#)
+    check(r#"fn main() { const n = 64 as usize; print(n as int); }"#)
         .expect("an explicit cast may name a C type");
 }
 

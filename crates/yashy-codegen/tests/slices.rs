@@ -85,7 +85,7 @@ fn freeing_a_slice_calls_the_runtime_with_the_binding() {
 
 #[test]
 fn len_of_a_slice_extracts_the_length_field() {
-    let ir = emit("fn main() { var xs = []int { 1, 2 }; print_i64(xs.len()); }");
+    let ir = emit("fn main() { var xs = []int { 1, 2 }; print(xs.len()); }");
     assert!(
         ir.contains("extractvalue { i8*, i64, i64 } %t") && ir.contains(", 1"),
         "the length is field 1 of the header, with no call:\n{ir}"
@@ -101,7 +101,7 @@ fn indexing_calls_the_runtime_and_builds_an_option() {
     let ir = emit(
         "fn main() { var xs = []int { 7 }; \
          var o = switch xs[0] { case Some(v) { v } case None { 0 } }; \
-         print_i64(o); }",
+         print(o); }",
     );
     assert!(
         ir.contains("call i64 @yashy_slice_get(ptr") && ir.contains(", i64 8)"),
@@ -135,7 +135,7 @@ fn pop_calls_the_runtime_with_the_binding() {
 #[test]
 fn for_in_branches_on_the_length_and_reloads_the_header() {
     let ir = emit(
-        "fn main() { var xs = []int { 1 }; var s = 0; for x in xs { s = s + x; } print_i64(s); }",
+        "fn main() { var xs = []int { 1 }; var s = 0; for x in xs { s = s + x; } print(s); }",
     );
     let cond = ir
         .split("_cond:")

@@ -1,17 +1,17 @@
 fn main() {
     const ch = 'e';
-    print_str(ch.to_string());
-    print_str("\n");
-    print_i64(ch.to_int());
-    print_str("\n");
-    print_i64('A'.to_int());
-    print_str("\n");
-    print_str(65.to_char().to_string());
-    print_str("\n");
-    print_str('A'.to_string());
-    print_str("\n");
-    print_str("${'B'}");
-    print_str("\n");
-    print_str("${'\n':?}");
-    print_str("\n");
+    print(ch.to_string());
+    println("");
+    print(ch.to_int());
+    println("");
+    print('A'.to_int());
+    println("");
+    print(65.to_char().to_string());
+    println("");
+    print('A'.to_string());
+    println("");
+    print("${'B'}");
+    println("");
+    print("${'\n':?}");
+    println("");
 }

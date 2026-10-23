@@ -12,8 +12,8 @@ fn divide(a: int, b: int) -> int {
 }
 
 fn main() {
-    print_i64(divide(10, 2));
-    print_str("\n");
-    print_i64(divide(10, 0));
-    print_str("this line must never be printed\n");
+    print(divide(10, 2));
+    println("");
+    print(divide(10, 0));
+    println("this line must never be printed");
 }

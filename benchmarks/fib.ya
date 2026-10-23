@@ -13,6 +13,6 @@ fn fib(n: int) -> int {
 }
 
 fn main() {
-    print_i64(fib(35));
-    print_str("\n");
+    print(fib(35));
+    println("");
 }

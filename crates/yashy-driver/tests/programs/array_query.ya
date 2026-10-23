@@ -14,40 +14,40 @@ fn show(o: Option[int]) -> int {
 fn main() {
     var empty = []int {};
     if empty.is_empty() {
-        print_str("empty is empty\n");
+        println("empty is empty");
     }
-    print_i64(show(empty.first()));
-    print_str("\n");
-    print_i64(show(empty.last()));
-    print_str("\n");
+    print(show(empty.first()));
+    println("");
+    print(show(empty.last()));
+    println("");
 
     var xs = []int { 10, 20, 30 };
     if xs.is_empty() {
-        print_str("unexpected: not empty\n");
+        println("unexpected: not empty");
     } else {
-        print_str("xs is not empty\n");
+        println("xs is not empty");
     }
-    print_i64(show(xs.get(1)));
-    print_str("\n");
-    print_i64(show(xs.get(3)));
-    print_str("\n");
-    print_i64(show(xs.first()));
-    print_str("\n");
-    print_i64(show(xs.last()));
-    print_str("\n");
+    print(show(xs.get(1)));
+    println("");
+    print(show(xs.get(3)));
+    println("");
+    print(show(xs.first()));
+    println("");
+    print(show(xs.last()));
+    println("");
 
     if xs.set(1, 99) {
-        print_str("set in range\n");
+        println("set in range");
     } else {
-        print_str("unexpected: set missed\n");
+        println("unexpected: set missed");
     }
-    print_i64(show(xs.get(1)));
-    print_str("\n");
+    print(show(xs.get(1)));
+    println("");
 
     if xs.set(3, 1) {
-        print_str("unexpected: set accepted an out-of-range index\n");
+        println("unexpected: set accepted an out-of-range index");
     } else {
-        print_str("set out of range\n");
+        println("set out of range");
     }
 
     empty.free();

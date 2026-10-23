@@ -106,7 +106,7 @@ fn move_poisons_the_source_slot() {
 #[test]
 fn move_of_a_copy_value_does_not_poison() {
     // `i64` is not linear, so `move` is a plain read and no slot is written.
-    let ir_text = gen_body("fn f() { var x = 1; var y = move x; print_i64(x + y); }");
+    let ir_text = gen_body("fn f() { var x = 1; var y = move x; print(x + y); }");
     assert!(
         !ir_text.contains("store i64 null"),
         "a copy value has no owner to give away:\n{ir_text}"
@@ -199,7 +199,7 @@ fn a_defer_captures_only_linear_bindings() {
     // Copy types carry no ownership, so snapshotting them would cost a load and
     // a store per binding per registration and buy nothing. `x` keeps its one
     // slot.
-    let ir_text = gen_body("fn f() { const x = 1; defer { print_i64(x); } print_i64(x); }");
+    let ir_text = gen_body("fn f() { const x = 1; defer { print(x); } print(x); }");
     assert_eq!(
         ir_text.matches("alloca i64").count(),
         1,
@@ -268,8 +268,8 @@ fn a_defer_after_checked_arithmetic_still_registers_and_runs() {
         "fn f() {\n\
          \x20   var i = 0;\n\
          \x20   while i < 2 { i += 1; }\n\
-         \x20   defer { print_str(\"done\\n\"); }\n\
-         \x20   print_str(\"ok\\n\");\n\
+         \x20   defer { println(\"done\"); }\n\
+         \x20   println(\"ok\");\n\
          }",
     );
     assert!(
@@ -281,7 +281,7 @@ fn a_defer_after_checked_arithmetic_still_registers_and_runs() {
         "the deferred body must reach the module, not be lost with the stack:\n{ir_text}"
     );
     assert!(
-        ir_text.matches("@yashy_print_str").count() >= 2,
+        ir_text.matches("@yashy_print_line_str").count() >= 2,
         "the deferred print and the body's print must both be lowered:\n{ir_text}"
     );
 }
@@ -295,8 +295,8 @@ fn a_fault_inside_a_deferred_body_does_not_re_enter_the_fault_lowering() {
     // guards against.
     let ir_text = gen_body(
         "fn f(x: int) {\n\
-         \x20   defer { print_i64(10 / x); }\n\
-         \x20   print_str(\"ok\\n\");\n\
+         \x20   defer { print(10 / x); }\n\
+         \x20   println(\"ok\");\n\
          }",
     );
     assert!(

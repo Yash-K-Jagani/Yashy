@@ -136,7 +136,7 @@ fn main_may_not_take_parameters() {
     // The C runtime calls the entry point with its own argument convention, and
     // the symbol this backend emits takes none. Accepting a parameter would
     // produce a `main` the loader cannot call.
-    let with_param = check_source("fn main(argc: int) { print_i64(argc); }");
+    let with_param = check_source("fn main(argc: int) { print(argc); }");
     let err = check_main_exists(&with_param.items)
         .expect_err("a `main` with a parameter is not callable");
     assert!(
@@ -166,10 +166,10 @@ fn ir_of(src: &str) -> String {
 #[test]
 fn a_unit_main_is_emitted_as_i32_and_exits_zero() {
     // `void main` leaves the process exit status as whatever the last call left
-    // in the return register, so `fn main() { print_str("hello"); }` exits with
+    // in the return register, so `fn main() { print("hello"); }` exits with
     // the length its last call happened to return. The entry point therefore
     // returns `i32` even when the Yashy signature is `()`.
-    let ir_text = ir_of("fn main() { print_str(\"hi\"); }");
+    let ir_text = ir_of("fn main() { print(\"hi\"); }");
     assert!(
         ir_text.contains("define i32 @main()"),
         "the entry point is an `i32` function:\n{ir_text}"
@@ -186,7 +186,7 @@ fn a_unit_main_is_emitted_as_i32_and_exits_zero() {
 
 #[test]
 fn an_explicit_unit_return_in_main_still_yields_zero() {
-    let ir_text = ir_of("fn main() { print_str(\"hi\"); return; }");
+    let ir_text = ir_of("fn main() { print(\"hi\"); return; }");
     assert!(
         ir_text.contains("ret i32 0"),
         "`return;` in `main` is the entry point's zero:\n{ir_text}"
@@ -210,7 +210,7 @@ fn an_i64_main_truncates_to_the_entry_point_width() {
 #[test]
 fn an_ordinary_function_keeps_its_own_return_type() {
     // The `i32` rule is the entry point's, not every function's.
-    let ir_text = ir_of("fn seven() -> int { return 7; }\nfn main() { print_i64(seven()); }");
+    let ir_text = ir_of("fn seven() -> int { return 7; }\nfn main() { print(seven()); }");
     assert!(
         ir_text.contains("define i64 @seven()"),
         "a helper keeps `i64`:\n{ir_text}"
@@ -229,8 +229,8 @@ fn input_calls_use_the_runtime_symbols() {
     let ir_text = ir_of(
         "fn main() {\n\
          \x20   const line = read_line();\n\
-         \x20   print_i64(line.parse_i64());\n\
-         \x20   print_f64(line.parse_f64());\n\
+         \x20   print(line.parse_i64());\n\
+         \x20   print(line.parse_f64());\n\
          }",
     );
     assert!(
@@ -260,8 +260,8 @@ fn a_struct_field_is_read_with_the_declaration_order_index() {
         "struct P { x: int, y: float }\n\
          fn main() {\n\
          \x20   const p = P { y: 2.0, x: 1 };\n\
-         \x20   print_i64(p.x);\n\
-         \x20   print_f64(p.y);\n\
+         \x20   print(p.x);\n\
+         \x20   print(p.y);\n\
          }",
     );
     assert!(
@@ -292,7 +292,7 @@ fn the_number_to_string_conversions_call_the_runtime() {
          \x20   const a = str_from_i64(1);\n\
          \x20   const b = str_from_f64(1.5);\n\
          \x20   const c = str_from_bool(true);\n\
-         \x20   print_str(a + b + c);\n\
+         \x20   print(a + b + c);\n\
          }",
     );
     assert!(
@@ -329,7 +329,7 @@ fn a_debug_form_becomes_a_printer_function() {
         "struct P { x: int }\n\
          fn main() {\n\
          \x20   const p = P { x: 3 };\n\
-         \x20   print_str(\"${p:?}\");\n\
+         \x20   print(\"${p:?}\");\n\
          \x20 }",
     );
     assert!(
@@ -346,7 +346,7 @@ fn a_debug_form_becomes_a_printer_function() {
 fn the_debug_form_of_a_string_calls_the_runtime() {
     // A string's debug form is a byte operation -- quoting and escaping --
     // so it is the runtime's entry point rather than a synthesized printer.
-    let ir_text = ir_of("fn main() { const s = \"a\"; print_str(\"${s:?}\"); }");
+    let ir_text = ir_of("fn main() { const s = \"a\"; print(\"${s:?}\"); }");
     assert!(
         ir_text.contains("call i8* @yashy_str_debug(i8* "),
         "the quoted form is a runtime call:\n{ir_text}"
@@ -442,7 +442,7 @@ fn a_program_that_never_panics_still_declares_the_symbol_and_never_calls_it() {
     // The declaration is emitted up front for every module, so a program that
     // starts panicking does not rearrange every line of the IR it already had --
     // and an unused `declare` is legal IR.
-    let ir_text = ir_of("fn main() { print_str(\"hi\"); }");
+    let ir_text = ir_of("fn main() { print(\"hi\"); }");
     assert!(ir_text.contains("declare void @yashy_panic("));
     assert!(!ir_text.contains("call void @yashy_panic("));
 }

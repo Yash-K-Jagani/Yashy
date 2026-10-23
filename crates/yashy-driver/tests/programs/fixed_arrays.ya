@@ -39,57 +39,57 @@ fn main() {
     var grid = make_grid();
 
     // A fixed array's length is a constant in its type.
-    print_i64(grid.len());
-    print_str("\n");
+    print(grid.len());
+    println("");
 
     // Indexing is checked, in range and out.
-    print_i64(show(grid[1]));
-    print_str("\n");
-    print_i64(show(grid[3]));
-    print_str("\n");
-    print_i64(show(grid.first()));
-    print_str("\n");
-    print_i64(show(grid.last()));
-    print_str("\n");
+    print(show(grid[1]));
+    println("");
+    print(show(grid[3]));
+    println("");
+    print(show(grid.first()));
+    println("");
+    print(show(grid.last()));
+    println("");
 
     // A view over the middle of the array. Bounds are clamped, so `0..99` is
     // the whole array rather than an error.
     const head = grid[0..2];
-    print_i64(head.len());
-    print_str("\n");
+    print(head.len());
+    println("");
 
     var total = 0;
     for value in head {
         total = total + value;
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 
     // Iterating the array itself visits every element.
     var all = 0;
     for value in grid {
         all = all + value;
     }
-    print_i64(all);
-    print_str("\n");
+    print(all);
+    println("");
 
     const wide = grid[0..99];
-    print_i64(wide.len());
-    print_str("\n");
+    print(wide.len());
+    println("");
 
     // A backwards range is empty, not negative.
     const none = grid[2..1];
-    print_i64(none.len());
-    print_str("\n");
+    print(none.len());
+    println("");
 
     // Fixed arrays can be named in a type too.
     const typed: [int; 2] = [7, 8];
-    print_i64(show(typed[1]));
-    print_str("\n");
+    print(show(typed[1]));
+    println("");
 
     // A view over a growable array: 20 + 30.
-    print_i64(middle_sum([]int { 10, 20, 30, 40 }));
-    print_str("\n");
+    print(middle_sum([]int { 10, 20, 30, 40 }));
+    println("");
     // => 3
     //    2
     //    -1

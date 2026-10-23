@@ -23,6 +23,6 @@ fn main() {
         total = total + lo * 3 + hi;
         i = i + 1;
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

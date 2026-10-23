@@ -46,7 +46,7 @@ fn emit(src: &str) -> String {
 fn a_string_never_shared_across_threads_uses_the_plain_retain() {
     // Binding a literal retains it (a no-op for the static string, but the
     // call is the shape under test), and the scope exit releases it.
-    let ir = emit("fn main() { var s: string = \"a\"; print_str(s); }");
+    let ir = emit("fn main() { var s: string = \"a\"; print(s); }");
     assert!(ir.contains("call i8* @yashy_str_retain(i8*"), "{ir}");
     assert!(!ir.contains("call i8* @yashy_str_retain_atomic("), "{ir}");
     assert!(ir.contains("call void @yashy_str_release(i8*"), "{ir}");
@@ -58,7 +58,7 @@ fn a_string_passed_to_spawn_uses_the_atomic_retain() {
     // The caller retains the thread's argument; that pair crosses threads, so
     // both halves are atomic even though the binding itself never leaks out.
     let ir = emit(
-        "fn work(s: string) { print_str(s); } \
+        "fn work(s: string) { print(s); } \
          fn main() { \
            var s: string = \"a\"; \
            var h: int = thread_spawn(work, s); \
@@ -75,12 +75,12 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
     // separate helper both use the atomic pair.
     let ir = emit(
         "fn helper() -> string { return \"b\"; } \
-         fn work() { var t: string = helper(); print_str(t); } \
+         fn work() { var t: string = helper(); print(t); } \
          fn main() { \
            var s: string = \"a\"; \
            var h: int = thread_spawn(work); \
            thread_join(h); \
-           print_str(s); \
+           print(s); \
          }",
     );
     assert!(ir.contains("call i8* @yashy_str_retain_atomic(i8*"), "{ir}");
@@ -92,7 +92,7 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
 #[test]
 fn the_thread_entry_releases_its_argument_atomically() {
     let ir = emit(
-        "fn work(s: string) { print_str(s); } \
+        "fn work(s: string) { print(s); } \
          fn main() { var s: string = \"a\"; var h: int = thread_spawn(work, s); thread_join(h); }",
     );
     // The synthesized entry drops the thread's own reference after the body.

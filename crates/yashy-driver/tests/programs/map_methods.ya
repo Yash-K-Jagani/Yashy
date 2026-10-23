@@ -16,25 +16,25 @@ fn main() {
     var keys: []string = scores.keys();
     var values: []int = scores.values();
 
-    print_i64(keys.len());
-    print_str("\n");
-    print_i64(values.len());
-    print_str("\n");
+    print(keys.len());
+    println("");
+    print(values.len());
+    println("");
 
     var total: int = 0;
     for v in values {
         total = total + v;
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 
     if scores.contains_key("ada") {
-        print_str("has ada\n");
+        println("has ada");
     }
     if scores.contains_key("zz") {
-        print_str("has zz\n");
+        println("has zz");
     } else {
-        print_str("no zz\n");
+        println("no zz");
     }
 
     // The map goes first: the key array holds a reference of its own, so the
@@ -45,8 +45,8 @@ fn main() {
     for k in keys {
         kept = kept + k.len();
     }
-    print_i64(kept);
-    print_str("\n");
+    print(kept);
+    println("");
 
     keys.free();
     values.free();
@@ -63,8 +63,8 @@ fn main() {
             trues = trues + 1;
         }
     }
-    print_i64(trues);
-    print_str("\n");
+    print(trues);
+    println("");
     flag_values.free();
     flags.free();
 }

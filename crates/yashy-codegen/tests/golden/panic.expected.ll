@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -175,10 +176,14 @@ ret i64 0
 define i32 @main() {
 entry:
 %t11 = call i64 @checked(i64 3)
-call void @yashy_print_i64(i64 %t11)
-%t12 = insertvalue { i8, i64 } undef, i8 1, 0
-%t13 = insertvalue { i8, i64 } %t12, i64 4, 1
-%t14 = call i64 @pick({ i8, i64 } %t13)
-call void @yashy_print_i64(i64 %t14)
+%t12 = call i8* @yashy_str_from_i64(i64 %t11)
+call void @yashy_print_str(i8* %t12)
+call void @yashy_str_release(i8* %t12)
+%t13 = insertvalue { i8, i64 } undef, i8 1, 0
+%t14 = insertvalue { i8, i64 } %t13, i64 4, 1
+%t15 = call i64 @pick({ i8, i64 } %t14)
+%t16 = call i8* @yashy_str_from_i64(i64 %t15)
+call void @yashy_print_str(i8* %t16)
+call void @yashy_str_release(i8* %t16)
 ret i32 0
 }

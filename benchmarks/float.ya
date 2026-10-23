@@ -13,6 +13,6 @@ fn work(n: int) -> float {
 }
 
 fn main() {
-    print_f64(work(100000000));
-    print_str("\n");
+    print(work(100000000));
+    println("");
 }

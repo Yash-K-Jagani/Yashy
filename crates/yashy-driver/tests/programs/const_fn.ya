@@ -28,18 +28,18 @@ fn main() {
     // The argument is a literal, because that is all a `const fn` call can
     // take: the value has to be known before the program runs.
     const table = square(9);
-    print_i64(table);
-    print_str("\n");
+    print(table);
+    println("");
 
     const bigger = max_of(square(3), 10);
-    print_i64(bigger);
-    print_str("\n");
+    print(bigger);
+    println("");
 
     const tenth = fib(10);
-    print_i64(tenth);
-    print_str("\n");
+    print(tenth);
+    println("");
 
     const ok = square(4);
-    print_i64(ok);
-    print_str("\n");
+    print(ok);
+    println("");
 }

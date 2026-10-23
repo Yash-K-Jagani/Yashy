@@ -24,27 +24,27 @@ enum Shape {
 
 fn main() {
     const point = Point { x: 3, y: 4 };
-    print_str("${point:?}\n");
+    println("${point:?}");
 
     const numbers = [1, 2, 3];
-    print_str("${numbers:?}\n");
+    println("${numbers:?}");
 
     const pair = (1, true);
-    print_str("${pair:?}\n");
+    println("${pair:?}");
 
-    print_str("${Shape.Circle(2.5):?}\n");
-    print_str("${Shape.Rect { w: 2.0, h: 3.0 }:?}\n");
-    print_str("${Shape.Empty:?}\n");
+    println("${Shape.Circle(2.5):?}");
+    println("${Shape.Rect { w: 2.0, h: 3.0 }:?}");
+    println("${Shape.Empty:?}");
 
     const maybe = Some(7);
-    print_str("${maybe:?}\n");
+    println("${maybe:?}");
 
     const nothing: Option[int] = None;
-    print_str("${nothing:?}\n");
+    println("${nothing:?}");
 
-    print_str("${"a\nb\"c":?}\n");
+    print("${"a\nb\"c":?}\n");
 
     // The display form is unchanged: `${x}` still prints the number, and the
     // debug form of a number is the same text.
-    print_str("${42} ${42:?}\n");
+    println("${42} ${42:?}");
 }

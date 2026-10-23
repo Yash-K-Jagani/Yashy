@@ -11,10 +11,10 @@ fn main() {
     const flag = true;
     const name = "Yashy";
 
-    print_str("n = ${n}\n");
-    print_str("d = ${d}\n");
-    print_str("flag = ${flag}\n");
-    print_str("hello, ${name}!\n");
-    print_str("${n} + 1 = ${n + 1}\n");
-    print_str("same, written out: " + str_from_i64(n) + "\n");
+    println("n = ${n}");
+    println("d = ${d}");
+    println("flag = ${flag}");
+    println("hello, ${name}!");
+    println("${n} + 1 = ${n + 1}");
+    print("same, written out: " + str_from_i64(n) + "\n");
 }

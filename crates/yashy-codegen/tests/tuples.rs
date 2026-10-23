@@ -73,7 +73,7 @@ fn a_nested_tuple_is_a_nested_struct() {
 fn destructuring_extracts_each_element_into_its_own_slot() {
     // Each name gets the element its position names, and `_` gets nothing at
     // all: no slot, no extraction, no store.
-    let ir = emit("fn main() { const pair = (1, true); const (n, _) = pair; print_i64(n); }");
+    let ir = emit("fn main() { const pair = (1, true); const (n, _) = pair; print(n); }");
     assert!(
         ir.contains("extractvalue { i64, i1 }"),
         "element 0 is extracted from the aggregate:\n{ir}"

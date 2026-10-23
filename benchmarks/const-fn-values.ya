@@ -8,8 +8,8 @@
 fn main() {
     const squares = 338350;
     const tenth = 55;
-    print_i64(squares);
-    print_str("\n");
-    print_i64(tenth);
-    print_str("\n");
+    print(squares);
+    println("");
+    print(tenth);
+    println("");
 }

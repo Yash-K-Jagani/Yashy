@@ -21,27 +21,27 @@ fn main() {
     const c = Point { x: 1, y: 3 };
 
     if a == b {
-        print_str("same\n");
+        println("same");
     }
     if a != c {
-        print_str("different\n");
+        println("different");
     }
 
     // An explicit move hands the array over; the source is empty afterwards.
     var xs = make();
     const ys = move xs;
-    print_i64(ys.len());
-    print_str("\n");
+    print(ys.len());
+    println("");
     ys.free();
 
     // A struct that owns a string keeps it alive, and so does a copy of it.
     const named = Named { name: "yas" + "hy", count: 2 };
-    print_str(named.name);
-    print_str("\n");
-    print_i64(named.count);
-    print_str("\n");
+    print(named.name);
+    println("");
+    print(named.count);
+    println("");
 
     const copy = named;
-    print_str(copy.name);
-    print_str("\n");
+    print(copy.name);
+    println("");
 }

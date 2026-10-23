@@ -17,6 +17,6 @@ fn main() {
         sum = wrapping_add(sum, 1);
         i = wrapping_add(i, 1);
     }
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 }

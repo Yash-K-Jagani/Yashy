@@ -146,7 +146,7 @@ fn fixing_the_error_clears_the_diagnostic() {
     let uri = test_uri("fixed.ya");
     let messages = vec![
         did_open(&uri, "fn main() {\n    missing();\n}\n"),
-        did_change(&uri, 2, "fn main() {\n    print_str(\"ok\");\n}\n"),
+        did_change(&uri, 2, "fn main() {\n    print(\"ok\");\n}\n"),
     ];
     let replies = run(messages);
     let published: Vec<&Value> = replies
@@ -172,7 +172,7 @@ fn fixing_the_error_clears_the_diagnostic() {
 fn hover_on_a_builtin_shows_its_signature() {
     let uri = test_uri("hover.ya");
     let messages = vec![
-        did_open(&uri, "fn main() {\n    print_str(\"hi\");\n}\n"),
+        did_open(&uri, "fn main() {\n    print(\"hi\");\n}\n"),
         request(2, "textDocument/hover", at(&uri, 1, 6)),
     ];
     let replies = run(messages);
@@ -199,7 +199,7 @@ fn definition_jumps_to_a_function_in_another_file() {
     )
     .expect("the helper module must be writable");
     let main_path = dir.join("definition_main.ya");
-    let main_text = "import helper;\n\nfn main() {\n    print_i64(double(21));\n}\n";
+    let main_text = "import helper;\n\nfn main() {\n    print(double(21));\n}\n";
     std::fs::write(&main_path, main_text).expect("the entry module must be writable");
 
     let uri = path_to_uri(&main_path);
@@ -234,7 +234,7 @@ fn definition_jumps_to_a_function_in_another_file() {
 #[test]
 fn semantic_tokens_cover_keywords_types_and_functions() {
     let uri = test_uri("tokens.ya");
-    let text = "// a comment\nfn add(a: int) -> int {\n    return a + 1;\n}\nfn main() {\n    print_str(\"hi\");\n}\n";
+    let text = "// a comment\nfn add(a: int) -> int {\n    return a + 1;\n}\nfn main() {\n    print(\"hi\");\n}\n";
     let messages = vec![
         request(1, "initialize", object([("capabilities", object([]))])),
         did_open(&uri, text),

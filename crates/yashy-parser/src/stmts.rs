@@ -372,7 +372,7 @@ impl<'src> Parser<'src> {
             let _ = self.push_open(TokenKind::LBrace, open.span)?;
             let expr = self.parse_expr()?;
             // A trailing `;` is allowed (and ignored) so that a statement-shaped
-            // arm -- `case Some(v) { print_i64(v); }` -- parses. The arm's value
+            // arm -- `case Some(v) { print(v); }` -- parses. The arm's value
             // is still the expression's value; only the punctuation changes.
             // Full multi-statement arm bodies need block expressions, which are
             // a larger change.

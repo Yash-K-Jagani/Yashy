@@ -53,54 +53,54 @@ fn bucket(n: int) -> int {
 fn main() {
     const pair = min_max(9, 4);
     const (lo, hi) = pair;
-    print_i64(lo);
-    print_str("\n");
-    print_i64(hi);
-    print_str("\n");
+    print(lo);
+    println("");
+    print(hi);
+    println("");
 
     // `_` skips an element; `var` leaves the remaining one assignable.
     var (first, _) = min_max(2, 7);
     first = first + 1;
-    print_i64(first);
-    print_str("\n");
+    print(first);
+    println("");
 
     // A one-element tuple is the spelling with the trailing comma.
     const single = (5,);
     const (only,) = single;
-    print_i64(only);
-    print_str("\n");
+    print(only);
+    println("");
 
     // A tuple is an ordinary value: it can be passed and returned.
-    print_i64(sum(pair));
-    print_str("\n");
+    print(sum(pair));
+    println("");
 
     // Nested tuples unpack one layer at a time.
     const nested = (1, (2, 3));
     const (x, rest) = nested;
     const (y, z) = rest;
-    print_i64(x + y + z);
-    print_str("\n");
+    print(x + y + z);
+    println("");
 
-    print_str(classify(Shape.Circle(20.0)));
-    print_str("\n");
-    print_str(classify(Shape.Circle(2.0)));
-    print_str("\n");
-    print_str(classify(Shape.Rect { w: 3.0, h: 3.0 }));
-    print_str("\n");
-    print_str(classify(Shape.Rect { w: 3.0, h: 4.0 }));
-    print_str("\n");
-    print_str(classify(Shape.Dot));
-    print_str("\n");
+    print(classify(Shape.Circle(20.0)));
+    println("");
+    print(classify(Shape.Circle(2.0)));
+    println("");
+    print(classify(Shape.Rect { w: 3.0, h: 3.0 }));
+    println("");
+    print(classify(Shape.Rect { w: 3.0, h: 4.0 }));
+    println("");
+    print(classify(Shape.Dot));
+    println("");
 
-    print_i64(bucket(0));
-    print_str("\n");
-    print_i64(bucket(0 - 5));
-    print_str("\n");
-    print_i64(bucket(5));
-    print_str("\n");
+    print(bucket(0));
+    println("");
+    print(bucket(0 - 5));
+    println("");
+    print(bucket(5));
+    println("");
 
     let (small, large) = min_max(3, 8);
     large = large + 1;
-    print_i64(small + large);
-    print_str("\n");
+    print(small + large);
+    println("");
 }

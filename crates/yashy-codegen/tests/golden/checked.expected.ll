@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -195,14 +196,26 @@ bb11_ok:
 %t33 = sub i64 0, %t31
 store i64 %t33, ptr %slot7
 %t34 = load i64, ptr %slot2
-call void @yashy_print_i64(i64 %t34)
-%t35 = load i64, ptr %slot3
-call void @yashy_print_i64(i64 %t35)
-%t36 = load i64, ptr %slot4
-call void @yashy_print_i64(i64 %t36)
-%t37 = load i64, ptr %slot5
-call void @yashy_print_i64(i64 %t37)
-%t38 = load i64, ptr %slot6
-call void @yashy_print_i64(i64 %t38)
-%t39 = load i64, ptr %slot7
-call void @yashy_print_i64(i64 %t39)
+%t35 = call i8* @yashy_str_from_i64(i64 %t34)
+call void @yashy_print_str(i8* %t35)
+call void @yashy_str_release(i8* %t35)
+%t36 = load i64, ptr %slot3
+%t37 = call i8* @yashy_str_from_i64(i64 %t36)
+call void @yashy_print_str(i8* %t37)
+call void @yashy_str_release(i8* %t37)
+%t38 = load i64, ptr %slot4
+%t39 = call i8* @yashy_str_from_i64(i64 %t38)
+call void @yashy_print_str(i8* %t39)
+call void @yashy_str_release(i8* %t39)
+%t40 = load i64, ptr %slot5
+%t41 = call i8* @yashy_str_from_i64(i64 %t40)
+call void @yashy_print_str(i8* %t41)
+call void @yashy_str_release(i8* %t41)
+%t42 = load i64, ptr %slot6
+%t43 = call i8* @yashy_str_from_i64(i64 %t42)
+call void @yashy_print_str(i8* %t43)
+call void @yashy_str_release(i8* %t43)
+%t44 = load i64, ptr %slot7
+%t45 = call i8* @yashy_str_from_i64(i64 %t44)
+call void @yashy_print_str(i8* %t45)
+call void @yashy_str_release(i8* %t45)

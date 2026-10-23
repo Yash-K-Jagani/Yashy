@@ -21,15 +21,15 @@ fn unwrap_or(s: string) -> Result[int, string] {
 
 fn main() {
     // The division by zero never happens: `&&` stops at the left operand.
-    print_i64(divide(0));
-    print_str("\n");
-    print_i64(divide(2));
-    print_str("\n");
+    print(divide(0));
+    println("");
+    print(divide(2));
+    println("");
 
     const parsed = unwrap_or("41");
-    print_i64(switch parsed {
+    print(switch parsed {
         case Ok(v) { v }
         case Err(e) { 0 }
     });
-    print_str("\n");
+    println("");
 }

@@ -13,6 +13,6 @@ fn descend(n: int) -> int {
 }
 
 fn main() {
-    print_i64(descend(5000));
-    print_str("this line must never be printed\n");
+    print(descend(5000));
+    println("this line must never be printed");
 }

@@ -7,10 +7,10 @@
 
 fn report(found: Option[int]) {
     switch found {
-        case Some(v) { print_i64(v); }
-        case None { print_str("none"); }
+        case Some(v) { print(v); }
+        case None { print("none"); }
     }
-    print_str("\n");
+    println("");
 }
 
 fn main() {
@@ -21,7 +21,7 @@ fn main() {
     report(counts.get("apple"));
     report(counts.remove("pear"));
     report(counts.get("pear"));
-    print_i64(counts.len());
-    print_str("\n");
+    print(counts.len());
+    println("");
     counts.free();
 }

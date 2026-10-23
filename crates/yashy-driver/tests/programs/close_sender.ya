@@ -19,10 +19,10 @@ fn main() {
 
     switch full.recv() {
         case Some(n) {
-            print_str("full\n");
+            println("full");
         }
         case None {
-            print_str("empty\n");
+            println("empty");
         }
     }
 
@@ -31,5 +31,5 @@ fn main() {
     full.free();
     slot.free();
 
-    print_str("unblocked\n");
+    println("unblocked");
 }

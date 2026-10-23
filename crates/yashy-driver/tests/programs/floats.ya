@@ -22,18 +22,18 @@ fn main() {
     const neg = -2.5;
     const tiny = 0.0000001;
 
-    print_i64(add as int);
-    print_str("\n");
-    print_i64(sub as int);
-    print_str("\n");
-    print_i64(mul as int);
-    print_str("\n");
-    print_i64(div as int);
-    print_str("\n");
-    print_i64(rem as int);
-    print_str("\n");
-    print_i64(neg as int);
-    print_str("\n");
-    print_i64(tiny as int);
-    print_str("\n");
+    print(add as int);
+    println("");
+    print(sub as int);
+    println("");
+    print(mul as int);
+    println("");
+    print(div as int);
+    println("");
+    print(rem as int);
+    println("");
+    print(neg as int);
+    println("");
+    print(tiny as int);
+    println("");
 }

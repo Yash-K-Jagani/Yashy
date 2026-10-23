@@ -21,12 +21,12 @@ fn square(x: int) -> int {
 }
 
 fn main() {
-    print_i64(identity(7));
-    print_str("\n");
-    print_str(identity("seven"));
-    print_str("\n");
-    print_i64(apply_twice(square, 3));
-    print_str("\n");
+    print(identity(7));
+    println("");
+    print(identity("seven"));
+    println("");
+    print(apply_twice(square, 3));
+    println("");
     // => 7
     //    seven
     //    81

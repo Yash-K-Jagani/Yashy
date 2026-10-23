@@ -97,7 +97,7 @@ fn remove_uses_the_remove_entry_point() {
 #[test]
 fn len_calls_the_runtime() {
     let ir = emit(
-        "fn main() { var m: map[int]int = map_new(); var n = m.len(); print_i64(n); \
+        "fn main() { var m: map[int]int = map_new(); var n = m.len(); print(n); \
          m.free(); }",
     );
     assert!(

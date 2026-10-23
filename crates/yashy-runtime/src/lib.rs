@@ -15,7 +15,7 @@
 //! ```
 //!
 //! None of them writes a newline. A program prints one explicitly, as the
-//! `print_str("\n")` calls in the plan's examples do.
+//! `print("\n")` calls in the plan's examples do.
 
 use std::ffi::{c_char, c_double, c_int, c_longlong, c_uchar, c_void};
 
@@ -74,6 +74,11 @@ const _: () = assert!(std::mem::size_of::<c_longlong>() == std::mem::size_of::<i
 unsafe extern "C" {
     /// Writes the NUL-terminated string to stdout. Nothing else, no newline.
     pub fn yashy_print_str(s: *const YashyStr);
+}
+
+unsafe extern "C" {
+    /// Writes the NUL-terminated string to stdout, then a newline.
+    pub fn yashy_print_line_str(s: *const YashyStr);
 }
 
 unsafe extern "C" {

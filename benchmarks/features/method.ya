@@ -23,6 +23,6 @@ fn main() {
         c.bump();
         i = i + 1;
     }
-    print_i64(c.get());
-    print_str("\n");
+    print(c.get());
+    println("");
 }

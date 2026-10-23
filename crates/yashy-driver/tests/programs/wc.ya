@@ -21,10 +21,10 @@ fn main() {
         line = read_line();
     }
 
-    print_i64(lines);
-    print_str(" ");
-    print_i64(words);
-    print_str(" ");
-    print_i64(bytes);
-    print_str("\n");
+    print(lines);
+    print(" ");
+    print(words);
+    print(" ");
+    print(bytes);
+    println("");
 }

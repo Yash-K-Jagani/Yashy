@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -115,32 +116,36 @@ store { i8, i64 } %arg1, ptr %slot1
 %t0 = load i1, ptr %slot0
 br i1 %t0, label %bb0_then, label %bb1_else
 bb0_then:
-call void @yashy_print_i64(i64 1)
+%t1 = call i8* @yashy_str_from_i64(i64 1)
+call void @yashy_print_str(i8* %t1)
+call void @yashy_str_release(i8* %t1)
 br label %bb2_merge
 bb1_else:
-call void @yashy_print_i64(i64 2)
+%t2 = call i8* @yashy_str_from_i64(i64 2)
+call void @yashy_print_str(i8* %t2)
+call void @yashy_str_release(i8* %t2)
 br label %bb2_merge
 bb2_merge:
 store i64 10, ptr %slot2
 store i64 0, ptr %slot3
 br label %bb3_cond
 bb3_cond:
-%t1 = load i64, ptr %slot3
-%t2 = load i64, ptr %slot2
-%t3 = icmp slt i64 %t1, %t2
-br i1 %t3, label %bb4_body, label %bb6_done
+%t3 = load i64, ptr %slot3
+%t4 = load i64, ptr %slot2
+%t5 = icmp slt i64 %t3, %t4
+br i1 %t5, label %bb4_body, label %bb6_done
 bb4_body:
-%t4 = load i64, ptr %slot3
-%t5 = icmp eq i64 %t4, 3
-br i1 %t5, label %bb7_then, label %bb8_else
+%t6 = load i64, ptr %slot3
+%t7 = icmp eq i64 %t6, 3
+br i1 %t7, label %bb7_then, label %bb8_else
 bb7_then:
 br label %bb6_done
 bb8_else:
 br label %bb9_merge
 bb9_merge:
-%t6 = load i64, ptr %slot3
-%t7 = icmp eq i64 %t6, 5
-br i1 %t7, label %bb10_then, label %bb11_else
+%t8 = load i64, ptr %slot3
+%t9 = icmp eq i64 %t8, 5
+br i1 %t9, label %bb10_then, label %bb11_else
 bb10_then:
 br label %bb5_inc
 bb11_else:
@@ -148,38 +153,50 @@ br label %bb12_merge
 bb12_merge:
 br label %bb5_inc
 bb5_inc:
-%t8 = load i64, ptr %slot3
-%t9 = add i64 %t8, 1
-store i64 %t9, ptr %slot3
+%t10 = load i64, ptr %slot3
+%t11 = add i64 %t10, 1
+store i64 %t11, ptr %slot3
 br label %bb3_cond
 bb6_done:
 store i64 0, ptr %slot4
 br label %bb13_cond
 bb13_cond:
-%t10 = load i64, ptr %slot4
-%t11 = icmp slt i64 %t10, 3
-br i1 %t11, label %bb14_body, label %bb16_done
-bb14_body:
 %t12 = load i64, ptr %slot4
-call void @yashy_print_i64(i64 %t12)
+%t13 = icmp slt i64 %t12, 3
+br i1 %t13, label %bb14_body, label %bb16_done
+bb14_body:
+%t14 = load i64, ptr %slot4
+%t15 = call i8* @yashy_str_from_i64(i64 %t14)
+call void @yashy_print_str(i8* %t15)
+call void @yashy_str_release(i8* %t15)
 br label %bb15_inc
 bb15_inc:
-%t13 = load i64, ptr %slot4
-call void @yashy_print_i64(i64 %t13)
+%t16 = load i64, ptr %slot4
+%t17 = call i8* @yashy_str_from_i64(i64 %t16)
+call void @yashy_print_str(i8* %t17)
+call void @yashy_str_release(i8* %t17)
 br label %bb13_cond
 bb16_done:
-%t14 = load { i8, i64 }, ptr %slot1
-%t15 = extractvalue { i8, i64 } %t14, 0
-%t16 = icmp eq i8 %t15, 0
-br i1 %t16, label %bb18_arm, label %bb19_arm
+%t18 = load { i8, i64 }, ptr %slot1
+%t19 = extractvalue { i8, i64 } %t18, 0
+%t20 = icmp eq i8 %t19, 0
+br i1 %t20, label %bb18_arm, label %bb19_arm
 bb18_arm:
-call void @yashy_print_i64(i64 0)
+%t21 = call i8* @yashy_str_from_i64(i64 0)
+call void @yashy_print_str(i8* %t21)
+call void @yashy_str_release(i8* %t21)
 br label %bb17_result
 bb19_arm:
-call void @yashy_print_i64(i64 1)
+%t22 = call i8* @yashy_str_from_i64(i64 1)
+call void @yashy_print_str(i8* %t22)
+call void @yashy_str_release(i8* %t22)
 br label %bb17_result
 bb17_result:
-call void @yashy_print_i64(i64 5)
-call void @yashy_print_i64(i64 4)
+%t23 = call i8* @yashy_str_from_i64(i64 5)
+call void @yashy_print_str(i8* %t23)
+call void @yashy_str_release(i8* %t23)
+%t24 = call i8* @yashy_str_from_i64(i64 4)
+call void @yashy_print_str(i8* %t24)
+call void @yashy_str_release(i8* %t24)
 ret i64 0
 }

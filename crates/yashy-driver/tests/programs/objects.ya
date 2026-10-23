@@ -12,10 +12,10 @@ object Counter {
 
 fn main() {
     const counter = Counter { value: 3 };
-    print_i64(counter.get());
-    print_str("\n");
+    print(counter.get());
+    println("");
 
     // A method called on the result of another one.
-    print_i64(counter.add(4).get());
-    print_str("\n");
+    print(counter.add(4).get());
+    println("");
 }

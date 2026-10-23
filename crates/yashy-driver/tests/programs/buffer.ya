@@ -29,6 +29,6 @@ fn main() {
         dealloc(buf);
     }
 
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
 }

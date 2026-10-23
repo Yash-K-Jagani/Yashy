@@ -8,10 +8,10 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 }
 
 fn main() {
-    print_i64(apply(|x: int| -> int { return x + 1; }, 41));
-    print_str("\n");
+    print(apply(|x: int| -> int { return x + 1; }, 41));
+    println("");
 
     const double = |x: int| -> int { return x * 2; };
-    print_i64(double(20));
-    print_str("\n");
+    print(double(20));
+    println("");
 }

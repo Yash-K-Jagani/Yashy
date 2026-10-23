@@ -7,7 +7,7 @@ fn main() {
     for value in xs {
         sum = sum + value;
     }
-    print_i64(n + sum);
-    print_str("\n");
+    print(n + sum);
+    println("");
     xs.free();
 }

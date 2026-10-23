@@ -17,11 +17,11 @@ fn main() {
     var probe = str_from_i64(150);
     var found = m.get(probe);
     switch found {
-        case Some(v) { print_i64(v); }
-        case None { print_str("missing"); }
+        case Some(v) { print(v); }
+        case None { print("missing"); }
     }
-    print_str("\n");
-    print_i64(m.len());
-    print_str("\n");
+    println("");
+    print(m.len());
+    println("");
     m.free();
 }

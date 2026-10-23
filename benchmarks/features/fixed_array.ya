@@ -18,6 +18,6 @@ fn main() {
         }
         i = i + 1;
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

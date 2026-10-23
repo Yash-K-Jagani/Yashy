@@ -7,8 +7,8 @@ fn main() {
     words.push("gamma");
     words.push(str_from_i64(42));
     for word in words {
-        print_str(word);
-        print_str("\n");
+        print(word);
+        println("");
     }
     words.free();
 }

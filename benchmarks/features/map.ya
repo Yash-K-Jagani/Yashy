@@ -26,7 +26,7 @@ fn main() {
         j = wrapping_add(j, 1);
     }
 
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println("");
     m.free();
 }

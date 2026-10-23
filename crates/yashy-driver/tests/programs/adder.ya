@@ -15,6 +15,6 @@ fn main() {
         }
         total = total + line.parse_i64();
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println("");
 }

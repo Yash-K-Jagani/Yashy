@@ -387,9 +387,8 @@ fn if_condition_must_be_bool() {
 
 #[test]
 fn builtin_calls_resolve() {
-    let (result, _, _) = check_source("fn f() { print_i64(1); }");
-    result.expect("print_i64(1) should type-check");
-    assert_error("fn f() { print_str(1); }", "expected `string`, found `int`");
+    let (result, _, _) = check_source("fn f() { print(1); }");
+    result.expect("print(1) should type-check");
 }
 
 /// The three conversions a program uses to put a value inside a string.
@@ -553,7 +552,7 @@ fn return_inside_a_loop_body_yields_the_function_return_type() {
     check_source("fn f() -> int { for i in 0..3 { return i; } return 0; }")
         .0
         .expect("a `return` inside a loop body yields the function's return type");
-    check_source("fn g() -> int { for i := 0; i < 3; print_i64(i) { return i; } return 0; }")
+    check_source("fn g() -> int { for i := 0; i < 3; print(i) { return i; } return 0; }")
         .0
         .expect("and so does a `return` inside a C-style loop");
 }
@@ -604,7 +603,7 @@ fn let_bindings_are_mutable_and_block_scoped() {
         .0
         .expect("a `let` binding is mutable");
     assert_error(
-        "fn main() { if true { let y = 1; } print_i64(y); }",
+        "fn main() { if true { let y = 1; } print(y); }",
         "cannot find value `y` in this scope",
     );
 }
@@ -615,9 +614,9 @@ fn a_builtin_can_be_called_as_a_method() {
         r#"
         fn main() {
             var xs = []int { 1, 2 };
-            print_i64(xs.len());
+            print(xs.len());
             xs.push(3);
-            print_i64(xs.len());
+            print(xs.len());
             xs.free();
         }
         "#,
@@ -650,7 +649,7 @@ fn string_methods_type_check_in_their_method_shapes() {
             var lines = s.lines();
             var number = s.parse_i64();
             var decimal = s.parse_f64();
-            print_i64(s.len());
+            print(s.len());
             parts.free();
             lines.free();
         }
@@ -1151,7 +1150,7 @@ fn a_move_in_only_one_branch_is_conservatively_moved() {
 fn moving_a_copy_value_is_a_no_op() {
     // `int` is not linear, so `move` asks for nothing: the value stays live and
     // readable. Being explicit about intent is not an error.
-    let (result, _, _) = check_source("fn f() { var x = 1; var y = move x; print_i64(x + y); }");
+    let (result, _, _) = check_source("fn f() { var x = 1; var y = move x; print(x + y); }");
     assert!(result.is_ok(), "move of a copy value is a no-op: {result:?}");
 }
 
@@ -1424,6 +1423,25 @@ fn assert_eq_reports_operands_it_cannot_compare() {
         "fn f() { assert_eq(panic(\"x\"), 1); }",
         "`assert_eq` cannot compare `!` values",
     );
+}
+
+#[test]
+fn print_takes_one_value_and_returns_nothing() {
+    let (result, _, _) = check_source("fn main() { print(1); println(\"x\"); println(); }");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn print_takes_exactly_one_value() {
+    assert_error("fn main() { print(); }", "`print` takes one value");
+    assert_error("fn main() { println(1, 2); }", "`println` takes one value");
+}
+
+#[test]
+fn print_str_names_its_replacement() {
+    assert_error("fn main() { print_str(\"x\"); }", "`print_str` was replaced: use `println` (or `print`)");
+    assert_error("fn main() { print_i64(1); }", "`print_i64` was replaced");
+    assert_error("fn main() { print_f64(1.0); }", "`print_f64` was replaced");
 }
 
 #[test]
@@ -2004,7 +2022,7 @@ fn a_function_whose_only_statement_panics_checks() {
     // returns a zero there. The panic makes that path unreachable, so the program
     // is honest even though nothing ever produces a value.
     let (result, _, _) = check_source(
-        "fn f() -> int { panic(\"always\"); } fn main() { print_i64(f()); }",
+        "fn f() -> int { panic(\"always\"); } fn main() { print(f()); }",
     );
     assert!(result.is_ok(), "a panicking function must check: {result:?}");
 }
@@ -2213,7 +2231,7 @@ fn destructuring_binds_each_element_with_its_own_type() {
     // The names really are in scope afterwards: this only type-checks if `n`
     // and `flag` resolve to the element types.
     let (result, _, _) = check_source(
-        "fn main() { const pair = (7, true); const (n, flag) = pair; if flag { print_i64(n); } }",
+        "fn main() { const pair = (7, true); const (n, flag) = pair; if flag { print(n); } }",
     );
     if let Err(diags) = result {
         panic!("the bound names should resolve: {diags:?}");

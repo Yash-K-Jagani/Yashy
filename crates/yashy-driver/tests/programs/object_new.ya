@@ -11,6 +11,6 @@ object Counter {
 }
 
 fn main() {
-    print_i64(Counter.new(3).get());
-    print_str("\n");
+    print(Counter.new(3).get());
+    println("");
 }

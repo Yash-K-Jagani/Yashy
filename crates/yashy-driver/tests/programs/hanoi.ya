@@ -11,6 +11,6 @@ fn count(d: int) -> int {
 }
 
 fn main() {
-    print_i64(count(3));
-    print_str("\n");
+    print(count(3));
+    println("");
 }

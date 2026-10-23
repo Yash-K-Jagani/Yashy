@@ -79,7 +79,7 @@ fn a_function_that_returns_on_every_path_is_fine() {
 
 #[test]
 fn a_unit_function_needs_no_return() {
-    check_source("fn f(n: int) { if n > 0 { print_i64(1); } }")
+    check_source("fn f(n: int) { if n > 0 { print(1); } }")
         .expect("a function that returns nothing needs no return");
 }
 
@@ -108,7 +108,7 @@ fn a_generic_call_has_to_infer_every_type_parameter() {
     // `T` appears nowhere in the parameters, so there is nothing at the call
     // to replace it with. The error belongs at the call, not in the body.
     assert_error(
-        "fn make[T]() -> int { return 0; } fn main() { print_i64(make()); }",
+        "fn make[T]() -> int { return 0; } fn main() { print(make()); }",
         "cannot infer type parameter `T`",
     );
 }
@@ -127,7 +127,7 @@ fn polymorphic_recursion_is_rejected() {
     // would ask for the first again: there is no finite family to emit.
     assert_error(
         "fn swap[T, U](x: T, y: U) -> int { return swap(y, x); } \
-         fn main() { print_i64(swap(1, \"x\")); }",
+         fn main() { print(swap(1, \"x\")); }",
         "polymorphic recursion has no finite instantiation",
     );
 }
@@ -139,7 +139,7 @@ fn a_view_borrows_its_source_until_the_function_ends() {
     assert_error(
         "fn take(xs: []int) -> int { return xs.len(); } \
          fn main() { var xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
-         print_i64(take(move xs)); }",
+         print(take(move xs)); }",
         "cannot move `xs` while a view of it is alive",
     );
     assert_error(

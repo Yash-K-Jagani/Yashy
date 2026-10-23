@@ -1,5 +1,5 @@
 fn work(n: int) {
-    print_i64(n);
+    print(n);
 }
 
 fn main() {
@@ -10,14 +10,14 @@ fn main() {
 
     var c: Channel[int] = chan_new(2);
     if c.send(1) {
-        print_i64(1);
+        print(1);
     }
     switch c.recv() {
         case Some(n) {
-            print_i64(n)
+            print(n)
         }
         case None {
-            print_i64(0)
+            print(0)
         }
     }
     c.close();

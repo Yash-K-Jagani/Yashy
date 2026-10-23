@@ -18,8 +18,8 @@ fn main() {
         acc = acc + "x";
         i += 1;
     }
-    print_i64(acc.len());
-    print_str("\n");
+    print(acc.len());
+    println("");
 
     var last = 0;
     i = 0;
@@ -28,6 +28,6 @@ fn main() {
         last = fresh.len();
         i += 1;
     }
-    print_i64(last);
-    print_str("\n");
+    print(last);
+    println("");
 }

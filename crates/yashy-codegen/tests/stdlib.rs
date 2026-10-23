@@ -25,7 +25,7 @@ fn emit(src: &str) -> String {
 
 #[test]
 fn read_file_copies_the_path_and_frees_the_copy() {
-    let ir = emit("fn main() { var text = read_file(\"a.txt\"); print_str(text); }");
+    let ir = emit("fn main() { var text = read_file(\"a.txt\"); print(text); }");
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
@@ -44,7 +44,7 @@ fn read_file_copies_the_path_and_frees_the_copy() {
 
 #[test]
 fn write_file_lends_the_body_and_copies_only_the_path() {
-    let ir = emit("fn main() { var ok = write_file(\"a.txt\", \"body\"); print_i64(ok); }");
+    let ir = emit("fn main() { var ok = write_file(\"a.txt\", \"body\"); print(ok); }");
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
@@ -66,7 +66,7 @@ fn write_file_lends_the_body_and_copies_only_the_path() {
 
 #[test]
 fn getenv_copies_the_name() {
-    let ir = emit("fn main() { var home = getenv(\"HOME\"); print_str(home); }");
+    let ir = emit("fn main() { var home = getenv(\"HOME\"); print(home); }");
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
@@ -84,7 +84,7 @@ fn a_substring_is_owned_not_retained() {
     // slice itself. Binding a literal instead would add the literal's own
     // retain and hide whether the slice result was retained again.
     let ir = emit(
-        "fn take(hello: string) { var word = hello.slice(1, 3); print_str(word); } \
+        "fn take(hello: string) { var word = hello.slice(1, 3); print(word); } \
          fn main() { take(\"hello\"); }",
     );
     assert!(
@@ -103,7 +103,7 @@ fn a_temporary_argument_to_a_user_function_is_released_after_the_call() {
     // the one reference after the call returns, and never before, because the
     // callee reads it during the call.
     let ir = emit(
-        "fn show(text: string) { print_str(text); }\n\
+        "fn show(text: string) { print(text); }\n\
          fn main() { show(\"a\" + \"b\"); }",
     );
     let call_at = ir
@@ -130,7 +130,7 @@ fn a_user_function_string_result_is_taken_over_without_a_retain() {
     // the binding's scope end releases the one reference.
     let ir = emit(
         "fn make() -> string { return str_from_i64(7); }\n\
-         fn main() { var text = make(); print_str(text); }",
+         fn main() { var text = make(); print(text); }",
     );
     assert!(
         !ir.contains("call i8* @yashy_str_retain"),

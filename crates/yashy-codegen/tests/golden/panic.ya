@@ -28,6 +28,6 @@ fn always() -> int {
 }
 
 fn main() {
-    print_i64(checked(3));
-    print_i64(pick(Some(4)));
+    print(checked(3));
+    print(pick(Some(4)));
 }

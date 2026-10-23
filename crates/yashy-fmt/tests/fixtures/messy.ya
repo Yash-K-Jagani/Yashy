@@ -13,7 +13,7 @@ var total=0;
  }
   /* A block comment
        with a second line. */
- if total>50{print_str("big");}else{ print_str("small") ; }
- print_i64(total);
-print_str("\n");
+ if total>50{print("big");}else{ print("small") ; }
+ print(total);
+println("");
 }

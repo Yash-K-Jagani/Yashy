@@ -21,6 +21,6 @@ fn work(n: int) -> int {
 }
 
 fn main() {
-    print_i64(work(200000000));
-    print_str("\n");
+    print(work(200000000));
+    println("");
 }

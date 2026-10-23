@@ -6,6 +6,7 @@ target triple = "<host>"
 %yashy_str = type { i64, i64, i64, i8* }
 
 declare void @yashy_print_str(i8*)
+declare void @yashy_print_line_str(i8*)
 declare void @yashy_print_i64(i64)
 declare void @yashy_print_f64(double)
 declare i8* @yashy_alloc(i64, i64)
@@ -108,7 +109,9 @@ entry:
 %slot0 = alloca i64
 store i64 %arg0, ptr %slot0
 %t0 = load i64, ptr %slot0
-call void @yashy_print_i64(i64 %t0)
+%t1 = call i8* @yashy_str_from_i64(i64 %t0)
+call void @yashy_print_str(i8* %t1)
+call void @yashy_str_release_atomic(i8* %t1)
 ret void
 }
 define i32 @main() {
@@ -120,70 +123,76 @@ entry:
 %slot4 = alloca i64
 %slot5 = alloca { i64 }
 %slot6 = alloca i64
-%t1 = call i8* @yashy_mutex_new()
-store i8* %t1, ptr %slot0
-%t2 = load i8*, ptr %slot0
-call void @yashy_mutex_lock(i8* %t2)
+%t2 = call i8* @yashy_mutex_new()
+store i8* %t2, ptr %slot0
 %t3 = load i8*, ptr %slot0
-call void @yashy_mutex_unlock(i8* %t3)
+call void @yashy_mutex_lock(i8* %t3)
 %t4 = load i8*, ptr %slot0
-call void @yashy_mutex_free(i8* %t4)
-%t5 = call i8* @yashy_chan_new(i64 2)
-store i8* %t5, ptr %slot1
-%t6 = load i8*, ptr %slot1
+call void @yashy_mutex_unlock(i8* %t4)
+%t5 = load i8*, ptr %slot0
+call void @yashy_mutex_free(i8* %t5)
+%t6 = call i8* @yashy_chan_new(i64 2)
+store i8* %t6, ptr %slot1
+%t7 = load i8*, ptr %slot1
 store i64 1, ptr %slot2
-%t7 = getelementptr i64, ptr null, i32 1
-%t8 = ptrtoint ptr %t7 to i64
-%t9 = call i8 @yashy_chan_send(i8* %t6, ptr %slot2, i64 %t8)
-%t10 = icmp ne i8 %t9, 0
-br i1 %t10, label %bb0_then, label %bb1_else
+%t8 = getelementptr i64, ptr null, i32 1
+%t9 = ptrtoint ptr %t8 to i64
+%t10 = call i8 @yashy_chan_send(i8* %t7, ptr %slot2, i64 %t9)
+%t11 = icmp ne i8 %t10, 0
+br i1 %t11, label %bb0_then, label %bb1_else
 bb0_then:
-call void @yashy_print_i64(i64 1)
+%t12 = call i8* @yashy_str_from_i64(i64 1)
+call void @yashy_print_str(i8* %t12)
+call void @yashy_str_release_atomic(i8* %t12)
 br label %bb2_merge
 bb1_else:
 br label %bb2_merge
 bb2_merge:
-%t11 = load i8*, ptr %slot1
+%t13 = load i8*, ptr %slot1
 store i64 zeroinitializer, ptr %slot3
-%t12 = getelementptr i64, ptr null, i32 1
-%t13 = ptrtoint ptr %t12 to i64
-%t14 = call i8 @yashy_chan_recv(i8* %t11, ptr %slot3, i64 %t13)
-%t15 = zext i8 %t14 to i64
-%t16 = trunc i64 %t15 to i8
-%t17 = insertvalue { i8, i64 } undef, i8 %t16, 0
-%t18 = load i64, ptr %slot3
-%t19 = insertvalue { i8, i64 } %t17, i64 %t18, 1
-%t20 = extractvalue { i8, i64 } %t19, 0
-%t21 = icmp eq i8 %t20, 1
-br i1 %t21, label %bb4_arm, label %bb7_test
+%t14 = getelementptr i64, ptr null, i32 1
+%t15 = ptrtoint ptr %t14 to i64
+%t16 = call i8 @yashy_chan_recv(i8* %t13, ptr %slot3, i64 %t15)
+%t17 = zext i8 %t16 to i64
+%t18 = trunc i64 %t17 to i8
+%t19 = insertvalue { i8, i64 } undef, i8 %t18, 0
+%t20 = load i64, ptr %slot3
+%t21 = insertvalue { i8, i64 } %t19, i64 %t20, 1
+%t22 = extractvalue { i8, i64 } %t21, 0
+%t23 = icmp eq i8 %t22, 1
+br i1 %t23, label %bb4_arm, label %bb7_test
 bb7_test:
-%t22 = extractvalue { i8, i64 } %t19, 0
-%t23 = icmp eq i8 %t22, 0
-br i1 %t23, label %bb5_arm, label %bb3_result
+%t24 = extractvalue { i8, i64 } %t21, 0
+%t25 = icmp eq i8 %t24, 0
+br i1 %t25, label %bb5_arm, label %bb3_result
 bb4_arm:
-%t24 = extractvalue { i8, i64 } %t19, 1
-store i64 %t24, ptr %slot4
-%t25 = load i64, ptr %slot4
-call void @yashy_print_i64(i64 %t25)
+%t26 = extractvalue { i8, i64 } %t21, 1
+store i64 %t26, ptr %slot4
+%t27 = load i64, ptr %slot4
+%t28 = call i8* @yashy_str_from_i64(i64 %t27)
+call void @yashy_print_str(i8* %t28)
+call void @yashy_str_release_atomic(i8* %t28)
 br label %bb3_result
 bb5_arm:
-call void @yashy_print_i64(i64 0)
+%t29 = call i8* @yashy_str_from_i64(i64 0)
+call void @yashy_print_str(i8* %t29)
+call void @yashy_str_release_atomic(i8* %t29)
 br label %bb3_result
 bb3_result:
-%t26 = load i8*, ptr %slot1
-call void @yashy_chan_close(i8* %t26)
-%t27 = load i8*, ptr %slot1
-call void @yashy_chan_free(i8* %t27)
-%t28 = getelementptr inbounds { i64 }, ptr %slot5, i32 0, i32 0
-store i64 7, ptr %t28
-%t29 = getelementptr { i64 }, ptr null, i32 1
-%t30 = ptrtoint ptr %t29 to i64
-%t31 = call i32 @yashy_thread_spawn(i8* @yashy_thread_entry_0, i8* %slot5, i64 %t30)
-%t32 = sext i32 %t31 to i64
-store i64 %t32, ptr %slot6
-%t33 = load i64, ptr %slot6
-%t34 = trunc i64 %t33 to i32
-%t35 = call i32 @yashy_thread_join(i32 %t34)
+%t30 = load i8*, ptr %slot1
+call void @yashy_chan_close(i8* %t30)
+%t31 = load i8*, ptr %slot1
+call void @yashy_chan_free(i8* %t31)
+%t32 = getelementptr inbounds { i64 }, ptr %slot5, i32 0, i32 0
+store i64 7, ptr %t32
+%t33 = getelementptr { i64 }, ptr null, i32 1
+%t34 = ptrtoint ptr %t33 to i64
+%t35 = call i32 @yashy_thread_spawn(i8* @yashy_thread_entry_0, i8* %slot5, i64 %t34)
+%t36 = sext i32 %t35 to i64
+store i64 %t36, ptr %slot6
+%t37 = load i64, ptr %slot6
+%t38 = trunc i64 %t37 to i32
+%t39 = call i32 @yashy_thread_join(i32 %t38)
 ret i32 0
 }
 define void @yashy_thread_entry_0(i8* %raw) {

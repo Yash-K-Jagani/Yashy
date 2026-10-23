@@ -15,44 +15,44 @@ fn show(o: Option[int]) -> int {
 fn main() {
     var xs = []int { 10, 20, 30 };
     if xs.contains(20) {
-        print_str("contains 20\n");
+        println("contains 20");
     }
     if xs.contains(99) {
-        print_str("unexpected: contains 99\n");
+        println("unexpected: contains 99");
     } else {
-        print_str("missing 99\n");
+        println("missing 99");
     }
-    print_i64(show(xs.index_of(30)));
-    print_str("\n");
-    print_i64(show(xs.index_of(99)));
-    print_str("\n");
+    print(show(xs.index_of(30)));
+    println("");
+    print(show(xs.index_of(99)));
+    println("");
 
     xs.extend([]int { 40, 50 });
-    print_i64(xs.len());
-    print_str("\n");
+    print(xs.len());
+    println("");
     for x in xs {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
 
     var part = xs.slice(1, 4);
     for x in part {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
     part.free();
 
     var clamped = xs.slice(0 - 5, 2);
     for x in clamped {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
     clamped.free();
 
     var tail = xs.slice(2, 99);
     for x in tail {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println("");
     }
     tail.free();
 
@@ -61,17 +61,17 @@ fn main() {
     var names = []string { "a", "b" };
     names.extend([]string { "c", "d" });
     if names.contains("c") {
-        print_str("contains c\n");
+        println("contains c");
     }
-    print_i64(show(names.index_of("b")));
-    print_str("\n");
-    print_i64(names.len());
-    print_str("\n");
+    print(show(names.index_of("b")));
+    println("");
+    print(names.len());
+    println("");
 
     var middle = names.slice(1, 3);
     for name in middle {
-        print_str(name);
-        print_str("\n");
+        print(name);
+        println("");
     }
     middle.free();
     names.free();

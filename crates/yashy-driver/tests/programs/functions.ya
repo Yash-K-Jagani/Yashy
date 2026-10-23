@@ -11,10 +11,10 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 }
 
 fn main() {
-    print_i64(apply(square, 7));
-    print_str("\n");
+    print(apply(square, 7));
+    println("");
 
     const f = square;
-    print_i64(f(4));
-    print_str("\n");
+    print(f(4));
+    println("");
 }
