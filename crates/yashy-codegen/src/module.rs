@@ -524,7 +524,7 @@ impl Module {
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.
         out.push_str("declare i64 @yashy_str_len(i8*)\n");
-        out.push_str("declare i64 @yashy_str_byte_at(i8*, i64)\n");
+        out.push_str("declare i8 @yashy_str_byte_at(i8*, i64)\n");
         out.push_str("declare i8* @yashy_str_concat(i8*, i8*)\n");
         out.push_str("declare i8* @yashy_str_from_i64(i64)\n");
         out.push_str("declare i8* @yashy_str_from_f64(double)\n");

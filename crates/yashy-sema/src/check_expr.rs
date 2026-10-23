@@ -4324,7 +4324,7 @@ impl<'src> Checker<'src> {
                     args: vec![receiver_checked, index],
                     unsafe_call: false,
                     span,
-                    ty: prim(TypeKind::I64),
+                    ty: prim(TypeKind::Char),
                 }))
             }
             "slice" => {

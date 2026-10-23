@@ -94,12 +94,12 @@ pub fn gen_str_byte_at(ctx: &mut FnCtx<'_>, args: &[yashy_sema::HirExpr]) -> Gen
         .unwrap_or_else(|| "0".to_string());
     let byte = ctx.tmp();
     ctx.push(format!(
-        "{byte} = call i64 @yashy_str_byte_at(i8* {value}, i64 {index})"
+        "{byte} = call i8 @yashy_str_byte_at(i8* {value}, i64 {index})"
     ));
     ctx.release_owned(&value);
     GenValue {
         value: byte,
-        ty: TypeKind::I64,
+        ty: TypeKind::Char,
     }
 }
 

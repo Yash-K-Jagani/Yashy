@@ -182,8 +182,8 @@ fn byte_at_is_a_runtime_call_and_yields_i64() {
     let ir_text = ir("fn main() { var abc = \"abc\"; print_i64(abc.byte_at(1)); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_byte_at"), 1, "{ir_text}");
     assert!(
-        ir_text.contains("call i64 @yashy_str_byte_at(i8* ") && ir_text.contains(", i64 1)"),
-        "the byte is an `i64` and the index is passed through:\n{ir_text}"
+        ir_text.contains("call i8 @yashy_str_byte_at(i8* ") && ir_text.contains(", i8 1)"),
+        "the byte is an `i8` and the index is passed through:\n{ir_text}"
     );
 }
 
