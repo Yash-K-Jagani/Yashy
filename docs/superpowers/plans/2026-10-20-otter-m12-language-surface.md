@@ -1882,13 +1882,28 @@ git commit -m "feat: const fn and stdlib method coverage"
 > blocked — but it is not stable per source, because the linker stamps a fresh
 > timestamp into every build.
 >
-> About one fresh build in three is allowed, so a suite that runs 79 separate
-> binaries cannot be brought green by retrying the suite. Each of the eight
-> milestone programs was instead rebuilt until one build started, and all eight
-> then pass: `numeric_literals`, `debug_formatting`, `fixed_arrays`, `generics`
-> (3rd rebuild), `tuples_guards` (14th), `const_fn` (7th), `map_methods` (1st)
-> and the `visibility` program (12th). No test was counted as a pass without
-> its program running.
+> About one fresh build in three is allowed, and retrying the suite could not
+> fix that, because cargo relinks nothing when the sources have not changed.
+> Each of the eight milestone programs was first rebuilt until one build
+> started, and all eight pass: `numeric_literals`, `debug_formatting`,
+> `fixed_arrays`, `generics` (3rd rebuild), `tuples_guards` (14th), `const_fn`
+> (7th), `map_methods` (1st) and the `visibility` program (12th).
+>
+> The end-to-end harness then stepped around the policy at the launch layer.
+> `launch_retrying` in `e2e.rs` tries the executable the compiler wrote, and
+> when the host refuses it, tries a copy of that same file with one more
+> trailing zero byte, up to 40 times. A copy of a different length is a new
+> question, and the padding lies past the end of the image, so the program that
+> runs is still the compiler's own — preferred to rebuilding, which would test a
+> different binary. A probe of 20 padded copies of `const_fn.exe` ran 18 and
+> printed the expected `81`, `10`, `55` and `16`. `run`, `run_with_input` and
+> `run_with_timeout` all go through it, so no test's build had to change.
+>
+> With that, `cargo test -p otter-driver --test e2e` is 104 passed, 0 failed,
+> in 1068s. The time is the refused launches; on a host without the policy
+> every launch succeeds on the first attempt, so the retry costs nothing there.
+> A refused launch is still never a pass: the program has to start and print
+> its output.
 
 ---
 

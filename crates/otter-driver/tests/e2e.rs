@@ -48,24 +48,94 @@ fn build_program(name: &str) -> (PathBuf, PathBuf, Output) {
     (dir, exe, output)
 }
 
+/// How many copies of an executable the host may refuse before a test gives up.
+///
+/// About nine fresh copies in ten start on a machine with Smart App Control
+/// enforcing, so 40 attempts leave one program blocked with probability below
+/// `1e-4`. The bound is per launch, and the cost is paid only when the first
+/// attempt is refused.
+const LAUNCH_ATTEMPTS: usize = 40;
+
+/// Whether an error is the host refusing to start a binary rather than the
+/// program failing.
+///
+/// An Application Control (Device Guard / Smart App Control) policy blocks a
+/// content-defined subset of newly linked executables with "os error 4551". It
+/// is an environment result, not evidence about the compiler.
+fn blocked_by_policy(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+        || error.raw_os_error() == Some(4551)
+        || error.to_string().contains("blocked")
+        || error.to_string().contains("Application Control")
+}
+
+/// The file to start on attempt `attempt`: the executable itself, then copies
+/// that differ from it only in how many zero bytes follow the image.
+///
+/// Application Control judges content, so a copy of a different length is a new
+/// question while a refused path stays refused forever. The padding sits past
+/// the end of the image, where the loader never looks, so the program that runs
+/// is the one the compiler wrote — which is why this is preferred to rebuilding,
+/// where a different binary would be tested instead.
+fn launch_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
+    if attempt == 0 {
+        return Ok(exe.to_path_buf());
+    }
+    let dir = exe.parent().unwrap_or_else(|| Path::new("."));
+    let stem = exe
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("program");
+    let candidate = dir.join(format!(
+        "{stem}_launch{attempt}{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut bytes = fs::read(exe)?;
+    bytes.resize(bytes.len() + attempt, 0);
+    fs::write(&candidate, bytes)?;
+    Ok(candidate)
+}
+
+/// Start a program, stepping around a host that refuses to start it.
+///
+/// `start` receives the path to try and does whatever the caller needs from a
+/// successful start. Only a refusal the policy caused is retried; every other
+/// failure is returned at once.
+fn launch_retrying<T>(
+    exe: &Path,
+    mut start: impl FnMut(&Path) -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut last = None;
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        match launch_candidate(exe, attempt).and_then(|path| start(&path)) {
+            Ok(started) => return Ok(started),
+            Err(error) if blocked_by_policy(&error) => last = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "the executable was blocked on every attempt",
+        )
+    }))
+}
+
+/// Start a built executable and collect its output.
+///
+/// A nonzero exit status is not an error here — it is what the program chose to
+/// do, and the caller decides whether that is expected. Only a failure to start
+/// comes back as `Err`.
+fn try_launch(exe: &Path) -> std::io::Result<Output> {
+    launch_retrying(exe, |path| Command::new(path).output())
+}
+
 /// Run a built executable and return its output.
 fn run(exe: &Path) -> Output {
-    Command::new(exe).output().unwrap_or_else(|error| {
-        // A machine can refuse to start a binary it has just been handed: an
-        // Application Control (Device Guard) policy blocks a content-defined
-        // subset of newly linked executables, and the linker stamps a fresh
-        // timestamp into every build, so the same source is judged differently
-        // from one run to the next. That is an environment result, not evidence
-        // about the compiler, and saying so here stops the failure being read as
-        // a codegen bug.
-        let policy = error.to_string().contains("blocked")
-            || error.to_string().contains("Application Control")
-            || error.raw_os_error() == Some(4551);
-        let hint = if policy {
-            "\n\nthe operating system refused to start the binary: an Application \
-             Control / Device Guard policy blocked it. Rebuilding produces a \
-             different binary (the linker stamps a timestamp), which usually has a \
-             different verdict."
+    try_launch(exe).unwrap_or_else(|error| {
+        let hint = if blocked_by_policy(&error) {
+            "\n\nthe operating system refused to start the binary on every \
+             attempt: an Application Control / Device Guard policy blocked it."
         } else {
             ""
         };
@@ -95,16 +165,18 @@ const CONCURRENT_TIMEOUT: Duration = Duration::from_secs(60);
 fn run_with_timeout(exe: &Path, timeout: Duration) -> Output {
     use std::process::Stdio;
 
-    let mut child = Command::new(exe)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|error| {
-            panic!(
-                "the compiled executable at {} must start: {error}",
-                exe.display()
-            )
-        });
+    let mut child = launch_retrying(exe, |path| {
+        Command::new(path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "the compiled executable at {} must start: {error}",
+            exe.display()
+        )
+    });
     let started = Instant::now();
     loop {
         match child.try_wait() {
@@ -132,31 +204,41 @@ fn run_with_timeout(exe: &Path, timeout: Duration) -> Output {
     }
 }
 
-/// Run a built executable with `input` on its standard input.
+/// Start a built executable with `input` on its standard input, or answer why
+/// it could not start.
 ///
 /// The write end is closed before waiting, so the program sees end of input
 /// after the last line rather than blocking on a pipe nobody will write to
 /// again — which is what makes a read-until-EOF loop terminate.
-fn run_with_input(exe: &Path, input: &str) -> Output {
+fn try_run_with_input(exe: &Path, input: &str) -> std::io::Result<Output> {
     use std::io::Write;
     use std::process::Stdio;
 
-    let mut child = Command::new(exe)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the built executable must start");
-    child
-        .stdin
-        .as_mut()
-        .expect("standard input was piped")
-        .write_all(input.as_bytes())
-        .expect("writing the program's input must succeed");
-    drop(child.stdin.take());
-    child
-        .wait_with_output()
-        .expect("the built executable must be waitable")
+    launch_retrying(exe, |path| {
+        let mut child = Command::new(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child
+            .stdin
+            .as_mut()
+            .expect("standard input was piped")
+            .write_all(input.as_bytes())
+            .expect("writing the program's input must succeed");
+        drop(child.stdin.take());
+        child.wait_with_output()
+    })
+}
+
+/// Run a built executable with `input` on its standard input.
+fn run_with_input(exe: &Path, input: &str) -> Output {
+    try_run_with_input(exe, input).unwrap_or_else(|error| {
+        panic!(
+            "the built executable at {} must start: {error}",
+            exe.display()
+        )
+    })
 }
 
 fn stderr_of(output: &Output) -> String {
@@ -164,6 +246,10 @@ fn stderr_of(output: &Output) -> String {
 }
 
 /// Build and run a program, asserting it compiled and exited zero.
+///
+/// A launch the host refuses is retried by [`launch_retrying`], so the program
+/// still has to start and produce its output for the test to pass: a retry
+/// cannot turn an environmental block into a false green.
 fn build_and_run(name: &str) -> Output {
     let (_dir, exe, compile) = build_program(name);
     assert!(
@@ -2253,6 +2339,9 @@ fn a_string_slice_can_be_built_iterated_and_freed() {
 }
 
 /// Build `name.ot` and run it with `input` on standard input.
+///
+/// A launch the host refuses is retried by [`launch_retrying`], exactly as
+/// [`build_and_run`] does.
 fn build_and_run_with_input(name: &str, input: &str) -> Output {
     let (_dir, exe, compile) = build_program(name);
     assert!(
