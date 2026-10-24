@@ -12,7 +12,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Yashy lexes,
+**Status: milestones M0–M8 and M12–M15 are complete; M9–M11 remain.** Yashy lexes,
 parses, type-checks and compiles programs with `int`, `float`, `bool`, `char`,
 `string`, `void`, `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -672,31 +672,58 @@ the top, and it is already in C's band.
 
 ### What the features cost
 
-The tables above measure arithmetic and calls. Six more programs, in
+The tables above measure arithmetic and calls. Sixteen more programs, in
 [`benchmarks/features/`](benchmarks/features), measure the features that make a
-program rather than a loop: FFI, arrays, maps, enums, channels and mutexes.
-Each is compared with the nearest built-in equivalent in another language, not
-with an identical source file, and each row must print the same expected
-number — a wrong hash or a lost update fails the run instead of becoming a fast
-row. Times are milliseconds, lower is better, and the ratio is Yashy's time
-divided by the comparison's, so below 1.0 means Yashy was faster. Published
-numbers are 9 runs over 3 passes at `-O2` on the same machine as the tables
-above.
+program rather than a loop — FFI, arrays, maps, enums, channels, mutexes,
+characters, printing, methods, generics, fixed arrays, tuples, function values,
+debug formatting, and map and array traversal. Each is compared with the nearest
+built-in equivalent in another language where one exists, not with an identical
+source file, and each row must print the same expected number — a wrong hash or
+a lost update fails the run instead of becoming a fast row. Times are
+milliseconds, lower is better, and the ratio is Yashy's time divided by the
+comparison's, so below 1.0 means Yashy was faster. Most rows are 9 runs over 3
+passes at `-O2` on the same machine as the tables above; the map-walking and
+debug-formatting rows are the script's default 5 × 2 run, and the character and
+printing rows are 3 runs over 1 pass.
 
 | Feature | Yashy | Fastest comparison | Yashy / comparison |
 |---|---:|---:|---:|
 | FFI, 100,000,000 `getpid` calls | 248 ms | C (clang) 237 ms | 1.05× |
 | Arrays, 10,000,000 appends | 207 ms | C (clang) 141 ms | 1.47× |
 | Maps, 1,000,000 inserts + lookups | 322 ms | Rust 282 ms | 1.14× |
+| Walking a map, 1,000,000 entries, copied × 10 | 1065 ms | Rust 567 ms | 1.88× |
+| Mapping an array, 10,000,000 elements | 417 ms | C (gcc) 111 ms | 3.76× |
+| Debug formatting, 1,000,000 points | 1754 ms | Rust 513 ms | 3.42× |
 | Enums, 50,000,000 builds + matches | 150 ms | C (clang) 101 ms | 1.48× |
 | Channels, 200,000 round trips | 179 ms | Go 296 ms | 0.61× |
 | Mutexes, 1,000,000 lock pairs | 74 ms | Go 66 ms | 1.12× |
+| Function values, 100,000,000 calls through a value | 453 ms | C (gcc) 306 ms | 1.48× |
+| Methods, 10,000,000 calls | 19.0 ms | C (gcc) 16.8 ms | 1.13× |
+| Generic functions, 100,000,000 calls | 162 ms | C (clang) 164 ms | 0.99× |
+| Fixed arrays, 50,000,000 traversals | 17.9 ms | C (clang) 16.9 ms | 1.06× |
+| Tuples, 50,000,000 calls | 134 ms | C (gcc) 74.7 ms | 1.79× |
+| Characters, 1 MiB scanned | 31.6 ms | none | — |
+| Printing, 200,000 lines | 159.4 ms | none | — |
 
 Read these as cost checks, not a scoreboard. Yashy's `push` is an out-of-line
 runtime call; C's `realloc` loop inlines the common path. Yashy's map is an
-open-addressed table; Rust's `HashMap` and Go's map use their own layouts.
-Yashy's threads are OS threads and its channels block on condition variables;
-Go's goroutine is multiplexed by the Go scheduler. The full workload sizes,
+open-addressed table; Rust's `HashMap` and Go's map use their own layouts, and
+Yashy's `keys()`/`values()` copy the table into fresh arrays the caller owns
+where Rust's are borrows. Yashy's threads are OS threads and its channels block
+on condition variables; Go's goroutine is multiplexed by the Go scheduler, and
+the channel row's minimum and median differ by 40%, so read it as the same
+order rather than a scheduler comparison. The mapping row maps through a
+function value and so includes the indirect call; the C, Go and Rust rows use a
+plain loop. The debug form builds the text in the runtime's buffer and copies it
+into the string, where Rust's derived `Debug` grows a `String` in place. The
+fixed-array row uses `wrapping_add`; with checked `+` the same program is
+193 ms, because the overflow test stops the sum from being reassociated — that
+is the arithmetic check, not the array. The function-value row is a call through
+a value; the direct-call rows are 159–162 ms for C (clang), Rust and Yashy, so
+the difference is the value.
+`char` and `print` have no cross-language row: other languages compare bytes as
+integers, and their print APIs do different work; the `char` row is
+startup-heavy, so its 30 ns/byte is an upper bound. The full workload sizes,
 methodology and caveats are in
 [`benchmarks/README.md`](benchmarks/README.md#feature-benchmarks).
 
@@ -776,7 +803,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 ✅ | Heap, strings and input: `alloc`/`free`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
+| M3 ✅ | Heap, strings and input: `alloc`/`free`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. One known leak remains, not a corruption: a string dropped across a `break` out of a doubly nested block |
 | M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `int::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `int`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
 | M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, array storage, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
 | M6 ✅ | Arrays (`[]T`, `push`/`pop`/`len`/indexing, `free`), hash maps (`map_new` plus `.insert`/`.get`/`.remove`/`.len`/`.free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |
@@ -788,4 +815,4 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | M12 ✅ | Language surface: JavaScript-style `let`, array and string methods, and one public method spelling for arrays, strings, maps, channels, and mutexes |
 | M13 ✅ | Function values: `fn(T) -> R` types, top-level function values, indirect calls, non-capturing lambdas, capturing closures with refcounted environments, the `map`/`filter`/`fold` array methods, `impl` methods, `object` declarations, static methods, and generic functions by monomorphization |
 | M14 ✅ | Objects: field-and-method declarations, static methods and constructors, and pointer receivers (`self: *mut T`) that mutate the object they are called on |
-| M15 (in progress) | Correctness gaps: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, fixed arrays `[T; N]` with borrowed `a[start..end]` views, tuples with destructuring, and pattern guards (arrays, views, tuples and guards done) |
+| M15 ✅ | Correctness gaps and the closing surface: `?` enforcement, returns, short-circuiting, struct equality, array moves, owning struct fields, fixed arrays `[T; N]` with borrowed `a[start..end]` views, tuples with destructuring, pattern guards, debug formatting, numeric literals, module visibility, and `const fn` |
