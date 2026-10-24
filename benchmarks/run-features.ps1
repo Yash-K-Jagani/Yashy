@@ -190,6 +190,20 @@ $workloads = @(
        Programs = @(
            @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'debug_format.ya'; Out = 'debug_format-yashy' },
            @{ Lang = 'Rust (rustc -O)'; Kind = 'rust';  Src = 'debug_format.rs'; Out = 'debug_format-rust' }
+       ) },
+    # A `char` scan: 1 MiB of text read one byte at a time with `byte_at`, and
+    # each byte compared with `'a'` and `'z'`. The work is bytes scanned, so
+    # the number is the price of a string index and two `char` comparisons.
+    @{ Name = 'char';    Work = 1048576;   Unit = 'byte';       Expected = '393216';          Source = 'char.ya';
+       Programs = @(
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'char.ya'; Out = 'char-yashy' }
+       ) },
+    # 200,000 `println` lines. stdout goes to a file and the row reports the
+    # byte count, so the number is the price of formatting and writing a line,
+    # not of a terminal or of PowerShell's pipeline.
+    @{ Name = 'print';   Work = 200000;    Unit = 'line';       Expected = '1288890';         Source = 'print.ya'; Redirect = $true;
+       Programs = @(
+           @{ Lang = 'Yashy -O2';       Kind = 'yashy'; Src = 'print.ya'; Out = 'print-yashy' }
        ) }
 )
 
@@ -236,8 +250,61 @@ function Build-All {
     }
 }
 
+# A redirected run hands the child's stdout straight to a file, byte for byte.
+# `>` in PowerShell would decode the text and rewrite the line endings, which
+# is exactly what the `print` row is trying to count.
+function Invoke-Captured {
+    param([string]$Path, [string]$OutFile)
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $Path
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($start)
+    $stderr = $process.StandardError.ReadToEndAsync()
+    $stream = [System.IO.File]::Create($OutFile)
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($stream)
+    } finally {
+        $stream.Close()
+    }
+    $errorText = $stderr.Result
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "redirected run failed (exit $($process.ExitCode)): $errorText"
+    }
+}
+
 function Measure-Runs {
-    param([string]$Path, [string[]]$Arguments, [int]$Count)
+    param([string]$Path, [string[]]$Arguments, [int]$Count, [switch]$Redirect)
+    if ($Redirect) {
+        $outFile = Join-Path ([System.IO.Path]::GetTempPath()) (
+            "yashy-bench-{0}.out" -f [System.IO.Path]::GetFileNameWithoutExtension($Path))
+        try {
+            Invoke-Captured $Path $outFile
+        } catch {
+            return [pscustomobject]@{ Min = $null; Median = $null; Output = ''; Blocked = $true }
+        }
+        $warmBytes = (Get-Item $outFile).Length
+        if ($warmBytes -eq 0) {
+            return [pscustomobject]@{ Min = $null; Median = $null; Output = ''; Blocked = $true }
+        }
+        $times = New-Object System.Collections.Generic.List[double]
+        for ($i = 0; $i -lt $Count; $i++) {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Invoke-Captured $Path $outFile
+            $sw.Stop()
+            $times.Add($sw.Elapsed.TotalMilliseconds)
+        }
+        $sorted = @($times | Sort-Object)
+        return [pscustomobject]@{
+            Min     = [math]::Round($sorted[0], 1)
+            Median  = [math]::Round($sorted[[int][math]::Floor($sorted.Count / 2)], 1)
+            Output  = ((Get-Item $outFile).Length).ToString()
+            Blocked = $false
+        }
+    }
     $warm = (& $Path @Arguments 2>$null) -join ''
     if ([string]::IsNullOrWhiteSpace($warm)) {
         return [pscustomobject]@{ Min = $null; Median = $null; Output = ''; Blocked = $true }
@@ -273,7 +340,7 @@ for ($pass = 1; $pass -le $Passes; $pass++) {
             if (-not (Test-Path $path)) {
                 throw "missing binary $path - run without -SkipBuild"
             }
-            $result = Measure-Runs $path @() $Runs
+            $result = Measure-Runs $path @() $Runs -Redirect:($workload.Redirect -eq $true)
             $key = "$($workload.Name)|$($program.Lang)"
             if ($result.Blocked) {
                 Write-Warning "$($workload.Name) / $($program.Lang): BLOCKED (no output)"

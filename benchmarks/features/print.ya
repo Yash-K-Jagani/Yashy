@@ -1,0 +1,9 @@
+// Write 200,000 decimal lines. The runner redirects stdout to a file and
+// checks the byte count: sum(digits(i) + 1) for 0..199_999 = 1_288_890.
+fn main() {
+    let i = 0;
+    while i < 200000 {
+        println(i);
+        i = i + 1;
+    }
+}

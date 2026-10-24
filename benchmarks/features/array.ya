@@ -109,7 +109,7 @@ fn main() {
     if !text.ends_with("  ") {
         println("bad ends_with");
     }
-    if text.byte_at(2) != 89 {
+    if text.byte_at(2).to_int() != 89 {
         println("bad byte_at");
     }
     if option_i64(text.get(2)) != 89 {

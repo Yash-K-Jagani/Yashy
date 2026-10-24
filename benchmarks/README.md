@@ -5,9 +5,9 @@ Two suites live here:
 - **Scalar** (`run.ps1`) — `fib`, `loop` and `float`, written in six languages,
   answering **how fast is the code Yashy produces** and **how fast does Yashy
   compile it**.
-- **Features** (`run-features.ps1`) — FFI, arrays, maps, enums, channels and
-  mutexes, answering **what each language feature costs** against the same idea
-  in a language that has it built in.
+- **Features** (`run-features.ps1`) — FFI, arrays, maps, enums, channels,
+  mutexes, characters and printing, answering **what each language feature
+  costs** against the same idea in a language that has it built in.
 
 Everything is reproducible from the repository root after
 `cargo build --release --workspace`:
@@ -66,6 +66,8 @@ have a comparable standard-library primitive.
 | `map_array` | 10,000,000 elements mapped into a second array, then summed | C, Go and Rust loops that build the second array |
 | `map_scan` | a 1,000,000-entry map, its keys and values copied into two arrays ten times over, then 2,000,000 `contains_key` probes | Go and Rust loops that collect the table into two slices or vectors |
 | `debug_format` | 1,000,000 debug-formatted points (`${value:?}`), and the total length of the text built | Rust's derived `Debug` |
+| `char` | 1 MiB of text scanned one byte at a time with `byte_at`, each byte compared with `'a'` and `'z'`, and the lowercase count printed | none: other languages compare bytes as integers, which is not the `char` type being measured |
+| `print` | 200,000 `println` lines, with stdout redirected to a file and the byte count checked (1,288,890) | none: the other languages' print APIs do different work |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
@@ -465,8 +467,8 @@ Methodology, beyond the shared rules above:
   while Go's `sync.Mutex` spins briefly before parking.
 - **`ns/op` counts the unit in the `Workload` column**: one C call, one array
   element, one map insert-or-lookup, one enum iteration, one channel round
-  trip, or one lock/unlock pair. Compare rows within a benchmark, not across
-  benchmarks.
+  trip, one lock/unlock pair, one scanned byte, or one printed line. Compare
+  rows within a benchmark, not across benchmarks.
 
 ### Results
 
@@ -825,5 +827,38 @@ compiler source built in debug mode (`-O2` output is unchanged by the compiler
 binary's own optimization), because the freshly built release driver was
 blocked at the time; re-running `run-features.ps1` rebuilds and times every row
 through the release driver.
+
+#### Characters — 1 MiB scanned one byte at a time
+
+| Language | min ms | median ms | ns/byte |
+|---|---:|---:|---:|
+| Yashy -O2 | 31.6 | 32.1 | 30.14 |
+
+The program builds a 1 KiB pattern, repeats it to 1 MiB, and walks it with
+`s.byte_at(i)`, counting the bytes in `'a'..='z'`; it prints `393216`, which the
+harness checks. Measured 2026-10-24 on the Windows x86-64 machine above with the
+plan's `-Runs 3 -Passes 1`. The row is short enough that process start-up is most
+of the number: a no-op program costs about 20-30 ms here, so the scan itself is
+about 8 ms and the 30 ns/byte figure is an upper bound. It proves the `char`
+load and the two byte-order comparisons are real work rather than a cast to
+`int` that disappears. There is no C or Rust row because those languages compare
+`unsigned char`/`u8` as integers, which is not the `char` type this row exists to
+measure.
+
+#### Printing — 200,000 lines
+
+| Language | min ms | median ms | ns/line |
+|---|---:|---:|---:|
+| Yashy -O2 | 159.4 | 201.5 | 797.00 |
+
+The program writes `println(i)` for `i` from 0 to 199,999. The runner hands the
+child's stdout straight to a file (PowerShell's `>` would decode the text and
+rewrite the line endings) and checks the byte count, `1288890` — the digits of
+0..199,999 plus one newline each — so a missing newline or a wrong conversion is
+a failed run, not a fast one. It proves the print path converts through
+`str_from_i64` and writes through `yashy_print_line_str` for every line, at
+about 1.25 million lines per second. Measured 2026-10-24 on the same machine with
+`-Runs 3 -Passes 1`; the gap between the minimum and the median is the file
+system's write buffering, not a different amount of work.
 
 

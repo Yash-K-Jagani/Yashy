@@ -1,0 +1,20 @@
+// Count the lowercase letters in a 1 MiB string. The seed repeats
+// "0123456789abcdef" (six lowercase letters per sixteen bytes), so the
+// expected count is 1_048_576 * 6 / 16 = 393_216.
+fn main() {
+    const seed = "0123456789abcdef";
+    const pattern = seed.repeat(64);      // 1 KiB
+    const text = pattern.repeat(1024);    // 1 MiB
+
+    let count = 0;
+    let i = 0;
+    const len = text.len();
+    while i < len {
+        const c = text.byte_at(i);
+        if c >= 'a' && c <= 'z' {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    println(count);
+}

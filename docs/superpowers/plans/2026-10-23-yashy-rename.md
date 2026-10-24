@@ -2142,6 +2142,37 @@ git commit -m "bench: measure char comparison and println throughput"
 git push origin main
 ```
 
+### Task 6.3, as built
+
+1. **`array.ya` had one stale `byte_at` comparison.** Its method pass reads
+   `if text.byte_at(2) != 89`, which stopped compiling when `byte_at` began
+   returning `char`; it is now `text.byte_at(2).to_int() != 89`. The expression
+   is outside the timed loop, so the array row's number is unaffected. This was
+   the only old-`byte_at` use in the benchmark sources.
+
+2. **The runner redirects through a process, not `>`.** PowerShell's `>` decodes
+   the child's text and rewrites line endings, which would make the byte count
+   meaningless. `Invoke-Captured` starts the child with a redirected stdout and
+   copies `BaseStream` into a file, so the bytes on disk are the bytes the
+   program wrote. `Measure-Runs` takes a `Redirect` switch; only `print` sets it,
+   and its `Expected` is the byte count rather than the text.
+
+3. **The `char` row is the planned 1 MiB scan.** It prints `393216`, which is
+   the six lowercase bytes in every sixteen-byte seed repeated to 1 MiB. The
+   measured 31.6 ms is startup-heavy (a no-op program is about 20-30 ms here),
+   so the README states the 30.14 ns/byte figure as an upper bound rather than
+   presenting it as the cost of one comparison.
+
+4. **The measured rows.** `char`: 31.6 ms min, 32.1 ms median, 30.14 ns/byte.
+   `print`: 159.4 ms min, 201.5 ms median, 797.00 ns/line, 1,288,890 bytes
+   checked. Both were run with `-Runs 3 -Passes 1` on 2026-10-24, as Step 2
+   says.
+
+5. **One pre-existing row was blocked, not a new one.** `tuple`'s Rust binary
+   was refused by Application Control during this run; the README already
+   reports that row as BLOCKED from the earlier run, and it is not counted as a
+   result here.
+
 ---
 
 ### Task 6.4: Final gate
