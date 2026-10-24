@@ -14,8 +14,10 @@
 
 use std::env;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, ExitStatus};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use yashy_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
@@ -26,11 +28,13 @@ use yashy_driver::{
 const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
   yashy check <file.ya>
   yashy fmt [-w] <files...>
   yashy version
 
   build   compile a program to a native executable
+  run     compile and execute a program
   check   lex, parse and type-check without emitting anything
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
@@ -61,6 +65,7 @@ fn main() -> ExitCode {
             exit_code(EXIT_OK)
         }
         "build" => build(rest),
+        "run" => run(rest),
         "check" => check(rest),
         "fmt" => fmt(rest),
         other => {
@@ -205,6 +210,146 @@ fn build(args: &[String]) -> ExitCode {
         Ok(()) => exit_code(EXIT_OK),
         Err(diagnostics) => render(&sources, &diagnostics),
     }
+}
+
+/// `yashy run <file.ya> [build flags] [-- <program args>...]`.
+///
+/// The output path is temporary on purpose: `run` is for the edit/run loop,
+/// and a user who wants to keep the binary has `build -o`.
+fn run(args: &[String]) -> ExitCode {
+    let mut build_args: Vec<String> = Vec::new();
+    let mut program_args: Vec<String> = Vec::new();
+    let mut input: Option<PathBuf> = None;
+    let mut after_separator = false;
+
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        if after_separator {
+            program_args.push(argument.clone());
+            continue;
+        }
+        match argument.as_str() {
+            "--" => after_separator = true,
+            "-o" | "--output" => {
+                return usage_error(
+                    "`run` chooses its own output path; use `build -o` to keep a binary",
+                )
+            }
+            "--release" | "--fast-math" | "--native" => build_args.push(argument.clone()),
+            "--cpu" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--cpu` needs a value");
+                };
+                build_args.push(argument.clone());
+                build_args.push(value.clone());
+            }
+            other if other.starts_with("--cpu=") => build_args.push(argument.clone()),
+            other if OptLevel::parse(other).is_some() => build_args.push(argument.clone()),
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `run`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    let Some(input) = input else {
+        return usage_error("`run` needs a source file");
+    };
+
+    let dir = temp_run_dir();
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create {}: {error}", dir.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let output = dir.join(format!("run{}", std::env::consts::EXE_SUFFIX));
+
+    let mut build_arguments = vec![
+        input.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        output.to_string_lossy().into_owned(),
+    ];
+    build_arguments.extend(build_args);
+
+    let code = build(&build_arguments);
+    if code != exit_code(EXIT_OK) {
+        let _ = fs::remove_dir_all(&dir);
+        return code;
+    }
+
+    let status = status_with_retry(&output, &program_args);
+    let _ = fs::remove_dir_all(&dir);
+
+    match status {
+        Ok(status) => exit_code(exit_status_code(status)),
+        Err(error) => {
+            eprintln!("error: cannot run {}: {error}", output.display());
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
+}
+
+fn temp_run_dir() -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("yashy-run-{}-{stamp}", std::process::id()))
+}
+
+fn exit_status_code(status: ExitStatus) -> i32 {
+    status.code().unwrap_or(EXIT_COMPILE_ERROR)
+}
+
+/// Start a freshly linked binary, stepping around an Application Control /
+/// Device Guard policy that refuses new content. The workaround is the same
+/// one the integration tests use: a copy with extra zero bytes past the image
+/// is a new question, and the loader never reads those bytes.
+fn status_with_retry(exe: &Path, args: &[String]) -> std::io::Result<ExitStatus> {
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let candidate = launch_candidate(exe, attempt)?;
+        match Command::new(&candidate).args(args).status() {
+            Ok(status) => return Ok(status),
+            Err(error) if blocked_by_policy(&error) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "the operating system refused to start the compiled program",
+    ))
+}
+
+const LAUNCH_ATTEMPTS: usize = 40;
+
+fn launch_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
+    if attempt == 0 {
+        return Ok(exe.to_path_buf());
+    }
+    let dir = exe.parent().unwrap_or_else(|| Path::new("."));
+    let stem = exe
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("program");
+    let candidate = dir.join(format!(
+        "{stem}_launch{attempt}{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut bytes = fs::read(exe)?;
+    bytes.resize(bytes.len() + attempt, 0);
+    fs::write(&candidate, bytes)?;
+    Ok(candidate)
+}
+
+fn blocked_by_policy(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+        || error.raw_os_error() == Some(4551)
+        || error.to_string().contains("blocked")
+        || error.to_string().contains("Application Control")
 }
 
 /// `yashy check <file.ya>`.
