@@ -19,7 +19,9 @@ use std::process::ExitCode;
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use yashy_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
-use yashy_driver::{compile_hir, detect, load_and_check, BuildOptions, CpuTarget, OptLevel};
+use yashy_driver::{
+    compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
+};
 
 const USAGE: &str = "\
 usage:
@@ -36,8 +38,9 @@ usage:
                portable (default), x86-64-v2, x86-64-v3, x86-64-v4, native
                (`--native` is a synonym for `--cpu native`)
   --fast-math  allow fused multiply-add; faster float code, different results
-  --release    a release build: `debug_assert` is compiled out (the optimization
-               level is unchanged; `-O3 --release` is what a shipped build wants)
+  --release    a release build: `debug_assert` is compiled out and the
+               optimization level defaults to -O3 unless an explicit -O
+               level is given
   --emit-ir    print the generated LLVM IR to stdout and stop";
 
 fn main() -> ExitCode {
@@ -75,8 +78,9 @@ fn build(args: &[String]) -> ExitCode {
     // Defaulting to `-O2` is the whole point of exposing this: the compiler
     // emits unoptimized IR so it stays readable, and hands the optimization to
     // LLVM. A build that passes no level gets `-O0` and a binary an order of
-    // magnitude slower than the same source deserves.
-    let mut opt = OptLevel::default();
+    // magnitude slower than the same source deserves. `--release` raises the
+    // default to `-O3`, but an explicit level always wins.
+    let mut opt: Option<OptLevel> = None;
     // Portable unless asked otherwise. A higher instruction set produces a
     // binary that can die with an illegal instruction on an older CPU, so it is
     // never the default; see `CpuTarget` for the difference between a feature
@@ -87,11 +91,10 @@ fn build(args: &[String]) -> ExitCode {
     // program that depends on its exact output must opt in knowingly. See
     // `CodegenOptions::fp_contract`.
     let mut fast_math = false;
-    // A release build drops `debug_assert`. It is deliberately not tied to the
-    // optimization level: `-O2` is already the default, so a flag that meant "be
-    // faster" would be indistinguishable from saying nothing, and the two
-    // questions -- how hard to optimize, and whether this is a build a user runs
-    // -- are genuinely different ones.
+    // A release build drops `debug_assert` and raises the default optimization
+    // level to `-O3`. The two questions -- how hard to optimize, and whether
+    // this is a build a user runs -- stay separable because an explicit `-O`
+    // level wins over the release default.
     let mut release = false;
 
     let mut args = args.iter();
@@ -119,7 +122,7 @@ fn build(args: &[String]) -> ExitCode {
                         None => return usage_error(&unknown_cpu(value)),
                     }
                 } else if let Some(level) = OptLevel::parse(other) {
-                    opt = level;
+                    opt = Some(level);
                 } else if other.starts_with("-O") {
                     return usage_error(&format!(
                         "`{other}` is not an optimization level; use -O0, -O1, -O2 or -O3"
@@ -191,6 +194,7 @@ fn build(args: &[String]) -> ExitCode {
     };
 
     let output = output.unwrap_or_else(|| default_output(&input));
+    let opt = resolve_opt(release, opt);
     let options = BuildOptions {
         opt,
         cpu,

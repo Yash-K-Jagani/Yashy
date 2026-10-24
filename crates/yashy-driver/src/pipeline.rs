@@ -101,6 +101,20 @@ impl OptLevel {
     }
 }
 
+/// The optimization level a build should use.
+///
+/// `explicit` is the level the user wrote on the command line, if any. A
+/// release build without an explicit level gets `-O3`; a debug build keeps
+/// the historical `-O2` default. An explicit level always wins, so
+/// `-O0 --release` remains a usable debugging build.
+pub fn resolve_opt(release: bool, explicit: Option<OptLevel>) -> OptLevel {
+    explicit.unwrap_or(if release {
+        OptLevel::Aggressive
+    } else {
+        OptLevel::Full
+    })
+}
+
 /// Which instruction set the generated program may use.
 ///
 /// The baseline of a `--target` triple is deliberately conservative: an
