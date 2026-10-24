@@ -22,13 +22,15 @@
 //! Zero is the only acceptable count. The printed output is asserted too, so a
 //! program that released everything by doing nothing cannot pass.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// The `yashy` binary cargo built for this test run.
 fn yashy() -> &'static str {
-    env!("CARGO_BIN_EXE_yashy")
+    common::yashy()
 }
 
 fn programs_dir() -> PathBuf {

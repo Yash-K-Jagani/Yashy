@@ -1,11 +1,10 @@
 //! The core standard library (M6 Task 10): `io`, `string`, `math`, `os` and
 //! `alloc`, written in Yashy and compiled by the compiler they ship with.
 //!
-//! Every program here imports the modules through `YASHY_PATH`, which is how a
-//! program finds them today: the loader's roots are the entry file's directory
-//! unless the variable says otherwise, and the stdlib is not copied next to a
-//! user's program. Locating a bundled stdlib automatically is recorded as a
-//! follow-up in the plan.
+//! Most programs here import the modules through `YASHY_PATH` so the test can
+//! pin the exact source tree it is exercising. The loader also discovers the
+//! bundled stdlib automatically; `stdlib_is_found_without_yashy_path` covers
+//! that path on its own.
 
 mod common;
 

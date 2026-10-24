@@ -2,15 +2,18 @@
 //!
 //! ```text
 //! yashy build <file.ya> [-o <out>] [--emit-ir] [--cpu <tier>] [--fast-math] [--release]
+//! yashy run <file.ya> [build flags] [-- <program args>...]
 //! yashy check <file.ya>
+//! yashy test [path] [--filter <substring>] [--list]
+//! yashy init [path]
+//! yashy doctor
 //! yashy fmt [-w] <files...>
 //! yashy version
 //! ```
 //!
-//! Argument parsing is hand-rolled on purpose: four subcommands and a handful
-//! of flags do not need a parser generator, and every dependency in this
-//! workspace is one more thing between a user and a compiler that builds
-//! offline.
+//! Argument parsing is hand-rolled on purpose: a handful of subcommands and
+//! flags do not need a parser generator, and every dependency in this workspace
+//! is one more thing between a user and a compiler that builds offline.
 
 use std::env;
 use std::ffi::OsStr;
@@ -20,7 +23,7 @@ use std::process::{Command, ExitCode, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
-use yashy_common::{Diagnostic, EXIT_COMPILE_ERROR, EXIT_OK, SourceMap};
+use yashy_common::{Diagnostic, SourceMap, EXIT_COMPILE_ERROR, EXIT_OK};
 use yashy_driver::{
     compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
 };
@@ -402,7 +405,9 @@ fn test(args: &[String]) -> ExitCode {
     tests.sort();
 
     if let Some(filter) = &filter {
-        tests.retain(|path| path.to_string_lossy().contains(filter));
+        tests.retain(|path| {
+            path.to_string_lossy().contains(filter) || display_test_path(path).contains(filter)
+        });
     }
 
     if list {
@@ -535,7 +540,10 @@ fn init(args: &[String]) -> ExitCode {
 
     if target.exists() {
         if !target.is_dir() {
-            return usage_error(&format!("{} exists and is not a directory", target.display()));
+            return usage_error(&format!(
+                "{} exists and is not a directory",
+                target.display()
+            ));
         }
         match fs::read_dir(&target) {
             Ok(mut entries) => {
@@ -608,7 +616,10 @@ fn project_name(target: &Path) -> String {
     target
         .canonicalize()
         .ok()
-        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "yashy-project".to_string())
 }

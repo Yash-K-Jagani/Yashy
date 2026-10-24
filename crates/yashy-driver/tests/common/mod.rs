@@ -2,6 +2,8 @@
 //!
 //! Kept in `tests/common/mod.rs` so it is a module, not a separate test target.
 
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -49,10 +51,7 @@ fn runnable_cli() -> String {
 
 /// A fresh, empty directory for one test, unique per test name and process.
 pub fn work_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "yashy-cli-test-{}-{name}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("yashy-cli-test-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("the test work directory must be creatable");
     dir

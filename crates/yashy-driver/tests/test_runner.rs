@@ -15,11 +15,7 @@ fn run_test(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
 #[test]
 fn test_runs_passing_and_failing_files() {
     let dir = work_dir("test-runner");
-    write(
-        &dir,
-        "tests/pass.ya",
-        "fn main() { assert(1 + 1 == 2); }\n",
-    );
+    write(&dir, "tests/pass.ya", "fn main() { assert(1 + 1 == 2); }\n");
     write(
         &dir,
         "tests/fail.ya",
@@ -43,11 +39,7 @@ fn test_runs_passing_and_failing_files() {
 #[test]
 fn test_filter_runs_one_file() {
     let dir = work_dir("test-filter");
-    write(
-        &dir,
-        "tests/pass.ya",
-        "fn main() { assert(1 + 1 == 2); }\n",
-    );
+    write(&dir, "tests/pass.ya", "fn main() { assert(1 + 1 == 2); }\n");
     write(
         &dir,
         "tests/fail.ya",
@@ -75,11 +67,7 @@ fn test_with_no_files_is_a_clean_success() {
 #[test]
 fn test_list_prints_discovered_files() {
     let dir = work_dir("test-list");
-    write(
-        &dir,
-        "tests/smoke.ya",
-        "fn main() { assert(true); }\n",
-    );
+    write(&dir, "tests/smoke.ya", "fn main() { assert(true); }\n");
 
     let output = run_test(&dir, &["--list"]);
     let stdout = String::from_utf8_lossy(&output.stdout);

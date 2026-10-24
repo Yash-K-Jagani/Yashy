@@ -7,6 +7,8 @@
 //! makes "identical output on both platforms" a checked claim rather than an
 //! intention.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -116,7 +118,7 @@ fn work_dir() -> PathBuf {
 /// above is never skipped, so a link failure still fails this test on every
 /// host.
 fn run_or_skip(exe: &Path) -> Option<std::process::Output> {
-    match Command::new(exe).output() {
+    match common::launch_output(exe) {
         Ok(output) => Some(output),
         Err(error) if is_policy_block(&error) => {
             eprintln!(
@@ -161,7 +163,7 @@ fn main() {
     .expect("the fixture must be writable");
 
     let exe = dir.join(format!("math{}", std::env::consts::EXE_SUFFIX));
-    let built = Command::new(env!("CARGO_BIN_EXE_yashy"))
+    let built = Command::new(common::yashy())
         .arg("build")
         .arg(&source)
         .arg("-o")

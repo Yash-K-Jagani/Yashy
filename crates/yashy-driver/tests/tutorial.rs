@@ -16,6 +16,8 @@
 //! A chapter with no block, or a block with no expected output, still passes:
 //! the point is that what *is* claimed is true, not that every chapter prints.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -24,7 +26,7 @@ use std::time::{Duration, Instant};
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 fn yashy() -> &'static str {
-    env!("CARGO_BIN_EXE_yashy")
+    common::yashy()
 }
 
 fn tutorial_dir() -> PathBuf {
@@ -132,28 +134,13 @@ fn wait(mut child: std::process::Child, exe: &Path) -> Output {
 /// here is short: the caller rebuilds under a new name instead. Any failure
 /// that is not that block is a real one and is reported.
 fn spawn(exe: &Path) -> Result<std::process::Child, String> {
-    use std::io::ErrorKind;
-
-    let mut last = String::new();
-    for _ in 0..4 {
-        match Command::new(exe)
+    common::launch_retrying(exe, |path| {
+        Command::new(path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-        {
-            Ok(child) => return Ok(child),
-            Err(error) => {
-                let blocked = error.kind() == ErrorKind::PermissionDenied
-                    || error.raw_os_error() == Some(4551);
-                if !blocked {
-                    panic!("{} must start: {error}", exe.display());
-                }
-                last = error.to_string();
-                std::thread::sleep(Duration::from_millis(300));
-            }
-        }
-    }
-    Err(last)
+    })
+    .map_err(|error| error.to_string())
 }
 
 /// Build `source` and run it.

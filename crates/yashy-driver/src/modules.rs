@@ -74,10 +74,7 @@ pub fn default_stdlib_root() -> Option<PathBuf> {
             let candidates = [
                 dir.join("yashy-stdlib").join("yashy"),
                 dir.join("stdlib"),
-                dir.join("..")
-                    .join("share")
-                    .join("yashy")
-                    .join("stdlib"),
+                dir.join("..").join("share").join("yashy").join("stdlib"),
             ];
             for candidate in candidates {
                 if candidate.is_dir() {
@@ -120,9 +117,7 @@ pub fn module_roots(entry: &Path) -> Vec<PathBuf> {
 
     if roots.is_empty() {
         match entry.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => {
-                roots.push(parent.to_path_buf())
-            }
+            Some(parent) if !parent.as_os_str().is_empty() => roots.push(parent.to_path_buf()),
             _ => roots.push(PathBuf::from(".")),
         }
     }
