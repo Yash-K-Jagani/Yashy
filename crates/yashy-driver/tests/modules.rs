@@ -6,6 +6,8 @@
 //! one builds into its own temporary directory; nothing is shared between
 //! tests except the compiler binary.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -14,7 +16,7 @@ use yashy_driver::modules::resolve_import;
 
 /// The `yashy` binary cargo built for this test run.
 fn yashy() -> &'static str {
-    env!("CARGO_BIN_EXE_yashy")
+    common::yashy()
 }
 
 /// A fresh, empty directory for one test, unique per test name and process.
@@ -62,11 +64,11 @@ fn stdout_of(output: &Output) -> String {
 
 /// Run a built executable, with the Device Guard hint the other suites use.
 fn run(path: &Path) -> Output {
-    Command::new(path).output().unwrap_or_else(|error| {
-        let policy = error.to_string().contains("blocked")
+    common::launch_output(path).unwrap_or_else(|error| {
+        let hint = if error.to_string().contains("blocked")
             || error.to_string().contains("Application Control")
-            || error.raw_os_error() == Some(4551);
-        let hint = if policy {
+            || error.raw_os_error() == Some(4551)
+        {
             "\n\nthe operating system refused to start the binary: an Application \
              Control / Device Guard policy blocked it. Rebuilding produces a \
              different binary (the linker stamps a timestamp), which usually has a \

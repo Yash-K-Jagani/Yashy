@@ -72,6 +72,36 @@ pub fn exe(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// Start a program, stepping around a host that refuses to start it.
+///
+/// `start` receives the path to try and does whatever the caller needs from a
+/// successful start. Only a refusal the policy caused is retried; every other
+/// failure is returned at once.
+pub fn launch_retrying<T>(
+    exe: &Path,
+    mut start: impl FnMut(&Path) -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut last = None;
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        match launch_candidate(exe, attempt).and_then(|path| start(&path)) {
+            Ok(started) => return Ok(started),
+            Err(error) if blocked_by_policy(&error) => last = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "the executable was blocked on every attempt",
+        )
+    }))
+}
+
+/// Start a built executable and collect its output.
+pub fn launch_output(exe: &Path) -> std::io::Result<std::process::Output> {
+    launch_retrying(exe, |path| Command::new(path).output())
+}
+
 /// How many copies of an executable the host may refuse before a test gives up.
 const LAUNCH_ATTEMPTS: usize = 40;
 

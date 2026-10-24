@@ -10,9 +10,11 @@
 //! ```
 //!
 //! The roots are `YASHY_PATH` when it is set and non-empty, and the entry
-//! file's directory otherwise. `YASHY_PATH` *replaces* the default rather than
-//! extending it, so a build can be pinned to a known set of directories; the
-//! separators are `;` on Windows and `:` everywhere else.
+//! file's directory otherwise. The bundled standard library is appended after
+//! those roots, so `import io;` works without any environment variable while a
+//! project can still put its own module first. `YASHY_PATH` therefore replaces
+//! the *entry directory* default, not the stdlib; the separators are `;` on
+//! Windows and `:` everywhere else.
 //!
 //! An import cycle is refused with the cycle written out. Yashy has no
 //! `forward` declarations or module-level initialization order, so there is
@@ -52,28 +54,86 @@ pub struct Module {
     pub program: Program,
 }
 
+/// The standard-library directory shipped with this compiler, if one can be
+/// found.
+///
+/// The explicit `YASHY_STDLIB` variable wins. Otherwise the search follows
+/// the layouts an installer can produce, then the development checkout. A
+/// candidate must be a directory; a stale path is ignored rather than turned
+/// into a confusing "module not found" for every import.
+pub fn default_stdlib_root() -> Option<PathBuf> {
+    if let Some(value) = env::var_os("YASHY_STDLIB") {
+        let path = PathBuf::from(value);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidates = [
+                dir.join("yashy-stdlib").join("yashy"),
+                dir.join("stdlib"),
+                dir.join("..")
+                    .join("share")
+                    .join("yashy")
+                    .join("stdlib"),
+            ];
+            for candidate in candidates {
+                if candidate.is_dir() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    let dev = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("yashy-stdlib")
+        .join("yashy");
+    if dev.is_dir() {
+        return Some(dev);
+    }
+
+    None
+}
+
 /// The directories an import is looked up in.
 ///
 /// `YASHY_PATH` when it is set and has at least one non-empty entry, and the
-/// entry file's directory otherwise. See the module documentation for the
-/// separator and for why the environment *replaces* the default.
+/// entry file's directory otherwise. The bundled stdlib root is appended in
+/// both cases, so a user program and the stdlib can be found together. See the
+/// module documentation for the separator.
 pub fn module_roots(entry: &Path) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+
     if let Some(value) = env::var_os("YASHY_PATH") {
         let separator = if cfg!(windows) { ';' } else { ':' };
-        let roots: Vec<PathBuf> = value
-            .to_string_lossy()
-            .split(separator)
-            .filter(|root| !root.is_empty())
-            .map(PathBuf::from)
-            .collect();
-        if !roots.is_empty() {
-            return roots;
+        roots.extend(
+            value
+                .to_string_lossy()
+                .split(separator)
+                .filter(|root| !root.is_empty())
+                .map(PathBuf::from),
+        );
+    }
+
+    if roots.is_empty() {
+        match entry.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => {
+                roots.push(parent.to_path_buf())
+            }
+            _ => roots.push(PathBuf::from(".")),
         }
     }
-    match entry.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => vec![parent.to_path_buf()],
-        _ => vec![PathBuf::from(".")],
+
+    if let Some(stdlib) = default_stdlib_root() {
+        if !roots.contains(&stdlib) {
+            roots.push(stdlib);
+        }
     }
+
+    roots
 }
 
 /// Resolve a dotted module path to a file.

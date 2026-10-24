@@ -7,13 +7,15 @@
 //! user's program. Locating a bundled stdlib automatically is recorded as a
 //! follow-up in the plan.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// The `yashy` binary cargo built for this test run.
 fn yashy() -> &'static str {
-    env!("CARGO_BIN_EXE_yashy")
+    common::yashy()
 }
 
 /// `crates/yashy-stdlib/yashy`, the directory holding `io.ya` and friends.
@@ -65,12 +67,14 @@ fn build(source: &Path, exe: &Path) -> Output {
 
 /// Run a built program in `dir`, with the leak report and one variable set.
 fn run(dir: &Path, exe: &Path) -> Output {
-    Command::new(exe)
-        .current_dir(dir)
-        .env("YASHY_LEAK_REPORT", "1")
-        .env("YASHY_STDLIB_PROBE", "from-env")
-        .output()
-        .expect("the compiled program must be runnable")
+    common::launch_retrying(exe, |path| {
+        Command::new(path)
+            .current_dir(dir)
+            .env("YASHY_LEAK_REPORT", "1")
+            .env("YASHY_STDLIB_PROBE", "from-env")
+            .output()
+    })
+    .expect("the compiled program must be runnable")
 }
 
 const DEMO: &str = "\
@@ -201,4 +205,29 @@ fn a_file_round_trips_through_the_io_and_string_helpers() {
 
     let written = fs::read_to_string(dir.join("out.txt")).expect("the program wrote the file");
     assert_eq!(written, "line one\nline two\n");
+}
+
+#[test]
+fn stdlib_is_found_without_yashy_path() {
+    let dir = work_dir("bundled");
+    write(
+        &dir,
+        "main.ya",
+        "import io;\nfn main() { println(\"ok\"); }\n",
+    );
+    let output = Command::new(yashy())
+        .arg("build")
+        .arg(dir.join("main.ya"))
+        .arg("-o")
+        .arg(exe(&dir, "main"))
+        .env_remove("YASHY_PATH")
+        .env_remove("YASHY_STDLIB")
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    assert!(
+        output.status.success(),
+        "the bundled stdlib must be discoverable without YASHY_PATH:\n{}",
+        stderr_of(&output)
+    );
 }

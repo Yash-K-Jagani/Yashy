@@ -11,7 +11,7 @@ pub mod modules;
 pub mod pipeline;
 pub mod toolchain;
 
-pub use modules::{load, module_roots, resolve_import, Module};
+pub use modules::{default_stdlib_root, load, module_roots, resolve_import, Module};
 pub use pipeline::{
     compile_hir, compile_to_binary, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
 };
