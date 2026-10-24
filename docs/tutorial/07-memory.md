@@ -65,6 +65,21 @@ Three rules make this safe without a garbage collector:
 | `arena_alloc(a, n)` | `*mut int` | The arena owns the block, not the binding. |
 | `arena_free_all(a)` | `void` | Releases every block from that arena. |
 
+### One release spelling
+
+`.free()` is the release for every owning value:
+
+| Value | `.free()` | Notes |
+|---|---|---|
+| `*mut T` | yes | Releases the block; consumes the binding. |
+| `[]T` | yes | Releases the elements that own a reference, then the array. |
+| `map[K]V` | yes | Releases keys and values, then the table. |
+| `string` | no | The binding releases its own reference; there is nothing to free. |
+
+A `string` binding releases its reference when its scope ends, so a `string`
+never leaks. Calling `s.free()` reports
+``error: a `string` releases itself: there is nothing to free``.
+
 A `defer` captures a linear value when the `defer` is reached, not when it
 runs. That is why a move after the registration is refused: the deferred body
 already holds the pointer, and a second owner would free it twice. The error is

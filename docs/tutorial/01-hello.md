@@ -9,7 +9,9 @@
 
 A program is a list of items: functions, structs, enums, imports. `main` is
 where execution starts. A function is `fn name(parameters) -> return_type`,
-and the body is a block of statements ending, optionally, in `return`.
+and the body is a block of statements ending, optionally, in `return`. A source
+file ends in `.ya`: `yashy build main.ya -o main` compiles it, and the binary is
+then run directly.
 
 ```yashy
 fn greeting(name: string) -> string {
@@ -29,6 +31,12 @@ string: `str_from_i64(n)` and `str_from_f64(x)` do that, and string
 interpolation (chapter 2) is sugar over them. The rule is not fussiness. A
 silent conversion would make `"n = " + n` compile, and then it would be unclear
 whether the program meant the number or its decimal spelling.
+
+`print(x)` writes `x` with no newline; `println(x)` writes `x` and then a
+newline, and `println()` writes only the newline. The family takes one argument
+of any printable type -- `print(1)`, `print('A')` and `print("text")` all work
+without a format string. A string may interpolate an expression:
+`"Hello, ${name}!"` is the same program as `"Hello, " + name + "!"`.
 
 A function that returns nothing writes no `->`:
 
