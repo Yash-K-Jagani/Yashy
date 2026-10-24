@@ -2219,6 +2219,33 @@ git commit -m "test: close the Yashy rename gate"
 git push origin main
 ```
 
+### Task 6.4, as built
+
+1. **The name grep has one expected second hit.** Besides the README's
+   "Formerly Otter" note, `crates/yashy-driver/tests/e2e.rs:752` spells the old
+   name in the needle of the test that forbids it; the comment above it says the
+   spelling is deliberate. Weakening that guard to satisfy the grep would remove
+   the check the task exists to keep.
+
+2. **The spelling sweep went past `*.ya`.** Step 2's command scans only `.ya`
+   files, and that scan is empty. A wider sweep found two stale fuzz seeds that
+   the extension filter misses — `fuzz/corpus/check/option` still used
+   `Option[i64]`/`print_i64`/`print_str` and `fuzz/corpus/lex_parse/hello` still
+   printed "Hello, Otter!" with `print_str` — plus two comments
+   (`crates/yashy-driver/tests/programs/cleanup.ya` and
+   `crates/yashy-stdlib/yashy/io.ya`) that named `print_str`. All four now use
+   the current surface; no code behaviour changed.
+
+3. **The gate is the host-shaped one.** `cargo check --workspace --all-targets`
+   reported 0 warnings; every non-driver suite passed; the driver suite passed
+   on its own (e2e 110/110, tutorial 1/1 in 100.95 s, leaks, link, modules,
+   never-panics, stdlib, toolchain); doctests passed. Each test executable went
+   through the padded launch, and no `BLOCKED` launch was counted as a pass.
+
+4. **No compiler change was needed to close the gate.** The four edits above are
+   a corpus seed, a test comment, and two module comments; the rename itself was
+   already complete when this task started.
+
 ---
 
 ## Recording deviations

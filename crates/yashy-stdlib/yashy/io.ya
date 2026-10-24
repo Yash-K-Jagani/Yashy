@@ -1,9 +1,10 @@
 // Text output (M6 Task 10).
 //
-// `print_str` and `read_line` are builtins: they are in scope in every file,
-// imported or not, because Yashy's modules share one root scope (the plan's
-// Task 9 rule). What this module adds is the newline spelling a report wants,
-// and the number forms that keep a caller from writing the conversion by hand.
+// `print`, `println` and `read_line` are builtins: they are in scope in every
+// file, imported or not, because Yashy's modules share one root scope (the
+// plan's Task 9 rule). What this module adds is the newline spelling a report
+// wants, and the number forms that keep a caller from writing the conversion
+// by hand.
 //
 // The file half of I/O is built in too: `read_file(path)` answers with the whole
 // file (empty on failure), and `write_file(path, body)` answers 1 or 0. They are
@@ -11,7 +12,7 @@
 // no wrapper, because a wrapper would have to use the same name and the names
 // live in one scope.
 //
-// Ownership: none of these consume their argument. `print_str` copies the bytes
+// Ownership: none of these consume their argument. `print` copies the bytes
 // and keeps no pointer.
 
 pub fn print(text: string) {
