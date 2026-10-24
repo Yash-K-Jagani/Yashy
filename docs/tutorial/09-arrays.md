@@ -18,24 +18,24 @@ header*; the public surface is arrays and methods.
 fn main() {
     var xs = []int { 10, 20 };
     xs.push(30);
-    print_i64(xs.len());
-    print_str("\n");
+    print(xs.len());
+    println();
     // => 3
 
     switch xs[1] {
         case Some(v) {
-            print_i64(v);
+            print(v);
         }
         case None {
-            print_str("missing");
+            print("missing");
         }
     }
-    print_str("\n");
+    println();
     // => 20
 
     for x in xs {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println();
     }
     // => 10
     // => 20
@@ -43,13 +43,13 @@ fn main() {
 
     switch xs[99] {
         case Some(v) {
-            print_i64(v);
+            print(v);
         }
         case None {
-            print_str("missing");
+            print("missing");
         }
     }
-    print_str("\n");
+    println();
     // => missing
 
     xs.free();
@@ -121,8 +121,8 @@ fn total(xs: []int) -> int {
 
 fn main() {
     var xs = []int { 1, 2, 3 };
-    print_i64(total(xs));
-    print_str("\n");
+    print(total(xs));
+    println();
     // => 6
     // xs.free(); would be a compile error here: `xs` was moved.
 }
@@ -205,29 +205,29 @@ fn show(o: Option[int]) -> int {
 fn main() {
     const grid: [int; 3] = [1, 2, 3];
 
-    print_i64(grid.len());
-    print_str("\n");
+    print(grid.len());
+    println();
     // => 3
 
-    print_i64(show(grid[1]));
-    print_str("\n");
+    print(show(grid[1]));
+    println();
     // => 2
 
-    print_i64(show(grid[3]));
-    print_str("\n");
+    print(show(grid[3]));
+    println();
     // => -1
 
     const head = grid[0..2];
-    print_i64(head.len());
-    print_str("\n");
+    print(head.len());
+    println();
     // => 2
 
     var total = 0;
     for value in head {
         total = total + value;
     }
-    print_i64(total);
-    print_str("\n");
+    print(total);
+    println();
     // => 3
 }
 ```
@@ -252,8 +252,8 @@ fn main() {
     const view = xs[0..2];
     // xs.push(4);   error: cannot change `xs` while a view of it is alive
     // move xs;      error: cannot move `xs` while a view of it is alive
-    print_i64(view.len());
-    print_str("\n");
+    print(view.len());
+    println();
     // => 2
 }
 ```
@@ -282,8 +282,8 @@ fn middle_sum(xs: []int) -> int {
 
 fn main() {
     // => 50
-    print_i64(middle_sum([]int { 10, 20, 30, 40 }));
-    print_str("\n");
+    print(middle_sum([]int { 10, 20, 30, 40 }));
+    println();
 }
 ```
 
@@ -308,7 +308,7 @@ that owns a reference.
 
 ## Common mistakes
 
-- **Treating an index as a value.** `print_i64(xs[0])` reports
+- **Treating an index as a value.** `print(xs[0])` reports
   ``error: expected `int`, found `Option[int]` ``. Match the `Option`, or use
   `pop` when the last element is the one you want.
 - **Copying an array binding.** `var ys = xs;` reports
@@ -329,7 +329,7 @@ that owns a reference.
 - **Sorting something other than `[]int`.** `xs.sort()` on a `[]string` reports
   ``error: `sort` is only implemented for arrays of int``. Sort the array you
   have, or build a numeric key array first.
-- **Using an extended array again.** `xs.extend(ys); print_i64(ys.len());`
+- **Using an extended array again.** `xs.extend(ys); print(ys.len());`
   reports ``error: value `ys` has already been moved``. `extend` consumed `ys`;
   use `xs` after the call, or make a copy first with `ys.slice(0, ys.len())`.
 - **Changing an array a view borrows.** `const v = xs[0..2]; xs.push(3);`
@@ -371,11 +371,11 @@ that owns a reference.
        const grid = [1, 2, 3];
        const whole = grid[0..99];
        const none = grid[3..3];
-       print_i64(whole.len());
-       print_str("\n");
+       print(whole.len());
+       println();
        // => 3
-       print_i64(none.len());
-       print_str("\n");
+       print(none.len());
+       println();
        // => 0
    }
    ```

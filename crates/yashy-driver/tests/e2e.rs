@@ -320,11 +320,24 @@ fn chars_convert_and_print() {
 }
 
 #[test]
+fn print_and_println_cover_every_printable_type() {
+    let output = build_and_run("print_all");
+    // The `Circle(2.5)` segment is `debug.rs`'s enum form; if the formatter
+    // renders a variant differently, change this string to match it -- the
+    // formatter is the oracle, not this test.
+    assert_eq!(
+        stdout_of(&output),
+        "text\nA\n42\n2.5\ntrue\nPoint { x: 3, y: 4 }\nCircle(2.5)\n(1, true)\n\
+         [1, 2, 3]\n[1, 2]\nSome(7)\nNone\nOk(7)\n1 + 1 = 2\n\n"
+    );
+}
+
+#[test]
 fn string_methods_transform_bytes_and_ownership() {
     let output = build_and_run("string_methods");
     assert_eq!(
         stdout_of(&output),
-        "16\nnot empty\n72\n72\n-1\nHello\ncontains Yashy\nmissing cat\nstarts He\nends spaces\n9\n-1\nHello, Yashy\n14\n14\n16\nHELLO, YASHY\nhello, yashy\nHello, world\nababab\n0\n3\na\nb\nc\n1\n2\n3\none\ntwo\nthree\nempty is empty\n0\n42\nfloat parse ok\n"
+        "16\nnot empty\nH\n72\n-1\nHello\ncontains Yashy\nmissing cat\nstarts He\nends spaces\n9\n-1\nHello, Yashy\n14\n14\n16\nHELLO, YASHY\nhello, yashy\nHello, world\nababab\n0\n3\na\nb\nc\n1\n2\n3\none\ntwo\nthree\nempty is empty\n0\n42\nfloat parse ok\n"
     );
 }
 
@@ -1659,7 +1672,7 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
         "the operands belong in the message:\n{stderr}"
     );
     assert!(
-        stderr.contains("overflow-add.ya:4:15:"),
+        stderr.contains("overflow-add.ya:4:11:"),
         "and so does the position the addition was written at:\n{stderr}"
     );
 }
@@ -1745,7 +1758,7 @@ fn negating_the_smallest_i64_is_an_overflow() {
         "the negation that has no answer must say so:\n{stderr}"
     );
     assert!(
-        stderr.contains("overflow-neg.ya:3:15:"),
+        stderr.contains("overflow-neg.ya:3:11:"),
         "and point at the negation:\n{stderr}"
     );
 }
@@ -1808,7 +1821,7 @@ fn integer_overflow_does_not_wrap() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
     assert!(
-        stderr.contains("overflow.ya:11:15: panic: integer overflow: 9223372036854775807 + 1"),
+        stderr.contains("overflow.ya:11:11: panic: integer overflow: 9223372036854775807 + 1"),
         "the message must name the operands and the position:\n{stderr}"
     );
     assert!(
@@ -1876,19 +1889,22 @@ fn a_fault_deep_in_a_recursion_still_exits_through_the_diagnostic_path() {
 #[test]
 fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
     // The language half of ledger L1's `yashy_str_byte_at`, end to end. `"abc"`
-    // is the literal path (a static string, refcount -1) and `98` is `'b'`; the
-    // out-of-range index is an answer (`0`), not a fault.
+    // is the literal path (a static string, refcount -1), and the byte at 1 is
+    // the character `'b'`; the out-of-range index is an answer (`'\0'`), not a
+    // fault. The character is printed as itself, so the value is checked through
+    // `to_int`: `print` of a NUL writes nothing at all.
     let output = compile_and_run(
         "byte-at",
         "fn main() {\n\
          \x20   const abc = \"abc\";\n\
          \x20   print(abc.byte_at(1));\n\
          \x20   print(\"\\n\");\n\
-         \x20   print(abc.byte_at(99));\n\
+         \x20   var missing = abc.byte_at(99);\n\
+         \x20   print(missing.to_int());\n\
          \x20   print(\"\\n\");\n\
          }",
     );
-    assert_eq!(stdout_of(&output), "98\n0\n");
+    assert_eq!(stdout_of(&output), "b\n0\n");
     assert_eq!(output.status.code(), Some(0));
 }
 

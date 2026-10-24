@@ -33,15 +33,15 @@ fn divide(a: int, b: int) -> Result[int, string] {
 }
 
 fn main() {
-    print_str(describe(Some(5)));
-    print_str("\n");
-    print_str(describe(None));
-    print_str("\n");
-    print_str(switch divide(10, 2) {
+    print(describe(Some(5)));
+    println();
+    print(describe(None));
+    println();
+    print(switch divide(10, 2) {
         case Ok(v) { str_from_i64(v) }
         case Err(e) { "error: " + e }
     });
-    print_str("\n");
+    println();
     // => some 5
     // => none
     // => 5
@@ -74,7 +74,7 @@ fn classify(n: int) -> string {
 }
 
 fn main() {
-    print_str(classify(0) + " " + classify(1) + " " + classify(9) + "\n");
+    print(classify(0) + " " + classify(1) + " " + classify(9) + "\n");
     // => zero one many
 }
 ```
@@ -108,12 +108,12 @@ fn main() {
     const circle = Shape.Circle(2.0);
     const rect = Shape.Rect { w: 3.0, h: 4.0 };
     const point = Shape.Point;
-    print_f64(area(circle));
-    print_str("\n");
-    print_f64(area(rect));
-    print_str("\n");
-    print_f64(area(point));
-    print_str("\n");
+    print(area(circle));
+    println();
+    print(area(rect));
+    println();
+    print(area(point));
+    println();
     // => 12
     // => 12
     // => 0
@@ -156,10 +156,10 @@ fn describe(shape: Shape) -> string {
 }
 
 fn main() {
-    print_str(describe(Shape.Circle(20.0)) + "\n");
-    print_str(describe(Shape.Circle(2.0)) + "\n");
-    print_str(describe(Shape.Rect { w: 3.0, h: 3.0 }) + "\n");
-    print_str(describe(Shape.Rect { w: 3.0, h: 4.0 }) + "\n");
+    print(describe(Shape.Circle(20.0)) + "\n");
+    print(describe(Shape.Circle(2.0)) + "\n");
+    print(describe(Shape.Rect { w: 3.0, h: 3.0 }) + "\n");
+    print(describe(Shape.Rect { w: 3.0, h: 4.0 }) + "\n");
     // => big circle
     // => small circle
     // => square
@@ -185,12 +185,12 @@ fn bucket(n: int) -> int {
 }
 
 fn main() {
-    print_i64(bucket(0));
-    print_str("\n");
-    print_i64(bucket(0 - 5));
-    print_str("\n");
-    print_i64(bucket(5));
-    print_str("\n");
+    print(bucket(0));
+    println();
+    print(bucket(0 - 5));
+    println();
+    print(bucket(5));
+    println();
     // => 100
     // => 200
     // => 300
@@ -225,15 +225,15 @@ fn min_max(a: int, b: int) -> (int, int) {
 fn main() {
     const pair = min_max(9, 4);
     const (low, high) = pair;
-    print_i64(low);
-    print_str("\n");
-    print_i64(high);
-    print_str("\n");
+    print(low);
+    println();
+    print(high);
+    println();
 
     var (first, _) = min_max(2, 7);
     first = first + 1;
-    print_i64(first);
-    print_str("\n");
+    print(first);
+    println();
     // => 4
     // => 9
     // => 3
@@ -251,8 +251,8 @@ fn main() {
     const pair = (1, (2, 3));
     const (x, rest) = pair;
     const (y, z) = rest;
-    print_i64(x + y + z);
-    print_str("\n");
+    print(x + y + z);
+    println();
     // => 6
 }
 ```
@@ -272,8 +272,8 @@ unpack the tuple and compare the parts.
 fn main() {
     const pair = (1, 2);
     const (a, _) = pair;
-    print_i64(a);
-    print_str("\n");
+    print(a);
+    println();
     // => 1
 }
 ```

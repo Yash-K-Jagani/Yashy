@@ -16,9 +16,9 @@ fn main() {
     var i = 1;
     while i <= 5 {
         if i % 2 == 0 {
-            print_str("even\n");
+            println("even");
         } else {
-            print_str("odd\n");
+            println("odd");
         }
         i += 1;
     }
@@ -35,8 +35,8 @@ fn main() {
         }
         sum += n;
     }
-    print_i64(sum);
-    print_str("\n");
+    print(sum);
+    println();
     // => 7
 
     var count = 0;
@@ -46,8 +46,8 @@ fn main() {
             break;
         }
     }
-    print_i64(count);
-    print_str("\n");
+    print(count);
+    println();
     // => 3
 }
 ```
@@ -89,8 +89,8 @@ followed by `;`; a second statement is a parse error, which is why an arm that
 needs several statements calls a function. The switch must cover every shape --
 or end in `default` -- in either position.
 
-The one-expression rule keeps the grammar small. `case Some(n) { print_i64(n); }`
-works because a call is an expression. Adding `print_str("\n");` after it makes
+The one-expression rule keeps the grammar small. `case Some(n) { print(n); }`
+works because a call is an expression. Adding `println();` after it makes
 the arm a block with two statements, and the parser stops at the second one:
 
 ```text

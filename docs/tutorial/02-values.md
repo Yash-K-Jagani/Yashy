@@ -33,11 +33,11 @@ fn main() {
     const ratio = 0.5;
     const ready = true;
 
-    print_str("total = ${total}\n");
-    print_str("half of total = ");
-    print_i64((total as float * ratio) as int);
-    print_str("\n");
-    print_str("ready = ${ready}\n");
+    println("total = ${total}");
+    print("half of total = ");
+    print((total as float * ratio) as int);
+    println();
+    println("ready = ${ready}");
     // => total = 22
     // => half of total = 11
     // => ready = true
@@ -52,7 +52,7 @@ Two things to notice:
   and `${xs.len()}` are allowed.
 - Arithmetic between `int` and `float` needs an explicit cast, `as`. The language
   will not silently pick one for you. The result is cast back to `int` before
-  printing: `print_f64`'s formatting is the C library's, and the tutorial only
+  printing: `print`'s float formatting is the C library's, and the tutorial only
   claims output that does not depend on it.
 
 There are no implicit truthiness rules: a condition is a `bool`, not an
@@ -85,14 +85,14 @@ base or with separators. All four of these are the same number:
 
 ```yashy
 fn main() {
-    print_i64(1_000_000);
-    print_str(" ");
-    print_i64(0xFF);
-    print_str(" ");
-    print_i64(0b1010);
-    print_str(" ");
-    print_i64(0o777);
-    print_str("\n");
+    print(1_000_000);
+    print(" ");
+    print(0xFF);
+    print(" ");
+    print(0b1010);
+    print(" ");
+    print(0o777);
+    println();
     // => 1000000 255 10 511
 }
 ```
@@ -116,7 +116,7 @@ nested `if` statements when the second test is only safe after the first:
 ```text
 if n != 0 {
     if 10 / n > 1 {
-        print_str("large\n");
+        println("large");
     }
 }
 ```

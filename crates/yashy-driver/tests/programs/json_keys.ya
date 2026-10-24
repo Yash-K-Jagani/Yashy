@@ -16,7 +16,7 @@ pub fn key_of(line: string) -> string {
     var length = line.len();
     while index < length {
         // 34 is the double quote in ASCII.
-        if line.byte_at(index) == 34 {
+        if line.byte_at(index).to_int() == 34 {
             if open < 0 {
                 open = index;
             } else {

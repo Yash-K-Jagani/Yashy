@@ -1622,6 +1622,54 @@ git push origin main
 
 ---
 
+### Phase 4, as built
+
+1. **4.2 and 4.3 landed in one commit.** Delegating display to the debug
+   machinery is what makes both `${p}` and `println(p)` work; the 4.3 commit
+   would have carried only its tests and the reworded needles, so the two rode
+   together.
+
+2. **`has_debug_form` is a method on `Checker`, not a free function.**
+   `debug.rs` keeps every helper inside `impl Checker<'_>`, and the predicate
+   matches exactly the set `debug_expr` answers. The five scalars keep their
+   short display conversions, so `print(1)` still lowers through
+   `str_from_i64` rather than a quoted debug string.
+
+3. **The migration touched all twelve tutorial chapters, not the three the
+   plan named.** `tutorial.rs` builds every chapter, so `print_str`/`print_i64`/
+   `print_f64` had to move everywhere. The three ordered rules were applied to
+   the `.md` blocks as written, plus one cleanup the plan implies: a
+   `println("")` produced by a bare `print_str("\n")` became `println()`.
+
+4. **`byte_at`'s tutorial rows follow Phase 3.** It returns `char` now, so the
+   string chapter's `// => 89` became `// => Y`, the operations table row says
+   `char`, and the prose points at `.to_int()` when the number is what the
+   program wants.
+
+5. **The golden diff is print-only.** Every `.expected.ll` gained one
+   `declare void @yashy_print_line_str(i8*)`, and the migrated `.ya` sources
+   moved their calls from `print_str` to `print`/`println`; no other instruction
+   moved.
+
+6. **`print`/`println` are special-cased in `Expr::Call`, not table entries.**
+   The builtin table is typed, and these two accept any printable type;
+   `println()` builds an empty string literal and reuses the same
+   `print_line_str` lowering.
+
+7. **4.4's commit is `fix:`, not `test:`.** The end-to-end proof found three
+   things the earlier commits left behind: the LSP hover table still listed the
+   retired names, `as_string` had grown an `unreachable!()` (which the
+   compiler's no-panic rule forbids), and the container fixtures compared
+   `byte_at`'s `char` with an `int`. The hover now says `fn print(value)` and
+   `fn println(value)` in the same untyped style as `len`, the `as_string`
+   fallthrough reports a missing text form instead of panicking, and the
+   fixtures convert with `.to_int()`. The test expectations that moved do so
+   because the source text changed: `print_i64(` became `print(`, so the fault
+   spans shift four columns left, and `byte_at` prints the character it now
+   returns.
+
+---
+
 ## Phase 5 — Simplifications
 
 ### Task 5.1: Remove `var`

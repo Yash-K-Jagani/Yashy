@@ -1,0 +1,25 @@
+// Every printable type, printed once. The output is the spec's print table.
+struct Point { x: int, y: int }
+enum Shape { Circle(float), Empty }
+
+fn main() {
+    println("text");
+    println('A');
+    println(42);
+    println(2.5);
+    println(true);
+    println(Point { x: 3, y: 4 });
+    println(Shape.Circle(2.5));
+    println((1, true));
+    const xs = [1, 2, 3];
+    println(xs);
+    println(xs[0..2]);
+    const maybe: Option[int] = Some(7);
+    println(maybe);
+    const missing: Option[int] = None;
+    println(missing);
+    const answer: Result[int, string] = Ok(7);
+    println(answer);
+    println("1 + 1 = ${1 + 1}");
+    println();
+}

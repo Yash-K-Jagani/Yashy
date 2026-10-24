@@ -29,19 +29,19 @@ fn manhattan(p: Point) -> int {
 
 fn main() {
     const p = Point { y: 4, x: 3 };
-    print_i64(p.x);
-    print_str(" ");
-    print_i64(p.y);
-    print_str("\n");
+    print(p.x);
+    print(" ");
+    print(p.y);
+    println();
     // => 3 4
 
     const line = Line { from: Point { x: 1, y: 2 }, to: p };
-    print_i64(line.from.x + line.to.y);
-    print_str("\n");
+    print(line.from.x + line.to.y);
+    println();
     // => 5
 
-    print_i64(manhattan(line.from));
-    print_str("\n");
+    print(manhattan(line.from));
+    println();
     // => 3
 }
 ```
@@ -80,8 +80,8 @@ impl Point {
 
 fn main() {
     const p = Point { x: 2, y: 3 };
-    print_i64(p.sum());
-    print_str("\n");
+    print(p.sum());
+    println();
     // => 5
 }
 ```
@@ -113,8 +113,8 @@ impl Shape {
 
 fn main() {
     const circle = Shape.Circle(4);
-    print_i64(circle.area());
-    print_str("\n");
+    print(circle.area());
+    println();
     // => 48
 }
 ```
@@ -140,12 +140,12 @@ object Counter {
 
 fn main() {
     const counter = Counter { value: 3 };
-    print_i64(counter.get());
-    print_str("\n");
+    print(counter.get());
+    println();
     // => 3
 
-    print_i64(counter.add(4).get());
-    print_str("\n");
+    print(counter.add(4).get());
+    println();
     // => 7
 }
 ```
@@ -171,8 +171,8 @@ object Counter {
 }
 
 fn main() {
-    print_i64(Counter.new(3).get());
-    print_str("\n");
+    print(Counter.new(3).get());
+    println();
     // => 3
 }
 ```
@@ -205,8 +205,8 @@ fn main() {
     var c = Counter.new();
     c.bump();
     c.bump();
-    print_i64(c.get());
-    print_str("\n");
+    print(c.get());
+    println();
     // => 2
 }
 ```
@@ -265,8 +265,8 @@ struct Named {
 
 fn main() {
     const named = Named { name: "yas" + "hy", count: 2 };
-    print_str(named.name);
-    print_str("\n");
+    print(named.name);
+    println();
     // => yashy
 }
 ```

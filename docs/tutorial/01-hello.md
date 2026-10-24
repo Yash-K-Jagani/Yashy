@@ -18,8 +18,8 @@ fn greeting(name: string) -> string {
 
 fn main() {
     // A comment the compiler ignores.
-    print_str(greeting("Yashy"));
-    print_str("\n");
+    print(greeting("Yashy"));
+    println();
     // => Hello, Yashy!
 }
 ```
@@ -34,12 +34,12 @@ A function that returns nothing writes no `->`:
 
 ```yashy
 fn banner() {
-    print_str("===\n");
+    println("===");
 }
 
 fn main() {
     banner();
-    print_str("done\n");
+    println("done");
     // => ===
     // => done
 }
@@ -63,7 +63,7 @@ does not become the function's result by being last.
 | `return expr;` | Returns `expr` to the caller. | `expr` must match the return type. |
 | `f(1, 2)` | A call. | Argument count and types are checked at the call. |
 | `main` | The entry point. | Takes no arguments; may return `int` as the exit status. |
-| `print_str`, `print_i64`, `print_f64` | Builtins. | In scope everywhere; cannot be redeclared. |
+| `print`, `println` | Builtins. | In scope everywhere; cannot be redeclared. |
 
 Declaration order does not matter. The checker reads every signature in the
 program first, then checks every body. That is why `main` can call a function
@@ -74,7 +74,7 @@ every use into "cannot find function".
 ## Calls and results
 
 A call is an expression. It may be used where a value is expected, or stand
-alone as a statement, in which case its result is discarded. `print_i64` is a
+alone as a statement, in which case its result is discarded. `println` is a
 call like any other; it just happens to return `void`.
 
 `return` leaves the function as soon as it runs. A `return` inside an `if`

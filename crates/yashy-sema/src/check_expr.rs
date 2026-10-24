@@ -7456,10 +7456,11 @@ impl<'src> Checker<'src> {
     /// The `string` an interpolated expression contributes, converting with the
     /// `str_from_*` builtin that matches its type.
     ///
-    /// A `string` needs no conversion and is returned as it is. `int`, `float` and
-    /// `bool` each have exactly one conversion, named here so the piece and the
-    /// builtin table cannot drift. Anything else -- a struct, an enum, a pointer,
-    /// `void` -- has no text form, and formatting its bytes or its address would be
+    /// A `string` needs no conversion and is returned as it is. `int`, `float`,
+    /// `bool` and `char` each have exactly one conversion, named here so the
+    /// piece and the builtin table cannot drift. Everything else that has a
+    /// debug form goes through it; a map, channel, mutex, pointer, function or
+    /// `void` has no text form, and formatting its bytes or its address would be
     /// a wrong answer that looks like a right one, so it is reported instead.
     ///
     /// Returns `None` after reporting when there is no conversion.
@@ -7500,7 +7501,15 @@ impl<'src> Checker<'src> {
             TypeKind::F64 => "str_from_f64",
             TypeKind::Bool => "str_from_bool",
             TypeKind::Char => "str_from_char",
-            _ => unreachable!(),
+            // The guard above returns for every other kind. A kind added there
+            // without a conversion lands here and is reported, not panicked on.
+            _ => {
+                self.error(
+                    expr_span(&expr),
+                    format!("cannot print a `{ty}`: this type has no text form"),
+                );
+                return None;
+            }
         };
         Some(HirExpr::Call {
             callee: vec![callee.to_string()],

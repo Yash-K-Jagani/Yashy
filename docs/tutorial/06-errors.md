@@ -30,8 +30,8 @@ fn report(result: Result[int, string]) {
         case Ok(v) { "ok " + str_from_i64(v) }
         case Err(e) { "error " + e }
     };
-    print_str(message);
-    print_str("\n");
+    print(message);
+    println();
 }
 
 fn main() {

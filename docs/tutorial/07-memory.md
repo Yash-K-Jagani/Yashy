@@ -14,16 +14,16 @@ it. Indexing works: `buffer[0] = 7` writes the first slot.
 fn main() {
     var buffer = alloc(4);
     buffer[0] = 7;
-    print_i64(buffer[0]);
-    print_str("\n");
+    print(buffer[0]);
+    println();
     // => 7
 
     var owned = move buffer;
     defer {
         dealloc(owned);
-        print_str("released\n");
+        println("released");
     }
-    print_str("still inside\n");
+    println("still inside");
     // => still inside
     // => released
 }

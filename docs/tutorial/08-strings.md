@@ -14,15 +14,15 @@ Bounds are clamped, so a wrong index gives an empty string rather than a fault.
 ```yashy
 fn main() {
     const greeting = "Hello, " + "Yashy!";
-    print_i64(greeting.len());
-    print_str("\n");
+    print(greeting.len());
+    println();
     // => 13
 
-    print_str(greeting.slice(0, 5));
-    print_str("\n");
+    print(greeting.slice(0, 5));
+    println();
     // => Hello
 
-    print_str("${greeting} again\n");
+    println("${greeting} again");
     // => Hello, Yashy! again
 }
 ```
@@ -37,7 +37,9 @@ path.
 
 A string is UTF-8 bytes with a length, not an array of characters. The length
 of `"héllo"` is 6, because `é` is two bytes. `s.byte_at(i)` returns the byte at
-`i` as an `int` in `0..255`, or `0` when `i` is negative or past the end.
+`i` as a `char` holding that byte value, or `'\0'` when `i` is negative or past
+the end. Printing it shows the character, so `'A'` prints `A`; use
+`.to_int()` when the number `65` is what you want.
 `s.slice` also works in bytes, so `s.slice(0, 3)` is `"hé"` while
 `s.slice(0, 2)` stops in the middle of `é` and produces invalid UTF-8. That is
 not an error, and the compiler cannot see it: both arguments are ordinary
@@ -45,7 +47,7 @@ not an error, and the compiler cannot see it: both arguments are ordinary
 
 `slice` never faults. A negative start becomes `0`, an end past the length
 becomes the length, and an inverted range such as `s.slice(2, 1)` is empty.
-Out-of-range `byte_at` returns `0` for the same reason: a bad index has an
+Out-of-range `byte_at` returns `'\0'` for the same reason: a bad index has an
 answer, so there is no panic path. `get` is the checked alternative: it returns
 `Option[int]`, with `None` outside `0..len`.
 
@@ -57,14 +59,14 @@ It is a small handle to a reference-counted buffer, and the language declares
 it *copyable*:
 
 ```text
-fn take(s: string) { print_str(s); }
+fn take(s: string) { print(s); }
 
 fn main() {
     const s = "shared";
     var t = s;
     take(move s);      // s is still usable: strings are copyable
-    print_str(s);
-    print_str(t);      // prints "sharedshared"
+    print(s);
+    print(t);      // prints "sharedshared"
 }
 ```
 
@@ -83,7 +85,7 @@ are equal. Ordering is not provided: `<` on strings is a type error.
 |---|---|---|
 | `s.len()` | `int` | Number of bytes, not characters. |
 | `s.is_empty()` | `bool` | `len() == 0`. |
-| `s.byte_at(i)` | `int` | Byte value, or `0` when out of range. |
+| `s.byte_at(i)` | `char` | Byte as a character, or `'\0'` when out of range. |
 | `s.get(i)` | `Option[int]` | Byte value, or `None` when out of range. |
 | `s.slice(start, end)` | `string` | New string over `[start, end)`, clamped. |
 | `s.contains(needle)` | `bool` | Whether `needle` occurs at least once. |
@@ -123,79 +125,79 @@ fn show(o: Option[int]) -> int {
 fn main() {
     var s = "  Yashy,yashy  ";
 
-    print_str(s.trim());
-    print_str("\n");
+    print(s.trim());
+    println();
     // => Yashy,yashy
 
-    print_i64(s.len());
-    print_str("\n");
+    print(s.len());
+    println();
     // => 15
 
     if s.is_empty() {
-        print_str("empty\n");
+        println("empty");
     } else {
-        print_str("not empty\n");
+        println("not empty");
     }
     // => not empty
 
-    print_i64(s.byte_at(2));
-    print_str("\n");
+    print(s.byte_at(2));
+    println();
+    // => Y
+
+    print(show(s.get(2)));
+    println();
     // => 89
 
-    print_i64(show(s.get(2)));
-    print_str("\n");
-    // => 89
-
-    print_i64(show(s.get(99)));
-    print_str("\n");
+    print(show(s.get(99)));
+    println();
     // => -1
 
-    print_str(s.slice(2, 7));
-    print_str("\n");
+    print(s.slice(2, 7));
+    println();
     // => Yashy
 
     if s.contains("yashy") {
-        print_str("found yashy\n");
+        println("found yashy");
     }
     // => found yashy
 
     if s.starts_with("  Ya") {
-        print_str("starts with spaces\n");
+        println("starts with spaces");
     }
     // => starts with spaces
 
     if s.ends_with("  ") {
-        print_str("ends with spaces\n");
+        println("ends with spaces");
     }
     // => ends with spaces
 
-    print_i64(show(s.index_of("yashy")));
-    print_str("\n");
+    print(show(s.index_of("yashy")));
+    println();
     // => 8
 
     var upper = s.to_upper();
-    print_str(upper.trim());
-    print_str("\n");
+    print(upper.trim());
+    println();
     // => YASHY,YASHY
 
     var replaced = s.replace("yashy", "seal");
-    print_str(replaced.trim());
-    print_str("\n");
+    print(replaced.trim());
+    println();
     // => Yashy,seal
 
     var dash = "-";
-    print_str(dash.repeat(3));
-    print_str("\n");
+    print(dash.repeat(3));
+    println();
     // => ---
 
     var csv = "a,b,c";
     var parts = csv.split(",");
-    print_i64(parts.len());
-    print_str("\n");
+    print(parts.len());
+    println();
     // => 3
     for part in parts {
-        print_str(part);
-        print_str("\n");
+        print(part);
+        println();
         // => a
         // => b
         // => c
@@ -204,12 +206,12 @@ fn main() {
 
     var text = "one\r\ntwo\n";
     var lines = text.lines();
-    print_i64(lines.len());
-    print_str("\n");
+    print(lines.len());
+    println();
     // => 2
     for line in lines {
-        print_str(line);
-        print_str("\n");
+        print(line);
+        println();
         // => one
         // => two
     }
@@ -229,7 +231,7 @@ call; bind the intermediate result first:
 
 ```text
 var trimmed = s.trim();
-print_i64(trimmed.len());
+print(trimmed.len());
 ```
 
 A literal may contain `\n`, `\r`, `\t`, `\0`, `\\`, `\"`, `\'`, and `\$`.
@@ -252,13 +254,13 @@ struct Point {
 
 fn main() {
     const point = Point { x: 3, y: 4 };
-    print_str("${point:?}\n");
+    println("${point:?}");
     // => Point { x: 3, y: 4 }
 
-    print_str("${[1, 2, 3]:?}\n");
+    println("${[1, 2, 3]:?}");
     // => [1, 2, 3]
 
-    print_str("${"a\nb":?}\n");
+    print("${"a\nb":?}\n");
     // => "a\nb"
 }
 ```
@@ -297,7 +299,7 @@ structs, enums, tuples and arrays have a debug form
   `var trimmed = s.trim();` and then call `trimmed.len()`.
 - **Calling a method on a literal.** `"x".len()` is parsed as a zero-argument
   call to `len`, not as a method on the literal. Bind the literal first:
-  `var s = "x"; print_i64(s.len());`.
+  `var s = "x"; print(s.len());`.
 
 ## Try it
 

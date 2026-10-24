@@ -14,7 +14,7 @@ pub fn count_words(line: string) -> int {
     var length = line.len();
     while index < length {
         // 32 space, 9 tab, 13 carriage return, in ASCII.
-        var byte = line.byte_at(index);
+        var byte = line.byte_at(index).to_int();
         if byte == 32 || byte == 9 || byte == 13 {
             inside = false;
         } else {

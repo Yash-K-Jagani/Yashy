@@ -184,8 +184,8 @@ fn hover_on_a_builtin_shows_its_signature() {
         .get_path(&["result", "contents", "value"])
         .and_then(Value::as_str)
         .expect("the hover carries markup");
-    assert!(value.contains("print_str"), "the name is shown: {value}");
-    assert!(value.contains("string"), "the parameter type is shown: {value}");
+    assert!(value.contains("fn print"), "the name is shown: {value}");
+    assert!(value.contains("value"), "the parameter is shown: {value}");
 }
 
 #[test]

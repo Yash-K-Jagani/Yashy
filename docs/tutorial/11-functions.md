@@ -24,8 +24,8 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 }
 
 fn main() {
-    print_i64(apply(square, 7));
-    print_str("\n");
+    print(apply(square, 7));
+    println();
     // => 49
 }
 ```
@@ -52,13 +52,13 @@ fn double(x: int) -> int {
 
 fn main() {
     const f = square;
-    print_i64(f(4));
-    print_str("\n");
+    print(f(4));
+    println();
     // => 16
 
     const g = double;
-    print_i64(g(4));
-    print_str("\n");
+    print(g(4));
+    println();
     // => 8
 }
 ```
@@ -79,13 +79,13 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 }
 
 fn main() {
-    print_i64(apply(|x: int| -> int { return x + 1; }, 41));
-    print_str("\n");
+    print(apply(|x: int| -> int { return x + 1; }, 41));
+    println();
     // => 42
 
     const double = |x: int| -> int { return x * 2; };
-    print_i64(double(20));
-    print_str("\n");
+    print(double(20));
+    println();
     // => 40
 }
 ```
@@ -128,8 +128,8 @@ fn adder(n: int) -> fn(int) -> int {
 
 fn main() {
     const add5 = adder(5);
-    print_i64(add5(10));
-    print_str("\n");
+    print(add5(10));
+    println();
     // => 15
 }
 ```
@@ -149,8 +149,8 @@ fn greeter(greeting: string) -> fn() -> string {
 
 fn main() {
     const greet = greeter("hello");
-    print_str(greet());
-    print_str("\n");
+    print(greet());
+    println();
     // => hello
 }
 ```
@@ -202,16 +202,16 @@ fn square(x: int) -> int {
 }
 
 fn main() {
-    print_i64(identity(7));
-    print_str("\n");
+    print(identity(7));
+    println();
     // => 7
 
-    print_str(identity("seven"));
-    print_str("\n");
+    print(identity("seven"));
+    println();
     // => seven
 
-    print_i64(apply_twice(square, 3));
-    print_str("\n");
+    print(apply_twice(square, 3));
+    println();
     // => 81
 }
 ```
@@ -231,7 +231,7 @@ parameters has nothing to say what it is:
 
 ```text
 fn make[T]() -> int { return 0; }
-fn main() { print_i64(make()); }
+fn main() { print(make()); }
 ```
 
 ```text
@@ -286,8 +286,8 @@ fn main() {
 
     var doubled = xs.map(|x: int| -> int { return x * 2; });
     for x in doubled {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println();
     }
     // => 2
     // => 4
@@ -296,14 +296,14 @@ fn main() {
 
     var big = xs.filter(|x: int| -> bool { return x > 2; });
     for x in big {
-        print_i64(x);
-        print_str("\n");
+        print(x);
+        println();
     }
     // => 3
     big.free();
 
-    print_i64(xs.fold(0, |acc: int, x: int| -> int { return acc + x; }));
-    print_str("\n");
+    print(xs.fold(0, |acc: int, x: int| -> int { return acc + x; }));
+    println();
     // => 6
 
     xs.free();
@@ -332,8 +332,8 @@ const fn square(n: int) -> int {
 
 fn main() {
     const table = square(9);
-    print_i64(table);
-    print_str("\n");
+    print(table);
+    println();
     // => 81
 }
 ```
@@ -361,13 +361,13 @@ const fn square(n: int) -> int {
 
 fn main() {
     const tenth = fib(10);
-    print_i64(tenth);
-    print_str("\n");
+    print(tenth);
+    println();
     // => 55
 
     const bigger = max_of(square(3), 10);
-    print_i64(bigger);
-    print_str("\n");
+    print(bigger);
+    println();
     // => 10
 }
 ```
