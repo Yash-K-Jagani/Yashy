@@ -184,18 +184,14 @@ fn destructuring_names_each_element_in_order() {
 }
 
 #[test]
-fn all_three_binding_keywords_can_destructure() {
-    for (source, expected) in [
-        ("fn main() { var (a, b) = pair; }", BindingKeyword::Var),
-        ("fn main() { let (a, b) = pair; }", BindingKeyword::Let),
-    ] {
-        match first_stmt(source) {
-            Stmt::Destructure { kind, names, .. } => {
-                assert_eq!(kind, expected, "{source}");
-                assert_eq!(names.len(), 2, "{source}");
-            }
-            other => panic!("{source}: expected a destructuring statement, got {other:?}"),
+fn a_let_binding_can_destructure() {
+    let source = "fn main() { let (a, b) = pair; }";
+    match first_stmt(source) {
+        Stmt::Destructure { kind, names, .. } => {
+            assert_eq!(kind, BindingKeyword::Let, "{source}");
+            assert_eq!(names.len(), 2, "{source}");
         }
+        other => panic!("{source}: expected a destructuring statement, got {other:?}"),
     }
 }
 

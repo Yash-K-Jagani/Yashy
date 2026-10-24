@@ -3,25 +3,21 @@
 ## What you will learn
 
 - The four scalar types and the operators each one supports.
-- How `const`, `let` and `var` differ.
+- How `const` and `let` differ.
 - Why mixed arithmetic needs an explicit `as` cast.
 - How a value becomes text, and when arithmetic stops the program.
 
 The scalar types are `int`, `float`, `bool`, and `string`. `const` binds a name
-once and never rebinds. `let` and `var` bind a name that can be assigned again.
-`let` is the form to reach for in new code; `var` is kept for programs written
-before `let` existed. Assignment operators like `+=` are shorthand for the
-expanded form.
+once and never rebinds. `let` binds a name that can be assigned again.
+Assignment operators like `+=` are shorthand for the expanded form.
 
 | Form | Reassignable | Scope | Use it for |
 |---|---|---|---|
 | `const` | No | Current block | A value that is fixed after it is created. |
 | `let` | Yes | Current block | A value that changes in this block. |
-| `var` | Yes | Current block | The older mutable form; still accepted. |
 
-All three are block-scoped today. `let` is not JavaScript's function-scoped
-`var`: leaving the block makes the name unavailable, and there is no
-`undefined` value to read before the declaration. This keeps every binding
+Both are block-scoped: leaving the block makes the name unavailable, and there
+is no `undefined` value to read before the declaration. This keeps every binding
 initialized and every owned string releasable.
 
 ```yashy
@@ -155,7 +151,7 @@ division: a wrapped quotient is not the quotient of anything.
 - **Relying on `&&` to guard a fault.** As above, the right operand still
   runs. The program stops with `panic: division by zero: 10 / 0` even when the
   left operand is false.
-- **Declaring a binding without a value.** `let x;` (and `var x;`) reports
+- **Declaring a binding without a value.** `let x;` reports
   ``error: expected `=`, found `;` ``. A binding is initialized when it is
   created; there is no uninitialized local.
 
@@ -177,8 +173,7 @@ needs no call) and joins the pieces with `+`, so the typed tree has no
 interpolation node left. Checked arithmetic lowers to LLVM's overflow
 intrinsics, with a branch to a cold block that reports the operands and ends the
 process. `&&` and `||` lower to LLVM's `and` and `or` on `i1`, which is exactly
-why both sides are evaluated. `let` and `var` lower to the same mutable
-declaration node; they differ only in the name and in the documentation of
-intent. `const` lowers to the immutable form.
+why both sides are evaluated. `let` lowers to the mutable declaration node;
+`const` lowers to the immutable form.
 
 Continue to [03-control-flow](03-control-flow.md).

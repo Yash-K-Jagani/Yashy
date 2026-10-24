@@ -3,12 +3,12 @@ fn work(n: int) {
 }
 
 fn main() {
-    var m: Mutex = mutex_new();
+    let m: Mutex = mutex_new();
     m.lock();
     m.unlock();
     m.free();
 
-    var c: Channel[int] = chan_new(2);
+    let c: Channel[int] = chan_new(2);
     if c.send(1) {
         print(1);
     }
@@ -23,6 +23,6 @@ fn main() {
     c.close();
     c.free();
 
-    var h: int = thread_spawn(work, 7);
+    let h: int = thread_spawn(work, 7);
     thread_join(h);
 }

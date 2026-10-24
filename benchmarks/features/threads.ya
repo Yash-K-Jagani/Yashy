@@ -6,7 +6,7 @@
 // termination needs no closed channel and the join cannot wait on a lost
 // wakeup. A lost wakeup anywhere would hang the run; the harness notices.
 fn echo(inbox: Channel[int], outbox: Channel[int], rounds: int) {
-    var i = 0;
+    let i = 0;
     while i < rounds {
         switch inbox.recv() {
             case Some(n) {
@@ -22,12 +22,12 @@ fn echo(inbox: Channel[int], outbox: Channel[int], rounds: int) {
 
 fn main() {
     const rounds = 200000;
-    var inbox: Channel[int] = chan_new(1);
-    var outbox: Channel[int] = chan_new(1);
-    var worker = thread_spawn(echo, inbox, outbox, rounds);
+    let inbox: Channel[int] = chan_new(1);
+    let outbox: Channel[int] = chan_new(1);
+    let worker = thread_spawn(echo, inbox, outbox, rounds);
 
-    var i = 0;
-    var sum = 0;
+    let i = 0;
+    let sum = 0;
     while i < rounds {
         inbox.send(i);
         sum = wrapping_add(sum, switch outbox.recv() {

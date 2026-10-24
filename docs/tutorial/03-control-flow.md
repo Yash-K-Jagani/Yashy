@@ -13,7 +13,7 @@ keyword), and `break` and `continue` leave and restart it.
 
 ```yashy
 fn main() {
-    var i = 1;
+    let i = 1;
     while i <= 5 {
         if i % 2 == 0 {
             println("even");
@@ -28,7 +28,7 @@ fn main() {
     // => even
     // => odd
 
-    var sum = 0;
+    let sum = 0;
     for n in 0..5 {
         if n == 3 {
             continue;
@@ -39,7 +39,7 @@ fn main() {
     println();
     // => 7
 
-    var count = 0;
+    let count = 0;
     while true {
         count += 1;
         if count == 3 {
@@ -74,10 +74,10 @@ it is not an error and it does not count down.
 
 The loop variable of a `for` range is a `const` binding. `for i in 0..3 { i += 1; }`
 reports ``error: cannot assign to `i`, which is immutable``. If a loop needs a
-counter it can change, declare a `var` before the loop and update that.
+counter it can change, declare a `let` before the loop and update that.
 
 `break` and `continue` belong to the innermost enclosing loop. There is no
-label syntax, so a loop that must stop an outer loop sets a `var` flag and
+label syntax, so a loop that must stop an outer loop sets a `let` flag and
 tests it, or returns from the function. This is a deliberate limit: labels are
 another name to invent and another scope to get wrong.
 
@@ -105,7 +105,7 @@ step.
 - **Using a number as a condition.** `if n { ... }` reports
   ``error: expected `bool`, found `int` ``. Write `if n != 0`.
 - **Assigning to the loop variable.** `for i in 0..3 { i += 1; }` reports
-  ``error: cannot assign to `i`, which is immutable``. Keep a separate `var`.
+  ``error: cannot assign to `i`, which is immutable``. Keep a separate `let`.
 - **Putting two statements in a switch arm.** The second statement is reported
   as ``error: expected `}`, found an identifier``. Call a function instead.
 - **Leaving out an enum arm.** A `switch` over `Option` with only `Some` is

@@ -11,9 +11,9 @@
 // module's items are private to it unless they say otherwise.
 
 pub fn key_of(line: string) -> string {
-    var open = -1;
-    var index = 0;
-    var length = line.len();
+    let open = -1;
+    let index = 0;
+    let length = line.len();
     while index < length {
         // 34 is the double quote in ASCII.
         if line.byte_at(index).to_int() == 34 {

@@ -88,20 +88,20 @@ fn main() {
     println_i64(pow(2, 10));
     println_f64(sqrt(9.0));
     println(concat(\"a\", \"b\"));
-    var padded = \"  padded \\n\";
+    let padded = \"  padded \\n\";
     println(padded.trim());
-    var hello = \"hello\";
+    let hello = \"hello\";
     if hello.contains(\"ell\") { println(\"contains\"); }
     if hello.starts_with(\"he\") { println(\"starts\"); }
-    var csv = \"a,b,c\";
-    var parts = csv.split(\",\");
+    let csv = \"a,b,c\";
+    let parts = csv.split(\",\");
     println_i64(parts.len());
     for part in parts { println(part); }
     parts.free();
-    var one = alloc_one(5);
+    let one = alloc_one(5);
     println_i64(one[0]);
     dealloc(one);
-    var zeros = alloc_zeroed(3);
+    let zeros = alloc_zeroed(3);
     println_i64(zeros[0] + zeros[2]);
     dealloc(zeros);
     println(getenv(\"YASHY_STDLIB_PROBE\"));
@@ -158,12 +158,12 @@ import io;
 import string;
 
 fn main() {
-    var wrote = write_file(\"out.txt\", \"line one\\nline two\\n\");
+    let wrote = write_file(\"out.txt\", \"line one\\nline two\\n\");
     println_i64(wrote);
-    var text = read_file(\"out.txt\");
+    let text = read_file(\"out.txt\");
     println_i64(text.len());
     if text.contains(\"two\") { println(\"two\"); }
-    var lines = text.split(\"\\n\");
+    let lines = text.split(\"\\n\");
     println_i64(lines.len());
     for line in lines { println(line); }
     lines.free();

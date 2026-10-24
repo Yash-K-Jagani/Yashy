@@ -7,10 +7,10 @@
 // value is live there, so exactly one free is emitted for it.
 
 fn main() {
-    var buf = alloc(4);
-    var other = move buf;
+    let buf = alloc(4);
+    let other = move buf;
     dealloc(other);
-    var second = alloc(8);
+    let second = alloc(8);
     second = alloc(16);
     dealloc(second);
 }

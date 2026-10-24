@@ -16,8 +16,8 @@ fn main() {
     // A binding keeps a reference of its own: `alias` is intact after `name` is
     // overwritten, and neither is dropped until its scope ends.
     const original = "A" + "B";
-    var alias = original;
-    var name = original;
+    let alias = original;
+    let name = original;
     name = name + "!";
     print(alias + "\n");
     print(name + "\n");
@@ -28,8 +28,8 @@ fn main() {
 
     // Accumulating in a loop drops each intermediate: the old value is released
     // right after the replacement has been built from it.
-    var i = 0;
-    var acc = "";
+    let i = 0;
+    let acc = "";
     while i < 3 {
         acc = acc + "z";
         i = i + 1;

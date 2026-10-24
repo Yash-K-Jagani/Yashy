@@ -7,15 +7,15 @@
 // static and is never freed either way.
 
 fn main() {
-    var m: map[string]int = map_new();
-    var i = 0;
+    let m: map[string]int = map_new();
+    let i = 0;
     while i < 200 {
-        var key = str_from_i64(i);
+        let key = str_from_i64(i);
         m.insert(key, i);
         i = i + 1;
     }
-    var probe = str_from_i64(150);
-    var found = m.get(probe);
+    let probe = str_from_i64(150);
+    let found = m.get(probe);
     switch found {
         case Some(v) { print(v); }
         case None { print("missing"); }

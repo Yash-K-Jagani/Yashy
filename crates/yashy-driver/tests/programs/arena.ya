@@ -5,13 +5,13 @@
 // released by a `defer`. Writing and reading through pointer indices proves the
 // handle the backend passes is the handle the runtime built.
 fn main() {
-    var arena = arena_new();
+    let arena = arena_new();
 
-    var first = arena_alloc(arena, 4);
+    let first = arena_alloc(arena, 4);
     first[0] = 10;
     first[3] = 32;
 
-    var second = arena_alloc(arena, 2);
+    let second = arena_alloc(arena, 2);
     second[0] = 5;
 
     print(first[0] + first[3] + second[0]);

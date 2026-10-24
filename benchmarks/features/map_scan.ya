@@ -12,18 +12,18 @@
 fn main() {
     const n = 1000000;
     const rounds = 10;
-    var m: map[int]int = map_new();
-    var i = 0;
+    let m: map[int]int = map_new();
+    let i = 0;
     while i < n {
         m.insert(i, i * 3);
         i = wrapping_add(i, 1);
     }
 
-    var total = 0;
-    var round = 0;
+    let total = 0;
+    let round = 0;
     while round < rounds {
-        var keys: []int = m.keys();
-        var values: []int = m.values();
+        let keys: []int = m.keys();
+        let values: []int = m.values();
         for k in keys {
             total = wrapping_add(total, k);
         }
@@ -35,8 +35,8 @@ fn main() {
         round = wrapping_add(round, 1);
     }
 
-    var hits = 0;
-    var j = 0;
+    let hits = 0;
+    let j = 0;
     while j < n {
         if m.contains_key(j) {
             hits = wrapping_add(hits, 1);

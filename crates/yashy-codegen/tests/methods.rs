@@ -79,7 +79,7 @@ fn a_pointer_receiver_takes_the_binding_and_stores_through_it() {
     let ir_text = ir_of(
         "struct Counter { value: int } \
          impl Counter { fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; } } \
-         fn main() { var c = Counter { value: 0 }; c.bump(); }",
+         fn main() { let c = Counter { value: 0 }; c.bump(); }",
     );
     assert!(
         ir_text.contains("define void @Counter.bump(i8*"),

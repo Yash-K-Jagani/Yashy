@@ -12,7 +12,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    var s = "  Hello, Yashy  ";
+    let s = "  Hello, Yashy  ";
     print(s.len());
     println("");
     if s.is_empty() {
@@ -53,33 +53,33 @@ fn main() {
 
     print(s.trim());
     println("");
-    var trimmed_start = s.trim_start();
+    let trimmed_start = s.trim_start();
     print(trimmed_start.len());
     println("");
-    var trimmed_end = s.trim_end();
+    let trimmed_end = s.trim_end();
     print(trimmed_end.len());
     println("");
-    var upper = s.to_upper();
+    let upper = s.to_upper();
     print(upper.len());
     println("");
     print(upper.trim());
     println("");
-    var lower = s.to_lower();
+    let lower = s.to_lower();
     print(lower.trim());
     println("");
-    var replaced = s.replace("Yashy", "world");
+    let replaced = s.replace("Yashy", "world");
     print(replaced.trim());
     println("");
 
-    var ab = "ab";
+    let ab = "ab";
     print(ab.repeat(3));
     println("");
-    var nothing = ab.repeat(0);
+    let nothing = ab.repeat(0);
     print(nothing.len());
     println("");
 
-    var csv = "a, b, c";
-    var parts = csv.split(", ");
+    let csv = "a, b, c";
+    let parts = csv.split(", ");
     print(parts.len());
     println("");
     for part in parts {
@@ -88,20 +88,20 @@ fn main() {
     }
     parts.free();
 
-    var one = "abc";
-    var whole = one.split("");
+    let one = "abc";
+    let whole = one.split("");
     print(whole.len());
     println("");
     whole.free();
 
-    var trailing = "a,";
-    var trailing_parts = trailing.split(",");
+    let trailing = "a,";
+    let trailing_parts = trailing.split(",");
     print(trailing_parts.len());
     println("");
     trailing_parts.free();
 
-    var text = "one\r\ntwo\nthree\n";
-    var lines = text.lines();
+    let text = "one\r\ntwo\nthree\n";
+    let lines = text.lines();
     print(lines.len());
     println("");
     for line in lines {
@@ -110,19 +110,19 @@ fn main() {
     }
     lines.free();
 
-    var empty = "";
+    let empty = "";
     if empty.is_empty() {
         println("empty is empty");
     }
-    var no_lines = empty.lines();
+    let no_lines = empty.lines();
     print(no_lines.len());
     println("");
     no_lines.free();
 
-    var number = "42";
+    let number = "42";
     print(number.parse_i64());
     println("");
-    var decimal = "2.5";
+    let decimal = "2.5";
     if decimal.parse_f64() == 2.5 {
         println("float parse ok");
     } else {

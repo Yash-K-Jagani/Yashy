@@ -5,7 +5,7 @@
 // program printed. A wrapped result would be `int::MIN`, which is a plausible
 // answer and a wrong one -- exactly the failure checked arithmetic removes.
 fn main() {
-    var big = 9223372036854775807;
+    let big = 9223372036854775807;
     print(big);
     println("");
     print(big + 1);

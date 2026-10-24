@@ -83,7 +83,7 @@ fn a_call_to_an_undeclared_extern_function_is_an_error() {
 fn an_extern_function_is_linear_if_its_return_is_a_pointer() {
     assert_rejected(
         r#"extern "C" { unsafe fn malloc() -> *mut u8; }
-           fn main() { var p = malloc(); var q = p; }"#,
+           fn main() { let p = malloc(); let q = p; }"#,
         "move",
     );
 }

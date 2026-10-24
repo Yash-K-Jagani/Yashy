@@ -153,7 +153,7 @@ fn freeing_an_arena_twice_is_a_type_error() {
     // binding. The alternative is a double free the checker could see and let
     // through.
     let diags = check_diagnostics(
-        "fn main() { var a = arena_new(); arena_free_all(a); arena_free_all(a); }",
+        "fn main() { let a = arena_new(); arena_free_all(a); arena_free_all(a); }",
     );
     assert!(
         diags

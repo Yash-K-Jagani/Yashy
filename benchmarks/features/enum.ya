@@ -31,8 +31,8 @@ fn score(m: Msg) -> int {
 
 fn main() {
     const n = 50000000;
-    var i = 0;
-    var sum = 0;
+    let i = 0;
+    let sum = 0;
     while i < n {
         sum = wrapping_add(sum, score(make(i)));
         i = wrapping_add(i, 1);

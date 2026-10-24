@@ -1,11 +1,11 @@
 fn build() -> []int {
-    var xs = []int { 10, 20 };
+    let xs = []int { 10, 20 };
     xs.push(30);
     xs.free();
     return []int {};
 }
 
 fn main() {
-    var xs = build();
+    let xs = build();
     xs.free();
 }

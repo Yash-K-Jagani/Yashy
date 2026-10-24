@@ -17,14 +17,14 @@ fn option_i64(o: Option[int]) -> int {
 
 fn main() {
     const n = 10000000;
-    var xs = []int {};
-    var i = 0;
+    let xs = []int {};
+    let i = 0;
     while i < n {
         xs.push(i);
         i = wrapping_add(i, 1);
     }
 
-    var sum = 0;
+    let sum = 0;
     for x in xs {
         sum = wrapping_add(sum, x);
     }
@@ -52,9 +52,9 @@ fn main() {
     if option_i64(xs.index_of(9999999)) != 9999999 {
         println("bad index_of");
     }
-    var extra = []int { 1, 2 };
+    let extra = []int { 1, 2 };
     xs.extend(extra);
-    var copy = xs.slice(0, 3);
+    let copy = xs.slice(0, 3);
     if copy.len() != 3 {
         println("bad array");
     }
@@ -64,38 +64,38 @@ fn main() {
     // The M12 string method surface, also outside the measured loop. These
     // checks keep the method resolver and the string runtime entry points in a
     // binary that the feature suite builds and runs.
-    var text = "  Yashy,yashy  ";
-    var trimmed = text.trim();
+    let text = "  Yashy,yashy  ";
+    let trimmed = text.trim();
     if trimmed.len() != 11 {
         println("bad trim");
     }
-    var upper = text.to_upper();
+    let upper = text.to_upper();
     if upper.len() != 15 {
         println("bad to_upper");
     }
-    var lower = text.to_lower();
+    let lower = text.to_lower();
     if lower.len() != 15 {
         println("bad to_lower");
     }
-    var replaced = text.replace("yashy", "seal");
+    let replaced = text.replace("yashy", "seal");
     if replaced.len() != 14 {
         println("bad replace");
     }
-    var piece = text.slice(2, 7);
+    let piece = text.slice(2, 7);
     if piece.len() != 5 {
         println("bad string slice");
     }
-    var dash = "-";
-    var repeated = dash.repeat(3);
+    let dash = "-";
+    let repeated = dash.repeat(3);
     if repeated.len() != 3 {
         println("bad repeat");
     }
-    var parts = text.split(",");
+    let parts = text.split(",");
     if parts.len() != 2 {
         println("bad split");
     }
     parts.free();
-    var lines = text.lines();
+    let lines = text.lines();
     if lines.len() != 1 {
         println("bad lines");
     }
@@ -118,15 +118,15 @@ fn main() {
     if option_i64(text.index_of("yashy")) != 8 {
         println("bad string index_of");
     }
-    var empty = "";
+    let empty = "";
     if !empty.is_empty() {
         println("empty string is not empty");
     }
-    var number = "42";
+    let number = "42";
     if number.parse_i64() != 42 {
         println("bad parse_i64");
     }
-    var decimal = "2.5";
+    let decimal = "2.5";
     if decimal.parse_f64() != 2.5 {
         println("bad parse_f64");
     }

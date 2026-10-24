@@ -25,7 +25,7 @@ impl Counter {
 }
 
 fn main() {
-    var c = Counter.new();
+    let c = Counter.new();
     c.bump();
     c.bump();
     print(c.get());

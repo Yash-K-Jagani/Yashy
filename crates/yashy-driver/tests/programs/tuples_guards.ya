@@ -1,7 +1,7 @@
 // Tuples, destructuring, and pattern guards.
 //
 // `min_max` returns both answers at once as a `(int, int)`, and every binding
-// in this program unpacks one: `const` for a fixed pair, `var`/`let` for the
+// in this program unpacks one: `const` for a fixed pair, `let`/`let` for the
 // mutable ones, `_` for the element that is not wanted, `(only,)` for the
 // one-element spelling, and a second destructuring for a nested tuple.
 //
@@ -58,8 +58,8 @@ fn main() {
     print(hi);
     println("");
 
-    // `_` skips an element; `var` leaves the remaining one assignable.
-    var (first, _) = min_max(2, 7);
+    // `_` skips an element; `let` leaves the remaining one assignable.
+    let (first, _) = min_max(2, 7);
     first = first + 1;
     print(first);
     println("");

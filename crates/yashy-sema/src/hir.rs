@@ -225,7 +225,7 @@ pub enum HirStmt {
     },
     /// `x = value;`.
     ///
-    /// The target is gone by now: the checker proved it named a `var` binding,
+    /// The target is gone by now: the checker proved it named a `let` binding,
     /// so what is left is the name to store through and the type of the slot.
     /// Carrying the name rather than the `HirExpr` is deliberate -- it makes it
     /// unrepresentable in HIR to assign to something the checker did not
@@ -265,7 +265,7 @@ pub enum HirStmt {
     /// replaced with `insertvalue` (rebuilding the enclosing aggregates on the
     /// way out of a nested chain), and the result is stored back. The checker
     /// has already resolved each `.field` to its position and type, which is
-    /// what [`FieldStep`] carries; `root` is the `var` binding at the bottom of
+    /// what [`FieldStep`] carries; `root` is the `let` binding at the bottom of
     /// the chain, and it is the only thing the backend has to look up.
     FieldAssign {
         root: String,

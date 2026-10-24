@@ -1339,7 +1339,7 @@ fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
 // -- assignment -------------------------------------------------------------
 
 #[test]
-fn let_binding_parses_like_var() {
+fn a_let_binding_keeps_its_name_and_annotation() {
     let src = "fn main() { let x: int = 1; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
@@ -1360,12 +1360,12 @@ fn let_binding_parses_like_var() {
 }
 
 #[test]
-fn assignment_to_a_var_binding_is_a_statement() {
-    // Before this, `var x = 1; x = 2;` did not parse at all: the parser read `x`
+fn assignment_to_a_let_binding_is_a_statement() {
+    // Before this, `let x = 1; x = 2;` did not parse at all: the parser read `x`
     // as an expression statement, wanted a `;`, and found `=`. So a binding
-    // could be declared mutable and never mutated, which made `var` dead syntax
+    // could be declared mutable and never mutated, which made a separate mutable keyword dead syntax
     // and left every loop body unable to accumulate anything.
-    let src = "fn main() { var x = 1; x = 2; }";
+    let src = "fn main() { let x = 1; x = 2; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1390,7 +1390,7 @@ fn compound_assignment_is_sugar_for_the_expanded_assignment() {
     // no compound-assignment node: the desugar happens in the parser and the
     // checker never learns that `+=` exists. The target is one node reused,
     // not two shapes that could disagree.
-    let src = "fn main() { var x = 1; x += 1; }";
+    let src = "fn main() { let x = 1; x += 1; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1427,7 +1427,7 @@ fn every_compound_operator_maps_to_its_own_binary() {
         ("/=", BinOp::Div),
         ("%=", BinOp::Rem),
     ] {
-        let src = format!("fn main() {{ var x = 1; x {written} 2; }}");
+        let src = format!("fn main() {{ let x = 1; x {written} 2; }}");
         let program = parse_ok(&src);
         let Item::Fn { body, .. } = &program.items[0] else {
             panic!("expected fn")
@@ -1451,7 +1451,7 @@ fn equality_is_not_an_assignment() {
     // `=` and `==` are separate tokens, and the statement parser must read them
     // separately: an `Expr::Binary` comparison is a statement in its own right,
     // not the left half of an assignment.
-    let src = "fn main() { var x = 1; if x == 1 { } }";
+    let src = "fn main() { let x = 1; if x == 1 { } }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1467,7 +1467,7 @@ fn equality_is_not_an_assignment() {
 
 #[test]
 fn an_assignment_target_is_an_expression_not_a_name() {
-    // `1 = 2;` has no meaning in Yashy -- only a `var` binding is assignable --
+    // `1 = 2;` has no meaning in Yashy -- only a `let` binding is assignable --
     // but it must be the *checker* that says so, not the parser. Building the
     // target as an `Expr` is what lets M6 add field and subscript targets by
     // widening the target shape rather than by adding another statement, and a
@@ -1494,7 +1494,7 @@ fn an_interpolated_string_is_one_node_of_text_and_expressions() {
     // The conversion of the expression to text is *not* decided here -- the
     // parser does not know its type, and choosing `str_from_i64` would be a
     // guess the checker would then have to trust.
-    let src = "fn main() { var value = 3; print(\"n = ${value + 1}\"); }";
+    let src = "fn main() { let value = 3; print(\"n = ${value + 1}\"); }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
@@ -1638,7 +1638,7 @@ fn an_empty_or_overfull_interpolation_is_reported() {
 
     // `${a b}` is two expressions where one was expected: the second should have
     // been the `}`.
-    let diags = parse_err("fn main() { var a = 1; print(\"${a b}\"); }");
+    let diags = parse_err("fn main() { let a = 1; print(\"${a b}\"); }");
     assert!(
         all_messages(&diags).contains("`}`"),
         "the missing `}}` must be named: {}",
@@ -1673,7 +1673,7 @@ fn a_few_levels_of_nested_interpolation_still_parse() {
     for _ in 0..3 {
         expr = format!("\"${{{expr}}}\"");
     }
-    let src = format!("fn f() {{ var x = 1; const s = {expr}; }}");
+    let src = format!("fn f() {{ let x = 1; const s = {expr}; }}");
     parse_ok(&src);
 }
 

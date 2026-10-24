@@ -10,10 +10,10 @@
 import wc_words;
 
 fn main() {
-    var lines = 0;
-    var words = 0;
-    var bytes = 0;
-    var line = read_line();
+    let lines = 0;
+    let words = 0;
+    let bytes = 0;
+    let line = read_line();
     while line.len() > 0 {
         lines = lines + 1;
         words = words + count_words(line);

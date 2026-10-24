@@ -165,13 +165,13 @@ fn a_method_that_is_not_there_on_the_type_is_reported() {
 }
 
 #[test]
-fn a_pointer_receiver_mutates_a_var_binding() {
+fn a_pointer_receiver_mutates_a_let_binding() {
     check_source(
         "object Counter { value: int, \
          fn bump(self: *mut Counter) { self[0].value = self[0].value + 1; } } \
-         fn main() { var c = Counter { value: 0 }; c.bump(); }",
+         fn main() { let c = Counter { value: 0 }; c.bump(); }",
     )
-    .expect("a pointer receiver called on a `var` should type-check");
+    .expect("a pointer receiver called on a `let` should type-check");
 }
 
 #[test]

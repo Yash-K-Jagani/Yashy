@@ -2,8 +2,8 @@
 /* A block comment before any code. */
 fn main() {
     // Standalone line comment.
-    var x = 1; // Trailing line comment.
-    var y = x + 1; /* Trailing block comment. */
+    let x = 1; // Trailing line comment.
+    let y = x + 1; /* Trailing block comment. */
     /* Standalone block comment. */
     /* A nested /* block */ comment. */
     print(y);

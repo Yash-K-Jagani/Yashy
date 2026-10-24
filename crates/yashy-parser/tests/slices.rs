@@ -93,7 +93,7 @@ fn statements(src: &str) -> Vec<Stmt> {
 
 #[test]
 fn for_in_over_a_slice_binds_one_name() {
-    let stmts = statements("fn main() { var xs = []int { 1 }; for x in xs { print(x); } }");
+    let stmts = statements("fn main() { let xs = []int { 1 }; for x in xs { print(x); } }");
     match &stmts[1] {
         Stmt::ForIn {
             name, iterable, ..

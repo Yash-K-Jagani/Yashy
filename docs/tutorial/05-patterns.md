@@ -230,7 +230,7 @@ fn main() {
     print(high);
     println();
 
-    var (first, _) = min_max(2, 7);
+    let (first, _) = min_max(2, 7);
     first = first + 1;
     print(first);
     println();
@@ -257,7 +257,7 @@ fn main() {
 }
 ```
 
-`const` binds each name immutably, while `var` and `let` bind them mutably.
+`const` binds each name immutably, while `let` binds them mutably.
 `_` skips an element: it binds nothing and allocates nothing. The number of
 names must match the number of elements -- a tuple's arity is part of its type,
 so a mismatch is a compile error rather than a missing value.

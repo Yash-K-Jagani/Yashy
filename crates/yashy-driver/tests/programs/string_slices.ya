@@ -3,7 +3,7 @@
 // `free` releases every element before the backing array.
 
 fn main() {
-    var words = []string { "alpha", "beta" };
+    let words = []string { "alpha", "beta" };
     words.push("gamma");
     words.push(str_from_i64(42));
     for word in words {

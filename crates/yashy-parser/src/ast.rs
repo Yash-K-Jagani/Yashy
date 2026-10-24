@@ -2,7 +2,7 @@
 //!
 //! # Untyped on purpose
 //!
-//! Nothing here knows a type. A `var` node has an annotation slot because the
+//! Nothing here knows a type. A `let` node has an annotation slot because the
 //! source had one, not because the compiler decided it; an expression is a
 //! literal because the source said so, and says nothing about what type that
 //! literal turned out to be. Type checking lives downstream in `yashy-sema`,
@@ -383,7 +383,6 @@ impl Stmt {
         match self {
             Stmt::Expr(_, span)
             | Stmt::Const { span, .. }
-            | Stmt::Var { span, .. }
             | Stmt::Let { span, .. }
             | Stmt::Destructure { span, .. }
             | Stmt::Assign { span, .. }
@@ -402,14 +401,13 @@ impl Stmt {
 
 /// Which keyword introduced a binding statement.
 ///
-/// `const` is immutable; `var` and `let` are mutable. The three spellings are
-/// kept apart in the tree rather than folded into a `bool` because a
-/// destructuring statement is parsed before the checker decides anything, and
-/// the tree should say what was written.
+/// `const` is immutable; `let` is mutable. The two spellings are kept apart in
+/// the tree rather than folded into a `bool` because a destructuring statement
+/// is parsed before the checker decides anything, and the tree should say what
+/// was written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindingKeyword {
     Const,
-    Var,
     Let,
 }
 
@@ -425,17 +423,9 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
-    /// `var v = 1;` or `var v: f64 = 1.0;`.
-    Var {
-        name: String,
-        ty: Option<TypeExpr>,
-        init: Expr,
-        span: Span,
-    },
     /// `let v = 1;` or `let v: f64 = 1.0;`.
     ///
-    /// `let` is the block-scoped mutable form. It parses and checks exactly
-    /// like `var`; today the two differ only in spelling and intent.
+    /// `let` is the block-scoped mutable form.
     Let {
         name: String,
         ty: Option<TypeExpr>,
@@ -447,7 +437,7 @@ pub enum Stmt {
     /// No type annotation: the tuple's own type says what each name binds, and
     /// there is no syntax for annotating an element in place. `None` in
     /// `names` is `_`, which skips that element; the name is bound in the
-    /// enclosing block exactly as a `const`/`var`/`let` would be, with the
+    /// enclosing block exactly as a `const`/`let` would be, with the
     /// mutability of `kind`.
     ///
     /// Destructuring is a statement rather than an expression because each
@@ -462,7 +452,7 @@ pub enum Stmt {
     },
     /// `x = expr;` -- assigning to a binding that already exists.
     ///
-    /// Only a `var` or `let` binding in scope may be assigned; assigning a
+    /// Only a `let` binding in scope may be assigned; assigning a
     /// `const` is a diagnostic, and so is assigning a name that is not
     /// declared. Those are
     /// the *checker's* rules, which is why the target is an `Expr` and not a
@@ -553,7 +543,7 @@ pub enum Stmt {
     /// `for i in 0..n { total = total + i; }` -- a [`Stmt::Assign`] in the body.
     /// Two things would make the C form useful and neither is in the grammar:
     /// widening `update` to a statement, and letting `:=` in a loop head bind a
-    /// `var` (today it is a [`Stmt::Const`], so the binding it would assign to
+    /// `let` (today it is a [`Stmt::Const`], so the binding it would assign to
     /// is immutable even once `update` could assign).
     ForC {
         init: Option<Box<Stmt>>,

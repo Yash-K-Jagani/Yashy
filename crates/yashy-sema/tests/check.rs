@@ -366,8 +366,8 @@ fn compound_assignment_is_an_assignment_of_the_expanded_value() {
     // The parser desugars, so the checker sees `n = n + 1` and applies its
     // existing rules -- including the rule about *what* can be assigned to,
     // which is why an immutable binding is rejected exactly as it would be.
-    let (result, _, _) = check_source("fn f() { var n = 0; n += 1; n -= 1; n *= 2; n /= 2; n %= 2; }");
-    result.expect("every compound operator should type-check on a `var`");
+    let (result, _, _) = check_source("fn f() { let n = 0; n += 1; n -= 1; n *= 2; n /= 2; n %= 2; }");
+    result.expect("every compound operator should type-check on a `let`");
     assert_error(
         "fn f() { const n = 0; n += 1; }",
         "cannot assign to `n`, which is immutable",
@@ -375,7 +375,7 @@ fn compound_assignment_is_an_assignment_of_the_expanded_value() {
     // And the right operand meets the operator's rule, because the expanded
     // form is what the checker saw: `n += 1.5` is `n = n + 1.5`.
     assert_error(
-        "fn f() { var n = 0; n += 1.5; }",
+        "fn f() { let n = 0; n += 1.5; }",
         "cannot apply `+` to `int` and `float`",
     );
 }
@@ -591,10 +591,10 @@ fn an_unknown_type_name_in_a_struct_field_is_an_error() {
 // -- assignment -------------------------------------------------------------
 
 #[test]
-fn assigning_a_var_binding_is_legal() {
-    check_source("fn main() { var x = 1; x = 2; }")
+fn assigning_a_let_binding_is_legal() {
+    check_source("fn main() { let x = 1; x = 2; }")
         .0
-        .expect("a `var` binding exists to be assigned to");
+        .expect("a `let` binding exists to be assigned to");
 }
 
 #[test]
@@ -613,7 +613,7 @@ fn a_builtin_can_be_called_as_a_method() {
     check_source(
         r#"
         fn main() {
-            var xs = []int { 1, 2 };
+            let xs = []int { 1, 2 };
             print(xs.len());
             xs.push(3);
             print(xs.len());
@@ -630,25 +630,25 @@ fn string_methods_type_check_in_their_method_shapes() {
     check_source(
         r#"
         fn main() {
-            var s = "  Hello  ";
-            var trimmed = s.trim();
-            var started = s.trim_start();
-            var ended = s.trim_end();
-            var upper = s.to_upper();
-            var lower = s.to_lower();
-            var replaced = s.replace("H", "J");
-            var repeated = s.repeat(2);
-            var byte = s.get(0);
-            var found_at = s.index_of("H");
-            var has = s.contains("H");
-            var starts = s.starts_with("  ");
-            var ends = s.ends_with("  ");
-            var raw = s.byte_at(0);
-            var piece = s.slice(0, 2);
-            var parts = s.split(" ");
-            var lines = s.lines();
-            var number = s.parse_i64();
-            var decimal = s.parse_f64();
+            let s = "  Hello  ";
+            let trimmed = s.trim();
+            let started = s.trim_start();
+            let ended = s.trim_end();
+            let upper = s.to_upper();
+            let lower = s.to_lower();
+            let replaced = s.replace("H", "J");
+            let repeated = s.repeat(2);
+            let byte = s.get(0);
+            let found_at = s.index_of("H");
+            let has = s.contains("H");
+            let starts = s.starts_with("  ");
+            let ends = s.ends_with("  ");
+            let raw = s.byte_at(0);
+            let piece = s.slice(0, 2);
+            let parts = s.split(" ");
+            let lines = s.lines();
+            let number = s.parse_i64();
+            let decimal = s.parse_f64();
             print(s.len());
             parts.free();
             lines.free();
@@ -662,15 +662,15 @@ fn string_methods_type_check_in_their_method_shapes() {
 #[test]
 fn string_methods_reject_wrong_argument_types() {
     assert_error(
-        r#"fn main() { var s = "x"; var has = s.contains(1); }"#,
+        r#"fn main() { let s = "x"; let has = s.contains(1); }"#,
         "expected `string`",
     );
     assert_error(
-        r#"fn main() { var s = "x"; var piece = s.slice("a", 1); }"#,
+        r#"fn main() { let s = "x"; let piece = s.slice("a", 1); }"#,
         "expected `int`",
     );
     assert_error(
-        r#"fn main() { var s = "x"; var many = s.repeat("two"); }"#,
+        r#"fn main() { let s = "x"; let many = s.repeat("two"); }"#,
         "expected `int`",
     );
 }
@@ -678,26 +678,26 @@ fn string_methods_reject_wrong_argument_types() {
 #[test]
 fn an_unknown_string_method_is_reported() {
     assert_error(
-        r#"fn main() { var s = "x"; var nope = s.reverse(); }"#,
+        r#"fn main() { let s = "x"; let nope = s.reverse(); }"#,
         "no method `reverse` on `string`",
     );
 }
 
 #[test]
-fn const_and_var_keep_their_mutability() {
+fn const_and_let_keep_their_mutability() {
     assert_error(
         "fn main() { const x = 1; x = 2; }",
         "cannot assign to `x`, which is immutable",
     );
-    check_source("fn main() { var x = 1; x = 2; }")
+    check_source("fn main() { let x = 1; x = 2; }")
         .0
-        .expect("a `var` binding stays mutable");
+        .expect("a `let` binding stays mutable");
 }
 
 #[test]
 fn assigning_a_const_is_an_error() {
     // The whole point of having two binding forms is that one of them refuses
-    // assignment. A `const` that accepts it is a `var` with extra steps.
+    // assignment. A `const` that accepts it is a `let` with extra steps.
     assert_error(
         "fn main() { const x = 1; x = 2; }",
         "cannot assign to `x`, which is immutable",
@@ -713,16 +713,16 @@ fn assigning_an_undeclared_name_is_an_error() {
 #[test]
 fn the_assigned_value_must_match_the_binding_type() {
     assert_error(
-        "fn main() { var x = 1; x = 2.0; }",
+        "fn main() { let x = 1; x = 2.0; }",
         "expected `int`, found `float`",
     );
 }
 
 #[test]
-fn only_a_var_binding_can_be_assigned() {
+fn only_a_let_binding_can_be_assigned() {
     // The parser builds the target as an expression and lets the checker decide
     // what is assignable, so this is where the decision is made.
-    assert_error("fn main() { 1 = 2; }", "only a `var` binding can be assigned");
+    assert_error("fn main() { 1 = 2; }", "only a `let` binding can be assigned");
 }
 
 #[test]
@@ -732,7 +732,7 @@ fn assignment_resolves_the_innermost_binding() {
     // judged against the other's type: the inner `x` is an `float` and the outer
     // one an `int`, so a mixed-up lookup cannot pass both.
     check_source(
-        "fn main() { var x = 1; if true { var x = 2.0; x = 3.0; } x = 4; }",
+        "fn main() { let x = 1; if true { let x = 2.0; x = 3.0; } x = 4; }",
     )
     .0
     .expect("each assignment must be judged against the binding it names");
@@ -814,7 +814,7 @@ fn a_pointer_cannot_be_initialised_from_an_integer() {
 #[test]
 fn assigning_a_linear_binding_without_move_is_an_error() {
     assert_error(
-        "fn f() { var buf = alloc(16); var other = buf; }",
+        "fn f() { let buf = alloc(16); let other = buf; }",
         "cannot assign linear value `buf` without `move`",
     );
 }
@@ -822,7 +822,7 @@ fn assigning_a_linear_binding_without_move_is_an_error() {
 #[test]
 fn moving_a_linear_binding_is_legal_and_releases_it() {
     let (result, _, _) = check_source(
-        "fn f() { var buf = alloc(16); var other = move buf; dealloc(other); }",
+        "fn f() { let buf = alloc(16); let other = move buf; dealloc(other); }",
     );
     assert!(result.is_ok(), "move should transfer ownership: {result:?}");
 }
@@ -830,7 +830,7 @@ fn moving_a_linear_binding_is_legal_and_releases_it() {
 #[test]
 fn reading_a_moved_binding_is_an_error() {
     assert_error(
-        "fn f() { var buf = alloc(16); var other = move buf; dealloc(buf); }",
+        "fn f() { let buf = alloc(16); let other = move buf; dealloc(buf); }",
         "value `buf` has already been moved",
     );
 }
@@ -838,23 +838,23 @@ fn reading_a_moved_binding_is_an_error() {
 #[test]
 fn a_second_dealloc_of_the_same_pointer_is_an_error() {
     assert_error(
-        "fn f() { var buf = alloc(16); dealloc(buf); dealloc(buf); }",
+        "fn f() { let buf = alloc(16); dealloc(buf); dealloc(buf); }",
         "value `buf` has already been moved",
     );
 }
 
 #[test]
-fn rebinding_a_var_releases_the_previous_linear_value() {
+fn rebinding_a_let_releases_the_previous_linear_value() {
     let (result, _, _) = check_source(
-        "fn f() { var buf = alloc(16); buf = alloc(32); dealloc(buf); }",
+        "fn f() { let buf = alloc(16); buf = alloc(32); dealloc(buf); }",
     );
     assert!(result.is_ok(), "a rebind installs a fresh owner: {result:?}");
 }
 
 #[test]
-fn rebinding_a_var_from_another_linear_binding_needs_move() {
+fn rebinding_a_let_from_another_linear_binding_needs_move() {
     assert_error(
-        "fn f() { var buf = alloc(16); var other = alloc(32); buf = other; }",
+        "fn f() { let buf = alloc(16); let other = alloc(32); buf = other; }",
         "cannot assign linear value `other` without `move`",
     );
 }
@@ -939,7 +939,7 @@ fn a_pointer_still_has_no_text_form() {
     // A pointer is the dangerous one: printing its address would succeed and
     // mean nothing, which is the wrong answer the checker exists to refuse.
     assert_error(
-        "fn f() { var p = alloc(1); const line = \"${p}\"; }",
+        "fn f() { let p = alloc(1); const line = \"${p}\"; }",
         "cannot print a `*mut int`",
     );
 }
@@ -950,13 +950,13 @@ fn a_debug_form_needs_a_type_that_has_one() {
     // a pointer has no surface to show, and printing its address would be a
     // wrong answer that looks like a right one.
     assert_error(
-        "fn f() { var p = alloc(1); const line = \"${p:?}\"; }",
+        "fn f() { let p = alloc(1); const line = \"${p:?}\"; }",
         "cannot format a `*mut int`",
     );
     // A map has one either -- its keys and its values -- but not yet, so it is
     // reported rather than half-printed.
     assert_error(
-        "fn f() { var m: map[int]int = map_new(); const line = \"${m:?}\"; }",
+        "fn f() { let m: map[int]int = map_new(); const line = \"${m:?}\"; }",
         "cannot format a `map",
     );
 }
@@ -1066,7 +1066,7 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
     );
     // A loop is not a value the compiler can compute either.
     assert_error(
-        "const fn f(n: int) -> int { var i = 0; while i < n { i = i + 1; } return i; }\n\
+        "const fn f(n: int) -> int { let i = 0; while i < n { i = i + 1; } return i; }\n\
          fn g() { const t = f(3); }",
         "is not allowed in a const fn",
     );
@@ -1078,7 +1078,7 @@ fn a_const_fn_cannot_be_called_at_run_time() {
     // written rather than left to fail at the link.
     assert_error(
         "const fn square(n: int) -> int { return n * n; }\n\
-         fn f() { var t = square(9); }",
+         fn f() { let t = square(9); }",
         "is a `const fn`",
     );
 }
@@ -1089,7 +1089,7 @@ fn a_const_fn_call_needs_constant_arguments() {
     // binding is not an argument the compiler can supply.
     assert_error(
         "const fn square(n: int) -> int { return n * n; }\n\
-         fn f() { var n = 9; const t = square(n); }",
+         fn f() { let n = 9; const t = square(n); }",
         "is a run-time value",
     );
 }
@@ -1132,7 +1132,7 @@ fn freeing_in_both_branches_of_an_if_is_legal() {
     // `else`, so a `then`-branch move does not poison the `else` branch. Freeing
     // in both branches is the shape of "free exactly once" without a `defer`.
     let (result, _, _) = check_source(
-        "fn f(c: bool) { var buf = alloc(16); if c { dealloc(buf); } else { dealloc(buf); } }",
+        "fn f(c: bool) { let buf = alloc(16); if c { dealloc(buf); } else { dealloc(buf); } }",
     );
     assert!(result.is_ok(), "both branches free: {result:?}");
 }
@@ -1143,7 +1143,7 @@ fn a_move_in_only_one_branch_is_conservatively_moved() {
     // later `dealloc(buf)` is rejected rather than risked: `buf` may have been
     // freed. Conservative by design -- see `ownership.rs`.
     assert_error(
-        "fn f(c: bool) { var buf = alloc(16); if c { dealloc(buf); } dealloc(buf); }",
+        "fn f(c: bool) { let buf = alloc(16); if c { dealloc(buf); } dealloc(buf); }",
         "value `buf` has already been moved",
     );
 }
@@ -1152,7 +1152,7 @@ fn a_move_in_only_one_branch_is_conservatively_moved() {
 fn moving_a_copy_value_is_a_no_op() {
     // `int` is not linear, so `move` asks for nothing: the value stays live and
     // readable. Being explicit about intent is not an error.
-    let (result, _, _) = check_source("fn f() { var x = 1; var y = move x; print(x + y); }");
+    let (result, _, _) = check_source("fn f() { let x = 1; let y = move x; print(x + y); }");
     assert!(result.is_ok(), "move of a copy value is a no-op: {result:?}");
 }
 
@@ -1163,7 +1163,7 @@ fn a_linear_argument_to_a_user_function_is_moved_out() {
     // `dealloc` follows, applied to user functions.
     assert_error(
         "fn consume(p: *mut int) { dealloc(p); } \
-         fn f() { var buf = alloc(16); consume(buf); dealloc(buf); }",
+         fn f() { let buf = alloc(16); consume(buf); dealloc(buf); }",
         "value `buf` has already been moved",
     );
 }
@@ -1726,7 +1726,7 @@ const SHAPES: &str = "struct Point { x: int, y: int }\nstruct Line { from: Point
 
 #[test]
 fn a_field_assignment_carries_the_root_and_the_chain() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x = 3; }}");
+    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x = 3; }}");
     let HirStmt::FieldAssign {
         root,
         steps,
@@ -1745,7 +1745,7 @@ fn a_field_assignment_carries_the_root_and_the_chain() {
 
 #[test]
 fn a_nested_field_assignment_carries_one_step_per_field() {
-    let src = format!("{SHAPES}fn f(l: Line) {{ var m = l; m.from.x = 1; }}");
+    let src = format!("{SHAPES}fn f(l: Line) {{ let m = l; m.from.x = 1; }}");
     let HirStmt::FieldAssign { steps, .. } = statement_of(&src, "f", 1) else {
         panic!("expected a field assignment");
     };
@@ -1760,7 +1760,7 @@ fn a_compound_field_assignment_is_the_assignment_of_the_expanded_value() {
     // `p.x += 1` is `p.x = p.x + 1`, so what reaches the backend is a field
     // assignment whose value is the addition -- the checker never learns that
     // `+=` exists.
-    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x += 1; }}");
+    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x += 1; }}");
     let HirStmt::FieldAssign { value, .. } = statement_of(&src, "f", 1) else {
         panic!("expected a field assignment");
     };
@@ -1778,20 +1778,20 @@ fn assigning_a_field_of_a_const_is_an_error() {
 
 #[test]
 fn assigning_a_field_to_the_wrong_type_is_an_error() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.x = \"one\"; }}");
+    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x = \"one\"; }}");
     assert_error(&src, "expected `int`, found `string`");
 }
 
 #[test]
 fn assigning_a_field_that_does_not_exist_is_an_error() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ var q = p; q.z = 1; }}");
+    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.z = 1; }}");
     assert_error(&src, "struct `Point` has no field `z`");
 }
 
 #[test]
 fn assigning_a_field_of_a_non_struct_is_an_error() {
     assert_error(
-        "fn f(n: int) { var m = n; m.x = 1; }",
+        "fn f(n: int) { let m = n; m.x = 1; }",
         "cannot access a field on `int`",
     );
 }
@@ -1803,7 +1803,7 @@ fn assigning_through_a_call_result_is_an_error() {
     let src = format!("{SHAPES}fn g() -> Point {{ return Point {{ x: 1, y: 2 }}; }}\nfn f() {{ g().x = 3; }}");
     assert_error(
         &src,
-        "only a `var` binding or one of its fields can be assigned",
+        "only a `let` binding or one of its fields can be assigned",
     );
 }
 
@@ -2059,47 +2059,47 @@ fn old_builtin_names_point_at_their_methods() {
     // receiver the caller already wrote.
     for (src, hint) in [
         (
-            "fn main() { var xs = []int { 1 }; push(xs, 2); }",
+            "fn main() { let xs = []int { 1 }; push(xs, 2); }",
             "`push` has moved to method syntax: write `xs.push(2)`",
         ),
         (
-            "fn main() { var xs = []int { 1 }; free_slice(xs); }",
+            "fn main() { let xs = []int { 1 }; free_slice(xs); }",
             "`free_slice` has moved to method syntax: write `xs.free()`",
         ),
         (
-            "fn main() { var m: map[int]int = map_new(); map_get(m, 1); }",
+            "fn main() { let m: map[int]int = map_new(); map_get(m, 1); }",
             "`map_get` has moved to method syntax: write `m.get(1)`",
         ),
         (
-            "fn main() { var c: Channel[int] = chan_new(1); chan_recv(c); }",
+            "fn main() { let c: Channel[int] = chan_new(1); chan_recv(c); }",
             "`chan_recv` has moved to method syntax: write `c.recv()`",
         ),
         (
-            "fn main() { var m: Mutex = mutex_new(); mutex_lock(m); }",
+            "fn main() { let m: Mutex = mutex_new(); mutex_lock(m); }",
             "`mutex_lock` has moved to method syntax: write `m.lock()`",
         ),
         (
-            "fn main() { var xs = []int { 1 }; len(xs); }",
+            "fn main() { let xs = []int { 1 }; len(xs); }",
             "`len` has moved to method syntax: write `xs.len()`",
         ),
         (
-            "fn main() { var s = \"a\"; len(s); }",
+            "fn main() { let s = \"a\"; len(s); }",
             "`len` has moved to method syntax: write `s.len()`",
         ),
         (
-            "fn main() { var s = \"a\"; byte_at(s, 0); }",
+            "fn main() { let s = \"a\"; byte_at(s, 0); }",
             "`byte_at` has moved to method syntax: write `s.byte_at(0)`",
         ),
         (
-            "fn main() { var s = \"a\"; str_slice(s, 0, 1); }",
+            "fn main() { let s = \"a\"; str_slice(s, 0, 1); }",
             "`str_slice` has moved to method syntax: write `s.slice(0, 1)`",
         ),
         (
-            "fn main() { var s = \"1\"; parse_i64(s); }",
+            "fn main() { let s = \"1\"; parse_i64(s); }",
             "`parse_i64` has moved to method syntax: write `s.parse_i64()`",
         ),
         (
-            "fn main() { var s = \"1\"; parse_f64(s); }",
+            "fn main() { let s = \"1\"; parse_f64(s); }",
             "`parse_f64` has moved to method syntax: write `s.parse_f64()`",
         ),
     ] {
@@ -2303,16 +2303,16 @@ fn a_tuple_holds_only_values_it_can_copy() {
 }
 
 #[test]
-fn a_const_destructured_binding_is_immutable_and_a_var_one_is_not() {
+fn a_const_destructured_binding_is_immutable_and_a_let_one_is_not() {
     assert_error(
         "fn main() { const pair = (1, 2); const (a, b) = pair; a = 5; }",
         "cannot assign to `a`, which is immutable",
     );
     let (result, _, _) = check_source(
-        "fn main() { const pair = (1, 2); var (a, b) = pair; a = 5; let (c, d) = pair; c = 6; }",
+        "fn main() { const pair = (1, 2); let (a, b) = pair; a = 5; let (c, d) = pair; c = 6; }",
     );
     if let Err(diags) = result {
-        panic!("`var` and `let` elements should be assignable: {diags:?}");
+        panic!("`let` elements should be assignable: {diags:?}");
     }
 }
 

@@ -13,7 +13,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    var xs = []int { 10, 20, 30 };
+    let xs = []int { 10, 20, 30 };
 
     if xs.insert(0, 5) {
         println("front ok");
@@ -65,7 +65,7 @@ fn main() {
 
     xs.free();
 
-    var names = []string { "a", "b" };
+    let names = []string { "a", "b" };
     names.clear();
     if names.is_empty() {
         println("strings cleared");

@@ -224,7 +224,7 @@ fn the_higher_order_array_methods_check_their_callbacks() {
     // element.
     let result = check_source(
         "fn main() { \
-         var xs = []int { 1, 2, 3 }; \
+         let xs = []int { 1, 2, 3 }; \
          const doubled = xs.map(|x: int| -> int { return x * 2; }); \
          const big = xs.filter(|x: int| -> bool { return x > 2; }); \
          const total = xs.fold(0, |acc: int, x: int| -> int { return acc + x; }); }",
@@ -235,15 +235,15 @@ fn the_higher_order_array_methods_check_their_callbacks() {
 #[test]
 fn a_higher_order_callback_with_the_wrong_shape_is_an_error() {
     assert_error(
-        "fn main() { var xs = []int { 1 }; const ys = xs.map(|x: string| -> int { return 1; }); }",
+        "fn main() { let xs = []int { 1 }; const ys = xs.map(|x: string| -> int { return 1; }); }",
         "expected a function of one `int`",
     );
     assert_error(
-        "fn main() { var xs = []int { 1 }; const ys = xs.filter(|x: int| -> int { return 1; }); }",
+        "fn main() { let xs = []int { 1 }; const ys = xs.filter(|x: int| -> int { return 1; }); }",
         "expected a function of one `int` returning `bool`",
     );
     assert_error(
-        "fn main() { var xs = []int { 1 }; const n = xs.fold(0, |acc: int| -> int { return acc; }); }",
+        "fn main() { let xs = []int { 1 }; const n = xs.fold(0, |acc: int| -> int { return acc; }); }",
         "expected a function of `(int, int)`",
     );
 }

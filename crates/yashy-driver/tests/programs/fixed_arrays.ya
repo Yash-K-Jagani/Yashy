@@ -28,7 +28,7 @@ fn make_grid() -> [int; 3] {
 // corruption -- the price of views in a language with no lifetime syntax.
 fn middle_sum(xs: []int) -> int {
     const mid = xs[1..3];
-    var sum = 0;
+    let sum = 0;
     for value in mid {
         sum = sum + value;
     }
@@ -36,7 +36,7 @@ fn middle_sum(xs: []int) -> int {
 }
 
 fn main() {
-    var grid = make_grid();
+    let grid = make_grid();
 
     // A fixed array's length is a constant in its type.
     print(grid.len());
@@ -58,7 +58,7 @@ fn main() {
     print(head.len());
     println("");
 
-    var total = 0;
+    let total = 0;
     for value in head {
         total = total + value;
     }
@@ -66,7 +66,7 @@ fn main() {
     println("");
 
     // Iterating the array itself visits every element.
-    var all = 0;
+    let all = 0;
     for value in grid {
         all = all + value;
     }

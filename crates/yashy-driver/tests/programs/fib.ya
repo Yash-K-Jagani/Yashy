@@ -1,7 +1,7 @@
 // Fibonacci as an accumulating loop.
 //
 // This is the shape the plan sketched, and the language could not express it
-// until `x = expr;` existed: a binding could be declared `var` and never written
+// until `x = expr;` existed: a binding could be declared `let` and never written
 // to afterwards, so a loop body had nothing to accumulate into and the sample
 // had to be recursive instead.
 //
@@ -11,9 +11,9 @@
 // grow the stack a slot at a time. Declaring the slot once and storing into it
 // is both the cheaper IR and the whole point of the statement.
 fn fib(n: int) -> int {
-    var a = 0;
-    var b = 1;
-    var next = 0;
+    let a = 0;
+    let b = 1;
+    let next = 0;
     for step in 0..n {
         next = a + b;
         a = b;

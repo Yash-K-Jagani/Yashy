@@ -525,7 +525,7 @@ fn block(stmts: Vec<HirStmt>, span: Span) -> HirBlock {
     HirBlock { stmts, span }
 }
 
-/// `name = value;` for a `var` of type `ty`.
+/// `name = value;` for a `let` of type `ty`.
 fn assign(name: &str, value: HirExpr, ty: &Type, span: Span) -> HirStmt {
     HirStmt::Assign {
         name: name.to_string(),

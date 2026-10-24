@@ -12,13 +12,13 @@ it. Indexing works: `buffer[0] = 7` writes the first slot.
 
 ```yashy
 fn main() {
-    var buffer = alloc(4);
+    let buffer = alloc(4);
     buffer[0] = 7;
     print(buffer[0]);
     println();
     // => 7
 
-    var owned = move buffer;
+    let owned = move buffer;
     defer {
         dealloc(owned);
         println("released");
@@ -59,7 +59,7 @@ Three rules make this safe without a garbage collector:
 | `alloc(n)` | `*mut int` | Creates one owner; memory is uninitialised. |
 | `dealloc(p)` | `void` | Releases the block; the argument is moved. |
 | `move x` | same type as `x` | Transfers the value; `x` is dead afterwards. |
-| `var y = move x;` | pointer | Gives the pointer a second name; the source is dead. |
+| `let y = move x;` | pointer | Gives the pointer a second name; the source is dead. |
 | `defer { ... }` | statement | Runs at scope exit, last registered first. |
 | `arena_new()` | arena handle | A bump allocator; one release for many blocks. |
 | `arena_alloc(a, n)` | `*mut int` | The arena owns the block, not the binding. |
@@ -71,9 +71,9 @@ already holds the pointer, and a second owner would free it twice. The error is
 the ordinary moved-value message:
 
 ```text
-var b = alloc(1);
+let b = alloc(1);
 defer { dealloc(b); }
-var c = move b;          // error: value `b` has already been moved
+let c = move b;          // error: value `b` has already been moved
 ```
 
 Copy-typed values are different. A `defer` that reads an `int` sees the value

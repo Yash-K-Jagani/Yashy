@@ -12,8 +12,8 @@ fn apply(f: fn(int, int) -> int, x: int, k: int) -> int {
 fn main() {
     const n = 100000000;
     const k = 1000;
-    var sum = 0;
-    var i = 0;
+    let sum = 0;
+    let i = 0;
     while i < n {
         sum = wrapping_add(sum, apply(|x: int, k: int| -> int { return x * k + x % 3; }, i, k));
         i = wrapping_add(i, 1);

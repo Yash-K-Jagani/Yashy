@@ -125,7 +125,7 @@ fn a_view_is_a_pointer_and_a_clamped_length() {
 fn a_fixed_array_loop_uses_the_length_from_its_type() {
     // The length cannot change, so the loop's bound is a constant and the
     // element address is computed once, before the loop.
-    let ir = emit("fn main() { const grid = [1, 2, 3]; var sum = 0; for v in grid { sum = sum + v; } }");
+    let ir = emit("fn main() { const grid = [1, 2, 3]; let sum = 0; for v in grid { sum = sum + v; } }");
     assert!(
         ir.contains("icmp slt i64 %t4, 3"),
         "the loop compares its index with the constant length:\n{ir}"
@@ -148,7 +148,7 @@ fn a_slice_loop_re_reads_its_header_each_iteration() {
     // iteration. Hoisting them would stop the loop after one element (and read
     // freed memory after the reallocation).
     let ir = emit(
-        "fn main() { var xs = []int { 1, 2 }; for v in xs { xs.push(v); } xs.free(); }",
+        "fn main() { let xs = []int { 1, 2 }; for v in xs { xs.push(v); } xs.free(); }",
     );
     let condition = block(&ir, "bb0_cond");
     assert!(

@@ -13,7 +13,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    var xs = []int { 10, 20, 30 };
+    let xs = []int { 10, 20, 30 };
     xs.push(40);
     print(xs.len());
     println("");
@@ -27,14 +27,14 @@ fn main() {
     print(show(xs[0 - 1]));
     println("");
 
-    var sum = 0;
+    let sum = 0;
     for value in xs {
         sum = sum + value;
     }
     print(sum);
     println("");
 
-    var before = 0;
+    let before = 0;
     for value in xs {
         if value == 20 {
             break;
@@ -44,8 +44,8 @@ fn main() {
     print(before);
     println("");
 
-    var empty = []int {};
-    var count = 0;
+    let empty = []int {};
+    let count = 0;
     for value in empty {
         count = count + 1;
     }
@@ -54,8 +54,8 @@ fn main() {
 
     // The loop must see a `push` that happens while it runs. A cached length or
     // data pointer would stop after the first iteration (or read freed memory).
-    var growing = []int { 1 };
-    var pushed = 0;
+    let growing = []int { 1 };
+    let pushed = 0;
     for value in growing {
         if pushed == 3 {
             break;

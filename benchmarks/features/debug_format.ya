@@ -13,11 +13,11 @@ struct Point {
 
 fn main() {
     const rounds = 1000000;
-    var total = 0;
-    var i = 0;
+    let total = 0;
+    let i = 0;
     while i < rounds {
-        var p = Point { x: i, y: i * 2 };
-        var text = "${p:?}";
+        let p = Point { x: i, y: i * 2 };
+        let text = "${p:?}";
         total = wrapping_add(total, text.len());
         i = wrapping_add(i, 1);
     }

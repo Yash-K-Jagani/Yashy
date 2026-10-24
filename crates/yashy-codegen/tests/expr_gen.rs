@@ -90,7 +90,7 @@ fn lower_body(f: &yashy_sema::HirFn) -> String {
                     let _ = gen_stmt(&mut ctx, stmt);
                 }
                 other => panic!(
-                    "the harness only handles const, var, expr, and the assigning statements, got {other:?}"
+                    "the harness only handles const, let, expr, and the assigning statements, got {other:?}"
                 ),
             }
         }
@@ -440,7 +440,7 @@ fn a_field_assignment_is_a_read_modify_write() {
     // `insertvalue` names it rather than looking the declaration up again.
     let ir_text = gen_body(
         "struct Point { x: int, y: int }\n\
-         fn f(p: Point) { var q = p; q.x = 1; }",
+         fn f(p: Point) { let q = p; q.x = 1; }",
     );
     assert!(
         ir_text.contains("load %struct.Point"),
@@ -464,7 +464,7 @@ fn a_nested_field_assignment_rebuilds_each_aggregate() {
     let ir_text = gen_body(
         "struct Point { x: int, y: int }\n\
          struct Line { from: Point, to: Point }\n\
-         fn f(l: Line) { var m = l; m.from.x = 1; }",
+         fn f(l: Line) { let m = l; m.from.x = 1; }",
     );
     assert_eq!(
         ir_text.matches("insertvalue %struct.Point").count(),
@@ -996,7 +996,7 @@ fn every_alloca_lands_in_the_entry_block() {
     // counter slots were emitted into the outer loop's body block, so they were
     // re-created on every outer iteration. LLVM wants all of a function's
     // allocas in `entry`, which executes once.
-    let f = first_fn("fn f(n: int) { for i in 0..n { for j in 0..n { var x = i * j; } } }");
+    let f = first_fn("fn f(n: int) { for i in 0..n { for j in 0..n { let x = i * j; } } }");
     let mut module = Module::new();
     {
         let mut ctx = FnCtx::new(&mut module, f.ret.kind.clone());

@@ -12,8 +12,8 @@
 // the report says zero: the printed lengths prove the values are right, and
 // the report proves the references came back.
 fn main() {
-    var acc = "";
-    var i = 0;
+    let acc = "";
+    let i = 0;
     while i < 100 {
         acc = acc + "x";
         i += 1;
@@ -21,10 +21,10 @@ fn main() {
     print(acc.len());
     println("");
 
-    var last = 0;
+    let last = 0;
     i = 0;
     while i < 100 {
-        var fresh = "item " + str_from_i64(i);
+        let fresh = "item " + str_from_i64(i);
         last = fresh.len();
         i += 1;
     }

@@ -67,7 +67,7 @@ pub enum Flow {
 /// Without it, this program compiles and corrupts the heap:
 ///
 /// ```text
-/// var buf = alloc(16);
+/// let buf = alloc(16);
 /// defer { dealloc(buf); }   // the checker sees `buf` live here
 /// buf = alloc(32);          // ... and does not free the first block here,
 /// dealloc(buf);             // because the deferred `dealloc` already moved it
@@ -312,7 +312,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             release_previous,
             ..
         } => {
-            // The checker proved `name` is a `var` binding, so its slot is in
+            // The checker proved `name` is a `let` binding, so its slot is in
             // `locals`. There is no `?` to reach for here: this is the backend,
             // which never fails on user input, and a name with no slot would be
             // a compiler bug rather than a bad program. Skipping the store
@@ -766,7 +766,7 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     // length -- but they must not read those two words at the same time. A
     // slice's header is *live*: a `push` inside the loop grows the backing
     // array, and the loop has to see the new length and pointer, so both are
-    // re-read on every iteration. A view behaves the same way, because a `var`
+    // re-read on every iteration. A view behaves the same way, because a `let`
     // view can be rebound. A fixed array cannot change at all: its length is a
     // constant in its type and its elements are the binding's own slot, so
     // those two are computed once, before the loop.

@@ -1,4 +1,4 @@
-//! Statements: `const`, `var`, `return`, `if`, `for`, `switch`, `break`,
+//! Statements: `const`, `let`, `return`, `if`, `for`, `switch`, `break`,
 //! `continue`, `defer`, assignment, and expression statements.
 //!
 //! `parse_block` lives here too, because a block is a list of statements and
@@ -35,7 +35,13 @@ impl<'src> Parser<'src> {
     pub fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
         match self.peek() {
             TokenKind::Const => self.parse_const(),
-            TokenKind::Var => self.parse_var(),
+            // The keyword still lexes as one so that the refusal can name it.
+            // Deleting it would turn `var x = 1;` into an "expected a
+            // statement" about an identifier, which says less.
+            TokenKind::Var => {
+                let span = self.peek_span();
+                Err(self.error(span, "`var` was removed: use `let`"))
+            }
             TokenKind::Let => self.parse_let(),
             TokenKind::Return => self.parse_return(),
             TokenKind::If => self.parse_if(),
@@ -65,28 +71,6 @@ impl<'src> Parser<'src> {
         let init = self.parse_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
         Ok(Stmt::Const {
-            name,
-            ty,
-            init,
-            span: cover(kw.span, semi.span),
-        })
-    }
-
-    fn parse_var(&mut self) -> Result<Stmt, ParseError> {
-        let kw = self.expect(TokenKind::Var)?;
-        if self.check(TokenKind::LParen) {
-            return self.parse_destructure(BindingKeyword::Var, kw.span);
-        }
-        let (name, _) = self.identifier()?;
-        let ty = if self.eat(TokenKind::Colon) {
-            Some(self.parse_type_expr()?)
-        } else {
-            None
-        };
-        self.expect(TokenKind::Eq)?;
-        let init = self.parse_expr()?;
-        let semi = self.expect(TokenKind::Semi)?;
-        Ok(Stmt::Var {
             name,
             ty,
             init,

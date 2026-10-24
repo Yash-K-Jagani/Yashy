@@ -112,7 +112,7 @@ fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
     // to read.
     let ir_text = ir(
         "fn main() {\n\
-         \x20   var s = \"a\";\n\
+         \x20   let s = \"a\";\n\
          \x20   s = s + \"x\";\n\
          \x20   print(s);\n\
          }",
@@ -165,7 +165,7 @@ fn inequality_is_the_equality_call_negated() {
 
 #[test]
 fn len_is_a_runtime_call_and_yields_i64() {
-    let ir_text = ir("fn main() { var hello = \"hello\"; print(hello.len()); }");
+    let ir_text = ir("fn main() { let hello = \"hello\"; print(hello.len()); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_len"), 1, "{ir_text}");
     assert!(
         ir_text.contains("call i64 @yashy_str_len(i8* "),
@@ -179,7 +179,7 @@ fn byte_at_is_a_runtime_call_and_yields_i64() {
     // reachable from Yashy: a declared symbol nothing calls is a contract with
     // no implementation behind it in practice. Out-of-range answers zero, which
     // the runtime test pins; this pins the call and the type.
-    let ir_text = ir("fn main() { var abc = \"abc\"; print(abc.byte_at(1)); }");
+    let ir_text = ir("fn main() { let abc = \"abc\"; print(abc.byte_at(1)); }");
     assert_eq!(call_count(&ir_text, "@yashy_str_byte_at"), 1, "{ir_text}");
     assert!(
         ir_text.contains("call i8 @yashy_str_byte_at(i8* ") && ir_text.contains(", i64 1)"),
@@ -193,7 +193,7 @@ fn a_string_operation_result_can_be_bound_and_reassigned() {
     // stored in a slot, loaded back, and stored again.
     let ir_text = ir(
         "fn main() {\n\
-         \x20   var s = \"a\" + \"b\";\n\
+         \x20   let s = \"a\" + \"b\";\n\
          \x20   s = s + \"c\";\n\
          \x20   print(s);\n\
          }",

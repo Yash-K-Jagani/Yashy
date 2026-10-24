@@ -6,8 +6,8 @@ fn add(a: int, b: int) -> int {
 
 fn main() {
     // A standalone line comment.
-    var total = 0;
-    var i = 0;
+    let total = 0;
+    let i = 0;
     while i < 10 {
         total += add(i, 2); // a trailing line comment
         i += 1;

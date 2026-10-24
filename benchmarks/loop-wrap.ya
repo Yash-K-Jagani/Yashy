@@ -9,7 +9,7 @@
 // constant 2, so the check is free, and the same is true of the loop's bounds.
 // See fib-wrap.ya for why this variant exists at all.
 fn work(n: int) -> int {
-    var acc = 0;
+    let acc = 0;
     for i in 0..n {
         if i % 2 == 0 {
             acc = wrapping_add(acc, i);

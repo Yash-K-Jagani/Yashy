@@ -4,13 +4,13 @@
 // proves the values survived the pushes and the iteration.
 
 fn main() {
-    var numbers = []string {};
-    var i = 0;
+    let numbers = []string {};
+    let i = 0;
     while i < 100 {
         numbers.push(str_from_i64(i));
         i = i + 1;
     }
-    var total = 0;
+    let total = 0;
     for number in numbers {
         total = total + number.len();
     }

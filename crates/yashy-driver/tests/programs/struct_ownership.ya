@@ -28,7 +28,7 @@ fn main() {
     }
 
     // An explicit move hands the array over; the source is empty afterwards.
-    var xs = make();
+    let xs = make();
     const ys = move xs;
     print(ys.len());
     println("");

@@ -2,7 +2,7 @@
 // the values that were live when the `defer` was *reached* -- not whatever the
 // slots happen to hold at exit. Both properties are visible in the output here.
 fn main() {
-    var buf = alloc(16);
+    let buf = alloc(16);
     defer {
         dealloc(buf);
         println("second");

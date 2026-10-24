@@ -8,11 +8,13 @@
 
 use std::fmt::Debug;
 
-use yashy_common::Span;
+use yashy_common::{SourceMap, Span};
+use yashy_lexer::Lexer;
 use yashy_parser::ast::{
     BinOp, Block, Expr, ExternDecl, FieldDef, InterpFormat, InterpPart, Item, Literal, Param,
     Pattern, Program, Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
 };
+use yashy_parser::Parser;
 
 // -- helpers ---------------------------------------------------------------
 
@@ -188,13 +190,6 @@ fn full_block(spans: &mut Spans) -> Block {
             name: "c".to_string(),
             ty: None,
             init: Expr::Literal(Literal::F64(0.5), spans.take()),
-            span: spans.take(),
-        },
-        // Stmt::Var
-        Stmt::Var {
-            name: "v".to_string(),
-            ty: Some(TypeExpr::Name("float".to_string(), spans.take())),
-            init: Expr::Literal(Literal::Bool(true), spans.take()),
             span: spans.take(),
         },
         // Stmt::Let
@@ -512,7 +507,7 @@ fn ast_nodes_round_trip_through_debug() {
     }
     // One of every Stmt variant.
     for name in [
-        "Expr", "Const", "Var", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break",
+        "Expr", "Const", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break",
         "Continue", "Defer",
     ] {
         assert!(
@@ -1143,7 +1138,6 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["Expr", "Literal", "I64", "start", "end"],
             &[
                 "Const",
-                "Var",
                 "Return",
                 "If",
                 "ForRange",
@@ -1174,22 +1168,8 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["Const", "name", "ty", "init", "span"],
             &[
-                "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
+                "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
-            ],
-        ),
-        case(
-            "Stmt::Var",
-            Stmt::Var {
-                name: "v".to_string(),
-                ty: None,
-                init: int(1, here()),
-                span: here(),
-            },
-            &["Var", "name", "ty", "init", "span"],
-            &[
-                "Const", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
-                "Defer", "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1202,7 +1182,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["Let", "name", "ty", "init", "span"],
             &[
-                "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Const", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Assign", "Binary", "Call",
             ],
         ),
@@ -1215,7 +1195,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["Assign", "target", "value", "span"],
             &[
-                "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Const", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Binary", "Call",
             ],
         ),
@@ -1224,7 +1204,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             Stmt::Return(Some(int(1, here())), here()),
             &["Return", "start", "end"],
             &[
-                "Const", "Var", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
+                "Const", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
             ],
         ),
@@ -1233,7 +1213,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             Stmt::Return(None, here()),
             &["Return", "None"],
             &[
-                "Const", "Var", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
+                "Const", "If", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
             ],
         ),
         case(
@@ -1247,7 +1227,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["If", "init", "cond", "then_block", "else_block", "span"],
             &[
-                "Const", "Var", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Const", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Assign", "Binary", "Call",
             ],
         ),
@@ -1262,7 +1242,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["ForRange", "name", "start", "end", "body", "span"],
             &[
-                "Const", "Var", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer",
+                "Const", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
             ],
         ),
@@ -1277,7 +1257,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["ForC", "init", "cond", "update", "body", "span"],
             &[
-                "Const", "Var", "Return", "If", "ForRange", "Switch", "Break", "Continue", "Defer",
+                "Const", "Return", "If", "ForRange", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
             ],
         ),
@@ -1291,7 +1271,6 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             &["Switch", "subject", "arms", "span"],
             &[
                 "Const",
-                "Var",
                 "Return",
                 "If",
                 "ForRange",
@@ -1323,7 +1302,7 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["Defer", "body", "span"],
             &[
-                "Const", "Var", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
+                "Const", "Return", "If", "ForRange", "ForC", "Switch", "Break", "Continue",
             ],
         ),
         case(
@@ -1931,4 +1910,18 @@ fn clone_is_deep_so_editing_a_clone_leaves_the_original_alone() {
         "editing the original must not add to a clone taken earlier"
     );
     assert_eq!(edited.items.len(), 6);
+}
+
+// -- parser refusals --------------------------------------------------------
+
+#[test]
+fn var_names_its_replacement() {
+    let src = "fn f() { var x = 1; }";
+    let mut sm = SourceMap::new();
+    let file = sm.add_file("t.ya", src.to_string());
+    let tokens = Lexer::new(src).tokenize().expect("the lexer does not panic");
+    let mut parser = Parser::new(tokens, &sm, file);
+    let errors = parser.parse_program().expect_err("`var` must be refused");
+    assert_eq!(errors[0].message, "`var` was removed: use `let`");
+    assert_eq!(errors[0].span, Span::new(9, 12), "the caret is on `var`");
 }

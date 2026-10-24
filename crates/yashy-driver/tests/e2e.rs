@@ -466,7 +466,7 @@ fn tuples_destructure_and_guards_select() {
 }
 
 #[test]
-fn let_var_and_const_behave_as_documented() {
+fn let_and_const_behave_as_documented() {
     let output = build_and_run("bindings");
     assert_eq!(stdout_of(&output), "2\n42\n3\n");
 }
@@ -643,6 +643,27 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
     assert!(
         stderr.lines().any(|line| line.trim_start().starts_with('^')),
         "expected a caret line underlining the offending expression:\n{stderr}"
+    );
+}
+
+#[test]
+fn var_is_reported_with_a_caret() {
+    let dir = work_dir("var-removed");
+    let source = dir.join("bad.ya");
+    fs::write(&source, "fn main() {\n    var x = 1;\n}\n").expect("write bad.ya");
+
+    let compile = Command::new(yashy())
+        .arg("build")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(compile.status.code(), Some(1), "`var` is a compile error");
+    let stderr = stderr_of(&compile);
+    assert!(stderr.contains("`var` was removed: use `let`"), "{stderr}");
+    assert!(
+        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        "expected a caret under `var`:\n{stderr}"
     );
 }
 
@@ -1210,7 +1231,7 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
     fs::write(
         &source,
         "fn main() {\n\
-         \x20   var buf = alloc(16);\n\
+         \x20   let buf = alloc(16);\n\
          \x20   defer {\n\
          \x20       dealloc(buf);\n\
          \x20   }\n\
@@ -1286,7 +1307,7 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
     let source = dir.join("double_free.ya");
     fs::write(
         &source,
-        "fn main() {\n    var buf = alloc(16);\n    dealloc(buf);\n    dealloc(buf);\n}\n",
+        "fn main() {\n    let buf = alloc(16);\n    dealloc(buf);\n    dealloc(buf);\n}\n",
     )
     .expect("write double_free.ya");
 
@@ -1604,7 +1625,7 @@ fn a_switch_arm_may_end_with_a_semicolon() {
         "switch-semi",
         concat!(
             "fn main() {\n",
-            "    var o = Some(42);\n",
+            "    let o = Some(42);\n",
             "    switch o {\n",
             "        case Some(v) { print(v); }\n",
             "        case None { print(\"none\"); }\n",
@@ -1653,7 +1674,7 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // "these two added to too much".
     let output = compile_and_run(
         "overflow-add",
-        "fn main() {\n    print(\"before\\n\");\n    var big = 9223372036854775807;\n    print(big + 1);\n    print(\"after\\n\");\n}\n",
+        "fn main() {\n    print(\"before\\n\");\n    let big = 9223372036854775807;\n    print(big + 1);\n    print(\"after\\n\");\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -1684,7 +1705,7 @@ fn an_overflowing_multiplication_is_a_fault_too() {
     // is why it goes through LLVM's `smul.with.overflow`.
     let output = compile_and_run(
         "overflow-mul",
-        "fn main() {\n    var big = 4000000000000000000;\n    print(big * 3);\n}\n",
+        "fn main() {\n    let big = 4000000000000000000;\n    print(big * 3);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1703,12 +1724,12 @@ fn dividing_or_taking_the_remainder_by_zero_names_the_operator() {
     for (name, source, expected) in [
         (
             "divide-by-zero",
-            "fn main() {\n    var a = 5;\n    var b = 0;\n    print(a / b);\n}\n",
+            "fn main() {\n    let a = 5;\n    let b = 0;\n    print(a / b);\n}\n",
             "panic: division by zero: 5 / 0",
         ),
         (
             "remainder-by-zero",
-            "fn main() {\n    var a = 5;\n    var b = 0;\n    print(a % b);\n}\n",
+            "fn main() {\n    let a = 5;\n    let b = 0;\n    print(a % b);\n}\n",
             "panic: division by zero: 5 % 0",
         ),
     ] {
@@ -1730,7 +1751,7 @@ fn dividing_the_smallest_i64_by_minus_one_is_an_overflow() {
     // check in generated code is a single branch for both.
     let output = compile_and_run(
         "overflow-div-min",
-        "fn main() {\n    var m = -9223372036854775808;\n    var minus_one = 0 - 1;\n    print(m / minus_one);\n}\n",
+        "fn main() {\n    let m = -9223372036854775808;\n    let minus_one = 0 - 1;\n    print(m / minus_one);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1749,7 +1770,7 @@ fn negating_the_smallest_i64_is_an_overflow() {
     // is what negation is.
     let output = compile_and_run(
         "overflow-neg",
-        "fn main() {\n    var m = -9223372036854775808;\n    print(-m);\n}\n",
+        "fn main() {\n    let m = -9223372036854775808;\n    print(-m);\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1899,7 +1920,7 @@ fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
          \x20   const abc = \"abc\";\n\
          \x20   print(abc.byte_at(1));\n\
          \x20   print(\"\\n\");\n\
-         \x20   var missing = abc.byte_at(99);\n\
+         \x20   let missing = abc.byte_at(99);\n\
          \x20   print(missing.to_int());\n\
          \x20   print(\"\\n\");\n\
          }",
@@ -1930,8 +1951,8 @@ fn the_arithmetic_opt_outs_do_what_their_names_say() {
             "}\n",
             "\n",
             "fn main() {\n",
-            "    var big = 9223372036854775807;\n",
-            "    var small = -9223372036854775808;\n",
+            "    let big = 9223372036854775807;\n",
+            "    let small = -9223372036854775808;\n",
             "    print(wrapping_add(big, 1));\n",
             "    print(\"\\n\");\n",
             "    print(saturating_add(big, 1));\n",
@@ -1994,8 +2015,8 @@ fn the_saturating_multiply_clamps_at_both_ends_and_is_exact_inside() {
         "saturating-mul-edges",
         concat!(
             "fn main() {\n",
-            "    var big = 9223372036854775807;\n",
-            "    var small = -9223372036854775808;\n",
+            "    let big = 9223372036854775807;\n",
+            "    let small = -9223372036854775808;\n",
             "    print(saturating_mul(big, -1));\n",
             "    print(\"\\n\");\n",
             "    print(saturating_mul(big, 2));\n",
@@ -2035,7 +2056,7 @@ fn arithmetic_that_fits_runs_to_completion() {
     // the check on `sum + i` is inside it.
     let output = compile_and_run(
         "arithmetic-ok",
-        "fn main() {\n    var sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print(sum);\n    print(\"\\n\");\n    print(7 / 2);\n    print(\"\\n\");\n    print(-7 % 2);\n    print(\"\\n\");\n    print(-sum);\n    print(\"\\n\");\n}\n",
+        "fn main() {\n    let sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print(sum);\n    print(\"\\n\");\n    print(7 / 2);\n    print(\"\\n\");\n    print(-7 % 2);\n    print(\"\\n\");\n    print(-sum);\n    print(\"\\n\");\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -2057,7 +2078,7 @@ fn assertions_that_hold_do_nothing_at_all() {
         "assert-ok",
         concat!(
             "fn main() {\n",
-            "    var n = 3;\n",
+            "    let n = 3;\n",
             "    assert(n > 0);\n",
             "    assert_eq(n, 3);\n",
             "    assert_ne(n, 4);\n",
@@ -2093,7 +2114,7 @@ fn a_failed_assertion_quotes_the_condition_it_was_given() {
         "assert-fail",
         concat!(
             "fn main() {\n",
-            "    var n = 0;\n",
+            "    let n = 0;\n",
             "    print(\"before\\n\");\n",
             "    assert(n > 0);\n",
             "    print(\"after\\n\");\n",
@@ -2130,7 +2151,7 @@ fn assert_eq_reports_both_values_and_assert_ne_does_too() {
         "assert-eq-fail",
         concat!(
             "fn main() {\n",
-            "    var n = 3;\n",
+            "    let n = 3;\n",
             "    assert_eq(n, 4);\n",
             "}\n"
         ),
@@ -2148,7 +2169,7 @@ fn assert_eq_reports_both_values_and_assert_ne_does_too() {
         "assert-ne-fail",
         concat!(
             "fn main() {\n",
-            "    var n = 3;\n",
+            "    let n = 3;\n",
             "    assert_ne(n, 3);\n",
             "}\n"
         ),
@@ -2182,7 +2203,7 @@ fn a_comparison_assertion_prints_floats_and_strings_as_text() {
         "assert-string-fail",
         concat!(
             "fn main() {\n",
-            "    var s = \"abc\";\n",
+            "    let s = \"abc\";\n",
             "    assert_eq(s, \"x\");\n",
             "}\n"
         ),
@@ -2233,7 +2254,7 @@ fn a_release_build_compiles_debug_asserts_away_and_keeps_asserts() {
     let source = concat!(
         "fn main() {\n",
         "    print(\"start\\n\");\n",
-        "    var n = 0;\n",
+        "    let n = 0;\n",
         "    debug_assert(n > 0);\n",   // false, and dropped by --release
         "    print(\"checked\\n\");\n",
         "    assert(n == 0);\n",         // true, and kept by both
@@ -2284,7 +2305,7 @@ fn the_release_flag_reaches_the_ir_dump() {
         &file,
         concat!(
             "fn main() {\n",
-            "    var n = 0;\n",
+            "    let n = 0;\n",
             "    debug_assert(n > 0);\n",
             "    assert(n == 0);\n",
             "}\n"

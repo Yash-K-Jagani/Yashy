@@ -63,14 +63,14 @@ fn take(s: string) { print(s); }
 
 fn main() {
     const s = "shared";
-    var t = s;
+    let t = s;
     take(move s);      // s is still usable: strings are copyable
     print(s);
     print(t);      // prints "sharedshared"
 }
 ```
 
-`var t = s;` gives `t` its own reference and bumps the count. `take(move s)`
+`let t = s;` gives `t` its own reference and bumps the count. `take(move s)`
 is accepted, but `move` changes nothing for a copyable type: `s` is still
 usable afterwards, which is why the final two prints both work. Use plain
 `take(s)`. `move` is for pointers, where it prevents a second owner.
@@ -123,7 +123,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    var s = "  Yashy,yashy  ";
+    let s = "  Yashy,yashy  ";
 
     print(s.trim());
     println();
@@ -175,23 +175,23 @@ fn main() {
     println();
     // => 8
 
-    var upper = s.to_upper();
+    let upper = s.to_upper();
     print(upper.trim());
     println();
     // => YASHY,YASHY
 
-    var replaced = s.replace("yashy", "seal");
+    let replaced = s.replace("yashy", "seal");
     print(replaced.trim());
     println();
     // => Yashy,seal
 
-    var dash = "-";
+    let dash = "-";
     print(dash.repeat(3));
     println();
     // => ---
 
-    var csv = "a,b,c";
-    var parts = csv.split(",");
+    let csv = "a,b,c";
+    let parts = csv.split(",");
     print(parts.len());
     println();
     // => 3
@@ -204,8 +204,8 @@ fn main() {
     }
     parts.free();
 
-    var text = "one\r\ntwo\n";
-    var lines = text.lines();
+    let text = "one\r\ntwo\n";
+    let lines = text.lines();
     print(lines.len());
     println();
     // => 2
@@ -230,7 +230,7 @@ Method calls do not chain yet. `s.trim().len()` is not a three-part method
 call; bind the intermediate result first:
 
 ```text
-var trimmed = s.trim();
+let trimmed = s.trim();
 print(trimmed.len());
 ```
 
@@ -296,10 +296,10 @@ structs, enums, tuples and arrays have a debug form
   slicing at a byte offset can split a character. No diagnostic is produced;
   the program simply sees bytes.
 - **Chaining methods.** `s.trim().len()` is not supported yet. Bind
-  `var trimmed = s.trim();` and then call `trimmed.len()`.
+  `let trimmed = s.trim();` and then call `trimmed.len()`.
 - **Calling a method on a literal.** `"x".len()` is parsed as a zero-argument
   call to `len`, not as a method on the literal. Bind the literal first:
-  `var s = "x"; print(s.len());`.
+  `let s = "x"; print(s.len());`.
 
 ## Try it
 

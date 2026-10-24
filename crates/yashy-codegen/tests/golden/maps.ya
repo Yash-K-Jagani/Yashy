@@ -1,10 +1,10 @@
 fn main() {
-    var counts: map[string]int = map_new();
+    let counts: map[string]int = map_new();
     counts.insert("a", 1);
     counts.insert("b", 2);
-    var found = counts.get("a");
-    var removed = counts.remove("b");
-    var n = counts.len();
+    let found = counts.get("a");
+    let removed = counts.remove("b");
+    let n = counts.len();
     print(n);
     println("");
     counts.free();

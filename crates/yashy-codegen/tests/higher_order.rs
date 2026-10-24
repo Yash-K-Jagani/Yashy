@@ -29,7 +29,7 @@ fn ir_of(src: &str) -> String {
 #[test]
 fn map_builds_a_new_array_and_pushes_what_the_callback_returned() {
     let ir_text = ir_of(
-        "fn main() { var xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x * 2; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x * 2; }); }",
     );
     assert!(
         ir_text.contains("call i64 %"),
@@ -48,7 +48,7 @@ fn map_builds_a_new_array_and_pushes_what_the_callback_returned() {
 #[test]
 fn filter_keeps_only_the_elements_that_pass() {
     let ir_text = ir_of(
-        "fn main() { var xs = []int { 1, 2 }; const ys = xs.filter(|x: int| -> bool { return x > 1; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.filter(|x: int| -> bool { return x > 1; }); }",
     );
     assert!(
         ir_text.contains("call i1 %"),
@@ -63,7 +63,7 @@ fn filter_keeps_only_the_elements_that_pass() {
 #[test]
 fn fold_carries_one_value_through_the_array() {
     let ir_text = ir_of(
-        "fn main() { var xs = []int { 1, 2 }; const n = xs.fold(0, |acc: int, x: int| -> int { return acc + x; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const n = xs.fold(0, |acc: int, x: int| -> int { return acc + x; }); }",
     );
     assert!(
         ir_text.contains("alloca i64"),
@@ -82,9 +82,9 @@ fn every_block_of_the_three_methods_ends_in_one_terminator() {
     // terminators is not well-formed IR, and clang's verifier is the only
     // thing that says so.
     for source in [
-        "fn main() { var xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
-        "fn main() { var xs = []int { 1, 2 }; const ys = xs.filter(|x: int| -> bool { return x > 1; }); }",
-        "fn main() { var xs = []int { 1, 2 }; const n = xs.fold(0, |acc: int, x: int| -> int { return acc + x; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.filter(|x: int| -> bool { return x > 1; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const n = xs.fold(0, |acc: int, x: int| -> int { return acc + x; }); }",
     ] {
         let ir_text = ir_of(source);
         assert_one_terminator_per_block(&ir_text, source);
@@ -135,7 +135,7 @@ fn the_mapped_array_is_a_new_one() {
     // The source keeps its own elements: the mapped values go into a header
     // of their own, and the source's header is only read.
     let ir_text = ir_of(
-        "fn main() { var xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
     );
     let pushes = ir_text.matches("call void @yashy_slice_push(").count();
     assert_eq!(pushes, 1, "one push per element of the source:\n{ir_text}");

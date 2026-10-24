@@ -13,9 +13,9 @@ fn producer(slot: Channel[int], full: Channel[int]) {
 }
 
 fn main() {
-    var slot: Channel[int] = chan_new(1);
-    var full: Channel[int] = chan_new(1);
-    var handle = thread_spawn(producer, slot, full);
+    let slot: Channel[int] = chan_new(1);
+    let full: Channel[int] = chan_new(1);
+    let handle = thread_spawn(producer, slot, full);
 
     switch full.recv() {
         case Some(n) {

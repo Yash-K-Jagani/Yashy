@@ -7,7 +7,7 @@
 // line arrived" as its only stopping condition and still sum the numbers it did
 // read.
 fn main() {
-    var total = 0;
+    let total = 0;
     for ;; {
         const line = read_line();
         if line == "" {

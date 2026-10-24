@@ -49,10 +49,10 @@ fn main() {
 A struct whose fields are numbers or booleans is copyable: both copies are
 equal and independent. The chapter's `p` and `line.to` are two independent
 `Point` values. Writing `line.to.x` would not change `p.x`, and changing a
-`var` copy does not change the original:
+`let` copy does not change the original:
 
 ```text
-var q = p;
+let q = p;
 q.x = 9;
 // p.x is still 3, q.x is 9
 ```
@@ -202,7 +202,7 @@ object Counter {
 }
 
 fn main() {
-    var c = Counter.new();
+    let c = Counter.new();
     c.bump();
     c.bump();
     print(c.get());
@@ -237,10 +237,10 @@ must not be able to write through another's address.
 | Declare | `struct Point { x: int, y: int }` | Names and types, in declaration order. |
 | Construct | `Point { x: 3, y: 4 }` | Any field order; every field once. |
 | Read a field | `p.x`, `line.from.x` | A chain follows nested structs. |
-| Assign a field | `q.x = 9` | The binding must be `var`. |
-| Copy | `var q = p;` | A new value; later changes are independent. |
+| Assign a field | `q.x = 9` | The binding must be `let`. |
+| Copy | `let q = p;` | A new value; later changes are independent. |
 | Pass | `manhattan(p)` | The parameter receives a copy. |
-| Mutate through a method | `fn bump(self: *mut Point)` | The receiver is the object's address; call it on a `var`. |
+| Mutate through a method | `fn bump(self: *mut Point)` | The receiver is the object's address; call it on a `let`. |
 | Hold an owner | `struct Box { name: string }` | The struct owns the reference, and so does each copy. |
 
 Named fields are not only documentation. The declaration's order is the layout
@@ -290,11 +290,11 @@ struct that holds an array points at an array somebody else owns.
   ``error: unknown field `z` in struct `Point` ``. Check the declaration.
 - **Assigning a field of a `const`.** `p.x = 9` on a `const p` reports
   ``error: cannot assign to a field of `p`, which is immutable``. Declare the
-  binding with `var` when it must change.
+  binding with `let` when it must change.
 - **Comparing two structs with `==`.** The checker accepts `p == q`, but the
   generated IR is rejected by LLVM with `icmp requires integer operands`. There
   is no structural equality yet; compare the fields one at a time.
-- **Expecting a copy to share updates.** `var q = p; q.x = 9;` leaves `p.x`
+- **Expecting a copy to share updates.** `let q = p; q.x = 9;` leaves `p.x`
   unchanged. A struct is a value, not a reference. Use a pointer when two
   names must see one object.
 
@@ -311,7 +311,7 @@ struct that holds an array points at an array somebody else owns.
 
 3. Add `fn set_x(self: *mut Point, x: int)` and `fn shifted(self, dx: int) ->
    Point` to `Point`. Confirm that `set_x` changes the caller's point and that
-   `shifted` does not. Hint: the first needs a `var` at the call site; the
+   `shifted` does not. Hint: the first needs a `let` at the call site; the
    second needs nothing.
 
 ## How it works

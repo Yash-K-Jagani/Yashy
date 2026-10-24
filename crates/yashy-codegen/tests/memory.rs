@@ -2,7 +2,7 @@
 //! linear binding when it is overwritten.
 //!
 //! The harness lowers a whole function body through [`gen_block`], the same way
-//! `gen_fn` does, so statements (`var`, assignment, an expression statement) are
+//! `gen_fn` does, so statements (`let`, assignment, an expression statement) are
 //! exercised rather than only the `const`/expression subset the expression tests
 //! use.
 
@@ -96,7 +96,7 @@ fn dealloc_is_one_call_and_no_value() {
 fn move_poisons_the_source_slot() {
     // The checker already forbids reading a moved binding, so this is belt and
     // braces: if codegen ever drifts, the worst case is a `free` of null.
-    let ir_text = gen_body("fn f() { var b = alloc(16); var o = move b; dealloc(o); }");
+    let ir_text = gen_body("fn f() { let b = alloc(16); let o = move b; dealloc(o); }");
     assert!(
         ir_text.contains("store i8* null, ptr"),
         "moving a pointer must null the source slot:\n{ir_text}"
@@ -106,7 +106,7 @@ fn move_poisons_the_source_slot() {
 #[test]
 fn move_of_a_copy_value_does_not_poison() {
     // `i64` is not linear, so `move` is a plain read and no slot is written.
-    let ir_text = gen_body("fn f() { var x = 1; var y = move x; print(x + y); }");
+    let ir_text = gen_body("fn f() { let x = 1; let y = move x; print(x + y); }");
     assert!(
         !ir_text.contains("store i64 null"),
         "a copy value has no owner to give away:\n{ir_text}"
@@ -115,10 +115,10 @@ fn move_of_a_copy_value_does_not_poison() {
 }
 
 #[test]
-fn rebinding_a_live_linear_var_releases_the_old_pointer() {
+fn rebinding_a_live_linear_let_releases_the_old_pointer() {
     // Overwriting an owning binding discards the pointer, so the backend frees
     // it first -- one free for the old value, one for the `dealloc` at the end.
-    let ir_text = gen_body("fn f() { var b = alloc(16); b = alloc(32); dealloc(b); }");
+    let ir_text = gen_body("fn f() { let b = alloc(16); b = alloc(32); dealloc(b); }");
     assert_eq!(free_count(&ir_text), 2, "old value plus final free:\n{ir_text}");
 }
 
@@ -127,7 +127,7 @@ fn rebinding_after_a_dealloc_does_not_free_the_same_pointer_twice() {
     // `dealloc(b)` frees the block but leaves the address in the slot. The
     // checker knows `b` no longer owns anything, so `b = alloc(32)` must not
     // release it again -- otherwise this program would be a double free.
-    let ir_text = gen_body("fn f() { var b = alloc(16); dealloc(b); b = alloc(32); dealloc(b); }");
+    let ir_text = gen_body("fn f() { let b = alloc(16); dealloc(b); b = alloc(32); dealloc(b); }");
     assert_eq!(
         free_count(&ir_text),
         2,
@@ -139,7 +139,7 @@ fn rebinding_after_a_dealloc_does_not_free_the_same_pointer_twice() {
 fn a_deallocated_slot_is_not_released_by_a_later_rebind() {
     // The same rule seen from the other side: one `dealloc`, then a rebind that
     // must emit no free of its own.
-    let ir_text = gen_body("fn f() { var b = alloc(16); dealloc(b); b = alloc(32); }");
+    let ir_text = gen_body("fn f() { let b = alloc(16); dealloc(b); b = alloc(32); }");
     assert_eq!(free_count(&ir_text), 1, "only the explicit free:\n{ir_text}");
 }
 
@@ -171,7 +171,7 @@ fn a_deferred_free_targets_the_value_live_at_registration() {
     // `dealloc`, which is heap corruption rather than a diagnostic.
     let ir_text = gen_body(
         "fn f() {\n\
-         \x20   var buf = alloc(16);\n\
+         \x20   let buf = alloc(16);\n\
          \x20   defer { dealloc(buf); }\n\
          \x20   buf = alloc(32);\n\
          \x20   dealloc(buf);\n\
@@ -226,7 +226,7 @@ fn a_defer_inside_a_loop_snapshots_once_per_iteration() {
     // The registration runs every iteration, so the snapshot store is inside the
     // loop body and the free happens at the end of each iteration rather than
     // once at the end of the loop.
-    let ir_text = gen_body("fn f() { for i in 0..3 { var buf = alloc(8); defer { dealloc(buf); } } }");
+    let ir_text = gen_body("fn f() { for i in 0..3 { let buf = alloc(8); defer { dealloc(buf); } } }");
     assert_eq!(free_count(&ir_text), 1, "one free in the body:\n{ir_text}");
     let pointers = slot_names(&ir_text, "alloca i8*");
     assert_eq!(
@@ -266,7 +266,7 @@ fn a_defer_after_checked_arithmetic_still_registers_and_runs() {
     // The scope stack now survives the fault block.
     let ir_text = gen_body(
         "fn f() {\n\
-         \x20   var i = 0;\n\
+         \x20   let i = 0;\n\
          \x20   while i < 2 { i += 1; }\n\
          \x20   defer { println(\"done\"); }\n\
          \x20   println(\"ok\");\n\

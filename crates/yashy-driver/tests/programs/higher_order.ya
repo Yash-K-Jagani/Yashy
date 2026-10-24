@@ -4,10 +4,10 @@
 // that a lambda is called from.
 
 fn main() {
-    var xs = []int { 1, 2, 3 };
+    let xs = []int { 1, 2, 3 };
 
     // `map` builds a new array: the source keeps its own elements.
-    var doubled = xs.map(|x: int| -> int { return x * 2; });
+    let doubled = xs.map(|x: int| -> int { return x * 2; });
     for x in doubled {
         print(x);
         println("");
@@ -15,7 +15,7 @@ fn main() {
     doubled.free();
 
     // `filter` keeps the elements that pass.
-    var big = xs.filter(|x: int| -> bool { return x > 2; });
+    let big = xs.filter(|x: int| -> bool { return x > 2; });
     for x in big {
         print(x);
         println("");
@@ -27,7 +27,7 @@ fn main() {
     println("");
 
     // The element type may change: `[]int` maps to `[]string`.
-    var texts = xs.map(|x: int| -> string { return str_from_i64(x); });
+    let texts = xs.map(|x: int| -> string { return str_from_i64(x); });
     for text in texts {
         print(text);
         println("");

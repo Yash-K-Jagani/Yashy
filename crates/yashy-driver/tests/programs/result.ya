@@ -1,7 +1,7 @@
 // Error propagation with `?`.
 //
 // `const` rather than the plan's `let`: `let` is not a keyword in Yashy (spec
-// 3.2 keeps `const` and `var`, and rejects a third synonym on purpose).
+// 3.2 keeps `const` and `let`, and rejects a third synonym on purpose).
 fn inner() -> Result[int, string] {
     return Ok(7);
 }

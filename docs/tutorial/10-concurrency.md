@@ -13,7 +13,7 @@ result comes back through a channel or shared state, not through the thread.
 
 ```yashy
 fn worker(out: Channel[int]) {
-    var i = 1;
+    let i = 1;
     while i <= 3 {
         out.send(i * i);
         i += 1;
@@ -21,11 +21,11 @@ fn worker(out: Channel[int]) {
 }
 
 fn main() {
-    var results: Channel[int] = chan_new(1);
-    var handle = thread_spawn(worker, results);
+    let results: Channel[int] = chan_new(1);
+    let handle = thread_spawn(worker, results);
 
-    var total = 0;
-    var received = 0;
+    let total = 0;
+    let received = 0;
     while received < 3 {
         total = total + switch results.recv() {
             case Some(v) { v }
@@ -49,7 +49,7 @@ send waits for the matching receive, and the loop drains the channel as the
 producer fills it. `14` is `1 + 4 + 9`.
 
 The type annotation on the binding is required:
-`var results: Channel[int] = chan_new(1);`. `chan_new` takes only a capacity, so
+`let results: Channel[int] = chan_new(1);`. `chan_new` takes only a capacity, so
 there is no element type to infer from the call; the annotation is what says
 what the channel carries.
 
@@ -101,9 +101,9 @@ fn worker(gate: Mutex) {
 }
 
 fn main() {
-    var gate = mutex_new();
+    let gate = mutex_new();
     gate.lock();
-    var handle = thread_spawn(worker, gate);
+    let handle = thread_spawn(worker, gate);
 
     println("main");
     gate.unlock();
@@ -139,9 +139,9 @@ avoid one.
 
 ## Common mistakes
 
-- **Letting `chan_new` infer its element type.** `var c = chan_new(1);`
+- **Letting `chan_new` infer its element type.** `let c = chan_new(1);`
   reports ``error: cannot infer the channel's element type: write
-  `var c: Channel[int] = chan_new(4)` ``. Add the annotation.
+  `let c: Channel[int] = chan_new(4)` ``. Add the annotation.
 - **Putting strings in a channel.** `Channel[string]` reports ``error: a
   channel cannot carry `string` yet: a slot copy would share one refcount
   between the sender and the receiver``. Send an index or a number instead.
@@ -154,7 +154,7 @@ avoid one.
   it``. Copy the data into a channel element by element.
 - **Calling a method on a temporary.** `mutex_new().lock()` is not a method call
   the parser can keep: a receiver must be a local binding whose header the call
-  can update. Bind the mutex first (`var gate = mutex_new(); gate.lock();`).
+  can update. Bind the mutex first (`let gate = mutex_new(); gate.lock();`).
 
 ## Try it
 

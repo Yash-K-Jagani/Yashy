@@ -5,15 +5,15 @@
 // lookup visible in the printed sum rather than merely slow.
 fn main() {
     const n = 1000000;
-    var m: map[int]int = map_new();
-    var i = 0;
+    let m: map[int]int = map_new();
+    let i = 0;
     while i < n {
         m.insert(i, i * 3);
         i = wrapping_add(i, 1);
     }
 
-    var sum = 0;
-    var j = 0;
+    let sum = 0;
+    let j = 0;
     while j < n {
         sum = wrapping_add(sum, switch m.get(j) {
             case Some(v) {

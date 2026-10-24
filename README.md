@@ -16,7 +16,7 @@ external tool is `clang`.
 parses, type-checks and compiles programs with `int`, `float`, `bool`, `string`,
 `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
-written as `var` or `let` (block-scoped and mutable) or `const` (block-scoped
+written as `let` (block-scoped and mutable) or `const` (block-scoped
 and immutable). Arrays and strings have a method surface: `xs.push(1)`,
 `xs.slice(0, 3)`, `s.trim()`, `s.split(",")`, and the rest of the string
 method table.
@@ -113,7 +113,7 @@ each chapter is a complete program you can build and run.
 ## A taste of Yashy
 
 ```yashy
-// `let` and `var` bindings are mutable, `const` bindings are not. `for i in 0..n`
+// `let` bindings are mutable, `const` bindings are not. `for i in 0..n`
 // is a range loop whose end is exclusive.
 fn fib(n: int) -> int {
     let a = 0;
@@ -146,7 +146,7 @@ fn describe(o: Option[int]) -> int {
 
 ```yashy
 // A struct is a value: built with a literal, read field by field with `.`, and
-// written the same way on a `var`. The layout follows the declaration order, so
+// written the same way on a `let`. The layout follows the declaration order, so
 // a literal may spell the fields in any order and `p.x` still means the declared
 // `x`.
 struct Point {
@@ -165,7 +165,7 @@ fn main() {
 
     // A field write is a read-modify-write of the whole value, so `y` survives
     // it; `q.x += 1` is the same statement with the field read on the right.
-    var q = p;
+    let q = p;
     q.x = 10;
     q.y += 1;
     print_i64(q.x + q.y);
@@ -178,14 +178,14 @@ fn main() {
 // returns a `*mut int`; `defer` releases it when the scope exits, and the
 // checker rejects a second use before code generation ever runs:
 //
-//     var buf = alloc(16);
+//     let buf = alloc(16);
 //     defer { dealloc(buf); }
 //     buf = alloc(32);        // the deferred free still releases the first block
 //     dealloc(buf);
 //
 // Ownership transfers with `move`, so only one name can free a block:
 //
-//     var buf = alloc(16);
+//     let buf = alloc(16);
 //     dealloc(buf);
 //     dealloc(buf);   // error: value `buf` has already been moved
 //
@@ -193,7 +193,7 @@ fn main() {
 // elements rather than bytes. `defer` releases the block on every exit from the
 // scope, including a panic in this same function.
 fn main() {
-    var buf = alloc(4);
+    let buf = alloc(4);
     defer {
         dealloc(buf);
     }
@@ -211,10 +211,10 @@ fn main() {
 // arena serves every block; `arena_free_all` consumes it, which is why a second
 // free is a type error rather than a double free.
 fn main() {
-    var arena = arena_new();
+    let arena = arena_new();
 
-    var first = arena_alloc(arena, 4);
-    var second = arena_alloc(arena, 4);
+    let first = arena_alloc(arena, 4);
+    let second = arena_alloc(arena, 4);
     first[0] = 20;
     second[0] = 22;
 
@@ -254,10 +254,10 @@ fn main() {
     if greeting == "Hello, Yashy!" {
         print_str("equal\n");
     }
-    var padded = "  Yashy  ";
+    let padded = "  Yashy  ";
     print_str(padded.trim() + "\n");
-    var csv = "a,b";
-    var parts = csv.split(",");
+    let csv = "a,b";
+    let parts = csv.split(",");
     print_i64(parts.len());
     print_str("\n");
     parts.free();
@@ -269,7 +269,7 @@ fn main() {
 // returns the empty string at end of input, which the loop's `break` uses as its
 // only stopping condition.
 fn main() {
-    var total = 0;
+    let total = 0;
     for ;; {
         const line = read_line();
         if line == "" {
@@ -315,7 +315,7 @@ Point { x: 3, y: 4 }
 // behaviour asks for it by name, and the three ways of asking are different
 // questions with three different answers.
 fn main() {
-    var big = 9223372036854775807;      // the largest int
+    let big = 9223372036854775807;      // the largest int
     print_i64(wrapping_add(big, 1));    // wraps:  -9223372036854775808
     print_str("\n");
     print_i64(saturating_add(big, 1));  // clamps:  9223372036854775807
@@ -358,7 +358,7 @@ checking while writing the program and worth nothing in front of a user.
 // A lookup answers in an `Option`, so a missing key is a `None` to handle,
 // not a crash.
 fn main() {
-    var counts: map[string]int = map_new();
+    let counts: map[string]int = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
     counts.insert("yashy", 3);
@@ -389,12 +389,12 @@ order, which is a hash table's order and not the order the keys went in.
 
 ```yashy
 fn main() {
-    var counts: map[string]int = map_new();
+    let counts: map[string]int = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
 
-    var keys: []string = counts.keys();
-    var values: []int = counts.values();
+    let keys: []string = counts.keys();
+    let values: []int = counts.values();
 
     print_i64(keys.len());
     print_str("\n");
@@ -456,9 +456,9 @@ fn worker(inbox: Channel[int], outbox: Channel[int]) {
 }
 
 fn main() {
-    var inbox: Channel[int] = chan_new(1);
-    var outbox: Channel[int] = chan_new(1);
-    var t = thread_spawn(worker, inbox, outbox);
+    let inbox: Channel[int] = chan_new(1);
+    let outbox: Channel[int] = chan_new(1);
+    let t = thread_spawn(worker, inbox, outbox);
     inbox.send(21);
     switch outbox.recv() {
         case Some(n) { print_i64(n); }

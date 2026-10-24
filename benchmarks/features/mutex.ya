@@ -5,7 +5,7 @@
 // does not let a `*mut` cross a thread boundary yet, so a shared counter is
 // the runtime's own test, not something user code can write.)
 fn worker(gate: Mutex, rounds: int) {
-    var i = 0;
+    let i = 0;
     while i < rounds {
         gate.lock();
         gate.unlock();
@@ -15,12 +15,12 @@ fn worker(gate: Mutex, rounds: int) {
 
 fn main() {
     const rounds = 250000;
-    var gate = mutex_new();
+    let gate = mutex_new();
 
-    var a = thread_spawn(worker, gate, rounds);
-    var b = thread_spawn(worker, gate, rounds);
-    var c = thread_spawn(worker, gate, rounds);
-    var d = thread_spawn(worker, gate, rounds);
+    let a = thread_spawn(worker, gate, rounds);
+    let b = thread_spawn(worker, gate, rounds);
+    let c = thread_spawn(worker, gate, rounds);
+    let d = thread_spawn(worker, gate, rounds);
 
     thread_join(a);
     thread_join(b);

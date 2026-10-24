@@ -44,15 +44,15 @@ fn assert_rejected(src: &str, needle: &str) {
 fn a_thread_body_is_checked_like_any_other_function() {
     check(
         "fn work(n: int) { print(n); } \
-         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
+         fn main() { let h: int = thread_spawn(work, 7); thread_join(h); }",
     )
     .expect("a body with a matching parameter is accepted");
 
     // The body is an ordinary function, so an error inside it is reported even
     // though nothing but `thread_spawn` refers to it.
     assert_rejected(
-        "fn work(n: int) { var x: int = true; } \
-         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
+        "fn work(n: int) { let x: int = true; } \
+         fn main() { let h: int = thread_spawn(work, 7); thread_join(h); }",
         "expected `int`, found `bool`",
     );
 }
@@ -60,20 +60,20 @@ fn a_thread_body_is_checked_like_any_other_function() {
 #[test]
 fn spawn_requires_a_function_and_matching_arguments() {
     assert_rejected(
-        "fn main() { var x: int = 1; var h: int = thread_spawn(x); }",
+        "fn main() { let x: int = 1; let h: int = thread_spawn(x); }",
         "`thread_spawn` needs a function",
     );
     assert_rejected(
-        "fn work(n: int) { print(n); } fn main() { var h: int = thread_spawn(work); }",
+        "fn work(n: int) { print(n); } fn main() { let h: int = thread_spawn(work); }",
         "expected 1 arguments, found 0",
     );
     assert_rejected(
-        "fn work(n: int) { print(n); } fn main() { var h: int = thread_spawn(work, true); }",
+        "fn work(n: int) { print(n); } fn main() { let h: int = thread_spawn(work, true); }",
         "expected `int`, found `bool`",
     );
     assert_rejected(
         "fn work(n: int) -> int { return n; } \
-         fn main() { var h: int = thread_spawn(work, 1); }",
+         fn main() { let h: int = thread_spawn(work, 1); }",
         "a thread body must return `void`",
     );
 }
@@ -82,9 +82,9 @@ fn spawn_requires_a_function_and_matching_arguments() {
 fn channel_element_type_is_fixed_at_creation() {
     check(
         "fn main() { \
-           var c: Channel[int] = chan_new(4); \
-           var ok: bool = c.send(1); \
-           var got: Option[int] = c.recv(); \
+           let c: Channel[int] = chan_new(4); \
+           let ok: bool = c.send(1); \
+           let got: Option[int] = c.recv(); \
            c.close(); \
            c.free(); \
          }",
@@ -92,21 +92,21 @@ fn channel_element_type_is_fixed_at_creation() {
     .expect("a channel of int round-trips");
 
     assert_rejected(
-        "fn main() { var c: Channel[int] = chan_new(4); c.send(true); }",
+        "fn main() { let c: Channel[int] = chan_new(4); c.send(true); }",
         "expected `int`, found `bool`",
     );
     assert_rejected(
-        "fn main() { var c: Channel[float] = chan_new(4); var n: int = c.recv(); }",
+        "fn main() { let c: Channel[float] = chan_new(4); let n: int = c.recv(); }",
         "found `Option[float]`",
     );
     assert_rejected(
-        "fn main() { var c = chan_new(4); }",
+        "fn main() { let c = chan_new(4); }",
         "cannot infer the channel's element type",
     );
     // A string slot would be one pointer with one refcount, shared by sender
     // and receiver with no owner; the first release would dangle the other.
     assert_rejected(
-        "fn main() { var c: Channel[string] = chan_new(1); }",
+        "fn main() { let c: Channel[string] = chan_new(1); }",
         "cannot carry `string`",
     );
 }
@@ -115,7 +115,7 @@ fn channel_element_type_is_fixed_at_creation() {
 fn mutex_and_channel_handles_are_linear() {
     check(
         "fn main() { \
-           var m: Mutex = mutex_new(); \
+           let m: Mutex = mutex_new(); \
            m.lock(); \
            m.unlock(); \
            m.free(); \
@@ -124,25 +124,25 @@ fn mutex_and_channel_handles_are_linear() {
     .expect("lock and unlock borrow, free consumes");
 
     assert_rejected(
-        "fn main() { var m: Mutex = mutex_new(); var n: Mutex = m; m.free(); }",
+        "fn main() { let m: Mutex = mutex_new(); let n: Mutex = m; m.free(); }",
         "without `move`",
     );
     assert_rejected(
-        "fn main() { var m: Mutex = mutex_new(); m.free(); m.free(); }",
+        "fn main() { let m: Mutex = mutex_new(); m.free(); m.free(); }",
         "moved",
     );
     assert_rejected(
-        "fn main() { var c: Channel[int] = chan_new(1); var d: Channel[int] = c; }",
+        "fn main() { let c: Channel[int] = chan_new(1); let d: Channel[int] = c; }",
         "without `move`",
     );
 }
 
 #[test]
 fn recv_yields_an_option_not_a_blocking_value() {
-    check("fn main() { var c: Channel[int] = chan_new(1); var got: Option[int] = c.recv(); }")
+    check("fn main() { let c: Channel[int] = chan_new(1); let got: Option[int] = c.recv(); }")
         .expect("recv is an Option");
     assert_rejected(
-        "fn main() { var c: Channel[int] = chan_new(1); var n: int = c.recv(); }",
+        "fn main() { let c: Channel[int] = chan_new(1); let n: int = c.recv(); }",
         "found `Option[int]`",
     );
 }
@@ -154,8 +154,8 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
     check(
         "fn work(c: Channel[int]) { c.close(); } \
          fn main() { \
-           var c: Channel[int] = chan_new(1); \
-           var h: int = thread_spawn(work, c); \
+           let c: Channel[int] = chan_new(1); \
+           let h: int = thread_spawn(work, c); \
            thread_join(h); \
            c.free(); \
          }",
@@ -167,8 +167,8 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
     check(
         "fn work(s: string) { print(s); } \
          fn main() { \
-           var s: string = \"hello\"; \
-           var h: int = thread_spawn(work, s); \
+           let s: string = \"hello\"; \
+           let h: int = thread_spawn(work, s); \
            thread_join(h); \
            print(s); \
          }",
@@ -180,7 +180,7 @@ fn a_spawn_argument_may_share_a_handle_or_a_string() {
 fn a_linear_container_cannot_cross_a_thread_boundary_yet() {
     assert_rejected(
         "fn work(xs: []int) { } \
-         fn main() { var xs: []int = []int { 1, 2 }; var h: int = thread_spawn(work, xs); }",
+         fn main() { let xs: []int = []int { 1, 2 }; let h: int = thread_spawn(work, xs); }",
         "cannot cross a thread boundary",
     );
 }

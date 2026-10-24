@@ -12,8 +12,8 @@ fn scale[T](x: T, k: T) -> T {
 fn main() {
     const n = 100000000;
     const k = 1000;
-    var sum = 0;
-    var i = 0;
+    let sum = 0;
+    let i = 0;
     while i < n {
         sum = wrapping_add(sum, scale(i, k));
         i = wrapping_add(i, 1);

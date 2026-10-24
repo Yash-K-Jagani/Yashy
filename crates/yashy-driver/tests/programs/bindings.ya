@@ -1,7 +1,7 @@
-// The three binding forms, end to end. `let` and `var` are mutable; `const` is
-// not. All three are block-scoped today, so the nested `var` in this program is
+// The three binding forms, end to end. `let` and `let` are mutable; `const` is
+// not. All three are block-scoped today, so the nested `let` in this program is
 // only visible inside its block -- the assignment on the next line uses the
-// outer `total`, not the inner `var`.
+// outer `total`, not the inner `let`.
 
 fn main() {
     let x: int = 1;
@@ -9,9 +9,9 @@ fn main() {
     print(x);
     println("");
 
-    var total = 0;
+    let total = 0;
     if true {
-        var inner = 40;
+        let inner = 40;
         total = inner + 2;
     }
     print(total);

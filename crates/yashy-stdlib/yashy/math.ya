@@ -43,8 +43,8 @@ pub fn max(left: int, right: int) -> int {
 // and is refused by the assertion. Ownership: pure; the result is a number.
 pub fn pow(base: int, exponent: int) -> int {
     assert(exponent >= 0);
-    var result = 1;
-    var step = 0;
+    let result = 1;
+    let step = 0;
     while step < exponent {
         result = result * base;
         step = step + 1;
@@ -65,8 +65,8 @@ pub fn sqrt(x: float) -> float {
     if x == 0.0 {
         return 0.0;
     }
-    var guess = x;
-    var step = 0;
+    let guess = x;
+    let step = 0;
     while step < 32 {
         guess = 0.5 * (guess + x / guess);
         step = step + 1;

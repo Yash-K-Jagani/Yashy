@@ -65,7 +65,7 @@ fn main() {
 
 `const f = square;` binds a function value; `f(4)` calls through it. The
 binding's type is the function's type, so the checker knows what the call
-returns. `const` says the binding does not change; `var f = square;` would
+returns. `const` says the binding does not change; `let f = square;` would
 work just as well, because a function value is a value like any other.
 
 ## A lambda
@@ -282,9 +282,9 @@ says to keep, and `fold` carries one value through the whole array.
 
 ```yashy
 fn main() {
-    var xs = []int { 1, 2, 3 };
+    let xs = []int { 1, 2, 3 };
 
-    var doubled = xs.map(|x: int| -> int { return x * 2; });
+    let doubled = xs.map(|x: int| -> int { return x * 2; });
     for x in doubled {
         print(x);
         println();
@@ -294,7 +294,7 @@ fn main() {
     // => 6
     doubled.free();
 
-    var big = xs.filter(|x: int| -> bool { return x > 2; });
+    let big = xs.filter(|x: int| -> bool { return x > 2; });
     for x in big {
         print(x);
         println();
@@ -402,7 +402,7 @@ takes literals and other `const fn` calls:
 
 ```text
 fn main() {
-    var n = 9;
+    let n = 9;
     const table = square(n);
 }
 ```
@@ -424,7 +424,7 @@ const fn square(n: int) -> int {
 }
 
 fn main() {
-    var t = square(9);
+    let t = square(9);
 }
 ```
 

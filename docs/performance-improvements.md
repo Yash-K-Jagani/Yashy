@@ -50,7 +50,7 @@ runs once per iteration.
 **Evidence it was real.** This program
 
 ```yashy
-fn f(n: int) { for i in 0..n { for j in 0..n { var x = i * j; } } }
+fn f(n: int) { for i in 0..n { for j in 0..n { let x = i * j; } } }
 ```
 
 put the inner loop's counter slots in the *outer* loop's body block — `%slot3`

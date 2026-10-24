@@ -7,8 +7,8 @@
 // element-count multiply for each allocation.
 
 fn main() {
-    var arena = arena_new();
-    var first = arena_alloc(arena, 4);
-    var second = arena_alloc(arena, 8);
+    let arena = arena_new();
+    let first = arena_alloc(arena, 4);
+    let second = arena_alloc(arena, 8);
     arena_free_all(arena);
 }

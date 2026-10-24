@@ -165,10 +165,10 @@ fn formatting_preserves_meaning() {
 fn empty_braces_collapse_to_one_pair() {
     // A brace pair with nothing in it is one token pair even when the source
     // split it across lines, and the `;` still attaches to it.
-    let source = "fn main() {\n    var parts = []string {\n    };\n}\n";
+    let source = "fn main() {\n    let parts = []string {\n    };\n}\n";
     assert_eq!(
         format(source),
-        "fn main() {\n    var parts = []string {};\n}\n"
+        "fn main() {\n    let parts = []string {};\n}\n"
     );
 }
 

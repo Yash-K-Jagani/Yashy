@@ -131,7 +131,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "assignment with no value",
-            "fn main() { var x = 1; x = ; }".to_string(),
+            "fn main() { let x = 1; x = ; }".to_string(),
         ),
         (
             "assignment with no target",
@@ -139,7 +139,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "chained assignment, which is not an expression",
-            "fn main() { var x = 1; var y = 2; x = y = 3; }".to_string(),
+            "fn main() { let x = 1; let y = 2; x = y = 3; }".to_string(),
         ),
         (
             "let, which is not a keyword",
@@ -407,7 +407,7 @@ const TEMPLATES: &[&str] = &[
     "enum E { A, B(int) } fn f(e: E) -> int { return switch e { case A { 0 } case B(v) { v } }; }\n",
     "struct S { x: int, y: float } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
     "fn f() { defer { print(1); } for i in 0..3 { print(i); } }\n",
-    "fn f() { var sum = 0; for i in 0..3 { sum = sum + i; } }\n",
+    "fn f() { let sum = 0; for i in 0..3 { sum = sum + i; } }\n",
     "fn f(x: bool) { if x { break; } }\n",
     "fn f() -> Result[int, string] { return Err(\"no\"); }\n",
     "import std.io;\nextern \"C\" { fn puts(s: string) -> int; }\n",

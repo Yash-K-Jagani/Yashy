@@ -16,8 +16,8 @@ fn min_max(a: int, b: int) -> (int, int) {
 
 fn main() {
     const rounds = 50000000;
-    var total = 0;
-    var i = 0;
+    let total = 0;
+    let i = 0;
     while i < rounds {
         const (lo, hi) = min_max(i, rounds - i);
         total = total + lo * 3 + hi;

@@ -16,7 +16,7 @@ header*; the public surface is arrays and methods.
 
 ```yashy
 fn main() {
-    var xs = []int { 10, 20 };
+    let xs = []int { 10, 20 };
     xs.push(30);
     print(xs.len());
     println();
@@ -111,7 +111,7 @@ function moves it**, because a parameter takes ownership:
 
 ```yashy
 fn total(xs: []int) -> int {
-    var sum = 0;
+    let sum = 0;
     for x in xs {
         sum += x;
     }
@@ -120,7 +120,7 @@ fn total(xs: []int) -> int {
 }
 
 fn main() {
-    var xs = []int { 1, 2, 3 };
+    let xs = []int { 1, 2, 3 };
     print(total(xs));
     println();
     // => 6
@@ -222,7 +222,7 @@ fn main() {
     println();
     // => 2
 
-    var total = 0;
+    let total = 0;
     for value in head {
         total = total + value;
     }
@@ -248,7 +248,7 @@ function returns**:
 
 ```yashy
 fn main() {
-    var xs = []int { 1, 2, 3 };
+    let xs = []int { 1, 2, 3 };
     const view = xs[0..2];
     // xs.push(4);   error: cannot change `xs` while a view of it is alive
     // move xs;      error: cannot move `xs` while a view of it is alive
@@ -273,7 +273,7 @@ a leak, not a corruption. This is the honest cost of views without lifetimes:
 ```yashy
 fn middle_sum(xs: []int) -> int {
     const mid = xs[1..3];
-    var sum = 0;
+    let sum = 0;
     for value in mid {
         sum = sum + value;
     }
@@ -299,7 +299,7 @@ The two forms divide the work like this:
 | `[T]` (view) | borrowed from an array | a word it carries | none | yes, by value |
 | `[]T` | the heap | a word it carries | one owner, freed with `free()` | no |
 
-A fixed array is a value, so `var copy = grid;` is allowed and copies the
+A fixed array is a value, so `let copy = grid;` is allowed and copies the
 elements. A view is a value too, but copying a view copies a pointer, which is
 safe only because neither copy can outlive the array. The element types are
 limited to the built-in numbers, `bool`, and `usize`: copying a fixed array
@@ -311,9 +311,9 @@ that owns a reference.
 - **Treating an index as a value.** `print(xs[0])` reports
   ``error: expected `int`, found `Option[int]` ``. Match the `Option`, or use
   `pop` when the last element is the one you want.
-- **Copying an array binding.** `var ys = xs;` reports
+- **Copying an array binding.** `let ys = xs;` reports
   ``error: cannot assign linear value `xs` without `move` ``. Do not follow
-  that suggestion with `var ys = move xs;` today: it builds invalid IR and
+  that suggestion with `let ys = move xs;` today: it builds invalid IR and
   clang reports `null must be a pointer type`. Keep one binding, or pass the
   array to a function, which transfers it correctly.
 - **Assigning to an element with `=`.** `xs[0] = 9;` reports ``error: cannot

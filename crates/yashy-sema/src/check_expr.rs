@@ -153,7 +153,7 @@ struct MethodSig {
     ///
     /// A pointer receiver is handed the address of the object it was called on,
     /// which is what lets the method mutate that object. The binding it is
-    /// called on must therefore be a mutable `var`, and it must be a binding:
+    /// called on must therefore be a mutable `let`, and it must be a binding:
     /// there is no address of a temporary.
     receiver_is_pointer: bool,
 }
@@ -841,7 +841,7 @@ impl<'src> Checker<'src> {
     }
 
     /// A linear value may leave its binding only through `move`. Handing a live
-    /// linear binding to a new binding (`var o = buf`) without `move` would
+    /// linear binding to a new binding (`let o = buf`) without `move` would
     /// leave two owners of one allocation, so it is an error rather than a
     /// silent copy. Only a bare name can be a copy of a binding; a call or a
     /// literal produces a value that already has exactly one owner, and a
@@ -2676,13 +2676,7 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
-            Stmt::Var {
-                name,
-                ty,
-                init,
-                span,
-            }
-            | Stmt::Let {
+            Stmt::Let {
                 name,
                 ty,
                 init,
@@ -2777,7 +2771,7 @@ impl<'src> Checker<'src> {
                 self.forbid_linear_copy(init, &init_expr);
                 let mutability = match kind {
                     BindingKeyword::Const => Mutability::Const,
-                    BindingKeyword::Var | BindingKeyword::Let => Mutability::Var,
+                    BindingKeyword::Let => Mutability::Var,
                 };
                 let mut bindings = Vec::with_capacity(names.len());
                 for (name, element) in names.iter().zip(elements.iter()) {
@@ -2813,9 +2807,9 @@ impl<'src> Checker<'src> {
             } => {
                 // The parser left the target an expression on purpose, so the
                 // question "what may be assigned to?" is answered here. Three
-                // shapes are assignable: a name bound by `var` in a scope that
+                // shapes are assignable: a name bound by `let` in a scope that
                 // encloses this statement, an index into a mutable `*mut i64`
-                // binding (`p[i] = v`), and a field of a `var` binding
+                // binding (`p[i] = v`), and a field of a `let` binding
                 // (`p.x = v`, `p.inner.x = v`).
                 //
                 // `p[i] = v` and `p.x = v` are checked before the name case
@@ -2889,7 +2883,7 @@ impl<'src> Checker<'src> {
                         // in the same pass as a bad target.
                         let _ = self.check_expr(value);
                         let span = yashy_parser::exprs::expr_span(other);
-                        self.error(span, "only a `var` binding can be assigned");
+                        self.error(span, "only a `let` binding can be assigned");
                         return None;
                     }
                 };
@@ -2933,7 +2927,7 @@ impl<'src> Checker<'src> {
                         format!("expected `{}`, found `{found}`", binding.ty),
                     );
                 }
-                // Re-initialising a `var` gives it a fresh owner, so whatever it
+                // Re-initialising a `let` gives it a fresh owner, so whatever it
                 // held before -- live or moved -- it owns something now. The
                 // source may not be a bare linear name without `move`, for the
                 // same reason as a declaration.
@@ -5411,7 +5405,7 @@ impl<'src> Checker<'src> {
     ///
     /// There is no argument to infer from, so the call is only typed when the
     /// surrounding annotation, parameter, or return type is already a
-    /// `map[K]V`. That keeps `var m = map_new();` an error instead of guessing
+    /// `map[K]V`. That keeps `let m = map_new();` an error instead of guessing
     /// a key type the rest of the program may not agree with.
     fn check_map_new(
         &mut self,
@@ -5429,7 +5423,7 @@ impl<'src> Checker<'src> {
         let Some(expected) = expected else {
             self.error(
                 span,
-                "cannot infer the map's key and value types: write `var m: map[K]V = map_new()`",
+                "cannot infer the map's key and value types: write `let m: map[K]V = map_new()`",
             );
             return None;
         };
@@ -5879,7 +5873,7 @@ impl<'src> Checker<'src> {
         let Some(expected) = expected else {
             self.error(
                 span,
-                "cannot infer the channel's element type: write `var c: Channel[i64] = chan_new(4)`",
+                "cannot infer the channel's element type: write `let c: Channel[i64] = chan_new(4)`",
             );
             return None;
         };
@@ -7253,7 +7247,7 @@ impl<'src> Checker<'src> {
     /// [`Stmt::Assign`].
     ///
     /// A field is a *place*, so the rules are the binding's rules one level
-    /// down: the bottom of the chain has to be a `var` binding (a field of a
+    /// down: the bottom of the chain has to be a `let` binding (a field of a
     /// `const` is as immutable as the `const`), every `.field` has to exist on
     /// the type the one before it produced, and the value has to fit the
     /// innermost field. What the checker resolves here -- each field's position
@@ -7446,7 +7440,7 @@ impl<'src> Checker<'src> {
             other => {
                 self.error(
                     yashy_parser::exprs::expr_span(other),
-                    "only a `var` binding or one of its fields can be assigned",
+                    "only a `let` binding or one of its fields can be assigned",
                 );
                 None
             }

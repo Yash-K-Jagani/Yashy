@@ -20,7 +20,7 @@
 // -- so collecting a payload is a `push` into a slice, and the sum is taken
 // once the loop is done.
 fn worker(jobs: Channel[int], results: Channel[int]) {
-    var taken = 0;
+    let taken = 0;
     while taken < 1250 {
         switch jobs.recv() {
             case Some(n) {
@@ -37,24 +37,24 @@ fn worker(jobs: Channel[int], results: Channel[int]) {
 }
 
 fn main() {
-    var jobs: Channel[int] = chan_new(64);
-    var results: Channel[int] = chan_new(10000);
+    let jobs: Channel[int] = chan_new(64);
+    let results: Channel[int] = chan_new(10000);
 
-    var handles = []int { };
-    var w = 0;
+    let handles = []int { };
+    let w = 0;
     while w < 8 {
         handles.push(thread_spawn(worker, jobs, results));
         w += 1;
     }
 
-    var sent = 0;
+    let sent = 0;
     while sent < 10000 {
         jobs.send(sent);
         sent += 1;
     }
 
-    var collected = []int { };
-    var received = 0;
+    let collected = []int { };
+    let received = 0;
     while received < 10000 {
         switch results.recv() {
             case Some(n) {
@@ -73,7 +73,7 @@ fn main() {
         thread_join(h);
     }
 
-    var total = 0;
+    let total = 0;
     for n in collected {
         total += n;
     }

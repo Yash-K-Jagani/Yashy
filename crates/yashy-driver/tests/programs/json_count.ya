@@ -17,17 +17,17 @@
 import json_keys;
 
 fn main() {
-    var lines = []string {};
-    var line = read_line();
+    let lines = []string {};
+    let line = read_line();
     while line.len() > 0 {
         lines.push(line);
         line = read_line();
     }
 
-    var keys: map[string]int = map_new();
-    var seen = 0;
+    let keys: map[string]int = map_new();
+    let seen = 0;
     for text in lines {
-        var key = key_of(text);
+        let key = key_of(text);
         // A line with no quoted pair yields an empty key, which is not a key
         // this program counts. An empty JSON key (`"": 1`) is skipped too; the
         // trade is documented rather than hidden behind an `Option`.

@@ -12,7 +12,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    var empty = []int {};
+    let empty = []int {};
     if empty.is_empty() {
         println("empty is empty");
     }
@@ -21,7 +21,7 @@ fn main() {
     print(show(empty.last()));
     println("");
 
-    var xs = []int { 10, 20, 30 };
+    let xs = []int { 10, 20, 30 };
     if xs.is_empty() {
         println("unexpected: not empty");
     } else {

@@ -40,7 +40,7 @@ fn emit(src: &str) -> String {
 fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
     let ir = emit(
         "fn work(n: int) { print(n); } \
-         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
+         fn main() { let h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
         ir.contains("declare i32 @yashy_thread_spawn(i8*, i8*, i64)"),
@@ -58,7 +58,7 @@ fn spawning_emits_a_call_to_yashy_thread_spawn_with_the_function_pointer() {
 fn the_thread_body_is_emitted_as_its_own_function() {
     let ir = emit(
         "fn work(n: int) { print(n); } \
-         fn main() { var h: int = thread_spawn(work, 7); thread_join(h); }",
+         fn main() { let h: int = thread_spawn(work, 7); thread_join(h); }",
     );
     assert!(
         ir.contains("define void @yashy_thread_entry_0(i8* %raw)"),
@@ -75,7 +75,7 @@ fn the_thread_body_is_emitted_as_its_own_function() {
 fn arguments_are_copied_into_the_thread_entry_struct() {
     let ir = emit(
         "fn work(n: int, flag: bool) { print(n); if flag { print(\"y\"); } } \
-         fn main() { var h: int = thread_spawn(work, 7, true); thread_join(h); }",
+         fn main() { let h: int = thread_spawn(work, 7, true); thread_join(h); }",
     );
     // The parent builds the struct in its own frame: one store per argument.
     assert!(
@@ -93,7 +93,7 @@ fn arguments_are_copied_into_the_thread_entry_struct() {
 #[test]
 fn join_emits_a_blocking_call() {
     let ir = emit(
-        "fn work() { } fn main() { var h: int = thread_spawn(work); thread_join(h); }",
+        "fn work() { } fn main() { let h: int = thread_spawn(work); thread_join(h); }",
     );
     assert!(ir.contains("define void @yashy_thread_entry_0(i8* %raw)"), "{ir}");
     // A body with no arguments passes no struct at all.
@@ -109,7 +109,7 @@ fn join_emits_a_blocking_call() {
 fn a_locked_mutex_makes_lock_block() {
     let ir = emit(
         "fn main() { \
-           var m: Mutex = mutex_new(); \
+           let m: Mutex = mutex_new(); \
            m.lock(); \
            m.unlock(); \
            m.free(); \
@@ -126,9 +126,9 @@ fn a_locked_mutex_makes_lock_block() {
 fn channels_send_a_slot_and_receive_an_option() {
     let ir = emit(
         "fn main() { \
-           var c: Channel[int] = chan_new(4); \
-           var ok: bool = c.send(7); \
-           var got: Option[int] = c.recv(); \
+           let c: Channel[int] = chan_new(4); \
+           let ok: bool = c.send(7); \
+           let got: Option[int] = c.recv(); \
            c.close(); \
            c.free(); \
          }",

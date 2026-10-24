@@ -234,7 +234,7 @@ fn parameters_are_spilled_into_entry_block_slots() {
 
 #[test]
 fn assignment_stores_into_the_bindings_own_slot() {
-    let ir_text = ir_of("fn f() { var x = 1; x = 2; }");
+    let ir_text = ir_of("fn f() { let x = 1; x = 2; }");
     let stores: Vec<&str> = ir_text
         .lines()
         .filter(|line| line.trim_start().starts_with("store i64"))
@@ -259,7 +259,7 @@ fn assignment_stores_into_the_bindings_own_slot() {
 fn assignment_inside_a_loop_body_accumulates() {
     // The reason the statement exists: a loop body that keeps a running total.
     let ir_text = ir_of(
-        "fn f() -> int { var sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
+        "fn f() -> int { let sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
     );
     assert!(
         ir_text.contains("add i64"),
@@ -281,13 +281,13 @@ fn assignment_inside_a_loop_body_accumulates() {
 fn assigning_other_reprs_stores_their_width() {
     // The store's type comes from the binding, not from the value: a store of
     // the wrong width writes over the neighbouring slot.
-    let bools = ir_of("fn f() { var b = true; b = false; }");
+    let bools = ir_of("fn f() { let b = true; b = false; }");
     assert_eq!(
         bools.matches("store i1").count(),
         2,
         "a bool binding is an i1 slot:\n{bools}"
     );
-    let floats = ir_of("fn f() { var d = 1.0; d = 2.0; }");
+    let floats = ir_of("fn f() { let d = 1.0; d = 2.0; }");
     assert_eq!(
         floats.matches("store double").count(),
         2,
@@ -299,7 +299,7 @@ fn assigning_other_reprs_stores_their_width() {
 
 /// `a * b + 1.0` with `a` and `b` behind bindings, so the checker cannot fold
 /// the arithmetic and the backend really sees a multiply feeding an add.
-const FMA_SOURCE: &str = "fn main() -> float { var a = 2.0; var b = 3.0; return a * b + 1.0; }";
+const FMA_SOURCE: &str = "fn main() -> float { let a = 2.0; let b = 3.0; return a * b + 1.0; }";
 
 #[test]
 fn floating_point_contraction_is_off_until_it_is_asked_for() {
@@ -341,7 +341,7 @@ fn contraction_covers_subtraction_and_not_division() {
     // can fuse with nothing, and a flag that cannot change the code is noise in
     // the IR, so it must not appear there.
     let difference = ir_of_with(
-        "fn main() -> float { var a = 2.0; var b = 3.0; return a * b - 1.0; }",
+        "fn main() -> float { let a = 2.0; let b = 3.0; return a * b - 1.0; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(
@@ -350,7 +350,7 @@ fn contraction_covers_subtraction_and_not_division() {
     );
 
     let quotient = ir_of_with(
-        "fn main() -> float { var a = 2.0; var b = 3.0; return a / b; }",
+        "fn main() -> float { let a = 2.0; let b = 3.0; return a / b; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(
@@ -364,7 +364,7 @@ fn contraction_leaves_integer_arithmetic_alone() {
     // `contract` is a floating-point flag; on `add`/`sub`/`mul`/`sdiv` it would
     // be an LLVM parse error, so enabling contraction must not reach them.
     let integers = ir_of_with(
-        "fn main() -> int { var a = 2; var b = 3; return a * b + 1; }",
+        "fn main() -> int { let a = 2; let b = 3; return a * b + 1; }",
         CodegenOptions { fp_contract: true },
     );
     assert!(

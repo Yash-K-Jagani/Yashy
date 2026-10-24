@@ -138,12 +138,12 @@ fn a_view_borrows_its_source_until_the_function_ends() {
     // still points into it. Rebinding is refused for the same reason.
     assert_error(
         "fn take(xs: []int) -> int { return xs.len(); } \
-         fn main() { var xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
+         fn main() { let xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
          print(take(move xs)); }",
         "cannot move `xs` while a view of it is alive",
     );
     assert_error(
-        "fn main() { var xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
+        "fn main() { let xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
          xs = []int { 4 }; }",
         "cannot change `xs` while a view of it is alive",
     );
@@ -154,11 +154,11 @@ fn changing_a_borrowed_array_is_rejected() {
     // `push` grows the backing array, possibly to a new block; a view taken
     // before it would be left pointing at the old one.
     assert_error(
-        "fn main() { var xs = []int { 1, 2 }; const view = xs[0..1]; xs.push(3); }",
+        "fn main() { let xs = []int { 1, 2 }; const view = xs[0..1]; xs.push(3); }",
         "cannot change `xs` while a view of it is alive",
     );
     assert_error(
-        "fn main() { var xs = []int { 1, 2 }; const view = xs[0..1]; xs.free(); }",
+        "fn main() { let xs = []int { 1, 2 }; const view = xs[0..1]; xs.free(); }",
         "cannot change `xs` while a view of it is alive",
     );
 }

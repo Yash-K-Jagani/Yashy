@@ -530,7 +530,6 @@ fn statement_kind(statement: &Stmt) -> &'static str {
     match statement {
         Stmt::Expr(_, _) => "an expression statement",
         Stmt::Const { .. } => "a `const` binding",
-        Stmt::Var { .. } => "a `var` binding",
         Stmt::Let { .. } => "a `let` binding",
         Stmt::Destructure { .. } => "a destructuring binding",
         Stmt::Assign { .. } => "an assignment",

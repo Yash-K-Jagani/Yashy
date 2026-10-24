@@ -10,7 +10,7 @@ fn main() {
     if 1 == 1 {
         println("if");
     }
-    var xs = []int { 7, 8 };
+    let xs = []int { 7, 8 };
     for value in xs {
         print(value);
         print(" ");

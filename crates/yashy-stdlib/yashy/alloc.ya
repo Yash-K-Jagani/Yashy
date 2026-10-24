@@ -11,8 +11,8 @@
 // released with `dealloc`.
 pub fn alloc_zeroed(count: int) -> *mut int {
     assert(count >= 0);
-    var buffer = alloc(count);
-    var index = 0;
+    let buffer = alloc(count);
+    let index = 0;
     while index < count {
         buffer[index] = 0;
         index = index + 1;
@@ -23,7 +23,7 @@ pub fn alloc_zeroed(count: int) -> *mut int {
 // Ownership: the returned pointer owns one slot holding `value`; release it
 // with `dealloc`.
 pub fn alloc_one(value: int) -> *mut int {
-    var buffer = alloc(1);
+    let buffer = alloc(1);
     buffer[0] = value;
     return buffer;
 }
