@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to package (without v)'
+        required: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify LLVM
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+          }
+          clang --version
+
+      - name: Load the MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        run: cargo build --release -p yashy-driver
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}'.TrimStart('v') }
+          pwsh scripts/package-release.ps1 -Version $version
+
+      - name: Upload the Windows zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: yashy-windows
+          path: dist/*.zip
+
+      - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

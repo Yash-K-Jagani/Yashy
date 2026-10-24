@@ -3,6 +3,7 @@
 
 # Build output
 target/
+dist/
 # Benchmark binaries and their intermediate IR/objects: all build output, and
 # the patterns below already cover the file types. Listed for clarity.
 benchmarks/build/

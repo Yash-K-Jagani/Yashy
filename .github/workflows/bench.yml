@@ -1,0 +1,41 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  bench:
+    name: windows scalar baseline
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify LLVM
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+          }
+          clang --version
+
+      - name: Load the MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build the release compiler
+        run: cargo build --release -p yashy-driver
+
+      - name: Run the benchmark smoke
+        shell: pwsh
+        run: pwsh benchmarks/ci.ps1 | Tee-Object -FilePath bench-output.txt
+
+      - name: Upload the benchmark log
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output
+          path: bench-output.txt

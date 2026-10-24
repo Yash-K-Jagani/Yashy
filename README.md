@@ -92,8 +92,7 @@ it cannot drift either.
 
 ```console
 $ cargo build --release --workspace
-$ ./target/release/yashy build crates/yashy-driver/tests/programs/fib.ya -o fib
-$ ./fib
+$ ./target/release/yashy run crates/yashy-driver/tests/programs/fib.ya
 55
 ```
 
@@ -101,14 +100,26 @@ $ ./fib
 worked examples — they are what the end-to-end suite compiles and runs, so they
 cannot drift out of date.)
 
-`yashy build` compiles to a native executable, `yashy check` type-checks without
-emitting anything, and `yashy build --emit-ir` prints the generated LLVM IR and
-stops — useful on a machine with no LLVM backend at all. `-O0` through `-O3`
-control the optimization level passed to `clang`; the default is `-O2`.
-`--release` is a separate question from optimization: it is the flag that makes
-this a build a user runs, and the one build-mode decision the compiler makes —
-`debug_assert` is compiled out. A `main` returning `int` is the process exit
+`yashy build` compiles to a native executable, `yashy run` compiles and runs
+one in a single step, `yashy check` type-checks without emitting anything, and
+`yashy build --emit-ir` prints the generated LLVM IR and stops — useful on a
+machine with no LLVM backend at all. `-O0` through `-O3` control the
+optimization level passed to `clang`; the default is `-O2`. `--release` compiles
+out `debug_assert` and raises the default optimization level to `-O3`; an
+explicit `-O` level still wins. A `main` returning `int` is the process exit
 status, and `os.exit(code)` ends the program with a chosen status from anywhere.
+
+`yashy test` treats every `.ya` file under `tests/` as one test program: it
+compiles and runs each one, prints `ok` or `FAILED`, and exits nonzero if any
+program fails. `yashy test --filter <substring>` selects by path and
+`yashy test --list` shows what would run. `yashy init` creates a project with
+`main.ya`, `yashy.toml`, and a smoke test. `yashy doctor` checks the two things
+a fresh install can get wrong: the `clang` toolchain and the standard library.
+
+The bundled standard library is found automatically, so `import io;` works
+without `YASHY_PATH`. `YASHY_PATH` still replaces the entry-directory search
+roots, and `YASHY_STDLIB` overrides the stdlib location explicitly; the bundled
+stdlib is appended after the entry roots in both cases.
 
 `yashy fmt file.ya` prints the canonical formatting to stdout, and
 `yashy fmt -w file.ya` writes it back. For a guided tour rather than a
