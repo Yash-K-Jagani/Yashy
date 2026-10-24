@@ -1,24 +1,6 @@
-// The process and its environment (M6 Task 10).
+// `getcwd()` answers the current working directory as an owned string.
 //
-// `exit` is a builtin and its type is `!`: it never returns. The wrapper exists
-// so a program that wants "stop with this status" does not have to remember
-// that, and so the call reads as a statement rather than a diverging value.
-//
-// `getenv(name)` is a builtin too: the variable's value as an owned string, or
-// the empty string when it is unset (an empty variable reads the same; M6 has no
-// `Option` in a builtin's signature).
-//
-// Program arguments (`os.args`) are **not** in M6. `main` is emitted as
-// `i32 @main()` with no argc/argv, and capturing them changes the entry
-// signature every program pays for; the plan records that rather than
-// half-implementing it.
-//
-// Ownership: none; `exit_with` never returns and owns nothing.
-//
-// The return type is `()` rather than `!` because `!` is not a type a *declaration*
-// can spell yet -- only a builtin's signature uses it. At run time the call
-// still never comes back; the type system just cannot say so to the caller.
-
-pub fn exit_with(code: int) {
-    exit(code);
+// Ownership: the result owns its own allocation.
+pub fn getcwd() {
+    print("getcwd");
 }
