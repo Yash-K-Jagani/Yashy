@@ -164,13 +164,13 @@ fn changing_a_borrowed_array_is_rejected() {
 }
 
 #[test]
-fn a_view_type_is_not_a_spelling() {
+fn a_view_parameter_cannot_be_named() {
     // A view borrows storage in the frame that made it. Yashy has no lifetime
     // syntax, so letting a return type or a field name `[T]` would let the
     // view outlive the array; the type is inferred at the range instead.
     assert_error(
         "fn f(x: [int]) -> int { return 0; } fn main() { }",
-        "a view type cannot be written",
+        "a view cannot be named",
     );
 }
 

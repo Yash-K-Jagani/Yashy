@@ -2208,6 +2208,22 @@ fn a_range_binding_has_a_view_type() {
     assert!(matches!(init, HirExpr::View { .. }));
 }
 
+#[test]
+fn a_view_cannot_be_named() {
+    assert_error(
+        "fn f(xs: []int) { const v: [int] = xs[0..1]; }",
+        "a view cannot be named",
+    );
+}
+
+#[test]
+fn a_range_is_still_inferred() {
+    let (result, _, _) = check_source(
+        "fn f(xs: []int) { let v = xs[0..1]; println(v.len()); }",
+    );
+    assert!(result.is_ok(), "{result:?}");
+}
+
 // -- tuples, destructuring, and guards --------------------------------------
 
 #[test]

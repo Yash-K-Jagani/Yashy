@@ -1827,8 +1827,7 @@ impl<'src> Checker<'src> {
                 // internally and in messages; it is not a spelling.
                 Err(TypeError::new(
                     *span,
-                    "a view type cannot be written: `[T]` is the type of `a[start..end]`, \
-                     which borrows `a` and stays in the function that made it"
+                    "a view cannot be named: bind it with `let` and use it in place"
                         .to_string(),
                 ))
             }

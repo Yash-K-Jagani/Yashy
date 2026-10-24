@@ -1958,6 +1958,25 @@ git commit -m "docs: state the view rule in one sentence"
 git push origin main
 ```
 
+### Task 5.3, as built
+
+1. **The wording change is the whole code change.** The `TypeExpr::View` arm
+   now returns `` a view cannot be named: bind it with `let` and use it in
+   place ``. The comment above it still explains why: no lifetime syntax means
+   a written `[T]` could outlive the storage it borrows.
+
+2. **`errors.rs` also asserted the old sentence.** Its test,
+   `a_view_type_is_not_a_spelling`, covered the parameter position (the
+   `check.rs` test covers a `const` annotation), so it was renamed
+   `a_view_parameter_cannot_be_named` and its needle updated rather than
+   duplicated. The dated 2026-10-20 plan keeps the old quote, as a record.
+
+3. **The tutorial keeps the borrow explanation and drops "type you can
+   write".** `09-arrays.md` now opens the section with "Views cannot be named:
+   bind the range with `let` and use it in place", and the common-mistakes entry
+   is "Naming a view" quoting the new diagnostic. Every `// =>` line is
+   untouched.
+
 ---
 
 ## Phase 6 — Docs, tutorial, benchmarks

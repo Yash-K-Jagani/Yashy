@@ -258,12 +258,12 @@ fn main() {
 }
 ```
 
-Views are not a type you can write. `fn f(x: [int])` and `fn f() -> [int]` are
-both rejected, because Yashy has no lifetime syntax to say which array a
-borrowed view came from, and a view that outlived its array would read freed
-storage. A view is inferred at the range and lives in the function that made
-it; pass the array itself, or copy the elements into a `[]T`, to hand the data
-to another function.
+Views cannot be named: bind the range with `let` and use it in place.
+`fn f(x: [int])` and `fn f() -> [int]` are both rejected, because Yashy has no
+lifetime syntax to say which array a borrowed view came from, and a view that
+outlived its array would read freed storage. A view is inferred at the range and
+lives in the function that made it; pass the array itself, or copy the elements
+into a `[]T`, to hand the data to another function.
 
 The borrow also means a `[]T` you take a view of **cannot be freed in that
 function**. `xs.free()` under a live view is refused, and the view lives until
@@ -336,10 +336,11 @@ that owns a reference.
   reports ``error: cannot change `xs` while a view of it is alive``. Any write
   -- `push`, `pop`, `set`, `insert`, `remove`, `clear`, `reverse`, `sort`,
   `extend`, `free`, or an assignment -- is refused until the function returns.
-- **Writing a view type.** `fn total(xs: [int]) -> int` reports
-  ``error: a view type cannot be written``. Yashy cannot say which array a
-  borrowed parameter would point at, so views stay in the function that made
-  them; take `[]int` and free it, or copy the elements first.
+- **Naming a view.** `fn total(xs: [int]) -> int` reports
+  ``error: a view cannot be named: bind it with `let` and use it in place``.
+  Yashy cannot say which array a borrowed parameter would point at, so views
+  stay in the function that made them; take `[]int` and free it, or copy the
+  elements first.
 - **A fixed array of strings.** `[\"a\", \"b\"]` reports
   ``error: a fixed array cannot hold `string` ``. Copying the array would
   duplicate the handles without taking a reference; use a `[]string` today.
