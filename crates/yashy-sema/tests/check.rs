@@ -929,16 +929,18 @@ fn a_string_piece_is_used_as_it_is_without_a_conversion() {
 }
 
 #[test]
-fn interpolating_a_type_with_no_text_form_is_an_error() {
-    assert_error(
-        "struct P { x: int } fn f(p: P) { const line = \"${p}\"; }",
-        "cannot interpolate",
-    );
+fn a_struct_interpolates_with_its_debug_shape() {
+    let (result, _, _) = check_source("struct P { x: int } fn f(p: P) { const line = \"${p}\"; }");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn a_pointer_still_has_no_text_form() {
     // A pointer is the dangerous one: printing its address would succeed and
     // mean nothing, which is the wrong answer the checker exists to refuse.
     assert_error(
         "fn f() { var p = alloc(1); const line = \"${p}\"; }",
-        "cannot interpolate",
+        "cannot print a `*mut int`",
     );
 }
 
@@ -1435,6 +1437,29 @@ fn print_takes_one_value_and_returns_nothing() {
 fn print_takes_exactly_one_value() {
     assert_error("fn main() { print(); }", "`print` takes one value");
     assert_error("fn main() { println(1, 2); }", "`println` takes one value");
+}
+
+#[test]
+fn every_aggregate_prints() {
+    let (result, _, _) = check_source(
+        "struct P { x: int } enum E { A, B(int) } \
+         fn main() { \
+           const p = P { x: 1 }; println(p); \
+           println(E.A); println((1, true)); \
+           const xs = [1, 2, 3]; println(xs); println(xs[0..1]); \
+           const o: Option[int] = Some(1); println(o); \
+           const r: Result[int, string] = Ok(1); println(r); \
+         }",
+    );
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn a_map_has_no_text_form() {
+    assert_error(
+        "fn main() { const m: map[string]int = map_new(); println(m); }",
+        "cannot print a `map[string]int`",
+    );
 }
 
 #[test]

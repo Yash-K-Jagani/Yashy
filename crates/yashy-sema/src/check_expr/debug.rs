@@ -1,7 +1,9 @@
 //! Debug formatting: the `${value:?}` form of string interpolation.
 //!
-//! Display (`${value}`) answers "what does this say?" and has a form for the
-//! five scalar types only. Debug answers "what is this value?" and has a form
+//! Display (`${value}`) answers "what does this say?" and now shares this
+//! module's surface: every type with a debug form has a display form too, and
+//! the five scalars keep their shorter spelling (`str_from_i64` rather than a
+//! quoted debug string). Debug answers "what is this value?" and has a form
 //! for the aggregate the language can build: structs and enums show their name
 //! and their fields, tuples and arrays show their elements, and a `string` is
 //! quoted and escaped so that whitespace and delimiters in it stay visible.
@@ -38,6 +40,31 @@ use yashy_common::Span;
 use super::*;
 
 impl Checker<'_> {
+    /// Whether `kind` has a *debug* form, which display now shares.
+    ///
+    /// Display used to accept the five scalars only and report every aggregate.
+    /// Printing should show the value the program has, so display delegates to
+    /// the debug machinery for every kind that has one and reports only the
+    /// kinds [`debug_expr`](Self::debug_expr) itself cannot format.
+    pub(super) fn has_debug_form(&self, kind: &TypeKind) -> bool {
+        matches!(
+            kind,
+            TypeKind::I64
+                | TypeKind::F64
+                | TypeKind::Bool
+                | TypeKind::Str
+                | TypeKind::Char
+                | TypeKind::Struct(_)
+                | TypeKind::Enum(_)
+                | TypeKind::Option(_)
+                | TypeKind::Result(_, _)
+                | TypeKind::Tuple(_)
+                | TypeKind::FixedArray(_, _)
+                | TypeKind::Slice(_)
+                | TypeKind::View(_)
+        )
+    }
+
     /// The `string` one `${value:?}` part contributes.
     ///
     /// `span` is the expression's own span, so a diagnostic about an

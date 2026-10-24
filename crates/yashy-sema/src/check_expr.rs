@@ -7465,21 +7465,42 @@ impl<'src> Checker<'src> {
     /// Returns `None` after reporting when there is no conversion.
     fn as_string(&mut self, expr: HirExpr, span: Span) -> Option<HirExpr> {
         let ty = expr_ty(&expr);
+        // Aggregates and other types with a debug form print through the same
+        // machinery `${x:?}` uses. Only types with no form (maps, channels,
+        // mutexes, pointers, functions, void) are reported.
+        if !matches!(
+            ty.kind,
+            TypeKind::Str
+                | TypeKind::I64
+                | TypeKind::F64
+                | TypeKind::Bool
+                | TypeKind::Char
+        ) {
+            if self.has_debug_form(&ty.kind) {
+                return self.debug_string(expr, span);
+            }
+            let why = match &ty.kind {
+                TypeKind::Map(_, _) => "a map's order is not stable",
+                TypeKind::Channel(_) => "a channel has no readable state",
+                TypeKind::Mutex => "a mutex has no readable state",
+                TypeKind::Ptr(_) | TypeKind::CPtr(_) => "a pointer has no value to show",
+                TypeKind::Func(_, _) => "a function has no text form",
+                TypeKind::Unit | TypeKind::Never => "void has no text form",
+                _ => "this type has no text form",
+            };
+            self.error(
+                expr_span(&expr),
+                format!("cannot print a `{ty}`: {why}"),
+            );
+            return None;
+        }
         let callee = match &ty.kind {
             TypeKind::Str => return Some(expr),
             TypeKind::I64 => "str_from_i64",
             TypeKind::F64 => "str_from_f64",
             TypeKind::Bool => "str_from_bool",
             TypeKind::Char => "str_from_char",
-            _ => {
-                self.error(
-                    expr_span(&expr),
-                    format!(
-                        "cannot interpolate a `{ty}` into a string: only `string`, `char`, `int`, `float` and `bool` have a text form"
-                    ),
-                );
-                return None;
-            }
+            _ => unreachable!(),
         };
         Some(HirExpr::Call {
             callee: vec![callee.to_string()],
