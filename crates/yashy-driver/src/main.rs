@@ -30,12 +30,18 @@ usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
   yashy check <file.ya>
+  yashy test [path] [--filter <substring>] [--list]
+  yashy init [path]
+  yashy doctor
   yashy fmt [-w] <files...>
   yashy version
 
   build   compile a program to a native executable
   run     compile and execute a program
   check   lex, parse and type-check without emitting anything
+  test    compile and run the programs under tests/
+  init    create a new Yashy project
+  doctor  check the compiler's toolchain and standard library
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -67,6 +73,9 @@ fn main() -> ExitCode {
         "build" => build(rest),
         "run" => run(rest),
         "check" => check(rest),
+        "test" => test(rest),
+        "init" => init(rest),
+        "doctor" => doctor(),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -350,6 +359,299 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// `yashy test [path] [--filter <substring>] [--list]`.
+///
+/// R1 tests are ordinary programs. A file under `tests/` is one test; the
+/// process exit code is the verdict. This keeps the language free of
+/// attributes and macros while still giving a project a real test command.
+fn test(args: &[String]) -> ExitCode {
+    let mut root: Option<PathBuf> = None;
+    let mut filter: Option<String> = None;
+    let mut list = false;
+
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--list" => list = true,
+            "--filter" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--filter` needs a substring");
+                };
+                filter = Some(value.clone());
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `test`"))
+            }
+            other => {
+                if root.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                root = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    let root = root.unwrap_or_else(|| PathBuf::from("tests"));
+    let mut tests = Vec::new();
+    if let Err(error) = collect_tests(&root, &mut tests) {
+        eprintln!("error: cannot read {}: {error}", root.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    tests.sort();
+
+    if let Some(filter) = &filter {
+        tests.retain(|path| path.to_string_lossy().contains(filter));
+    }
+
+    if list {
+        for path in &tests {
+            println!("{}", display_test_path(path));
+        }
+        return exit_code(EXIT_OK);
+    }
+
+    if tests.is_empty() {
+        println!("no tests found under {}", root.display());
+        return exit_code(EXIT_OK);
+    }
+
+    println!(
+        "running {} test{}",
+        tests.len(),
+        if tests.len() == 1 { "" } else { "s" }
+    );
+
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    for path in &tests {
+        let name = display_test_path(path);
+        let dir = temp_run_dir();
+        if let Err(error) = fs::create_dir_all(&dir) {
+            eprintln!("error: cannot create {}: {error}", dir.display());
+            failed += 1;
+            continue;
+        }
+        let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
+        let build_args = vec![
+            path.to_string_lossy().into_owned(),
+            "-o".to_string(),
+            exe.to_string_lossy().into_owned(),
+        ];
+        let code = build(&build_args);
+        if code != exit_code(EXIT_OK) {
+            println!("test {name} ... FAILED (compile error)");
+            failed += 1;
+            let _ = fs::remove_dir_all(&dir);
+            continue;
+        }
+
+        match output_with_retry(&exe, &[]) {
+            Ok(output) if output.status.success() => {
+                println!("test {name} ... ok");
+                passed += 1;
+            }
+            Ok(output) => {
+                println!("test {name} ... FAILED");
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+                eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                failed += 1;
+            }
+            Err(error) => {
+                println!("test {name} ... FAILED (cannot run: {error})");
+                failed += 1;
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    println!();
+    println!(
+        "test result: {}. {passed} passed; {failed} failed",
+        if failed == 0 { "ok" } else { "FAILED" }
+    );
+    if failed == 0 {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
+}
+
+fn collect_tests(root: &Path, tests: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if root.is_file() {
+        tests.push(root.to_path_buf());
+        return Ok(());
+    }
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_tests(&path, tests)?;
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("ya") {
+            tests.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Test paths are printed with `/` on every platform so a CI log and a local
+/// log name the same file the same way.
+fn display_test_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn output_with_retry(exe: &Path, args: &[String]) -> std::io::Result<std::process::Output> {
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let candidate = launch_candidate(exe, attempt)?;
+        match Command::new(&candidate).args(args).output() {
+            Ok(output) => return Ok(output),
+            Err(error) if blocked_by_policy(&error) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "the operating system refused to start the compiled test",
+    ))
+}
+
+/// `yashy init [path]`.
+///
+/// The default is the current directory. A directory that already contains
+/// anything is refused rather than merged: `init` creates a project, it does
+/// not edit one.
+fn init(args: &[String]) -> ExitCode {
+    if args.len() > 1 {
+        return usage_error(&format!("unexpected extra argument `{}`", args[1]));
+    }
+    let target = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    if target.exists() {
+        if !target.is_dir() {
+            return usage_error(&format!("{} exists and is not a directory", target.display()));
+        }
+        match fs::read_dir(&target) {
+            Ok(mut entries) => {
+                if entries.next().is_some() {
+                    return usage_error(&format!(
+                        "{} is not empty; choose a new directory or empty it first",
+                        target.display()
+                    ));
+                }
+            }
+            Err(error) => {
+                eprintln!("error: cannot read {}: {error}", target.display());
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        }
+    } else if let Err(error) = fs::create_dir_all(&target) {
+        eprintln!("error: cannot create {}: {error}", target.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+
+    let name = project_name(&target);
+    let files: [(&str, String); 5] = [
+        (
+            "yashy.toml",
+            format!(
+                "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n",
+                escape_toml(&name)
+            ),
+        ),
+        (
+            "main.ya",
+            "fn main() {\n    println(\"Hello, Yashy!\");\n}\n".to_string(),
+        ),
+        (
+            "tests/smoke.ya",
+            "fn main() {\n    assert(1 + 1 == 2);\n}\n".to_string(),
+        ),
+        (
+            "README.md",
+            format!(
+                "# {name}\n\nA Yashy project.\n\n```text\nyashy run main.ya\nyashy test\n```\n"
+            ),
+        ),
+        (".gitignore", "/target/\n*.exe\n".to_string()),
+    ];
+
+    for (relative, contents) in files {
+        let path = target.join(relative);
+        if let Some(parent) = path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                eprintln!("error: cannot create {}: {error}", parent.display());
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        }
+        if let Err(error) = fs::write(&path, contents) {
+            eprintln!("error: cannot write {}: {error}", path.display());
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    }
+
+    println!("Created Yashy project `{name}` in {}", target.display());
+    println!("Next:");
+    println!("  cd {}", target.display());
+    println!("  yashy run main.ya");
+    println!("  yashy test");
+    exit_code(EXIT_OK)
+}
+
+fn project_name(target: &Path) -> String {
+    target
+        .canonicalize()
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "yashy-project".to_string())
+}
+
+fn escape_toml(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// `yashy doctor`: the two things a fresh install can get wrong.
+fn doctor() -> ExitCode {
+    println!("yashy {}", env!("CARGO_PKG_VERSION"));
+
+    let mut ok = true;
+
+    match detect() {
+        Ok(toolchain) => {
+            println!(
+                "clang: {} (found as {})",
+                toolchain.llc.display(),
+                toolchain.found
+            );
+        }
+        Err(message) => {
+            eprintln!("clang: missing\n{message}");
+            ok = false;
+        }
+    }
+
+    match yashy_driver::default_stdlib_root() {
+        Some(root) => println!("stdlib: {}", root.display()),
+        None => {
+            eprintln!(
+                "stdlib: missing\nset YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy"
+            );
+            ok = false;
+        }
+    }
+
+    if ok {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
 }
 
 /// `yashy check <file.ya>`.
