@@ -28,7 +28,7 @@ pub fn yashy() -> &'static str {
 fn runnable_cli() -> String {
     let original = Path::new(env!("CARGO_BIN_EXE_yashy"));
     for attempt in 0..LAUNCH_ATTEMPTS {
-        let Ok(candidate) = launch_candidate(original, attempt) else {
+        let Ok(candidate) = cli_candidate(original, attempt) else {
             continue;
         };
         // Any exit status is a success here: the question is only whether the
@@ -111,6 +111,28 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.raw_os_error() == Some(4551)
         || error.to_string().contains("blocked")
         || error.to_string().contains("Application Control")
+}
+
+/// The CLI copy to try on `attempt`.
+///
+/// Unlike a compiled test program, the CLI lives in cargo's shared
+/// `target/debug/deps`, where several test binaries run at once. Copies go in a
+/// per-process temp directory so two suites cannot overwrite each other's
+/// `yashy_launchN.exe` while one of them is starting it.
+fn cli_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
+    if attempt == 0 {
+        return Ok(exe.to_path_buf());
+    }
+    let dir = std::env::temp_dir().join(format!("yashy-cli-{}", std::process::id()));
+    fs::create_dir_all(&dir)?;
+    let candidate = dir.join(format!(
+        "yashy_launch{attempt}{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut bytes = fs::read(exe)?;
+    bytes.resize(bytes.len() + attempt, 0);
+    fs::write(&candidate, bytes)?;
+    Ok(candidate)
 }
 
 /// The file to start on attempt `attempt`: the executable itself, then copies

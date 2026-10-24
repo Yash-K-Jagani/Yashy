@@ -100,6 +100,14 @@ $ ./target/release/yashy run crates/yashy-driver/tests/programs/fib.ya
 worked examples — they are what the end-to-end suite compiles and runs, so they
 cannot drift out of date.)
 
+### Installing a release
+
+Download `yashy-<version>-x86_64-pc-windows-msvc.zip`, extract it, and run
+`.\install.ps1`. The installer copies the compiler and its bundled stdlib to
+`%LOCALAPPDATA%\Yashy`, adds that directory to your user `PATH`, and runs
+`yashy doctor`. Install LLVM first (`winget install LLVM.LLVM`) if `doctor`
+reports that `clang` is missing.
+
 `yashy build` compiles to a native executable, `yashy run` compiles and runs
 one in a single step, `yashy check` type-checks without emitting anything, and
 `yashy build --emit-ir` prints the generated LLVM IR and stops — useful on a

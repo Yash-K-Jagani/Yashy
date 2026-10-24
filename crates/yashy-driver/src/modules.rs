@@ -70,17 +70,8 @@ pub fn default_stdlib_root() -> Option<PathBuf> {
     }
 
     if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidates = [
-                dir.join("yashy-stdlib").join("yashy"),
-                dir.join("stdlib"),
-                dir.join("..").join("share").join("yashy").join("stdlib"),
-            ];
-            for candidate in candidates {
-                if candidate.is_dir() {
-                    return Some(candidate);
-                }
-            }
+        if let Some(root) = stdlib_root_near_exe(&exe) {
+            return Some(root);
         }
     }
 
@@ -93,6 +84,17 @@ pub fn default_stdlib_root() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// The stdlib layouts an installed `yashy` binary can sit next to.
+fn stdlib_root_near_exe(exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    let candidates = [
+        dir.join("yashy-stdlib").join("yashy"),
+        dir.join("stdlib"),
+        dir.join("..").join("share").join("yashy").join("stdlib"),
+    ];
+    candidates.into_iter().find(|candidate| candidate.is_dir())
 }
 
 /// The directories an import is looked up in.
@@ -386,4 +388,42 @@ fn identity_of(path: &Path) -> PathBuf {
                 .unwrap_or_else(|_| path.to_path_buf())
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_layout(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("yashy-stdlib-layout-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("the test layout must be creatable");
+        dir
+    }
+
+    #[test]
+    fn an_installed_stdlib_next_to_the_binary_is_found() {
+        let dir = temp_layout("next-to-binary");
+        let stdlib = dir.join("yashy-stdlib").join("yashy");
+        fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
+        fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
+
+        assert_eq!(stdlib_root_near_exe(&dir.join("yashy.exe")), Some(stdlib));
+    }
+
+    #[test]
+    fn a_shared_prefix_layout_is_found() {
+        let dir = temp_layout("shared-prefix");
+        let stdlib = dir.join("share").join("yashy").join("stdlib");
+        fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
+        fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
+
+        let found = stdlib_root_near_exe(&dir.join("bin").join("yashy"))
+            .expect("the shared-prefix layout must be found");
+        assert_eq!(
+            found.canonicalize().expect("the found path must exist"),
+            stdlib.canonicalize().expect("the fixture must exist")
+        );
+    }
 }

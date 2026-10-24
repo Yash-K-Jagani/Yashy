@@ -65,6 +65,19 @@ fn test_with_no_files_is_a_clean_success() {
 }
 
 #[test]
+fn test_missing_explicit_path_is_an_error() {
+    let dir = work_dir("test-missing");
+    let output = run_test(&dir, &["tests/missing"]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no tests at"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn test_list_prints_discovered_files() {
     let dir = work_dir("test-list");
     write(&dir, "tests/smoke.ya", "fn main() { assert(true); }\n");

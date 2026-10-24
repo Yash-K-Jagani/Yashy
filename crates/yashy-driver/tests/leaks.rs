@@ -93,32 +93,30 @@ fn start_failure(exe: &Path, error: &std::io::Error) -> String {
 /// input. The write end is closed before waiting, so a read-until-EOF loop ends
 /// instead of blocking on a pipe nobody will write to again.
 fn run_program(exe: &Path, input: Option<&str>) -> Output {
-    let mut command = Command::new(exe);
-    command.env("YASHY_LEAK_REPORT", "1");
-    if let Some(input) = input {
-        use std::io::Write;
-        use std::process::Stdio;
+    use std::io::Write;
+    use std::process::Stdio;
 
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)));
-        child
-            .stdin
-            .as_mut()
-            .expect("standard input was piped")
-            .write_all(input.as_bytes())
-            .expect("writing the program's input must succeed");
-        drop(child.stdin.take());
-        return child
-            .wait_with_output()
-            .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)));
-    }
-    command
-        .output()
-        .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)))
+    common::launch_retrying(exe, |path| {
+        let mut command = Command::new(path);
+        command.env("YASHY_LEAK_REPORT", "1");
+        if let Some(input) = input {
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            child
+                .stdin
+                .as_mut()
+                .expect("standard input was piped")
+                .write_all(input.as_bytes())?;
+            drop(child.stdin.take());
+            child.wait_with_output()
+        } else {
+            command.output()
+        }
+    })
+    .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)))
 }
 
 /// Build `name.ya` and run it with the leak report enabled.

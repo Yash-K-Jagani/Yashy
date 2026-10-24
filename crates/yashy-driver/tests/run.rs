@@ -42,6 +42,22 @@ fn run_forwards_the_program_exit_code() {
     assert_eq!(output.status.code(), Some(7));
 }
 
+#[cfg(windows)]
+#[test]
+fn run_forwards_a_32_bit_exit_code() {
+    let dir = work_dir("run-exit-large");
+    write(&dir, "main.ya", "fn main() -> int { return 256; }\n");
+
+    let output = Command::new(yashy())
+        .arg("run")
+        .arg(dir.join("main.ya"))
+        .current_dir(&dir)
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    assert_eq!(output.status.code(), Some(256));
+}
+
 #[test]
 fn run_rejects_output_paths() {
     let dir = work_dir("run-output-flag");

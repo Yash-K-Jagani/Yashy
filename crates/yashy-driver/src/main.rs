@@ -78,7 +78,7 @@ fn main() -> ExitCode {
         "check" => check(rest),
         "test" => test(rest),
         "init" => init(rest),
-        "doctor" => doctor(),
+        "doctor" => doctor(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -297,7 +297,10 @@ fn run(args: &[String]) -> ExitCode {
     let _ = fs::remove_dir_all(&dir);
 
     match status {
-        Ok(status) => exit_code(exit_status_code(status)),
+        // Forward the child's full exit code rather than squeezing it through
+        // `ExitCode`'s `u8`. Windows process codes are 32-bit, and a program
+        // that returns 256 must not look like success to its caller.
+        Ok(status) => std::process::exit(exit_status_code(status)),
         Err(error) => {
             eprintln!("error: cannot run {}: {error}", output.display());
             exit_code(EXIT_COMPILE_ERROR)
@@ -396,7 +399,12 @@ fn test(args: &[String]) -> ExitCode {
         }
     }
 
+    let explicit_root = root.is_some();
     let root = root.unwrap_or_else(|| PathBuf::from("tests"));
+    if explicit_root && !root.exists() {
+        eprintln!("error: no tests at {}", root.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
     let mut tests = Vec::new();
     if let Err(error) = collect_tests(&root, &mut tests) {
         eprintln!("error: cannot read {}: {error}", root.display());
@@ -629,18 +637,45 @@ fn escape_toml(value: &str) -> String {
 }
 
 /// `yashy doctor`: the two things a fresh install can get wrong.
-fn doctor() -> ExitCode {
+fn doctor(args: &[String]) -> ExitCode {
+    if let Some(argument) = args.first() {
+        return usage_error(&format!("unexpected extra argument `{argument}`"));
+    }
+
     println!("yashy {}", env!("CARGO_PKG_VERSION"));
 
     let mut ok = true;
 
     match detect() {
+        Ok(toolchain) if toolchain.found == "clang" => {
+            // A file named `clang` is not enough: Application Control can
+            // block it, and a truncated install can fail to start. Run the
+            // version probe so doctor tests what the compiler will do.
+            match Command::new(&toolchain.llc).arg("--version").output() {
+                Ok(output) if output.status.success() => {
+                    println!("clang: {}", toolchain.llc.display());
+                }
+                Ok(output) => {
+                    eprintln!(
+                        "clang: {} failed to run\n{}",
+                        toolchain.llc.display(),
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                    ok = false;
+                }
+                Err(error) => {
+                    eprintln!("clang: cannot run {}\n{error}", toolchain.llc.display());
+                    ok = false;
+                }
+            }
+        }
         Ok(toolchain) => {
-            println!(
-                "clang: {} (found as {})",
-                toolchain.llc.display(),
-                toolchain.found
+            eprintln!(
+                "clang: missing\nfound only `{}` at {}; builds need clang",
+                toolchain.found,
+                toolchain.llc.display()
             );
+            ok = false;
         }
         Err(message) => {
             eprintln!("clang: missing\n{message}");
@@ -649,7 +684,14 @@ fn doctor() -> ExitCode {
     }
 
     match yashy_driver::default_stdlib_root() {
-        Some(root) => println!("stdlib: {}", root.display()),
+        Some(root) if root.join("io.ya").is_file() => println!("stdlib: {}", root.display()),
+        Some(root) => {
+            eprintln!(
+                "stdlib: {} does not contain io.ya\nset YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy",
+                root.display()
+            );
+            ok = false;
+        }
         None => {
             eprintln!(
                 "stdlib: missing\nset YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy"
