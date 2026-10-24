@@ -241,7 +241,7 @@ pub enum HirStmt {
         /// True when the binding held a live linear value at this point, so the
         /// store overwrites an owning pointer and the backend must release it
         /// first. The checker is the only thing that knows this: after
-        /// `dealloc(buf)` the binding still names a value in the slot, but the
+        /// `buf.free()` the binding still names a value in the slot, but the
         /// pointer was already freed, so `buf = alloc(32)` must not free it
         /// again. Computed from the binding's ownership *before* the rebind.
         release_previous: bool,

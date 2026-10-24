@@ -5,7 +5,7 @@
 // `2 * (0 + 1 + ... + 1023)` is `1023 * 1024`, which is well inside `int`.
 //
 // `defer` registers after the loops rather than before them because registering
-// it *moves* `buf` -- a deferred `dealloc(buf)` is a use at the point the
+// it *moves* `buf` -- a deferred `buf.free()` is a use at the point the
 // `defer` is reached, and ownership checking will not let the buffer be read
 // afterwards. Registering it last is the shape the ownership rule asks for; the
 // defer still runs at scope exit, after the output.
@@ -26,7 +26,7 @@ fn main() {
     }
 
     defer {
-        dealloc(buf);
+        buf.free();
     }
 
     print(sum);

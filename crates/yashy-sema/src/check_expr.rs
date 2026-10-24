@@ -475,9 +475,8 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 27] = [
+        let builtins: [(&str, Vec<Type>, Type); 26] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
-            ("dealloc", vec![ptr(prim(TypeKind::I64))], prim(TypeKind::Unit)),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
             // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
             // `int`s; `arena_free_all(arena)` releases every block at once.
@@ -2935,7 +2934,7 @@ impl<'src> Checker<'src> {
                 // Whether the old value still needs releasing is decided here,
                 // where the ownership state is still known: `release_previous`
                 // is true only when the slot holds a live allocation. A binding
-                // that was already moved (by `dealloc(buf)`, or by passing it to
+                // that was already moved (by `buf.free()`, or by passing it to
                 // a function that takes `*mut i64`) is not released again.
                 let release_previous = matches!(linearity_of(&binding.ty.kind), Linearity::Linear)
                     && matches!(binding.ownership, Ownership::Live);
@@ -3581,7 +3580,7 @@ impl<'src> Checker<'src> {
             }
             // A payload of linear type takes ownership, exactly as a function
             // parameter does, so a bare name is moved out at the construction
-            // site. `Shape.Box(buf)` and `dealloc(buf)` agree about who owns it.
+            // site. `Shape.Box(buf)` and `buf.free()` agree about who owns it.
             if matches!(linearity_of(&expected.kind), Linearity::Linear) {
                 if let Expr::Ident(path, arg_span) = arg {
                     let arg_name = path.last().cloned().unwrap_or_default();
@@ -3893,6 +3892,7 @@ impl<'src> Checker<'src> {
             | "mutex_unlock" | "mutex_free" => {
                 self.check_thread_builtin(builtin, &call_args, span).flatten()
             }
+            "dealloc" => self.check_pointer_free(&call_args, span),
             _ => None,
         };
         Some(checked)
@@ -4182,6 +4182,13 @@ impl<'src> Checker<'src> {
     /// argument-less call has no receiver to quote; the message then names the
     /// method without pretending to know one.
     fn report_old_builtin(&mut self, name: &str, method: &str, args: &[Expr], span: Span) {
+        // `dealloc` names a runtime entry point rather than a method whose
+        // receiver is already known, so the suggestion stays receiver-neutral:
+        // the same text is right for every binding the caller might have.
+        if name == "dealloc" {
+            self.error(span, "`dealloc` was replaced: use `.free()`".to_string());
+            return;
+        }
         let Some(receiver) = args.first() else {
             self.error(
                 span,
@@ -4271,6 +4278,15 @@ impl<'src> Checker<'src> {
         args: &[Expr],
         span: Span,
     ) -> Option<Option<HirExpr>> {
+        if method == "free" {
+            // A string owns its bytes, but the binding releases them itself;
+            // there is no separate allocation for the program to hand back.
+            self.error(
+                span,
+                "a `string` releases itself: there is nothing to free".to_string(),
+            );
+            return Some(None);
+        }
         let arity = match method {
             "len" | "is_empty" | "trim" | "trim_start" | "trim_end" | "to_upper" | "to_lower"
             | "lines" | "parse_i64" | "parse_f64" => 0,
@@ -5252,6 +5268,45 @@ impl<'src> Checker<'src> {
             unsafe_call: false,
             span,
             ty: prim(TypeKind::Bool),
+        })
+    }
+
+    /// `p.free()` on a pointer: the one method that consumes its receiver.
+    ///
+    /// The runtime entry point is still `dealloc`, so the HIR is the call the
+    /// free function used to produce. What changes is the spelling: the
+    /// receiver must be a binding, because the call moves it out.
+    fn check_pointer_free(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
+        if args.len() != 1 {
+            self.error(span, "`free` takes no arguments".to_string());
+            return None;
+        }
+        let Expr::Ident(path, ident_span) = &args[0] else {
+            self.error(
+                span,
+                "`free` needs a pointer binding, not a temporary".to_string(),
+            );
+            return None;
+        };
+        if path.len() != 1 {
+            self.error(
+                *ident_span,
+                "`free` needs a pointer binding, not a field access".to_string(),
+            );
+            return None;
+        }
+        let receiver = self.check_expr(&args[0])?;
+        let binding = path.last().cloned().unwrap_or_default();
+        if let Err(error) = self.move_out(&binding, *ident_span) {
+            self.error(error.span, error.message);
+            return None;
+        }
+        Some(HirExpr::Call {
+            callee: vec!["dealloc".to_string()],
+            args: vec![receiver],
+            unsafe_call: false,
+            span,
+            ty: unit(span),
         })
     }
 
@@ -6400,7 +6455,7 @@ impl<'src> Checker<'src> {
                                 }
                                 // A parameter of linear type takes ownership, so
                                 // passing a bare name moves it out --
-                                // `dealloc(buf)`, and a user function taking
+                                // `buf.free()`, and a user function taking
                                 // `*mut T`, both consume without a `move` at the
                                 // call site. An argument that is not a bare name
                                 // (a fresh `alloc(...)`, say) owns nothing yet and
@@ -7728,6 +7783,7 @@ impl<'src> Checker<'src> {
 /// keep the old ABI without keeping the old spelling.
 fn old_builtin_method_name(name: &str) -> Option<(&'static str, usize)> {
     match name {
+        "dealloc" => Some(("free", 1)),
         "push" => Some(("push", 2)),
         "pop" => Some(("pop", 1)),
         "free_slice" => Some(("free", 1)),
@@ -7759,6 +7815,10 @@ fn old_builtin_method_name(name: &str) -> Option<(&'static str, usize)> {
 /// from the surface, but the lowering keeps using them as the runtime ABI.
 fn builtin_method_name(method: &str, receiver: &TypeKind) -> Option<&'static str> {
     match receiver {
+        TypeKind::Ptr(_) => match method {
+            "free" => Some("dealloc"),
+            _ => None,
+        },
         TypeKind::Slice(_) => match method {
             "len" => Some("len"),
             "push" => Some("push"),

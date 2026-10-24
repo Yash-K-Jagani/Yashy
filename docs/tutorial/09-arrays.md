@@ -148,7 +148,7 @@ a compile error because the second call uses a moved value.
 `[]string` owns one reference per element. A literal retains each string it is
 given; `push` retains a borrowed value and takes over an owned temporary; and
 `xs.free()` releases every element before the array. That element-aware free is
-why it is not just `dealloc`: the checker knows the element type and
+why it is not just a raw free: the checker knows the element type and
 emits `yashy_slice_free_strings` for `[]string` and the plain array free for
 everything else. Popping a `[]string` is refused for the same reason: the
 element's reference would leave the array without a matching release.

@@ -4,7 +4,7 @@
 fn main() {
     let buf = alloc(16);
     defer {
-        dealloc(buf);
+        buf.free();
         println("second");
     }
     defer {

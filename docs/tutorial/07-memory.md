@@ -7,7 +7,7 @@
 - When a `defer` body runs, in what order, and what it captures.
 - Why an unfreed allocation is a leak rather than an error.
 
-`alloc(n)` returns a `*mut int` pointing at `n` slots; `dealloc(ptr)` releases
+`alloc(n)` returns a `*mut int` pointing at `n` slots; `p.free()` releases
 it. Indexing works: `buffer[0] = 7` writes the first slot.
 
 ```yashy
@@ -20,7 +20,7 @@ fn main() {
 
     let owned = move buffer;
     defer {
-        dealloc(owned);
+        owned.free();
         println("released");
     }
     println("still inside");
@@ -41,23 +41,23 @@ Three rules make this safe without a garbage collector:
   released once, by its owner.
 - **`defer` runs when the scope exits**, in reverse order of registration, and
   sees the values that were live when the `defer` was reached. That is what
-  makes `dealloc(owned)` run at the end of `main` even though the line appears
+  makes `owned.free()` run at the end of `main` even though the line appears
   before the last statement.
 - **A pointer is linear.** It cannot be copied, so it cannot be freed twice.
   Using it after it is moved is a compile error. Not freeing it is not: the
-  checker tracks ownership, not reachability, so a forgotten `dealloc` or
-  `free_slice` is a leak rather than a diagnostic.
+  checker tracks ownership, not reachability, so a forgotten `.free()` is a
+  leak rather than a diagnostic.
 
-`defer` takes a block: `defer { dealloc(owned); }`. The spec's shorter
+`defer` takes a block: `defer { owned.free(); }`. The spec's shorter
 `defer expression;` spelling is not accepted by this parser; writing
-`defer dealloc(owned);` reports ``error: expected `{`, found an identifier``.
+`defer owned.free();` reports ``error: expected `{`, found an identifier``.
 
 ## The operations
 
 | Operation | Type or form | Ownership effect |
 |---|---|---|
 | `alloc(n)` | `*mut int` | Creates one owner; memory is uninitialised. |
-| `dealloc(p)` | `void` | Releases the block; the argument is moved. |
+| `p.free()` | `void` | Releases the block; the binding is moved. |
 | `move x` | same type as `x` | Transfers the value; `x` is dead afterwards. |
 | `let y = move x;` | pointer | Gives the pointer a second name; the source is dead. |
 | `defer { ... }` | statement | Runs at scope exit, last registered first. |
@@ -72,7 +72,7 @@ the ordinary moved-value message:
 
 ```text
 let b = alloc(1);
-defer { dealloc(b); }
+defer { b.free(); }
 let c = move b;          // error: value `b` has already been moved
 ```
 
@@ -94,14 +94,14 @@ noise.
 
 ## Common mistakes
 
-- **Freeing twice.** `xs.free()` called twice, or `dealloc(b)` after
-  `dealloc(b)`, reports ``error: value `xs` has already been moved`` (or `b`,
+- **Freeing twice.** `xs.free()` called twice, or `b.free()` after
+  `b.free()`, reports ``error: value `xs` has already been moved`` (or `b`,
   for the pointer). The first call consumed the binding.
 - **Passing a pointer to a function and then freeing it.** A parameter takes
-  ownership, so `take(b); dealloc(b);` reports ``error: value `b` has already
+  ownership, so `take(b); b.free();` reports ``error: value `b` has already
   been moved``. The callee owns the block now; it frees it or leaks it.
-- **Writing `defer dealloc(b);`.** The parser expects a block and reports
-  ``error: expected `{`, found an identifier``. Write `defer { dealloc(b); }`.
+- **Writing `defer b.free();`.** The parser expects a block and reports
+  ``error: expected `{`, found an identifier``. Write `defer { b.free(); }`.
 - **Forgetting to free.** No diagnostic. The checker follows ownership, not
   reachability, so the block stays allocated until the process exits. That is
   a leak, which is visible with the runtime's leak report but not at compile
@@ -122,8 +122,8 @@ noise.
 
 ## How it works
 
-`alloc` becomes one call to the runtime's allocator, and `dealloc` one call to
-its free. `move` produces the value as an ordinary read and then overwrites the
+`alloc` becomes one call to the runtime's allocator, and `.free()` one call to
+its release. `move` produces the value as an ordinary read and then overwrites the
 source binding's stack slot with null, so even if the checker were bypassed the
 second free would be a free of null rather than a double free. A `defer`
 registers its body in the current scope; a normal exit, `return`, `break`, or

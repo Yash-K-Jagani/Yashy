@@ -68,15 +68,15 @@ pub enum Flow {
 ///
 /// ```text
 /// let buf = alloc(16);
-/// defer { dealloc(buf); }   // the checker sees `buf` live here
+/// defer { buf.free(); }     // the checker sees `buf` live here
 /// buf = alloc(32);          // ... and does not free the first block here,
-/// dealloc(buf);             // because the deferred `dealloc` already moved it
+/// buf.free();               // because the deferred `free` already moved it
 ///                           // at registration — so the deferred body frees the
 ///                           // same pointer a second time at exit.
 /// ```
 ///
-/// With the capture, the deferred `dealloc` releases the block that was live at
-/// registration (the one still owned), and the body's own `dealloc` releases the
+/// With the capture, the deferred `free` releases the block that was live at
+/// registration (the one still owned), and the body's own `free` releases the
 /// rebind. One free per allocation, which is what the source reads like.
 ///
 /// The snapshot is limited to **linear** bindings, which are the ones whose

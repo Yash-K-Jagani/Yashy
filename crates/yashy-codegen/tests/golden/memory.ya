@@ -1,6 +1,6 @@
 // Memory lowering: the whole M3 surface in one body.
 //
-// `alloc` counts elements, `move` transfers ownership of a pointer, `dealloc`
+// `alloc` counts elements, `move` transfers ownership of a pointer, `free`
 // releases one, and overwriting a live linear binding releases the old value
 // before storing the new one. The last assignment is what distinguishes the
 // pinned contract from a naive "free on every rebind": the checker knows the
@@ -9,8 +9,8 @@
 fn main() {
     let buf = alloc(4);
     let other = move buf;
-    dealloc(other);
+    other.free();
     let second = alloc(8);
     second = alloc(16);
-    dealloc(second);
+    second.free();
 }

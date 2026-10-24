@@ -822,7 +822,7 @@ fn assigning_a_linear_binding_without_move_is_an_error() {
 #[test]
 fn moving_a_linear_binding_is_legal_and_releases_it() {
     let (result, _, _) = check_source(
-        "fn f() { let buf = alloc(16); let other = move buf; dealloc(other); }",
+        "fn f() { let buf = alloc(16); let other = move buf; other.free(); }",
     );
     assert!(result.is_ok(), "move should transfer ownership: {result:?}");
 }
@@ -830,15 +830,15 @@ fn moving_a_linear_binding_is_legal_and_releases_it() {
 #[test]
 fn reading_a_moved_binding_is_an_error() {
     assert_error(
-        "fn f() { let buf = alloc(16); let other = move buf; dealloc(buf); }",
+        "fn f() { let buf = alloc(16); let other = move buf; buf.free(); }",
         "value `buf` has already been moved",
     );
 }
 
 #[test]
-fn a_second_dealloc_of_the_same_pointer_is_an_error() {
+fn a_second_free_of_the_same_pointer_is_an_error() {
     assert_error(
-        "fn f() { let buf = alloc(16); dealloc(buf); dealloc(buf); }",
+        "fn f() { let buf = alloc(16); buf.free(); buf.free(); }",
         "value `buf` has already been moved",
     );
 }
@@ -846,7 +846,7 @@ fn a_second_dealloc_of_the_same_pointer_is_an_error() {
 #[test]
 fn rebinding_a_let_releases_the_previous_linear_value() {
     let (result, _, _) = check_source(
-        "fn f() { let buf = alloc(16); buf = alloc(32); dealloc(buf); }",
+        "fn f() { let buf = alloc(16); buf = alloc(32); buf.free(); }",
     );
     assert!(result.is_ok(), "a rebind installs a fresh owner: {result:?}");
 }
@@ -857,6 +857,22 @@ fn rebinding_a_let_from_another_linear_binding_needs_move() {
         "fn f() { let buf = alloc(16); let other = alloc(32); buf = other; }",
         "cannot assign linear value `other` without `move`",
     );
+}
+
+#[test]
+fn a_pointer_frees_with_the_dot() {
+    let (result, _, _) = check_source("fn f() { let p = alloc(1); p.free(); }");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn a_string_has_nothing_to_free() {
+    assert_error("fn f(s: string) { s.free(); }", "a `string` releases itself");
+}
+
+#[test]
+fn dealloc_names_the_method() {
+    assert_error("fn f() { let p = alloc(1); dealloc(p); }", "use `.free()`");
 }
 
 // -- string interpolation ---------------------------------------------------
@@ -1003,8 +1019,8 @@ fn a_debug_form_of_a_string_is_a_call_to_the_quoting_runtime_entry() {
 }
 
 #[test]
-fn dealloc_wants_a_pointer_not_an_integer() {
-    assert_error("fn f() { dealloc(1); }", "expected `*mut int`, found `int`");
+fn free_wants_a_pointer_not_an_integer() {
+    assert_error("fn f() { let x = 1; x.free(); }", "no method `free` on `int`");
 }
 
 // -- const fn -----------------------------------------------------------------
@@ -1132,18 +1148,18 @@ fn freeing_in_both_branches_of_an_if_is_legal() {
     // `else`, so a `then`-branch move does not poison the `else` branch. Freeing
     // in both branches is the shape of "free exactly once" without a `defer`.
     let (result, _, _) = check_source(
-        "fn f(c: bool) { let buf = alloc(16); if c { dealloc(buf); } else { dealloc(buf); } }",
+        "fn f(c: bool) { let buf = alloc(16); if c { buf.free(); } else { buf.free(); } }",
     );
     assert!(result.is_ok(), "both branches free: {result:?}");
 }
 
 #[test]
 fn a_move_in_only_one_branch_is_conservatively_moved() {
-    // The checker does not prove a path, so after `if c { dealloc(buf); }` a
-    // later `dealloc(buf)` is rejected rather than risked: `buf` may have been
+    // The checker does not prove a path, so after `if c { buf.free(); }` a
+    // later `buf.free()` is rejected rather than risked: `buf` may have been
     // freed. Conservative by design -- see `ownership.rs`.
     assert_error(
-        "fn f(c: bool) { let buf = alloc(16); if c { dealloc(buf); } dealloc(buf); }",
+        "fn f(c: bool) { let buf = alloc(16); if c { buf.free(); } buf.free(); }",
         "value `buf` has already been moved",
     );
 }
@@ -1160,10 +1176,10 @@ fn moving_a_copy_value_is_a_no_op() {
 fn a_linear_argument_to_a_user_function_is_moved_out() {
     // A parameter of linear type takes ownership, so `consume(buf)` moves `buf`
     // without a `move` keyword, and a later read is an error -- the same rule
-    // `dealloc` follows, applied to user functions.
+    // the free method follows, applied to user functions.
     assert_error(
-        "fn consume(p: *mut int) { dealloc(p); } \
-         fn f() { let buf = alloc(16); consume(buf); dealloc(buf); }",
+        "fn consume(p: *mut int) { p.free(); } \
+         fn f() { let buf = alloc(16); consume(buf); buf.free(); }",
         "value `buf` has already been moved",
     );
 }
@@ -1173,7 +1189,7 @@ fn a_linear_argument_does_not_have_to_be_a_name() {
     // A fresh `alloc(...)` owns nothing yet, so passing it straight through a
     // call leaves no moved binding behind.
     let (result, _, _) = check_source(
-        "fn consume(p: *mut int) { dealloc(p); } fn f() { consume(alloc(16)); }",
+        "fn consume(p: *mut int) { p.free(); } fn f() { consume(alloc(16)); }",
     );
     assert!(result.is_ok(), "a temporary argument should check: {result:?}");
 }
@@ -2191,6 +2207,7 @@ fn a_range_binding_has_a_view_type() {
     assert_eq!(expr_ty(init).to_string(), "[int]");
     assert!(matches!(init, HirExpr::View { .. }));
 }
+
 // -- tuples, destructuring, and guards --------------------------------------
 
 #[test]

@@ -100,10 +100,10 @@ fn main() {
     parts.free();
     let one = alloc_one(5);
     println_i64(one[0]);
-    dealloc(one);
+    one.free();
     let zeros = alloc_zeroed(3);
     println_i64(zeros[0] + zeros[2]);
-    dealloc(zeros);
+    zeros.free();
     println(getenv(\"YASHY_STDLIB_PROBE\"));
 }
 ";

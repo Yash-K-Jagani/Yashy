@@ -60,7 +60,7 @@ another module may use a `pub` item and may not use a private one, and using
 one is a diagnostic that names the item and the module that keeps it. A
 program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
-`"n = ${n}"` — manage its own memory (`alloc`, `dealloc`, `move`, arenas, and
+`"n = ${n}"` — manage its own memory (`alloc`, `.free()`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
 position it was written at and exits with a failure status. Integer arithmetic
 is checked, with `wrapping_*`/`checked_*`/`saturating_*` as the named opt-outs.
@@ -179,15 +179,15 @@ fn main() {
 // checker rejects a second use before code generation ever runs:
 //
 //     let buf = alloc(16);
-//     defer { dealloc(buf); }
+//     defer { buf.free(); }
 //     buf = alloc(32);        // the deferred free still releases the first block
-//     dealloc(buf);
+//     buf.free();
 //
 // Ownership transfers with `move`, so only one name can free a block:
 //
 //     let buf = alloc(16);
-//     dealloc(buf);
-//     dealloc(buf);   // error: value `buf` has already been moved
+//     buf.free();
+//     buf.free();   // error: value `buf` has already been moved
 //
 // Reading and writing a pointer's elements is `p[i]`, and `alloc(n)` counts
 // elements rather than bytes. `defer` releases the block on every exit from the
@@ -195,7 +195,7 @@ fn main() {
 fn main() {
     let buf = alloc(4);
     defer {
-        dealloc(buf);
+        buf.free();
     }
     for i in 0..4 {
         buf[i] = i * 2;
@@ -784,7 +784,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 | Milestone | Deliverable |
 |---|---|
 | M0–M2 ✅ | Lexer, parser, sema, codegen, CLI: a usable little language |
-| M3 ✅ | Heap, strings and input: `alloc`/`dealloc`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
+| M3 ✅ | Heap, strings and input: `alloc`/`free`, `move`, linear ownership, pointer indexing (`p[i]`), arenas (`arena_new` / `arena_alloc` / `arena_free_all`), `defer`, and string methods `len` / `byte_at` / `slice` / `parse_i64` / `parse_f64` plus `+` / `==`, `read_line`, `str_from_*`, and interpolation. A `string` is a length-prefixed refcounted `%yashy_str`: a literal is static (refcount -1), everything built is owned, a temporary is released when an operation consumes it, and a binding's reference is released at the end of its scope after that scope's `defer`s. Known leaks, not corruptions: a string a user call returns, one stored in a struct field, or one dropped across a `break` out of a nested block |
 | M4 ✅ | Faults: `panic` reports `file:line:col` and exits 1, and `!` lets it stand in for a value. Integer arithmetic is checked — overflow, division by zero and `int::MIN / -1` name the operands and the position — with `wrapping_*`, `checked_*` and `saturating_*` as the opt-outs. `assert` / `assert_eq` / `assert_ne` quote the failed expression (and both values); `debug_assert` is the one `--release` drops. Exit codes: `int`-returning `main`, and `os.exit(code)`. A `defer` in the panicking function's open scopes runs before the diagnostic, innermost first. **Not delivered:** cross-frame unwinding (a caller's `defer`, and stack traces) — cleanup landing pads need `__gxx_personality_v0`, which is undefined at link on this `x86_64-pc-windows-gnu` host, and shipping an unwinder would add a mandatory C++ dependency. See the M3–M4 plan's Task 10 |
 | M5 ✅ | `extern "C"` FFI: C type spellings, `unsafe` declarations, `link` libraries, and calls into libc. The C runtime (print, allocation, arenas, refcounted strings, array storage, maps, threads, fault diagnostics) is embedded in the compiler and built into every program on Windows and Linux |
 | M6 ✅ | Arrays (`[]T`, `push`/`pop`/`len`/indexing, `free`), hash maps (`map_new` plus `.insert`/`.get`/`.remove`/`.len`/`.free`), `import` for multi-file builds, and the `io`, `string`, `math`, `os`, `alloc` modules |

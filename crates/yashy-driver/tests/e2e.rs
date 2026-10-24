@@ -1047,12 +1047,24 @@ fn check_reports_a_type_error_without_building() {
 
 #[test]
 fn heap_ownership_survives_the_whole_pipeline() {
-    // alloc / move / dealloc / overwrite, compiled and run. This is the only
+    // alloc / move / free / overwrite, compiled and run. This is the only
     // test that proves the heap symbols resolve against the runtime that the
     // driver actually links, and that a pointer can cross a function boundary
     // in a real binary.
     let output = build_and_run("memory");
     assert_eq!(stdout_of(&output), "memory ok\n");
+}
+
+#[test]
+fn free_is_one_method() {
+    // The same spelling releases every owning value: a pointer, a slice and a
+    // map. Each call must return and leave the process able to print, which is
+    // what the three markers show.
+    let output = build_and_run("free_methods");
+    assert_eq!(
+        stdout_of(&output),
+        "pointer freed\nslice freed\nmap freed\n"
+    );
 }
 
 #[test]
@@ -1222,10 +1234,10 @@ fn defer_runs_at_scope_exit_and_sees_registration_time_values() {
 fn a_deferred_free_after_a_rebind_does_not_double_free() {
     // Before the capture, the deferred body read `buf`'s slot at exit -- the
     // *second* allocation -- and freed it a second time after the explicit
-    // `dealloc`, which corrupted the heap and aborted the process
+    // `free`, which corrupted the heap and aborted the process
     // (STATUS_HEAP_CORRUPTION). The two frees must now name different blocks:
     // the deferred one releases the allocation that was live at registration,
-    // and the body's own `dealloc` releases the rebind.
+    // and the body's own `free` releases the rebind.
     let dir = work_dir("deferred-free-rebind");
     let source = dir.join("deferred_free_rebind.ya");
     fs::write(
@@ -1233,10 +1245,10 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
         "fn main() {\n\
          \x20   let buf = alloc(16);\n\
          \x20   defer {\n\
-         \x20       dealloc(buf);\n\
+         \x20       buf.free();\n\
          \x20   }\n\
          \x20   buf = alloc(32);\n\
-         \x20   dealloc(buf);\n\
+         \x20   buf.free();\n\
          \x20   print(\"survived\\n\");\n\
          }\n",
     )
@@ -1307,7 +1319,7 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
     let source = dir.join("double_free.ya");
     fs::write(
         &source,
-        "fn main() {\n    let buf = alloc(16);\n    dealloc(buf);\n    dealloc(buf);\n}\n",
+        "fn main() {\n    let buf = alloc(16);\n    buf.free();\n    buf.free();\n}\n",
     )
     .expect("write double_free.ya");
 

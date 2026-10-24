@@ -517,7 +517,6 @@ fn builtin_signature(name: &str) -> Option<&'static str> {
         "print" => "fn print(value)",
         "println" => "fn println(value)",
         "alloc" => "fn alloc(count: int) -> *mut int",
-        "dealloc" => "fn dealloc(pointer: *mut int)",
         "len" => "fn len(value) -> int",
         "str_from_i64" => "fn str_from_i64(value: int) -> string",
         "read_line" => "fn read_line() -> string",

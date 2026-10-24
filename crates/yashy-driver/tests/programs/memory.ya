@@ -14,14 +14,14 @@
 fn main() {
     let buf = alloc(16);
     let other = move buf;
-    dealloc(other);
+    other.free();
 
     let reused = alloc(8);
     reused = alloc(32);
-    dealloc(reused);
+    reused.free();
 
     let big = alloc(1000000);
-    dealloc(big);
+    big.free();
 
     println("memory ok");
 }

@@ -1777,6 +1777,30 @@ git commit -m "feat: remove var in favour of let"
 git push origin main
 ```
 
+### Task 5.1, as built
+
+1. **The lexer still knows `var`.** `TokenKind::Var` and the `"var"` keyword
+   mapping stay, because a keyword that still lexes as one can be refused by
+   name at its own span; deleting it would turn `var x = 1;` into "expected a
+   statement" about an identifier. `parse_stmt` reports the refusal inline at
+   `peek_span()`, and `parse_var` is gone.
+
+2. **The corpus migration was case-sensitive and total.** All 72 `.ya` files
+   were migrated with `\bvar\b` -> `let`, not only line-leading `var`, and every
+   diff was verified to be exactly that keyword change. The Rust fixtures needed
+   the same treatment: 353 occurrences across 31 test files. `var` remains only
+   in the two refusal tests, the lexer's keyword tests, the fuzz alphabet (the
+   refusal path must be fuzzed too), and `std::env::var`.
+
+3. **Assignment diagnostics now say `let`.** The checker's "only a `var` binding
+   can be assigned" would have documented a removed keyword, so it and its
+   fixture expectations say `let`.
+
+4. **The tutorials and README teach `const`/`let` only.** The `var` comparison
+   row and the "older mutable form" paragraphs were deleted rather than
+   reworded; the block-scope explanation lost its JavaScript comparison with
+   them.
+
 ---
 
 ### Task 5.2: One `.free()`
@@ -1847,6 +1871,34 @@ git add -A
 git commit -m "feat: release pointers with the dot free method"
 git push origin main
 ```
+
+### Task 5.2, as built
+
+1. **`dealloc` left the builtin scope table (27 -> 26) and joined the old-name
+   table.** Keeping it resolvable would have made the retirement message
+   unreachable. The rendering is special-cased in `report_old_builtin`, because
+   the table has no receiver to name and the spec's sentence is
+   receiver-neutral: `` `dealloc` was replaced: use `.free()` ``.
+
+2. **`p.free()` lowers through a new `check_pointer_free` helper.** It requires
+   a binding, moves it out, and emits the same HIR `dealloc` call the free
+   function produced, so codegen and the runtime symbol are untouched and the
+   golden memory IR is byte-identical.
+
+3. **The test fixtures were migrated too, not only the five corpus files.** The
+   plan named nine `dealloc(` calls; the suites carried 41 occurrences across
+   nine files. `dealloc_wants_a_pointer_not_an_integer` became
+   `free_wants_a_pointer_not_an_integer`, because the old test asserted the
+   builtin's parameter type and that builtin no longer has a surface spelling.
+
+4. **The LSP hover for `dealloc` is gone.** The table now lists only names a
+   program can write.
+
+5. **Prose follows the method everywhere.** `stdlib/yashy/alloc.ya`, tutorial 7
+   and 9, the README, and the internal comments that show a source program all
+   say `.free()`; no `dealloc` remains in any `.ya` or `.md`. The codegen
+   helpers (`gen_dealloc`) and the runtime symbol keep the name because they are
+   the ABI, not the surface.
 
 ---
 

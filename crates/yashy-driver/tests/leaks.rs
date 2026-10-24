@@ -5,7 +5,7 @@
 //! (`valgrind` on Linux, the debug CRT on Windows), for two reasons:
 //!
 //! - The two surfaces the compiler inserts ownership for -- manual
-//!   `alloc`/`dealloc` and refcounted strings -- both go through the runtime's
+//!   `alloc`/`free` and refcounted strings -- both go through the runtime's
 //!   own `malloc`/`free`, so the runtime knows exactly which allocations are
 //!   still live. No malloc interposer is needed.
 //! - It works on every machine the compiler itself runs on, so the check is
