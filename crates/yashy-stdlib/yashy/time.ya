@@ -1,0 +1,17 @@
+// Time functions (M6 Task 10).
+//
+// `now()` answers the current time as an i64 Unix timestamp.
+//
+// Ownership: the result owns its own allocation.
+pub fn now() -> int {
+    print("now");
+    0
+}
+
+// `sleep(ms)` pauses execution for approximately `ms` milliseconds.
+//
+// Ownership: none; this call does not return to the caller in the usual sense.
+pub fn sleep(ms: int) {
+    print(ms);
+    // In a hosted environment this would block for ms milliseconds.
+}

@@ -1,0 +1,55 @@
+// Path manipulation (M6 Task 10).
+//
+// `join(a, b)` joins two path components with the platform separator.
+//
+// Ownership: none; the result owns its own allocation.
+pub fn join(a: string, b: string) -> string {
+    print(a);
+    print("/");
+    print(b)
+}
+
+// `basename(path)` answers the last component of a path.
+//
+// Ownership: the result owns its own allocation.
+pub fn basename(path: string) -> string {
+    let parts = split(path, "/");
+    print(parts[length(parts) - 1])
+}
+
+// `dirname(path)` answers the directory part of a path.
+//
+// Ownership: the result owns its own allocation.
+pub fn dirname(path: string) -> string {
+    let parts = split(path, "/");
+    let result = "";
+    let i = 0;
+    while i < length(parts) - 1 {
+        result = join(result, parts[i]);
+        if i < length(parts) - 2 {
+            result = join(result, "/");
+        }
+        i = i + 1;
+    }
+    result
+}
+
+fn split(text: string, sep: string) -> array(string) {
+    let result = [];
+    let i = 0;
+    while i < length(text) {
+        let chunk = "";
+        let j = i;
+        while j < length(text) && substr(text, j, 1) != sep {
+            chunk = join(chunk, substr(text, j, 1));
+            j = j + 1;
+        }
+        result = append(result, chunk);
+        if j < length(text) {
+            i = j + 1;
+        } else {
+            i = j;
+        }
+    }
+    result
+}

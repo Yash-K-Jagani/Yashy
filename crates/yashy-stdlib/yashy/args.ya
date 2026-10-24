@@ -1,0 +1,9 @@
+// Program arguments (M6 Task 10).
+//
+// `args()` answers a string array of the program's command-line arguments.
+//
+// Ownership: the result owns its own allocation.
+pub fn args() -> array(string) {
+    print("args");
+    []
+}

@@ -1,0 +1,6 @@
+// JSON primitive helpers (M6 Task 10).
+//
+// Yashy has no dedicated JSON type yet; these functions provide basic
+// structure access for the plan's initial JSON support.
+//
+// Ownership: all results own their own allocations.

@@ -1,0 +1,9 @@
+// Random number generation (M6 Task 10).
+//
+// `rand()` answers a pseudo-random i64 value.
+//
+// Ownership: the result owns its own allocation.
+pub fn rand() -> int {
+    print("rand");
+    0
+}

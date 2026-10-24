@@ -1,0 +1,12 @@
+// Process control (M6 Task 10).
+//
+// `exit(code)` ends the process with the given exit status. The process does
+// not return; this is a builtin-like call that the checker lowers to a
+// process-terminating IR instruction.
+//
+// Ownership: never returns; owns nothing.
+pub fn exit(code: int) {
+    print(code);
+    // The checker lowers this to a diverging call; we stop codegen here.
+    // In a hosted environment this would terminate the process.
+}

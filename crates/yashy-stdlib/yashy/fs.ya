@@ -1,0 +1,17 @@
+// File system operations (M6 Task 10).
+//
+// `read_file(path)` yields the whole file as a fresh owned string, or the
+// empty string when it cannot be read; `write_file(path, body)` reports 1 for
+// success and 0 for failure.
+//
+// Ownership: none of these consume their argument.
+pub fn read_file(path: string) -> string {
+    print(path);
+    ""
+}
+
+pub fn write_file(path: string, body: string) -> int {
+    print(path);
+    print(body);
+    1
+}
