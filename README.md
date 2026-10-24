@@ -13,8 +13,8 @@ helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
 **Status: milestones M0–M8 and M12–M14 are complete; M15 is in progress.** Yashy lexes,
-parses, type-checks and compiles programs with `int`, `float`, `bool`, `string`,
-`struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
+parses, type-checks and compiles programs with `int`, `float`, `bool`, `char`,
+`string`, `void`, `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
 written as `let` (block-scoped and mutable) or `const` (block-scoped
 and immutable). Arrays and strings have a method surface: `xs.push(1)`,
@@ -62,8 +62,13 @@ program can read its
 input (`read_line`, `s.parse_i64()`), put a value inside a string — including with interpolation,
 `"n = ${n}"` — manage its own memory (`alloc`, `.free()`, `move`, arenas, and
 pointer indexing), and stop itself with `panic("...")`, which reports the
-position it was written at and exits with a failure status. Integer arithmetic
-is checked, with `wrapping_*`/`checked_*`/`saturating_*` as the named opt-outs.
+position it was written at and exits with a failure status. A `char` is one
+byte — `'A'`, `'\n'`, `'\x41'` — with `c.to_int()`, `n.to_char()`,
+`c.to_string()` and `s.byte_at(i)` as its conversions; it compares by byte order
+and has no arithmetic.
+
+Integer arithmetic is checked, with
+`wrapping_*`/`checked_*`/`saturating_*` as the named opt-outs.
 The assertions — `assert(cond)`, `assert_eq(a, b)`, `assert_ne(a, b)` — are the
 same fault path with a test in front of it, and they quote the expression that
 failed back in the message; `debug_assert` is the one `--release` compiles away.
@@ -128,8 +133,7 @@ fn fib(n: int) -> int {
 }
 
 fn main() {
-    print_i64(fib(10));
-    print_str("\n");
+    println(fib(10));
 }
 ```
 
@@ -160,16 +164,14 @@ fn manhattan(p: Point) -> int {
 
 fn main() {
     const p = Point { y: 4, x: 3 };
-    print_i64(manhattan(p));
-    print_str("\n");
+    println(manhattan(p));
 
     // A field write is a read-modify-write of the whole value, so `y` survives
     // it; `q.x += 1` is the same statement with the field read on the right.
     let q = p;
     q.x = 10;
     q.y += 1;
-    print_i64(q.x + q.y);
-    print_str("\n");
+    println(q.x + q.y);
 }
 ```
 
@@ -200,8 +202,7 @@ fn main() {
     for i in 0..4 {
         buf[i] = i * 2;
     }
-    print_i64(buf[0] + buf[3]);   // 6
-    print_str("\n");
+    println(buf[0] + buf[3]);   // 6
 }
 ```
 
@@ -218,8 +219,7 @@ fn main() {
     first[0] = 20;
     second[0] = 22;
 
-    print_i64(first[0] + second[0]);
-    print_str("\n");
+    println(first[0] + second[0]);
     arena_free_all(arena);
 }
 ```
@@ -248,18 +248,17 @@ fn label(name: string) -> string {
 
 fn main() {
     const greeting = "Hello, " + "Yashy!";
-    print_str(greeting + "\n");
-    print_str("length = " + str_from_i64(greeting.len()) + "\n");
-    print_str(label("x") + "\n");
+    println(greeting);
+    println("length = " + str_from_i64(greeting.len()));
+    println(label("x"));
     if greeting == "Hello, Yashy!" {
-        print_str("equal\n");
+        println("equal");
     }
     let padded = "  Yashy  ";
-    print_str(padded.trim() + "\n");
+    println(padded.trim());
     let csv = "a,b";
     let parts = csv.split(",");
-    print_i64(parts.len());
-    print_str("\n");
+    println(parts.len());
     parts.free();
 }
 ```
@@ -277,8 +276,7 @@ fn main() {
         }
         total = total + line.parse_i64();
     }
-    print_i64(total);
-    print_str("\n");
+    println(total);
 }
 ```
 
@@ -294,9 +292,9 @@ struct Point {
 
 fn main() {
     const point = Point { x: 3, y: 4 };
-    print_str("${point:?}\n");
-    print_str("${[1, 2, 3]:?}\n");
-    print_str("${"a\nb":?}\n");
+    println("${point:?}");
+    println("${[1, 2, 3]:?}");
+    println("${"a\nb":?}");
 }
 ```
 
@@ -316,15 +314,13 @@ Point { x: 3, y: 4 }
 // questions with three different answers.
 fn main() {
     let big = 9223372036854775807;      // the largest int
-    print_i64(wrapping_add(big, 1));    // wraps:  -9223372036854775808
-    print_str("\n");
-    print_i64(saturating_add(big, 1));  // clamps:  9223372036854775807
-    print_str("\n");
+    println(wrapping_add(big, 1));      // wraps:  -9223372036854775808
+    println(saturating_add(big, 1));    // clamps:  9223372036854775807
     switch checked_add(big, 1) {        // reports: the caller decides
-        case Some(v) { print_i64(v) }
-        case None { print_str("no answer") }
+        case Some(v) { print(v) }
+        case None { print("no answer") }
     }
-    print_str("\n");
+    println();
 }
 ```
 
@@ -362,14 +358,12 @@ fn main() {
     counts.insert("yashy", 2);
     counts.insert("river", 1);
     counts.insert("yashy", 3);
-    print_i64(counts.len());
-    print_str("\n");
+    println(counts.len());
 
-    print_str(switch counts.get("yashy") {
+    println(switch counts.get("yashy") {
         case Some(n) { str_from_i64(n) }
         case None { "missing" }
     });
-    print_str("\n");
 
     counts.remove("river");
     counts.free();
@@ -396,12 +390,10 @@ fn main() {
     let keys: []string = counts.keys();
     let values: []int = counts.values();
 
-    print_i64(keys.len());
-    print_str("\n");
-    print_i64(values.len());
-    print_str("\n");
+    println(keys.len());
+    println(values.len());
     if counts.contains_key("yashy") {
-        print_str("yashy is there\n");
+        println("yashy is there");
     }
 
     keys.free();
@@ -433,8 +425,8 @@ fn secret() -> int { return 13; }      // this module's own
 import lib;
 
 fn main() {
-    print_i64(seven());   // fine: `seven` is `pub`
-    print_i64(secret());  // error: `secret` is private to module `lib`
+    println(seven());   // fine: `seven` is `pub`
+    println(secret());  // error: `secret` is private to module `lib`
 }
 ```
 
@@ -461,10 +453,10 @@ fn main() {
     let t = thread_spawn(worker, inbox, outbox);
     inbox.send(21);
     switch outbox.recv() {
-        case Some(n) { print_i64(n); }
-        case None { print_str("closed"); }
+        case Some(n) { print(n); }
+        case None { print("closed"); }
     }
-    print_str("\n");
+    println();
     thread_join(t);
     outbox.free();
     inbox.free();

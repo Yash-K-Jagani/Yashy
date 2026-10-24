@@ -2018,6 +2018,32 @@ git commit -m "docs: teach the Yashy surface in the tutorial"
 git push origin main
 ```
 
+### Task 6.1, as built
+
+1. **`08-strings.md` needed no change.** Phase 3 already taught `byte_at` as
+   returning a `char`, with `'\0'` out of range, in both the prose and the
+   operations table.
+
+2. **`09-arrays.md` needed only the 5.3 wording.** It already taught `[T; N]`
+   next to `[]T` and showed the inferred range; the task's sentence is the one
+   5.3 put there.
+
+3. **`02-values.md` grew the six-row table, a `char` section and a `void`
+   section.** The old "interpolating a struct is refused" mistake was stale
+   after Phase 4.3: composites now interpolate through the debug form, so that
+   entry became three `char` mistakes (`'A' + 1`, `'A' == 65`, and `as` instead
+   of `to_int`/`to_char`). The new `char` block prints `A65`, `a`, `a`, so the
+   harness proves `to_int`, `to_char`, `to_string` and `byte_at` together.
+
+4. **`01-hello.md` gained the `.ya` build line and the print paragraph.** The
+   chapter used `print`/`println()` in examples without saying what the
+   difference was; it now states `print(x)`, `println(x)`, `println()`, and the
+   `${...}` sugar in one place.
+
+5. **`07-memory.md` gained the one-release table.** Pointer, slice and map rows
+   say "yes"; the string row says "no" and quotes the refusal, which is the
+   same wording the checker and the sema test use.
+
 ---
 
 ### Task 6.2: Update the README and the performance notes
@@ -2049,6 +2075,31 @@ git add -A
 git commit -m "docs: describe the final surface in the README"
 git push origin main
 ```
+
+### Task 6.2, as built
+
+1. **`docs/performance-improvements.md` needed no change.** Its only match was
+   `yashy_print_str`/`_i64`/`_f64` in a paragraph about the runtime's C symbols,
+   which are the ABI rather than surface spellings. Renaming those would have
+   made the paragraph wrong.
+
+2. **The README's code blocks moved from `print_i64`/`print_str` to
+   `println`.** Every pair of `print_i64(x); print_str("\n");` became
+   `println(x)`, and `print_str(expr + "\n")` became `println(expr)`. The
+   console transcripts below the blocks were already showing the same output,
+   so they did not move.
+
+3. **The status line now names `char` and `void`.** It never listed `var` or
+   `print_i64`, but it also omitted the two new spellings; the sentence now
+   reads `int`, `float`, `bool`, `char`, `string`, `void`.
+
+4. **A `char` paragraph joined the surface summary.** It states the one-byte
+   width, the literal/escape forms, the four conversions (`to_int`, `to_char`,
+   `to_string`, `byte_at`) and the no-arithmetic rule in one place.
+
+5. **The plan's dead-spelling grep is empty.** Running it over the README, the
+   tutorial and the performance notes returns no match, so no removed spelling
+   survives as a suggestion.
 
 ---
 
