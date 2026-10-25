@@ -415,11 +415,16 @@ mod tests {
     #[test]
     fn a_shared_prefix_layout_is_found() {
         let dir = temp_layout("shared-prefix");
+        // The executable sits in `<prefix>/bin`, so that directory has to exist
+        // for the `..` in the shared-prefix candidate to resolve: Unix checks
+        // each component in order, unlike Windows, which normalizes the path.
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).expect("the bin directory must be creatable");
         let stdlib = dir.join("share").join("yashy").join("stdlib");
         fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
         fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
 
-        let found = stdlib_root_near_exe(&dir.join("bin").join("yashy"))
+        let found = stdlib_root_near_exe(&bin.join("yashy"))
             .expect("the shared-prefix layout must be found");
         assert_eq!(
             found.canonicalize().expect("the found path must exist"),
