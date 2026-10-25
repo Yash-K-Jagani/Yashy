@@ -1,5 +1,7 @@
-//! The core standard library (M6 Task 10): `io`, `string`, `math`, `os` and
-//! `alloc`, written in Yashy and compiled by the compiler they ship with.
+//! The standard library: the builtin-surface modules (`io`, `string`, `math`,
+//! `os`, `alloc`) and the Plan B modules (`fs`, `path`, `args`, `env`,
+//! `process`, `time`, `rand`, `JSON`), written in Yashy and compiled by the
+//! compiler they ship with.
 //!
 //! Most programs here import the modules through `YASHY_PATH` so the test can
 //! pin the exact source tree it is exercising. The loader also discovers the
