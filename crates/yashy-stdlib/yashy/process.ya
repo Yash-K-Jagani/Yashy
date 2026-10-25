@@ -1,12 +1,11 @@
 // Process control (M6 Task 10).
 //
-// `exit(code)` ends the process with the given exit status. The process does
-// not return; this is a builtin-like call that the checker lowers to a
-// process-terminating IR instruction.
+// `exit(code)` is a builtin, not a function in this module: the name lives in
+// the one shared scope, so a wrapper would be a duplicate definition. It ends
+// the process with `code` and has type `!`, so it can stand where a value is
+// expected and the code after it is unreachable.
 //
-// Ownership: never returns; owns nothing.
-pub fn exit(code: int) {
-    print(code);
-    // The checker lowers this to a diverging call; we stop codegen here.
-    // In a hosted environment this would terminate the process.
-}
+// `os.exit_with(code)` is the statement-shaped wrapper for a program that does
+// not want to think about `!`.
+//
+// Ownership: `exit` never returns and owns nothing.

@@ -1,17 +1,13 @@
-// File system operations (M6 Task 10).
+// Files (M6 Task 10).
 //
-// `read_file(path)` yields the whole file as a fresh owned string, or the
-// empty string when it cannot be read; `write_file(path, body)` reports 1 for
-// success and 0 for failure.
+// `read_file(path)` and `write_file(path, body)` are builtins, not functions in
+// this module: the names live in the one shared scope, so a wrapper would be a
+// duplicate definition. They are documented here because this is the module a
+// reader looks in for them.
 //
-// Ownership: none of these consume their argument.
-pub fn read_file(path: string) -> string {
-    print(path);
-    ""
-}
-
-pub fn write_file(path: string, body: string) -> int {
-    print(path);
-    print(body);
-    1
-}
+// `read_file` answers the whole file as a fresh owned string, or the empty
+// string when it cannot be read. `write_file` answers 1 for success and 0 for
+// failure. A missing file and an empty file therefore read the same; the
+// language has no `Result` in a builtin's signature yet.
+//
+// Ownership: neither consumes its argument; both results are owned.

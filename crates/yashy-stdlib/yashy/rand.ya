@@ -1,9 +1,29 @@
-// Random number generation (M6 Task 10).
+// Random numbers (M6 Task 10).
 //
-// `rand()` answers a pseudo-random i64 value.
+// There is no entropy source on the language surface yet: the runtime exposes
+// no clock and no operating-system random call, so a `rand()` that answered
+// something different each call cannot be written. A function that returned a
+// constant would be worse than an honest absence.
 //
-// Ownership: the result owns its own allocation.
-pub fn rand() -> int {
-    print("rand");
-    0
+// What is provided is the step itself. A caller that has a seed -- a line from
+// `read_line`, or a constant for a reproducible test -- can build a sequence
+// with `next`, and a program that needs unpredictable values can mix in
+// whatever input it already has.
+//
+// `next` is a 64-bit linear congruential step (Knuth's MMIX constants). It is
+// not cryptographic and must not be used for secrets.
+
+// The next state in the sequence, as a value in `0..2_147_483_647`. The
+// multiplication and addition wrap deliberately: a checked step would panic on
+// the first call for most seeds.
+//
+// Ownership: pure; the result is a number.
+pub fn next(state: int) -> int {
+    let mixed = wrapping_mul(state, 6364136223846793005);
+    let stepped = wrapping_add(mixed, 1442695040888963407);
+    let positive = stepped % 2147483647;
+    if positive < 0 {
+        return 0 - positive;
+    }
+    return positive;
 }

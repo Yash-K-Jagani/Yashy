@@ -230,3 +230,67 @@ fn stdlib_is_found_without_yashy_path() {
         stderr_of(&output)
     );
 }
+
+const EVERY_MODULE: &str = "\
+import io;
+import string;
+import math;
+import os;
+import alloc;
+import fs;
+import path;
+import args;
+import env;
+import process;
+import time;
+import rand;
+import JSON;
+
+fn main() {
+    println(join(\"a\", \"b\"));
+    println(join(\"a/\", \"/b\"));
+    println(join(\"\", \"b\"));
+    println(join(\"a\", \"\"));
+    println(basename(\"/usr/local/bin/yashy\"));
+    println(basename(\"/\"));
+    println(basename(\"\"));
+    println(dirname(\"/usr/local/bin/yashy\"));
+    println(dirname(\"\"));
+    println(extension(\"archive.tar.gz\"));
+    println(extension(\".gitignore\"));
+    println(quote(\"a\\\"b\\n\"));
+    let first = next(1);
+    let second = next(1);
+    if first == second { println(\"deterministic\"); }
+    if first >= 0 { println(\"non-negative\"); }
+}
+";
+
+#[test]
+fn every_stdlib_module_imports_and_the_path_and_json_helpers_run() {
+    // Every module the plan names, in one program. Before this test the Plan B
+    // modules were not imported anywhere: seven of them did not even parse, and
+    // the two builtin-wrapping ones would have been duplicate definitions. The
+    // test is the collision check as well as the behaviour check.
+    let dir = work_dir("every-module");
+    write(&dir, "main.ya", EVERY_MODULE);
+    let program = exe(&dir, "main");
+    let compile = build(&dir.join("main.ya"), &program);
+    assert!(
+        compile.status.success(),
+        "every stdlib module must compile together:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run(&dir, &program);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(
+        stdout_of(&output),
+        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\ndeterministic\nnon-negative\n"
+    );
+    assert!(
+        stderr_of(&output).contains("yashy: leak report: 0 live allocations"),
+        "the helpers must release what they allocate:\n{}",
+        stderr_of(&output)
+    );
+}

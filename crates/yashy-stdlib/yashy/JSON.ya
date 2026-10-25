@@ -1,6 +1,29 @@
-// JSON primitive helpers (M6 Task 10).
+// JSON text helpers (M6 Task 10).
 //
-// Yashy has no dedicated JSON type yet; these functions provide basic
-// structure access for the plan's initial JSON support.
+// Yashy has no JSON value type yet, so this module does the half that is pure
+// string work and therefore useful today: turning a Yashy string into a JSON
+// string literal. Building objects and arrays is left to the caller, which
+// already has string concatenation and arrays.
 //
-// Ownership: all results own their own allocations.
+// The escapes are the five JSON requires plus the reverse solidus itself. Other
+// control bytes are passed through unchanged; a caller emitting binary data
+// should not use JSON for it.
+//
+// Ownership: every result is a fresh owned string; no argument is consumed.
+
+// `escape(text)` is `text` with `\`, `"`, newline, carriage return and tab
+// written as their JSON escapes.
+pub fn escape(text: string) -> string {
+    let slashes = text.replace("\\", "\\\\");
+    let quotes = slashes.replace("\"", "\\\"");
+    let newlines = quotes.replace("\n", "\\n");
+    let returns = newlines.replace("\r", "\\r");
+    let tabs = returns.replace("\t", "\\t");
+    return tabs;
+}
+
+// `quote(text)` is `escape(text)` inside double quotes: a JSON string literal.
+pub fn quote(text: string) -> string {
+    let escaped = escape(text);
+    return "\"" + escaped + "\"";
+}

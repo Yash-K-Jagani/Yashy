@@ -1,6 +1,16 @@
-// `getcwd()` answers the current working directory as an owned string.
+// The process and its environment (M6 Task 10).
 //
-// Ownership: the result owns its own allocation.
-pub fn getcwd() {
-    print("getcwd");
+// `exit(code)` and `getenv(name)` are builtins, in scope in every file. This
+// module adds the statement-shaped exit a report wants and documents the
+// environment spelling beside it.
+//
+// `getcwd()` is not provided yet: the runtime has no call that answers the
+// working directory, and a wrapper that returned the empty string would be a
+// wrong answer a program could act on. The name is reserved for the release
+// that adds the runtime entry point.
+//
+// Ownership: `exit_with` never returns and owns nothing.
+
+pub fn exit_with(code: int) {
+    exit(code);
 }

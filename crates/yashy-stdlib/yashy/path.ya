@@ -1,55 +1,115 @@
-// Path manipulation (M6 Task 10).
+// Path helpers (M6 Task 10).
 //
-// `join(a, b)` joins two path components with the platform separator.
+// A path is a `string` and `/` is the separator on every platform. Yashy has no
+// platform path type, so a Windows path written with `\` is one long name here;
+// guessing the platform would make the same program answer differently on two
+// machines. Nothing normalizes `.` or `..`: that is a resolver's job, not a
+// string helper's.
 //
-// Ownership: none; the result owns its own allocation.
-pub fn join(a: string, b: string) -> string {
-    print(a);
-    print("/");
-    print(b)
+// Every result is a fresh owned string; no argument is consumed.
+
+// One `/` between the components. A trailing separator on `left` and a leading
+// one on `right` are removed first, so `join("a/", "/b")` is `a/b` and not
+// `a//b`. An empty side contributes nothing.
+pub fn join(left: string, right: string) -> string {
+    let head = strip_trailing(left);
+    let tail = strip_leading(right);
+    if head.len() == 0 {
+        return tail;
+    }
+    if tail.len() == 0 {
+        return head;
+    }
+    return head + "/" + tail;
 }
 
-// `basename(path)` answers the last component of a path.
-//
-// Ownership: the result owns its own allocation.
+// The last component of `path`. `basename("/")` is `/` and `basename("")` is
+// the empty string.
 pub fn basename(path: string) -> string {
-    let parts = split(path, "/");
-    print(parts[length(parts) - 1])
+    let trimmed = strip_trailing(path);
+    if trimmed.len() == 0 {
+        if path.len() > 0 {
+            return "/";
+        }
+        return "";
+    }
+    let cut = last_separator(trimmed);
+    if cut < 0 {
+        return trimmed;
+    }
+    return trimmed.slice(cut + 1, trimmed.len());
 }
 
-// `dirname(path)` answers the directory part of a path.
-//
-// Ownership: the result owns its own allocation.
+// Everything before the last separator. A bare name has no directory, which is
+// spelled `.`; a path that is only separators has `/`.
 pub fn dirname(path: string) -> string {
-    let parts = split(path, "/");
-    let result = "";
-    let i = 0;
-    while i < length(parts) - 1 {
-        result = join(result, parts[i]);
-        if i < length(parts) - 2 {
-            result = join(result, "/");
-        }
-        i = i + 1;
+    if path.len() == 0 {
+        return ".";
     }
-    result
+    let trimmed = strip_trailing(path);
+    if trimmed.len() == 0 {
+        return "/";
+    }
+    let cut = last_separator(trimmed);
+    if cut < 0 {
+        return ".";
+    }
+    if cut == 0 {
+        return "/";
+    }
+    return trimmed.slice(0, cut);
 }
 
-fn split(text: string, sep: string) -> array(string) {
-    let result = [];
-    let i = 0;
-    while i < length(text) {
-        let chunk = "";
-        let j = i;
-        while j < length(text) && substr(text, j, 1) != sep {
-            chunk = join(chunk, substr(text, j, 1));
-            j = j + 1;
-        }
-        result = append(result, chunk);
-        if j < length(text) {
-            i = j + 1;
-        } else {
-            i = j;
-        }
+// The text after the last `.` in the last component, without the dot. A name
+// with no dot, or a dot that is the first byte (`.gitignore`), has no
+// extension and answers the empty string.
+pub fn extension(path: string) -> string {
+    let name = basename(path);
+    let cut = last_dot(name);
+    if cut <= 0 {
+        return "";
     }
-    result
+    return name.slice(cut + 1, name.len());
+}
+
+fn strip_trailing(text: string) -> string {
+    const SLASH = 47;
+    let end = text.len();
+    while end > 0 && text.byte_at(end - 1).to_int() == SLASH {
+        end = end - 1;
+    }
+    return text.slice(0, end);
+}
+
+fn strip_leading(text: string) -> string {
+    const SLASH = 47;
+    let start = 0;
+    while start < text.len() && text.byte_at(start).to_int() == SLASH {
+        start = start + 1;
+    }
+    return text.slice(start, text.len());
+}
+
+fn last_separator(text: string) -> int {
+    const SLASH = 47;
+    let i = text.len() - 1;
+    while i >= 0 {
+        if text.byte_at(i).to_int() == SLASH {
+            return i;
+        }
+        i = i - 1;
+    }
+    return 0 - 1;
+}
+
+fn last_dot(text: string) -> int {
+    const DOT = 46;
+    let i = text.len() - 1;
+    while i >= 0 {
+        if text.byte_at(i).to_int() == DOT {
+            return i;
+        }
+        i = i - 1;
+    }
+    return 0 - 1;
 }

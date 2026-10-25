@@ -1,9 +1,11 @@
 // Program arguments (M6 Task 10).
 //
-// `args()` answers a string array of the program's command-line arguments.
+// `args()` is not provided yet. `main` is emitted as `i32 @main()` with no
+// `argc`/`argv`, so the process's argument vector never reaches a Yashy program.
+// Changing the entry signature would make every program pay for a feature most
+// do not use; the plan records the trade rather than half-implementing it.
 //
-// Ownership: the result owns its own allocation.
-pub fn args() -> array(string) {
-    print("args");
-    []
-}
+// The CLI's own `yashy run -- <args>` forwards arguments to the child process;
+// the child can read them once this module lands.
+//
+// Ownership: nothing is created or consumed.
