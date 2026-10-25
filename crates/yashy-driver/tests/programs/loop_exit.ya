@@ -1,0 +1,23 @@
+// `break` and `continue` written inside a nested block leave the loop body, so
+// the body's string locals must be released on both paths. The loop runs four
+// times: two normal iterations print, one continues, one breaks. The report is
+// zero only if the two exits release the binding the body built.
+//
+// Ownership: `body` is built fresh each iteration and released on every path.
+
+fn main() {
+    let i = 0;
+    while i < 4 {
+        let body = "x" + "y";
+        if i == 1 {
+            i = i + 1;
+            continue;
+        }
+        if i == 3 {
+            break;
+        }
+        println(body);
+        i = i + 1;
+    }
+    println("done");
+}

@@ -304,3 +304,34 @@ fn both_container_programs_leak_nothing() {
     );
     assert_no_leaks("wc", &wc);
 }
+
+#[test]
+fn a_return_from_a_nested_block_releases_the_enclosing_scope() {
+    // `early_return.ya` declares two strings before an `if` and returns one of
+    // them from inside it. The block that returns is not the function body, so
+    // the body's other binding has to be released on the way out as well. Before
+    // the return-path fix, each early return leaked the binding it did not
+    // return, and the count grew with the number of calls.
+    let output = build_and_run("early_return");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "[a]\n[b]<none>\n<none>\n",
+        "each early-return path must produce the right value:\n{stdout}"
+    );
+    assert_no_leaks("early_return", &output);
+}
+
+#[test]
+fn a_break_or_continue_from_a_nested_block_releases_the_loop_body() {
+    // `loop_exit.ya` builds a string at the top of a loop body, then leaves the
+    // body from inside an `if`. The `if` block is not the loop body, so the
+    // body's binding has to be released before the jump. Before the loop-exit
+    // fix, `continue` and `break` each leaked one binding per exit.
+    let output = build_and_run("loop_exit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout, "xy\nxy\ndone\n",
+        "both normal iterations must print and both exits must stop the loop:\n{stdout}"
+    );
+    assert_no_leaks("loop_exit", &output);
+}

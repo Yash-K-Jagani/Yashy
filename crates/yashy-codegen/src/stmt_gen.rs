@@ -29,8 +29,8 @@
 
 use yashy_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind};
 
-use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, RefKind};
 use crate::expr_gen::retain_struct_fields;
+use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, LoopTarget, RefKind};
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
 
@@ -514,11 +514,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 (Some(expr), Some(_)) => Some(gen_expr(ctx, expr)),
                 _ => None,
             };
-            // Defers for this scope run before the block is terminated, so
-            // they execute on the way out, not when the `defer` was reached --
-            // and before the string locals below are released, so a deferred
-            // body still sees them.
-            run_defers(ctx);
+            // Defers for every scope between this `return` and the function
+            // body run before the block is terminated, innermost first, so they
+            // execute on the way out, not when the `defer` was reached -- and
+            // before the string locals below are released, so a deferred body
+            // still sees them. A `return` inside an `if` leaves the enclosing
+            // scope too; running only the innermost one leaked its bindings.
+            run_all_scopes_defers(ctx);
             if let (Some(taken), Some(kind)) = (&taken, returned_kind) {
                 // The returned reference has to survive the release: a local's
                 // value is kept here and given to the caller, while a
@@ -534,7 +536,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     }
                 }
             }
-            ctx.release_current_ref_scope();
+            ctx.release_all_ref_scopes();
             match (value, taken) {
                 (Some(_), Some(v)) => emit_return(ctx, &v),
                 (Some(expr), None) => {
@@ -588,34 +590,40 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let _ = gen_match(ctx, &scrutinee, arms, &TypeKind::Unit);
             Flow::Fallthrough
         }
-        HirStmt::Break(_) => {
-            run_defers(ctx);
-            ctx.release_current_ref_scope();
-            match ctx.loops.last().cloned() {
-                Some((break_label, _)) => {
-                    ctx.push(format!("br label %{break_label}"));
-                    Flow::Break
-                }
-                None => {
-                    ctx.push("; `break` outside a loop; the type checker rejected this");
-                    Flow::Fallthrough
-                }
+        HirStmt::Break(_) => match ctx.loops.last().cloned() {
+            Some(target) => {
+                // A `break` nested in a block leaves the block *and* the loop
+                // body. Release the body's scopes, and run its defers, before
+                // branching; the enclosing scopes stay for the code after the
+                // loop.
+                run_defers_from(ctx, target.defer_base);
+                ctx.release_ref_scopes_from(target.scope_base);
+                ctx.push(format!("br label %{}", target.break_label));
+                Flow::Break
             }
-        }
-        HirStmt::Continue(_) => {
-            run_defers(ctx);
-            ctx.release_current_ref_scope();
-            match ctx.loops.last().cloned() {
-                Some((_, continue_label)) => {
-                    ctx.push(format!("br label %{continue_label}"));
-                    Flow::Continue
-                }
-                None => {
-                    ctx.push("; `continue` outside a loop; the type checker rejected this");
-                    Flow::Fallthrough
-                }
+            None => {
+                run_defers(ctx);
+                ctx.release_current_ref_scope();
+                ctx.push("; `break` outside a loop; the type checker rejected this");
+                Flow::Fallthrough
             }
-        }
+        },
+        HirStmt::Continue(_) => match ctx.loops.last().cloned() {
+            Some(target) => {
+                // The body's scopes are released before the jump to the
+                // increment, so the next iteration starts clean.
+                run_defers_from(ctx, target.defer_base);
+                ctx.release_ref_scopes_from(target.scope_base);
+                ctx.push(format!("br label %{}", target.continue_label));
+                Flow::Continue
+            }
+            None => {
+                run_defers(ctx);
+                ctx.release_current_ref_scope();
+                ctx.push("; `continue` outside a loop; the type checker rejected this");
+                Flow::Fallthrough
+            }
+        },
         HirStmt::Defer { body, .. } => {
             // The capture happens *here*, not when the body runs: that is what
             // makes the deferred body see the ownership state the checker
@@ -714,7 +722,13 @@ fn gen_for_range(
     let shadowed = ctx
         .locals
         .insert(name.to_string(), (index_slot.clone(), TypeKind::I64));
-    ctx.loops.push((done_label.clone(), inc_label.clone()));
+    let (scope_base, defer_base) = ctx.unwind_depths();
+    ctx.loops.push(LoopTarget {
+        break_label: done_label.clone(),
+        continue_label: inc_label.clone(),
+        scope_base,
+        defer_base,
+    });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
     match shadowed {
@@ -854,7 +868,13 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     let shadowed = ctx
         .locals
         .insert(name.to_string(), (element_slot, element_kind));
-    ctx.loops.push((done_label.clone(), inc_label.clone()));
+    let (scope_base, defer_base) = ctx.unwind_depths();
+    ctx.loops.push(LoopTarget {
+        break_label: done_label.clone(),
+        continue_label: inc_label.clone(),
+        scope_base,
+        defer_base,
+    });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
     match shadowed {
@@ -916,7 +936,13 @@ fn gen_for_c(
     }
 
     ctx.push(format!("{body_label}:"));
-    ctx.loops.push((done_label.clone(), inc_label.clone()));
+    let (scope_base, defer_base) = ctx.unwind_depths();
+    ctx.loops.push(LoopTarget {
+        break_label: done_label.clone(),
+        continue_label: inc_label.clone(),
+        scope_base,
+        defer_base,
+    });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
     if flow == Flow::Fallthrough {
@@ -972,6 +998,24 @@ pub fn run_all_scopes_defers(ctx: &mut FnCtx<'_>) {
         return;
     }
     let levels: Vec<Vec<Deferred>> = ctx.defers.iter().rev().cloned().collect();
+    for pending in levels {
+        lower_defers(ctx, pending);
+    }
+}
+
+/// Run every pending deferred body in the scopes at or above `base`, innermost
+/// first, without consuming the stacks.
+///
+/// `base` is the depth recorded when a loop body was entered. A
+/// `break`/`continue` written in a block nested inside the body leaves the body
+/// and the nested blocks, but not the scopes around the loop, so only those
+/// levels fire. Like [`run_all_scopes_defers`], the lists survive because the
+/// blocks that own them still pop their own entries as the flow propagates.
+fn run_defers_from(ctx: &mut FnCtx<'_>, base: usize) {
+    if ctx.lowering_defers || base >= ctx.defers.len() {
+        return;
+    }
+    let levels: Vec<Vec<Deferred>> = ctx.defers[base..].iter().rev().cloned().collect();
     for pending in levels {
         lower_defers(ctx, pending);
     }

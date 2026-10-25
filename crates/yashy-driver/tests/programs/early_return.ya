@@ -1,0 +1,29 @@
+// A `return` inside a nested block leaves the enclosing scopes too, so the
+// bindings declared outside the `if` must be released on the way out. This is
+// the shape every path helper has: a fast path that returns from an `if` and a
+// fall-through that returns at the end.
+//
+// The first call returns `decorated` while `fallback` is still live; the second
+// returns `fallback` while `decorated` is still live; the third builds a third
+// string on the way out. The report is zero only if all three paths release the
+// bindings they do not return.
+//
+// Ownership: every string built here is released, so the leak report is zero.
+
+fn pick(flag: bool, text: string) -> string {
+    let decorated = "[" + text + "]";
+    let fallback = "<none>";
+    if flag {
+        return decorated;
+    }
+    if text.len() == 0 {
+        return fallback;
+    }
+    return decorated + fallback;
+}
+
+fn main() {
+    println(pick(true, "a"));
+    println(pick(false, "b"));
+    println(pick(false, ""));
+}

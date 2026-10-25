@@ -70,6 +70,25 @@ pub struct GenValue {
     pub ty: TypeKind,
 }
 
+/// Where a `break` or `continue` goes, and how far to unwind to get there.
+///
+/// A `break` written in a block nested inside a loop body leaves that block
+/// *and* the body, but not the scopes around the loop. The two depths are
+/// recorded just before the body's own scope and defer list are opened, so the
+/// terminating statement can release exactly the scopes the loop owns and leave
+/// the enclosing ones alone.
+#[derive(Clone, Debug)]
+pub struct LoopTarget {
+    /// The label after the loop.
+    pub break_label: String,
+    /// The label that advances to the next iteration.
+    pub continue_label: String,
+    /// Number of ref scopes enclosing the body; the body's own scope is here.
+    pub scope_base: usize,
+    /// Number of defer lists enclosing the body.
+    pub defer_base: usize,
+}
+
 /// The state of one function being emitted.
 ///
 /// The module is **borrowed**, not owned (ledger ruling on Task 10 → 12):
@@ -96,10 +115,10 @@ pub struct FnCtx<'a> {
     /// Bound names (`locals`, parameters, pattern bindings) to their slot and
     /// declared type.
     pub locals: HashMap<String, (String, TypeKind)>,
-    /// Active loop labels, innermost last: `(break label, continue label)`.
-    /// `break`/`continue` read the top entry, so nested loops need no extra
-    /// plumbing through the statement tree.
-    pub loops: Vec<(String, String)>,
+    /// Active loop labels and unwind depths, innermost last. `break`/`continue`
+    /// read the top entry, so nested loops need no extra plumbing through the
+    /// statement tree, and they know how many scopes the loop body owns.
+    pub loops: Vec<LoopTarget>,
     /// Deferred bodies registered in the active scopes, innermost scope last.
     ///
     /// Each scope pushes its own `Vec` on entry and pops it on exit, so a
@@ -147,9 +166,9 @@ pub struct FnCtx<'a> {
     /// This is why a *binding* is kept even though the temporary release would
     /// have freed it: a slot's value outlives the expression that produced it,
     /// so the reference has to belong to the slot and be dropped when the slot
-    /// goes away. A scope that exits without any statement to hang the release
-    /// on (a `break` from a doubly nested block) leaks, the same reading of the
-    /// same limitation the defer list has.
+    /// goes away. A `return` releases every enclosing scope, and a
+    /// `break`/`continue` releases the loop body and its nested blocks, so the
+    /// only scopes left for a normal exit are the ones the block itself owns.
     scope_refs: Vec<Vec<(String, RefKind, Option<TypeKind>)>>,
     /// The terminator for a `return` with no value, and for falling off the end
     /// of a body. `ret void` everywhere except the program's entry point, which
@@ -400,6 +419,49 @@ impl<'a> FnCtx<'a> {
         for (slot, kind, ty) in slots.iter().rev() {
             self.release_slot(slot, *kind, ty.as_ref());
         }
+    }
+
+    /// Release every active scope's owned locals, innermost first.
+    ///
+    /// A `return` leaves *all* of the scopes between it and the function body,
+    /// not only the block the `return` is written in. Releasing just the
+    /// innermost one leaked a binding declared outside an `if` or a loop that
+    /// returned early: the enclosing block never ran its own release because
+    /// [`crate::stmt_gen::gen_block`] assumes the terminating statement already
+    /// did. The scopes stay on the stack (now empty) so each block's close can
+    /// still pop its own entry.
+    pub(crate) fn release_all_ref_scopes(&mut self) {
+        self.release_ref_scopes_from(0);
+    }
+
+    /// Release the owned locals in every scope at or above `base`, innermost
+    /// first, without popping the scopes.
+    ///
+    /// The scopes below the terminating block are shared with the other
+    /// branches of the `if`, `switch` or loop being lowered: the else branch
+    /// still owns those references and must release them on its own way out.
+    /// Taking them here made the first branch to exit consume the bindings for
+    /// every later branch, which turned one leak into another. Each block's
+    /// close still pops its own (now empty) entry.
+    pub(crate) fn release_ref_scopes_from(&mut self, base: usize) {
+        let mut slots: Vec<(String, RefKind, Option<TypeKind>)> = Vec::new();
+        for scope in self.scope_refs.iter().skip(base).rev() {
+            for entry in scope.iter().rev() {
+                slots.push(entry.clone());
+            }
+        }
+        for (slot, kind, ty) in slots {
+            self.release_slot(&slot, kind, ty.as_ref());
+        }
+    }
+
+    /// The depths a loop body starts at: `(ref scopes, defer lists)`.
+    ///
+    /// Recorded just before the body is lowered, so a `break`/`continue` can
+    /// release the body and its nested blocks without touching the scopes
+    /// around the loop.
+    pub(crate) fn unwind_depths(&self) -> (usize, usize) {
+        (self.scope_refs.len(), self.defers.len())
     }
 
     /// Open the function's entry block.
