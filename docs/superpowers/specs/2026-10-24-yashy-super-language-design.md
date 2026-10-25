@@ -44,11 +44,11 @@ The first release is the foundation for all five domains, not a rejection of fou
 | Area | Current state |
 |---|---|
 | **Version** | 0.1.0 |
-| **Milestones** | M0–M8 and M12–M15 complete; M9–M11 remain. M11 is partly done: `fmt` and the LSP exist. |
+| **Milestones** | M0–M8 and M12–M15 complete; M9–M11 remain. M11 is partly done: `fmt`, the LSP, `run`, `test`, and `init` exist. |
 | **Compiler** | Rust workspace; emits textual LLVM IR and links with `clang`; Windows and Linux x86-64; no cross-compilation. |
 | **Language** | `int`, `float`, `bool`, `char`, `string`, `void`; structs, enums, `Option`/`Result`, `?`, arrays, fixed arrays, tuples, pattern guards, generics, closures, methods/objects, modules with `pub`, FFI, threads/channels/mutexes, checked arithmetic. |
-| **Tooling** | `yashy build`, `yashy check`, `yashy fmt`; LSP with diagnostics, hover, definition, and semantic tokens; editor modes; tutorial. No `run`, `test`, `init`, or `doc`. |
-| **Standard library** | `alloc`, `io`, `math`, `os`, `string`; built-in `read_file`, `write_file`, `read_line`. No `fs`, `path`, `args`, `env`, `process`, `time`, `rand`, `JSON`, or HTTP. |
+| **Tooling** | `yashy build`, `check`, `fmt`, `run`, `test`, `init`, and `doctor`; LSP with diagnostics, hover, definition, and semantic tokens; editor modes; tutorial. No `doc`. |
+| **Standard library** | `alloc`, `io`, `math`, `os`, `string`; built-in `read_file`, `write_file`, `read_line`. The `fs`, `path`, `args`, `env`, `process`, `time`, `rand`, and `JSON` modules import: `path`, `JSON`, and `rand` are implemented in Yashy, while `fs`, `env`, and `process` document the builtins they name and `args`/`time`/`getcwd` are documented as not yet available. No HTTP. |
 | **Missing for users** | Installer, package manager, cross-compilation, stack traces, LSP completion/rename, benchmark CI. |
 | **Performance** | Scalar rows are competitive. Feature rows are slower: array mapping 3.76×, debug formatting 3.42×, tuples 1.79×. `fib` compiles in ~259 ms. Benchmarks are not a CI gate. |
 | **Documentation** | README, tutorial, design spec, vision, plans. No book, API reference, website, or playground. |
@@ -61,9 +61,11 @@ The language is not missing a compiler. It is missing a product.
 
 Three gaps keep Yashy from being adopted:
 
-1. **Time to first real program.** A new user needs Rust, LLVM, and manual
-   commands. There is no installer, no `yashy run`, no `yashy init`, a tiny
-   standard library, and no package manager.
+1. **Time to first real program.** A new user still needs Rust and LLVM to
+   build the compiler, and there is no installer or package manager. `yashy
+   run`, `test`, and `init` exist; the standard library now has real `path`,
+   `JSON`, and `rand` modules, but `args`, `time`, and `getcwd` are still
+   missing.
 2. **Time to debug.** Panics do not give a useful stack trace. Diagnostics lack
    suggestions. The LSP has no completion or rename.
 3. **Time to trust.** Feature-heavy code is slower than it should be, there is no
