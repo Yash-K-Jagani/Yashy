@@ -113,6 +113,32 @@ fn blocked_by_policy(error: &std::io::Error) -> bool {
         || error.to_string().contains("Application Control")
 }
 
+/// Append a tail of non-zero bytes to `bytes`.
+///
+/// The policy treats a copy that differs from a blocked image only in the
+/// number of zero bytes after it as the same program: zero padding no longer
+/// gets a freshly linked binary started. A tail with different *content* does,
+/// so the padding is filled from a small xorshift seeded by the clock and the
+/// attempt number. This is not cryptography; it only has to be a different
+/// question.
+fn pad_with_noise(bytes: &mut Vec<u8>, attempt: usize) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    let mut state = nanos ^ (attempt as u64).wrapping_mul(0x2545_f491_4f6c_dd1d);
+    let start = bytes.len();
+    bytes.resize(start + 4096 + attempt, 0);
+    for byte in &mut bytes[start..] {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        *byte = (state & 0xff) as u8;
+    }
+}
+
 /// The CLI copy to try on `attempt`.
 ///
 /// Unlike a compiled test program, the CLI lives in cargo's shared
@@ -130,13 +156,13 @@ fn cli_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
         std::env::consts::EXE_SUFFIX
     ));
     let mut bytes = fs::read(exe)?;
-    bytes.resize(bytes.len() + attempt, 0);
+    pad_with_noise(&mut bytes, attempt);
     fs::write(&candidate, bytes)?;
     Ok(candidate)
 }
 
 /// The file to start on attempt `attempt`: the executable itself, then copies
-/// that differ from it only in how many zero bytes follow the image.
+/// that differ from it in the bytes that follow the image.
 fn launch_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
     if attempt == 0 {
         return Ok(exe.to_path_buf());
@@ -151,7 +177,7 @@ fn launch_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
         std::env::consts::EXE_SUFFIX
     ));
     let mut bytes = fs::read(exe)?;
-    bytes.resize(bytes.len() + attempt, 0);
+    pad_with_noise(&mut bytes, attempt);
     fs::write(&candidate, bytes)?;
     Ok(candidate)
 }

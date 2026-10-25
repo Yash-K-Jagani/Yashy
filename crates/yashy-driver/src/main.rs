@@ -322,8 +322,9 @@ fn exit_status_code(status: ExitStatus) -> i32 {
 
 /// Start a freshly linked binary, stepping around an Application Control /
 /// Device Guard policy that refuses new content. The workaround is the same
-/// one the integration tests use: a copy with extra zero bytes past the image
-/// is a new question, and the loader never reads those bytes.
+/// one the integration tests use: a copy with extra bytes past the image is a
+/// new question, and the loader never reads those bytes. The tail has to differ
+/// in content, not only in length: a copy padded with zeros is still refused.
 fn status_with_retry(exe: &Path, args: &[String]) -> std::io::Result<ExitStatus> {
     for attempt in 0..LAUNCH_ATTEMPTS {
         let candidate = launch_candidate(exe, attempt)?;
@@ -355,9 +356,34 @@ fn launch_candidate(exe: &Path, attempt: usize) -> std::io::Result<PathBuf> {
         std::env::consts::EXE_SUFFIX
     ));
     let mut bytes = fs::read(exe)?;
-    bytes.resize(bytes.len() + attempt, 0);
+    pad_with_noise(&mut bytes, attempt);
     fs::write(&candidate, bytes)?;
     Ok(candidate)
+}
+
+/// Append a tail of non-zero bytes to `bytes`.
+///
+/// The policy treats a copy that differs from a blocked image only in the
+/// number of zero bytes after it as the same program. A tail with different
+/// *content* gets started, so the padding is filled from a small xorshift
+/// seeded by the clock and the attempt number. This is not cryptography; it
+/// only has to be a different question.
+fn pad_with_noise(bytes: &mut Vec<u8>, attempt: usize) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    let mut state = nanos ^ (attempt as u64).wrapping_mul(0x2545_f491_4f6c_dd1d);
+    let start = bytes.len();
+    bytes.resize(start + 4096 + attempt, 0);
+    for byte in &mut bytes[start..] {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        *byte = (state & 0xff) as u8;
+    }
 }
 
 fn blocked_by_policy(error: &std::io::Error) -> bool {
