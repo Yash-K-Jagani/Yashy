@@ -35,7 +35,7 @@
 
 use std::collections::BTreeMap;
 
-use yashy_common::{FileId, Span};
+use yashy_common::{codes, FileId, Span};
 use yashy_parser::ast::{BinOp, Block, Expr, Literal, Stmt, StringLit, UnOp};
 
 use crate::error::TypeError;
@@ -418,7 +418,8 @@ fn check_expr(
                         function.params.len(),
                         args.len()
                     ),
-                ));
+                )
+                .with_code(codes::WRONG_ARGUMENT_COUNT));
             }
             for (argument, (_, param)) in args.iter().zip(function.params.iter()) {
                 let actual = check_expr(argument, env, consts, context, work)?;
@@ -426,7 +427,8 @@ fn check_expr(
                     return Err(TypeError::new(
                         expr_span(argument),
                         format!("expected `{param}`, found `{actual}`"),
-                    ));
+                    )
+                    .with_code(codes::TYPE_MISMATCH));
                 }
             }
             Ok(function.ret.clone())

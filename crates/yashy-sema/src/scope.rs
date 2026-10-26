@@ -8,7 +8,7 @@
 use crate::error::TypeError;
 use crate::ownership::Ownership;
 use crate::ty::{Mutability, Type};
-use yashy_common::Span;
+use yashy_common::{codes, Span};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -148,16 +148,16 @@ impl Scope {
             Some(binding) if binding.ownership == Ownership::Moved => Err(TypeError::new(
                 span,
                 format!("value `{name}` has already been moved"),
-            )),
+            )
+            .with_code(codes::MOVED_VALUE)),
             Some(binding) => {
                 binding.ownership = Ownership::Moved;
                 Ok(())
             }
             None => {
-                let mut error = TypeError::new(
-                    span,
-                    format!("cannot find value `{name}` in this scope"),
-                );
+                let mut error =
+                    TypeError::new(span, format!("cannot find value `{name}` in this scope"))
+                        .with_code(codes::UNKNOWN_NAME);
                 if let Some(suggestion) = yashy_common::closest(name, self.names()) {
                     error = error.with_label(format!("did you mean `{suggestion}`?"));
                 }
@@ -174,7 +174,8 @@ impl Scope {
             Some(binding) if binding.ownership == Ownership::Moved => Err(TypeError::new(
                 span,
                 format!("value `{name}` has already been moved"),
-            )),
+            )
+            .with_code(codes::MOVED_VALUE)),
             _ => Ok(()),
         }
     }

@@ -4,8 +4,8 @@
 //! is one column off is exactly the bug these tests exist to catch.
 
 use yashy_common::{
-    Diagnostic, DiagnosticBag, FileId, Location, Severity, SourceMap, Span, EXIT_COMPILE_ERROR,
-    EXIT_OK,
+    codes, Diagnostic, DiagnosticBag, FileId, Location, Severity, SourceMap, Span,
+    EXIT_COMPILE_ERROR, EXIT_OK,
 };
 
 /// Byte offsets used by several tests below:
@@ -36,6 +36,7 @@ fn at(file: FileId, span: Span) -> Diagnostic {
         span,
         label: None,
         notes: Vec::new(),
+        code: None,
     }
 }
 
@@ -46,6 +47,19 @@ fn line(out: &str, index: usize) -> &str {
         Some(line) => line,
         None => panic!("rendered output has no line {index}: {out}"),
     }
+}
+
+#[test]
+fn renders_a_coded_diagnostic_with_the_code_after_the_severity() {
+    let (sm, f) = sample_map();
+    let d = at(f, Span { start: 18, end: 19 }).with_code(codes::UNKNOWN_NAME);
+
+    let out = sm.render(&d);
+
+    assert_eq!(
+        line(&out, 1),
+        "error[E0001]: cannot find value `y` in this scope"
+    );
 }
 
 #[test]

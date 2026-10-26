@@ -24,7 +24,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use yashy_common::{Diagnostic, FileId, SourceMap, Span};
+use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, Expr, InterpFormat, InterpPart, Item, Literal, Param, Pattern,
     PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
@@ -714,6 +714,35 @@ impl<'src> Checker<'src> {
         self.errors.push((self.file, TypeError::new(span, message)));
     }
 
+    /// Push an error that carries a catalog code.
+    fn error_code(&mut self, span: Span, code: &'static str, message: impl Into<String>) {
+        self.errors
+            .push((self.file, TypeError::new(span, message).with_code(code)));
+    }
+
+    /// Report a type mismatch from the expected and found types.
+    ///
+    /// A `Result` used where its success value is expected is the missing-`?`
+    /// case: the code says so and the note names both fixes. Every other
+    /// mismatch gets the general code.
+    fn mismatch(&mut self, span: Span, expected: &Type, found: &Type) {
+        let mut error = TypeError::new(span, format!("expected `{expected}`, found `{found}`"));
+        match &found.kind {
+            TypeKind::Result(ok, _) if ok.eq_ignoring_span(expected) => {
+                error = error
+                    .with_code(codes::MISSING_QUESTION)
+                    .with_note("use `?` to propagate the error, or match the `Result`");
+            }
+            _ => error = error.with_code(codes::TYPE_MISMATCH),
+        }
+        self.report(error);
+    }
+
+    /// Report a type mismatch whose message is already written.
+    fn mismatch_message(&mut self, span: Span, message: impl Into<String>) {
+        self.report(TypeError::new(span, message).with_code(codes::TYPE_MISMATCH));
+    }
+
     /// Push an error that was built elsewhere, keeping any label it carries.
     ///
     /// Resolving a type or a pattern returns a [`TypeError`] that may already
@@ -756,8 +785,8 @@ impl<'src> Checker<'src> {
     /// Report a name the scope does not have, with the nearest spelling when
     /// there is one.
     fn error_missing_value(&mut self, name: &str, span: Span) {
-        let mut error =
-            TypeError::new(span, format!("cannot find value `{name}` in this scope"));
+        let mut error = TypeError::new(span, format!("cannot find value `{name}` in this scope"))
+            .with_code(codes::UNKNOWN_NAME);
         if let Some(suggestion) = self.value_suggestion(name) {
             error = error.with_label(format!("did you mean `{suggestion}`?"));
         }
@@ -767,7 +796,8 @@ impl<'src> Checker<'src> {
     /// Report a callee the scope does not have, with the nearest function when
     /// there is one.
     fn error_missing_function(&mut self, name: &str, span: Span) {
-        let mut error = TypeError::new(span, format!("cannot find function `{name}`"));
+        let mut error = TypeError::new(span, format!("cannot find function `{name}`"))
+            .with_code(codes::UNKNOWN_NAME);
         if let Some(suggestion) = self.function_suggestion(name) {
             error = error.with_label(format!("did you mean `{suggestion}`?"));
         }
@@ -1835,7 +1865,8 @@ impl<'src> Checker<'src> {
                 match kind {
                     Some(kind) => Ok(Type { kind, span: *span }),
                     None => {
-                        let mut error = TypeError::new(*span, format!("cannot find type `{name}`"));
+                        let mut error = TypeError::new(*span, format!("cannot find type `{name}`"))
+                            .with_code(codes::UNKNOWN_TYPE);
                         if let Some(suggestion) = self.type_suggestion(name) {
                             error = error.with_label(format!("did you mean `{suggestion}`?"));
                         }
@@ -2107,8 +2138,9 @@ impl<'src> Checker<'src> {
             return None;
         };
         if generic.params.len() != args.len() {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {} arguments, found {}",
                     generic.params.len(),
@@ -2123,7 +2155,7 @@ impl<'src> Checker<'src> {
             let checked = self.check_expr(arg)?;
             let actual = expr_ty(&checked);
             if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
-                self.error(
+                self.mismatch_message(
                     expr_span(&checked),
                     format!(
                         "expected `{}`, found `{actual}`",
@@ -2773,9 +2805,10 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.error(
+                        self.mismatch(
                             expr_span(&init_expr),
-                            format!("expected `{declared}`, found `{}`", expr_ty(&init_expr)),
+                            declared,
+                            &expr_ty(&init_expr),
                         );
                     }
                 }
@@ -2829,9 +2862,10 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.error(
+                        self.mismatch(
                             expr_span(&init_expr),
-                            format!("expected `{declared}`, found `{}`", expr_ty(&init_expr)),
+                            declared,
+                            &expr_ty(&init_expr),
                         );
                     }
                 }
@@ -3039,6 +3073,7 @@ impl<'src> Checker<'src> {
                             span,
                             format!("cannot assign to `{name}`, which is immutable"),
                         )
+                        .with_code(codes::CONST_REASSIGNMENT)
                         .with_note("use `let` for a mutable binding"),
                     );
                 }
@@ -3084,16 +3119,13 @@ impl<'src> Checker<'src> {
                 Some(e) => {
                     let checked = self.check_expr_with_expected(e, ret)?;
                     if !fits(ret, &expr_ty(&checked)) {
-                        self.error(
-                            expr_span(&checked),
-                            format!("expected `{ret}`, found `{}`", expr_ty(&checked)),
-                        );
+                        self.mismatch(expr_span(&checked), ret, &expr_ty(&checked));
                     }
                     Some(HirStmt::Return(Some(checked), *span))
                 }
                 None => {
                     if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
-                        self.error(*span, format!("expected `{ret}`, found `void`"));
+                        self.mismatch_message(*span, format!("expected `{ret}`, found `void`"));
                     }
                     Some(HirStmt::Return(None, *span))
                 }
@@ -3111,9 +3143,10 @@ impl<'src> Checker<'src> {
                     .map(Box::new);
                 let cond_expr = self.check_expr(cond)?;
                 if !expr_ty(&cond_expr).eq_ignoring_span(&prim(TypeKind::Bool)) {
-                    self.error(
+                    self.mismatch(
                         expr_span(&cond_expr),
-                        format!("expected `bool`, found `{}`", expr_ty(&cond_expr)),
+                        &prim(TypeKind::Bool),
+                        &expr_ty(&cond_expr),
                     );
                 }
                 // Nested blocks belong to the same function, so `return` inside
@@ -3270,7 +3303,7 @@ impl<'src> Checker<'src> {
                 let cond_expr = cond.as_ref().and_then(|c| self.check_expr(c));
                 if let Some(c) = &cond_expr {
                     if !expr_ty(c).eq_ignoring_span(&prim(TypeKind::Bool)) {
-                        self.error(
+                        self.mismatch_message(
                             expr_span(c),
                             format!("expected `bool`, found `{}`", expr_ty(c)),
                         );
@@ -3479,8 +3512,9 @@ impl<'src> Checker<'src> {
                 Some(())
             }
             _ => {
-                self.error(
+                self.error_code(
                     span,
+                    codes::NON_EXHAUSTIVE_MATCH,
                     "switch over a non-enum type is not exhaustive: add a `default` arm"
                         .to_string(),
                 );
@@ -3507,8 +3541,9 @@ impl<'src> Checker<'src> {
         if missing.is_empty() {
             Some(())
         } else {
-            self.error(
+            self.error_code(
                 span,
+                codes::NON_EXHAUSTIVE_MATCH,
                 format!(
                     "switch is not exhaustive: missing case{} {}",
                     if missing.len() == 1 { "" } else { "s" },
@@ -3545,8 +3580,9 @@ impl<'src> Checker<'src> {
             return Some(None);
         };
         if args.len() != want {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {want} argument{}, found {}",
                     if want == 1 { "" } else { "s" },
@@ -3815,8 +3851,9 @@ impl<'src> Checker<'src> {
                 VariantField::Named { name, .. } => name == field_name,
                 VariantField::Positional { .. } => false,
             }) else {
-                self.error(
+                self.error_code(
                     *field_span,
+                    codes::UNKNOWN_FIELD,
                     format!("unknown field `{field_name}` in variant `{variant_name}`"),
                 );
                 let _ = self.check_expr(value);
@@ -3846,8 +3883,9 @@ impl<'src> Checker<'src> {
                 continue;
             };
             if !written.iter().any(|(written_name, _)| written_name == name) {
-                self.error(
+                self.error_code(
                     span,
+                    codes::MISSING_FIELD,
                     format!("missing field `{name}` in variant `{variant_name}`"),
                 );
             }
@@ -5882,8 +5920,9 @@ impl<'src> Checker<'src> {
             return None;
         }
         if params.len() != rest.len() {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {} arguments, found {}",
                     params.len(),
@@ -6556,8 +6595,9 @@ impl<'src> Checker<'src> {
                     Some(ty) => match ty.kind {
                         TypeKind::Func(params, ret) => {
                             if params.len() != args.len() {
-                                self.error(
+                                self.error_code(
                                     *span,
+                                    codes::WRONG_ARGUMENT_COUNT,
                                     format!(
                                         "expected {} arguments, found {}",
                                         params.len(),
@@ -6739,8 +6779,9 @@ impl<'src> Checker<'src> {
                             written.iter().map(|(n, _)| n.as_str()).collect();
                         for (fname, _) in &sig.fields {
                             if !provided.contains(&fname.as_str()) {
-                                self.error(
+                                self.error_code(
                                     *span,
+                                    codes::MISSING_FIELD,
                                     format!("missing field `{fname}` in struct `{name}`"),
                                 );
                             }
@@ -6749,7 +6790,7 @@ impl<'src> Checker<'src> {
                             if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
                                 let value_ty = expr_ty(value);
                                 if !fty.eq_ignoring_span(&value_ty) {
-                                    self.error(
+                                    self.mismatch_message(
                                         expr_span(value),
                                         format!("expected `{fty}`, found `{value_ty}`"),
                                     );
@@ -6761,7 +6802,8 @@ impl<'src> Checker<'src> {
                                 let mut error = TypeError::new(
                                     *span,
                                     format!("unknown field `{fname}` in struct `{name}`"),
-                                );
+                                )
+                                .with_code(codes::UNKNOWN_FIELD);
                                 if let Some(suggestion) =
                                     self.struct_field_suggestion(&name, fname)
                                 {
@@ -6808,7 +6850,8 @@ impl<'src> Checker<'src> {
                         })
                     }
                     None => {
-                        let mut error = TypeError::new(*span, format!("cannot find struct `{name}`"));
+                        let mut error = TypeError::new(*span, format!("cannot find struct `{name}`"))
+                            .with_code(codes::UNKNOWN_TYPE);
                         if let Some(suggestion) = self.type_suggestion(&name) {
                             error = error.with_label(format!("did you mean `{suggestion}`?"));
                         }
@@ -7074,7 +7117,8 @@ impl<'src> Checker<'src> {
                                 let mut error = TypeError::new(
                                     *span,
                                     format!("struct `{sname}` has no field `{field}`"),
-                                );
+                                )
+                                .with_code(codes::UNKNOWN_FIELD);
                                 if let Some(suggestion) =
                                     self.struct_field_suggestion(sname, field)
                                 {
@@ -7087,7 +7131,11 @@ impl<'src> Checker<'src> {
                         }
                     }
                     TypeKind::Enum(ename) => {
-                        self.error(*span, format!("enum `{ename}` has no field `{field}`"));
+                        self.error_code(
+                            *span,
+                            codes::UNKNOWN_FIELD,
+                            format!("enum `{ename}` has no field `{field}`"),
+                        );
                         None
                     }
                     _ => {
@@ -7418,7 +7466,11 @@ impl<'src> Checker<'src> {
                 }
             };
             let Some(sig) = self.structs.get(&struct_name).cloned() else {
-                self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                self.error_code(
+                    span,
+                    codes::UNKNOWN_FIELD,
+                    format!("struct `{struct_name}` has no field `{field}`"),
+                );
                 return None;
             };
             let resolved = sig
@@ -7432,7 +7484,8 @@ impl<'src> Checker<'src> {
                     let mut error = TypeError::new(
                         span,
                         format!("struct `{struct_name}` has no field `{field}`"),
-                    );
+                    )
+                    .with_code(codes::UNKNOWN_FIELD);
                     if let Some(suggestion) =
                         self.struct_field_suggestion(&struct_name, field)
                     {
@@ -7604,7 +7657,8 @@ impl<'src> Checker<'src> {
                     let mut error = TypeError::new(
                         *fspan,
                         format!("struct `{sname}` has no field `{field}`"),
-                    );
+                    )
+                    .with_code(codes::UNKNOWN_FIELD);
                     if let Some(suggestion) = self.struct_field_suggestion(sname, field) {
                         error = error.with_label(format!("did you mean `{suggestion}`?"));
                     }

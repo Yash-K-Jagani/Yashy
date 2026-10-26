@@ -494,17 +494,45 @@ is Done (committed in `0772658`). Verified 2026-10-26:
 
 ### Task 10 — Error codes and catalog
 
-- [ ] Add `code: Option<&'static str>` to `Diagnostic` (or a small
+- [x] Add `code: Option<&'static str>` to `Diagnostic` (or a small
   `DiagnosticCode` enum) and set it at the emission site.
-- [ ] Add `crates/yashy-common/src/codes.rs` with the R1 codes and their
+- [x] Add `crates/yashy-common/src/codes.rs` with the R1 codes and their
   one-line meanings.
-- [ ] Assign codes to the common corpus: unknown name/type, type mismatch,
+- [x] Assign codes to the common corpus: unknown name/type, type mismatch,
   missing/unknown field, missing `?`, const reassignment, moved value,
   non-exhaustive match, wrong argument count.
-- [ ] Add `docs/errors/<code>.md` with cause, example, and fix.
-- [ ] Tests: code and span are present for the corpus; codes are not reused;
+- [x] Add `docs/errors/<code>.md` with cause, example, and fix.
+- [x] Tests: code and span are present for the corpus; codes are not reused;
   an uncoded diagnostic is allowed but counted.
-- [ ] Do not derive a code from the message text.
+- [x] Do not derive a code from the message text.
+
+Implemented 2026-10-26.
+
+- `Diagnostic` and `TypeError` carry `code: Option<&'static str>`, set where the
+  diagnostic is built; `DiagnosticBag::uncoded_count` counts the rest.
+- `codes.rs` holds the §3.8 scheme: `E0001` unknown name, `E0002` unknown
+  type, `E0100` type mismatch, `E0200` unknown field, `E0201` missing field,
+  `E0300` missing `?`, `E0400` const reassignment, `E0500` moved value,
+  `E0600` non-exhaustive match, and `E0700` wrong argument count. Each entry
+  has a title, a one-line summary, and an embedded `docs/errors/<code>.md`
+  page (cause, example, fix). The page is embedded with `include_str!`, so
+  `yashy explain` will work offline.
+- Human output is `error[CODE]: ...` when coded and the old `error: ...` when
+  not. `Diagnostic::docs_url` and `codes::docs_url` point at
+  `https://yashy.dev/errors/<code>`.
+- The corpus is `crates/yashy-sema/tests/codes.rs`: ten programs covering
+  unknown name/type, scalar mismatch, unknown/missing field, wrong argument
+  count, moved value, const reassignment, non-exhaustive switch, and missing
+  `?`. All ten have a code and a real span; the uncoded duplicate-definition
+  case is counted rather than treated as coded.
+- The 90% figure is scoped to that corpus (10/10). Parse errors, visibility,
+  operator mismatch, and linear-copy errors still have no code; they are
+  allowed and counted, not silently treated as complete.
+- Verified 2026-10-26: `cargo test -p yashy-common -p yashy-sema` (25 common,
+  181 sema, 11 corpus), `cargo test -p yashy-driver --test e2e` (115 passed),
+  `cargo test -p yashy-driver --test docs` (3 passed),
+  `cargo test -p yashy-driver --test tutorial` (2 passed), and the full
+  `cargo test --workspace --no-fail-fast` (98 result lines, all ok).
 
 ### Task 11 — JSON diagnostics for `check` and `test`
 

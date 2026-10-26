@@ -782,6 +782,7 @@ fn toolchain_diagnostic(entry_name: &str, message: String) -> Diagnostic {
             "while compiling `{entry_name}`; rerun with --emit-ir to see the generated IR"
         )),
         notes: Vec::new(),
+        code: None,
     }
 }
 

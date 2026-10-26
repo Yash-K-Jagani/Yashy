@@ -111,7 +111,7 @@ the result matters, match it or pass it to a function that takes a `Result`.
 
 - **Giving `Err` the wrong payload.** `return Err(1);` in a
   `Result[int, string]` function reports
-  ``error: expected `string`, found `int` ``. Construct the error the signature
+  ``error[E0100]: expected `string`, found `int` ``. Construct the error the signature
   promises.
 - **Applying `?` to a number.** `const x = 3?;` reports
   ``error: `?` can only be used on a `Result`, not `int` ``.
@@ -132,7 +132,7 @@ scope as a suggestion:
 
 ```text
 misspell.ya:3:11
-error: cannot find value `totl` in this scope
+error[E0001]: cannot find value `totl` in this scope
     print(totl);
           ^^^^ did you mean `total`?
 ```

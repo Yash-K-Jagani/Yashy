@@ -11,6 +11,8 @@ pub struct TypeError {
     pub label: Option<String>,
     /// Location-free notes printed after the caret line.
     pub notes: Vec<String>,
+    /// The stable catalog code, assigned where the error is built.
+    pub code: Option<&'static str>,
 }
 
 impl TypeError {
@@ -20,6 +22,7 @@ impl TypeError {
             message: message.into(),
             label: None,
             notes: Vec::new(),
+            code: None,
         }
     }
 
@@ -36,6 +39,12 @@ impl TypeError {
         self
     }
 
+    /// Attach the stable catalog code, and return the error.
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
+    }
+
     /// Turn this type error into a diagnostic attached to `file`.
     pub fn into_diagnostic(&self, file: FileId) -> Diagnostic {
         Diagnostic {
@@ -45,6 +54,7 @@ impl TypeError {
             span: self.span,
             label: self.label.clone(),
             notes: self.notes.clone(),
+            code: self.code,
         }
     }
 }

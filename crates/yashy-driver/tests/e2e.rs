@@ -718,6 +718,30 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
 }
 
 #[test]
+fn a_catalogued_error_prints_its_code() {
+    let dir = work_dir("coded-error");
+    let source = dir.join("coded.ya");
+    fs::write(&source, "fn main() {\n    print(nope);\n}\n").expect("write coded.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "an unknown name is an error");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0001]: cannot find value `nope` in this scope"),
+        "the code must be part of the rendered diagnostic:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        "the coded diagnostic still needs its caret:\n{stderr}"
+    );
+}
+
+#[test]
 fn var_is_reported_with_a_caret() {
     let dir = work_dir("var-removed");
     let source = dir.join("bad.ya");

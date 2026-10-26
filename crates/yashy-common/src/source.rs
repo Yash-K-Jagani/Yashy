@@ -248,7 +248,7 @@ impl SourceMap {
                 return format!(
                     "{}:1:1\n{}: {}\n<source line unavailable>\n",
                     self.path(d.file),
-                    d.severity.as_str(),
+                    severity_label(d),
                     d.message
                 )
             }
@@ -270,7 +270,7 @@ impl SourceMap {
             located.line,
             located.col
         ));
-        out.push_str(&format!("{}: {}\n", d.severity.as_str(), d.message));
+        out.push_str(&format!("{}: {}\n", severity_label(d), d.message));
         out.push_str(line_text);
         out.push('\n');
         out.push_str(&padding);
@@ -290,6 +290,15 @@ impl SourceMap {
 
     fn get(&self, id: FileId) -> Option<&SourceFile> {
         usize::try_from(id.index()).ok().and_then(|index| self.files.get(index))
+    }
+}
+
+/// The word before the message: `error`, or `error[E0100]` when the
+/// diagnostic carries a catalog code.
+fn severity_label(d: &Diagnostic) -> String {
+    match d.code {
+        Some(code) => format!("{}[{code}]", d.severity.as_str()),
+        None => d.severity.as_str().to_string(),
     }
 }
 

@@ -2,21 +2,41 @@
 
 Yashy reports a problem as a diagnostic with a `path:line:column` header, a
 caret under the source it is about, and a short explanation. The compiler exits
-`1` for a diagnostic. Machine-readable error codes are landing across R1; this
-page groups the messages that exist today and the shape they share.
+`1` for a diagnostic. R1 assigns a stable code to the common mistakes; an
+uncoded diagnostic still has a span and a message.
 
 ## Reading a diagnostic
 
 ```text
 main.ya:4:13
-error: expected `int`, found `string`
+error[E0100]: expected `int`, found `string`
     const n: int = "three";
                   ^^^^^^^
 ```
 
-The header is the position, the `error:` line is the rule that was broken, and
-the caret is the expression the rule applied to. A note below the caret names
-the declaration or import involved when that is not obvious.
+The header is the position, the `error[CODE]` line is the rule that was broken,
+and the caret is the expression the rule applied to. The code is stable:
+`E0100` always means a type mismatch, and its page is linked below. A note
+below the caret names the declaration or import involved when that is not
+obvious.
+
+## Codes
+
+| Code | Meaning |
+|---|---|
+| [E0001](errors/E0001.md) | unknown name |
+| [E0002](errors/E0002.md) | unknown type |
+| [E0100](errors/E0100.md) | type mismatch |
+| [E0200](errors/E0200.md) | unknown field |
+| [E0201](errors/E0201.md) | missing field |
+| [E0300](errors/E0300.md) | missing `?` |
+| [E0400](errors/E0400.md) | const reassignment |
+| [E0500](errors/E0500.md) | moved value |
+| [E0600](errors/E0600.md) | non-exhaustive match |
+| [E0700](errors/E0700.md) | wrong argument count |
+
+The message tables below quote the message; a coded diagnostic prints the code
+after `error`, as in the example above.
 
 ## Parse and name errors
 
