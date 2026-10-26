@@ -2459,3 +2459,51 @@ fn void_outside_a_return_position_is_refused() {
     );
     assert_error("fn f(xs: []void) { }", "cannot hold `void`");
 }
+
+/// The label on the diagnostic whose message contains `needle`, if any.
+fn label_for(diags: &[Diagnostic], needle: &str) -> Option<String> {
+    diags
+        .iter()
+        .find(|d| d.message.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a diagnostic containing `{needle}`, got {:?}",
+                diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            )
+        })
+        .label
+        .clone()
+}
+
+#[test]
+fn a_misspelled_value_suggests_the_binding() {
+    let (result, _, _) = check_source("fn main() { let count = 1; print(cuont); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find value `cuont`").as_deref(),
+        Some("did you mean `count`?")
+    );
+}
+
+#[test]
+fn a_misspelled_function_suggests_the_function() {
+    let (result, _, _) = check_source("fn main() { prntln(\"x\"); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find function `prntln`").as_deref(),
+        Some("did you mean `println`?")
+    );
+}
+
+#[test]
+fn an_unrelated_name_gets_no_suggestion() {
+    let (result, _, _) = check_source("fn main() { let count = 1; print(zxqvw); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(label_for(&diags, "cannot find value `zxqvw`"), None);
+}
+
+#[test]
+fn a_name_in_an_outer_scope_is_found_not_suggested() {
+    let (result, _, _) = check_source("fn main() { let count = 1; if true { let inner = count; } }");
+    assert!(result.is_ok(), "the outer binding is visible: {result:?}");
+}

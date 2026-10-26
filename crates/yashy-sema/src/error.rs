@@ -7,6 +7,8 @@ use yashy_common::{Diagnostic, FileId, Severity, Span};
 pub struct TypeError {
     pub span: Span,
     pub message: String,
+    /// An optional note placed after the caret, such as a suggested spelling.
+    pub label: Option<String>,
 }
 
 impl TypeError {
@@ -14,7 +16,15 @@ impl TypeError {
         Self {
             span,
             message: message.into(),
+            label: None,
         }
+    }
+
+    /// Attach a label, and return the error so it can be built in one
+    /// expression.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// Turn this type error into a diagnostic attached to `file`.
@@ -24,7 +34,7 @@ impl TypeError {
             message: self.message.clone(),
             file,
             span: self.span,
-            label: None,
+            label: self.label.clone(),
         }
     }
 }

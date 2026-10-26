@@ -2722,3 +2722,24 @@ fn an_i64_annotation_is_reported_with_a_caret() {
     assert!(stderr.contains("`i64` is spelled `int` in Yashy"), "{stderr}");
     assert!(stderr.contains('^'), "expected a caret:\n{stderr}");
 }
+#[test]
+fn a_misspelled_name_gets_a_did_you_mean_label() {
+    // The suggestion is part of the rendered diagnostic, not only of the
+    // diagnostic struct: the reader sees it under the caret.
+    let dir = work_dir("did-you-mean");
+    let source = dir.join("typo.ya");
+    fs::write(&source, "fn main() {\n    let count = 1;\n    print(cuont);\n}\n")
+        .expect("write typo.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("did you mean `count`?"),
+        "expected a suggestion under the caret:\n{stderr}"
+    );
+}

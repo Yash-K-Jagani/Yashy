@@ -335,10 +335,26 @@ struct ClosureFrame {
     captures: Vec<HirCapture>,
 }
 
+/// Names a call resolves before the scope lookup: the print family and the
+/// value constructors. They are callable but are not bindings, so a "did you
+/// mean" suggestion has to offer them explicitly.
+const CALLABLE_EXTRAS: &[&str] = &[
+    "print",
+    "println",
+    "None",
+    "Some",
+    "Ok",
+    "Err",
+    "map_new",
+    "thread_spawn",
+    "thread_join",
+    "mutex_new",
+    "chan_new",
+];
+
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
-pub struct Checker<'src> {
-    scope: Scope,
+pub struct Checker<'src> {    scope: Scope,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
@@ -688,6 +704,57 @@ impl<'src> Checker<'src> {
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push((self.file, TypeError::new(span, message)));
+    }
+
+    /// The nearest visible name, for a "did you mean" label.
+    ///
+    /// Every visible binding is a candidate, including the builtins and the
+    /// top-level functions, because they are all names a read can find.
+    fn value_suggestion(&self, name: &str) -> Option<String> {
+        yashy_common::closest(name, self.scope.names())
+    }
+
+    /// The nearest visible *function* name.
+    ///
+    /// A call says "cannot find function", so suggesting a local that is not
+    /// callable would be a worse answer than none. Builtins and top-level
+    /// functions both live in the root scope with a `Func` type; the print
+    /// family and the value constructors are resolved before the scope lookup
+    /// and therefore have to be offered explicitly.
+    fn function_suggestion(&self, name: &str) -> Option<String> {
+        let candidates = self
+            .scope
+            .names()
+            .into_iter()
+            .filter(|candidate| {
+                self.scope
+                    .resolve(candidate)
+                    .map(|binding| matches!(binding.ty.kind, TypeKind::Func(_, _)))
+                    .unwrap_or(false)
+            })
+            .chain(CALLABLE_EXTRAS.iter().copied());
+        yashy_common::closest(name, candidates)
+    }
+
+    /// Report a name the scope does not have, with the nearest spelling when
+    /// there is one.
+    fn error_missing_value(&mut self, name: &str, span: Span) {
+        let mut error =
+            TypeError::new(span, format!("cannot find value `{name}` in this scope"));
+        if let Some(suggestion) = self.value_suggestion(name) {
+            error = error.with_label(format!("did you mean `{suggestion}`?"));
+        }
+        self.errors.push((self.file, error));
+    }
+
+    /// Report a callee the scope does not have, with the nearest function when
+    /// there is one.
+    fn error_missing_function(&mut self, name: &str, span: Span) {
+        let mut error = TypeError::new(span, format!("cannot find function `{name}`"));
+        if let Some(suggestion) = self.function_suggestion(name) {
+            error = error.with_label(format!("did you mean `{suggestion}`?"));
+        }
+        self.errors.push((self.file, error));
     }
 
     /// Look a name up for a read, a call or an assignment.
@@ -2917,7 +2984,7 @@ impl<'src> Checker<'src> {
                     NameLookup::Missing => {
                         let _ = self.check_expr(value);
                         let span = yashy_parser::exprs::expr_span(target);
-                        self.error(span, format!("cannot find value `{name}` in this scope"));
+                        self.error_missing_value(&name, span);
                         return None;
                     }
                 };
@@ -6133,7 +6200,7 @@ impl<'src> Checker<'src> {
                         ty,
                     }),
                     NameLookup::Missing => {
-                        self.error(*span, format!("cannot find value `{name}` in this scope"));
+                        self.error_missing_value(&name, *span);
                         None
                     }
                 }
@@ -6576,7 +6643,7 @@ impl<'src> Checker<'src> {
                             self.error(*span, msg.to_string());
                             return None;
                         }
-                        self.error(*span, format!("cannot find function `{}`", last_name));
+                        self.error_missing_function(&last_name, *span);
                         // Check the arguments anyway, each one standing alone.
                         //
                         // Resolving the callee first is what lets `f(None)`
@@ -7339,10 +7406,7 @@ impl<'src> Checker<'src> {
         // `p` would be, and require it to be mutable.
         let Some(binding) = self.scope.resolve(&root).cloned() else {
             let _ = self.check_expr(value);
-            self.error(
-                yashy_parser::exprs::expr_span(target),
-                format!("cannot find value `{root}` in this scope"),
-            );
+            self.error_missing_value(&root, yashy_parser::exprs::expr_span(target));
             return None;
         };
         if !binding.mutability.is_mutable() {

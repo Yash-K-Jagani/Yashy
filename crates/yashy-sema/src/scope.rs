@@ -10,7 +10,7 @@ use crate::ownership::Ownership;
 use crate::ty::{Mutability, Type};
 use yashy_common::Span;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// A bound name and what is known about its type.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +111,25 @@ impl Scope {
             .len()
     }
 
+    /// Every name visible from the current scope, innermost first.
+    ///
+    /// A shadowed name appears once, under the binding a read would find. The
+    /// list is what a "did you mean" suggestion searches: the caller has
+    /// already failed to resolve a name, and the nearest spellings are the
+    /// ones the reader probably meant.
+    pub fn names(&self) -> Vec<&str> {
+        let mut seen = HashSet::new();
+        let mut names = Vec::new();
+        for frame in self.frames.iter().rev() {
+            for name in frame.bindings.keys() {
+                if seen.insert(name.as_str()) {
+                    names.push(name.as_str());
+                }
+            }
+        }
+        names
+    }
+
     /// Find the binding for `name`, innermost scope first, mutably. Shadowing
     /// means there may be several; this is the one a read would resolve to.
     fn resolve_mut(&mut self, name: &str) -> Option<&mut Binding> {
@@ -134,10 +153,16 @@ impl Scope {
                 binding.ownership = Ownership::Moved;
                 Ok(())
             }
-            None => Err(TypeError::new(
-                span,
-                format!("cannot find value `{name}` in this scope"),
-            )),
+            None => {
+                let mut error = TypeError::new(
+                    span,
+                    format!("cannot find value `{name}` in this scope"),
+                );
+                if let Some(suggestion) = yashy_common::closest(name, self.names()) {
+                    error = error.with_label(format!("did you mean `{suggestion}`?"));
+                }
+                Err(error)
+            }
         }
     }
 
