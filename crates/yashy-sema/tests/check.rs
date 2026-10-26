@@ -2589,3 +2589,28 @@ fn a_misspelled_variant_field_suggests_the_field() {
         Some("did you mean `h`?")
     );
 }
+
+/// The notes on the diagnostic whose message contains `needle`.
+fn notes_for(diags: &[Diagnostic], needle: &str) -> Vec<String> {
+    diags
+        .iter()
+        .find(|d| d.message.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a diagnostic containing `{needle}`, got {:?}",
+                diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            )
+        })
+        .notes
+        .clone()
+}
+
+#[test]
+fn assigning_to_a_const_explains_let() {
+    let (result, _, _) = check_source("fn main() { const x = 1; x = 2; }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        notes_for(&diags, "cannot assign to `x`, which is immutable"),
+        vec!["use `let` for a mutable binding".to_string()]
+    );
+}

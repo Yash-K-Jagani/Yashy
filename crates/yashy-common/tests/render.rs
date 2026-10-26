@@ -35,6 +35,7 @@ fn at(file: FileId, span: Span) -> Diagnostic {
         file,
         span,
         label: None,
+        notes: Vec::new(),
     }
 }
 
@@ -442,4 +443,35 @@ fn exit_codes_distinguish_success_from_a_compile_error() {
     // shell script or CI job can recognise a failed compile.
     assert_eq!(EXIT_COMPILE_ERROR, 1);
     assert_ne!(EXIT_OK, EXIT_COMPILE_ERROR);
+}
+
+#[test]
+fn a_note_renders_below_the_caret() {
+    let (sm, f) = sample_map();
+    let mut d = at(f, Span { start: 18, end: 19 });
+    d.notes = vec!["use `let` for a mutable binding".to_string()];
+
+    let out = sm.render(&d);
+
+    assert_eq!(
+        out.lines().count(),
+        5,
+        "the note is a fifth line:\n{out}"
+    );
+    assert_eq!(
+        line(&out, 4),
+        "note: use `let` for a mutable binding",
+        "got:\n{out}"
+    );
+}
+
+#[test]
+fn no_notes_means_no_note_line() {
+    let (sm, f) = sample_map();
+    let d = at(f, Span { start: 18, end: 19 });
+
+    let out = sm.render(&d);
+
+    assert_eq!(out.lines().count(), 4, "got:\n{out}");
+    assert!(!out.contains("note:"), "got:\n{out}");
 }

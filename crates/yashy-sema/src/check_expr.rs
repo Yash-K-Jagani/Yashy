@@ -3034,7 +3034,13 @@ impl<'src> Checker<'src> {
 
                 if !binding.mutability.is_mutable() {
                     let span = yashy_parser::exprs::expr_span(target);
-                    self.error(span, format!("cannot assign to `{name}`, which is immutable"));
+                    self.report(
+                        TypeError::new(
+                            span,
+                            format!("cannot assign to `{name}`, which is immutable"),
+                        )
+                        .with_note("use `let` for a mutable binding"),
+                    );
                 }
 
                 // A view points into this binding's storage. Rebinding would

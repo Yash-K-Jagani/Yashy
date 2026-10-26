@@ -53,18 +53,30 @@ pub struct Diagnostic {
     pub span: Span,
     /// An optional note placed after the caret, such as a suggested fix.
     pub label: Option<String>,
+    /// Location-free notes printed after the caret line, each as `note: ...`.
+    ///
+    /// A note is for something that does not fit on one line of source -- a
+    /// second fact the reader needs, such as which keyword to write instead.
+    /// Empty for most diagnostics.
+    pub notes: Vec<String>,
 }
 
 impl Diagnostic {
     /// A diagnostic of the given severity at `span`, with no label.
     pub fn new(severity: Severity, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic { severity, message: message.into(), file, span, label: None }
+        Diagnostic { severity, message: message.into(), file, span, label: None, notes: Vec::new() }
     }
 
     /// Adds a label, and returns the diagnostic so it can be built in one
     /// expression.
     pub fn with_label(mut self, label: impl Into<String>) -> Diagnostic {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Adds a location-free note, and returns the diagnostic.
+    pub fn with_note(mut self, note: impl Into<String>) -> Diagnostic {
+        self.notes.push(note.into());
         self
     }
 

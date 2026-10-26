@@ -280,6 +280,11 @@ impl SourceMap {
             out.push_str(label);
         }
         out.push('\n');
+        for note in &d.notes {
+            out.push_str("note: ");
+            out.push_str(note);
+            out.push('\n');
+        }
         out
     }
 
