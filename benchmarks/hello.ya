@@ -1,0 +1,8 @@
+// Hello-world benchmark: the smallest real program.
+//
+// Measures the fixed cost of a build -- process start-up, reading the bundled
+// standard library, and one clang invocation -- with no program logic to
+// confuse it.
+fn main() {
+    println("hello, world");
+}

@@ -377,13 +377,23 @@ Rules:
 
 ### Task 5 — Cross-platform measurement
 
-- [ ] Refactor `benchmarks/ci.ps1` so the measurement functions are reusable
+- [x] Refactor `benchmarks/ci.ps1` so the measurement functions are reusable
   and it can emit the `key=value` format (`-Output <file>`).
-- [ ] Add `benchmarks/ci.sh` for Linux with the same rows and format.
-- [ ] Add a hello-world benchmark program and a ~1,000-line compile-time
+- [x] Add `benchmarks/ci.sh` for Linux with the same rows and format.
+- [x] Add a hello-world benchmark program and a ~1,000-line compile-time
   program if the latter is stable enough to gate.
-- [ ] Run both scripts locally and compare the output shape.
-- [ ] Keep the C comparison in the report; mark it non-gating.
+- [x] Run both scripts locally and compare the output shape.
+- [x] Keep the C comparison in the report; mark it non-gating.
+
+Measured 2026-10-26: Windows `fib_compile_ms=348.3`, `hello_compile_ms=353.0`,
+`large_compile_ms=1683.1`, `fib_run_ms=176.0`, `fib_binary_bytes=57344`,
+`hello_binary_bytes=56320`. Linux (WSL) `fib_compile_ms=494.9`,
+`hello_compile_ms=513.1`, `large_compile_ms=2547.4`, `fib_run_ms=140.2`,
+`fib_binary_bytes=48000`, `hello_binary_bytes=47968`. Two Linux runs spread
++17% on `fib_compile_ms` (the `/mnt/c` filesystem), +2% on hello and +3% on
+large, so `large_compile_ms` is stable enough to gate. The Windows local run
+has no C row because this host's clang has no MSVC CRT headers; the script
+treats the C comparison as context and CI's MSVC environment supplies it.
 
 ### Task 6 — Comparator
 

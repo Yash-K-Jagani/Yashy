@@ -1,0 +1,1001 @@
+// A ~1,000-line program, checked in so the compile-time row is stable.
+//
+// Each function is one item for the lexer, parser, checker and backend;
+// main calls every one so nothing can be dropped as unused. The result is
+// printed and checked, so a wrong program is a failed run, not a fast one.
+fn f000(x: int) -> int { return x * 2 + 0; }
+fn f001(x: int) -> int { return x * 2 + 1; }
+fn f002(x: int) -> int { return x * 2 + 2; }
+fn f003(x: int) -> int { return x * 2 + 3; }
+fn f004(x: int) -> int { return x * 2 + 4; }
+fn f005(x: int) -> int { return x * 2 + 5; }
+fn f006(x: int) -> int { return x * 2 + 6; }
+fn f007(x: int) -> int { return x * 2 + 7; }
+fn f008(x: int) -> int { return x * 2 + 8; }
+fn f009(x: int) -> int { return x * 2 + 9; }
+fn f010(x: int) -> int { return x * 2 + 10; }
+fn f011(x: int) -> int { return x * 2 + 11; }
+fn f012(x: int) -> int { return x * 2 + 12; }
+fn f013(x: int) -> int { return x * 2 + 13; }
+fn f014(x: int) -> int { return x * 2 + 14; }
+fn f015(x: int) -> int { return x * 2 + 15; }
+fn f016(x: int) -> int { return x * 2 + 16; }
+fn f017(x: int) -> int { return x * 2 + 17; }
+fn f018(x: int) -> int { return x * 2 + 18; }
+fn f019(x: int) -> int { return x * 2 + 19; }
+fn f020(x: int) -> int { return x * 2 + 20; }
+fn f021(x: int) -> int { return x * 2 + 21; }
+fn f022(x: int) -> int { return x * 2 + 22; }
+fn f023(x: int) -> int { return x * 2 + 23; }
+fn f024(x: int) -> int { return x * 2 + 24; }
+fn f025(x: int) -> int { return x * 2 + 25; }
+fn f026(x: int) -> int { return x * 2 + 26; }
+fn f027(x: int) -> int { return x * 2 + 27; }
+fn f028(x: int) -> int { return x * 2 + 28; }
+fn f029(x: int) -> int { return x * 2 + 29; }
+fn f030(x: int) -> int { return x * 2 + 30; }
+fn f031(x: int) -> int { return x * 2 + 31; }
+fn f032(x: int) -> int { return x * 2 + 32; }
+fn f033(x: int) -> int { return x * 2 + 33; }
+fn f034(x: int) -> int { return x * 2 + 34; }
+fn f035(x: int) -> int { return x * 2 + 35; }
+fn f036(x: int) -> int { return x * 2 + 36; }
+fn f037(x: int) -> int { return x * 2 + 37; }
+fn f038(x: int) -> int { return x * 2 + 38; }
+fn f039(x: int) -> int { return x * 2 + 39; }
+fn f040(x: int) -> int { return x * 2 + 40; }
+fn f041(x: int) -> int { return x * 2 + 41; }
+fn f042(x: int) -> int { return x * 2 + 42; }
+fn f043(x: int) -> int { return x * 2 + 43; }
+fn f044(x: int) -> int { return x * 2 + 44; }
+fn f045(x: int) -> int { return x * 2 + 45; }
+fn f046(x: int) -> int { return x * 2 + 46; }
+fn f047(x: int) -> int { return x * 2 + 47; }
+fn f048(x: int) -> int { return x * 2 + 48; }
+fn f049(x: int) -> int { return x * 2 + 49; }
+fn f050(x: int) -> int { return x * 2 + 50; }
+fn f051(x: int) -> int { return x * 2 + 51; }
+fn f052(x: int) -> int { return x * 2 + 52; }
+fn f053(x: int) -> int { return x * 2 + 53; }
+fn f054(x: int) -> int { return x * 2 + 54; }
+fn f055(x: int) -> int { return x * 2 + 55; }
+fn f056(x: int) -> int { return x * 2 + 56; }
+fn f057(x: int) -> int { return x * 2 + 57; }
+fn f058(x: int) -> int { return x * 2 + 58; }
+fn f059(x: int) -> int { return x * 2 + 59; }
+fn f060(x: int) -> int { return x * 2 + 60; }
+fn f061(x: int) -> int { return x * 2 + 61; }
+fn f062(x: int) -> int { return x * 2 + 62; }
+fn f063(x: int) -> int { return x * 2 + 63; }
+fn f064(x: int) -> int { return x * 2 + 64; }
+fn f065(x: int) -> int { return x * 2 + 65; }
+fn f066(x: int) -> int { return x * 2 + 66; }
+fn f067(x: int) -> int { return x * 2 + 67; }
+fn f068(x: int) -> int { return x * 2 + 68; }
+fn f069(x: int) -> int { return x * 2 + 69; }
+fn f070(x: int) -> int { return x * 2 + 70; }
+fn f071(x: int) -> int { return x * 2 + 71; }
+fn f072(x: int) -> int { return x * 2 + 72; }
+fn f073(x: int) -> int { return x * 2 + 73; }
+fn f074(x: int) -> int { return x * 2 + 74; }
+fn f075(x: int) -> int { return x * 2 + 75; }
+fn f076(x: int) -> int { return x * 2 + 76; }
+fn f077(x: int) -> int { return x * 2 + 77; }
+fn f078(x: int) -> int { return x * 2 + 78; }
+fn f079(x: int) -> int { return x * 2 + 79; }
+fn f080(x: int) -> int { return x * 2 + 80; }
+fn f081(x: int) -> int { return x * 2 + 81; }
+fn f082(x: int) -> int { return x * 2 + 82; }
+fn f083(x: int) -> int { return x * 2 + 83; }
+fn f084(x: int) -> int { return x * 2 + 84; }
+fn f085(x: int) -> int { return x * 2 + 85; }
+fn f086(x: int) -> int { return x * 2 + 86; }
+fn f087(x: int) -> int { return x * 2 + 87; }
+fn f088(x: int) -> int { return x * 2 + 88; }
+fn f089(x: int) -> int { return x * 2 + 89; }
+fn f090(x: int) -> int { return x * 2 + 90; }
+fn f091(x: int) -> int { return x * 2 + 91; }
+fn f092(x: int) -> int { return x * 2 + 92; }
+fn f093(x: int) -> int { return x * 2 + 93; }
+fn f094(x: int) -> int { return x * 2 + 94; }
+fn f095(x: int) -> int { return x * 2 + 95; }
+fn f096(x: int) -> int { return x * 2 + 96; }
+fn f097(x: int) -> int { return x * 2 + 97; }
+fn f098(x: int) -> int { return x * 2 + 98; }
+fn f099(x: int) -> int { return x * 2 + 99; }
+fn f100(x: int) -> int { return x * 2 + 100; }
+fn f101(x: int) -> int { return x * 2 + 101; }
+fn f102(x: int) -> int { return x * 2 + 102; }
+fn f103(x: int) -> int { return x * 2 + 103; }
+fn f104(x: int) -> int { return x * 2 + 104; }
+fn f105(x: int) -> int { return x * 2 + 105; }
+fn f106(x: int) -> int { return x * 2 + 106; }
+fn f107(x: int) -> int { return x * 2 + 107; }
+fn f108(x: int) -> int { return x * 2 + 108; }
+fn f109(x: int) -> int { return x * 2 + 109; }
+fn f110(x: int) -> int { return x * 2 + 110; }
+fn f111(x: int) -> int { return x * 2 + 111; }
+fn f112(x: int) -> int { return x * 2 + 112; }
+fn f113(x: int) -> int { return x * 2 + 113; }
+fn f114(x: int) -> int { return x * 2 + 114; }
+fn f115(x: int) -> int { return x * 2 + 115; }
+fn f116(x: int) -> int { return x * 2 + 116; }
+fn f117(x: int) -> int { return x * 2 + 117; }
+fn f118(x: int) -> int { return x * 2 + 118; }
+fn f119(x: int) -> int { return x * 2 + 119; }
+fn f120(x: int) -> int { return x * 2 + 120; }
+fn f121(x: int) -> int { return x * 2 + 121; }
+fn f122(x: int) -> int { return x * 2 + 122; }
+fn f123(x: int) -> int { return x * 2 + 123; }
+fn f124(x: int) -> int { return x * 2 + 124; }
+fn f125(x: int) -> int { return x * 2 + 125; }
+fn f126(x: int) -> int { return x * 2 + 126; }
+fn f127(x: int) -> int { return x * 2 + 127; }
+fn f128(x: int) -> int { return x * 2 + 128; }
+fn f129(x: int) -> int { return x * 2 + 129; }
+fn f130(x: int) -> int { return x * 2 + 130; }
+fn f131(x: int) -> int { return x * 2 + 131; }
+fn f132(x: int) -> int { return x * 2 + 132; }
+fn f133(x: int) -> int { return x * 2 + 133; }
+fn f134(x: int) -> int { return x * 2 + 134; }
+fn f135(x: int) -> int { return x * 2 + 135; }
+fn f136(x: int) -> int { return x * 2 + 136; }
+fn f137(x: int) -> int { return x * 2 + 137; }
+fn f138(x: int) -> int { return x * 2 + 138; }
+fn f139(x: int) -> int { return x * 2 + 139; }
+fn f140(x: int) -> int { return x * 2 + 140; }
+fn f141(x: int) -> int { return x * 2 + 141; }
+fn f142(x: int) -> int { return x * 2 + 142; }
+fn f143(x: int) -> int { return x * 2 + 143; }
+fn f144(x: int) -> int { return x * 2 + 144; }
+fn f145(x: int) -> int { return x * 2 + 145; }
+fn f146(x: int) -> int { return x * 2 + 146; }
+fn f147(x: int) -> int { return x * 2 + 147; }
+fn f148(x: int) -> int { return x * 2 + 148; }
+fn f149(x: int) -> int { return x * 2 + 149; }
+fn f150(x: int) -> int { return x * 2 + 150; }
+fn f151(x: int) -> int { return x * 2 + 151; }
+fn f152(x: int) -> int { return x * 2 + 152; }
+fn f153(x: int) -> int { return x * 2 + 153; }
+fn f154(x: int) -> int { return x * 2 + 154; }
+fn f155(x: int) -> int { return x * 2 + 155; }
+fn f156(x: int) -> int { return x * 2 + 156; }
+fn f157(x: int) -> int { return x * 2 + 157; }
+fn f158(x: int) -> int { return x * 2 + 158; }
+fn f159(x: int) -> int { return x * 2 + 159; }
+fn f160(x: int) -> int { return x * 2 + 160; }
+fn f161(x: int) -> int { return x * 2 + 161; }
+fn f162(x: int) -> int { return x * 2 + 162; }
+fn f163(x: int) -> int { return x * 2 + 163; }
+fn f164(x: int) -> int { return x * 2 + 164; }
+fn f165(x: int) -> int { return x * 2 + 165; }
+fn f166(x: int) -> int { return x * 2 + 166; }
+fn f167(x: int) -> int { return x * 2 + 167; }
+fn f168(x: int) -> int { return x * 2 + 168; }
+fn f169(x: int) -> int { return x * 2 + 169; }
+fn f170(x: int) -> int { return x * 2 + 170; }
+fn f171(x: int) -> int { return x * 2 + 171; }
+fn f172(x: int) -> int { return x * 2 + 172; }
+fn f173(x: int) -> int { return x * 2 + 173; }
+fn f174(x: int) -> int { return x * 2 + 174; }
+fn f175(x: int) -> int { return x * 2 + 175; }
+fn f176(x: int) -> int { return x * 2 + 176; }
+fn f177(x: int) -> int { return x * 2 + 177; }
+fn f178(x: int) -> int { return x * 2 + 178; }
+fn f179(x: int) -> int { return x * 2 + 179; }
+fn f180(x: int) -> int { return x * 2 + 180; }
+fn f181(x: int) -> int { return x * 2 + 181; }
+fn f182(x: int) -> int { return x * 2 + 182; }
+fn f183(x: int) -> int { return x * 2 + 183; }
+fn f184(x: int) -> int { return x * 2 + 184; }
+fn f185(x: int) -> int { return x * 2 + 185; }
+fn f186(x: int) -> int { return x * 2 + 186; }
+fn f187(x: int) -> int { return x * 2 + 187; }
+fn f188(x: int) -> int { return x * 2 + 188; }
+fn f189(x: int) -> int { return x * 2 + 189; }
+fn f190(x: int) -> int { return x * 2 + 190; }
+fn f191(x: int) -> int { return x * 2 + 191; }
+fn f192(x: int) -> int { return x * 2 + 192; }
+fn f193(x: int) -> int { return x * 2 + 193; }
+fn f194(x: int) -> int { return x * 2 + 194; }
+fn f195(x: int) -> int { return x * 2 + 195; }
+fn f196(x: int) -> int { return x * 2 + 196; }
+fn f197(x: int) -> int { return x * 2 + 197; }
+fn f198(x: int) -> int { return x * 2 + 198; }
+fn f199(x: int) -> int { return x * 2 + 199; }
+fn f200(x: int) -> int { return x * 2 + 200; }
+fn f201(x: int) -> int { return x * 2 + 201; }
+fn f202(x: int) -> int { return x * 2 + 202; }
+fn f203(x: int) -> int { return x * 2 + 203; }
+fn f204(x: int) -> int { return x * 2 + 204; }
+fn f205(x: int) -> int { return x * 2 + 205; }
+fn f206(x: int) -> int { return x * 2 + 206; }
+fn f207(x: int) -> int { return x * 2 + 207; }
+fn f208(x: int) -> int { return x * 2 + 208; }
+fn f209(x: int) -> int { return x * 2 + 209; }
+fn f210(x: int) -> int { return x * 2 + 210; }
+fn f211(x: int) -> int { return x * 2 + 211; }
+fn f212(x: int) -> int { return x * 2 + 212; }
+fn f213(x: int) -> int { return x * 2 + 213; }
+fn f214(x: int) -> int { return x * 2 + 214; }
+fn f215(x: int) -> int { return x * 2 + 215; }
+fn f216(x: int) -> int { return x * 2 + 216; }
+fn f217(x: int) -> int { return x * 2 + 217; }
+fn f218(x: int) -> int { return x * 2 + 218; }
+fn f219(x: int) -> int { return x * 2 + 219; }
+fn f220(x: int) -> int { return x * 2 + 220; }
+fn f221(x: int) -> int { return x * 2 + 221; }
+fn f222(x: int) -> int { return x * 2 + 222; }
+fn f223(x: int) -> int { return x * 2 + 223; }
+fn f224(x: int) -> int { return x * 2 + 224; }
+fn f225(x: int) -> int { return x * 2 + 225; }
+fn f226(x: int) -> int { return x * 2 + 226; }
+fn f227(x: int) -> int { return x * 2 + 227; }
+fn f228(x: int) -> int { return x * 2 + 228; }
+fn f229(x: int) -> int { return x * 2 + 229; }
+fn f230(x: int) -> int { return x * 2 + 230; }
+fn f231(x: int) -> int { return x * 2 + 231; }
+fn f232(x: int) -> int { return x * 2 + 232; }
+fn f233(x: int) -> int { return x * 2 + 233; }
+fn f234(x: int) -> int { return x * 2 + 234; }
+fn f235(x: int) -> int { return x * 2 + 235; }
+fn f236(x: int) -> int { return x * 2 + 236; }
+fn f237(x: int) -> int { return x * 2 + 237; }
+fn f238(x: int) -> int { return x * 2 + 238; }
+fn f239(x: int) -> int { return x * 2 + 239; }
+fn f240(x: int) -> int { return x * 2 + 240; }
+fn f241(x: int) -> int { return x * 2 + 241; }
+fn f242(x: int) -> int { return x * 2 + 242; }
+fn f243(x: int) -> int { return x * 2 + 243; }
+fn f244(x: int) -> int { return x * 2 + 244; }
+fn f245(x: int) -> int { return x * 2 + 245; }
+fn f246(x: int) -> int { return x * 2 + 246; }
+fn f247(x: int) -> int { return x * 2 + 247; }
+fn f248(x: int) -> int { return x * 2 + 248; }
+fn f249(x: int) -> int { return x * 2 + 249; }
+fn f250(x: int) -> int { return x * 2 + 250; }
+fn f251(x: int) -> int { return x * 2 + 251; }
+fn f252(x: int) -> int { return x * 2 + 252; }
+fn f253(x: int) -> int { return x * 2 + 253; }
+fn f254(x: int) -> int { return x * 2 + 254; }
+fn f255(x: int) -> int { return x * 2 + 255; }
+fn f256(x: int) -> int { return x * 2 + 256; }
+fn f257(x: int) -> int { return x * 2 + 257; }
+fn f258(x: int) -> int { return x * 2 + 258; }
+fn f259(x: int) -> int { return x * 2 + 259; }
+fn f260(x: int) -> int { return x * 2 + 260; }
+fn f261(x: int) -> int { return x * 2 + 261; }
+fn f262(x: int) -> int { return x * 2 + 262; }
+fn f263(x: int) -> int { return x * 2 + 263; }
+fn f264(x: int) -> int { return x * 2 + 264; }
+fn f265(x: int) -> int { return x * 2 + 265; }
+fn f266(x: int) -> int { return x * 2 + 266; }
+fn f267(x: int) -> int { return x * 2 + 267; }
+fn f268(x: int) -> int { return x * 2 + 268; }
+fn f269(x: int) -> int { return x * 2 + 269; }
+fn f270(x: int) -> int { return x * 2 + 270; }
+fn f271(x: int) -> int { return x * 2 + 271; }
+fn f272(x: int) -> int { return x * 2 + 272; }
+fn f273(x: int) -> int { return x * 2 + 273; }
+fn f274(x: int) -> int { return x * 2 + 274; }
+fn f275(x: int) -> int { return x * 2 + 275; }
+fn f276(x: int) -> int { return x * 2 + 276; }
+fn f277(x: int) -> int { return x * 2 + 277; }
+fn f278(x: int) -> int { return x * 2 + 278; }
+fn f279(x: int) -> int { return x * 2 + 279; }
+fn f280(x: int) -> int { return x * 2 + 280; }
+fn f281(x: int) -> int { return x * 2 + 281; }
+fn f282(x: int) -> int { return x * 2 + 282; }
+fn f283(x: int) -> int { return x * 2 + 283; }
+fn f284(x: int) -> int { return x * 2 + 284; }
+fn f285(x: int) -> int { return x * 2 + 285; }
+fn f286(x: int) -> int { return x * 2 + 286; }
+fn f287(x: int) -> int { return x * 2 + 287; }
+fn f288(x: int) -> int { return x * 2 + 288; }
+fn f289(x: int) -> int { return x * 2 + 289; }
+fn f290(x: int) -> int { return x * 2 + 290; }
+fn f291(x: int) -> int { return x * 2 + 291; }
+fn f292(x: int) -> int { return x * 2 + 292; }
+fn f293(x: int) -> int { return x * 2 + 293; }
+fn f294(x: int) -> int { return x * 2 + 294; }
+fn f295(x: int) -> int { return x * 2 + 295; }
+fn f296(x: int) -> int { return x * 2 + 296; }
+fn f297(x: int) -> int { return x * 2 + 297; }
+fn f298(x: int) -> int { return x * 2 + 298; }
+fn f299(x: int) -> int { return x * 2 + 299; }
+fn f300(x: int) -> int { return x * 2 + 300; }
+fn f301(x: int) -> int { return x * 2 + 301; }
+fn f302(x: int) -> int { return x * 2 + 302; }
+fn f303(x: int) -> int { return x * 2 + 303; }
+fn f304(x: int) -> int { return x * 2 + 304; }
+fn f305(x: int) -> int { return x * 2 + 305; }
+fn f306(x: int) -> int { return x * 2 + 306; }
+fn f307(x: int) -> int { return x * 2 + 307; }
+fn f308(x: int) -> int { return x * 2 + 308; }
+fn f309(x: int) -> int { return x * 2 + 309; }
+fn f310(x: int) -> int { return x * 2 + 310; }
+fn f311(x: int) -> int { return x * 2 + 311; }
+fn f312(x: int) -> int { return x * 2 + 312; }
+fn f313(x: int) -> int { return x * 2 + 313; }
+fn f314(x: int) -> int { return x * 2 + 314; }
+fn f315(x: int) -> int { return x * 2 + 315; }
+fn f316(x: int) -> int { return x * 2 + 316; }
+fn f317(x: int) -> int { return x * 2 + 317; }
+fn f318(x: int) -> int { return x * 2 + 318; }
+fn f319(x: int) -> int { return x * 2 + 319; }
+fn f320(x: int) -> int { return x * 2 + 320; }
+fn f321(x: int) -> int { return x * 2 + 321; }
+fn f322(x: int) -> int { return x * 2 + 322; }
+fn f323(x: int) -> int { return x * 2 + 323; }
+fn f324(x: int) -> int { return x * 2 + 324; }
+fn f325(x: int) -> int { return x * 2 + 325; }
+fn f326(x: int) -> int { return x * 2 + 326; }
+fn f327(x: int) -> int { return x * 2 + 327; }
+fn f328(x: int) -> int { return x * 2 + 328; }
+fn f329(x: int) -> int { return x * 2 + 329; }
+fn f330(x: int) -> int { return x * 2 + 330; }
+fn f331(x: int) -> int { return x * 2 + 331; }
+fn f332(x: int) -> int { return x * 2 + 332; }
+fn f333(x: int) -> int { return x * 2 + 333; }
+fn f334(x: int) -> int { return x * 2 + 334; }
+fn f335(x: int) -> int { return x * 2 + 335; }
+fn f336(x: int) -> int { return x * 2 + 336; }
+fn f337(x: int) -> int { return x * 2 + 337; }
+fn f338(x: int) -> int { return x * 2 + 338; }
+fn f339(x: int) -> int { return x * 2 + 339; }
+fn f340(x: int) -> int { return x * 2 + 340; }
+fn f341(x: int) -> int { return x * 2 + 341; }
+fn f342(x: int) -> int { return x * 2 + 342; }
+fn f343(x: int) -> int { return x * 2 + 343; }
+fn f344(x: int) -> int { return x * 2 + 344; }
+fn f345(x: int) -> int { return x * 2 + 345; }
+fn f346(x: int) -> int { return x * 2 + 346; }
+fn f347(x: int) -> int { return x * 2 + 347; }
+fn f348(x: int) -> int { return x * 2 + 348; }
+fn f349(x: int) -> int { return x * 2 + 349; }
+fn f350(x: int) -> int { return x * 2 + 350; }
+fn f351(x: int) -> int { return x * 2 + 351; }
+fn f352(x: int) -> int { return x * 2 + 352; }
+fn f353(x: int) -> int { return x * 2 + 353; }
+fn f354(x: int) -> int { return x * 2 + 354; }
+fn f355(x: int) -> int { return x * 2 + 355; }
+fn f356(x: int) -> int { return x * 2 + 356; }
+fn f357(x: int) -> int { return x * 2 + 357; }
+fn f358(x: int) -> int { return x * 2 + 358; }
+fn f359(x: int) -> int { return x * 2 + 359; }
+fn f360(x: int) -> int { return x * 2 + 360; }
+fn f361(x: int) -> int { return x * 2 + 361; }
+fn f362(x: int) -> int { return x * 2 + 362; }
+fn f363(x: int) -> int { return x * 2 + 363; }
+fn f364(x: int) -> int { return x * 2 + 364; }
+fn f365(x: int) -> int { return x * 2 + 365; }
+fn f366(x: int) -> int { return x * 2 + 366; }
+fn f367(x: int) -> int { return x * 2 + 367; }
+fn f368(x: int) -> int { return x * 2 + 368; }
+fn f369(x: int) -> int { return x * 2 + 369; }
+fn f370(x: int) -> int { return x * 2 + 370; }
+fn f371(x: int) -> int { return x * 2 + 371; }
+fn f372(x: int) -> int { return x * 2 + 372; }
+fn f373(x: int) -> int { return x * 2 + 373; }
+fn f374(x: int) -> int { return x * 2 + 374; }
+fn f375(x: int) -> int { return x * 2 + 375; }
+fn f376(x: int) -> int { return x * 2 + 376; }
+fn f377(x: int) -> int { return x * 2 + 377; }
+fn f378(x: int) -> int { return x * 2 + 378; }
+fn f379(x: int) -> int { return x * 2 + 379; }
+fn f380(x: int) -> int { return x * 2 + 380; }
+fn f381(x: int) -> int { return x * 2 + 381; }
+fn f382(x: int) -> int { return x * 2 + 382; }
+fn f383(x: int) -> int { return x * 2 + 383; }
+fn f384(x: int) -> int { return x * 2 + 384; }
+fn f385(x: int) -> int { return x * 2 + 385; }
+fn f386(x: int) -> int { return x * 2 + 386; }
+fn f387(x: int) -> int { return x * 2 + 387; }
+fn f388(x: int) -> int { return x * 2 + 388; }
+fn f389(x: int) -> int { return x * 2 + 389; }
+fn f390(x: int) -> int { return x * 2 + 390; }
+fn f391(x: int) -> int { return x * 2 + 391; }
+fn f392(x: int) -> int { return x * 2 + 392; }
+fn f393(x: int) -> int { return x * 2 + 393; }
+fn f394(x: int) -> int { return x * 2 + 394; }
+fn f395(x: int) -> int { return x * 2 + 395; }
+fn f396(x: int) -> int { return x * 2 + 396; }
+fn f397(x: int) -> int { return x * 2 + 397; }
+fn f398(x: int) -> int { return x * 2 + 398; }
+fn f399(x: int) -> int { return x * 2 + 399; }
+fn f400(x: int) -> int { return x * 2 + 400; }
+fn f401(x: int) -> int { return x * 2 + 401; }
+fn f402(x: int) -> int { return x * 2 + 402; }
+fn f403(x: int) -> int { return x * 2 + 403; }
+fn f404(x: int) -> int { return x * 2 + 404; }
+fn f405(x: int) -> int { return x * 2 + 405; }
+fn f406(x: int) -> int { return x * 2 + 406; }
+fn f407(x: int) -> int { return x * 2 + 407; }
+fn f408(x: int) -> int { return x * 2 + 408; }
+fn f409(x: int) -> int { return x * 2 + 409; }
+fn f410(x: int) -> int { return x * 2 + 410; }
+fn f411(x: int) -> int { return x * 2 + 411; }
+fn f412(x: int) -> int { return x * 2 + 412; }
+fn f413(x: int) -> int { return x * 2 + 413; }
+fn f414(x: int) -> int { return x * 2 + 414; }
+fn f415(x: int) -> int { return x * 2 + 415; }
+fn f416(x: int) -> int { return x * 2 + 416; }
+fn f417(x: int) -> int { return x * 2 + 417; }
+fn f418(x: int) -> int { return x * 2 + 418; }
+fn f419(x: int) -> int { return x * 2 + 419; }
+fn f420(x: int) -> int { return x * 2 + 420; }
+fn f421(x: int) -> int { return x * 2 + 421; }
+fn f422(x: int) -> int { return x * 2 + 422; }
+fn f423(x: int) -> int { return x * 2 + 423; }
+fn f424(x: int) -> int { return x * 2 + 424; }
+fn f425(x: int) -> int { return x * 2 + 425; }
+fn f426(x: int) -> int { return x * 2 + 426; }
+fn f427(x: int) -> int { return x * 2 + 427; }
+fn f428(x: int) -> int { return x * 2 + 428; }
+fn f429(x: int) -> int { return x * 2 + 429; }
+fn f430(x: int) -> int { return x * 2 + 430; }
+fn f431(x: int) -> int { return x * 2 + 431; }
+fn f432(x: int) -> int { return x * 2 + 432; }
+fn f433(x: int) -> int { return x * 2 + 433; }
+fn f434(x: int) -> int { return x * 2 + 434; }
+fn f435(x: int) -> int { return x * 2 + 435; }
+fn f436(x: int) -> int { return x * 2 + 436; }
+fn f437(x: int) -> int { return x * 2 + 437; }
+fn f438(x: int) -> int { return x * 2 + 438; }
+fn f439(x: int) -> int { return x * 2 + 439; }
+fn f440(x: int) -> int { return x * 2 + 440; }
+fn f441(x: int) -> int { return x * 2 + 441; }
+fn f442(x: int) -> int { return x * 2 + 442; }
+fn f443(x: int) -> int { return x * 2 + 443; }
+fn f444(x: int) -> int { return x * 2 + 444; }
+fn f445(x: int) -> int { return x * 2 + 445; }
+fn f446(x: int) -> int { return x * 2 + 446; }
+fn f447(x: int) -> int { return x * 2 + 447; }
+fn f448(x: int) -> int { return x * 2 + 448; }
+fn f449(x: int) -> int { return x * 2 + 449; }
+fn f450(x: int) -> int { return x * 2 + 450; }
+fn f451(x: int) -> int { return x * 2 + 451; }
+fn f452(x: int) -> int { return x * 2 + 452; }
+fn f453(x: int) -> int { return x * 2 + 453; }
+fn f454(x: int) -> int { return x * 2 + 454; }
+fn f455(x: int) -> int { return x * 2 + 455; }
+fn f456(x: int) -> int { return x * 2 + 456; }
+fn f457(x: int) -> int { return x * 2 + 457; }
+fn f458(x: int) -> int { return x * 2 + 458; }
+fn f459(x: int) -> int { return x * 2 + 459; }
+fn f460(x: int) -> int { return x * 2 + 460; }
+fn f461(x: int) -> int { return x * 2 + 461; }
+fn f462(x: int) -> int { return x * 2 + 462; }
+fn f463(x: int) -> int { return x * 2 + 463; }
+fn f464(x: int) -> int { return x * 2 + 464; }
+fn f465(x: int) -> int { return x * 2 + 465; }
+fn f466(x: int) -> int { return x * 2 + 466; }
+fn f467(x: int) -> int { return x * 2 + 467; }
+fn f468(x: int) -> int { return x * 2 + 468; }
+fn f469(x: int) -> int { return x * 2 + 469; }
+fn f470(x: int) -> int { return x * 2 + 470; }
+fn f471(x: int) -> int { return x * 2 + 471; }
+fn f472(x: int) -> int { return x * 2 + 472; }
+fn f473(x: int) -> int { return x * 2 + 473; }
+fn f474(x: int) -> int { return x * 2 + 474; }
+fn f475(x: int) -> int { return x * 2 + 475; }
+fn f476(x: int) -> int { return x * 2 + 476; }
+fn f477(x: int) -> int { return x * 2 + 477; }
+fn f478(x: int) -> int { return x * 2 + 478; }
+fn f479(x: int) -> int { return x * 2 + 479; }
+fn f480(x: int) -> int { return x * 2 + 480; }
+fn f481(x: int) -> int { return x * 2 + 481; }
+fn f482(x: int) -> int { return x * 2 + 482; }
+fn f483(x: int) -> int { return x * 2 + 483; }
+fn f484(x: int) -> int { return x * 2 + 484; }
+fn f485(x: int) -> int { return x * 2 + 485; }
+fn f486(x: int) -> int { return x * 2 + 486; }
+fn f487(x: int) -> int { return x * 2 + 487; }
+fn f488(x: int) -> int { return x * 2 + 488; }
+fn f489(x: int) -> int { return x * 2 + 489; }
+fn f490(x: int) -> int { return x * 2 + 490; }
+fn f491(x: int) -> int { return x * 2 + 491; }
+fn f492(x: int) -> int { return x * 2 + 492; }
+fn f493(x: int) -> int { return x * 2 + 493; }
+fn f494(x: int) -> int { return x * 2 + 494; }
+
+fn main() {
+    let total = 0;
+    total = total + f000(1);
+    total = total + f001(1);
+    total = total + f002(1);
+    total = total + f003(1);
+    total = total + f004(1);
+    total = total + f005(1);
+    total = total + f006(1);
+    total = total + f007(1);
+    total = total + f008(1);
+    total = total + f009(1);
+    total = total + f010(1);
+    total = total + f011(1);
+    total = total + f012(1);
+    total = total + f013(1);
+    total = total + f014(1);
+    total = total + f015(1);
+    total = total + f016(1);
+    total = total + f017(1);
+    total = total + f018(1);
+    total = total + f019(1);
+    total = total + f020(1);
+    total = total + f021(1);
+    total = total + f022(1);
+    total = total + f023(1);
+    total = total + f024(1);
+    total = total + f025(1);
+    total = total + f026(1);
+    total = total + f027(1);
+    total = total + f028(1);
+    total = total + f029(1);
+    total = total + f030(1);
+    total = total + f031(1);
+    total = total + f032(1);
+    total = total + f033(1);
+    total = total + f034(1);
+    total = total + f035(1);
+    total = total + f036(1);
+    total = total + f037(1);
+    total = total + f038(1);
+    total = total + f039(1);
+    total = total + f040(1);
+    total = total + f041(1);
+    total = total + f042(1);
+    total = total + f043(1);
+    total = total + f044(1);
+    total = total + f045(1);
+    total = total + f046(1);
+    total = total + f047(1);
+    total = total + f048(1);
+    total = total + f049(1);
+    total = total + f050(1);
+    total = total + f051(1);
+    total = total + f052(1);
+    total = total + f053(1);
+    total = total + f054(1);
+    total = total + f055(1);
+    total = total + f056(1);
+    total = total + f057(1);
+    total = total + f058(1);
+    total = total + f059(1);
+    total = total + f060(1);
+    total = total + f061(1);
+    total = total + f062(1);
+    total = total + f063(1);
+    total = total + f064(1);
+    total = total + f065(1);
+    total = total + f066(1);
+    total = total + f067(1);
+    total = total + f068(1);
+    total = total + f069(1);
+    total = total + f070(1);
+    total = total + f071(1);
+    total = total + f072(1);
+    total = total + f073(1);
+    total = total + f074(1);
+    total = total + f075(1);
+    total = total + f076(1);
+    total = total + f077(1);
+    total = total + f078(1);
+    total = total + f079(1);
+    total = total + f080(1);
+    total = total + f081(1);
+    total = total + f082(1);
+    total = total + f083(1);
+    total = total + f084(1);
+    total = total + f085(1);
+    total = total + f086(1);
+    total = total + f087(1);
+    total = total + f088(1);
+    total = total + f089(1);
+    total = total + f090(1);
+    total = total + f091(1);
+    total = total + f092(1);
+    total = total + f093(1);
+    total = total + f094(1);
+    total = total + f095(1);
+    total = total + f096(1);
+    total = total + f097(1);
+    total = total + f098(1);
+    total = total + f099(1);
+    total = total + f100(1);
+    total = total + f101(1);
+    total = total + f102(1);
+    total = total + f103(1);
+    total = total + f104(1);
+    total = total + f105(1);
+    total = total + f106(1);
+    total = total + f107(1);
+    total = total + f108(1);
+    total = total + f109(1);
+    total = total + f110(1);
+    total = total + f111(1);
+    total = total + f112(1);
+    total = total + f113(1);
+    total = total + f114(1);
+    total = total + f115(1);
+    total = total + f116(1);
+    total = total + f117(1);
+    total = total + f118(1);
+    total = total + f119(1);
+    total = total + f120(1);
+    total = total + f121(1);
+    total = total + f122(1);
+    total = total + f123(1);
+    total = total + f124(1);
+    total = total + f125(1);
+    total = total + f126(1);
+    total = total + f127(1);
+    total = total + f128(1);
+    total = total + f129(1);
+    total = total + f130(1);
+    total = total + f131(1);
+    total = total + f132(1);
+    total = total + f133(1);
+    total = total + f134(1);
+    total = total + f135(1);
+    total = total + f136(1);
+    total = total + f137(1);
+    total = total + f138(1);
+    total = total + f139(1);
+    total = total + f140(1);
+    total = total + f141(1);
+    total = total + f142(1);
+    total = total + f143(1);
+    total = total + f144(1);
+    total = total + f145(1);
+    total = total + f146(1);
+    total = total + f147(1);
+    total = total + f148(1);
+    total = total + f149(1);
+    total = total + f150(1);
+    total = total + f151(1);
+    total = total + f152(1);
+    total = total + f153(1);
+    total = total + f154(1);
+    total = total + f155(1);
+    total = total + f156(1);
+    total = total + f157(1);
+    total = total + f158(1);
+    total = total + f159(1);
+    total = total + f160(1);
+    total = total + f161(1);
+    total = total + f162(1);
+    total = total + f163(1);
+    total = total + f164(1);
+    total = total + f165(1);
+    total = total + f166(1);
+    total = total + f167(1);
+    total = total + f168(1);
+    total = total + f169(1);
+    total = total + f170(1);
+    total = total + f171(1);
+    total = total + f172(1);
+    total = total + f173(1);
+    total = total + f174(1);
+    total = total + f175(1);
+    total = total + f176(1);
+    total = total + f177(1);
+    total = total + f178(1);
+    total = total + f179(1);
+    total = total + f180(1);
+    total = total + f181(1);
+    total = total + f182(1);
+    total = total + f183(1);
+    total = total + f184(1);
+    total = total + f185(1);
+    total = total + f186(1);
+    total = total + f187(1);
+    total = total + f188(1);
+    total = total + f189(1);
+    total = total + f190(1);
+    total = total + f191(1);
+    total = total + f192(1);
+    total = total + f193(1);
+    total = total + f194(1);
+    total = total + f195(1);
+    total = total + f196(1);
+    total = total + f197(1);
+    total = total + f198(1);
+    total = total + f199(1);
+    total = total + f200(1);
+    total = total + f201(1);
+    total = total + f202(1);
+    total = total + f203(1);
+    total = total + f204(1);
+    total = total + f205(1);
+    total = total + f206(1);
+    total = total + f207(1);
+    total = total + f208(1);
+    total = total + f209(1);
+    total = total + f210(1);
+    total = total + f211(1);
+    total = total + f212(1);
+    total = total + f213(1);
+    total = total + f214(1);
+    total = total + f215(1);
+    total = total + f216(1);
+    total = total + f217(1);
+    total = total + f218(1);
+    total = total + f219(1);
+    total = total + f220(1);
+    total = total + f221(1);
+    total = total + f222(1);
+    total = total + f223(1);
+    total = total + f224(1);
+    total = total + f225(1);
+    total = total + f226(1);
+    total = total + f227(1);
+    total = total + f228(1);
+    total = total + f229(1);
+    total = total + f230(1);
+    total = total + f231(1);
+    total = total + f232(1);
+    total = total + f233(1);
+    total = total + f234(1);
+    total = total + f235(1);
+    total = total + f236(1);
+    total = total + f237(1);
+    total = total + f238(1);
+    total = total + f239(1);
+    total = total + f240(1);
+    total = total + f241(1);
+    total = total + f242(1);
+    total = total + f243(1);
+    total = total + f244(1);
+    total = total + f245(1);
+    total = total + f246(1);
+    total = total + f247(1);
+    total = total + f248(1);
+    total = total + f249(1);
+    total = total + f250(1);
+    total = total + f251(1);
+    total = total + f252(1);
+    total = total + f253(1);
+    total = total + f254(1);
+    total = total + f255(1);
+    total = total + f256(1);
+    total = total + f257(1);
+    total = total + f258(1);
+    total = total + f259(1);
+    total = total + f260(1);
+    total = total + f261(1);
+    total = total + f262(1);
+    total = total + f263(1);
+    total = total + f264(1);
+    total = total + f265(1);
+    total = total + f266(1);
+    total = total + f267(1);
+    total = total + f268(1);
+    total = total + f269(1);
+    total = total + f270(1);
+    total = total + f271(1);
+    total = total + f272(1);
+    total = total + f273(1);
+    total = total + f274(1);
+    total = total + f275(1);
+    total = total + f276(1);
+    total = total + f277(1);
+    total = total + f278(1);
+    total = total + f279(1);
+    total = total + f280(1);
+    total = total + f281(1);
+    total = total + f282(1);
+    total = total + f283(1);
+    total = total + f284(1);
+    total = total + f285(1);
+    total = total + f286(1);
+    total = total + f287(1);
+    total = total + f288(1);
+    total = total + f289(1);
+    total = total + f290(1);
+    total = total + f291(1);
+    total = total + f292(1);
+    total = total + f293(1);
+    total = total + f294(1);
+    total = total + f295(1);
+    total = total + f296(1);
+    total = total + f297(1);
+    total = total + f298(1);
+    total = total + f299(1);
+    total = total + f300(1);
+    total = total + f301(1);
+    total = total + f302(1);
+    total = total + f303(1);
+    total = total + f304(1);
+    total = total + f305(1);
+    total = total + f306(1);
+    total = total + f307(1);
+    total = total + f308(1);
+    total = total + f309(1);
+    total = total + f310(1);
+    total = total + f311(1);
+    total = total + f312(1);
+    total = total + f313(1);
+    total = total + f314(1);
+    total = total + f315(1);
+    total = total + f316(1);
+    total = total + f317(1);
+    total = total + f318(1);
+    total = total + f319(1);
+    total = total + f320(1);
+    total = total + f321(1);
+    total = total + f322(1);
+    total = total + f323(1);
+    total = total + f324(1);
+    total = total + f325(1);
+    total = total + f326(1);
+    total = total + f327(1);
+    total = total + f328(1);
+    total = total + f329(1);
+    total = total + f330(1);
+    total = total + f331(1);
+    total = total + f332(1);
+    total = total + f333(1);
+    total = total + f334(1);
+    total = total + f335(1);
+    total = total + f336(1);
+    total = total + f337(1);
+    total = total + f338(1);
+    total = total + f339(1);
+    total = total + f340(1);
+    total = total + f341(1);
+    total = total + f342(1);
+    total = total + f343(1);
+    total = total + f344(1);
+    total = total + f345(1);
+    total = total + f346(1);
+    total = total + f347(1);
+    total = total + f348(1);
+    total = total + f349(1);
+    total = total + f350(1);
+    total = total + f351(1);
+    total = total + f352(1);
+    total = total + f353(1);
+    total = total + f354(1);
+    total = total + f355(1);
+    total = total + f356(1);
+    total = total + f357(1);
+    total = total + f358(1);
+    total = total + f359(1);
+    total = total + f360(1);
+    total = total + f361(1);
+    total = total + f362(1);
+    total = total + f363(1);
+    total = total + f364(1);
+    total = total + f365(1);
+    total = total + f366(1);
+    total = total + f367(1);
+    total = total + f368(1);
+    total = total + f369(1);
+    total = total + f370(1);
+    total = total + f371(1);
+    total = total + f372(1);
+    total = total + f373(1);
+    total = total + f374(1);
+    total = total + f375(1);
+    total = total + f376(1);
+    total = total + f377(1);
+    total = total + f378(1);
+    total = total + f379(1);
+    total = total + f380(1);
+    total = total + f381(1);
+    total = total + f382(1);
+    total = total + f383(1);
+    total = total + f384(1);
+    total = total + f385(1);
+    total = total + f386(1);
+    total = total + f387(1);
+    total = total + f388(1);
+    total = total + f389(1);
+    total = total + f390(1);
+    total = total + f391(1);
+    total = total + f392(1);
+    total = total + f393(1);
+    total = total + f394(1);
+    total = total + f395(1);
+    total = total + f396(1);
+    total = total + f397(1);
+    total = total + f398(1);
+    total = total + f399(1);
+    total = total + f400(1);
+    total = total + f401(1);
+    total = total + f402(1);
+    total = total + f403(1);
+    total = total + f404(1);
+    total = total + f405(1);
+    total = total + f406(1);
+    total = total + f407(1);
+    total = total + f408(1);
+    total = total + f409(1);
+    total = total + f410(1);
+    total = total + f411(1);
+    total = total + f412(1);
+    total = total + f413(1);
+    total = total + f414(1);
+    total = total + f415(1);
+    total = total + f416(1);
+    total = total + f417(1);
+    total = total + f418(1);
+    total = total + f419(1);
+    total = total + f420(1);
+    total = total + f421(1);
+    total = total + f422(1);
+    total = total + f423(1);
+    total = total + f424(1);
+    total = total + f425(1);
+    total = total + f426(1);
+    total = total + f427(1);
+    total = total + f428(1);
+    total = total + f429(1);
+    total = total + f430(1);
+    total = total + f431(1);
+    total = total + f432(1);
+    total = total + f433(1);
+    total = total + f434(1);
+    total = total + f435(1);
+    total = total + f436(1);
+    total = total + f437(1);
+    total = total + f438(1);
+    total = total + f439(1);
+    total = total + f440(1);
+    total = total + f441(1);
+    total = total + f442(1);
+    total = total + f443(1);
+    total = total + f444(1);
+    total = total + f445(1);
+    total = total + f446(1);
+    total = total + f447(1);
+    total = total + f448(1);
+    total = total + f449(1);
+    total = total + f450(1);
+    total = total + f451(1);
+    total = total + f452(1);
+    total = total + f453(1);
+    total = total + f454(1);
+    total = total + f455(1);
+    total = total + f456(1);
+    total = total + f457(1);
+    total = total + f458(1);
+    total = total + f459(1);
+    total = total + f460(1);
+    total = total + f461(1);
+    total = total + f462(1);
+    total = total + f463(1);
+    total = total + f464(1);
+    total = total + f465(1);
+    total = total + f466(1);
+    total = total + f467(1);
+    total = total + f468(1);
+    total = total + f469(1);
+    total = total + f470(1);
+    total = total + f471(1);
+    total = total + f472(1);
+    total = total + f473(1);
+    total = total + f474(1);
+    total = total + f475(1);
+    total = total + f476(1);
+    total = total + f477(1);
+    total = total + f478(1);
+    total = total + f479(1);
+    total = total + f480(1);
+    total = total + f481(1);
+    total = total + f482(1);
+    total = total + f483(1);
+    total = total + f484(1);
+    total = total + f485(1);
+    total = total + f486(1);
+    total = total + f487(1);
+    total = total + f488(1);
+    total = total + f489(1);
+    total = total + f490(1);
+    total = total + f491(1);
+    total = total + f492(1);
+    total = total + f493(1);
+    total = total + f494(1);
+    print(total);
+    println("");
+}
