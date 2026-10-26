@@ -73,7 +73,7 @@ are enough to build real native programs.
 | First-CLI guide and examples | There is no path from install to a working tool. | 1 | Done |
 | `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 | Done |
 | "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Open |
-| Benchmark gate and stored baselines | Performance can regress silently. | 3 | Open |
+| Benchmark gate and stored baselines | Performance can regress silently. | 3 | Done |
 | Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Open |
 | Package-manager design | The required R2 feature has no design. | 4 | Open |
 | Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 | Open |
@@ -322,6 +322,15 @@ LLVM entry; run the full e2e suite.
 ### 7.4 Slice 3b — Top-three performance fixes
 
 **Goal:** close the three worst benchmark rows before 0.2.0.
+
+**Start condition (recorded 2026-10-26):** slice 3's diagnostics work and the
+benchmark gate are green on Windows and Linux, and the three fixes below are
+chosen from slice 3's baseline. Do not start 3b before both hold.
+
+**Chosen (slice 3 plan, Task 8):** array mapping (3.76× published, 3.62× fresh),
+debug formatting (3.42× / 3.31×), tuples (1.79× / 1.52×). Order: array mapping,
+debug formatting, tuples. Checked arithmetic and the map-walk copy are not among
+them; the slice 3 plan records why.
 
 **Deliverables:**
 

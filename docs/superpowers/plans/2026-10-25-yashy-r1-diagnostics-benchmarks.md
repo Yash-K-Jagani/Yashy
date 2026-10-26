@@ -442,17 +442,39 @@ seeded baseline rather than the gate being widened.
 
 ### Task 8 — Top-three performance fixes
 
-- [ ] Run the new baseline and the existing feature suite; list the three
+- [x] Run the new baseline and the existing feature suite; list the three
   largest gaps that are codegen/runtime issues, not measurement noise.
-- [ ] Choose the three and record the evidence in this plan. Candidates from
+- [x] Choose the three and record the evidence in this plan. Candidates from
   `docs/performance-improvements.md`: checked-arithmetic elision (the fib
   checked row is ~1.8×), map/array paths, string/debug formatting, interned
   identifiers, iterative parser, one IR buffer.
-- [ ] Do not implement the fixes in this slice. Hand the three, with their
+- [x] Do not implement the fixes in this slice. Hand the three, with their
   baseline numbers and a suggested order, to slice 3b.
-- [ ] Record the slice 3b start condition in the master plan: diagnostics and
+- [x] Record the slice 3b start condition in the master plan: diagnostics and
   the gate are green, and the three fixes are chosen.
-- [ ] Do not claim a speedup without a before/after measurement.
+- [x] Do not claim a speedup without a before/after measurement.
+
+Measured 2026-10-26 with a fresh `run-features.ps1 -Runs 3 -Passes 1` on
+Windows (GNU Rust toolchain; this host has no MSVC linker), cross-checked with
+the published 9 × 3 table in `benchmarks/README.md`:
+
+| Row | Published | Fresh | Ratio | Chosen |
+|---|---|---:|---:|---|
+| Array mapping (`map_array`) | 417.1 vs C gcc 110.8 | 445.0 vs 122.8 | 3.76× / 3.62× | yes |
+| Debug formatting (`debug_format`) | 1753.6 vs Rust 513.4 | 1931.3 vs 583.4 | 3.42× / 3.31× | yes |
+| Tuples (`tuple`) | 133.6 vs gcc 74.7 | 142.1 vs 93.3 | 1.79× / 1.52× | yes |
+| Map walking (`map_scan`) | 1065.4 vs Rust 567.3 | 1119.1 vs 625.2 | 1.88× / 1.79× | no — copy by design |
+| Fixed-array checked `+` | 192.8 vs clang 16.9 | 195.6 vs 22.2 | 11.4× / 8.8× | no — contract |
+
+The three largest ratios are map_array, debug and map_scan; `map_scan` copies
+the map's keys and values into caller-owned arrays, which the README records as
+the shape the language chose, not a codegen defect. The third fixable row is
+therefore tuples. The checked add's gap is the overflow test (and the reason
+`wrapping_*` exists); it is a language-contract item, not one of 3b's three.
+
+Suggested order: array mapping, debug formatting, tuples. Each needs a design
+note, before/after numbers on Windows and Linux, and no regression in another
+row. No fix is implemented in slice 3.
 
 ### Task 9 — Docs
 
