@@ -865,7 +865,7 @@ fn an_unknown_optimization_level_is_a_usage_error() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "-O9 must not build");
+    assert_eq!(output.status.code(), Some(2), "-O9 is a usage error");
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("-O0, -O1, -O2 or -O3"),
@@ -1001,7 +1001,7 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .arg("--cpu=x86-64-v9")
         .output()
         .expect("run the yashy CLI");
-    assert_eq!(output.status.code(), Some(1), "a bad tier must not build");
+    assert_eq!(output.status.code(), Some(2), "a bad tier is a usage error");
     let stderr = stderr_of(&output);
     for tier in ["portable", "x86-64-v2", "x86-64-v3", "x86-64-v4", "native"] {
         assert!(
@@ -1018,7 +1018,7 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .arg("--cpu")
         .output()
         .expect("run the yashy CLI");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     assert!(stderr_of(&output).contains("needs a value"));
 }
 

@@ -21,10 +21,13 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
-use yashy_common::{Diagnostic, SourceMap, EXIT_COMPILE_ERROR, EXIT_OK};
+use yashy_common::{
+    Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
+    EXIT_OK, EXIT_USAGE,
+};
 use yashy_driver::{
     compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
 };
@@ -33,8 +36,8 @@ const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
-  yashy check <file.ya>
-  yashy test [path] [--filter <substring>] [--list]
+  yashy check <file.ya> [--json]
+  yashy test [path] [--filter <substring>] [--list] [--json]
   yashy init [path]
   yashy doctor [--json]
   yashy fmt [-w] <files...>
@@ -56,7 +59,7 @@ usage:
                optimization level defaults to -O3 unless an explicit -O
                level is given
   --emit-ir    print the generated LLVM IR to stdout and stop
-  --json       print a stable machine-readable report (doctor only)";
+  --json       print a stable machine-readable report (check, test, doctor)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -404,11 +407,13 @@ fn test(args: &[String]) -> ExitCode {
     let mut root: Option<PathBuf> = None;
     let mut filter: Option<String> = None;
     let mut list = false;
+    let mut json = false;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--list" => list = true,
+            "--json" => json = true,
             "--filter" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--filter` needs a substring");
@@ -427,16 +432,20 @@ fn test(args: &[String]) -> ExitCode {
         }
     }
 
+    if json && list {
+        return usage_error("`--list` and `--json` cannot be combined");
+    }
+
     let explicit_root = root.is_some();
     let root = root.unwrap_or_else(|| PathBuf::from("tests"));
     if explicit_root && !root.exists() {
         eprintln!("error: no tests at {}", root.display());
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     }
     let mut tests = Vec::new();
     if let Err(error) = collect_tests(&root, &mut tests) {
         eprintln!("error: cannot read {}: {error}", root.display());
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     }
     tests.sort();
 
@@ -444,6 +453,10 @@ fn test(args: &[String]) -> ExitCode {
         tests.retain(|path| {
             path.to_string_lossy().contains(filter) || display_test_path(path).contains(filter)
         });
+    }
+
+    if json {
+        return test_json(&root, &tests);
     }
 
     if list {
@@ -517,6 +530,226 @@ fn test(args: &[String]) -> ExitCode {
     } else {
         exit_code(EXIT_COMPILE_ERROR)
     }
+}
+
+/// `yashy test --json`: the same test discovery as `test`, with one JSON
+/// envelope instead of the human progress lines.
+///
+/// Compile diagnostics are collected through the same checker and code
+/// generator the human path uses, so a fact in the JSON (code, severity, file,
+/// span) is the fact the human renderer prints.
+fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
+    let mut global_sources = SourceMap::new();
+    let root_file = global_sources.add_file(root.display().to_string(), String::new());
+
+    if tests.is_empty() {
+        print_test_json(&global_sources, &[], &[], 0, 0);
+        return exit_code(EXIT_OK);
+    }
+
+    let toolchain = match detect() {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            let diagnostic = Diagnostic::new(Severity::Error, root_file, Span::SYNTHETIC, message);
+            print_test_json(&global_sources, &[diagnostic], &[], 0, 0);
+            return exit_code(EXIT_USAGE);
+        }
+    };
+
+    let mut results: Vec<Json> = Vec::new();
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for path in tests {
+        let started = Instant::now();
+        let file = display_test_path(path);
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(file.as_str())
+            .to_string();
+        let dir = temp_run_dir();
+        if let Err(error) = fs::create_dir_all(&dir) {
+            let file_id = global_sources.add_file(file.clone(), String::new());
+            let diagnostic = Diagnostic::new(
+                Severity::Error,
+                file_id,
+                Span::SYNTHETIC,
+                format!("cannot create {}: {error}", dir.display()),
+            );
+            print_test_json(&global_sources, &[diagnostic], &results, passed, failed);
+            return exit_code(EXIT_INTERNAL);
+        }
+
+        let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
+        let mut sources = SourceMap::new();
+        let source = match fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                let file_id = sources.add_file(file.clone(), String::new());
+                let diagnostic = Diagnostic::new(
+                    Severity::Error,
+                    file_id,
+                    Span::SYNTHETIC,
+                    format!("cannot read {}: {error}", path.display()),
+                );
+                failed += 1;
+                results.push(test_json_object(
+                    &name,
+                    &file,
+                    "failed",
+                    elapsed_ms(started),
+                    &sources,
+                    &[diagnostic],
+                ));
+                let _ = fs::remove_dir_all(&dir);
+                continue;
+            }
+        };
+
+        // The display path uses `/` on every platform, so the file named by a
+        // per-test diagnostic is the same string as the test object's `file`.
+        // Windows accepts `/` in a path, and the module loader resolves imports
+        // from this entry just as it does from the native form.
+        let entry = Path::new(&file);
+        let outcome = match load_and_check(&mut sources, entry, source, false) {
+            Ok(hir) => compile_hir(&hir, &file, &exe, &toolchain, BuildOptions::default()),
+            Err(diagnostics) => Err(diagnostics),
+        };
+
+        match outcome {
+            Ok(()) => match output_with_retry(&exe, &[]) {
+                Ok(output) if output.status.success() => {
+                    passed += 1;
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "passed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[],
+                    ));
+                }
+                Ok(output) => {
+                    failed += 1;
+                    let diagnostic = Diagnostic::new(
+                        Severity::Error,
+                        FileId::from_index(0),
+                        Span::SYNTHETIC,
+                        match output.status.code() {
+                            Some(code) => format!("test exited with status {code}"),
+                            None => "test was terminated without an exit status".to_string(),
+                        },
+                    );
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "failed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[diagnostic],
+                    ));
+                }
+                Err(error) => {
+                    failed += 1;
+                    let diagnostic = Diagnostic::new(
+                        Severity::Error,
+                        FileId::from_index(0),
+                        Span::SYNTHETIC,
+                        format!("cannot run the test: {error}"),
+                    );
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "failed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[diagnostic],
+                    ));
+                }
+            },
+            Err(diagnostics) => {
+                failed += 1;
+                results.push(test_json_object(
+                    &name,
+                    &file,
+                    "failed",
+                    elapsed_ms(started),
+                    &sources,
+                    &diagnostics,
+                ));
+            }
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    print_test_json(&global_sources, &[], &results, passed, failed);
+    if failed == 0 {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+
+fn test_json_object(
+    name: &str,
+    file: &str,
+    status: &str,
+    duration_ms: i64,
+    sources: &SourceMap,
+    diagnostics: &[Diagnostic],
+) -> Json {
+    let mut object = Json::object();
+    object.set("name", Json::string(name));
+    object.set("file", Json::string(file));
+    object.set("status", Json::string(status));
+    object.set("duration_ms", Json::number(duration_ms));
+    object.set(
+        "diagnostics",
+        Json::array(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic_json(sources, diagnostic))
+                .collect(),
+        ),
+    );
+    object
+}
+
+fn print_test_json(
+    global_sources: &SourceMap,
+    global: &[Diagnostic],
+    tests: &[Json],
+    passed: usize,
+    failed: usize,
+) {
+    let mut summary = Json::object();
+    summary.set("passed", Json::number(passed as i64));
+    summary.set("failed", Json::number(failed as i64));
+    summary.set("skipped", Json::number(0));
+
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("test"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(failed == 0 && global.is_empty()));
+    report.set(
+        "diagnostics",
+        Json::array(
+            global
+                .iter()
+                .map(|diagnostic| diagnostic_json(global_sources, diagnostic))
+                .collect(),
+        ),
+    );
+    report.set("tests", Json::array(tests.to_vec()));
+    report.set("summary", summary);
+    println!("{}", report.render());
 }
 
 fn collect_tests(root: &Path, tests: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -1086,19 +1319,109 @@ fn json_opt_path(value: Option<&Path>) -> String {
     }
 }
 
-/// `yashy check <file.ya>`.
+fn print_check_json(sources: &SourceMap, diagnostics: &[Diagnostic]) {
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_error())
+        .count();
+    let warnings = diagnostics.len().saturating_sub(errors);
+
+    let mut summary = Json::object();
+    summary.set("errors", Json::number(errors as i64));
+    summary.set("warnings", Json::number(warnings as i64));
+
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("check"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(errors == 0));
+    report.set(
+        "diagnostics",
+        Json::array(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic_json(sources, diagnostic))
+                .collect(),
+        ),
+    );
+    report.set("summary", summary);
+    println!("{}", report.render());
+}
+
+fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
+    let mut object = Json::object();
+    object.set(
+        "code",
+        match diagnostic.code {
+            Some(code) => Json::string(code),
+            None => Json::null(),
+        },
+    );
+    object.set("severity", Json::string(diagnostic.severity.as_str()));
+    object.set("message", Json::string(diagnostic.message.as_str()));
+    object.set("file", Json::string(sources.path(diagnostic.file)));
+    object.set("span", span_json(sources, diagnostic.file, diagnostic.span));
+    if let Some(label) = &diagnostic.label {
+        let mut label_object = Json::object();
+        label_object.set("span", span_range_json(diagnostic.span));
+        label_object.set("message", Json::string(label.as_str()));
+        object.set("labels", Json::array(vec![label_object]));
+    }
+    if !diagnostic.notes.is_empty() {
+        object.set(
+            "notes",
+            Json::array(
+                diagnostic
+                    .notes
+                    .iter()
+                    .map(|note| Json::string(note.as_str()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(url) = diagnostic.docs_url() {
+        object.set("docs_url", Json::string(url));
+    }
+    object
+}
+
+fn span_json(sources: &SourceMap, file: FileId, span: Span) -> Json {
+    let location = sources.locate(file, span);
+    let mut object = span_range_json(span);
+    object.set("line", Json::number(i64::from(location.line)));
+    object.set("column", Json::number(i64::from(location.col)));
+    object
+}
+
+fn span_range_json(span: Span) -> Json {
+    let mut object = Json::object();
+    object.set("start", Json::number(i64::from(span.start)));
+    object.set("end", Json::number(i64::from(span.end)));
+    object
+}
+
+/// `yashy check <file.ya> [--json]`.
 fn check(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        return usage_error("`check` needs a source file");
+    let mut json = false;
+    let mut input: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `check`"));
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
     }
-    if args.len() > 1 {
-        return usage_error(&format!("unexpected extra argument `{}`", args[1]));
-    }
-    let Some(input) = args.first() else {
+    let Some(input) = input else {
         return usage_error("`check` needs a source file");
     };
-    let input = PathBuf::from(input);
-    let source = match read_source(&input) {
+    let source = match read_source_with(&input, EXIT_USAGE) {
         Ok(source) => source,
         Err(code) => return code,
     };
@@ -1107,15 +1430,39 @@ fn check(args: &[String]) -> ExitCode {
     // lower it -- so there is no `--release` here to accept and ignore.
     let mut sources = SourceMap::new();
     match load_and_check(&mut sources, &input, source, false) {
-        Ok(_) => exit_code(EXIT_OK),
-        Err(diagnostics) => render(&sources, &diagnostics),
+        Ok(_) => {
+            if json {
+                print_check_json(&sources, &[]);
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(diagnostics) => {
+            if json {
+                let errors = diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.is_error())
+                    .count();
+                print_check_json(&sources, &diagnostics);
+                if errors > 0 {
+                    exit_code(EXIT_COMPILE_ERROR)
+                } else {
+                    exit_code(EXIT_OK)
+                }
+            } else {
+                render(&sources, &diagnostics)
+            }
+        }
     }
 }
 
 fn read_source(input: &Path) -> Result<String, ExitCode> {
+    read_source_with(input, EXIT_COMPILE_ERROR)
+}
+
+fn read_source_with(input: &Path, code: i32) -> Result<String, ExitCode> {
     std::fs::read_to_string(input).map_err(|error| {
         eprintln!("error: cannot read {}: {error}", input.display());
-        exit_code(EXIT_COMPILE_ERROR)
+        exit_code(code)
     })
 }
 
@@ -1216,7 +1563,7 @@ fn unknown_cpu(value: &str) -> String {
 
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("error: {message}\n{USAGE}");
-    exit_code(EXIT_COMPILE_ERROR)
+    exit_code(EXIT_USAGE)
 }
 
 fn exit_code(code: i32) -> ExitCode {

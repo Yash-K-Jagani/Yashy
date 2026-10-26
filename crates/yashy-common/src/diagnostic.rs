@@ -11,8 +11,17 @@ use crate::span::Span;
 /// The process exit code for a successful compile.
 pub const EXIT_OK: i32 = 0;
 
-/// The process exit code for a compile that produced errors.
+/// The process exit code for a compile that produced errors, or a test run
+/// that had a failing test.
 pub const EXIT_COMPILE_ERROR: i32 = 1;
+
+/// The process exit code for a usage or configuration error: a bad argument, a
+/// missing source file, or a toolchain the command needs.
+pub const EXIT_USAGE: i32 = 2;
+
+/// The process exit code for an internal error: the compiler could not carry
+/// out work it had already accepted.
+pub const EXIT_INTERNAL: i32 = 3;
 
 /// How serious a diagnostic is.
 ///

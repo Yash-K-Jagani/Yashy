@@ -506,7 +506,7 @@ is Done (committed in `0772658`). Verified 2026-10-26:
   an uncoded diagnostic is allowed but counted.
 - [x] Do not derive a code from the message text.
 
-Implemented 2026-10-26.
+Implemented 2026-10-26 (commit `b5fcb11`).
 
 - `Diagnostic` and `TypeError` carry `code: Option<&'static str>`, set where the
   diagnostic is built; `DiagnosticBag::uncoded_count` counts the rest.
@@ -536,16 +536,51 @@ Implemented 2026-10-26.
 
 ### Task 11 — JSON diagnostics for `check` and `test`
 
-- [ ] Add a small JSON writer helper in `yashy-common` (no new dependency).
-- [ ] Add `yashy check --json` with `schema_version`, `tool`, `success`,
+- [x] Add a small JSON writer helper in `yashy-common` (no new dependency).
+- [x] Add `yashy check --json` with `schema_version`, `tool`, `success`,
   `diagnostics`, and `summary`.
-- [ ] Add `yashy test --json` with `tests` and `summary`, reusing the diagnostic
+- [x] Add `yashy test --json` with `tests` and `summary`, reusing the diagnostic
   object.
-- [ ] `--json` implies no color and no prompt; exit codes are `0/1/2/3`.
-- [ ] Tests: schema shape snapshot; human and JSON facts agree on code,
+- [x] `--json` implies no color and no prompt; exit codes are `0/1/2/3`.
+- [x] Tests: schema shape snapshot; human and JSON facts agree on code,
   severity, file, span, and summary; a usage error returns `2`; an internal error
   returns `3`.
-- [ ] Keep the human output unchanged except for the added code.
+- [x] Keep the human output unchanged except for the added code.
+
+Implemented 2026-10-26.
+
+- `crates/yashy-common/src/json.rs` is a dependency-free `Json` value tree with
+  a pretty printer and centralized string escaping; it has eight unit tests.
+  `EXIT_USAGE = 2` and `EXIT_INTERNAL = 3` live beside the existing exit codes.
+- `check --json` prints the v1 envelope on stdout: `schema_version`, `tool`,
+  `yashy_version`, `success`, `diagnostics`, and `summary {errors, warnings}`.
+  A diagnostic has `code` (null when uncoded), `severity`, `message`, `file`,
+  `span {start, end, line, column}`, optional `labels`, optional `notes`, and
+  `docs_url` only when coded. `fix` is not emitted in R1.
+- `test --json` uses the same envelope plus `tests` and a test summary
+  (`passed`, `failed`, `skipped`). Compile diagnostics are nested under the
+  test that produced them; top-level `diagnostics` is reserved for setup errors
+  such as a missing toolchain. A runtime failure gets a synthetic diagnostic
+  with the exit status. `--list` and `--json` are mutually exclusive.
+- Exit codes: `usage_error` and a missing `check` source now return `2`; a
+  missing explicit test root and an unreadable test root return `2`; a test
+  temporary directory that cannot be created returns `3`. The human `test`
+  progress lines, the human `check` renderer, and the human diagnostics are
+  otherwise unchanged. The two e2e tests that asserted `1` for a usage error
+  now assert `2`.
+- `crates/yashy-driver/tests/diagnostics_json.rs` parses the output with a tiny
+  local JSON reader and covers the schema and facts, human/JSON agreement,
+  success, mixed test results, usage exit `2`, and internal exit `3`.
+- `docs/cli.md` documents the shared exit codes, both `--json` commands, and the
+  schema v1 diagnostic and test objects.
+
+Verified 2026-10-26: `cargo test -p yashy-common` (31 unit, 25 integration),
+`cargo test -p yashy-driver --test diagnostics_json` (8 passed),
+`cargo test -p yashy-driver --test e2e usage_error` (2 passed),
+`cargo test -p yashy-driver --test test_runner` (5 passed),
+`cargo test -p yashy-driver --test docs` (3 passed),
+`cargo check --workspace --all-targets` (clean, GNU Windows), and the full
+`cargo test --workspace --no-fail-fast` (99 result lines, all ok, WSL Ubuntu).
 
 ### Task 12 — `yashy explain`
 
@@ -577,7 +612,7 @@ cargo test -p yashy-bench
 cargo test -p yashy-driver --test e2e
 cargo test -p yashy-driver --test diagnostics_json
 cargo test -p yashy-driver --test explain
-cargo run -p yashy-driver -- check --json examples/hello
+cargo run -p yashy-driver -- check --json examples/hello/main.ya
 cargo run -p yashy-driver -- test --json
 cargo run -p yashy-driver -- explain E0100
 cargo check --workspace --all-targets
