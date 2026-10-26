@@ -1,0 +1,32 @@
+# Yashy
+
+> Yashy is a small statically typed language compiled to native binaries through LLVM. It has no garbage collector, no borrow checker, no exceptions, no implicit coercion, no operator overloading, no class inheritance, and no power-user procedural macros. Memory is owned explicitly; errors are `Option` and `Result` values.
+
+## Start
+
+- [Quickstart](docs/quickstart.md): install LLVM and Yashy, run `yashy doctor`, create a project, run it, and test it.
+- [Your first CLI](docs/tutorial/12-first-cli.md): the project-shaped path, from install to a tested release binary.
+- [Language tutorial](docs/tutorial/00-intro.md): thirteen chapters; every `yashy` block is compiled and run by the test suite.
+
+## Reference
+
+- [CLI reference](docs/cli.md): every command, option, exit code, and the `doctor --json` schema.
+- [Error catalog](docs/errors.md): the diagnostic shape and the current message families.
+- [AGENTS.md](AGENTS.md): repository layout, commands, and rules for coding agents.
+- [Release notes template](docs/release-notes-template.md): targets, checksums, requirements, and known gaps.
+
+## Source and examples
+
+- [README](README.md): the language overview, build instructions, and benchmarks.
+- [Examples](examples): `hello`, `wordcount`, and `json-report`, each with a `yashy.toml`, `main.ya`, and a test.
+- [Wordcount example](examples/wordcount/main.ya): the two-module stdin filter from the first-CLI guide.
+- [JSON report example](examples/json-report/main.ya): a line scanner that uses the standard library's `JSON.quote`.
+- [Installer (Unix)](scripts/install.sh): POSIX `sh` installer and uninstaller.
+- [Installer (Windows)](scripts/install.ps1): PowerShell installer and uninstaller.
+- [Release workflow](.github/workflows/release.yml): how both archives and `SHA256SUMS` are published.
+
+## Design records
+
+- [Super-language v2 design](docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md): the current design and R1/R2 contracts.
+- [Master plan](docs/superpowers/plans/2026-10-25-yashy-super-language-master.md): the full slice sequence.
+- [Slice 1 plan](docs/superpowers/plans/2026-10-25-yashy-r1-install-first-cli.md): install and first CLI.

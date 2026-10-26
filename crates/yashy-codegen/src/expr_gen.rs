@@ -1697,6 +1697,15 @@ fn gen_call(
             // whose arguments and result need no reshaping: only the name
             // differs, so the common path handles them.
             match name.as_str() {
+                // `args()` fills a fresh `[]string`; the runtime owns the
+                // pieces, so the result is freed with `free` like `split`.
+                "args" => crate::slices::gen_args(ctx, ty),
+                // `getcwd`, `now`, and `sleep` are plain runtime calls: no
+                // argument or result reshaping. `now`/`sleep` carry `_ms`
+                // because the runtime unit is explicit in the symbol name.
+                "getcwd" => gen_borrowed_call(ctx, "yashy_getcwd", args, ty),
+                "now" => gen_borrowed_call(ctx, "yashy_now_ms", args, ty),
+                "sleep" => gen_borrowed_call(ctx, "yashy_sleep_ms", args, ty),
                 "read_line" | "parse_i64" | "parse_f64" | "str_from_i64" | "str_from_f64"
                 | "str_from_char" | "char_from_int" | "str_debug_char" | "str_slice"
                 | "str_debug" => {
@@ -1980,6 +1989,30 @@ fn gen_lowered_call(
     lowered: &[GenValue],
     ty: &TypeKind,
 ) -> GenValue {
+    // `main` is emitted with the hidden C entry parameters
+    // `(i32 %argc, i8** %argv)`, but the Yashy surface has none. A recursive
+    // call therefore has to supply a null pair; the runtime keeps the vector
+    // the real entry point stored, so the callee's `yashy_args_init` is a
+    // no-op. The definition returns `i32`, whatever the Yashy `main` returns,
+    // so the call is typed and then widened or discarded to match the call
+    // site's declared type.
+    if symbol == "main" {
+        let call = ctx.tmp();
+        ctx.push(format!("{call} = call i32 @main(i32 0, i8** null)"));
+        let value = match repr_type(ty).as_str() {
+            "i64" => {
+                let widened = ctx.tmp();
+                ctx.push(format!("{widened} = sext i32 {call} to i64"));
+                widened
+            }
+            "i32" => call,
+            _ => String::new(),
+        };
+        return GenValue {
+            value,
+            ty: ty.clone(),
+        };
+    }
     let arg_list: Vec<String> = lowered
         .iter()
         .map(|v| format!("{} {}", repr_type(&v.ty), v.value))

@@ -186,6 +186,18 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// Run a built executable with `args`, stepping around a host that refuses to
+/// start it. The arguments are the user arguments the program sees: the
+/// executable path is not repeated here.
+fn run_with_args(exe: &Path, args: &[&str]) -> Output {
+    launch_retrying(exe, |path| Command::new(path).args(args).output()).unwrap_or_else(|error| {
+        panic!(
+            "the compiled executable at {} must be runnable: {error}",
+            exe.display()
+        )
+    })
+}
+
 /// How long a concurrent program may run before the test calls it hung.
 ///
 /// The programs finish in about a second; the bound only has to be longer than
@@ -307,6 +319,65 @@ fn build_and_run(name: &str) -> Output {
 fn hello_world_prints_and_exits_zero() {
     let output = build_and_run("hello");
     assert_eq!(stdout_of(&output), "Hello, Yashy!\n");
+}
+
+#[test]
+fn arguments_arrive_in_order_and_exclude_the_program_path() {
+    let (_dir, exe, compile) = build_program("args");
+    assert!(
+        compile.status.success(),
+        "compiling args.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run_with_args(&exe, &["one", "two"]);
+    assert!(
+        output.status.success(),
+        "args exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "2\none\ntwo\n",
+        "the executable path must not be an element"
+    );
+
+    let empty = run_with_args(&exe, &[]);
+    assert_eq!(stdout_of(&empty), "0\n", "no arguments is an empty slice");
+}
+
+#[test]
+fn getcwd_reports_the_directory_the_program_started_in() {
+    let (dir, exe, compile) = build_program("cwd");
+    assert!(
+        compile.status.success(),
+        "compiling cwd.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = launch_retrying(&exe, |path| Command::new(path).current_dir(&dir).output())
+        .expect("the cwd program must start");
+    assert!(
+        output.status.success(),
+        "cwd exited with {:?}",
+        output.status.code()
+    );
+
+    let text = stdout_of(&output);
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("cwd ok"));
+    let reported = PathBuf::from(lines.next().expect("the path line"));
+    assert_eq!(
+        reported.canonicalize().expect("the reported path must exist"),
+        dir.canonicalize().expect("the work directory must exist"),
+        "getcwd must report the directory the process started in"
+    );
+}
+
+#[test]
+fn now_and_sleep_measure_wall_time() {
+    let output = build_and_run("time");
+    assert_eq!(stdout_of(&output), "clock ok\nslept\n");
 }
 
 #[test]
@@ -694,7 +765,10 @@ fn emit_ir_prints_llvm_without_invoking_llvm() {
     assert!(ir.contains("target datalayout"), "not LLVM IR:\n{ir}");
     // The entry point is an `i32` function whatever the Yashy signature says,
     // because that is the return type the C runtime reads as the exit status.
-    assert!(ir.contains("define i32 @main()"), "not this program:\n{ir}");
+    assert!(
+        ir.contains("define i32 @main(i32 %argc, i8** %argv)"),
+        "not this program:\n{ir}"
+    );
 }
 
 #[test]

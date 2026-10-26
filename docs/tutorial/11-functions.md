@@ -515,4 +515,5 @@ that call is an ordinary optimization of an ordinary program.
 
 That is the language. The [introduction](00-intro.md) restates the three
 decisions, and the programs under `crates/yashy-driver/tests/programs` show
-the rest.
+the rest. Continue to [12-first-cli](12-first-cli.md) to install a release,
+create a project, test it, and build a binary you can ship.

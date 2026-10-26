@@ -33,8 +33,14 @@ fn tutorial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/tutorial")
 }
 
-fn work_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("yashy-tutorial-{}", std::process::id()));
+fn work_dir(name: &str) -> PathBuf {
+    // Each test gets its own directory. The two tests run in parallel threads
+    // of one process, so a shared path would let one test's cleanup delete the
+    // other's files.
+    let dir = std::env::temp_dir().join(format!(
+        "yashy-tutorial-{}-{name}",
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("the tutorial work directory must be creatable");
     dir
@@ -86,6 +92,20 @@ fn examples(markdown: &str) -> Vec<Example> {
     examples
 }
 
+/// A block whose first non-empty line is `// file: <name>` is one file of a
+/// multi-file project, not a standalone program. The first-CLI guide uses this
+/// to show `main.ya` and its module without asking the single-file loop to
+/// compile a module that has no `main`.
+fn project_file_name(code: &str) -> Option<&str> {
+    let line = code.lines().find(|line| !line.trim().is_empty())?;
+    let name = line.trim().strip_prefix("// file:")?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 fn chapters() -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(tutorial_dir())
         .expect("the tutorial directory must be readable")
@@ -127,22 +147,6 @@ fn wait(mut child: std::process::Child, exe: &Path) -> Output {
         .expect("the finished executable must be waitable")
 }
 
-/// Start a freshly built executable, or answer why it could not start.
-///
-/// Application Control on some Windows machines refuses a brand-new binary
-/// with "os error 4551". A blocked *path* tends to stay blocked, so a retry
-/// here is short: the caller rebuilds under a new name instead. Any failure
-/// that is not that block is a real one and is reported.
-fn spawn(exe: &Path) -> Result<std::process::Child, String> {
-    common::launch_retrying(exe, |path| {
-        Command::new(path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    })
-    .map_err(|error| error.to_string())
-}
-
 /// Build `source` and run it.
 ///
 /// A launch blocked by Application Control is retried by rebuilding to a new
@@ -150,6 +154,26 @@ fn spawn(exe: &Path) -> Result<std::process::Child, String> {
 /// new question. A binary that stays blocked fails the test -- an
 /// environmental block is never counted as a pass.
 fn build_and_run(source: &Path, dir: &Path, tag: &str, label: &str) -> Output {
+    build_and_run_inner(source, dir, tag, label, &[])
+}
+
+fn build_and_run_with_args(
+    source: &Path,
+    dir: &Path,
+    tag: &str,
+    label: &str,
+    args: &[&str],
+) -> Output {
+    build_and_run_inner(source, dir, tag, label, args)
+}
+
+fn build_and_run_inner(
+    source: &Path,
+    dir: &Path,
+    tag: &str,
+    label: &str,
+    args: &[&str],
+) -> Output {
     let mut last = String::new();
     for attempt in 0..6 {
         let exe = dir.join(format!(
@@ -162,12 +186,30 @@ fn build_and_run(source: &Path, dir: &Path, tag: &str, label: &str) -> Output {
             "{label} does not compile:\n{}",
             String::from_utf8_lossy(&built.stderr)
         );
-        match spawn(&exe) {
+        match spawn(&exe, args) {
             Ok(child) => return wait(child, &exe),
             Err(reason) => last = reason,
         }
     }
     panic!("{label} was blocked on every launch attempt (os error 4551): {last}");
+}
+
+/// Start a freshly built executable with `args`, or answer why it could not
+/// start.
+///
+/// Application Control on some Windows machines refuses a brand-new binary
+/// with "os error 4551". A blocked *path* tends to stay blocked, so a retry
+/// here is short: the caller rebuilds under a new name instead. Any failure
+/// that is not that block is a real one and is reported.
+fn spawn(exe: &Path, args: &[&str]) -> Result<std::process::Child, String> {
+    common::launch_retrying(exe, |path| {
+        Command::new(path)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    })
+    .map_err(|error| error.to_string())
 }
 
 #[test]
@@ -179,12 +221,15 @@ fn every_tutorial_example_builds_runs_and_matches_its_output() {
         chapters.len()
     );
 
-    let dir = work_dir();
+    let dir = work_dir("examples");
     let mut total = 0usize;
     for chapter in chapters {
         let markdown = fs::read_to_string(&chapter)
             .unwrap_or_else(|error| panic!("{} must be readable: {error}", chapter.display()));
         for example in examples(&markdown) {
+            if project_file_name(&example.code).is_some() {
+                continue;
+            }
             let name = format!("example_{total}");
             let source = dir.join(format!("{name}.ya"));
             fs::write(&source, &example.code).expect("the example must be writable");
@@ -210,4 +255,87 @@ fn every_tutorial_example_builds_runs_and_matches_its_output() {
         }
     }
     assert!(total >= 11, "only {total} examples ran");
+}
+
+#[test]
+fn first_cli_project_builds_runs_and_tests() {
+    let chapter = tutorial_dir().join("12-first-cli.md");
+    let markdown = fs::read_to_string(&chapter)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", chapter.display()));
+    let dir = work_dir("first-cli");
+
+    let mut files = 0usize;
+    for example in examples(&markdown) {
+        let Some(name) = project_file_name(&example.code) else {
+            continue;
+        };
+        assert!(
+            matches!(name, "main.ya" | "wc_words.ya" | "tests/smoke.ya"),
+            "the first-CLI guide names an unexpected project file: {name}"
+        );
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("the project subdirectory must be creatable");
+        }
+        fs::write(&path, &example.code).expect("the project file must be writable");
+        files += 1;
+    }
+    assert_eq!(
+        files, 3,
+        "the first-CLI guide must define main.ya, wc_words.ya, and tests/smoke.ya"
+    );
+
+    let source = dir.join("main.ya");
+    let notes = dir.join("notes.txt");
+    fs::write(&notes, "hello world\nsecond line\n").expect("the notes file must be writable");
+    let notes_arg = notes.to_str().expect("the notes path must be UTF-8");
+    let ran = build_and_run_with_args(
+        &source,
+        &dir,
+        "first_cli",
+        "the first-CLI guide",
+        &[notes_arg],
+    );
+    assert!(
+        ran.status.success(),
+        "the first-CLI guide exits with {}:\n{}",
+        ran.status,
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout).replace("\r\n", "\n"),
+        "2 4 24\n",
+        "the first-CLI guide prints a summary the guide does not claim"
+    );
+
+    let usage = build_and_run_with_args(
+        &source,
+        &dir,
+        "first_cli_usage",
+        "the first-CLI guide with no arguments",
+        &[],
+    );
+    assert!(
+        usage.status.success(),
+        "the usage path exits with {}:\n{}",
+        usage.status,
+        String::from_utf8_lossy(&usage.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&usage.stdout).replace("\r\n", "\n"),
+        "usage: wordcount <file>\n",
+        "the empty-argument case must print the usage line"
+    );
+
+    let tested = Command::new(yashy())
+        .arg("test")
+        .current_dir(&dir)
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        tested.status.success(),
+        "`yashy test` failed on the first-CLI project:\n{}\n{}",
+        String::from_utf8_lossy(&tested.stdout),
+        String::from_utf8_lossy(&tested.stderr)
+    );
 }

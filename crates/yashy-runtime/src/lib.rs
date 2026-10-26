@@ -395,3 +395,31 @@ unsafe extern "C" {
     /// no-op on null and on a static string.
     pub fn yashy_str_release(s: *mut YashyStr);
 }
+
+unsafe extern "C" {
+    /// Stores the process's argument vector. The runtime keeps the pointer; the
+    /// first call wins, so a later call cannot erase it.
+    pub fn yashy_args_init(argc: c_int, argv: *mut *mut c_char);
+}
+
+unsafe extern "C" {
+    /// Fills `out` with owned copies of the user arguments (excluding the
+    /// executable path). Free the result with [`yashy_slice_free_strings`].
+    pub fn yashy_args_slice(out: *mut YashySlice);
+}
+
+unsafe extern "C" {
+    /// The current working directory as a fresh owned string, or `""` on
+    /// failure.
+    pub fn yashy_getcwd() -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// Milliseconds since the Unix epoch from the wall clock.
+    pub fn yashy_now_ms() -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Blocks for at least `ms` milliseconds; `ms <= 0` is a no-op.
+    pub fn yashy_sleep_ms(ms: c_longlong);
+}

@@ -588,6 +588,15 @@ out.push_str("declare void @yashy_print_line_str(i8*)\n");
         out.push_str("declare i8* @yashy_read_file(i8*)\n");
         out.push_str("declare i64 @yashy_write_file(i8*, i8*, i64)\n");
         out.push_str("declare i8* @yashy_getenv(i8*)\n");
+        // Program arguments, the working directory, and the clock (R1 slice 2).
+        // `args_init` is called once at the entry point; `args_slice` fills a
+        // fresh `[]string` of owned strings. Declared up front like the rest,
+        // so a program that does not use them still produces the same set.
+        out.push_str("declare void @yashy_args_init(i32, i8**)\n");
+        out.push_str("declare void @yashy_args_slice(ptr)\n");
+        out.push_str("declare i8* @yashy_getcwd()\n");
+        out.push_str("declare i64 @yashy_now_ms()\n");
+        out.push_str("declare void @yashy_sleep_ms(i64)\n");
         // The diagnostic path (M4). Declared up front like the rest, so a
         // program that starts panicking does not change every golden file
         // again; an unused `declare` is legal IR.

@@ -176,6 +176,30 @@ pub fn gen_len(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     }
 }
 
+/// Lower `args() -> []string`.
+///
+/// The runtime fills a stack header with owned strings for the process's user
+/// arguments, exactly as `split`/`lines` fill theirs. Building the slice
+/// element by element in IR would duplicate the runtime's push and ownership
+/// rules; one call keeps the contract in one place.
+pub fn gen_args(ctx: &mut FnCtx<'_>, slice_ty: &TypeKind) -> GenValue {
+    if !matches!(slice_ty, TypeKind::Slice(_)) {
+        return unit();
+    }
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!(
+        "store {SLICE_REPR} zeroinitializer, ptr {out_slot}"
+    ));
+    ctx.push(format!("call void @yashy_args_slice(ptr {out_slot})"));
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
+    }
+}
+
 /// Build `Option[element]` from a 0/1 flag and an initialized out slot.
 ///
 /// The payload is loaded even on a miss. That is why every caller stores

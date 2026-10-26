@@ -1,0 +1,13 @@
+// `args()` answers the user arguments, excluding the executable path. The
+// driver test runs this with two arguments and expects them in order; the
+// no-argument run expects a count of zero.
+
+fn main() {
+    const arguments = args();
+    print(arguments.len());
+    println("");
+    for value in arguments {
+        println(value);
+    }
+    arguments.free();
+}

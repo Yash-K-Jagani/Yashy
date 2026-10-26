@@ -1,0 +1,28 @@
+// Lines, words, and bytes over standard input, in the shape of `wc`.
+//
+// `read_line` strips the terminator, so the byte count adds one per line for
+// the newline it removed. The word half is `count_words` in `wc_words.ya`,
+// found beside this file.
+
+import wc_words;
+
+fn main() {
+    let lines = 0;
+    let words = 0;
+    let bytes = 0;
+
+    let line = read_line();
+    while line.len() > 0 {
+        lines = lines + 1;
+        words = words + count_words(line);
+        bytes = bytes + line.len() + 1;
+        line = read_line();
+    }
+
+    print(lines);
+    print(" ");
+    print(words);
+    print(" ");
+    print(bytes);
+    println("");
+}

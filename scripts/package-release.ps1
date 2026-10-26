@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [string]$Target = 'x86_64-pc-windows-msvc'
+    [string]$Target = 'x86_64-pc-windows-msvc',
+    [string]$Binary = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,7 +11,11 @@ $dist = Join-Path $root 'dist'
 $name = "yashy-$Version-$Target"
 $stage = Join-Path $dist $name
 $zip = Join-Path $dist "$name.zip"
-$binary = Join-Path $root 'target\release\yashy.exe'
+if ($Binary) {
+    $binary = $Binary
+} else {
+    $binary = Join-Path $root 'target\release\yashy.exe'
+}
 $stdlib = Join-Path $root 'crates\yashy-stdlib\yashy'
 
 if (-not (Test-Path $binary)) {
@@ -31,5 +36,7 @@ Copy-Item (Join-Path $root 'README.md') (Join-Path $stage 'README.md')
 Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE')
 
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+# Include the versioned directory itself, so the Windows zip has the same
+# top-level layout as the Unix tarball.
+Compress-Archive -Path $stage -DestinationPath $zip
 Write-Output $zip

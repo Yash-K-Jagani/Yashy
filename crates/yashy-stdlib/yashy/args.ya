@@ -1,11 +1,29 @@
-// Program arguments (M6 Task 10).
+// Program arguments.
 //
-// `args()` is not provided yet. `main` is emitted as `i32 @main()` with no
-// `argc`/`argv`, so the process's argument vector never reaches a Yashy program.
-// Changing the entry signature would make every program pay for a feature most
-// do not use; the plan records the trade rather than half-implementing it.
+// `args()` is a builtin, in scope in every file, so this module documents the
+// name rather than defining it. It answers the process's user arguments as a
+// fresh owned `[]string`:
 //
-// The CLI's own `yashy run -- <args>` forwards arguments to the child process;
-// the child can read them once this module lands.
+//     let arguments = args();
+//     let path = switch arguments[0] {
+//         case Some(value) { value }
+//         case None { "" }
+//     };
+//     arguments.free();
 //
-// Ownership: nothing is created or consumed.
+//     if path.len() == 0 {
+//         println("usage: mytool <path>");
+//         return;
+//     }
+//     print(path);
+//
+// The executable path is excluded, so `arguments[0]` is the first argument
+// after `yashy run --`. An invocation with no arguments yields an empty slice,
+// not an error. `yashy run main.ya -- notes.txt` makes `arguments[0]` the
+// string `notes.txt`.
+//
+// Ownership: every element is an owned string and the slice owns one reference
+// to each; free the slice with `.free()` (which releases the elements too).
+// Indexing is checked and yields `Option[string]`, so read an element after
+// checking `.len()` or match the `Option`. The string bound from the `Option`
+// is retained, so it stays valid after the slice is freed.

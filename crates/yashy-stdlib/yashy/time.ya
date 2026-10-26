@@ -1,12 +1,22 @@
-// Time (M6 Task 10).
+// Time.
 //
-// `now()` and `sleep(ms)` are not provided yet. Both need a runtime entry point
-// -- a clock and a blocking wait -- and the runtime does not expose one; a
-// wrapper that returned a constant or spun the CPU would be worse than an
-// honest absence.
+// `now()` and `sleep(ms)` are builtins, in scope in every file, so this module
+// documents the names rather than defining them.
 //
-// The names are documented here rather than defined so that a program written
-// against the planned surface fails at the call site, not at the import: the
-// module itself is importable today.
+// `now()` answers milliseconds since the Unix epoch as an `int`. It reads the
+// wall clock, not a monotonic one: a system clock adjustment can make a later
+// call return a smaller number. Use it for timestamps and for coarse elapsed
+// measurements, not for ordering that must never go backwards.
 //
-// Ownership: nothing is created or consumed.
+// `sleep(ms)` blocks for at least `ms` milliseconds and returns unit. A value
+// of zero or less is a no-op; it does not yield to the scheduler on its own.
+// The wait is interruptible on POSIX and is retried after a signal.
+//
+//     let start = now();
+//     sleep(20);
+//     let elapsed = now() - start;
+//     print("waited at least 20 ms: ");
+//     print(str_from_i64(elapsed));
+//     print("\n");
+//
+// Ownership: neither creates nor consumes a value.

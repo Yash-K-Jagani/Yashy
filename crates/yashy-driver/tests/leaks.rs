@@ -125,6 +125,18 @@ fn build_and_run(name: &str) -> Output {
     run_program(&exe, None)
 }
 
+/// Run a built program with the leak report enabled and `args` as its user
+/// arguments.
+fn run_program_with_args(exe: &Path, args: &[&str]) -> Output {
+    common::launch_retrying(exe, |path| {
+        Command::new(path)
+            .env("YASHY_LEAK_REPORT", "1")
+            .args(args)
+            .output()
+    })
+    .unwrap_or_else(|error| panic!("{}", start_failure(exe, &error)))
+}
+
 /// Build `name.ya` and run it with `input` on standard input and the leak report
 /// enabled.
 fn build_and_run_with_input(name: &str, input: &str) -> Output {
@@ -303,6 +315,30 @@ fn both_container_programs_leak_nothing() {
         "two lines, four words, twenty-four bytes"
     );
     assert_no_leaks("wc", &wc);
+}
+
+#[test]
+fn arguments_and_the_working_directory_are_released() {
+    // `args.ya` fills a `[]string` from the process vector and frees it; the
+    // report proves both the backing array and the per-argument strings came
+    // back. `cwd.ya` binds one owned string and lets scope exit release it.
+    let (_dir, exe) = build("args");
+    let arguments = run_program_with_args(&exe, &["one", "two"]);
+    assert_eq!(
+        String::from_utf8_lossy(&arguments.stdout),
+        "2\none\ntwo\n",
+        "the arguments must be readable before they are freed"
+    );
+    assert_no_leaks("args", &arguments);
+
+    let (_dir, exe) = build("cwd");
+    let cwd = run_program(&exe, None);
+    assert!(
+        String::from_utf8_lossy(&cwd.stdout).starts_with("cwd ok\n"),
+        "the working directory must be readable:\n{}",
+        String::from_utf8_lossy(&cwd.stdout)
+    );
+    assert_no_leaks("cwd", &cwd);
 }
 
 #[test]

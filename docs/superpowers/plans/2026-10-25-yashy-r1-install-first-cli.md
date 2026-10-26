@@ -287,8 +287,8 @@ the tutorial test into a project test.
 - [ ] Add `docs/tutorial/12-first-cli.md`.
 - [ ] Write the stdin counter against the real API; compile and run every
   snippet.
-- [ ] Include Windows (PowerShell) and Linux/macOS (shell) commands side by
-  side.
+- [ ] Include Windows (PowerShell) and Linux shell commands side by side, with
+  a macOS source-build note.
 - [ ] Add the guide to `docs/tutorial/00-intro.md`'s "what next" and the README.
 - [ ] Add a tutorial test that compiles and runs the guide's final program.
   Reuse the existing tutorial test harness; do not add a second one.
@@ -438,28 +438,36 @@ the next attempt.
 
 ## 8. Files touched
 
+- `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
 - `scripts/package-release.sh` (new)
-- `scripts/checksums.sh` (new, optional)
+- `scripts/package-release.ps1`
+- `scripts/checksums.sh` (new)
 - `scripts/install.sh` (new)
 - `scripts/install.ps1`
 - `scripts/test-install.sh` (new)
 - `scripts/test-install.ps1` (new)
 - `crates/yashy-driver/src/toolchain.rs`
-- `crates/yashy-driver/src/main.rs` (doctor's final `next:` line, `doctor --json`,
-  `init` writes `AGENTS.md` + README)
+- `crates/yashy-driver/src/modules.rs` (nested shared-prefix stdlib)
+- `crates/yashy-driver/src/pipeline.rs` (clang 14 opaque pointers)
+- `crates/yashy-driver/src/main.rs` (doctor's final `next:` line,
+  `doctor --json`, `init` writes `AGENTS.md` + README + `.gitignore`)
 - `crates/yashy-driver/tests/doctor.rs` (JSON cases)
 - `crates/yashy-driver/tests/init.rs` (extend)
 - `crates/yashy-driver/tests/examples.rs` (new)
+- `crates/yashy-driver/tests/docs.rs` (new)
 - `crates/yashy-driver/tests/tutorial.rs`
 - `docs/tutorial/12-first-cli.md` (new)
 - `docs/tutorial/00-intro.md`
+- `docs/tutorial/11-functions.md`
 - `docs/quickstart.md` (new)
+- `docs/cli.md` (new)
+- `docs/errors.md` (new)
 - `AGENTS.md` (new, repository root)
 - `llms.txt` (new, repository root)
 - `examples/hello/`, `examples/wordcount/`, `examples/json-report/` (new)
 - `README.md`
-- `docs/release-notes-template.md` (new, optional)
+- `docs/release-notes-template.md` (new)
 
 ---
 

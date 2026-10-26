@@ -13,6 +13,9 @@ on:
         description: 'Version to package (without v)'
         required: true
 
+env:
+  VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -41,7 +44,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}'.TrimStart('v') }
+          $version = $env:VERSION.TrimStart('v')
           pwsh scripts/package-release.ps1 -Version $version
 
       - name: Upload the Windows zip
@@ -50,8 +53,100 @@ jobs:
           name: yashy-windows
           path: dist/*.zip
 
+  linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Build
+        run: cargo build --release -p yashy-driver
+
+      - name: Package
+        run: |
+          version="${VERSION#v}"
+          sh scripts/package-release.sh --version "$version"
+          sh scripts/checksums.sh
+
+      - name: Upload the Linux tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: yashy-linux
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
+  # Run the packaged Linux artifact on the oldest glibc we promise, in a
+  # container with no Rust toolchain. A release with one platform missing, or
+  # one that only works on the build host, must not publish.
+  package-smoke:
+    needs: linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the Linux tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: yashy-linux
+          path: dist
+
+      - name: Checksum and stage the installer
+        run: |
+          sh scripts/checksums.sh
+          cp scripts/install.sh dist/install.sh
+
+      - name: Install and run in ubuntu:22.04
+        run: |
+          docker run --rm -v "$PWD/dist:/dist" ubuntu:22.04 sh -c '
+            apt-get update &&
+            apt-get install -y clang llvm ca-certificates &&
+            archive=$(ls /dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz) &&
+            YASHY_ARCHIVE="$archive" YASHY_SHA256SUMS=/dist/SHA256SUMS \
+              sh /dist/install.sh --prefix /tmp/yashy --no-path &&
+            /tmp/yashy/bin/yashy doctor &&
+            /tmp/yashy/bin/yashy doctor --json &&
+            /tmp/yashy/bin/yashy init /tmp/demo &&
+            cd /tmp/demo && /tmp/yashy/bin/yashy test &&
+            sh /dist/install.sh --uninstall --prefix /tmp/yashy --no-path &&
+            test ! -d /tmp/yashy
+          '
+
+  publish:
+    needs: [windows, linux, package-smoke]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download both archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: yashy-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write one checksum file for both archives
+        run: |
+          sh scripts/checksums.sh
+          cp scripts/install.sh dist/install.sh
+
       - name: Publish the GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/install.sh

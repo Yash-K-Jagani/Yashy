@@ -274,6 +274,27 @@ void yashy_slice_free(yashy_slice *slice);
  * zeroed, like `yashy_slice_free`. */
 void yashy_slice_free_strings(yashy_slice *slice);
 
+/* ---- Program arguments, working directory, clock ----------------------
+ *
+ * The entry point hands the process's vector to `yashy_args_init` once. The
+ * runtime stores it; it owns nothing. `yashy_args_slice` fills a fresh
+ * `[]string` with *owned* copies of `argv[1..argc]` -- the executable path is
+ * deliberately excluded, so element 0 is the first user argument. Free the
+ * result with `yashy_slice_free_strings`. A failed push releases the piece it
+ * could not append, so the result is never a leak.
+ *
+ * `yashy_getcwd` returns the current directory as an owned string, or the empty
+ * string on failure. It is UTF-8 on every target.
+ *
+ * `yashy_now_ms` is milliseconds since the Unix epoch from the wall clock: it
+ * can go backwards if the system clock is adjusted. `yashy_sleep_ms` blocks for
+ * at least `ms` milliseconds; a value <= 0 is a no-op. */
+void yashy_args_init(int argc, char **argv);
+void yashy_args_slice(yashy_slice *out);
+yashy_str *yashy_getcwd(void);
+long long yashy_now_ms(void);
+void yashy_sleep_ms(long long ms);
+
 /* String split and line splitting. Both fill a fresh `[]string`: every piece is
  * a new owned string, so `yashy_slice_free_strings` releases the whole result.
  * An empty separator makes `split` return the source as one piece. `lines`

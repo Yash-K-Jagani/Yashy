@@ -24,6 +24,26 @@ fn init_creates_a_buildable_and_testable_project() {
     assert!(project.join("main.ya").is_file());
     assert!(project.join("tests/smoke.ya").is_file());
     assert!(project.join("README.md").is_file());
+    assert!(project.join("AGENTS.md").is_file());
+
+    let gitignore =
+        fs::read_to_string(project.join(".gitignore")).expect("the .gitignore must be readable");
+    assert!(gitignore.contains("*.ll"), ".gitignore:\n{gitignore}");
+    assert!(gitignore.contains("*.yashy/"), ".gitignore:\n{gitignore}");
+    assert!(gitignore.contains("/hello"), ".gitignore:\n{gitignore}");
+
+    let readme =
+        fs::read_to_string(project.join("README.md")).expect("the README must be readable");
+    assert!(readme.contains("yashy run main.ya"), "README:\n{readme}");
+    assert!(readme.contains("yashy test"), "README:\n{readme}");
+    assert!(readme.contains("yashy build main.ya"), "README:\n{readme}");
+
+    let agents = fs::read_to_string(project.join("AGENTS.md")).expect("AGENTS.md must be readable");
+    assert!(agents.contains("## Commands"), "AGENTS.md:\n{agents}");
+    assert!(agents.contains("## Layout"), "AGENTS.md:\n{agents}");
+    assert!(agents.contains("## Rules"), "AGENTS.md:\n{agents}");
+    assert!(agents.contains("## Docs"), "AGENTS.md:\n{agents}");
+    assert!(agents.contains("yashy test"), "AGENTS.md:\n{agents}");
 
     let build = Command::new(yashy())
         .arg("build")

@@ -48,6 +48,56 @@ fn getenv_yields_a_string() {
 }
 
 #[test]
+fn args_yields_a_slice_of_strings() {
+    check("fn main() { let xs: []string = args(); print(xs.len()); xs.free(); }")
+        .expect("args takes no arguments and answers with a fresh []string");
+    assert_rejected(
+        "fn main() { let xs = args(1); }",
+        "expected 0 arguments, found 1",
+    );
+}
+
+#[test]
+fn getcwd_yields_a_string() {
+    check("fn main() { let here: string = getcwd(); print(here); }")
+        .expect("getcwd takes no arguments and answers with a string");
+    assert_rejected(
+        "fn main() { let here = getcwd(1); }",
+        "expected 0 arguments, found 1",
+    );
+}
+
+#[test]
+fn now_yields_an_integer() {
+    check("fn main() { let stamp: int = now(); print(stamp); }")
+        .expect("now takes no arguments and answers with an int");
+    assert_rejected(
+        "fn main() { let stamp = now(1); }",
+        "expected 0 arguments, found 1",
+    );
+}
+
+#[test]
+fn sleep_takes_an_integer_and_yields_unit() {
+    check("fn main() { sleep(10); }").expect("sleep takes milliseconds and answers unit");
+    assert_rejected(
+        "fn main() { sleep(\"10\"); }",
+        "expected `int`",
+    );
+    assert_rejected("fn main() { sleep(); }", "expected 1 arguments, found 0");
+}
+
+#[test]
+fn the_process_builtins_cannot_be_redefined() {
+    for name in ["args", "getcwd", "now", "sleep"] {
+        assert_rejected(
+            &format!("fn {name}() {{}}\nfn main() {{}}"),
+            &format!("duplicate definition of `{name}`"),
+        );
+    }
+}
+
+#[test]
 fn slice_takes_two_bounds() {
     check(
         "fn main() { let hello = \"hello\"; let word: string = hello.slice(1, 3); print(word); }",

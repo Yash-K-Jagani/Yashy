@@ -475,7 +475,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 26] = [
+        let builtins: [(&str, Vec<Type>, Type); 30] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
             // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
@@ -518,6 +518,22 @@ impl<'src> Checker<'src> {
                 prim(TypeKind::I64),
             ),
             ("getenv", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            // The process and the clock (R1 slice 2). `args()` is a fresh
+            // owned `[]string` of the user arguments, excluding the executable
+            // path; free it with `.free()`, exactly like `split`/`lines`.
+            // `getcwd()` is an owned string, or the empty string on failure --
+            // the same empty-string convention `read_file`/`getenv` use until
+            // builtin `Result` lands in R2. `now()` is milliseconds since the
+            // Unix epoch; `sleep(ms)` blocks and returns unit, with a
+            // non-positive value a no-op.
+            (
+                "args",
+                vec![],
+                prim(TypeKind::Slice(Box::new(prim(TypeKind::Str)))),
+            ),
+            ("getcwd", vec![], prim(TypeKind::Str)),
+            ("now", vec![], prim(TypeKind::I64)),
+            ("sleep", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Out the other way: a number as text, so a program can build a
             // string that *contains* one (`"count = " + str_from_i64(n)`).
             // Without these the runtime's conversions existed and nothing could

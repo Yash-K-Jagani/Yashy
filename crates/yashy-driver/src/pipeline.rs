@@ -617,6 +617,16 @@ pub fn compile_hir(
 
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
     args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
+    // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
+    // asks the toolchain its version and supplies the one flag LLVM 14 needs;
+    // newer clang releases get nothing because the mode is already the default
+    // and the old switch was removed. `llc` is not a C driver and never sees
+    // this.
+    args.extend(
+        opaque_pointers_args(toolchain)
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
     args.push(display(&ir_path));
     match &runtime_objects {
         Some((runtime, hashmap)) => {
@@ -656,6 +666,57 @@ pub fn compile_hir(
     run_tool(toolchain, &args, entry_name, "compiling the program")?;
 
     Ok(())
+}
+
+/// The clang arguments that enable opaque pointers, or an empty list when the
+/// toolchain already uses them by default.
+///
+/// The generated IR uses the opaque-pointer spelling (`ptr`). LLVM 14 -- the
+/// clang in Ubuntu 22.04, the Linux release target -- still defaults to typed
+/// pointers, and its switch is an LLVM option rather than a clang driver flag,
+/// so it has to travel through `-mllvm`. LLVM 15 made opaque pointers the
+/// default, and LLVM 17 removed the switch entirely: passing it there is an
+/// error, not a no-op. The version therefore decides the argument list.
+///
+/// Kept as a named function so the rule has one testable home: the IR spelling
+/// and the flag have to travel together, and a future backend change should
+/// have to delete a named decision rather than an argument buried in a vector.
+fn opaque_pointers_args(toolchain: &Toolchain) -> Vec<&'static str> {
+    opaque_pointers_args_for(toolchain.found, clang_major(&toolchain.llc))
+}
+
+fn opaque_pointers_args_for(found: &str, major: Option<u32>) -> Vec<&'static str> {
+    if found != "clang" {
+        return Vec::new();
+    }
+    match major {
+        Some(version) if version < 15 => vec!["-mllvm", "-opaque-pointers"],
+        _ => Vec::new(),
+    }
+}
+
+/// The major version of a clang executable, or `None` when it cannot be read.
+///
+/// The version line is stable across the distributions and forks that matter:
+/// `Ubuntu clang version 14.0.0-1ubuntu1.1`, `clang version 18.1.8`, and
+/// `Apple clang version 15.0.0 (clang-1500.3.9.4)` all put the number after
+/// `version `. A toolchain whose version cannot be read gets no flag; a clang
+/// old enough to need one always prints it.
+fn clang_major(tool: &Path) -> Option<u32> {
+    let output = Command::new(tool).arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_clang_major(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_clang_major(version: &str) -> Option<u32> {
+    let rest = version.split("version ").nth(1)?;
+    let digits: String = rest
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
 }
 
 /// Run the toolchain executable with `args`, turning a non-zero exit or a
@@ -701,7 +762,10 @@ fn run_tool(
     }
     Err(vec![toolchain_diagnostic(
         entry_name,
-        format!("`{}` failed while {what}: {summary}", toolchain.llc.display()),
+        format!(
+            "`{}` failed while {what}: {summary}",
+            toolchain.llc.display()
+        ),
     )])
 }
 
@@ -772,8 +836,9 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, fnv1a, missing_library, platform_library_flags, runtime_cache_dir,
-        runtime_cache_key, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
+        cached_runtime_object, fnv1a, missing_library, opaque_pointers_args_for, parse_clang_major,
+        platform_library_flags, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
+        FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
     use std::fs;
@@ -784,6 +849,45 @@ mod tests {
             llc: tool.to_path_buf(),
             found: "test",
         }
+    }
+
+    #[test]
+    fn clang_14_gets_the_mllvm_opaque_pointer_flag_and_newer_clang_does_not() {
+        assert_eq!(
+            opaque_pointers_args_for("clang", Some(14)),
+            vec!["-mllvm", "-opaque-pointers"],
+            "LLVM 14 needs the switch, and it is an LLVM option"
+        );
+        assert!(
+            opaque_pointers_args_for("clang", Some(15)).is_empty(),
+            "LLVM 15 made opaque pointers the default"
+        );
+        assert!(
+            opaque_pointers_args_for("clang", Some(18)).is_empty(),
+            "LLVM 17 removed the switch, so passing it would be an error"
+        );
+        assert!(
+            opaque_pointers_args_for("llc", Some(14)).is_empty(),
+            "llc does not understand clang driver flags"
+        );
+        assert!(
+            opaque_pointers_args_for("clang", None).is_empty(),
+            "an unreadable version gets no flag"
+        );
+    }
+
+    #[test]
+    fn clang_versions_parse_from_the_usual_spellings() {
+        assert_eq!(
+            parse_clang_major("Ubuntu clang version 14.0.0-1ubuntu1.1"),
+            Some(14)
+        );
+        assert_eq!(parse_clang_major("clang version 18.1.8"), Some(18));
+        assert_eq!(
+            parse_clang_major("Apple clang version 15.0.0 (clang-1500.3.9.4)"),
+            Some(15)
+        );
+        assert_eq!(parse_clang_major("no version here"), None);
     }
 
     #[test]

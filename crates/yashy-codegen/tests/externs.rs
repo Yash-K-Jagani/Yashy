@@ -62,7 +62,7 @@ fn an_extern_declaration_emits_a_declare_not_a_define() {
 fn a_declaration_does_not_disturb_the_entry_point() {
     let ir = emit(PROGRAM);
     assert!(
-        ir.contains("define i32 @main()"),
+        ir.contains("define i32 @main(i32 %argc, i8** %argv)"),
         "the program still has its own entry point:\n{ir}"
     );
 }

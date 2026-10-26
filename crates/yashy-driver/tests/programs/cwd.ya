@@ -1,0 +1,13 @@
+// `getcwd()` answers the working directory as a UTF-8 string. The driver test
+// starts this from a directory it created, so the second line is a path the
+// test can compare after canonicalizing both sides.
+
+fn main() {
+    const here = getcwd();
+    if here.len() == 0 {
+        println("cwd empty");
+        return;
+    }
+    println("cwd ok");
+    println(here);
+}

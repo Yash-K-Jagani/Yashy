@@ -10,4 +10,7 @@
 // failure. A missing file and an empty file therefore read the same; the
 // language has no `Result` in a builtin's signature yet.
 //
+// The current directory is `getcwd()`; it is documented in `os.ya` beside the
+// process builtins.
+//
 // Ownership: neither consumes its argument; both results are owned.

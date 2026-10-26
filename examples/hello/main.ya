@@ -1,0 +1,5 @@
+// The smallest complete project: one file, one function, one line of output.
+
+fn main() {
+    println("Hello from the Yashy examples.");
+}

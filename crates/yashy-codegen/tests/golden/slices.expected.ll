@@ -95,6 +95,11 @@ declare double @yashy_parse_f64(i8*)
 declare i8* @yashy_read_file(i8*)
 declare i64 @yashy_write_file(i8*, i8*, i64)
 declare i8* @yashy_getenv(i8*)
+declare void @yashy_args_init(i32, i8**)
+declare void @yashy_args_slice(ptr)
+declare i8* @yashy_getcwd()
+declare i64 @yashy_now_ms()
+declare void @yashy_sleep_ms(i64)
 declare void @yashy_panic(i8*, i8*, i64, i64)
 declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
 declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
@@ -126,9 +131,10 @@ call void @yashy_slice_free(ptr %slot0)
 %t9 = insertvalue { i8*, i64, i64 } %t8, i64 0, 2
 ret { i8*, i64, i64 } %t9
 }
-define i32 @main() {
+define i32 @main(i32 %argc, i8** %argv) {
 entry:
 %slot0 = alloca { i8*, i64, i64 }
+call void @yashy_args_init(i32 %argc, i8** %argv)
 %t10 = call { i8*, i64, i64 } @build()
 store { i8*, i64, i64 } %t10, ptr %slot0
 call void @yashy_slice_free(ptr %slot0)

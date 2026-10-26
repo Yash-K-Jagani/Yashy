@@ -67,23 +67,26 @@ are enough to build real native programs.
 
 ### 2.2 What is missing or weak
 
-| Gap | Why it matters | Slice |
-|---|---|---|
-| Linux release artifact and `install.sh` | A fresh Linux user cannot install Yashy. | 1 |
-| First-CLI guide and examples | There is no path from install to a working tool. | 1 |
-| `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 |
-| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 |
-| Benchmark gate and stored baselines | Performance can regress silently. | 3 |
-| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b |
-| Package-manager design | The required R2 feature has no design. | 4 |
-| Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 |
-| Safety harnesses (fuzz, sanitizers, audit) | "Safe" is not yet evidenced. | 6 |
-| LSP completion/rename, `fix`, `doc` | Editors and agents cannot finish the loop. | 7 |
-| HTTP, logging, CLI parser | Real services and tools need them. | 8 |
-| Package manager MVP | Dependencies are required for R2. | 9 |
-| Three flagship tools | The language has no public proof. | 10 |
-| AI index/context, MCP, sandbox, agent benchmark | Agents still guess. | 11 |
-| 1.0 hardening (macOS, registry, docs, debugger) | Adoption and trust. | 12 |
+| Gap | Why it matters | Slice | Status |
+|---|---|---|---|
+| Linux release artifact and `install.sh` | A fresh Linux user cannot install Yashy. | 1 | Done |
+| First-CLI guide and examples | There is no path from install to a working tool. | 1 | Done |
+| `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 | Done |
+| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Open |
+| Benchmark gate and stored baselines | Performance can regress silently. | 3 | Open |
+| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Open |
+| Package-manager design | The required R2 feature has no design. | 4 | Open |
+| Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 | Open |
+| Safety harnesses (fuzz, sanitizers, audit) | "Safe" is not yet evidenced. | 6 | Open |
+| LSP completion/rename, `fix`, `doc` | Editors and agents cannot finish the loop. | 7 | Open |
+| HTTP, logging, CLI parser | Real services and tools need them. | 8 | Open |
+| Package manager MVP | Dependencies are required for R2. | 9 | Open |
+| Three flagship tools | The language has no public proof. | 10 | Open |
+| AI index/context, MCP, sandbox, agent benchmark | Agents still guess. | 11 | Open |
+| 1.0 hardening (macOS, registry, docs, debugger) | Adoption and trust. | 12 | Open |
+
+Slice 1 is complete; its task ledger is
+`.superpowers/sdd/2026-10-25-yashy-r1-install-first-cli/progress.md`.
 
 Stack traces, macOS, traits, Unicode, cross-compilation, and async are later by
 design. They are not "forgotten"; they are in the spec's release phases.
@@ -958,7 +961,7 @@ alternative that was rejected, so a later reader does not reopen it by accident.
 | Slice | Plan | Status |
 |---|---|---|
 | 1 | `2026-10-25-yashy-r1-install-first-cli.md` | Updated from v2 spec §15.1; ready for approval |
-| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Updated from v2 spec §15.2; ready for approval |
+| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented; verification in progress |
 | 3 | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Updated from v2 spec §15.3; ready for approval |
 | 3b | This master plan, §7.4 | Section approved; detailed plan after slice 3 baseline |
 | 4 | `2026-10-25-yashy-r2-package-manager-spike.md` | Updated from v2 spec §15.5; ready for approval |

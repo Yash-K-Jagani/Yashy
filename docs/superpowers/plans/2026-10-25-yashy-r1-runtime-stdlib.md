@@ -178,145 +178,150 @@ string layout.
 
 ### Task 1 — Runtime tests first
 
-- [ ] Add `crates/yashy-runtime/tests/args.rs`:
+- [x] Add `crates/yashy-runtime/tests/args.rs`:
   - call `yashy_args_init` with a synthetic `argv` (`prog`, `one`, `two`);
   - fill a slice with `yashy_args_slice`;
   - assert length 2, contents `one`/`two`;
   - free the slice with `yashy_slice_free_strings`;
   - assert the leak report is zero when the test enables it.
-- [ ] Add `crates/yashy-runtime/tests/time.rs`:
+- [x] Add `crates/yashy-runtime/tests/time.rs`:
   - `yashy_now_ms()` is positive and non-decreasing across two calls;
   - `yashy_sleep_ms(0)` returns immediately;
   - `yashy_sleep_ms(30)` takes at least ~20 ms and returns;
   - `yashy_sleep_ms(-1)` is a no-op.
-- [ ] Add a `getcwd` test that returns a non-empty path containing the current
+- [x] Add a `getcwd` test that returns a non-empty path containing the current
   test directory's name, and frees the result.
 
 Run them and verify they fail to link/compile before the implementation.
 
 ### Task 2 — Runtime implementation
 
-- [ ] Add the five declarations to `crates/yashy-runtime/include/yashy_runtime.h`
+- [x] Add the five declarations to `crates/yashy-runtime/include/yashy_runtime.h`
   with ownership and failure notes.
-- [ ] Implement them in `crates/yashy-runtime/runtime.c`:
+- [x] Implement them in `crates/yashy-runtime/runtime.c`:
   - includes for `<time.h>` and the platform clock/sleep calls;
   - static `argc`/`argv` storage and `yashy_args_init`;
   - `yashy_args_slice` with owned strings;
   - `yashy_getcwd` with the growing-buffer POSIX path and the UTF-8 Windows
     path;
   - `yashy_now_ms` and `yashy_sleep_ms`.
-- [ ] Add Rust `extern "C"` declarations in `crates/yashy-runtime/src/lib.rs`
+- [x] Add Rust `extern "C"` declarations in `crates/yashy-runtime/src/lib.rs`
   for the tests. Keep the header and the Rust declarations in sync.
-- [ ] Run the runtime tests on Windows and Linux.
+- [ ] Run the runtime tests on Windows and Linux. Linux (WSL) is green; the
+  Windows host blocks freshly linked test binaries, so CI's `windows-latest`
+  job is the Windows evidence.
 
 ### Task 3 — Entry point
 
-- [ ] Change `gen_fn_impl` in `crates/yashy-codegen/src/fn_gen.rs`:
+- [x] Change `gen_fn_impl` in `crates/yashy-codegen/src/fn_gen.rs`:
   - when `entry_point`, emit `define i32 @main(i32 %argc, i8** %argv)`;
   - emit `call void @yashy_args_init(i32 %argc, i8** %argv)` as the first
     instruction of the entry body;
   - keep the Yashy parameter list, the `i32` return, and the `-> i64`
     truncation unchanged.
-- [ ] Add `declare void @yashy_args_init(i32, i8**)` in
+- [x] Add `declare void @yashy_args_init(i32, i8**)` in
   `crates/yashy-codegen/src/module.rs`.
-- [ ] Update every test that asserts `define i32 @main()`:
+- [x] Update every test that asserts `define i32 @main()`:
   - `crates/yashy-codegen/tests/codegen.rs`;
   - `crates/yashy-codegen/tests/externs.rs`;
   - `crates/yashy-driver/tests/e2e.rs`.
   Add a test that `fn main() -> int` still returns the exit status and that a
   recursive `main` still compiles.
-- [ ] Verify the generated IR with `yashy build --emit-ir` for a hello-world
+- [x] Verify the generated IR with `yashy build --emit-ir` for a hello-world
   and a `-> int` main.
 
 ### Task 4 — Builtin table
 
-- [ ] Add the four entries to the builtin array in
+- [x] Add the four entries to the builtin array in
   `crates/yashy-sema/src/check_expr.rs`; change the array length.
-- [ ] Add a checker test for each:
+- [x] Add a checker test for each:
   - `args()` has type `[]string`;
   - `getcwd()` has type `string`;
   - `now()` has type `int`;
   - `sleep(10)` has type `void` and `sleep("x")` is a type error;
   - the names cannot be redefined by a user function.
-- [ ] Confirm `import args; args()` and `import time; now()` resolve by the
+- [x] Confirm `import args; args()` and `import time; now()` resolve by the
   last segment, like `os.exit`.
 
 ### Task 5 — Codegen lowering
 
-- [ ] Add declarations in `module.rs`:
+- [x] Add declarations in `module.rs`:
   - `declare void @yashy_args_slice({ i8*, i64, i64 }*)`
   - `declare i8* @yashy_getcwd()`
   - `declare i64 @yashy_now_ms()`
   - `declare void @yashy_sleep_ms(i64)`
-- [ ] Lower `getcwd`, `now`, and `sleep` through the existing
+- [x] Lower `getcwd`, `now`, and `sleep` through the existing
   `gen_borrowed_call` path (the `yashy_` prefix is the only difference).
-- [ ] Lower `args` like `split`/`lines`: allocate a stack `yashy_slice`,
+- [x] Lower `args` like `split`/`lines`: allocate a stack `yashy_slice`,
   call `yashy_args_slice`, and return the loaded slice value. Do not build the
   slice element by element in IR.
-- [ ] Add a codegen test that the four calls emit the expected runtime symbols.
+- [x] Add a codegen test that the four calls emit the expected runtime symbols.
 
 ### Task 6 — Stdlib documentation
 
-- [ ] Rewrite `crates/yashy-stdlib/yashy/args.ya` to document the builtin:
+- [x] Rewrite `crates/yashy-stdlib/yashy/args.ya` to document the builtin:
   excludes the program name, owned `[]string`, free it, empty when there are no
   arguments. Remove the "not provided" text.
-- [ ] Rewrite `crates/yashy-stdlib/yashy/time.ya` to document `now()` and
+- [x] Rewrite `crates/yashy-stdlib/yashy/time.ya` to document `now()` and
   `sleep(ms)`: units, wall-clock caveat, negative sleep, blocking behavior.
-- [ ] Update `crates/yashy-stdlib/yashy/os.ya`: document `getcwd()` and remove
+- [x] Update `crates/yashy-stdlib/yashy/os.ya`: document `getcwd()` and remove
   the "not provided" paragraph.
-- [ ] Add a cross-reference in `fs.ya` if it helps discovery.
-- [ ] Run the every-module stdlib test.
+- [x] Add a cross-reference in `fs.ya` if it helps discovery.
+- [x] Run the every-module stdlib test.
 
 ### Task 7 — End-to-end tests
 
-- [ ] Add `crates/yashy-driver/tests/programs/args.ya`:
+- [x] Add `crates/yashy-driver/tests/programs/args.ya`:
   - print `args().len()`;
   - print each argument;
   - call `.free()` on the slice.
-- [ ] Add `crates/yashy-driver/tests/programs/cwd.ya`:
+- [x] Add `crates/yashy-driver/tests/programs/cwd.ya`:
   - print `getcwd()`.
-- [ ] Add `crates/yashy-driver/tests/programs/time.ya`:
+- [x] Add `crates/yashy-driver/tests/programs/time.ya`:
   - `let start = now(); sleep(20); let end = now(); assert(end >= start);`
   - print a stable result, not the timestamps.
-- [ ] Add driver tests:
+- [x] Add driver tests:
   - `yashy run args.ya -- one two` prints `2`, `one`, `two`;
   - `yashy run cwd.ya` from a temp directory prints that directory;
   - `yashy run time.ya` exits 0 and takes at least the sleep duration;
   - all three run with `YASHY_LEAK_REPORT=1` and report `0 live allocations`.
-- [ ] Add the programs to the leak suite and the stdlib/e2e lists as
+- [x] Add the programs to the leak suite and the stdlib/e2e lists as
   appropriate.
-- [ ] Verify `yashy test` on a project whose test reads arguments? The test
+- [x] Verify `yashy test` on a project whose test reads arguments? The test
   runner does not pass arguments in R1; do not add that feature here.
 
 ### Task 8 — First-CLI guide update
 
-- [ ] Add an "Add arguments" section to `docs/tutorial/12-first-cli.md`:
+- [x] Add an "Add arguments" section to `docs/tutorial/12-first-cli.md`:
   - replace the stdin-only loop with a file path from `args()`;
   - show `yashy run main.ya -- notes.txt`;
   - show the empty-argument case and a usage message;
   - call `.free()` on the `args()` slice.
-- [ ] Update the tutorial test to compile and run the argument version with
+- [x] Update the tutorial test to compile and run the argument version with
   `-- notes.txt`.
-- [ ] Mention that `args()` excludes the program name.
+- [x] Mention that `args()` excludes the program name.
 
 ### Task 9 — Docs and spec exception
 
-- [ ] Add the R1 exception to the spec's stdlib bullet: the four runtime
+- [x] Add the R1 exception to the spec's stdlib bullet: the four runtime
   builtins use the existing empty-string/0 convention until builtin `Result`
   lands in R2.
-- [ ] Update `README.md`'s stdlib paragraph to mention `args`, `time`, and
+- [x] Update `README.md`'s stdlib paragraph to mention `args`, `time`, and
   `getcwd`.
-- [ ] Update the stdlib test header and the master plan's gap table.
-- [ ] Do not claim `Result`-returning `getcwd()`.
+- [x] Update the stdlib test header and the master plan's gap table.
+- [x] Do not claim `Result`-returning `getcwd()`.
 
 ### Task 10 — Cache and full-suite verification
 
-- [ ] Confirm `runtime_cache_key` changes when `runtime.c`/the header change;
+- [x] Confirm `runtime_cache_key` changes when `runtime.c`/the header change;
   no manual cache version is needed. If a stale object is observed, bump the
   key or clear the cache in the test and record why.
-- [ ] Run the full driver suite on Windows and Linux.
-- [ ] Run `cargo check --workspace --all-targets`.
+- [ ] Run the full driver suite on Windows and Linux. Linux (WSL) is green;
+  the Windows host blocks freshly linked test binaries, so CI's
+  `windows-latest` job is the Windows evidence.
+- [x] Run `cargo check --workspace --all-targets`.
 - [ ] Verify a clean build (empty `YASHY_CACHE_DIR`) works on both platforms.
+  Linux is verified; Windows is delegated to CI for the same host-policy reason.
 
 ---
 
@@ -355,6 +360,24 @@ yashy run crates/yashy-driver/tests/programs/args.ya -- one two
 YASHY_LEAK_REPORT=1 yashy run crates/yashy-driver/tests/programs/args.ya -- one two
 # ... 0 live allocations
 ```
+
+### Verification record (2026-10-26)
+
+- Linux: `cargo test --workspace --no-fail-fast` in WSL Ubuntu 26.04 with
+  clang 18 passed, including 113 e2e tests, the runtime `args`/`time` tests,
+  the leak suite, the tutorial harness, and the bundled-stdlib discovery test.
+- Linux: `cargo check --workspace --all-targets` passed.
+- Linux: a clean build with an empty `YASHY_CACHE_DIR` and no `YASHY_PATH`
+  built and ran `examples/hello`.
+- Windows: `cargo +stable-x86_64-pc-windows-gnu check --workspace --all-targets`
+  passed. The host's Application Control policy blocks freshly linked test
+  binaries, so the Windows test run is delegated to CI.
+- Ubuntu 22.04 / clang 14: the driver now asks `clang --version` and passes
+  `-mllvm -opaque-pointers` only for LLVM 14; LLVM 15 made opaque pointers the
+  default and LLVM 17 removed the switch. The C runtime sources are compiled
+  separately through the cache, so the switch applies to the generated IR.
+  The 22.04 container acceptance is still pending because the local Docker
+  daemon is unavailable; CI's `ubuntu-22.04` jobs exercise the same path.
 
 ---
 

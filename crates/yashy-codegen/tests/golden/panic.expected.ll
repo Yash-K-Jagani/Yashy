@@ -95,6 +95,11 @@ declare double @yashy_parse_f64(i8*)
 declare i8* @yashy_read_file(i8*)
 declare i64 @yashy_write_file(i8*, i8*, i64)
 declare i8* @yashy_getenv(i8*)
+declare void @yashy_args_init(i32, i8**)
+declare void @yashy_args_slice(ptr)
+declare i8* @yashy_getcwd()
+declare i64 @yashy_now_ms()
+declare void @yashy_sleep_ms(i64)
 declare void @yashy_panic(i8*, i8*, i64, i64)
 declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
 declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
@@ -173,8 +178,9 @@ unreachable
 bb1_after_panic:
 ret i64 0
 }
-define i32 @main() {
+define i32 @main(i32 %argc, i8** %argv) {
 entry:
+call void @yashy_args_init(i32 %argc, i8** %argv)
 %t11 = call i64 @checked(i64 3)
 %t12 = call i8* @yashy_str_from_i64(i64 %t11)
 call void @yashy_print_str(i8* %t12)

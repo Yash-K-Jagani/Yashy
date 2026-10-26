@@ -954,6 +954,11 @@ Existing features are not repeated here. This is what is planned.
 | `getcwd()` | Relative paths |
 | `fs`, `env`, `process` completion | The documented surface must be real |
 
+**R1 exception.** The four runtime builtins use the existing empty-string/0
+convention for failure until builtin `Result` lands in R2. `getcwd()` returns
+`""` on failure; it is not a `Result`-returning signature in R1, and the docs
+must not claim that it is.
+
 #### P1 — R2
 
 | Module | Why it matters |

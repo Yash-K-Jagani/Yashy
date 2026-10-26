@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #include <fcntl.h>
@@ -23,6 +24,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 /* `yashy_str_data`, defined with the string type further down, gives the bytes
@@ -1258,6 +1260,164 @@ yashy_str *yashy_getenv(const char *name) {
         return yashy_str_new("", 0);
     }
     return yashy_str_new(value, strlen(value));
+}
+
+/* ---- Program arguments ----
+ *
+ * The entry point is emitted as `i32 @main(i32 %argc, i8** %argv)` and calls
+ * `yashy_args_init` once, before the Yashy body runs. The vector belongs to the
+ * C runtime for the life of the process, so it is stored rather than copied;
+ * `yashy_args_slice` copies the pieces a program actually asks for.
+ *
+ * `args()` excludes `argv[0]`: the first element is the first argument after
+ * `yashy run --`, which is what a CLI wants to read. A second init keeps the
+ * first vector -- the entry point calls it once, and a recursive `main` call
+ * passes a null pair that must not erase the real one.
+ */
+static int yashy_argc = 0;
+static char **yashy_argv = NULL;
+
+void yashy_args_init(int argc, char **argv) {
+    if (yashy_argv != NULL) {
+        return;
+    }
+    yashy_argc = argc;
+    yashy_argv = argv;
+}
+
+/* Fills `out` with owned strings for `argv[1..argc]`. A failed push releases
+ * the string it could not append, so a short slice is not a leak. */
+void yashy_args_slice(yashy_slice *out) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (yashy_argv == NULL) {
+        return;
+    }
+    for (int index = 1; index < yashy_argc; index++) {
+        const char *argument = yashy_argv[index];
+        if (argument == NULL) {
+            break;
+        }
+        yashy_str *piece = yashy_str_new(argument, strlen(argument));
+        if (piece == NULL) {
+            return;
+        }
+        long long before = out->len;
+        yashy_slice_push(out, &piece, (long long)sizeof piece);
+        if (out->len == before) {
+            yashy_str_release(piece);
+            return;
+        }
+    }
+}
+
+/* ---- Current directory ---- */
+
+yashy_str *yashy_getcwd(void) {
+#if defined(_WIN32)
+    DWORD cap = 256;
+    for (int attempt = 0; attempt < 12; attempt++) {
+        wchar_t *wide = (wchar_t *)malloc((size_t)cap * sizeof(wchar_t));
+        if (wide == NULL) {
+            return yashy_str_new("", 0);
+        }
+        DWORD length = GetCurrentDirectoryW(cap, wide);
+        if (length == 0) {
+            free(wide);
+            return yashy_str_new("", 0);
+        }
+        if (length < cap) {
+            int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, NULL, 0, NULL, NULL);
+            yashy_str *out = bytes > 0 ? yashy_str_new(NULL, (size_t)bytes) : NULL;
+            if (out != NULL) {
+                (void)WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, out->data, bytes, NULL,
+                                          NULL);
+            }
+            free(wide);
+            return out == NULL ? yashy_str_new("", 0) : out;
+        }
+        free(wide);
+        if (length > (1u << 20)) {
+            break;
+        }
+        cap = length + 1;
+    }
+    return yashy_str_new("", 0);
+#else
+    size_t cap = 256;
+    for (int attempt = 0; attempt < 12; attempt++) {
+        char *buffer = (char *)malloc(cap);
+        if (buffer == NULL) {
+            return yashy_str_new("", 0);
+        }
+        if (getcwd(buffer, cap) != NULL) {
+            yashy_str *out = yashy_str_new(buffer, strlen(buffer));
+            free(buffer);
+            return out;
+        }
+        int failure = errno;
+        free(buffer);
+        if (failure != ERANGE || cap >= (1u << 20)) {
+            break;
+        }
+        cap *= 2;
+    }
+    return yashy_str_new("", 0);
+#endif
+}
+
+/* ---- Clock and sleep ----
+ *
+ * `now()` is a wall clock in milliseconds since the Unix epoch, not a
+ * monotonic one: a system clock adjustment can make it go backwards. That is
+ * the value a CLI timestamp wants; a monotonic clock is a separate builtin if
+ * one is ever needed.
+ */
+
+long long yashy_now_ms(void) {
+#if defined(_WIN32)
+    FILETIME file_time;
+    GetSystemTimeAsFileTime(&file_time);
+    ULARGE_INTEGER value;
+    value.LowPart = file_time.dwLowDateTime;
+    value.HighPart = file_time.dwHighDateTime;
+    /* 100-nanosecond intervals since 1601-01-01; shift to the Unix epoch. */
+    return (long long)((value.QuadPart - 116444736000000000ULL) / 10000ULL);
+#else
+    struct timespec now;
+#if defined(CLOCK_REALTIME)
+    if (clock_gettime(CLOCK_REALTIME, &now) == 0) {
+        return (long long)now.tv_sec * 1000LL + (long long)(now.tv_nsec / 1000000L);
+    }
+#endif
+    return (long long)time(NULL) * 1000LL;
+#endif
+}
+
+/* Blocks for at least `ms` milliseconds. A non-positive request is a no-op.
+ * POSIX retries after a signal; Windows splits a value too large for one
+ * `Sleep` call into chunks. */
+void yashy_sleep_ms(long long ms) {
+    if (ms <= 0) {
+        return;
+    }
+#if defined(_WIN32)
+    while (ms > 0) {
+        DWORD chunk = ms > 0x7fffffffLL ? 0x7fffffffUL : (DWORD)ms;
+        Sleep(chunk);
+        ms -= (long long)chunk;
+    }
+#else
+    struct timespec request;
+    request.tv_sec = (time_t)(ms / 1000LL);
+    request.tv_nsec = (long)((ms % 1000LL) * 1000000LL);
+    while (nanosleep(&request, &request) == -1 && errno == EINTR) {
+    }
+#endif
 }
 
 /* Whether only whitespace is left in `s` -- the second half of "the whole
