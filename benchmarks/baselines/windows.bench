@@ -1,11 +1,16 @@
 # Reviewed baseline for windows. See benchmarks/README.md before changing it.
+#
+# Measured on the GitHub windows-latest runner with clang 20.1.8. The earlier
+# local baseline used clang 23.1.4; that linker/toolchain difference changed
+# binary sizes by more than the 10% binary threshold, so this is the runner
+# measurement described under "Updating a baseline".
 os=windows
-generated_at=2026-10-26T05:15:55Z
-commit=fec9b8c
-toolchain=clang version 23.1.4 (https://github.com/llvm/llvm-project 7a941dfb2877a0b8cf30323fefa85ad019e0b0f5)
-fib_compile_ms=348.3
-fib_binary_bytes=57344
-fib_run_ms=176.0
-hello_compile_ms=353.0
-hello_binary_bytes=56320
-large_compile_ms=1683.1
+generated_at=2026-10-26T07:08:46Z
+commit=984702f
+toolchain=clang version 20.1.8
+fib_compile_ms=206.1
+fib_binary_bytes=201216
+fib_run_ms=96.6
+hello_compile_ms=218.4
+hello_binary_bytes=200192
+large_compile_ms=707.8

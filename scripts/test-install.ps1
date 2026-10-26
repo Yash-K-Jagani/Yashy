@@ -56,13 +56,28 @@ function Set-UserPath([string]$Value) {
     [Environment]::SetEnvironmentVariable('Path', $Value, 'User')
 }
 
+function Get-CanonicalPath([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ''
+    }
+    $trimmed = $Value.TrimEnd([char[]]@('\', '/'))
+    try {
+        # Get-Item expands an 8.3 name such as RUNNER~1 to the long form. The
+        # installer writes the long path, while $env:TEMP can be the short one.
+        return (Get-Item -LiteralPath $trimmed -ErrorAction Stop).FullName.TrimEnd([char[]]@('\', '/'))
+    }
+    catch {
+        return $trimmed
+    }
+}
+
 function Test-PathContains([string]$PathValue, [string]$Entry) {
     if ($null -eq $PathValue) {
         return $false
     }
-    $wanted = $Entry.TrimEnd([char[]]@('\', '/'))
+    $wanted = Get-CanonicalPath $Entry
     foreach ($part in ($PathValue -split ';')) {
-        if ($part.TrimEnd([char[]]@('\', '/')) -eq $wanted) {
+        if ((Get-CanonicalPath $part) -eq $wanted) {
             return $true
         }
     }
@@ -214,7 +229,8 @@ try {
         '-NoDoctor'
     )
     Assert-True ($pathInstall2.Code -eq 0) "PATH reinstall failed:`n$($pathInstall2.Output)"
-    $occurrences = @((Get-UserPath) -split ';' | Where-Object { $_.TrimEnd([char[]]@('\', '/')) -eq $pathPrefix }).Count
+    $canonicalPrefix = Get-CanonicalPath $pathPrefix
+    $occurrences = @((Get-UserPath) -split ';' | Where-Object { (Get-CanonicalPath $_) -eq $canonicalPrefix }).Count
     Assert-True ($occurrences -eq 1) "the user PATH has $occurrences copies of the prefix"
     $pathUninstall = Invoke-Installer -Installer $installer -Arguments @(
         '-Uninstall',
