@@ -75,8 +75,11 @@ jobs:
           pwsh benchmarks/ci.ps1 -Output '${{ matrix.output }}' -Runs 5 2>&1 | Tee-Object -FilePath bench-output.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Compare with the baseline
-        if: github.event.inputs.update_baseline != 'true'
+      # Git Bash puts its own `link.exe` ahead of the MSVC linker, so the
+      # comparison runs under PowerShell on Windows. The measurement step is
+      # already PowerShell and the release compiler links there.
+      - name: Compare with the baseline (Linux)
+        if: runner.os == 'Linux' && github.event.inputs.update_baseline != 'true'
         shell: bash
         env:
           REPORT_ONLY: ${{ github.event_name == 'pull_request' && '--report-only' || '' }}
@@ -86,6 +89,23 @@ jobs:
             --current "${{ matrix.output }}" \
             --thresholds benchmarks/thresholds.bench \
             $REPORT_ONLY
+
+      - name: Compare with the baseline (Windows)
+        if: runner.os == 'Windows' && github.event.inputs.update_baseline != 'true'
+        shell: pwsh
+        env:
+          REPORT_ONLY: ${{ github.event_name == 'pull_request' && '--report-only' || '' }}
+        run: |
+          $arguments = @(
+            'run', '-q', '-p', 'yashy-bench', '--', 'compare',
+            '--baseline', '${{ matrix.baseline }}',
+            '--current', '${{ matrix.output }}',
+            '--thresholds', 'benchmarks/thresholds.bench'
+          )
+          if ($env:REPORT_ONLY) {
+            $arguments += $env:REPORT_ONLY
+          }
+          cargo @arguments
 
       - name: Upload the measurement and log
         if: always()

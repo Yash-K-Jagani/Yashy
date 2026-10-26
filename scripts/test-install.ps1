@@ -205,7 +205,8 @@ try {
         '-NoDoctor'
     )
     Assert-True ($pathInstall.Code -eq 0) "PATH install failed:`n$($pathInstall.Output)"
-    Assert-True (Test-PathContains (Get-UserPath) $pathPrefix) 'the installer did not add the prefix to the user PATH'
+    $pathAfterInstall = Get-UserPath
+    Assert-True (Test-PathContains $pathAfterInstall $pathPrefix) "the installer did not add the prefix to the user PATH`ninstaller output:`n$($pathInstall.Output)`nuser PATH:`n$pathAfterInstall"
     $pathInstall2 = Invoke-Installer -Installer $installer -Arguments @(
         '-LocalArchive', $archive,
         '-Checksums', $sums,
