@@ -397,17 +397,23 @@ treats the C comparison as context and CI's MSVC environment supplies it.
 
 ### Task 6 — Comparator
 
-- [ ] Add `crates/yashy-bench` with `compare` and `update` subcommands.
-- [ ] Add `benchmarks/thresholds.bench`.
-- [ ] Unit-test the comparator:
+- [x] Add `crates/yashy-bench` with `compare` and `update` subcommands.
+- [x] Add `benchmarks/thresholds.bench`.
+- [x] Unit-test the comparator:
   - within threshold passes;
   - a compile regression fails;
   - a binary-size regression fails;
   - a runtime regression fails;
   - a missing row is reported, not silently ignored;
   - a negative or zero baseline is handled without division by zero.
-- [ ] Add the crate to the workspace and to `cargo check --workspace
+- [x] Add the crate to the workspace and to `cargo check --workspace
   --all-targets`.
+
+Verified 2026-10-26: `cargo test -p yashy-bench` runs 16 tests, all passing.
+`compare` on the Linux measurement is all-pass; a copy with
+`fib_compile_ms=900.0` (+81.9%) fails with exit 1, `--report-only` exits 0, and
+a usage error exits 2. The thresholds file defaults to `compile=20`,
+`binary=10`, `runtime=20`, with a `large_compile_ms=25` override.
 
 ### Task 7 — Baselines and CI
 

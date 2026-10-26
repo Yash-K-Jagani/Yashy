@@ -1,0 +1,10 @@
+[package]
+name = "yashy-bench"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yashy-bench"
+path = "src/main.rs"
+
+[dependencies]
