@@ -10,10 +10,16 @@
 
 ## Reference
 
-- [CLI reference](docs/cli.md): every command, option, exit code, and the `doctor --json` schema.
-- [Error catalog](docs/errors.md): the diagnostic shape and the current message families.
-- [AGENTS.md](AGENTS.md): repository layout, commands, and rules for coding agents.
+- [CLI reference](docs/cli.md): every command, option, exit code, the `doctor --json` schema, and diagnostic JSON schema v1.
+- [Error catalog](docs/errors.md): stable codes with cause/example/fix pages and the `yashy explain` command.
+- [AGENTS.md](AGENTS.md): repository layout, commands, the diagnostic workflow, and rules for coding agents.
 - [Release notes template](docs/release-notes-template.md): targets, checksums, requirements, and known gaps.
+
+## Diagnostics
+
+- `yashy check --json <file.ya>` and `yashy test --json` share [schema v1](docs/cli.md#json-diagnostics-schema-v1); `--json` implies no color or prompt.
+- `yashy explain <code> [--json]` prints the embedded [error catalog](docs/errors.md) page for a stable code, offline.
+- [Example page](docs/errors/E0100.md): the cause, minimal example, and fix for a type mismatch.
 
 ## Source and examples
 

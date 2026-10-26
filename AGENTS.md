@@ -16,6 +16,10 @@ cargo test -p yashy-driver --test doctor
 cargo test -p yashy-driver --test tutorial
 cargo test -p yashy-driver --test examples
 cargo test -p yashy-driver --test init
+cargo test -p yashy-driver --test explain
+cargo test -p yashy-driver --test diagnostics_json
+cargo test -p yashy-driver --test docs
+cargo test -p yashy-driver --test agents
 cargo fmt --all
 ```
 
@@ -27,6 +31,38 @@ The end-to-end programs under `crates/yashy-driver/tests/programs/` are the
 language's worked examples. The tutorial harness compiles and runs every
 `yashy` block in `docs/tutorial/`, and the examples harness runs each project
 under `examples/`. A change to the language is not done until those still pass.
+
+## Diagnostics and JSON
+
+Human diagnostics are the primary interface. A coded diagnostic ends with a
+`docs:` line, and `yashy explain <code>` prints the same long-form page offline.
+
+```text
+yashy check --json examples/hello/main.ya
+yashy test --json examples/hello
+yashy explain E0100
+yashy explain --json E0100
+```
+
+`check --json` and `test --json` share
+[schema v1](docs/cli.md#json-diagnostics-schema-v1). The envelope has
+`schema_version`, `tool`, `yashy_version`, `success`, `diagnostics`, and
+`summary`; a diagnostic has `code` (null when uncoded), `severity`, `message`,
+`file`, `span`, optional `labels`, optional `notes`, and `docs_url` only when
+coded. `test --json` adds `tests` and its own summary. `--json` implies no color
+and no prompt; exit codes are `0` success, `1` diagnostics or tests failed, `2`
+usage or configuration error, and `3` internal error.
+
+Workflow for a compiler error:
+
+1. Run `yashy check --json <file.ya>` and read `diagnostics[]`.
+2. Take a `code` and run `yashy explain --json <code>` for `title`, `summary`,
+   `page`, and `docs_url`; `yashy explain <code>` prints the human page.
+3. Fix the cause, rerun `check`, then run `yashy test --json` and inspect
+   `tests[]` and `summary`.
+
+The catalog lives in [docs/errors.md](docs/errors.md); every code has a page such
+as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 
 ## Layout
 
