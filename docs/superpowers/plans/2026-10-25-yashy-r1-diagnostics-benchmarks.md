@@ -637,13 +637,40 @@ in WSL.
 
 ### Task 13 — AI contract v0
 
-- [ ] Extend `AGENTS.md` with error catalog links, JSON/`explain` commands, and
+- [x] Extend `AGENTS.md` with error catalog links, JSON/`explain` commands, and
   the diagnostic workflow.
-- [ ] Extend `llms.txt` with the error catalog, JSON schema v1, and `explain`.
-- [ ] Add tests that the commands in `AGENTS.md` run and every link in
+- [x] Extend `llms.txt` with the error catalog, JSON schema v1, and `explain`.
+- [x] Add tests that the commands in `AGENTS.md` run and every link in
   `llms.txt` resolves.
-- [ ] Do not add the semantic index, context packs, MCP, or sandbox in this
+- [x] Do not add the semantic index, context packs, MCP, or sandbox in this
   slice; those are R2.5.
+
+Implemented 2026-10-26 (commit `4644ec7`).
+
+- `AGENTS.md` gains the `explain`, `diagnostics_json`, `docs`, and `agents` test
+  targets plus a "Diagnostics and JSON" section: the human `docs:` link, four
+  runnable CLI commands, schema v1 fields, the four exit codes, and a three-step
+  error workflow. Its links point at `docs/cli.md#json-diagnostics-schema-v1`,
+  `docs/errors.md`, and `docs/errors/E0100.md`.
+- `llms.txt` names diagnostic schema v1 and `yashy explain`, adds a Diagnostics
+  section with the same commands, and keeps every local link resolvable.
+- `crates/yashy-driver/tests/agents.rs` (2 tests) parses the `## Commands` block
+  and asserts every `cargo test -p yashy-driver --test <name>` target exists,
+  then parses the `## Diagnostics and JSON` block and runs all four CLI commands
+  from the repository root. The checks cover schema v1, success, a clean
+  `check`, the test list, and the human page. Cargo commands that would recurse
+  are validated by target rather than executed; the test doc comment records
+  that trade-off.
+- The existing `docs.rs` tests `llms_links_resolve` and
+  `repo_agents_links_resolve` cover the link requirement.
+- No semantic index, context packs, MCP, or sandbox was added; those remain
+  R2.5.
+
+Verified 2026-10-26: `cargo test -p yashy-driver --test docs` (3 passed, GNU
+Windows), `cargo test -p yashy-driver --test agents --test docs` in WSL Ubuntu
+(2 and 3 passed), `cargo check --workspace --all-targets` (clean, GNU Windows),
+and the full `cargo test --workspace --no-fail-fast` in WSL Ubuntu (101 result
+lines, all ok).
 
 ---
 
