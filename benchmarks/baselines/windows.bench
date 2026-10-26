@@ -1,0 +1,11 @@
+# Reviewed baseline for windows. See benchmarks/README.md before changing it.
+os=windows
+generated_at=2026-10-26T05:15:55Z
+commit=fec9b8c
+toolchain=clang version 23.1.4 (https://github.com/llvm/llvm-project 7a941dfb2877a0b8cf30323fefa85ad019e0b0f5)
+fib_compile_ms=348.3
+fib_binary_bytes=57344
+fib_run_ms=176.0
+hello_compile_ms=353.0
+hello_binary_bytes=56320
+large_compile_ms=1683.1

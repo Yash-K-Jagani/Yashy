@@ -417,18 +417,28 @@ a usage error exits 2. The thresholds file defaults to `compile=20`,
 
 ### Task 7 — Baselines and CI
 
-- [ ] Add `benchmarks/baselines/windows.bench` and `linux.bench` from a clean run
+- [x] Add `benchmarks/baselines/windows.bench` and `linux.bench` from a clean run
   on each OS. Record the toolchain and commit in the file.
-- [ ] Update `.github/workflows/bench.yml`:
+- [x] Update `.github/workflows/bench.yml`:
   - Linux and Windows jobs;
   - schedule, manual dispatch, and PR-with-`bench`-label;
   - compare step with the comparator;
   - upload the measurement file and text log;
   - fail on a threshold breach for scheduled/manual runs, report-only on PRs.
-- [ ] Add a `bench-baseline` manual workflow (or document the local command) to
+- [x] Add a `bench-baseline` manual workflow (or document the local command) to
   regenerate a baseline.
-- [ ] Document the update process in `benchmarks/README.md`: run on a quiet
+- [x] Document the update process in `benchmarks/README.md`: run on a quiet
   machine, review the diff, commit with the reason.
+
+Seeded 2026-10-26: the Linux baseline is an ext4 run (clang 18.1.8,
+`fib_compile_ms=327.2`, `large_compile_ms=2319.4`), the Windows baseline a local
+MSVC-free run (clang 23.1.4, `fib_compile_ms=348.3`, `large_compile_ms=1683.1`),
+both at commit `fec9b8c`. The comparator passes both and fails a +127% `fib_run_ms`
+copy with exit 1. The manual **Bench** dispatch takes *Measure only and upload a
+candidate baseline*; the artifact is reviewed and committed, and the README
+carries the local `update` command. If a runner's first measurement lands
+outside a threshold for an environmental reason, the candidate run replaces the
+seeded baseline rather than the gate being widened.
 
 ### Task 8 — Top-three performance fixes
 
