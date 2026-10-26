@@ -4,7 +4,9 @@
 > changes the program entry ABI and the runtime C sources. Run the full e2e
 > suite on Windows and Linux before calling it done.
 
-**Status:** Draft for review, 2026-10-25.
+**Status:** Implemented and pushed, commit `d30e1af` on `slice-1-install-first-cli`,
+2026-10-26. Linux is verified end to end; Windows test execution is delegated to
+CI; the `ubuntu:22.04` container acceptance is pending a Docker host.
 **Source of truth:** `docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md` §15.2.
 **Master plan:** `docs/superpowers/plans/2026-10-25-yashy-super-language-master.md` §7.2.
 **Goal:** Implement `args()`, `getcwd()`, `now()`, and `sleep(ms)` as real

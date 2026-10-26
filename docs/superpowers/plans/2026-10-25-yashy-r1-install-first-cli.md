@@ -4,7 +4,9 @@
 > Use test-first steps where behavior changes. Keep the Windows path working
 > while adding Linux.
 
-**Status:** Draft for review, 2026-10-25.
+**Status:** Implemented and pushed, commit `d30e1af` on `slice-1-install-first-cli`,
+2026-10-26. Windows test execution is delegated to CI; the `ubuntu:22.04`
+container acceptance is pending a Docker host.
 **Source of truth:** `docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md` §11 and §15.1.
 **Master plan:** `docs/superpowers/plans/2026-10-25-yashy-super-language-master.md` §7.1.
 **Goal:** A fresh Windows or Linux machine installs a prebuilt Yashy, runs

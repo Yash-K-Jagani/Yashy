@@ -960,8 +960,8 @@ alternative that was rejected, so a later reader does not reopen it by accident.
 
 | Slice | Plan | Status |
 |---|---|---|
-| 1 | `2026-10-25-yashy-r1-install-first-cli.md` | Updated from v2 spec §15.1; ready for approval |
-| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented; verification in progress |
+| 1 | `2026-10-25-yashy-r1-install-first-cli.md` | Implemented and pushed, `d30e1af` |
+| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented and pushed, `d30e1af` |
 | 3 | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Updated from v2 spec §15.3; ready for approval |
 | 3b | This master plan, §7.4 | Section approved; detailed plan after slice 3 baseline |
 | 4 | `2026-10-25-yashy-r2-package-manager-spike.md` | Updated from v2 spec §15.5; ready for approval |
