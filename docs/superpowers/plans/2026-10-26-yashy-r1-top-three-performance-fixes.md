@@ -33,6 +33,22 @@ are green on Windows and Linux (commit e015b77). Do not start 3b before both hol
 | **Cut order** | Array mapping first, then debug formatting, then tuples. No other row may exceed 2× without an explicit exception logged in the plan. |
 
 ---
+## Type system & verification (minimal design space, strongest static guarantees)
+
+The language’s type system is designed for the strictest possible compile‑time guarantees while keeping the design space as small as Go’s. Concretely:
+
+- **No implicit conversions** – every numeric or pointer conversion must be explicit (`as`, `cast`, or a function call).
+- **Affine/ownership types** – values must be either moved (`move`) or borrowed (`&` / `&mut`); `defer` releases resources at scope exit. The type system enforces that each value is used at most once unless explicitly cloned.
+- **Exhaustive pattern matching** – `match` on enum/variant constructors must cover all cases; the compiler rejects non‑exhaustive patterns.
+- **Effect tracking** – the compiler tracks effects (allocation, I/O, state mutation) and requires explicit handling (e.g., `pure` functions, `try` blocks, `with` resources).
+- **Linear types for resources** – file handles, mutexes, heap memory must be linear; the type system guarantees close/ drop via `defer` or `drop` and forbids accidental duplication.
+- **No runtime type dispatch** – all down‑casting, tag checks, and dynamic dispatches are resolved at compile time; the generated code contains no run‑time type information beyond what is strictly needed for FFI.
+- **Never‑panics guarantee** – the `never_panics` suite ensures that well‑typed programs cannot panic; any potential panic is a type error.
+- **Minimal keyword set** – the language retains Go‑like simplicity (`if`, `else`, `for`, `func`, `return`, `move`, `defer`, `match`, `try`, `pure`, `linear`) while providing the above guarantees.
+
+These constraints are enforced by the compiler front‑end (`crates/yashy-sema`) and the `never_panics` test suite. Violations are compile‑time errors, not runtime surprises.
+
+---
 ## Review focus (likely trouble spots)
 
 | Area | Why it matters | Likely root causes |
