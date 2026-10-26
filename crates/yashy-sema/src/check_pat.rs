@@ -274,10 +274,16 @@ fn check_struct_variant(
                 hir_fields.push((fname.clone(), checked, *fspan));
             }
             None => {
-                return Err(TypeError::new(
+                let mut error = TypeError::new(
                     *fspan,
                     format!("unknown field `{fname}` in variant `{name}`"),
-                ));
+                );
+                if let Some(suggestion) =
+                    yashy_common::closest(fname, declared.iter().map(|(n, _)| n.as_str()))
+                {
+                    error = error.with_label(format!("did you mean `{suggestion}`?"));
+                }
+                return Err(error);
             }
         }
     }

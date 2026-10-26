@@ -352,6 +352,14 @@ const CALLABLE_EXTRAS: &[&str] = &[
     "chan_new",
 ];
 
+/// The type names a program can write without declaring them.
+///
+/// `resolve_type_in` resolves these before it looks at the declared structs and
+/// enums, so a "did you mean" suggestion has to offer them too.
+const BUILTIN_TYPE_NAMES: &[&str] = &[
+    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Self",
+];
+
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
 pub struct Checker<'src> {    scope: Scope,
@@ -706,6 +714,15 @@ impl<'src> Checker<'src> {
         self.errors.push((self.file, TypeError::new(span, message)));
     }
 
+    /// Push an error that was built elsewhere, keeping any label it carries.
+    ///
+    /// Resolving a type or a pattern returns a [`TypeError`] that may already
+    /// have a "did you mean" label; rebuilding it from `span` and `message`
+    /// here would silently drop that help.
+    fn report(&mut self, error: TypeError) {
+        self.errors.push((self.file, error));
+    }
+
     /// The nearest visible name, for a "did you mean" label.
     ///
     /// Every visible binding is a candidate, including the builtins and the
@@ -755,6 +772,26 @@ impl<'src> Checker<'src> {
             error = error.with_label(format!("did you mean `{suggestion}`?"));
         }
         self.errors.push((self.file, error));
+    }
+
+    /// The nearest declared or built-in type name, for a "did you mean" label.
+    fn type_suggestion(&self, name: &str) -> Option<String> {
+        let candidates = self
+            .structs
+            .keys()
+            .map(String::as_str)
+            .chain(self.enums.keys().map(String::as_str))
+            .chain(BUILTIN_TYPE_NAMES.iter().copied());
+        yashy_common::closest(name, candidates)
+    }
+
+    /// The nearest field of `struct_name`, for a "did you mean" label.
+    fn struct_field_suggestion(&self, struct_name: &str, field: &str) -> Option<String> {
+        let fields = self.structs.get(struct_name)?;
+        yashy_common::closest(
+            field,
+            fields.fields.iter().map(|(name, _)| name.as_str()),
+        )
     }
 
     /// Look a name up for a read, a call or an assignment.
@@ -1300,7 +1337,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 self.fns.insert(name.clone(), sig);
                 self.record_origin(name, public);
@@ -1375,7 +1412,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
@@ -1448,7 +1485,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
@@ -1493,7 +1530,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 for variant in variants {
                     for field in &variant.fields {
@@ -1542,7 +1579,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     };
                     if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                     self.fns.insert(decl.name.clone(), sig);
                     self.externs.insert(decl.name.clone());
@@ -1620,7 +1657,7 @@ impl<'src> Checker<'src> {
                 }
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1654,7 +1691,7 @@ impl<'src> Checker<'src> {
                 }
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1690,7 +1727,7 @@ impl<'src> Checker<'src> {
                 resolved
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1797,7 +1834,13 @@ impl<'src> Checker<'src> {
                 };
                 match kind {
                     Some(kind) => Ok(Type { kind, span: *span }),
-                    None => Err(TypeError::new(*span, format!("cannot find type `{name}`"))),
+                    None => {
+                        let mut error = TypeError::new(*span, format!("cannot find type `{name}`"));
+                        if let Some(suggestion) = self.type_suggestion(name) {
+                            error = error.with_label(format!("did you mean `{suggestion}`?"));
+                        }
+                        Err(error)
+                    }
                 }
             }
             TypeExpr::Option(inner, span) => {
@@ -2129,7 +2172,7 @@ impl<'src> Checker<'src> {
                 if let Expr::Ident(path, arg_span) = arg {
                     let arg_name = path.last().cloned().unwrap_or_default();
                     if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                 }
             }
@@ -2414,7 +2457,7 @@ impl<'src> Checker<'src> {
                                             }
                                         }
                                         Err(e) => {
-                                            self.error(e.span, e.message);
+                                            self.report(e);
                                             never(*vspan)
                                         }
                                     };
@@ -2707,7 +2750,7 @@ impl<'src> Checker<'src> {
                             Some(declared)
                         }
                         Err(error) => {
-                            self.error(error.span, error.message);
+                            self.report(error);
                             return None;
                         }
                     },
@@ -2747,7 +2790,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     },
                 ) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 Some(HirStmt::Const {
                     name: name.clone(),
@@ -2774,7 +2817,7 @@ impl<'src> Checker<'src> {
                             Some(declared)
                         }
                         Err(error) => {
-                            self.error(error.span, error.message);
+                            self.report(error);
                             return None;
                         }
                     },
@@ -2804,7 +2847,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     },
                 ) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 Some(HirStmt::Var {
                     name: name.clone(),
@@ -2867,7 +2910,7 @@ impl<'src> Checker<'src> {
                                     ownership: Ownership::Live,
                                 },
                             ) {
-                                self.error(error.span, error.message);
+                                self.report(error);
                             }
                             bindings.push(Some((name.clone(), element.clone())));
                         }
@@ -3287,7 +3330,7 @@ impl<'src> Checker<'src> {
         let pattern = match self.check_arm_pattern(&arm.pattern, subject_ty) {
             Ok(pattern) => pattern,
             Err(error) => {
-                self.error(error.span, error.message);
+                self.report(error);
                 self.scope.pop();
                 return None;
             }
@@ -3646,7 +3689,7 @@ impl<'src> Checker<'src> {
             let expected = match self.resolve_type(field.ty()) {
                 Ok(ty) => ty,
                 Err(e) => {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return Some(None);
                 }
             };
@@ -3667,7 +3710,7 @@ impl<'src> Checker<'src> {
                 if let Expr::Ident(path, arg_span) = arg {
                     let arg_name = path.last().cloned().unwrap_or_default();
                     if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                 }
             }
@@ -3776,7 +3819,7 @@ impl<'src> Checker<'src> {
             let expected = match self.resolve_type(expected.ty()) {
                 Ok(ty) => ty,
                 Err(e) => {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return Some(None);
                 }
             };
@@ -5234,7 +5277,7 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 if let Err(error) = self.move_out(&name, *ident_span) {
-                    self.error(error.span, error.message);
+                    self.report(error);
                 }
             }
             Expr::SliceLit { .. } | Expr::Call { .. } => {}
@@ -5380,7 +5423,7 @@ impl<'src> Checker<'src> {
         let receiver = self.check_expr(&args[0])?;
         let binding = path.last().cloned().unwrap_or_default();
         if let Err(error) = self.move_out(&binding, *ident_span) {
-            self.error(error.span, error.message);
+            self.report(error);
             return None;
         }
         Some(HirExpr::Call {
@@ -5453,7 +5496,7 @@ impl<'src> Checker<'src> {
         if name == "free_slice" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -5644,7 +5687,7 @@ impl<'src> Checker<'src> {
         if name == "map_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -5968,7 +6011,7 @@ impl<'src> Checker<'src> {
         if name == "mutex_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
         }
         Some(HirExpr::Call {
@@ -6072,7 +6115,7 @@ impl<'src> Checker<'src> {
         if name == "chan_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -6177,7 +6220,7 @@ impl<'src> Checker<'src> {
                 }
                 let name = path.last().cloned().unwrap_or_default();
                 if let Err(e) = self.scope.check_live(&name, *span) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return None;
                 }
                 match self.lookup(&name, *span) {
@@ -6287,7 +6330,7 @@ impl<'src> Checker<'src> {
                     if matches!(linearity_of(&ty.kind), Linearity::Linear) {
                         let name = path.last().cloned().unwrap_or_default();
                         if let Err(e) = self.move_out(&name, *ident_span) {
-                            self.error(e.span, e.message);
+                            self.report(e);
                         }
                     }
                 }
@@ -6555,7 +6598,7 @@ impl<'src> Checker<'src> {
                                     if let Expr::Ident(path, arg_span) = arg {
                                         let arg_name = path.last().cloned().unwrap_or_default();
                                         if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                                            self.error(e.span, e.message);
+                                            self.report(e);
                                         }
                                     }
                                 }
@@ -6709,10 +6752,17 @@ impl<'src> Checker<'src> {
                         }
                         for (fname, _) in &written {
                             if !sig.fields.iter().any(|(n, _)| n == fname) {
-                                self.error(
+                                let mut error = TypeError::new(
                                     *span,
                                     format!("unknown field `{fname}` in struct `{name}`"),
                                 );
+                                if let Some(suggestion) =
+                                    self.struct_field_suggestion(&name, fname)
+                                {
+                                    error = error
+                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                }
+                                self.errors.push((self.file, error));
                                 continue;
                             }
                             // A field that is not `pub` may not be written from
@@ -6752,7 +6802,11 @@ impl<'src> Checker<'src> {
                         })
                     }
                     None => {
-                        self.error(*span, format!("cannot find struct `{name}`"));
+                        let mut error = TypeError::new(*span, format!("cannot find struct `{name}`"));
+                        if let Some(suggestion) = self.type_suggestion(&name) {
+                            error = error.with_label(format!("did you mean `{suggestion}`?"));
+                        }
+                        self.errors.push((self.file, error));
                         None
                     }
                 }
@@ -6765,7 +6819,7 @@ impl<'src> Checker<'src> {
                 let elem_ty = match self.resolve_type_in(elem, false) {
                     Ok(ty) => ty,
                     Err(error) => {
-                        self.error(error.span, error.message);
+                        self.report(error);
                         return None;
                     }
                 };
@@ -7011,10 +7065,17 @@ impl<'src> Checker<'src> {
                                 ty: fty,
                             }),
                             None => {
-                                self.error(
+                                let mut error = TypeError::new(
                                     *span,
                                     format!("struct `{sname}` has no field `{field}`"),
                                 );
+                                if let Some(suggestion) =
+                                    self.struct_field_suggestion(sname, field)
+                                {
+                                    error = error
+                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                }
+                                self.errors.push((self.file, error));
                                 None
                             }
                         }
@@ -7362,7 +7423,16 @@ impl<'src> Checker<'src> {
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
-                    self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                    let mut error = TypeError::new(
+                        span,
+                        format!("struct `{struct_name}` has no field `{field}`"),
+                    );
+                    if let Some(suggestion) =
+                        self.struct_field_suggestion(&struct_name, field)
+                    {
+                        error = error.with_label(format!("did you mean `{suggestion}`?"));
+                    }
+                    self.errors.push((self.file, error));
                     return None;
                 }
             };
@@ -7525,7 +7595,14 @@ impl<'src> Checker<'src> {
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
-                    self.error(*fspan, format!("struct `{sname}` has no field `{field}`"));
+                    let mut error = TypeError::new(
+                        *fspan,
+                        format!("struct `{sname}` has no field `{field}`"),
+                    );
+                    if let Some(suggestion) = self.struct_field_suggestion(sname, field) {
+                        error = error.with_label(format!("did you mean `{suggestion}`?"));
+                    }
+                    self.errors.push((self.file, error));
                     return None;
                 }
             };
