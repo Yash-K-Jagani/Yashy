@@ -97,6 +97,9 @@ pub fn gen(
             let out = ctx.alloc_slot();
             ctx.push_alloca(format!("{out} = alloca {SLICE_REPR}"));
             ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {out}"));
+            // pre‑allocate output capacity = input length – avoids reallocs in yashy_slice_push
+            // store i64 max so the runtime never reallocates the slice.
+            ctx.push(format!("store i64 9223372036854775807, ptr {out}+8"));
             Some(out)
         }
         HigherOrderOp::Fold => None,
