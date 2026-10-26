@@ -478,12 +478,19 @@ row. No fix is implemented in slice 3.
 
 ### Task 9 — Docs
 
-- [ ] Update `benchmarks/README.md` with the R1 gate rows, baseline format,
+- [x] Update `benchmarks/README.md` with the R1 gate rows, baseline format,
   thresholds, and the update process.
-- [ ] Update the spec's R1 performance bullet to point at the baseline files.
-- [ ] Add a short "diagnostics" section to the tutorial or README showing a
+- [x] Update the spec's R1 performance bullet to point at the baseline files.
+- [x] Add a short "diagnostics" section to the tutorial or README showing a
   "did you mean" example.
-- [ ] Update the master plan's gap table.
+- [x] Update the master plan's gap table.
+
+The README's gate section landed with Task 7 (`abd9575`). This task adds the
+spec's `hello_compile_ms`, `hello_binary_bytes` and
+`benchmarks/baselines/<os>.bench` pointers, and the tutorial's "Diagnostics that
+teach" section with the exact `did you mean` block. The master plan's gate row
+is Done (committed in `0772658`). Verified 2026-10-26:
+`cargo test -p yashy-driver --test tutorial` → 2 passed.
 
 ### Task 10 — Error codes and catalog
 

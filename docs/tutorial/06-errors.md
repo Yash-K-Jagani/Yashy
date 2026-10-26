@@ -125,6 +125,25 @@ the result matters, match it or pass it to a function that takes a `Result`.
 - **Ignoring a result.** `half(3);` compiles and drops the `Err`. If the caller
   should report it, match it and print the message, as `report` does.
 
+## Diagnostics that teach
+
+A misspelled name is reported at the point of use, with the nearest name in
+scope as a suggestion:
+
+```text
+misspell.ya:3:11
+error: cannot find value `totl` in this scope
+    print(totl);
+          ^^^^ did you mean `total`?
+```
+
+The suggestion is offered only when the edit distance is small enough to be a
+likely typo; a name that is simply absent gets the same error without the hint.
+The same rule covers functions, types, struct fields, struct-literal fields and
+enum variant fields, so a typo in `Point { x: 1, yy: 2 }` names the field it
+probably meant. The caret and the note are part of the diagnostic, not a
+separate lint: `yashy check` and `yashy build` print the same block.
+
 ## Try it
 
 1. Write `fn parse_positive(text: string) -> Result[int, string]` that uses
