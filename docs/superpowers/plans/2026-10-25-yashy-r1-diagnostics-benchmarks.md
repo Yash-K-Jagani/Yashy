@@ -584,12 +584,56 @@ Verified 2026-10-26: `cargo test -p yashy-common` (31 unit, 25 integration),
 
 ### Task 12 — `yashy explain`
 
-- [ ] Add `yashy explain <code>`; unknown codes exit `2` with the nearest known
+- [x] Add `yashy explain <code>`; unknown codes exit `2` with the nearest known
   code if one is close.
-- [ ] Add `yashy explain --json` with the catalog entry and `docs_url`.
-- [ ] Tests: every code in `codes.rs` has a catalog page; a known code prints the
+- [x] Add `yashy explain --json` with the catalog entry and `docs_url`.
+- [x] Tests: every code in `codes.rs` has a catalog page; a known code prints the
   cause/example/fix; an unknown code fails cleanly.
-- [ ] Link the code in the human diagnostic to the same catalog page.
+- [x] Link the code in the human diagnostic to the same catalog page.
+
+Implemented 2026-10-26 (commit `58b8522`).
+
+- `yashy explain <code> [--json]` reads `codes::CODES`. The human form prints the
+  embedded Markdown page verbatim; `--json` emits `schema_version`, `tool`,
+  `yashy_version`, `success`, `code`, `title`, `summary`, `page`, and
+  `docs_url`. The two forms share one entry, so their facts cannot drift.
+- An unknown code exits `2`. When `codes::closest` finds a near miss, stderr
+  says ``unknown error code `E010`; did you mean `E0100`?``; an unrelated string
+  gets the same message without a suggestion. `--json` with an unknown code
+  still writes the human message to stderr, matching the usage-error behavior of
+  `check --json` and `test --json`.
+- A coded human diagnostic now ends with `  docs: https://yashy.dev/errors/<code>`
+  after any notes. An uncoded diagnostic prints no docs line. The missing-source
+  fallback keeps the docs line.
+- `crates/yashy-driver/tests/explain.rs` (12 tests) covers every catalog code,
+  the human page, the JSON envelope, shared facts, near and unrelated unknown
+  codes, missing/extra/unknown arguments, and the coded/uncoded human link.
+  `crates/yashy-common/tests/render.rs` (27 tests) pins the docs line, its place
+  after notes, and the uncoded case. `e2e.rs` (117 tests) adds the coded docs
+  link and two top-level usage tests.
+- Also closes Task 11's top-level usage gap: no command and an unknown command
+  now exit `2` (`EXIT_USAGE`) instead of `1`.
+- Docs: `docs/cli.md` gains the explain command, its schema, and the human
+  diagnostic link; `docs/errors.md`, all ten `docs/errors/<code>.md` pages, and
+  `docs/tutorial/06-errors.md` show the docs line and name `yashy explain`.
+- Ruling: the human link is a final indented `docs:` line, not an OSC 8 terminal
+  hyperlink - it survives pipes and logs and is testable in plain output - cost
+  if wrong: one extra line on every coded diagnostic.
+- Ruling: `explain --json` has its own envelope instead of the diagnostics
+  envelope - the command returns a catalog entry, not a compile result - cost if
+  wrong: one more documented schema for an agent to learn.
+
+Verified 2026-10-26: `cargo test -p yashy-common --test render` (27 passed),
+`cargo test -p yashy-driver --test explain` (12 passed),
+`cargo test -p yashy-driver --test e2e` (117 passed),
+`cargo test -p yashy-driver --test diagnostics_json` (8 passed),
+`cargo test -p yashy-driver --test test_runner` (5 passed),
+`cargo test -p yashy-driver --test docs` (3 passed),
+`cargo check --workspace --all-targets` (clean, GNU Windows), and the full
+`cargo test --workspace --no-fail-fast` in WSL Ubuntu (100 result lines, all ok).
+`cargo test -p yashy-common` cannot run its unit-test binary on this Windows host
+because Application Control blocks the freshly linked image; the same suite runs
+in WSL.
 
 ### Task 13 — AI contract v0
 
