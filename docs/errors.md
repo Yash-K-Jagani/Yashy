@@ -12,13 +12,14 @@ main.ya:4:13
 error[E0100]: expected `int`, found `string`
     const n: int = "three";
                   ^^^^^^^
+  docs: https://yashy.dev/errors/E0100
 ```
 
 The header is the position, the `error[CODE]` line is the rule that was broken,
 and the caret is the expression the rule applied to. The code is stable:
-`E0100` always means a type mismatch, and its page is linked below. A note
-below the caret names the declaration or import involved when that is not
-obvious.
+`E0100` always means a type mismatch, and the final `docs:` line names its page.
+`yashy explain E0100` prints the same page offline. A note below the caret names
+the declaration or import involved when that is not obvious.
 
 ## Codes
 

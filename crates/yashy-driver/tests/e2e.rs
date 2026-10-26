@@ -739,6 +739,10 @@ fn a_catalogued_error_prints_its_code() {
         stderr.lines().any(|line| line.trim_start().starts_with('^')),
         "the coded diagnostic still needs its caret:\n{stderr}"
     );
+    assert!(
+        stderr.contains("  docs: https://yashy.dev/errors/E0001"),
+        "the coded diagnostic must link its catalog page:\n{stderr}"
+    );
 }
 
 #[test]
@@ -848,6 +852,41 @@ fn the_help_text_names_yashy_and_the_ya_extension() {
     // The old name is spelled here on purpose: this assertion is the regression
     // guard, so it must keep naming the thing it forbids.
     assert!(!stdout.contains("otter"), "the old name survives:\n{stdout}");
+}
+
+#[test]
+fn no_command_is_a_usage_error() {
+    let output = Command::new(yashy())
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a missing command is a usage error"
+    );
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("no command given"), "got:\n{stderr}");
+    assert!(stderr.contains("usage:"), "got:\n{stderr}");
+}
+
+#[test]
+fn an_unknown_command_is_a_usage_error() {
+    let output = Command::new(yashy())
+        .arg("frobnicate")
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "an unknown command is a usage error"
+    );
+    assert!(
+        stderr_of(&output).contains("unknown command `frobnicate`"),
+        "got:\n{}",
+        stderr_of(&output)
+    );
 }
 
 #[test]

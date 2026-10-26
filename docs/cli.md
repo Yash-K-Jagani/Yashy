@@ -43,7 +43,9 @@ feedback.
 
 `--json` prints the [schema v1 report](#json-diagnostics-schema-v1). The command
 exits `0` when there are no errors and `1` when there is at least one error; a
-missing file is a usage error (`2`).
+missing file is a usage error (`2`). A diagnostic with a catalog code ends with
+a `docs:` line naming its page, for example
+`docs: https://yashy.dev/errors/E0100`.
 
 ## `yashy test [path] [--filter <substring>] [--list] [--json]`
 
@@ -62,6 +64,40 @@ the test that produced them; top-level `diagnostics` holds setup errors such as
 a missing toolchain. `--list` and `--json` cannot be combined. A failing test
 makes the command exit `1`; a setup problem exits `2`; a directory that cannot
 be created exits `3`.
+
+## `yashy explain <code> [--json]`
+
+Prints the long-form catalog page for an error code: the cause, a minimal
+example, and the fix. The pages are embedded in the binary, so the command
+works offline.
+
+```text
+yashy explain E0100
+yashy explain --json E0100
+```
+
+The human form is the Markdown page verbatim. The JSON form is a separate
+schema v1 envelope carrying the same facts:
+
+```json
+{
+  "schema_version": 1,
+  "tool": "explain",
+  "yashy_version": "0.1.0",
+  "success": true,
+  "code": "E0100",
+  "title": "type mismatch",
+  "summary": "An expression's type does not match its context.",
+  "page": "# E0100 — type mismatch\n\nAn expression's type ...",
+  "docs_url": "https://yashy.dev/errors/E0100"
+}
+```
+
+An unknown code is a usage error (`2`). When the code is a near miss, the
+message names the nearest known code, for example
+``unknown error code `E010`; did you mean `E0100`?``. With `--json`, an unknown
+code still writes that human message to stderr; the JSON envelope is for a
+catalog entry that exists.
 
 ## JSON diagnostics (schema v1)
 

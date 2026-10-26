@@ -5,6 +5,7 @@
 //! yashy run <file.ya> [build flags] [-- <program args>...]
 //! yashy check <file.ya>
 //! yashy test [path] [--filter <substring>] [--list]
+//! yashy explain <code> [--json]
 //! yashy init [path]
 //! yashy doctor [--json]
 //! yashy fmt [-w] <files...>
@@ -25,7 +26,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use yashy_common::{
-    Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
+    codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
     EXIT_OK, EXIT_USAGE,
 };
 use yashy_driver::{
@@ -38,6 +39,7 @@ usage:
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
   yashy check <file.ya> [--json]
   yashy test [path] [--filter <substring>] [--list] [--json]
+  yashy explain <code> [--json]
   yashy init [path]
   yashy doctor [--json]
   yashy fmt [-w] <files...>
@@ -47,6 +49,7 @@ usage:
   run     compile and execute a program
   check   lex, parse and type-check without emitting anything
   test    compile and run the programs under tests/
+  explain print the long-form page for an error code
   init    create a new Yashy project
   doctor  check the compiler's toolchain and standard library
   fmt     rewrite source files in the canonical style; -w writes them back
@@ -59,13 +62,13 @@ usage:
                optimization level defaults to -O3 unless an explicit -O
                level is given
   --emit-ir    print the generated LLVM IR to stdout and stop
-  --json       print a stable machine-readable report (check, test, doctor)";
+  --json       print a stable machine-readable report (check, test, explain, doctor)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(command) = args.first().map(String::as_str) else {
         eprintln!("error: no command given\n{USAGE}");
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     };
     let rest = args.get(1..).unwrap_or(&[]);
 
@@ -82,12 +85,13 @@ fn main() -> ExitCode {
         "run" => run(rest),
         "check" => check(rest),
         "test" => test(rest),
+        "explain" => explain(rest),
         "init" => init(rest),
         "doctor" => doctor(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
-            exit_code(EXIT_COMPILE_ERROR)
+            exit_code(EXIT_USAGE)
         }
     }
 }
@@ -791,6 +795,70 @@ fn output_with_retry(exe: &Path, args: &[String]) -> std::io::Result<std::proces
         std::io::ErrorKind::PermissionDenied,
         "the operating system refused to start the compiled test",
     ))
+}
+
+/// `yashy explain <code> [--json]`.
+///
+/// The human form prints the embedded catalog page verbatim; the JSON form
+/// carries the same facts so an agent can read the title, summary, and page
+/// without scraping Markdown. A code that is not in the catalog is a usage
+/// error: the command cannot explain something that does not exist, and a
+/// near miss names the code the reader probably meant.
+fn explain(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut code: Option<&str> = None;
+
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}`"));
+            }
+            other => {
+                if code.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                code = Some(other);
+            }
+        }
+    }
+
+    let Some(code) = code else {
+        return usage_error("`explain` needs an error code, for example `yashy explain E0100`");
+    };
+    let Some(entry) = codes::find(code) else {
+        match codes::closest(code) {
+            Some(near) => eprintln!(
+                "error: unknown error code `{code}`; did you mean `{}`?",
+                near.id
+            ),
+            None => eprintln!("error: unknown error code `{code}`"),
+        }
+        return exit_code(EXIT_USAGE);
+    };
+
+    if json {
+        print_explain_json(entry);
+    } else {
+        print!("{}", entry.page);
+    }
+    exit_code(EXIT_OK)
+}
+
+/// The `explain --json` envelope: schema v1, the catalog entry, and the same
+/// `docs_url` a rendered diagnostic uses.
+fn print_explain_json(code: &codes::Code) {
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("explain"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(true));
+    report.set("code", Json::string(code.id));
+    report.set("title", Json::string(code.title));
+    report.set("summary", Json::string(code.summary));
+    report.set("page", Json::string(code.page));
+    report.set("docs_url", Json::string(codes::docs_url(code.id)));
+    println!("{}", report.render());
 }
 
 /// `yashy init [path]`.

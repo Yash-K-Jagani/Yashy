@@ -60,6 +60,12 @@ fn renders_a_coded_diagnostic_with_the_code_after_the_severity() {
         line(&out, 1),
         "error[E0001]: cannot find value `y` in this scope"
     );
+    assert_eq!(
+        line(&out, 4),
+        "  docs: https://yashy.dev/errors/E0001",
+        "a coded diagnostic must name its catalog page: {out}"
+    );
+    assert_eq!(out.lines().count(), 5, "got: {out}");
 }
 
 #[test]
@@ -488,4 +494,43 @@ fn no_notes_means_no_note_line() {
 
     assert_eq!(out.lines().count(), 4, "got:\n{out}");
     assert!(!out.contains("note:"), "got:\n{out}");
+    assert!(!out.contains("docs:"), "an uncoded diagnostic has no page: {out}");
+}
+
+#[test]
+fn a_coded_diagnostic_with_notes_puts_the_link_after_the_notes() {
+    let (sm, f) = sample_map();
+    let mut d = at(f, Span { start: 18, end: 19 }).with_code(codes::UNKNOWN_NAME);
+    d.notes = vec!["declare the name before using it".to_string()];
+
+    let out = sm.render(&d);
+
+    assert_eq!(out.lines().count(), 6, "got:\n{out}");
+    assert_eq!(
+        line(&out, 4),
+        "note: declare the name before using it",
+        "got:\n{out}"
+    );
+    assert_eq!(
+        line(&out, 5),
+        "  docs: https://yashy.dev/errors/E0001",
+        "the link is the last line: {out}"
+    );
+}
+
+#[test]
+fn a_coded_diagnostic_with_a_missing_file_still_names_the_catalog_page() {
+    let (sm, _) = sample_map();
+    let bogus = FileId::from_index(9_999);
+    let d = at(bogus, Span { start: 0, end: 1 }).with_code(codes::UNKNOWN_NAME);
+
+    let out = sm.render(&d);
+
+    assert_eq!(out.lines().count(), 4, "got:\n{out}");
+    assert_eq!(line(&out, 2), "<source line unavailable>", "got:\n{out}");
+    assert_eq!(
+        line(&out, 3),
+        "  docs: https://yashy.dev/errors/E0001",
+        "the link survives a missing source: {out}"
+    );
 }
