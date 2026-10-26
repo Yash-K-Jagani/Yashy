@@ -330,50 +330,50 @@ Rules:
 
 ### Task 1 — Suggestion helper
 
-- [ ] Add `crates/yashy-common/src/suggest.rs` with `closest` and tests:
+- [x] Add `crates/yashy-common/src/suggest.rs` with `closest` and tests:
   - exact match returns `None` (the caller already handles it);
   - one substitution, insertion, deletion, and adjacent transpose;
   - case-insensitive match;
   - length-dependent bounds;
   - ties prefer the same first character, then alphabetical;
   - an unrelated name returns `None`.
-- [ ] Export it from `yashy-common`.
-- [ ] Run the tests.
+- [x] Export it from `yashy-common`.
+- [x] Run the tests.
 
 ### Task 2 — Unknown value and function suggestions
 
-- [ ] Add a `names()` or `suggest(name)` method to `Scope` that exposes the
+- [x] Add a `names()` or `suggest(name)` method to `Scope` that exposes the
   visible binding names without leaking the map.
-- [ ] Wire `Scope`'s unknown-value path and the `check_expr.rs` unknown-value
+- [x] Wire `Scope`'s unknown-value path and the `check_expr.rs` unknown-value
   paths to `closest`.
-- [ ] Wire the unknown-function path to the function/builtin table.
-- [ ] Add sema tests:
+- [x] Wire the unknown-function path to the function/builtin table.
+- [x] Add sema tests:
   - `let count = 1; print(cuont);` suggests `count`;
   - `prntln("x")` suggests `println`;
   - a genuinely unrelated name gets no suggestion;
   - a name in an outer scope is found, not suggested.
-- [ ] Add a driver test that the rendered diagnostic contains
+- [x] Add a driver test that the rendered diagnostic contains
   `did you mean` and the candidate.
 
 ### Task 3 — Type and field suggestions
 
-- [ ] Wire unknown-type errors to the struct/enum/builtin type names.
-- [ ] Wire unknown-field errors (struct fields, enum variant fields) to the
+- [x] Wire unknown-type errors to the struct/enum/builtin type names.
+- [x] Wire unknown-field errors (struct fields, enum variant fields) to the
   type's fields.
-- [ ] Add tests for each case, including a field that exists on a different
+- [x] Add tests for each case, including a field that exists on a different
   struct (no suggestion if the distance is too large).
-- [ ] Keep the existing messages; add the suggestion as a label.
+- [x] Keep the existing messages; add the suggestion as a label.
 
 ### Task 4 — Notes
 
-- [ ] Decide whether a second note line is needed. If yes, add
+- [x] Decide whether a second note line is needed. If yes, add
   `notes: Vec<String>` to `Diagnostic` and update the struct literals and
   `SourceMap::render`.
-- [ ] Add the `const` reassignment note.
-- [ ] Add the missing-import note only if the checker can name the module
+- [x] Add the `const` reassignment note.
+- [x] Add the missing-import note only if the checker can name the module
   reliably; otherwise skip it and record why.
-- [ ] Add render tests for one note and for no notes.
-- [ ] Do not duplicate the message in a note.
+- [x] Add render tests for one note and for no notes.
+- [x] Do not duplicate the message in a note.
 
 ### Task 5 — Cross-platform measurement
 
@@ -439,6 +439,18 @@ candidate baseline*; the artifact is reviewed and committed, and the README
 carries the local `update` command. If a runner's first measurement lands
 outside a threshold for an environmental reason, the candidate run replaces the
 seeded baseline rather than the gate being widened.
+
+Runner update 2026-10-26: the first CI bench run (`40283838983`) was green on
+Linux and failed on Windows only. The runner's clang 20.1.8 linked
+`fib_binary_bytes=201216` and `hello_binary_bytes=200192`, against the local
+clang 23.1.4 baseline's `57344`/`56320`; the C comparison also grew from `16032`
+to `140288` bytes, so the change is the runner's linker/toolchain, not Yashy
+codegen. Commit `984702f` runs the Windows compare under `pwsh` (Git Bash's
+`/usr/bin/link.exe` shadows the MSVC linker), and `e015b77` replaces the Windows
+baseline with the runner measurement (`fib_compile_ms=206.1`,
+`fib_run_ms=96.6`, `large_compile_ms=707.8`) as the README's environmental
+replacement allows. The next bench run (`40284700659`) is green on
+`ubuntu-22.04` and `windows-latest`.
 
 ### Task 8 — Top-three performance fixes
 
@@ -672,6 +684,14 @@ Windows), `cargo test -p yashy-driver --test agents --test docs` in WSL Ubuntu
 and the full `cargo test --workspace --no-fail-fast` in WSL Ubuntu (101 result
 lines, all ok).
 
+CI acceptance 2026-10-26: run `40284703807` is green on all five jobs,
+including `install-smoke` on `ubuntu-22.04` and `windows-latest`. The first run
+(`40283841997`) failed only `install-smoke (windows-latest)`: the installer
+wrote the long `C:\Users\runneradmin\...` path while the test compared the short
+`C:\Users\RUNNER~1\...` path. Commit `e015b77` canonicalizes both sides with
+`Get-Item -LiteralPath ... .FullName`; the local
+`pwsh scripts/test-install.ps1` run and the rerun both pass.
+
 ---
 
 ## 5. Verification
@@ -796,3 +816,28 @@ removing the failing step; keep the measurement artifact and the baseline.
   3b; the slice 3b start condition is recorded in the master plan.
 - The master plan's gap table marks slice 3 complete.
 - Commit and push; record the commit hashes in this plan.
+
+Observed 2026-10-26: bench run `40284700659` is green on `ubuntu-22.04` and
+`windows-latest`; CI run `40284703807` is green on all five jobs. A temporary
+branch (`ad53959`, never merged) forced `-O0`; bench run `40285205362` failed the
+Linux compare on `fib_binary_bytes` (`57400`, +19.6%) and `hello_binary_bytes`
+(`57368`, +19.6%). The Windows job stayed within its thresholds (binary +4.1% /
++4.3%, runtime +17.4%), which is why the proof uses the Linux row. The branch was
+deleted; the accepted tip remains `e015b77`.
+
+---
+
+## 10. Commit record
+
+| Commit | Contents |
+|---|---|
+| `b5fcb11` | Task 10: stable error codes and catalog |
+| `cde33d8` | Task 11: schema v1 JSON diagnostics and exit codes |
+| `c8ee623` | Task 11 plan record |
+| `58b8522` | Task 12: `explain`, docs links, top-level usage exits |
+| `2dffa8c` | Task 12 plan record |
+| `4644ec7` | Task 13: AGENTS/llms diagnostics contract |
+| `d87d8ff` | Task 13 plan record |
+| `984702f` | Windows benchmark compare under `pwsh` |
+| `e015b77` | Runner Windows baseline and canonical install paths |
+| this commit | Slice 3 acceptance record |

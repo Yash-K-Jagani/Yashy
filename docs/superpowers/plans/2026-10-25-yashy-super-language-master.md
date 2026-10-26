@@ -72,7 +72,7 @@ are enough to build real native programs.
 | Linux release artifact and `install.sh` | A fresh Linux user cannot install Yashy. | 1 | Done |
 | First-CLI guide and examples | There is no path from install to a working tool. | 1 | Done |
 | `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 | Done |
-| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Open |
+| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Done |
 | Benchmark gate and stored baselines | Performance can regress silently. | 3 | Done |
 | Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Open |
 | Package-manager design | The required R2 feature has no design. | 4 | Open |
