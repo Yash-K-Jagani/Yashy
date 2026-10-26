@@ -547,7 +547,7 @@ Implemented 2026-10-26 (commit `b5fcb11`).
   returns `3`.
 - [x] Keep the human output unchanged except for the added code.
 
-Implemented 2026-10-26.
+Implemented 2026-10-26 (commit `cde33d8`).
 
 - `crates/yashy-common/src/json.rs` is a dependency-free `Json` value tree with
   a pretty printer and centralized string escaping; it has eight unit tests.
