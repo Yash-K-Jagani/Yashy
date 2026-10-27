@@ -231,9 +231,11 @@ impl SourceMap {
 
     /// Renders a diagnostic the way a compiler should print it.
     ///
-    /// The output is four lines: `path:line:col`, the severity and message, the
-    /// source line with its whitespace untouched, and a caret run under the
-    /// offending span with an optional label after it.
+    /// The output starts with four lines: `path:line:col`, the severity and
+    /// message, the source line with its whitespace untouched, and a caret run
+    /// under the offending span with an optional label after it. Any notes
+    /// follow, one `note: ...` line each, and a coded diagnostic ends with a
+    /// `docs:` line naming its catalog page.
     ///
     /// Columns count characters, so the caret line reproduces the source
     /// prefix character for character -- with tabs kept as tabs, so the caret
@@ -245,12 +247,14 @@ impl SourceMap {
             // about ids from another map. Report the message anyway: losing the
             // diagnostic would hide the very problem that produced the bad id.
             None => {
-                return format!(
+                let mut out = format!(
                     "{}:1:1\n{}: {}\n<source line unavailable>\n",
                     self.path(d.file),
-                    d.severity.as_str(),
+                    severity_label(d),
                     d.message
-                )
+                );
+                push_docs_line(&mut out, d);
+                return out;
             }
         };
 
@@ -270,7 +274,7 @@ impl SourceMap {
             located.line,
             located.col
         ));
-        out.push_str(&format!("{}: {}\n", d.severity.as_str(), d.message));
+        out.push_str(&format!("{}: {}\n", severity_label(d), d.message));
         out.push_str(line_text);
         out.push('\n');
         out.push_str(&padding);
@@ -280,11 +284,39 @@ impl SourceMap {
             out.push_str(label);
         }
         out.push('\n');
+        for note in &d.notes {
+            out.push_str("note: ");
+            out.push_str(note);
+            out.push('\n');
+        }
+        push_docs_line(&mut out, d);
         out
     }
 
     fn get(&self, id: FileId) -> Option<&SourceFile> {
         usize::try_from(id.index()).ok().and_then(|index| self.files.get(index))
+    }
+}
+
+/// Appends the catalog link for a coded diagnostic, if it has one.
+///
+/// The link is the last line so a reader always finds it in the same place,
+/// after the notes that explain the mistake. An uncoded diagnostic prints
+/// nothing, because there is no page to point at yet.
+fn push_docs_line(out: &mut String, d: &Diagnostic) {
+    if let Some(url) = d.docs_url() {
+        out.push_str("  docs: ");
+        out.push_str(&url);
+        out.push('\n');
+    }
+}
+
+/// The word before the message: `error`, or `error[E0100]` when the
+/// diagnostic carries a catalog code.
+fn severity_label(d: &Diagnostic) -> String {
+    match d.code {
+        Some(code) => format!("{}[{code}]", d.severity.as_str()),
+        None => d.severity.as_str().to_string(),
     }
 }
 

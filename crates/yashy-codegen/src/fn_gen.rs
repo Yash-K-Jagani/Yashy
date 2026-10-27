@@ -78,7 +78,8 @@ pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
 ///
 /// The C runtime starts a process by calling `main` and using its `int` return
 /// as the exit status, so the entry point is always emitted as
-/// `define i32 @main()` — whatever the Yashy signature says:
+/// `define i32 @main(i32 %argc, i8** %argv)` — whatever the Yashy signature
+/// says:
 ///
 /// * `fn main()` becomes an `i32` function whose `return` and fall-off-the-end
 ///   both yield 0. Emitting `void main` instead leaves the exit status as
@@ -88,6 +89,12 @@ pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
 ///   `==` on strings to a program silently changed its exit code.
 /// * `fn main() -> i64` keeps its `i64` body but truncates the result to `i32`
 ///   at every `return`, which is the width the operating system reads.
+///
+/// The two entry parameters are hidden: the Yashy surface is still `fn main()`,
+/// and the checker rejects parameters on `main`. They exist only to hand the
+/// process's argument vector to `yashy_args_init`, which stores it for
+/// `args()`. A recursive call to `main` passes `0`/`null`, which the runtime
+/// ignores because the first vector wins.
 ///
 /// The checker rejects an entry point that returns anything else, so there is no
 /// third case to write. `main`'s own name is left alone, so a recursive `main`
@@ -104,12 +111,17 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
     } else {
         fn_return_repr(&f.ret.kind)
     };
-    let params: Vec<String> = f
-        .params
-        .iter()
-        .enumerate()
-        .map(|(index, param)| format!("{} %arg{index}", repr_type(&param.ty.kind)))
-        .collect();
+    let params: Vec<String> = if entry_point {
+        // The C entry signature, hidden from the Yashy surface. `gen_body`
+        // calls `yashy_args_init` with these names before lowering the body.
+        vec!["i32 %argc".to_string(), "i8** %argv".to_string()]
+    } else {
+        f.params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| format!("{} %arg{index}", repr_type(&param.ty.kind)))
+            .collect()
+    };
     // A function that *receives* a function value keeps the calls it makes
     // through that value indirect.
     //
@@ -161,6 +173,12 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
         ctx.capture_offsets = crate::env::capture_offsets(&f.captures);
         ctx.env = env.map(|name| name.to_string());
         ctx.begin_entry();
+        if entry_point {
+            // The process's vector is the only portable source of `args()`.
+            // Stored once, before any Yashy statement can run; a recursive
+            // `main` call passes a null pair and the runtime keeps this one.
+            ctx.push("call void @yashy_args_init(i32 %argc, i8** %argv)");
+        }
         let slots = ctx.alloc_params(f);
         for (index, (slot, param)) in slots.iter().zip(f.params.iter()).enumerate() {
             let repr = repr_type(&param.ty.kind);

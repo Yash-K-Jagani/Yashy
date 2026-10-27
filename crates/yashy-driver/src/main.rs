@@ -5,8 +5,9 @@
 //! yashy run <file.ya> [build flags] [-- <program args>...]
 //! yashy check <file.ya>
 //! yashy test [path] [--filter <substring>] [--list]
+//! yashy explain <code> [--json]
 //! yashy init [path]
-//! yashy doctor
+//! yashy doctor [--json]
 //! yashy fmt [-w] <files...>
 //! yashy version
 //! ```
@@ -17,13 +18,17 @@
 
 use std::env;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
-use yashy_common::{Diagnostic, SourceMap, EXIT_COMPILE_ERROR, EXIT_OK};
+use yashy_common::{
+    codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
+    EXIT_OK, EXIT_USAGE,
+};
 use yashy_driver::{
     compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
 };
@@ -32,10 +37,11 @@ const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
-  yashy check <file.ya>
-  yashy test [path] [--filter <substring>] [--list]
+  yashy check <file.ya> [--json]
+  yashy test [path] [--filter <substring>] [--list] [--json]
+  yashy explain <code> [--json]
   yashy init [path]
-  yashy doctor
+  yashy doctor [--json]
   yashy fmt [-w] <files...>
   yashy version
 
@@ -43,6 +49,7 @@ usage:
   run     compile and execute a program
   check   lex, parse and type-check without emitting anything
   test    compile and run the programs under tests/
+  explain print the long-form page for an error code
   init    create a new Yashy project
   doctor  check the compiler's toolchain and standard library
   fmt     rewrite source files in the canonical style; -w writes them back
@@ -54,13 +61,14 @@ usage:
   --release    a release build: `debug_assert` is compiled out and the
                optimization level defaults to -O3 unless an explicit -O
                level is given
-  --emit-ir    print the generated LLVM IR to stdout and stop";
+  --emit-ir    print the generated LLVM IR to stdout and stop
+  --json       print a stable machine-readable report (check, test, explain, doctor)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(command) = args.first().map(String::as_str) else {
         eprintln!("error: no command given\n{USAGE}");
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     };
     let rest = args.get(1..).unwrap_or(&[]);
 
@@ -77,12 +85,13 @@ fn main() -> ExitCode {
         "run" => run(rest),
         "check" => check(rest),
         "test" => test(rest),
+        "explain" => explain(rest),
         "init" => init(rest),
         "doctor" => doctor(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
-            exit_code(EXIT_COMPILE_ERROR)
+            exit_code(EXIT_USAGE)
         }
     }
 }
@@ -402,11 +411,13 @@ fn test(args: &[String]) -> ExitCode {
     let mut root: Option<PathBuf> = None;
     let mut filter: Option<String> = None;
     let mut list = false;
+    let mut json = false;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--list" => list = true,
+            "--json" => json = true,
             "--filter" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--filter` needs a substring");
@@ -425,16 +436,20 @@ fn test(args: &[String]) -> ExitCode {
         }
     }
 
+    if json && list {
+        return usage_error("`--list` and `--json` cannot be combined");
+    }
+
     let explicit_root = root.is_some();
     let root = root.unwrap_or_else(|| PathBuf::from("tests"));
     if explicit_root && !root.exists() {
         eprintln!("error: no tests at {}", root.display());
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     }
     let mut tests = Vec::new();
     if let Err(error) = collect_tests(&root, &mut tests) {
         eprintln!("error: cannot read {}: {error}", root.display());
-        return exit_code(EXIT_COMPILE_ERROR);
+        return exit_code(EXIT_USAGE);
     }
     tests.sort();
 
@@ -442,6 +457,10 @@ fn test(args: &[String]) -> ExitCode {
         tests.retain(|path| {
             path.to_string_lossy().contains(filter) || display_test_path(path).contains(filter)
         });
+    }
+
+    if json {
+        return test_json(&root, &tests);
     }
 
     if list {
@@ -517,6 +536,226 @@ fn test(args: &[String]) -> ExitCode {
     }
 }
 
+/// `yashy test --json`: the same test discovery as `test`, with one JSON
+/// envelope instead of the human progress lines.
+///
+/// Compile diagnostics are collected through the same checker and code
+/// generator the human path uses, so a fact in the JSON (code, severity, file,
+/// span) is the fact the human renderer prints.
+fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
+    let mut global_sources = SourceMap::new();
+    let root_file = global_sources.add_file(root.display().to_string(), String::new());
+
+    if tests.is_empty() {
+        print_test_json(&global_sources, &[], &[], 0, 0);
+        return exit_code(EXIT_OK);
+    }
+
+    let toolchain = match detect() {
+        Ok(toolchain) => toolchain,
+        Err(message) => {
+            let diagnostic = Diagnostic::new(Severity::Error, root_file, Span::SYNTHETIC, message);
+            print_test_json(&global_sources, &[diagnostic], &[], 0, 0);
+            return exit_code(EXIT_USAGE);
+        }
+    };
+
+    let mut results: Vec<Json> = Vec::new();
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for path in tests {
+        let started = Instant::now();
+        let file = display_test_path(path);
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(file.as_str())
+            .to_string();
+        let dir = temp_run_dir();
+        if let Err(error) = fs::create_dir_all(&dir) {
+            let file_id = global_sources.add_file(file.clone(), String::new());
+            let diagnostic = Diagnostic::new(
+                Severity::Error,
+                file_id,
+                Span::SYNTHETIC,
+                format!("cannot create {}: {error}", dir.display()),
+            );
+            print_test_json(&global_sources, &[diagnostic], &results, passed, failed);
+            return exit_code(EXIT_INTERNAL);
+        }
+
+        let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
+        let mut sources = SourceMap::new();
+        let source = match fs::read_to_string(path) {
+            Ok(source) => source,
+            Err(error) => {
+                let file_id = sources.add_file(file.clone(), String::new());
+                let diagnostic = Diagnostic::new(
+                    Severity::Error,
+                    file_id,
+                    Span::SYNTHETIC,
+                    format!("cannot read {}: {error}", path.display()),
+                );
+                failed += 1;
+                results.push(test_json_object(
+                    &name,
+                    &file,
+                    "failed",
+                    elapsed_ms(started),
+                    &sources,
+                    &[diagnostic],
+                ));
+                let _ = fs::remove_dir_all(&dir);
+                continue;
+            }
+        };
+
+        // The display path uses `/` on every platform, so the file named by a
+        // per-test diagnostic is the same string as the test object's `file`.
+        // Windows accepts `/` in a path, and the module loader resolves imports
+        // from this entry just as it does from the native form.
+        let entry = Path::new(&file);
+        let outcome = match load_and_check(&mut sources, entry, source, false) {
+            Ok(hir) => compile_hir(&hir, &file, &exe, &toolchain, BuildOptions::default()),
+            Err(diagnostics) => Err(diagnostics),
+        };
+
+        match outcome {
+            Ok(()) => match output_with_retry(&exe, &[]) {
+                Ok(output) if output.status.success() => {
+                    passed += 1;
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "passed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[],
+                    ));
+                }
+                Ok(output) => {
+                    failed += 1;
+                    let diagnostic = Diagnostic::new(
+                        Severity::Error,
+                        FileId::from_index(0),
+                        Span::SYNTHETIC,
+                        match output.status.code() {
+                            Some(code) => format!("test exited with status {code}"),
+                            None => "test was terminated without an exit status".to_string(),
+                        },
+                    );
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "failed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[diagnostic],
+                    ));
+                }
+                Err(error) => {
+                    failed += 1;
+                    let diagnostic = Diagnostic::new(
+                        Severity::Error,
+                        FileId::from_index(0),
+                        Span::SYNTHETIC,
+                        format!("cannot run the test: {error}"),
+                    );
+                    results.push(test_json_object(
+                        &name,
+                        &file,
+                        "failed",
+                        elapsed_ms(started),
+                        &sources,
+                        &[diagnostic],
+                    ));
+                }
+            },
+            Err(diagnostics) => {
+                failed += 1;
+                results.push(test_json_object(
+                    &name,
+                    &file,
+                    "failed",
+                    elapsed_ms(started),
+                    &sources,
+                    &diagnostics,
+                ));
+            }
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    print_test_json(&global_sources, &[], &results, passed, failed);
+    if failed == 0 {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
+}
+
+fn elapsed_ms(started: Instant) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+
+fn test_json_object(
+    name: &str,
+    file: &str,
+    status: &str,
+    duration_ms: i64,
+    sources: &SourceMap,
+    diagnostics: &[Diagnostic],
+) -> Json {
+    let mut object = Json::object();
+    object.set("name", Json::string(name));
+    object.set("file", Json::string(file));
+    object.set("status", Json::string(status));
+    object.set("duration_ms", Json::number(duration_ms));
+    object.set(
+        "diagnostics",
+        Json::array(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic_json(sources, diagnostic))
+                .collect(),
+        ),
+    );
+    object
+}
+
+fn print_test_json(
+    global_sources: &SourceMap,
+    global: &[Diagnostic],
+    tests: &[Json],
+    passed: usize,
+    failed: usize,
+) {
+    let mut summary = Json::object();
+    summary.set("passed", Json::number(passed as i64));
+    summary.set("failed", Json::number(failed as i64));
+    summary.set("skipped", Json::number(0));
+
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("test"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(failed == 0 && global.is_empty()));
+    report.set(
+        "diagnostics",
+        Json::array(
+            global
+                .iter()
+                .map(|diagnostic| diagnostic_json(global_sources, diagnostic))
+                .collect(),
+        ),
+    );
+    report.set("tests", Json::array(tests.to_vec()));
+    report.set("summary", summary);
+    println!("{}", report.render());
+}
+
 fn collect_tests(root: &Path, tests: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if root.is_file() {
         tests.push(root.to_path_buf());
@@ -556,6 +795,70 @@ fn output_with_retry(exe: &Path, args: &[String]) -> std::io::Result<std::proces
         std::io::ErrorKind::PermissionDenied,
         "the operating system refused to start the compiled test",
     ))
+}
+
+/// `yashy explain <code> [--json]`.
+///
+/// The human form prints the embedded catalog page verbatim; the JSON form
+/// carries the same facts so an agent can read the title, summary, and page
+/// without scraping Markdown. A code that is not in the catalog is a usage
+/// error: the command cannot explain something that does not exist, and a
+/// near miss names the code the reader probably meant.
+fn explain(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut code: Option<&str> = None;
+
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}`"));
+            }
+            other => {
+                if code.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                code = Some(other);
+            }
+        }
+    }
+
+    let Some(code) = code else {
+        return usage_error("`explain` needs an error code, for example `yashy explain E0100`");
+    };
+    let Some(entry) = codes::find(code) else {
+        match codes::closest(code) {
+            Some(near) => eprintln!(
+                "error: unknown error code `{code}`; did you mean `{}`?",
+                near.id
+            ),
+            None => eprintln!("error: unknown error code `{code}`"),
+        }
+        return exit_code(EXIT_USAGE);
+    };
+
+    if json {
+        print_explain_json(entry);
+    } else {
+        print!("{}", entry.page);
+    }
+    exit_code(EXIT_OK)
+}
+
+/// The `explain --json` envelope: schema v1, the catalog entry, and the same
+/// `docs_url` a rendered diagnostic uses.
+fn print_explain_json(code: &codes::Code) {
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("explain"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(true));
+    report.set("code", Json::string(code.id));
+    report.set("title", Json::string(code.title));
+    report.set("summary", Json::string(code.summary));
+    report.set("page", Json::string(code.page));
+    report.set("docs_url", Json::string(codes::docs_url(code.id)));
+    println!("{}", report.render());
 }
 
 /// `yashy init [path]`.
@@ -599,7 +902,7 @@ fn init(args: &[String]) -> ExitCode {
     }
 
     let name = project_name(&target);
-    let files: [(&str, String); 5] = [
+    let files: [(&str, String); 6] = [
         (
             "yashy.toml",
             format!(
@@ -618,10 +921,19 @@ fn init(args: &[String]) -> ExitCode {
         (
             "README.md",
             format!(
-                "# {name}\n\nA Yashy project.\n\n```text\nyashy run main.ya\nyashy test\n```\n"
+                "# {name}\n\nA Yashy project.\n\n## Run\n\n```text\nyashy run main.ya\n```\n\n## Test\n\n```text\nyashy test\n```\n\n## Build\n\n```text\nyashy build main.ya -o {name} --release\n```\n\nSee `AGENTS.md` for the project layout and the rules an editor or agent should follow.\n"
             ),
         ),
-        (".gitignore", "/target/\n*.exe\n".to_string()),
+        (
+            "AGENTS.md",
+            format!(
+                "# {name}\n\nThis is a Yashy project. `main.ya` is the entry point; the programs under `tests/` are the test suite.\n\n## Commands\n\n```text\nyashy check main.ya\nyashy run main.ya\nyashy test\nyashy build main.ya -o {name} --release\n```\n\n## Layout\n\n- `main.ya` -- the program's entry point.\n- `tests/` -- one test program per file. A test is an ordinary Yashy program with a `main`; exit 0 is a pass.\n- `yashy.toml` -- package metadata.\n- `AGENTS.md` -- this guide.\n\n## Rules\n\n- `let` is a mutable binding; `const` is immutable.\n- A module's items are private unless they say `pub`. Import a file by its stem, and keep the file beside the importer.\n- A file under `tests/` is its own entry file. It cannot import a module from the project root by walking up; keep a test self-contained or test the built binary.\n- Errors are values: `Option[T]` for a value that may be missing, `Result[T, E]` for an operation that may fail. There are no exceptions.\n- Owned values are released explicitly: `defer` for a scope, `.free()` for arrays, maps, strings built at run time, channels, and mutexes. The checker refuses a use after `move`.\n- Run `yashy test` before calling the work done. A compile error is not a test failure; fix the diagnostic first.\n\n## Docs\n\n- [Quickstart](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/quickstart.md)\n- [Language tutorial](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/tutorial/00-intro.md)\n- [Errors](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/errors.md)\n- [First CLI](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/tutorial/12-first-cli.md)\n"
+            ),
+        ),
+        (
+            ".gitignore",
+            format!("/target/\n/main\n/{name}\n*.exe\n*.ll\n*.yashy/\n"),
+        ),
     ];
 
     for (relative, contents) in files {
@@ -662,16 +974,83 @@ fn escape_toml(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// `yashy doctor`: the two things a fresh install can get wrong.
+/// The facts `doctor` reports.
+///
+/// The human and JSON forms are two renderings of this one value, so a field
+/// cannot be added to one and forgotten in the other.
+struct DoctorReport {
+    ok: bool,
+    clang: ClangReport,
+    stdlib: StdlibReport,
+    path: PathReport,
+    next: Option<String>,
+}
+
+struct ClangReport {
+    ok: bool,
+    found: Option<&'static str>,
+    path: Option<PathBuf>,
+    version: Option<String>,
+    error: Option<String>,
+}
+
+struct StdlibReport {
+    ok: bool,
+    path: Option<PathBuf>,
+    error: Option<String>,
+}
+
+struct PathReport {
+    executable: Option<PathBuf>,
+    on_path: bool,
+    hint: Option<String>,
+}
+
+/// `yashy doctor [--json]`: the things a fresh install can get wrong.
 fn doctor(args: &[String]) -> ExitCode {
-    if let Some(argument) = args.first() {
-        return usage_error(&format!("unexpected extra argument `{argument}`"));
+    let mut json = false;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other => return usage_error(&format!("unexpected extra argument `{other}`")),
+        }
     }
 
-    println!("yashy {}", env!("CARGO_PKG_VERSION"));
+    let report = collect_doctor_report();
+    if json {
+        print_doctor_json(&report);
+    } else {
+        print_doctor_human(&report);
+    }
 
-    let mut ok = true;
+    if report.ok {
+        exit_code(EXIT_OK)
+    } else {
+        exit_code(EXIT_COMPILE_ERROR)
+    }
+}
 
+fn collect_doctor_report() -> DoctorReport {
+    let clang = check_clang();
+    let stdlib = check_stdlib();
+    let path = check_path();
+    let ok = clang.ok && stdlib.ok;
+    let next = if ok {
+        None
+    } else {
+        Some(doctor_next(&clang, &stdlib))
+    };
+
+    DoctorReport {
+        ok,
+        clang,
+        stdlib,
+        path,
+        next,
+    }
+}
+
+fn check_clang() -> ClangReport {
     match detect() {
         Ok(toolchain) if toolchain.found == "clang" => {
             // A file named `clang` is not enough: Application Control can
@@ -679,73 +1058,438 @@ fn doctor(args: &[String]) -> ExitCode {
             // version probe so doctor tests what the compiler will do.
             match Command::new(&toolchain.llc).arg("--version").output() {
                 Ok(output) if output.status.success() => {
-                    println!("clang: {}", toolchain.llc.display());
+                    let version = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .next()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_string);
+                    ClangReport {
+                        ok: true,
+                        found: Some("clang"),
+                        path: Some(toolchain.llc),
+                        version,
+                        error: None,
+                    }
                 }
                 Ok(output) => {
-                    eprintln!(
-                        "clang: {} failed to run\n{}",
-                        toolchain.llc.display(),
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    );
-                    ok = false;
+                    let bytes = if output.stderr.is_empty() {
+                        &output.stdout
+                    } else {
+                        &output.stderr
+                    };
+                    let detail = String::from_utf8_lossy(bytes).trim().to_string();
+                    let error = if detail.is_empty() {
+                        "failed to run".to_string()
+                    } else {
+                        format!("failed to run: {detail}")
+                    };
+                    ClangReport {
+                        ok: false,
+                        found: Some("clang"),
+                        path: Some(toolchain.llc),
+                        version: None,
+                        error: Some(error),
+                    }
                 }
-                Err(error) => {
-                    eprintln!("clang: cannot run {}\n{error}", toolchain.llc.display());
-                    ok = false;
-                }
+                Err(error) => ClangReport {
+                    ok: false,
+                    found: Some("clang"),
+                    path: Some(toolchain.llc),
+                    version: None,
+                    error: Some(format!("cannot run: {error}")),
+                },
             }
         }
-        Ok(toolchain) => {
-            eprintln!(
-                "clang: missing\nfound only `{}` at {}; builds need clang",
-                toolchain.found,
-                toolchain.llc.display()
-            );
-            ok = false;
-        }
-        Err(message) => {
-            eprintln!("clang: missing\n{message}");
-            ok = false;
-        }
-    }
-
-    match yashy_driver::default_stdlib_root() {
-        Some(root) if root.join("io.ya").is_file() => println!("stdlib: {}", root.display()),
-        Some(root) => {
-            eprintln!(
-                "stdlib: {} does not contain io.ya\nset YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy",
-                root.display()
-            );
-            ok = false;
-        }
-        None => {
-            eprintln!(
-                "stdlib: missing\nset YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy"
-            );
-            ok = false;
-        }
-    }
-
-    if ok {
-        exit_code(EXIT_OK)
-    } else {
-        exit_code(EXIT_COMPILE_ERROR)
+        Ok(toolchain) => ClangReport {
+            ok: false,
+            found: Some(toolchain.found),
+            path: Some(toolchain.llc),
+            version: None,
+            error: Some(format!(
+                "found only `{}`; builds need clang",
+                toolchain.found
+            )),
+        },
+        Err(message) => ClangReport {
+            ok: false,
+            found: None,
+            path: None,
+            version: None,
+            error: Some(message),
+        },
     }
 }
 
-/// `yashy check <file.ya>`.
+fn check_stdlib() -> StdlibReport {
+    match yashy_driver::default_stdlib_root() {
+        Some(root) if root.join("io.ya").is_file() => StdlibReport {
+            ok: true,
+            path: Some(root),
+            error: None,
+        },
+        Some(root) => StdlibReport {
+            ok: false,
+            path: Some(root),
+            error: Some(
+                "does not contain io.ya; set YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy"
+                    .to_string(),
+            ),
+        },
+        None => StdlibReport {
+            ok: false,
+            path: None,
+            error: Some(
+                "missing; set YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy"
+                    .to_string(),
+            ),
+        },
+    }
+}
+
+fn check_path() -> PathReport {
+    let executable = env::current_exe().ok();
+    let Some(dir) = executable
+        .as_ref()
+        .and_then(|path| path.parent())
+        .map(PathBuf::from)
+    else {
+        return PathReport {
+            executable,
+            on_path: false,
+            hint: Some("cannot determine the executable's directory".to_string()),
+        };
+    };
+
+    let on_path = path_contains(&dir);
+    let hint = if on_path {
+        None
+    } else {
+        Some(format!("add {} to PATH", dir.display()))
+    };
+
+    PathReport {
+        executable,
+        on_path,
+        hint,
+    }
+}
+
+fn path_contains(dir: &Path) -> bool {
+    let Some(path) = env::var_os("PATH") else {
+        return false;
+    };
+    let wanted = canonical_or_owned(dir);
+
+    env::split_paths(&path).any(|entry| {
+        let entry = canonical_or_owned(&entry);
+        if cfg!(windows) {
+            entry
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&wanted.to_string_lossy())
+        } else {
+            entry == wanted
+        }
+    })
+}
+
+fn canonical_or_owned(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !clang.ok {
+        parts.push(yashy_driver::toolchain::install_hint());
+    }
+    if !stdlib.ok {
+        parts.push(
+            "Set YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy.".to_string(),
+        );
+    }
+
+    let mut next = parts.join(" ");
+    if !next.is_empty() {
+        next.push_str(" Then run `yashy doctor`.");
+    }
+    next
+}
+
+fn print_doctor_human(report: &DoctorReport) {
+    println!("yashy {}", env!("CARGO_PKG_VERSION"));
+    println!("target: {}", host_target_triple());
+
+    if report.clang.ok {
+        if let Some(path) = &report.clang.path {
+            println!("clang: {}", path.display());
+        }
+        if let Some(version) = &report.clang.version {
+            println!("  {version}");
+        }
+    } else {
+        eprintln!("clang: missing");
+        if let Some(path) = &report.clang.path {
+            eprintln!("  {}", path.display());
+        }
+        if let Some(error) = &report.clang.error {
+            eprintln!("  {error}");
+        }
+    }
+
+    if report.stdlib.ok {
+        if let Some(path) = &report.stdlib.path {
+            println!("stdlib: {}", path.display());
+        }
+    } else {
+        eprintln!("stdlib: missing");
+        if let Some(path) = &report.stdlib.path {
+            eprintln!("  {}", path.display());
+        }
+        if let Some(error) = &report.stdlib.error {
+            eprintln!("  {error}");
+        }
+    }
+
+    match &report.path.executable {
+        Some(executable) if report.path.on_path => println!("path: {}", executable.display()),
+        Some(executable) => println!(
+            "path: {} (not on PATH; {})",
+            executable.display(),
+            report.path.hint.as_deref().unwrap_or("add it to PATH")
+        ),
+        None => println!("path: unknown"),
+    }
+
+    if let Some(next) = &report.next {
+        eprintln!("next: {next}");
+    }
+}
+
+fn print_doctor_json(report: &DoctorReport) {
+    let mut out = String::new();
+    out.push_str("{\n");
+    writeln!(out, "  \"schema_version\": 1,").expect("writing to a String cannot fail");
+    writeln!(out, "  \"tool\": \"doctor\",").expect("writing to a String cannot fail");
+    writeln!(out, "  \"ok\": {},", report.ok).expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "  \"yashy_version\": {},",
+        json_string(env!("CARGO_PKG_VERSION"))
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(out, "  \"target\": {},", json_string(host_target_triple()))
+        .expect("writing to a String cannot fail");
+
+    out.push_str("  \"clang\": {\n");
+    writeln!(out, "    \"ok\": {},", report.clang.ok).expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"found\": {},",
+        json_opt_string(report.clang.found.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"path\": {},",
+        json_opt_path(report.clang.path.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"version\": {},",
+        json_opt_string(report.clang.version.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"error\": {}",
+        json_opt_string(report.clang.error.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    out.push_str("  },\n");
+
+    out.push_str("  \"stdlib\": {\n");
+    writeln!(out, "    \"ok\": {},", report.stdlib.ok).expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"path\": {},",
+        json_opt_path(report.stdlib.path.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"error\": {}",
+        json_opt_string(report.stdlib.error.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    out.push_str("  },\n");
+
+    out.push_str("  \"path\": {\n");
+    writeln!(
+        out,
+        "    \"executable\": {},",
+        json_opt_path(report.path.executable.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    writeln!(out, "    \"on_path\": {},", report.path.on_path)
+        .expect("writing to a String cannot fail");
+    writeln!(
+        out,
+        "    \"hint\": {}",
+        json_opt_string(report.path.hint.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    out.push_str("  },\n");
+
+    writeln!(
+        out,
+        "  \"next\": {}",
+        json_opt_string(report.next.as_deref())
+    )
+    .expect("writing to a String cannot fail");
+    out.push_str("}\n");
+    print!("{out}");
+}
+
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0c}' => out.push_str("\\f"),
+            character if (character as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => out.push(character),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn json_opt_string(value: Option<&str>) -> String {
+    match value {
+        Some(value) => json_string(value),
+        None => "null".to_string(),
+    }
+}
+
+fn json_opt_path(value: Option<&Path>) -> String {
+    match value {
+        Some(value) => json_string(value.to_string_lossy().as_ref()),
+        None => "null".to_string(),
+    }
+}
+
+fn print_check_json(sources: &SourceMap, diagnostics: &[Diagnostic]) {
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_error())
+        .count();
+    let warnings = diagnostics.len().saturating_sub(errors);
+
+    let mut summary = Json::object();
+    summary.set("errors", Json::number(errors as i64));
+    summary.set("warnings", Json::number(warnings as i64));
+
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("check"));
+    report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
+    report.set("success", Json::bool(errors == 0));
+    report.set(
+        "diagnostics",
+        Json::array(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic_json(sources, diagnostic))
+                .collect(),
+        ),
+    );
+    report.set("summary", summary);
+    println!("{}", report.render());
+}
+
+fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
+    let mut object = Json::object();
+    object.set(
+        "code",
+        match diagnostic.code {
+            Some(code) => Json::string(code),
+            None => Json::null(),
+        },
+    );
+    object.set("severity", Json::string(diagnostic.severity.as_str()));
+    object.set("message", Json::string(diagnostic.message.as_str()));
+    object.set("file", Json::string(sources.path(diagnostic.file)));
+    object.set("span", span_json(sources, diagnostic.file, diagnostic.span));
+    if let Some(label) = &diagnostic.label {
+        let mut label_object = Json::object();
+        label_object.set("span", span_range_json(diagnostic.span));
+        label_object.set("message", Json::string(label.as_str()));
+        object.set("labels", Json::array(vec![label_object]));
+    }
+    if !diagnostic.notes.is_empty() {
+        object.set(
+            "notes",
+            Json::array(
+                diagnostic
+                    .notes
+                    .iter()
+                    .map(|note| Json::string(note.as_str()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(url) = diagnostic.docs_url() {
+        object.set("docs_url", Json::string(url));
+    }
+    object
+}
+
+fn span_json(sources: &SourceMap, file: FileId, span: Span) -> Json {
+    let location = sources.locate(file, span);
+    let mut object = span_range_json(span);
+    object.set("line", Json::number(i64::from(location.line)));
+    object.set("column", Json::number(i64::from(location.col)));
+    object
+}
+
+fn span_range_json(span: Span) -> Json {
+    let mut object = Json::object();
+    object.set("start", Json::number(i64::from(span.start)));
+    object.set("end", Json::number(i64::from(span.end)));
+    object
+}
+
+/// `yashy check <file.ya> [--json]`.
 fn check(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        return usage_error("`check` needs a source file");
+    let mut json = false;
+    let mut input: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `check`"));
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
     }
-    if args.len() > 1 {
-        return usage_error(&format!("unexpected extra argument `{}`", args[1]));
-    }
-    let Some(input) = args.first() else {
+    let Some(input) = input else {
         return usage_error("`check` needs a source file");
     };
-    let input = PathBuf::from(input);
-    let source = match read_source(&input) {
+    let source = match read_source_with(&input, EXIT_USAGE) {
         Ok(source) => source,
         Err(code) => return code,
     };
@@ -754,15 +1498,39 @@ fn check(args: &[String]) -> ExitCode {
     // lower it -- so there is no `--release` here to accept and ignore.
     let mut sources = SourceMap::new();
     match load_and_check(&mut sources, &input, source, false) {
-        Ok(_) => exit_code(EXIT_OK),
-        Err(diagnostics) => render(&sources, &diagnostics),
+        Ok(_) => {
+            if json {
+                print_check_json(&sources, &[]);
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(diagnostics) => {
+            if json {
+                let errors = diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.is_error())
+                    .count();
+                print_check_json(&sources, &diagnostics);
+                if errors > 0 {
+                    exit_code(EXIT_COMPILE_ERROR)
+                } else {
+                    exit_code(EXIT_OK)
+                }
+            } else {
+                render(&sources, &diagnostics)
+            }
+        }
     }
 }
 
 fn read_source(input: &Path) -> Result<String, ExitCode> {
+    read_source_with(input, EXIT_COMPILE_ERROR)
+}
+
+fn read_source_with(input: &Path, code: i32) -> Result<String, ExitCode> {
     std::fs::read_to_string(input).map_err(|error| {
         eprintln!("error: cannot read {}: {error}", input.display());
-        exit_code(EXIT_COMPILE_ERROR)
+        exit_code(code)
     })
 }
 
@@ -863,7 +1631,7 @@ fn unknown_cpu(value: &str) -> String {
 
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("error: {message}\n{USAGE}");
-    exit_code(EXIT_COMPILE_ERROR)
+    exit_code(EXIT_USAGE)
 }
 
 fn exit_code(code: i32) -> ExitCode {

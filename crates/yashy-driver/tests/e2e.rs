@@ -186,6 +186,18 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// Run a built executable with `args`, stepping around a host that refuses to
+/// start it. The arguments are the user arguments the program sees: the
+/// executable path is not repeated here.
+fn run_with_args(exe: &Path, args: &[&str]) -> Output {
+    launch_retrying(exe, |path| Command::new(path).args(args).output()).unwrap_or_else(|error| {
+        panic!(
+            "the compiled executable at {} must be runnable: {error}",
+            exe.display()
+        )
+    })
+}
+
 /// How long a concurrent program may run before the test calls it hung.
 ///
 /// The programs finish in about a second; the bound only has to be longer than
@@ -307,6 +319,65 @@ fn build_and_run(name: &str) -> Output {
 fn hello_world_prints_and_exits_zero() {
     let output = build_and_run("hello");
     assert_eq!(stdout_of(&output), "Hello, Yashy!\n");
+}
+
+#[test]
+fn arguments_arrive_in_order_and_exclude_the_program_path() {
+    let (_dir, exe, compile) = build_program("args");
+    assert!(
+        compile.status.success(),
+        "compiling args.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = run_with_args(&exe, &["one", "two"]);
+    assert!(
+        output.status.success(),
+        "args exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "2\none\ntwo\n",
+        "the executable path must not be an element"
+    );
+
+    let empty = run_with_args(&exe, &[]);
+    assert_eq!(stdout_of(&empty), "0\n", "no arguments is an empty slice");
+}
+
+#[test]
+fn getcwd_reports_the_directory_the_program_started_in() {
+    let (dir, exe, compile) = build_program("cwd");
+    assert!(
+        compile.status.success(),
+        "compiling cwd.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let output = launch_retrying(&exe, |path| Command::new(path).current_dir(&dir).output())
+        .expect("the cwd program must start");
+    assert!(
+        output.status.success(),
+        "cwd exited with {:?}",
+        output.status.code()
+    );
+
+    let text = stdout_of(&output);
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("cwd ok"));
+    let reported = PathBuf::from(lines.next().expect("the path line"));
+    assert_eq!(
+        reported.canonicalize().expect("the reported path must exist"),
+        dir.canonicalize().expect("the work directory must exist"),
+        "getcwd must report the directory the process started in"
+    );
+}
+
+#[test]
+fn now_and_sleep_measure_wall_time() {
+    let output = build_and_run("time");
+    assert_eq!(stdout_of(&output), "clock ok\nslept\n");
 }
 
 #[test]
@@ -647,6 +718,34 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
 }
 
 #[test]
+fn a_catalogued_error_prints_its_code() {
+    let dir = work_dir("coded-error");
+    let source = dir.join("coded.ya");
+    fs::write(&source, "fn main() {\n    print(nope);\n}\n").expect("write coded.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "an unknown name is an error");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0001]: cannot find value `nope` in this scope"),
+        "the code must be part of the rendered diagnostic:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        "the coded diagnostic still needs its caret:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("  docs: https://yashy.dev/errors/E0001"),
+        "the coded diagnostic must link its catalog page:\n{stderr}"
+    );
+}
+
+#[test]
 fn var_is_reported_with_a_caret() {
     let dir = work_dir("var-removed");
     let source = dir.join("bad.ya");
@@ -694,7 +793,10 @@ fn emit_ir_prints_llvm_without_invoking_llvm() {
     assert!(ir.contains("target datalayout"), "not LLVM IR:\n{ir}");
     // The entry point is an `i32` function whatever the Yashy signature says,
     // because that is the return type the C runtime reads as the exit status.
-    assert!(ir.contains("define i32 @main()"), "not this program:\n{ir}");
+    assert!(
+        ir.contains("define i32 @main(i32 %argc, i8** %argv)"),
+        "not this program:\n{ir}"
+    );
 }
 
 #[test]
@@ -753,6 +855,41 @@ fn the_help_text_names_yashy_and_the_ya_extension() {
 }
 
 #[test]
+fn no_command_is_a_usage_error() {
+    let output = Command::new(yashy())
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a missing command is a usage error"
+    );
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("no command given"), "got:\n{stderr}");
+    assert!(stderr.contains("usage:"), "got:\n{stderr}");
+}
+
+#[test]
+fn an_unknown_command_is_a_usage_error() {
+    let output = Command::new(yashy())
+        .arg("frobnicate")
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "an unknown command is a usage error"
+    );
+    assert!(
+        stderr_of(&output).contains("unknown command `frobnicate`"),
+        "got:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
 fn an_unknown_optimization_level_is_a_usage_error() {
     // The level is validated by the CLI, not clamped and not passed through to
     // `clang`, so a typo is reported as a usage error naming the valid levels.
@@ -767,7 +904,7 @@ fn an_unknown_optimization_level_is_a_usage_error() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "-O9 must not build");
+    assert_eq!(output.status.code(), Some(2), "-O9 is a usage error");
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("-O0, -O1, -O2 or -O3"),
@@ -903,7 +1040,7 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .arg("--cpu=x86-64-v9")
         .output()
         .expect("run the yashy CLI");
-    assert_eq!(output.status.code(), Some(1), "a bad tier must not build");
+    assert_eq!(output.status.code(), Some(2), "a bad tier is a usage error");
     let stderr = stderr_of(&output);
     for tier in ["portable", "x86-64-v2", "x86-64-v3", "x86-64-v4", "native"] {
         assert!(
@@ -920,7 +1057,7 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .arg("--cpu")
         .output()
         .expect("run the yashy CLI");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     assert!(stderr_of(&output).contains("needs a value"));
 }
 
@@ -2647,4 +2784,25 @@ fn an_i64_annotation_is_reported_with_a_caret() {
     let stderr = stderr_of(&output);
     assert!(stderr.contains("`i64` is spelled `int` in Yashy"), "{stderr}");
     assert!(stderr.contains('^'), "expected a caret:\n{stderr}");
+}
+#[test]
+fn a_misspelled_name_gets_a_did_you_mean_label() {
+    // The suggestion is part of the rendered diagnostic, not only of the
+    // diagnostic struct: the reader sees it under the caret.
+    let dir = work_dir("did-you-mean");
+    let source = dir.join("typo.ya");
+    fs::write(&source, "fn main() {\n    let count = 1;\n    print(cuont);\n}\n")
+        .expect("write typo.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("did you mean `count`?"),
+        "expected a suggestion under the caret:\n{stderr}"
+    );
 }

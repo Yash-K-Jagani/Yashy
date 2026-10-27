@@ -27,7 +27,9 @@
 //! Every lookup is total; a `break` outside a loop, or a missing loop label,
 //! lowers to a comment rather than an abort.
 
-use yashy_sema::{expr_ty, linearity_of, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind};
+use yashy_sema::{
+    expr_ty, linearity_of, BinOp, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind,
+};
 
 use crate::expr_gen::retain_struct_fields;
 use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, LoopTarget, RefKind};
@@ -335,6 +337,43 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     let old = ctx.tmp();
                     ctx.push(format!("{old} = load {repr}, ptr {slot}"));
                     ctx.push(format!("call void @yashy_free(i8* {old})"));
+                }
+            }
+            // Fast path for `s = s + piece`: append in place instead of
+            // allocating a fresh string and releasing the old one. The slot
+            // owns its reference, so `yashy_str_append` either mutates it or
+            // takes over the reference and releases the old bytes itself.
+            if is_string {
+                if let Some(slot) = &slot {
+                    // Only a slot the scope owns may be mutated in place. A
+                    // parameter's reference belongs to the caller, and its slot
+                    // is not tracked, so an assignment to a parameter keeps the
+                    // general path (which builds a new string).
+                    if ctx.is_tracked_ref_slot(slot) {
+                        if let HirExpr::Binary {
+                            op: BinOp::Add,
+                            lhs,
+                            rhs,
+                            ..
+                        } = value
+                        {
+                            if let HirExpr::Ident(path, _, _) = &**lhs {
+                                if path.last().map(String::as_str) == Some(name.as_str()) {
+                                    let old = ctx.tmp();
+                                    ctx.push(format!("{old} = load i8*, ptr {slot}"));
+                                    let piece = gen_expr(ctx, rhs);
+                                    let appended = ctx.tmp();
+                                    ctx.push(format!(
+                                        "{appended} = call i8* @yashy_str_append(i8* {old}, i8* {})",
+                                        piece.value
+                                    ));
+                                    ctx.release_owned(&piece.value);
+                                    ctx.push(format!("store i8* {appended}, ptr {slot}"));
+                                    return Flow::Fallthrough;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             let value = gen_expr(ctx, value);

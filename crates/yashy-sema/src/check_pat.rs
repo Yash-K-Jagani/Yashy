@@ -1,6 +1,6 @@
 //! Pattern checking: `Option`, `Result`, and `switch` typing.
 
-use yashy_common::Span;
+use yashy_common::{codes, Span};
 use yashy_parser::ast::{Pattern, TypeExpr, VariantDef, VariantField};
 
 use crate::error::TypeError;
@@ -123,10 +123,10 @@ fn check_unit_variant(
                 span,
                 format!("`{name}` is not a unit variant of `{scrutinee}`"),
             )),
-            None => Err(TypeError::new(
-                span,
-                format!("cannot find type `{enum_name}`"),
-            )),
+            None => Err(
+                TypeError::new(span, format!("cannot find type `{enum_name}`"))
+                    .with_code(codes::UNKNOWN_TYPE),
+            ),
         },
         _ => Err(TypeError::new(
             span,
@@ -195,10 +195,10 @@ fn tuple_payloads(
                     format!("`{name}` is not a variant of `{scrutinee}`"),
                 )),
             },
-            None => Err(TypeError::new(
-                span,
-                format!("cannot find type `{enum_name}`"),
-            )),
+            None => Err(
+                TypeError::new(span, format!("cannot find type `{enum_name}`"))
+                    .with_code(codes::UNKNOWN_TYPE),
+            ),
         },
         _ => Err(TypeError::new(
             span,
@@ -247,10 +247,10 @@ fn check_struct_variant(
                 }
             },
             None => {
-                return Err(TypeError::new(
-                    span,
-                    format!("cannot find type `{enum_name}`"),
-                ));
+                return Err(
+                    TypeError::new(span, format!("cannot find type `{enum_name}`"))
+                        .with_code(codes::UNKNOWN_TYPE),
+                );
             }
         },
         _ => {
@@ -274,10 +274,17 @@ fn check_struct_variant(
                 hir_fields.push((fname.clone(), checked, *fspan));
             }
             None => {
-                return Err(TypeError::new(
+                let mut error = TypeError::new(
                     *fspan,
                     format!("unknown field `{fname}` in variant `{name}`"),
-                ));
+                )
+                .with_code(codes::UNKNOWN_FIELD);
+                if let Some(suggestion) =
+                    yashy_common::closest(fname, declared.iter().map(|(n, _)| n.as_str()))
+                {
+                    error = error.with_label(format!("did you mean `{suggestion}`?"));
+                }
+                return Err(error);
             }
         }
     }

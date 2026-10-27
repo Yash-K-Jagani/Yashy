@@ -92,6 +92,15 @@ fn stdlib_root_near_exe(exe: &Path) -> Option<PathBuf> {
     let candidates = [
         dir.join("yashy-stdlib").join("yashy"),
         dir.join("stdlib"),
+        // The Unix installer writes the archive's `yashy` directory under
+        // share/yashy/stdlib, so the nested form is the one a package-manager
+        // style prefix produces. The flat form is kept for older installs and
+        // for a hand-built prefix.
+        dir.join("..")
+            .join("share")
+            .join("yashy")
+            .join("stdlib")
+            .join("yashy"),
         dir.join("..").join("share").join("yashy").join("stdlib"),
     ];
     candidates.into_iter().find(|candidate| candidate.is_dir())
@@ -325,12 +334,13 @@ impl Loader<'_> {
     /// marked `Loading` would make a second attempt at the same load report a
     /// cycle that does not exist, and a caller retrying is a caller that should
     /// get the first error again.
-    fn abandon(
-        &mut self,
-        identity: PathBuf,
-        diagnostics: Vec<Diagnostic>,
-    ) -> Vec<Diagnostic> {
-        if self.stack.last().map(|(id, _)| id == &identity).unwrap_or(false) {
+    fn abandon(&mut self, identity: PathBuf, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+        if self
+            .stack
+            .last()
+            .map(|(id, _)| id == &identity)
+            .unwrap_or(false)
+        {
             self.stack.pop();
         }
         self.seen.remove(&identity);
@@ -410,6 +420,25 @@ mod tests {
         fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
 
         assert_eq!(stdlib_root_near_exe(&dir.join("yashy.exe")), Some(stdlib));
+    }
+
+    #[test]
+    fn a_nested_shared_prefix_layout_is_found() {
+        let dir = temp_layout("nested-shared-prefix");
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).expect("the bin directory must be creatable");
+        // This is the layout the Unix installer writes:
+        // <prefix>/share/yashy/stdlib/yashy/*.ya.
+        let stdlib = dir.join("share").join("yashy").join("stdlib").join("yashy");
+        fs::create_dir_all(&stdlib).expect("the stdlib directory must be creatable");
+        fs::write(stdlib.join("io.ya"), "").expect("the stdlib file must be writable");
+
+        let found = stdlib_root_near_exe(&bin.join("yashy"))
+            .expect("the nested shared-prefix layout must be found");
+        assert_eq!(
+            found.canonicalize().expect("the found path must exist"),
+            stdlib.canonicalize().expect("the fixture must exist")
+        );
     }
 
     #[test]

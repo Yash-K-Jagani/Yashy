@@ -1,0 +1,183 @@
+//! Stable error codes and the catalog pages they name.
+//!
+//! A code is assigned where the diagnostic is built, never inferred from the
+//! message text: two diagnostics that happen to share a sentence are not
+//! necessarily the same mistake, and a code that changes when a message is
+//! reworded is not stable.
+//!
+//! The long-form page is embedded with [`include_str!`], so the catalog is
+//! available offline and a code without a page does not compile.
+
+/// One entry in the error catalog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Code {
+    /// The stable identifier: `E` followed by four digits.
+    pub id: &'static str,
+    /// A short name for the mistake.
+    pub title: &'static str,
+    /// One sentence explaining the mistake.
+    pub summary: &'static str,
+    /// The long-form page, embedded in the binary.
+    pub page: &'static str,
+}
+
+/// A value or function name is not in scope.
+pub const UNKNOWN_NAME: &str = "E0001";
+/// A type name is not declared or imported.
+pub const UNKNOWN_TYPE: &str = "E0002";
+/// An expression's type does not match its context.
+pub const TYPE_MISMATCH: &str = "E0100";
+/// A struct or enum variant has no such field.
+pub const UNKNOWN_FIELD: &str = "E0200";
+/// A struct literal or pattern leaves a field out.
+pub const MISSING_FIELD: &str = "E0201";
+/// A `Result` is used where its success value is expected.
+pub const MISSING_QUESTION: &str = "E0300";
+/// A `const` binding is assigned after its declaration.
+pub const CONST_REASSIGNMENT: &str = "E0400";
+/// A linear value is used after it was moved or freed.
+pub const MOVED_VALUE: &str = "E0500";
+/// A `switch` does not cover every case.
+pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
+/// A call passes the wrong number of arguments.
+pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
+
+/// Every R1 code, in catalog order.
+pub const CODES: &[Code] = &[
+    Code {
+        id: UNKNOWN_NAME,
+        title: "unknown name",
+        summary: "A value or function name is not in scope.",
+        page: include_str!("../../../docs/errors/E0001.md"),
+    },
+    Code {
+        id: UNKNOWN_TYPE,
+        title: "unknown type",
+        summary: "A type name is not declared or imported.",
+        page: include_str!("../../../docs/errors/E0002.md"),
+    },
+    Code {
+        id: TYPE_MISMATCH,
+        title: "type mismatch",
+        summary: "An expression's type does not match its context.",
+        page: include_str!("../../../docs/errors/E0100.md"),
+    },
+    Code {
+        id: UNKNOWN_FIELD,
+        title: "unknown field",
+        summary: "A struct or enum variant has no such field.",
+        page: include_str!("../../../docs/errors/E0200.md"),
+    },
+    Code {
+        id: MISSING_FIELD,
+        title: "missing field",
+        summary: "A struct literal or pattern leaves a field out.",
+        page: include_str!("../../../docs/errors/E0201.md"),
+    },
+    Code {
+        id: MISSING_QUESTION,
+        title: "missing `?`",
+        summary: "A `Result` is used where its success value is expected.",
+        page: include_str!("../../../docs/errors/E0300.md"),
+    },
+    Code {
+        id: CONST_REASSIGNMENT,
+        title: "const reassignment",
+        summary: "A `const` binding is assigned after its declaration.",
+        page: include_str!("../../../docs/errors/E0400.md"),
+    },
+    Code {
+        id: MOVED_VALUE,
+        title: "moved value",
+        summary: "A linear value is used after it was moved or freed.",
+        page: include_str!("../../../docs/errors/E0500.md"),
+    },
+    Code {
+        id: NON_EXHAUSTIVE_MATCH,
+        title: "non-exhaustive match",
+        summary: "A `switch` does not cover every case.",
+        page: include_str!("../../../docs/errors/E0600.md"),
+    },
+    Code {
+        id: WRONG_ARGUMENT_COUNT,
+        title: "wrong argument count",
+        summary: "A call passes the wrong number of arguments.",
+        page: include_str!("../../../docs/errors/E0700.md"),
+    },
+];
+
+/// The catalog entry for `id`, if the code exists.
+pub fn find(id: &str) -> Option<&'static Code> {
+    CODES.iter().find(|code| code.id == id)
+}
+
+/// The catalog entry nearest to `id`, for a mistyped code.
+///
+/// This is the same distance rule the name suggestions use, so `E010` offers
+/// `E0100` and an unrelated string offers nothing.
+pub fn closest(id: &str) -> Option<&'static Code> {
+    let candidate = crate::closest(id, CODES.iter().map(|code| code.id))?;
+    find(&candidate)
+}
+
+/// The public catalog page for a code.
+pub fn docs_url(id: &str) -> String {
+    format!("https://yashy.dev/errors/{id}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_has_a_unique_id_and_an_embedded_page() {
+        let mut seen = std::collections::HashSet::new();
+        for code in CODES {
+            assert!(seen.insert(code.id), "duplicate code {}", code.id);
+            assert!(
+                code.id.len() == 5 && code.id.starts_with('E'),
+                "code {} is not E plus four digits",
+                code.id
+            );
+            assert!(!code.title.is_empty(), "{} has no title", code.id);
+            assert!(!code.summary.is_empty(), "{} has no summary", code.id);
+            assert!(
+                code.page.starts_with("# "),
+                "{} has no Markdown heading",
+                code.id
+            );
+            assert!(
+                code.page.contains(code.id),
+                "{}'s page does not name the code",
+                code.id
+            );
+            assert!(
+                code.page.contains("## Cause")
+                    && code.page.contains("## Example")
+                    && code.page.contains("## Fix"),
+                "{}'s page is missing cause, example, or fix",
+                code.id
+            );
+        }
+    }
+
+    #[test]
+    fn find_returns_the_entry_and_unknown_codes_are_none() {
+        assert_eq!(find("E0001").map(|code| code.title), Some("unknown name"));
+        assert_eq!(find("E0100").map(|code| code.title), Some("type mismatch"));
+        assert!(find("E9999").is_none());
+        assert!(find("0100").is_none());
+    }
+
+    #[test]
+    fn a_near_miss_offers_the_nearest_code() {
+        assert_eq!(closest("E010").map(|code| code.id), Some("E0100"));
+        assert!(closest("E9999").is_none());
+        assert!(closest("not-a-code").is_none());
+    }
+
+    #[test]
+    fn the_docs_url_is_the_catalog_page() {
+        assert_eq!(docs_url("E0100"), "https://yashy.dev/errors/E0100");
+    }
+}

@@ -111,7 +111,7 @@ the result matters, match it or pass it to a function that takes a `Result`.
 
 - **Giving `Err` the wrong payload.** `return Err(1);` in a
   `Result[int, string]` function reports
-  ``error: expected `string`, found `int` ``. Construct the error the signature
+  ``error[E0100]: expected `string`, found `int` ``. Construct the error the signature
   promises.
 - **Applying `?` to a number.** `const x = 3?;` reports
   ``error: `?` can only be used on a `Result`, not `int` ``.
@@ -124,6 +124,28 @@ the result matters, match it or pass it to a function that takes a `Result`.
   through the chain.
 - **Ignoring a result.** `half(3);` compiles and drops the `Err`. If the caller
   should report it, match it and print the message, as `report` does.
+
+## Diagnostics that teach
+
+A misspelled name is reported at the point of use, with the nearest name in
+scope as a suggestion:
+
+```text
+misspell.ya:3:11
+error[E0001]: cannot find value `totl` in this scope
+    print(totl);
+          ^^^^ did you mean `total`?
+  docs: https://yashy.dev/errors/E0001
+```
+
+The suggestion is offered only when the edit distance is small enough to be a
+likely typo; a name that is simply absent gets the same error without the hint.
+The same rule covers functions, types, struct fields, struct-literal fields and
+enum variant fields, so a typo in `Point { x: 1, yy: 2 }` names the field it
+probably meant. The caret and the note are part of the diagnostic, not a
+separate lint: `yashy check` and `yashy build` print the same block. The final
+`docs:` line names the catalog page, and `yashy explain E0001` prints that page
+offline.
 
 ## Try it
 

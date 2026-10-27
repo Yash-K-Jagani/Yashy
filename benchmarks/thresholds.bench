@@ -1,0 +1,13 @@
+# Percent change a gate row may move before it fails.
+#
+# The row's name picks the default: *_compile_ms uses `compile`, *_binary_bytes
+# uses `binary`, *_run_ms uses `runtime`. Any other key is a per-row override
+# in percent -- useful for a row that is honest but noisier than its kind.
+
+compile=20
+binary=10
+runtime=20
+
+# The 1,000-line program is a slower build; give it a little more room than a
+# small program, but still catch a real regression.
+large_compile_ms=25

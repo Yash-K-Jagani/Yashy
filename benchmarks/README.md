@@ -17,6 +17,73 @@ pwsh benchmarks/run.ps1            # the scalar suite
 pwsh benchmarks/run-features.ps1   # the feature suite
 ```
 
+## The R1 CI gate
+
+A third, small suite runs in CI: `benchmarks/ci.ps1` on Windows and
+`benchmarks/ci.sh` on Linux. It builds `fib`, `hello` and a ~1,000-line program,
+checks that `fib` prints `9227465`, and writes the six gate rows as `key=value`:
+
+| Row | Measures |
+|---|---|
+| `fib_compile_ms` | build time of the recursive-fibonacci program |
+| `fib_binary_bytes` | size of that executable |
+| `fib_run_ms` | wall-clock run of that executable |
+| `hello_compile_ms` | build time of a hello-world program |
+| `hello_binary_bytes` | size of the hello-world executable |
+| `large_compile_ms` | build time of a ~1,000-line program |
+
+Each row is the median of 3 runs locally (5 in CI) after one untimed warm-up.
+`crates/yashy-bench` compares a fresh measurement with
+`benchmarks/baselines/<os>.bench`; a row fails when it grows past the percent in
+`benchmarks/thresholds.bench` (`compile=20`, `binary=10`, `runtime=20`, with
+`large_compile_ms=25`). A baseline row that the measurement lost fails; a new
+row is reported and not gated. The C comparison is printed in the text log as
+context and is never a gate row.
+
+`.github/workflows/bench.yml` runs the gate:
+
+- Monday 03:00 UTC and manual dispatch **gate**: a breach fails the job.
+- A pull request with the `bench` label runs **report-only**: the breach is in
+  the table and the job stays green.
+- Both jobs upload the measurement file and the text log.
+
+### Updating a baseline
+
+The baseline is a reviewed artifact, not a generated file that lands by
+accident. Measure on a quiet machine, or dispatch **Bench** with *Measure only
+and upload a candidate baseline* checked and download the `bench-<os>`
+artifact. Then:
+
+1. Measure locally (Windows shown; on Linux use `benchmarks/ci.sh` with
+   `BENCH_RUNS=5`).
+2. Compare before adopting.
+3. Adopt only when the change is intended.
+4. Review the diff, keep `toolchain` and `commit` truthful, and commit with the
+   reason.
+
+```sh
+# 1. measure
+pwsh benchmarks/ci.ps1 -Output benchmarks/build/current-windows.bench -Runs 5
+
+# 2. compare
+cargo run -q -p yashy-bench -- compare \
+  --baseline benchmarks/baselines/windows.bench \
+  --current benchmarks/build/current-windows.bench
+
+# 3. adopt
+cargo run -q -p yashy-bench -- update \
+  --current benchmarks/build/current-windows.bench \
+  --baseline benchmarks/baselines/windows.bench
+
+# 4. review and commit
+git diff benchmarks/baselines/windows.bench
+```
+
+The Linux baseline was measured on an ext4 workspace; the Windows baseline was
+measured on a clean local run. Replace either with a runner measurement through
+step 1 if the first CI run lands outside the thresholds for an environmental
+reason rather than a code change.
+
 ## The programs
 
 | Program | Source | Measures |

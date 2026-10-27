@@ -67,23 +67,26 @@ are enough to build real native programs.
 
 ### 2.2 What is missing or weak
 
-| Gap | Why it matters | Slice |
-|---|---|---|
-| Linux release artifact and `install.sh` | A fresh Linux user cannot install Yashy. | 1 |
-| First-CLI guide and examples | There is no path from install to a working tool. | 1 |
-| `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 |
-| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 |
-| Benchmark gate and stored baselines | Performance can regress silently. | 3 |
-| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b |
-| Package-manager design | The required R2 feature has no design. | 4 |
-| Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 |
-| Safety harnesses (fuzz, sanitizers, audit) | "Safe" is not yet evidenced. | 6 |
-| LSP completion/rename, `fix`, `doc` | Editors and agents cannot finish the loop. | 7 |
-| HTTP, logging, CLI parser | Real services and tools need them. | 8 |
-| Package manager MVP | Dependencies are required for R2. | 9 |
-| Three flagship tools | The language has no public proof. | 10 |
-| AI index/context, MCP, sandbox, agent benchmark | Agents still guess. | 11 |
-| 1.0 hardening (macOS, registry, docs, debugger) | Adoption and trust. | 12 |
+| Gap | Why it matters | Slice | Status |
+|---|---|---|---|
+| Linux release artifact and `install.sh` | A fresh Linux user cannot install Yashy. | 1 | Done |
+| First-CLI guide and examples | There is no path from install to a working tool. | 1 | Done |
+| `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 | Done |
+| "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Done |
+| Benchmark gate and stored baselines | Performance can regress silently. | 3 | Done |
+| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Done |
+| Package-manager design | The required R2 feature has no design. | 4 | Open |
+| Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 | Open |
+| Safety harnesses (fuzz, sanitizers, audit) | "Safe" is not yet evidenced. | 6 | Open |
+| LSP completion/rename, `fix`, `doc` | Editors and agents cannot finish the loop. | 7 | Open |
+| HTTP, logging, CLI parser | Real services and tools need them. | 8 | Open |
+| Package manager MVP | Dependencies are required for R2. | 9 | Open |
+| Three flagship tools | The language has no public proof. | 10 | Open |
+| AI index/context, MCP, sandbox, agent benchmark | Agents still guess. | 11 | Open |
+| 1.0 hardening (macOS, registry, docs, debugger) | Adoption and trust. | 12 | Open |
+
+Slice 1 is complete; its task ledger is
+`.superpowers/sdd/2026-10-25-yashy-r1-install-first-cli/progress.md`.
 
 Stack traces, macOS, traits, Unicode, cross-compilation, and async are later by
 design. They are not "forgotten"; they are in the spec's release phases.
@@ -204,9 +207,9 @@ and 4; 3b is the required performance slice between 3 and 4. They run in order:
 
 | Slice | Outcome | Depends on | Detailed plan |
 |---|---|---|---|
-| **1. Install + first CLI** | A fresh Windows or Linux machine installs a prebuilt Yashy, runs `yashy doctor`, and completes a first CLI project. Linux release artifact and `install.sh` exist. | Nothing. The first-CLI guide reads standard input, not `args()`. | `2026-10-25-yashy-r1-install-first-cli.md` |
-| **2. Runtime stdlib gaps** | `args()`, `getcwd()`, `now()`, and `sleep(ms)` work on Windows and Linux, with ownership and leak tests. The guide gains an arguments section. | Slice 1 for the guide; independent for runtime work. | `2026-10-25-yashy-r1-runtime-stdlib.md` |
-| **3. Diagnostics + benchmarks + AI v0** | "Did you mean," error codes, `check --json`, `test --json`, `explain`, and a benchmark gate with stored baselines. | Slice 1 CI; slice 2 runtime for timing rows. | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` |
+| **1. Install + first CLI** | A fresh Windows or Linux machine installs a prebuilt Yashy, runs `yashy doctor`, and completes a first CLI project. Linux release artifact and `install.sh` exist. | Nothing. The first-CLI guide reads standard input, not `args()`. | `history/2026-10-25-yashy-r1-install-first-cli.md` |
+| **2. Runtime stdlib gaps** | `args()`, `getcwd()`, `now()`, and `sleep(ms)` work on Windows and Linux, with ownership and leak tests. The guide gains an arguments section. | Slice 1 for the guide; independent for runtime work. | `history/2026-10-25-yashy-r1-runtime-stdlib.md` |
+| **3. Diagnostics + benchmarks + AI v0** | "Did you mean," error codes, `check --json`, `test --json`, `explain`, and a benchmark gate with stored baselines. | Slice 1 CI; slice 2 runtime for timing rows. | `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md` |
 | **3b. Top-three performance fixes** | The three worst benchmark rows improve; no row is worse than 2× without an exception. | Slice 3 baseline. | Specified in this section; detailed plan written after slice 3. |
 | **4. Package-manager spike** | A decision-complete design plus a throwaway prototype for path and git dependencies. No registry, no stable CLI commitment. | Slice 2 (program args for the demo) and slice 3 (benchmark discipline). | `2026-10-25-yashy-r2-package-manager-spike.md` |
 
@@ -320,6 +323,15 @@ LLVM entry; run the full e2e suite.
 
 **Goal:** close the three worst benchmark rows before 0.2.0.
 
+**Start condition (recorded 2026-10-26):** slice 3's diagnostics work and the
+benchmark gate are green on Windows and Linux, and the three fixes below are
+chosen from slice 3's baseline. Do not start 3b before both hold.
+
+**Chosen (slice 3 plan, Task 8):** array mapping (3.76× published, 3.62× fresh),
+debug formatting (3.42× / 3.31×), tuples (1.79× / 1.52×). Order: array mapping,
+debug formatting, tuples. Checked arithmetic and the map-walk copy are not among
+them; the slice 3 plan records why.
+
 **Deliverables:**
 
 - Array mapping: 3.76× → target ≤ 2×.
@@ -331,6 +343,12 @@ LLVM entry; run the full e2e suite.
 
 **Gate:** each row improves; no row > 2× without a recorded exception; benchmark
 gate green.
+
+**Complete (2026-10-27):** all three rows are under target on Windows and Linux,
+the full workspace suite is green, and the design notes and before/after tables
+are in
+[the slice plan](2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
+`98ed053`.
 
 **Cut order:** M9, PGO/LTO, SIMD (later releases).
 
@@ -957,9 +975,9 @@ alternative that was rejected, so a later reader does not reopen it by accident.
 
 | Slice | Plan | Status |
 |---|---|---|
-| 1 | `2026-10-25-yashy-r1-install-first-cli.md` | Updated from v2 spec §15.1; ready for approval |
-| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Updated from v2 spec §15.2; ready for approval |
-| 3 | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Updated from v2 spec §15.3; ready for approval |
+| 1 | `history/2026-10-25-yashy-r1-install-first-cli.md` | Implemented and pushed, `d30e1af` |
+| 2 | `history/2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented and pushed, `d30e1af` |
+| 3 | `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Implemented and pushed, accepted tip `e015b77`; plan record `70bd566` |
 | 3b | This master plan, §7.4 | Section approved; detailed plan after slice 3 baseline |
 | 4 | `2026-10-25-yashy-r2-package-manager-spike.md` | Updated from v2 spec §15.5; ready for approval |
 

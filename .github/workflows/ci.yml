@@ -11,7 +11,7 @@ env:
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -69,3 +69,101 @@ jobs:
       # buried in a driver suite's output.
       - name: Tooling tests
         run: cargo test -p yashy-fmt -p yashy-lsp
+
+  # Build the artifact the release will ship, install it into a temp prefix,
+  # and drive the first-CLI path. The installer tests already cover the
+  # failure cases; this job is the clean-install acceptance run on both hosts.
+  install-smoke:
+    name: install-smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Verify LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+          }
+          clang --version
+
+      - name: Load the MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build the release compiler
+        run: cargo build --release -p yashy-driver
+
+      - name: Package and run the clean-install acceptance (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sh scripts/package-release.sh --version 0.0.0-ci
+          sh scripts/checksums.sh
+          sh scripts/test-install.sh
+
+      - name: Package and run the clean-install acceptance (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh scripts/package-release.ps1 -Version 0.0.0-ci
+          $archive = Get-ChildItem dist/yashy-*-x86_64-pc-windows-msvc.zip | Select-Object -First 1
+          pwsh scripts/test-install.ps1 -LocalArchive $archive.FullName
+
+  # The packaged Linux binary must work on the oldest glibc we promise. The
+  # container has no Rust toolchain, which is the point: the release is a
+  # prebuilt artifact, not a source build.
+  container-smoke:
+    name: container-smoke (ubuntu:22.04)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Build the release compiler
+        run: cargo build --release -p yashy-driver
+
+      - name: Package and checksum
+        run: |
+          sh scripts/package-release.sh --version 0.0.0-ci
+          sh scripts/checksums.sh
+          cp scripts/install.sh dist/install.sh
+
+      - name: Run the installer in a clean container
+        run: |
+          docker run --rm -v "$PWD/dist:/dist" ubuntu:22.04 sh -c '
+            apt-get update &&
+            apt-get install -y clang llvm ca-certificates &&
+            archive=$(ls /dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz) &&
+            YASHY_ARCHIVE="$archive" YASHY_SHA256SUMS=/dist/SHA256SUMS \
+              sh /dist/install.sh --prefix /tmp/yashy --no-path &&
+            /tmp/yashy/bin/yashy doctor &&
+            /tmp/yashy/bin/yashy doctor --json &&
+            /tmp/yashy/bin/yashy init /tmp/demo &&
+            cd /tmp/demo && /tmp/yashy/bin/yashy test &&
+            sh /dist/install.sh --uninstall --prefix /tmp/yashy --no-path &&
+            test ! -d /tmp/yashy
+          '

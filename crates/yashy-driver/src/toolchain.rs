@@ -60,10 +60,16 @@ where
     for name in CANDIDATES {
         match probe(name) {
             Some(path) if path.is_file() => {
-                return Ok(Toolchain { llc: path, found: name });
+                return Ok(Toolchain {
+                    llc: path,
+                    found: name,
+                });
             }
             Some(path) => {
-                tried.push(format!("{name} at {} (not an existing file)", path.display()));
+                tried.push(format!(
+                    "{name} at {} (not an existing file)",
+                    path.display()
+                ));
             }
             None => tried.push(format!("{name} (no candidate found)")),
         }
@@ -80,15 +86,55 @@ where
 /// How to get an LLVM toolchain on this platform.
 ///
 /// A "not found" message that does not say what to install leaves the user to
-/// guess, which is the difference between a two-minute fix and giving up.
-fn install_hint() -> &'static str {
+/// guess, which is the difference between a two-minute fix and giving up. On
+/// Linux the answer depends on the distribution, so `/etc/os-release` is read
+/// at runtime rather than compiling in one package manager.
+pub fn install_hint() -> String {
     if cfg!(windows) {
-        "Install it with `winget install LLVM.LLVM`."
+        "Install it with `winget install LLVM.LLVM`.".to_string()
     } else if cfg!(target_os = "macos") {
-        "Install it with `brew install llvm`."
+        "Install it with `brew install llvm`.".to_string()
     } else {
-        "Install it with your package manager, e.g. `apt install clang`."
+        let os_release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+        install_hint_for(&os_release).to_string()
     }
+}
+
+/// The Linux half of [`install_hint`], split out so tests can drive every
+/// distribution without depending on the machine running them.
+fn install_hint_for(os_release: &str) -> &'static str {
+    let id = field(os_release, "ID")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let like = field(os_release, "ID_LIKE")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let combined = format!("{id} {like}");
+
+    if combined.contains("ubuntu") || combined.contains("debian") {
+        "Install it with `sudo apt install clang llvm`."
+    } else if combined.contains("fedora")
+        || combined.contains("rhel")
+        || combined.contains("centos")
+    {
+        "Install it with `sudo dnf install clang llvm`."
+    } else if combined.contains("arch") {
+        "Install it with `sudo pacman -S clang llvm`."
+    } else {
+        "Install clang and LLVM with your package manager."
+    }
+}
+
+/// One `KEY=value` field from an os-release file, with the quotes removed.
+fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.split_once('=')?;
+        if name.trim() == key {
+            Some(value.trim().trim_matches('"'))
+        } else {
+            None
+        }
+    })
 }
 
 /// The real probe: `YASHY_LLC` first for `llc`, then every directory on `PATH`.
@@ -133,7 +179,11 @@ fn llc_from_env_value(raw: Option<&OsStr>) -> Option<PathBuf> {
         return None;
     }
     let path = PathBuf::from(trimmed);
-    Some(if path.is_dir() { path.join(exe_name("llc")) } else { path })
+    Some(if path.is_dir() {
+        path.join(exe_name("llc"))
+    } else {
+        path
+    })
 }
 
 /// Looks `name` up in every directory on `PATH`.
@@ -269,7 +319,8 @@ mod tests {
         assert_eq!(probe, Some(from_env.clone()));
 
         // The same override must be ignored for clang: it names llc only.
-        let probe = probe_environment_with("clang", Some(from_path.as_os_str()), &which_never_called);
+        let probe =
+            probe_environment_with("clang", Some(from_path.as_os_str()), &which_never_called);
         assert_eq!(probe, None, "YASHY_LLC must not hijack the clang lookup");
     }
 
@@ -283,18 +334,27 @@ mod tests {
             _ => None,
         };
 
-        let probe = probe_environment_with("llc", Some(a_missing_file().as_os_str()), &which_returns_llc);
-        assert_eq!(probe, Some(path_llc.clone()), "must fall back to llc on PATH");
-
-        let toolchain = match detect_with(|name| probe_environment_with(
-            name,
+        let probe = probe_environment_with(
+            "llc",
             Some(a_missing_file().as_os_str()),
             &which_returns_llc,
-        )) {
+        );
+        assert_eq!(
+            probe,
+            Some(path_llc.clone()),
+            "must fall back to llc on PATH"
+        );
+
+        let toolchain = match detect_with(|name| {
+            probe_environment_with(name, Some(a_missing_file().as_os_str()), &which_returns_llc)
+        }) {
             Ok(toolchain) => toolchain,
             Err(message) => panic!("PATH still has an llc: {message}"),
         };
-        assert_eq!(toolchain.llc, path_llc, "a stale override must not demote llc to clang");
+        assert_eq!(
+            toolchain.llc, path_llc,
+            "a stale override must not demote llc to clang"
+        );
         assert_eq!(toolchain.found, "llc");
     }
 
@@ -312,6 +372,24 @@ mod tests {
             &which_returns_clang,
         );
         assert_eq!(probe, Some(clang));
+    }
+
+    #[test]
+    fn install_hint_names_the_distribution_package_manager() {
+        assert!(install_hint_for("ID=ubuntu\n").contains("apt"));
+        assert!(install_hint_for("ID=debian\n").contains("apt"));
+        assert!(install_hint_for("ID=\"fedora\"\n").contains("dnf"));
+        assert!(install_hint_for("ID=centos\nID_LIKE=\"rhel fedora\"\n").contains("dnf"));
+        assert!(install_hint_for("ID=arch\n").contains("pacman"));
+        assert!(install_hint_for("ID=alpine\n").contains("package manager"));
+    }
+
+    #[test]
+    fn os_release_fields_ignore_quotes_and_other_keys() {
+        let text = "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n";
+        assert_eq!(field(text, "ID"), Some("ubuntu"));
+        assert_eq!(field(text, "ID_LIKE"), Some("debian"));
+        assert_eq!(field(text, "MISSING"), None);
     }
 
     #[test]

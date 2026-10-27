@@ -282,14 +282,14 @@ recorded exception with a reason and a date.
 
 | Metric | Target | Measurement | Release |
 |---|---|---|---|
-| Hello-world compile | < 1 s | Compile benchmark, median of 20 | R1 |
+| Hello-world compile | < 1 s | Compile benchmark (`hello_compile_ms`), median of 20 | R1 |
 | 10k-line project compile | < 5 s | Synthetic project benchmark | 1.0 |
 | Incremental rebuild | < 200 ms | Watch-mode benchmark | R1.5 |
 | 100-test suite | < 2 s | Test-runner benchmark | R1.5 |
 | Scalar runtime | ≤ 1.2× C baseline | Benchmark suite, median | 1.0 |
 | Feature runtime | ≤ 2× C baseline per row | Benchmark suite | 1.0 |
-| No row worse than 2× | Without a recorded exception | Benchmark gate | R1 |
-| Hello-world binary | < 500 KB | Size benchmark | R1 |
+| No row worse than 2× | Without a recorded exception | Benchmark gate, `benchmarks/baselines/<os>.bench` | R1 |
+| Hello-world binary | < 500 KB | Size benchmark (`hello_binary_bytes`) | R1 |
 | Binary-size regression | < 10% per release | Size gate | 1.0 |
 
 ### 7.3 Safety
@@ -953,6 +953,11 @@ Existing features are not repeated here. This is what is planned.
 | `now()` / `sleep(ms)` | Timestamps and delays |
 | `getcwd()` | Relative paths |
 | `fs`, `env`, `process` completion | The documented surface must be real |
+
+**R1 exception.** The four runtime builtins use the existing empty-string/0
+convention for failure until builtin `Result` lands in R2. `getcwd()` returns
+`""` on failure; it is not a `Result`-returning signature in R1, and the docs
+must not claim that it is.
 
 #### P1 — R2
 

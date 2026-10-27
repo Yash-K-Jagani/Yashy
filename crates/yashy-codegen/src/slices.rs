@@ -115,13 +115,10 @@ fn binding_slot(ctx: &FnCtx<'_>, args: &[HirExpr]) -> Option<(String, TypeKind)>
 
 /// Lower `push(slice, value) -> ()`.
 ///
-/// The value is stored in a fresh slot and its address handed to the runtime,
-/// which copies `elem_size` bytes. That is exact for every element the checker
-/// admits (numbers, `bool`, and the `string` handle). A `string` is retained
-/// first -- or, when it is a temporary, its reference is transferred -- so the
-/// slice owns one reference to every element it holds. Compound elements are
-/// refused until their real stride is known, so no aggregate copy can be
-/// under-sized here.
+/// A `string` is retained first -- or, when it is a temporary, its reference is
+/// transferred -- so the slice owns one reference to every element it holds.
+/// Compound elements are refused until their real stride is known, so no
+/// aggregate copy can be under-sized here.
 pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
@@ -142,15 +139,97 @@ pub fn gen_push(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
             value.value = retained;
         }
     }
-    let elem_repr = repr_type(&element.kind);
-    let elem_size = size_of(&element.kind);
+    push_value(ctx, &slot, &element.kind, &value.value);
+    unit()
+}
+
+/// Append one value to a slice binding, with the capacity check in line.
+///
+/// The runtime's `yashy_slice_push` does the whole job, but a call per element
+/// is the dominant cost of a `push` loop. The common case -- the backing array
+/// exists and there is room -- is two loads, two compares, and a store. Only
+/// the grow case calls the runtime, which keeps the growth policy (four, then
+/// doubling), the copy, and the failure behavior in one place. A header that
+/// carries a capacity without bytes also takes the call, so the runtime can
+/// repair it.
+///
+/// The binding's header is never the pointer the call receives. A header
+/// passed to a call is an address the compiler cannot promote, so `len`, `cap`
+/// and `data` would be reloaded from the stack on every iteration, which is
+/// most of the gap between this loop and the same loop in C. The cold path
+/// copies the header out, calls the runtime on the copy, and writes the result
+/// back.
+pub(crate) fn push_value(ctx: &mut FnCtx<'_>, slot: &str, elem_kind: &TypeKind, value: &str) {
+    let elem_repr = repr_type(elem_kind);
+    let elem_size = size_of(elem_kind);
+    let len_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{len_ptr} = getelementptr {SLICE_REPR}, ptr {slot}, i32 0, i32 1"
+    ));
+    let len = ctx.tmp();
+    ctx.push(format!("{len} = load i64, ptr {len_ptr}"));
+    let cap_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{cap_ptr} = getelementptr {SLICE_REPR}, ptr {slot}, i32 0, i32 2"
+    ));
+    let cap = ctx.tmp();
+    ctx.push(format!("{cap} = load i64, ptr {cap_ptr}"));
+    let data_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{data_ptr} = getelementptr {SLICE_REPR}, ptr {slot}, i32 0, i32 0"
+    ));
+    let data = ctx.tmp();
+    ctx.push(format!("{data} = load i8*, ptr {data_ptr}"));
+    let has_room = ctx.tmp();
+    ctx.push(format!("{has_room} = icmp slt i64 {len}, {cap}"));
+    let has_data = ctx.tmp();
+    ctx.push(format!("{has_data} = icmp ne i8* {data}, null"));
+    let fast = ctx.tmp();
+    ctx.push(format!("{fast} = and i1 {has_room}, {has_data}"));
+    let store_label = ctx.alloc_label_base() + "_store";
+    let grow_label = ctx.alloc_label_base() + "_grow";
+    let done_label = ctx.alloc_label_base() + "_pushed";
+    ctx.push(format!(
+        "br i1 {fast}, label %{store_label}, label %{grow_label}"
+    ));
+
+    ctx.push(format!("{store_label}:"));
+    let offset = ctx.tmp();
+    ctx.push(format!("{offset} = mul i64 {len}, {elem_size}"));
+    let address = ctx.tmp();
+    ctx.push(format!(
+        "{address} = getelementptr i8, ptr {data}, i64 {offset}"
+    ));
+    ctx.push(format!("store {elem_repr} {value}, ptr {address}"));
+    let next = ctx.tmp();
+    ctx.push(format!("{next} = add i64 {len}, 1"));
+    ctx.push(format!("store i64 {next}, ptr {len_ptr}"));
+    ctx.push(format!("br label %{done_label}"));
+
+    ctx.push(format!("{grow_label}:"));
+    // The runtime call takes a header, and a header handed to a call cannot be
+    // promoted to registers: every `len`/`cap`/`data` load in the loop would
+    // go back to memory, which is most of the cost of a push loop. The call is
+    // cold, so it gets a copy of the header and the result is written back;
+    // the binding's own header never escapes and the hot path stays in
+    // registers.
+    let header = ctx.alloc_slot();
+    ctx.push_alloca(format!("{header} = alloca {SLICE_REPR}"));
+    let snapshot = ctx.tmp();
+    ctx.push(format!("{snapshot} = load {SLICE_REPR}, ptr {slot}"));
+    ctx.push(format!("store {SLICE_REPR} {snapshot}, ptr {header}"));
     let temp = ctx.alloc_slot();
     ctx.push_alloca(format!("{temp} = alloca {elem_repr}"));
-    ctx.push(format!("store {elem_repr} {}, ptr {temp}", value.value));
+    ctx.push(format!("store {elem_repr} {value}, ptr {temp}"));
     ctx.push(format!(
-        "call void @yashy_slice_push(ptr {slot}, ptr {temp}, i64 {elem_size})"
+        "call void @yashy_slice_push(ptr {header}, ptr {temp}, i64 {elem_size})"
     ));
-    unit()
+    let updated = ctx.tmp();
+    ctx.push(format!("{updated} = load {SLICE_REPR}, ptr {header}"));
+    ctx.push(format!("store {SLICE_REPR} {updated}, ptr {slot}"));
+    ctx.push(format!("br label %{done_label}"));
+
+    ctx.push(format!("{done_label}:"));
 }
 
 /// Lower `len(slice) -> i64`.
@@ -173,6 +252,30 @@ pub fn gen_len(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     GenValue {
         value: len,
         ty: TypeKind::I64,
+    }
+}
+
+/// Lower `args() -> []string`.
+///
+/// The runtime fills a stack header with owned strings for the process's user
+/// arguments, exactly as `split`/`lines` fill theirs. Building the slice
+/// element by element in IR would duplicate the runtime's push and ownership
+/// rules; one call keeps the contract in one place.
+pub fn gen_args(ctx: &mut FnCtx<'_>, slice_ty: &TypeKind) -> GenValue {
+    if !matches!(slice_ty, TypeKind::Slice(_)) {
+        return unit();
+    }
+    let out_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
+    ctx.push(format!(
+        "store {SLICE_REPR} zeroinitializer, ptr {out_slot}"
+    ));
+    ctx.push(format!("call void @yashy_args_slice(ptr {out_slot})"));
+    let result = ctx.tmp();
+    ctx.push(format!("{result} = load {SLICE_REPR}, ptr {out_slot}"));
+    GenValue {
+        value: result,
+        ty: slice_ty.clone(),
     }
 }
 
@@ -627,11 +730,16 @@ pub fn bool_from_flag(ctx: &mut FnCtx<'_>, flag: &str) -> GenValue {
 
 /// Lower `free_slice(slice) -> ()`.
 ///
-/// The runtime frees the backing array and zeroes the header in the binding's
-/// slot. The checker has already moved the binding out, so the value cannot be
-/// read again. A `[]string` goes through `yashy_slice_free_strings`, which
-/// releases each element before freeing the array: those references belong to
-/// the slice, not to the binding that held the header.
+/// The runtime frees the backing array and zeroes the header it is given. The
+/// checker has already moved the binding out, so the value cannot be read
+/// again. A `[]string` goes through `yashy_slice_free_strings`, which releases
+/// each element before freeing the array: those references belong to the slice,
+/// not to the binding that held the header.
+///
+/// The runtime is handed a copy of the header, and the binding is zeroed here.
+/// Freeing the binding's own header would make it an address the compiler
+/// cannot promote, which would keep every `len`/`cap`/`data` load in a
+/// surrounding loop in memory.
 pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
@@ -640,12 +748,17 @@ pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
         TypeKind::Slice(element) => matches!(element.kind, TypeKind::Str),
         _ => false,
     };
-    if strings {
-        ctx.push(format!(
-            "call void @yashy_slice_free_strings(ptr {slot})"
-        ));
+    let header = ctx.alloc_slot();
+    ctx.push_alloca(format!("{header} = alloca {SLICE_REPR}"));
+    let snapshot = ctx.tmp();
+    ctx.push(format!("{snapshot} = load {SLICE_REPR}, ptr {slot}"));
+    ctx.push(format!("store {SLICE_REPR} {snapshot}, ptr {header}"));
+    let symbol = if strings {
+        "yashy_slice_free_strings"
     } else {
-        ctx.push(format!("call void @yashy_slice_free(ptr {slot})"));
-    }
+        "yashy_slice_free"
+    };
+    ctx.push(format!("call void @{symbol}(ptr {header})"));
+    ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {slot}"));
     unit()
 }

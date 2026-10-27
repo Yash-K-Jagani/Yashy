@@ -78,6 +78,37 @@ fn concat_joins_the_operands_in_order() {
 }
 
 #[test]
+fn append_extends_an_owned_string() {
+    unsafe {
+        let a = Static::new("Hello");
+        let b = Static::new(", Yashy");
+        let owned = yashy_runtime::yashy_str_concat(a.ptr(), b.ptr());
+        let suffix = Static::new("!");
+        let appended = yashy_runtime::yashy_str_append(owned, suffix.ptr());
+        assert_eq!(read(appended), "Hello, Yashy!");
+        assert_eq!(
+            (*appended).refcount,
+            1,
+            "the caller still owns exactly one reference"
+        );
+        yashy_runtime::yashy_str_release(appended);
+    }
+}
+
+#[test]
+fn append_accepts_the_same_string_twice() {
+    // `s = s + s` names one string on both sides. Growing the buffer can move
+    // its bytes, so the runtime must copy the second half out before it grows.
+    unsafe {
+        let a = Static::new("ab");
+        let owned = yashy_runtime::yashy_str_concat(a.ptr(), a.ptr());
+        let appended = yashy_runtime::yashy_str_append(owned, owned);
+        assert_eq!(read(appended), "abababab");
+        yashy_runtime::yashy_str_release(appended);
+    }
+}
+
+#[test]
 fn concat_leaves_its_operands_untouched() {
     // The result is a fresh string, so a program that concatenates a literal
     // with itself cannot corrupt the literal's bytes.

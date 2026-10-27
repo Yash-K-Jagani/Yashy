@@ -10,6 +10,7 @@ members = [
     "crates/yashy-runtime",
     "crates/yashy-fmt",
     "crates/yashy-lsp",
+    "crates/yashy-bench",
 ]
 
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.

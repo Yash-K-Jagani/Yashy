@@ -1,0 +1,11 @@
+# Reviewed baseline for linux. See benchmarks/README.md before changing it.
+os=linux
+generated_at=2026-10-26T05:26:01Z
+commit=fec9b8c
+toolchain=Ubuntu clang version 18.1.8 (20ubuntu8)
+fib_compile_ms=327.2
+fib_binary_bytes=48000
+fib_run_ms=132.2
+hello_compile_ms=318.5
+hello_binary_bytes=47968
+large_compile_ms=2319.4

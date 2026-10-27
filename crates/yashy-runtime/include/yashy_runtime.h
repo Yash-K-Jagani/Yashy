@@ -35,14 +35,23 @@ void yashy_print_f64(double value);
 /* ---- Heap allocation ----
  *
  *     declare i8* @yashy_alloc(i64, i64)
+ *     declare i8* @yashy_realloc(i8*, i64, i64, i64)
  *     declare void @yashy_free(i8*)
  *
  * `yashy_alloc(size, align)` returns `size` bytes aligned to `align` (rounded
  * up to a power of two no smaller than a pointer), or NULL if the allocation
  * fails. The memory is uninitialised. `yashy_free` releases a block and
  * tolerates NULL. Every block from `yashy_alloc` must reach `yashy_free`
- * exactly once; the compiler's linearity checker is what enforces it. */
+ * exactly once; the compiler's linearity checker is what enforces it.
+ *
+ * `yashy_realloc(ptr, used, size, align)` resizes a block from `yashy_alloc`
+ * to `size` bytes, keeping the first `used` bytes. It returns the block's new
+ * address, which may be the same one, or NULL when the allocation fails and
+ * the old block is still valid. A block that the allocator can extend in place
+ * is not copied, which is why a growing slice does not pay for the bytes it
+ * already holds. */
 void *yashy_alloc(long long size, long long align);
+void *yashy_realloc(void *ptr, long long used, long long size, long long align);
 void yashy_free(void *ptr);
 
 /* ---- Arenas ----
@@ -116,6 +125,7 @@ void yashy_env_release(void *env);
  *     declare i64 @yashy_str_len(i8*)
  *     declare i64 @yashy_str_byte_at(i8*, i64)
  *     declare i8* @yashy_str_concat(i8*, i8*)
+ *     declare i8* @yashy_str_append(i8*, i8*)
  *     declare i8* @yashy_str_from_i64(i64)
  *     declare i8* @yashy_str_from_f64(double)
  *     declare i8* @yashy_str_from_bool(i64)
@@ -140,6 +150,11 @@ void yashy_env_release(void *env);
 long long yashy_str_len(const yashy_str *s);
 long long yashy_str_byte_at(const yashy_str *s, long long index);
 yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b);
+/* Appends `b` to `a`. When `a` is uniquely owned and has capacity, it is
+ * extended in place and returned; otherwise a new string is built, `a` is
+ * released, and the new string is returned. The caller hands its reference to
+ * the result, so this is the `s = s + piece` fast path. */
+yashy_str *yashy_str_append(yashy_str *a, const yashy_str *b);
 
 /* The bytes in `[start, end)` as a new owned string. The range is clamped:
  * `start < 0` is 0, `end > len` is the length, and an inverted range is empty. */
@@ -243,6 +258,7 @@ long long yashy_str_refcount(const yashy_str *s);
 
 /* ---- Slices ----
  *
+ *     declare void @yashy_slice_reserve({ i8*, i64, i64 }*, i64, i64)
  *     declare void @yashy_slice_push({ i8*, i64, i64 }*, i8*, i64)
  *     declare void @yashy_slice_free({ i8*, i64, i64 }*)
  *
@@ -252,10 +268,18 @@ long long yashy_str_refcount(const yashy_str *s);
  * update the length and capacity in the caller's binding. `element_size` is the
  * element's stride in bytes; it is a compile-time constant at every call site.
  *
- * `push` grows from 0 to 4 elements and then doubles, copies the old bytes, and
- * frees the old block with `yashy_free`, so a slice owns exactly one live block
- * at a time (which keeps the leak report meaningful). `yashy_slice_free`
- * releases that block and zeroes the header; a null data pointer is fine.
+ * `reserve` allocates room for `cap` elements up front, so a loop that knows
+ * its result length pays for one allocation instead of the doubling sequence.
+ * A successful reservation starts from an empty header: any previous bytes are
+ * freed and `len` is reset. It leaves the slice untouched when the size
+ * overflows or the allocation fails; a header with a capacity but no bytes is
+ * repaired by `push`.
+ *
+ * `push` grows from 0 to 4 elements and then doubles, resizing the block with
+ * `yashy_realloc`, so a slice owns exactly one live block at a time (which
+ * keeps the leak report meaningful) and a grow the allocator can extend in
+ * place copies nothing. `yashy_slice_free` releases that block and zeroes the
+ * header; a null data pointer is fine.
  *
  * Neither function reports an allocation failure: the runtime has no way to
  * return one from `push`, and `yashy_alloc` already yields NULL. A failed push
@@ -265,6 +289,7 @@ typedef struct yashy_slice {
     long long len;
     long long cap;
 } yashy_slice;
+void yashy_slice_reserve(yashy_slice *slice, long long cap, long long element_size);
 void yashy_slice_push(yashy_slice *slice, const void *element, long long element_size);
 void yashy_slice_free(yashy_slice *slice);
 
@@ -273,6 +298,27 @@ void yashy_slice_free(yashy_slice *slice);
  * alone by `yashy_str_release`, and a null slice is a no-op. The header is
  * zeroed, like `yashy_slice_free`. */
 void yashy_slice_free_strings(yashy_slice *slice);
+
+/* ---- Program arguments, working directory, clock ----------------------
+ *
+ * The entry point hands the process's vector to `yashy_args_init` once. The
+ * runtime stores it; it owns nothing. `yashy_args_slice` fills a fresh
+ * `[]string` with *owned* copies of `argv[1..argc]` -- the executable path is
+ * deliberately excluded, so element 0 is the first user argument. Free the
+ * result with `yashy_slice_free_strings`. A failed push releases the piece it
+ * could not append, so the result is never a leak.
+ *
+ * `yashy_getcwd` returns the current directory as an owned string, or the empty
+ * string on failure. It is UTF-8 on every target.
+ *
+ * `yashy_now_ms` is milliseconds since the Unix epoch from the wall clock: it
+ * can go backwards if the system clock is adjusted. `yashy_sleep_ms` blocks for
+ * at least `ms` milliseconds; a value <= 0 is a no-op. */
+void yashy_args_init(int argc, char **argv);
+void yashy_args_slice(yashy_slice *out);
+yashy_str *yashy_getcwd(void);
+long long yashy_now_ms(void);
+void yashy_sleep_ms(long long ms);
 
 /* String split and line splitting. Both fill a fresh `[]string`: every piece is
  * a new owned string, so `yashy_slice_free_strings` releases the whole result.

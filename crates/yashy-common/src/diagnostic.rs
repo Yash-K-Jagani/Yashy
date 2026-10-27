@@ -11,8 +11,17 @@ use crate::span::Span;
 /// The process exit code for a successful compile.
 pub const EXIT_OK: i32 = 0;
 
-/// The process exit code for a compile that produced errors.
+/// The process exit code for a compile that produced errors, or a test run
+/// that had a failing test.
 pub const EXIT_COMPILE_ERROR: i32 = 1;
+
+/// The process exit code for a usage or configuration error: a bad argument, a
+/// missing source file, or a toolchain the command needs.
+pub const EXIT_USAGE: i32 = 2;
+
+/// The process exit code for an internal error: the compiler could not carry
+/// out work it had already accepted.
+pub const EXIT_INTERNAL: i32 = 3;
 
 /// How serious a diagnostic is.
 ///
@@ -53,12 +62,31 @@ pub struct Diagnostic {
     pub span: Span,
     /// An optional note placed after the caret, such as a suggested fix.
     pub label: Option<String>,
+    /// Location-free notes printed after the caret line, each as `note: ...`.
+    ///
+    /// A note is for something that does not fit on one line of source -- a
+    /// second fact the reader needs, such as which keyword to write instead.
+    /// Empty for most diagnostics.
+    pub notes: Vec<String>,
+    /// The stable catalog code, assigned where the diagnostic is built.
+    ///
+    /// `None` means the mistake has no R1 code yet; it still has a span and a
+    /// message, and [`DiagnosticBag::uncoded_count`] counts it.
+    pub code: Option<&'static str>,
 }
 
 impl Diagnostic {
     /// A diagnostic of the given severity at `span`, with no label.
     pub fn new(severity: Severity, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic { severity, message: message.into(), file, span, label: None }
+        Diagnostic {
+            severity,
+            message: message.into(),
+            file,
+            span,
+            label: None,
+            notes: Vec::new(),
+            code: None,
+        }
     }
 
     /// Adds a label, and returns the diagnostic so it can be built in one
@@ -66,6 +94,23 @@ impl Diagnostic {
     pub fn with_label(mut self, label: impl Into<String>) -> Diagnostic {
         self.label = Some(label.into());
         self
+    }
+
+    /// Adds a location-free note, and returns the diagnostic.
+    pub fn with_note(mut self, note: impl Into<String>) -> Diagnostic {
+        self.notes.push(note.into());
+        self
+    }
+
+    /// Attaches the stable catalog code, and returns the diagnostic.
+    pub fn with_code(mut self, code: &'static str) -> Diagnostic {
+        self.code = Some(code);
+        self
+    }
+
+    /// The catalog page for this diagnostic's code, when it has one.
+    pub fn docs_url(&self) -> Option<String> {
+        self.code.map(crate::codes::docs_url)
     }
 
     /// True for [`Severity::Error`].
@@ -122,6 +167,15 @@ impl DiagnosticBag {
     pub fn error_count(&self) -> usize {
         self.diags.iter().filter(|d| d.is_error()).count()
     }
+
+    /// How many diagnostics have no catalog code.
+    ///
+    /// An uncoded diagnostic is allowed -- it still has a span and a message --
+    /// but the count makes the remaining catalog work visible instead of
+    /// silently passing for completeness.
+    pub fn uncoded_count(&self) -> usize {
+        self.diags.iter().filter(|d| d.code.is_none()).count()
+    }
 }
 
 #[cfg(test)]
@@ -151,6 +205,21 @@ mod tests {
     fn only_an_error_counts_as_an_error() {
         assert!(a_diagnostic(Severity::Error).is_error());
         assert!(!a_diagnostic(Severity::Warning).is_error());
+    }
+
+    #[test]
+    fn a_code_has_a_docs_url_and_an_uncoded_diagnostic_is_counted() {
+        let coded = a_diagnostic(Severity::Error).with_code(crate::codes::UNKNOWN_NAME);
+        assert_eq!(coded.code, Some(crate::codes::UNKNOWN_NAME));
+        assert_eq!(
+            coded.docs_url().as_deref(),
+            Some("https://yashy.dev/errors/E0001")
+        );
+
+        let mut bag = DiagnosticBag::new();
+        bag.push(coded);
+        bag.push(a_diagnostic(Severity::Error));
+        assert_eq!(bag.uncoded_count(), 1);
     }
 
     #[test]

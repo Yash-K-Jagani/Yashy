@@ -171,7 +171,7 @@ fn a_unit_main_is_emitted_as_i32_and_exits_zero() {
     // returns `i32` even when the Yashy signature is `()`.
     let ir_text = ir_of("fn main() { print(\"hi\"); }");
     assert!(
-        ir_text.contains("define i32 @main()"),
+        ir_text.contains("define i32 @main(i32 %argc, i8** %argv)"),
         "the entry point is an `i32` function:\n{ir_text}"
     );
     assert!(
@@ -198,7 +198,7 @@ fn an_explicit_unit_return_in_main_still_yields_zero() {
 fn an_i64_main_truncates_to_the_entry_point_width() {
     let ir_text = ir_of("fn main() -> int { return 7; }");
     assert!(
-        ir_text.contains("define i32 @main()"),
+        ir_text.contains("define i32 @main(i32 %argc, i8** %argv)"),
         "the entry point is still `i32`:\n{ir_text}"
     );
     assert!(
@@ -248,6 +248,102 @@ fn input_calls_use_the_runtime_symbols() {
     assert!(
         !ir_text.contains("call i8* @read_line"),
         "the bare Yashy name is not a symbol the runtime defines:\n{ir_text}"
+    );
+}
+
+#[test]
+fn the_entry_point_initializes_the_argument_vector() {
+    // The process vector is handed to the runtime once, at the top of the entry
+    // point, before any Yashy statement runs. The Yashy surface stays
+    // `fn main()`; `%argc`/`%argv` are the hidden C parameters.
+    let ir_text = ir_of("fn main() { print(\"hi\"); }");
+    assert!(
+        ir_text.contains("call void @yashy_args_init(i32 %argc, i8** %argv)"),
+        "the entry point stores the vector:\n{ir_text}"
+    );
+    let init = ir_text
+        .find("call void @yashy_args_init")
+        .expect("the init call must exist");
+    let body = ir_text
+        .find("call void @yashy_print_str")
+        .expect("the body must print");
+    assert!(
+        init < body,
+        "the vector is stored before the body runs:\n{ir_text}"
+    );
+}
+
+#[test]
+fn args_fills_a_slice_through_the_runtime() {
+    // `args()` is not built element by element in IR: one runtime call fills a
+    // zeroed stack header with owned strings, the same shape `split` uses.
+    let ir_text = ir_of("fn main() { const xs = args(); print(xs.len()); xs.free(); }");
+    assert!(
+        ir_text.contains("store { i8*, i64, i64 } zeroinitializer, ptr %slot"),
+        "the out slot starts empty:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @yashy_args_slice(ptr %slot"),
+        "the runtime fills the slice:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @yashy_slice_free_strings(ptr "),
+        "`.free()` releases the strings too:\n{ir_text}"
+    );
+}
+
+#[test]
+fn the_process_and_clock_builtins_use_the_runtime_symbols() {
+    let ir_text = ir_of(
+        "fn main() {\n\
+         \x20   const here = getcwd();\n\
+         \x20   const stamp = now();\n\
+         \x20   sleep(5);\n\
+         \x20   print(here + str_from_i64(stamp));\n\
+         }",
+    );
+    assert!(
+        ir_text.contains("call i8* @yashy_getcwd()"),
+        "the working directory is a no-argument call:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call i64 @yashy_now_ms()"),
+        "the clock returns an `i64`:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("call void @yashy_sleep_ms(i64 5)"),
+        "the sleep passes the millisecond count through:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_recursive_main_supplies_the_hidden_entry_parameters() {
+    // The definition carries `(i32, i8**)`, so a Yashy call with no arguments
+    // has to supply a null pair. The runtime keeps the real vector because the
+    // first `yashy_args_init` wins.
+    let ir_text = ir_of("fn main() { main(); }");
+    assert!(
+        ir_text.contains("call i32 @main(i32 0, i8** null)"),
+        "the recursive call matches the definition:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("call void @main("),
+        "and is never typed as the Yashy unit return:\n{ir_text}"
+    );
+}
+
+#[test]
+fn a_recursive_int_main_widens_the_entry_point_result() {
+    // `main` is emitted as `i32`, so a recursive `-> int` call sign-extends the
+    // value back to the type the call site expects.
+    let ir_text = ir_of("fn main() -> int { return main(); }");
+    assert!(
+        ir_text.contains("call i32 @main(i32 0, i8** null)"),
+        "the call still uses the entry signature:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("sext i32 ") && ir_text.contains("to i64"),
+        "the result is widened to the Yashy `int`:\n{ir_text}"
     );
 }
 

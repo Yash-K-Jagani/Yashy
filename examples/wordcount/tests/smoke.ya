@@ -1,0 +1,7 @@
+// The smoke test stays self-contained: a file under `tests/` is its own entry
+// file, so it does not import the project's `wc_words` module by walking up.
+
+fn main() {
+    const text = "hello world";
+    assert(text.len() == 11);
+}

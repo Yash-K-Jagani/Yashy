@@ -227,6 +227,8 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
             file,
             span: Span::new(0, 0),
             label: None,
+            notes: Vec::new(),
+            code: None,
         }),
         Some(main) => {
             if let Some(first) = main.params.first() {
@@ -239,6 +241,8 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
                     file,
                     span: first.span,
                     label: None,
+                    notes: Vec::new(),
+                    code: None,
                 });
             }
             let ok = matches!(
@@ -254,6 +258,8 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
                     file,
                     span: main.span,
                     label: None,
+                    notes: Vec::new(),
+                    code: None,
                 })
             }
         }

@@ -1,16 +1,14 @@
 // The process and its environment (M6 Task 10).
 //
-// `exit(code)` and `getenv(name)` are builtins, in scope in every file. This
-// module adds the statement-shaped exit a report wants and documents the
-// environment spelling beside it.
+// `exit(code)`, `getenv(name)`, and `getcwd()` are builtins, in scope in every
+// file. This module adds the statement-shaped exit a report wants and documents
+// the environment and directory spellings beside it.
 //
-// `getcwd()` is not provided yet: the runtime has no call that answers the
-// working directory, and a wrapper that returned the empty string would be a
-// wrong answer a program could act on. The name is reserved for the release
-// that adds the runtime entry point.
+// `getcwd()` answers the current working directory as a fresh owned string. It
+// is UTF-8 on every target, including Windows. On failure it answers the empty
+// string, matching `read_file` and `getenv` until builtin `Result` lands in R2;
+// a real working directory is never empty, so the two cases are distinguishable
+// in practice even though the signature cannot say so.
 //
-// Ownership: `exit_with` never returns and owns nothing.
-
-pub fn exit_with(code: int) {
-    exit(code);
-}
+// Ownership: `exit_with` never returns and owns nothing. `getcwd()`'s result is
+// owned by the caller and released like any other string.

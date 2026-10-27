@@ -24,7 +24,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use yashy_common::{Diagnostic, FileId, SourceMap, Span};
+use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, Expr, InterpFormat, InterpPart, Item, Literal, Param, Pattern,
     PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
@@ -335,10 +335,34 @@ struct ClosureFrame {
     captures: Vec<HirCapture>,
 }
 
+/// Names a call resolves before the scope lookup: the print family and the
+/// value constructors. They are callable but are not bindings, so a "did you
+/// mean" suggestion has to offer them explicitly.
+const CALLABLE_EXTRAS: &[&str] = &[
+    "print",
+    "println",
+    "None",
+    "Some",
+    "Ok",
+    "Err",
+    "map_new",
+    "thread_spawn",
+    "thread_join",
+    "mutex_new",
+    "chan_new",
+];
+
+/// The type names a program can write without declaring them.
+///
+/// `resolve_type_in` resolves these before it looks at the declared structs and
+/// enums, so a "did you mean" suggestion has to offer them too.
+const BUILTIN_TYPE_NAMES: &[&str] = &[
+    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Self",
+];
+
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
-pub struct Checker<'src> {
-    scope: Scope,
+pub struct Checker<'src> {    scope: Scope,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
@@ -475,7 +499,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 26] = [
+        let builtins: [(&str, Vec<Type>, Type); 30] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
             // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
@@ -518,6 +542,22 @@ impl<'src> Checker<'src> {
                 prim(TypeKind::I64),
             ),
             ("getenv", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            // The process and the clock (R1 slice 2). `args()` is a fresh
+            // owned `[]string` of the user arguments, excluding the executable
+            // path; free it with `.free()`, exactly like `split`/`lines`.
+            // `getcwd()` is an owned string, or the empty string on failure --
+            // the same empty-string convention `read_file`/`getenv` use until
+            // builtin `Result` lands in R2. `now()` is milliseconds since the
+            // Unix epoch; `sleep(ms)` blocks and returns unit, with a
+            // non-positive value a no-op.
+            (
+                "args",
+                vec![],
+                prim(TypeKind::Slice(Box::new(prim(TypeKind::Str)))),
+            ),
+            ("getcwd", vec![], prim(TypeKind::Str)),
+            ("now", vec![], prim(TypeKind::I64)),
+            ("sleep", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Out the other way: a number as text, so a program can build a
             // string that *contains* one (`"count = " + str_from_i64(n)`).
             // Without these the runtime's conversions existed and nothing could
@@ -672,6 +712,116 @@ impl<'src> Checker<'src> {
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push((self.file, TypeError::new(span, message)));
+    }
+
+    /// Push an error that carries a catalog code.
+    fn error_code(&mut self, span: Span, code: &'static str, message: impl Into<String>) {
+        self.errors
+            .push((self.file, TypeError::new(span, message).with_code(code)));
+    }
+
+    /// Report a type mismatch from the expected and found types.
+    ///
+    /// A `Result` used where its success value is expected is the missing-`?`
+    /// case: the code says so and the note names both fixes. Every other
+    /// mismatch gets the general code.
+    fn mismatch(&mut self, span: Span, expected: &Type, found: &Type) {
+        let mut error = TypeError::new(span, format!("expected `{expected}`, found `{found}`"));
+        match &found.kind {
+            TypeKind::Result(ok, _) if ok.eq_ignoring_span(expected) => {
+                error = error
+                    .with_code(codes::MISSING_QUESTION)
+                    .with_note("use `?` to propagate the error, or match the `Result`");
+            }
+            _ => error = error.with_code(codes::TYPE_MISMATCH),
+        }
+        self.report(error);
+    }
+
+    /// Report a type mismatch whose message is already written.
+    fn mismatch_message(&mut self, span: Span, message: impl Into<String>) {
+        self.report(TypeError::new(span, message).with_code(codes::TYPE_MISMATCH));
+    }
+
+    /// Push an error that was built elsewhere, keeping any label it carries.
+    ///
+    /// Resolving a type or a pattern returns a [`TypeError`] that may already
+    /// have a "did you mean" label; rebuilding it from `span` and `message`
+    /// here would silently drop that help.
+    fn report(&mut self, error: TypeError) {
+        self.errors.push((self.file, error));
+    }
+
+    /// The nearest visible name, for a "did you mean" label.
+    ///
+    /// Every visible binding is a candidate, including the builtins and the
+    /// top-level functions, because they are all names a read can find.
+    fn value_suggestion(&self, name: &str) -> Option<String> {
+        yashy_common::closest(name, self.scope.names())
+    }
+
+    /// The nearest visible *function* name.
+    ///
+    /// A call says "cannot find function", so suggesting a local that is not
+    /// callable would be a worse answer than none. Builtins and top-level
+    /// functions both live in the root scope with a `Func` type; the print
+    /// family and the value constructors are resolved before the scope lookup
+    /// and therefore have to be offered explicitly.
+    fn function_suggestion(&self, name: &str) -> Option<String> {
+        let candidates = self
+            .scope
+            .names()
+            .into_iter()
+            .filter(|candidate| {
+                self.scope
+                    .resolve(candidate)
+                    .map(|binding| matches!(binding.ty.kind, TypeKind::Func(_, _)))
+                    .unwrap_or(false)
+            })
+            .chain(CALLABLE_EXTRAS.iter().copied());
+        yashy_common::closest(name, candidates)
+    }
+
+    /// Report a name the scope does not have, with the nearest spelling when
+    /// there is one.
+    fn error_missing_value(&mut self, name: &str, span: Span) {
+        let mut error = TypeError::new(span, format!("cannot find value `{name}` in this scope"))
+            .with_code(codes::UNKNOWN_NAME);
+        if let Some(suggestion) = self.value_suggestion(name) {
+            error = error.with_label(format!("did you mean `{suggestion}`?"));
+        }
+        self.errors.push((self.file, error));
+    }
+
+    /// Report a callee the scope does not have, with the nearest function when
+    /// there is one.
+    fn error_missing_function(&mut self, name: &str, span: Span) {
+        let mut error = TypeError::new(span, format!("cannot find function `{name}`"))
+            .with_code(codes::UNKNOWN_NAME);
+        if let Some(suggestion) = self.function_suggestion(name) {
+            error = error.with_label(format!("did you mean `{suggestion}`?"));
+        }
+        self.errors.push((self.file, error));
+    }
+
+    /// The nearest declared or built-in type name, for a "did you mean" label.
+    fn type_suggestion(&self, name: &str) -> Option<String> {
+        let candidates = self
+            .structs
+            .keys()
+            .map(String::as_str)
+            .chain(self.enums.keys().map(String::as_str))
+            .chain(BUILTIN_TYPE_NAMES.iter().copied());
+        yashy_common::closest(name, candidates)
+    }
+
+    /// The nearest field of `struct_name`, for a "did you mean" label.
+    fn struct_field_suggestion(&self, struct_name: &str, field: &str) -> Option<String> {
+        let fields = self.structs.get(struct_name)?;
+        yashy_common::closest(
+            field,
+            fields.fields.iter().map(|(name, _)| name.as_str()),
+        )
     }
 
     /// Look a name up for a read, a call or an assignment.
@@ -1217,7 +1367,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 self.fns.insert(name.clone(), sig);
                 self.record_origin(name, public);
@@ -1292,7 +1442,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
@@ -1365,7 +1515,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
@@ -1410,7 +1560,7 @@ impl<'src> Checker<'src> {
                     ownership: Ownership::Live,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 for variant in variants {
                     for field in &variant.fields {
@@ -1459,7 +1609,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     };
                     if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                     self.fns.insert(decl.name.clone(), sig);
                     self.externs.insert(decl.name.clone());
@@ -1537,7 +1687,7 @@ impl<'src> Checker<'src> {
                 }
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1571,7 +1721,7 @@ impl<'src> Checker<'src> {
                 }
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1607,7 +1757,7 @@ impl<'src> Checker<'src> {
                 resolved
             }
             Err(e) => {
-                self.error(e.span, e.message);
+                self.report(e);
                 never(fallback_span)
             }
         }
@@ -1714,7 +1864,14 @@ impl<'src> Checker<'src> {
                 };
                 match kind {
                     Some(kind) => Ok(Type { kind, span: *span }),
-                    None => Err(TypeError::new(*span, format!("cannot find type `{name}`"))),
+                    None => {
+                        let mut error = TypeError::new(*span, format!("cannot find type `{name}`"))
+                            .with_code(codes::UNKNOWN_TYPE);
+                        if let Some(suggestion) = self.type_suggestion(name) {
+                            error = error.with_label(format!("did you mean `{suggestion}`?"));
+                        }
+                        Err(error)
+                    }
                 }
             }
             TypeExpr::Option(inner, span) => {
@@ -1981,8 +2138,9 @@ impl<'src> Checker<'src> {
             return None;
         };
         if generic.params.len() != args.len() {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {} arguments, found {}",
                     generic.params.len(),
@@ -1997,7 +2155,7 @@ impl<'src> Checker<'src> {
             let checked = self.check_expr(arg)?;
             let actual = expr_ty(&checked);
             if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
-                self.error(
+                self.mismatch_message(
                     expr_span(&checked),
                     format!(
                         "expected `{}`, found `{actual}`",
@@ -2046,7 +2204,7 @@ impl<'src> Checker<'src> {
                 if let Expr::Ident(path, arg_span) = arg {
                     let arg_name = path.last().cloned().unwrap_or_default();
                     if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                 }
             }
@@ -2331,7 +2489,7 @@ impl<'src> Checker<'src> {
                                             }
                                         }
                                         Err(e) => {
-                                            self.error(e.span, e.message);
+                                            self.report(e);
                                             never(*vspan)
                                         }
                                     };
@@ -2624,7 +2782,7 @@ impl<'src> Checker<'src> {
                             Some(declared)
                         }
                         Err(error) => {
-                            self.error(error.span, error.message);
+                            self.report(error);
                             return None;
                         }
                     },
@@ -2647,9 +2805,10 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.error(
+                        self.mismatch(
                             expr_span(&init_expr),
-                            format!("expected `{declared}`, found `{}`", expr_ty(&init_expr)),
+                            declared,
+                            &expr_ty(&init_expr),
                         );
                     }
                 }
@@ -2664,7 +2823,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     },
                 ) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 Some(HirStmt::Const {
                     name: name.clone(),
@@ -2691,7 +2850,7 @@ impl<'src> Checker<'src> {
                             Some(declared)
                         }
                         Err(error) => {
-                            self.error(error.span, error.message);
+                            self.report(error);
                             return None;
                         }
                     },
@@ -2703,9 +2862,10 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.error(
+                        self.mismatch(
                             expr_span(&init_expr),
-                            format!("expected `{declared}`, found `{}`", expr_ty(&init_expr)),
+                            declared,
+                            &expr_ty(&init_expr),
                         );
                     }
                 }
@@ -2721,7 +2881,7 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     },
                 ) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                 }
                 Some(HirStmt::Var {
                     name: name.clone(),
@@ -2784,7 +2944,7 @@ impl<'src> Checker<'src> {
                                     ownership: Ownership::Live,
                                 },
                             ) {
-                                self.error(error.span, error.message);
+                                self.report(error);
                             }
                             bindings.push(Some((name.clone(), element.clone())));
                         }
@@ -2901,14 +3061,21 @@ impl<'src> Checker<'src> {
                     NameLookup::Missing => {
                         let _ = self.check_expr(value);
                         let span = yashy_parser::exprs::expr_span(target);
-                        self.error(span, format!("cannot find value `{name}` in this scope"));
+                        self.error_missing_value(&name, span);
                         return None;
                     }
                 };
 
                 if !binding.mutability.is_mutable() {
                     let span = yashy_parser::exprs::expr_span(target);
-                    self.error(span, format!("cannot assign to `{name}`, which is immutable"));
+                    self.report(
+                        TypeError::new(
+                            span,
+                            format!("cannot assign to `{name}`, which is immutable"),
+                        )
+                        .with_code(codes::CONST_REASSIGNMENT)
+                        .with_note("use `let` for a mutable binding"),
+                    );
                 }
 
                 // A view points into this binding's storage. Rebinding would
@@ -2952,16 +3119,13 @@ impl<'src> Checker<'src> {
                 Some(e) => {
                     let checked = self.check_expr_with_expected(e, ret)?;
                     if !fits(ret, &expr_ty(&checked)) {
-                        self.error(
-                            expr_span(&checked),
-                            format!("expected `{ret}`, found `{}`", expr_ty(&checked)),
-                        );
+                        self.mismatch(expr_span(&checked), ret, &expr_ty(&checked));
                     }
                     Some(HirStmt::Return(Some(checked), *span))
                 }
                 None => {
                     if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
-                        self.error(*span, format!("expected `{ret}`, found `void`"));
+                        self.mismatch_message(*span, format!("expected `{ret}`, found `void`"));
                     }
                     Some(HirStmt::Return(None, *span))
                 }
@@ -2979,9 +3143,10 @@ impl<'src> Checker<'src> {
                     .map(Box::new);
                 let cond_expr = self.check_expr(cond)?;
                 if !expr_ty(&cond_expr).eq_ignoring_span(&prim(TypeKind::Bool)) {
-                    self.error(
+                    self.mismatch(
                         expr_span(&cond_expr),
-                        format!("expected `bool`, found `{}`", expr_ty(&cond_expr)),
+                        &prim(TypeKind::Bool),
+                        &expr_ty(&cond_expr),
                     );
                 }
                 // Nested blocks belong to the same function, so `return` inside
@@ -3138,7 +3303,7 @@ impl<'src> Checker<'src> {
                 let cond_expr = cond.as_ref().and_then(|c| self.check_expr(c));
                 if let Some(c) = &cond_expr {
                     if !expr_ty(c).eq_ignoring_span(&prim(TypeKind::Bool)) {
-                        self.error(
+                        self.mismatch_message(
                             expr_span(c),
                             format!("expected `bool`, found `{}`", expr_ty(c)),
                         );
@@ -3204,7 +3369,7 @@ impl<'src> Checker<'src> {
         let pattern = match self.check_arm_pattern(&arm.pattern, subject_ty) {
             Ok(pattern) => pattern,
             Err(error) => {
-                self.error(error.span, error.message);
+                self.report(error);
                 self.scope.pop();
                 return None;
             }
@@ -3347,8 +3512,9 @@ impl<'src> Checker<'src> {
                 Some(())
             }
             _ => {
-                self.error(
+                self.error_code(
                     span,
+                    codes::NON_EXHAUSTIVE_MATCH,
                     "switch over a non-enum type is not exhaustive: add a `default` arm"
                         .to_string(),
                 );
@@ -3375,8 +3541,9 @@ impl<'src> Checker<'src> {
         if missing.is_empty() {
             Some(())
         } else {
-            self.error(
+            self.error_code(
                 span,
+                codes::NON_EXHAUSTIVE_MATCH,
                 format!(
                     "switch is not exhaustive: missing case{} {}",
                     if missing.len() == 1 { "" } else { "s" },
@@ -3413,8 +3580,9 @@ impl<'src> Checker<'src> {
             return Some(None);
         };
         if args.len() != want {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {want} argument{}, found {}",
                     if want == 1 { "" } else { "s" },
@@ -3563,7 +3731,7 @@ impl<'src> Checker<'src> {
             let expected = match self.resolve_type(field.ty()) {
                 Ok(ty) => ty,
                 Err(e) => {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return Some(None);
                 }
             };
@@ -3584,7 +3752,7 @@ impl<'src> Checker<'src> {
                 if let Expr::Ident(path, arg_span) = arg {
                     let arg_name = path.last().cloned().unwrap_or_default();
                     if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                        self.error(e.span, e.message);
+                        self.report(e);
                     }
                 }
             }
@@ -3683,8 +3851,9 @@ impl<'src> Checker<'src> {
                 VariantField::Named { name, .. } => name == field_name,
                 VariantField::Positional { .. } => false,
             }) else {
-                self.error(
+                self.error_code(
                     *field_span,
+                    codes::UNKNOWN_FIELD,
                     format!("unknown field `{field_name}` in variant `{variant_name}`"),
                 );
                 let _ = self.check_expr(value);
@@ -3693,7 +3862,7 @@ impl<'src> Checker<'src> {
             let expected = match self.resolve_type(expected.ty()) {
                 Ok(ty) => ty,
                 Err(e) => {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return Some(None);
                 }
             };
@@ -3714,8 +3883,9 @@ impl<'src> Checker<'src> {
                 continue;
             };
             if !written.iter().any(|(written_name, _)| written_name == name) {
-                self.error(
+                self.error_code(
                     span,
+                    codes::MISSING_FIELD,
                     format!("missing field `{name}` in variant `{variant_name}`"),
                 );
             }
@@ -5151,7 +5321,7 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 if let Err(error) = self.move_out(&name, *ident_span) {
-                    self.error(error.span, error.message);
+                    self.report(error);
                 }
             }
             Expr::SliceLit { .. } | Expr::Call { .. } => {}
@@ -5297,7 +5467,7 @@ impl<'src> Checker<'src> {
         let receiver = self.check_expr(&args[0])?;
         let binding = path.last().cloned().unwrap_or_default();
         if let Err(error) = self.move_out(&binding, *ident_span) {
-            self.error(error.span, error.message);
+            self.report(error);
             return None;
         }
         Some(HirExpr::Call {
@@ -5370,7 +5540,7 @@ impl<'src> Checker<'src> {
         if name == "free_slice" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -5561,7 +5731,7 @@ impl<'src> Checker<'src> {
         if name == "map_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -5750,8 +5920,9 @@ impl<'src> Checker<'src> {
             return None;
         }
         if params.len() != rest.len() {
-            self.error(
+            self.error_code(
                 span,
+                codes::WRONG_ARGUMENT_COUNT,
                 format!(
                     "expected {} arguments, found {}",
                     params.len(),
@@ -5885,7 +6056,7 @@ impl<'src> Checker<'src> {
         if name == "mutex_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
         }
         Some(HirExpr::Call {
@@ -5989,7 +6160,7 @@ impl<'src> Checker<'src> {
         if name == "chan_free" {
             let binding = path.last().cloned().unwrap_or_default();
             if let Err(error) = self.move_out(&binding, *ident_span) {
-                self.error(error.span, error.message);
+                self.report(error);
             }
             return Some(HirExpr::Call {
                 callee: vec![name.to_string()],
@@ -6094,7 +6265,7 @@ impl<'src> Checker<'src> {
                 }
                 let name = path.last().cloned().unwrap_or_default();
                 if let Err(e) = self.scope.check_live(&name, *span) {
-                    self.error(e.span, e.message);
+                    self.report(e);
                     return None;
                 }
                 match self.lookup(&name, *span) {
@@ -6117,7 +6288,7 @@ impl<'src> Checker<'src> {
                         ty,
                     }),
                     NameLookup::Missing => {
-                        self.error(*span, format!("cannot find value `{name}` in this scope"));
+                        self.error_missing_value(&name, *span);
                         None
                     }
                 }
@@ -6204,7 +6375,7 @@ impl<'src> Checker<'src> {
                     if matches!(linearity_of(&ty.kind), Linearity::Linear) {
                         let name = path.last().cloned().unwrap_or_default();
                         if let Err(e) = self.move_out(&name, *ident_span) {
-                            self.error(e.span, e.message);
+                            self.report(e);
                         }
                     }
                 }
@@ -6424,8 +6595,9 @@ impl<'src> Checker<'src> {
                     Some(ty) => match ty.kind {
                         TypeKind::Func(params, ret) => {
                             if params.len() != args.len() {
-                                self.error(
+                                self.error_code(
                                     *span,
+                                    codes::WRONG_ARGUMENT_COUNT,
                                     format!(
                                         "expected {} arguments, found {}",
                                         params.len(),
@@ -6472,7 +6644,7 @@ impl<'src> Checker<'src> {
                                     if let Expr::Ident(path, arg_span) = arg {
                                         let arg_name = path.last().cloned().unwrap_or_default();
                                         if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                                            self.error(e.span, e.message);
+                                            self.report(e);
                                         }
                                     }
                                 }
@@ -6560,7 +6732,7 @@ impl<'src> Checker<'src> {
                             self.error(*span, msg.to_string());
                             return None;
                         }
-                        self.error(*span, format!("cannot find function `{}`", last_name));
+                        self.error_missing_function(&last_name, *span);
                         // Check the arguments anyway, each one standing alone.
                         //
                         // Resolving the callee first is what lets `f(None)`
@@ -6607,8 +6779,9 @@ impl<'src> Checker<'src> {
                             written.iter().map(|(n, _)| n.as_str()).collect();
                         for (fname, _) in &sig.fields {
                             if !provided.contains(&fname.as_str()) {
-                                self.error(
+                                self.error_code(
                                     *span,
+                                    codes::MISSING_FIELD,
                                     format!("missing field `{fname}` in struct `{name}`"),
                                 );
                             }
@@ -6617,7 +6790,7 @@ impl<'src> Checker<'src> {
                             if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
                                 let value_ty = expr_ty(value);
                                 if !fty.eq_ignoring_span(&value_ty) {
-                                    self.error(
+                                    self.mismatch_message(
                                         expr_span(value),
                                         format!("expected `{fty}`, found `{value_ty}`"),
                                     );
@@ -6626,10 +6799,18 @@ impl<'src> Checker<'src> {
                         }
                         for (fname, _) in &written {
                             if !sig.fields.iter().any(|(n, _)| n == fname) {
-                                self.error(
+                                let mut error = TypeError::new(
                                     *span,
                                     format!("unknown field `{fname}` in struct `{name}`"),
-                                );
+                                )
+                                .with_code(codes::UNKNOWN_FIELD);
+                                if let Some(suggestion) =
+                                    self.struct_field_suggestion(&name, fname)
+                                {
+                                    error = error
+                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                }
+                                self.errors.push((self.file, error));
                                 continue;
                             }
                             // A field that is not `pub` may not be written from
@@ -6669,7 +6850,12 @@ impl<'src> Checker<'src> {
                         })
                     }
                     None => {
-                        self.error(*span, format!("cannot find struct `{name}`"));
+                        let mut error = TypeError::new(*span, format!("cannot find struct `{name}`"))
+                            .with_code(codes::UNKNOWN_TYPE);
+                        if let Some(suggestion) = self.type_suggestion(&name) {
+                            error = error.with_label(format!("did you mean `{suggestion}`?"));
+                        }
+                        self.errors.push((self.file, error));
                         None
                     }
                 }
@@ -6682,7 +6868,7 @@ impl<'src> Checker<'src> {
                 let elem_ty = match self.resolve_type_in(elem, false) {
                     Ok(ty) => ty,
                     Err(error) => {
-                        self.error(error.span, error.message);
+                        self.report(error);
                         return None;
                     }
                 };
@@ -6928,16 +7114,28 @@ impl<'src> Checker<'src> {
                                 ty: fty,
                             }),
                             None => {
-                                self.error(
+                                let mut error = TypeError::new(
                                     *span,
                                     format!("struct `{sname}` has no field `{field}`"),
-                                );
+                                )
+                                .with_code(codes::UNKNOWN_FIELD);
+                                if let Some(suggestion) =
+                                    self.struct_field_suggestion(sname, field)
+                                {
+                                    error = error
+                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                }
+                                self.errors.push((self.file, error));
                                 None
                             }
                         }
                     }
                     TypeKind::Enum(ename) => {
-                        self.error(*span, format!("enum `{ename}` has no field `{field}`"));
+                        self.error_code(
+                            *span,
+                            codes::UNKNOWN_FIELD,
+                            format!("enum `{ename}` has no field `{field}`"),
+                        );
                         None
                     }
                     _ => {
@@ -7268,7 +7466,11 @@ impl<'src> Checker<'src> {
                 }
             };
             let Some(sig) = self.structs.get(&struct_name).cloned() else {
-                self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                self.error_code(
+                    span,
+                    codes::UNKNOWN_FIELD,
+                    format!("struct `{struct_name}` has no field `{field}`"),
+                );
                 return None;
             };
             let resolved = sig
@@ -7279,7 +7481,17 @@ impl<'src> Checker<'src> {
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
-                    self.error(span, format!("struct `{struct_name}` has no field `{field}`"));
+                    let mut error = TypeError::new(
+                        span,
+                        format!("struct `{struct_name}` has no field `{field}`"),
+                    )
+                    .with_code(codes::UNKNOWN_FIELD);
+                    if let Some(suggestion) =
+                        self.struct_field_suggestion(&struct_name, field)
+                    {
+                        error = error.with_label(format!("did you mean `{suggestion}`?"));
+                    }
+                    self.errors.push((self.file, error));
                     return None;
                 }
             };
@@ -7323,10 +7535,7 @@ impl<'src> Checker<'src> {
         // `p` would be, and require it to be mutable.
         let Some(binding) = self.scope.resolve(&root).cloned() else {
             let _ = self.check_expr(value);
-            self.error(
-                yashy_parser::exprs::expr_span(target),
-                format!("cannot find value `{root}` in this scope"),
-            );
+            self.error_missing_value(&root, yashy_parser::exprs::expr_span(target));
             return None;
         };
         if !binding.mutability.is_mutable() {
@@ -7445,7 +7654,15 @@ impl<'src> Checker<'src> {
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
-                    self.error(*fspan, format!("struct `{sname}` has no field `{field}`"));
+                    let mut error = TypeError::new(
+                        *fspan,
+                        format!("struct `{sname}` has no field `{field}`"),
+                    )
+                    .with_code(codes::UNKNOWN_FIELD);
+                    if let Some(suggestion) = self.struct_field_suggestion(sname, field) {
+                        error = error.with_label(format!("did you mean `{suggestion}`?"));
+                    }
+                    self.errors.push((self.file, error));
                     return None;
                 }
             };

@@ -1,0 +1,21 @@
+// `now()` is a wall-clock millisecond value and `sleep(ms)` blocks. The driver
+// test checks the markers, not the exact timings: the clock must be after the
+// epoch, and a 30 ms sleep must consume at least 20 ms of wall time.
+
+fn main() {
+    const before = now();
+    sleep(30);
+    const after = now();
+
+    if before > 0 {
+        println("clock ok");
+    } else {
+        println("clock bad");
+    }
+
+    if after - before >= 20 {
+        println("slept");
+    } else {
+        println("too fast");
+    }
+}

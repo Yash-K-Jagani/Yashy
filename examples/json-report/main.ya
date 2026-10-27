@@ -1,0 +1,48 @@
+// Read JSON-ish objects from standard input, one per line, and print a JSON
+// summary. This is deliberately a line scanner rather than a full parser:
+// Yashy's standard library has JSON text helpers, not a JSON value type.
+//
+// The `JSON.quote` call is the real module doing its job: the note is escaped
+// as a JSON string literal, so the output is valid JSON even if the note later
+// grows a quote or a newline.
+
+import JSON;
+
+fn key_of(line: string) -> string {
+    let open = -1;
+    let index = 0;
+    let length = line.len();
+
+    while index < length {
+        // 34 is the double quote in ASCII.
+        if line.byte_at(index).to_int() == 34 {
+            if open < 0 {
+                open = index;
+            } else {
+                return line.slice(open + 1, index);
+            }
+        }
+        index = index + 1;
+    }
+    return line.slice(0, 0);
+}
+
+fn main() {
+    let documents = 0;
+    let keys: map[string]int = map_new();
+
+    let line = read_line();
+    while line.len() > 0 {
+        documents = documents + 1;
+        let key = key_of(line);
+        if key.len() > 0 {
+            keys.insert(key, 1);
+        }
+        line = read_line();
+    }
+
+    let report = "{\"documents\": " + str_from_i64(documents) + ", \"distinct_keys\": " + str_from_i64(keys.len()) + ", \"note\": " + JSON.quote("counted by Yashy") + "}";
+    println(report);
+
+    keys.free();
+}

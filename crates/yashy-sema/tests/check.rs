@@ -2459,3 +2459,158 @@ fn void_outside_a_return_position_is_refused() {
     );
     assert_error("fn f(xs: []void) { }", "cannot hold `void`");
 }
+
+/// The label on the diagnostic whose message contains `needle`, if any.
+fn label_for(diags: &[Diagnostic], needle: &str) -> Option<String> {
+    diags
+        .iter()
+        .find(|d| d.message.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a diagnostic containing `{needle}`, got {:?}",
+                diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            )
+        })
+        .label
+        .clone()
+}
+
+#[test]
+fn a_misspelled_value_suggests_the_binding() {
+    let (result, _, _) = check_source("fn main() { let count = 1; print(cuont); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find value `cuont`").as_deref(),
+        Some("did you mean `count`?")
+    );
+}
+
+#[test]
+fn a_misspelled_function_suggests_the_function() {
+    let (result, _, _) = check_source("fn main() { prntln(\"x\"); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find function `prntln`").as_deref(),
+        Some("did you mean `println`?")
+    );
+}
+
+#[test]
+fn an_unrelated_name_gets_no_suggestion() {
+    let (result, _, _) = check_source("fn main() { let count = 1; print(zxqvw); }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(label_for(&diags, "cannot find value `zxqvw`"), None);
+}
+
+#[test]
+fn a_name_in_an_outer_scope_is_found_not_suggested() {
+    let (result, _, _) = check_source("fn main() { let count = 1; if true { let inner = count; } }");
+    assert!(result.is_ok(), "the outer binding is visible: {result:?}");
+}
+
+#[test]
+fn a_misspelled_type_suggests_the_declared_type() {
+    let src = "struct Point { x: int, y: int }\n\
+               fn main() { let p: Piont = Point { x: 1, y: 2 }; }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find type `Piont`").as_deref(),
+        Some("did you mean `Point`?")
+    );
+}
+
+#[test]
+fn a_misspelled_builtin_type_suggests_the_builtin() {
+    let (result, _, _) = check_source("fn main() { let s: strng = \"a\"; }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find type `strng`").as_deref(),
+        Some("did you mean `string`?")
+    );
+}
+
+#[test]
+fn a_misspelled_struct_literal_suggests_the_type() {
+    let src = "struct Point { x: int }\n\
+               fn main() { let p = Piont { x: 1 }; }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "cannot find struct `Piont`").as_deref(),
+        Some("did you mean `Point`?")
+    );
+}
+
+#[test]
+fn a_misspelled_field_suggests_the_struct_field() {
+    let src = "struct Point { x: int, y: int }\n\
+               fn main() { let p = Point { x: 1, y: 2 }; print(p.xx); }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "struct `Point` has no field `xx`").as_deref(),
+        Some("did you mean `x`?")
+    );
+}
+
+#[test]
+fn a_field_from_another_struct_gets_no_suggestion() {
+    let src = "struct A { alpha: int }\n\
+               struct B { beta: int }\n\
+               fn main() { let b = B { beta: 1 }; print(b.alpha); }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(label_for(&diags, "struct `B` has no field `alpha`"), None);
+}
+
+#[test]
+fn a_misspelled_struct_literal_field_suggests_the_field() {
+    let src = "struct Point { x: int, y: int }\n\
+               fn main() { let p = Point { x: 1, yy: 2 }; }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "unknown field `yy` in struct `Point`").as_deref(),
+        Some("did you mean `y`?")
+    );
+}
+
+#[test]
+fn a_misspelled_variant_field_suggests_the_field() {
+    let src = "enum Shape { Rect { w: float, h: float } }\n\
+               fn f(s: Shape) -> float {\n\
+                   return switch s { case Rect { w: w, hh: h } { w } };\n\
+               }";
+    let (result, _, _) = check_source(src);
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        label_for(&diags, "unknown field `hh` in variant `Rect`").as_deref(),
+        Some("did you mean `h`?")
+    );
+}
+
+/// The notes on the diagnostic whose message contains `needle`.
+fn notes_for(diags: &[Diagnostic], needle: &str) -> Vec<String> {
+    diags
+        .iter()
+        .find(|d| d.message.contains(needle))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a diagnostic containing `{needle}`, got {:?}",
+                diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+            )
+        })
+        .notes
+        .clone()
+}
+
+#[test]
+fn assigning_to_a_const_explains_let() {
+    let (result, _, _) = check_source("fn main() { const x = 1; x = 2; }");
+    let diags = result.expect_err("the program should fail to check");
+    assert_eq!(
+        notes_for(&diags, "cannot assign to `x`, which is immutable"),
+        vec!["use `let` for a mutable binding".to_string()]
+    );
+}

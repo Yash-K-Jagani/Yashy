@@ -102,11 +102,67 @@ cannot drift out of date.)
 
 ### Installing a release
 
-Download `yashy-<version>-x86_64-pc-windows-msvc.zip`, extract it, and run
-`.\install.ps1`. The installer copies the compiler and its bundled stdlib to
+A release is a prebuilt compiler plus its bundled standard library. You do not
+need Rust; you do need `clang` and LLVM.
+
+**Windows.** Download `yashy-<version>-x86_64-pc-windows-msvc.zip`, extract it,
+and run:
+
+```powershell
+.\install.ps1
+```
+
+If PowerShell refuses to run a local script, use
+`powershell -ExecutionPolicy Bypass -File .\install.ps1` for this one run.
+
+The installer verifies `SHA256SUMS`, copies Yashy into
 `%LOCALAPPDATA%\Yashy`, adds that directory to your user `PATH`, and runs
-`yashy doctor`. Install LLVM first (`winget install LLVM.LLVM`) if `doctor`
-reports that `clang` is missing.
+`yashy doctor`. If LLVM is missing, install it with
+`winget install LLVM.LLVM` and run `yashy doctor` again.
+
+**Linux.** Download the tarball, unpack it, and run:
+
+```sh
+tar xzf yashy-<version>-x86_64-unknown-linux-gnu.tar.gz
+cd yashy-<version>-x86_64-unknown-linux-gnu
+./install.sh
+```
+
+Or pipe the published installer:
+
+```sh
+curl -fsSL https://github.com/Yash-K-Jagani/Otter/releases/latest/download/install.sh | sh
+```
+
+The installer uses `~/.local` by default, verifies the archive, adds
+`~/.local/bin` to your shell profile, and runs `yashy doctor`. Use
+`--prefix /usr/local` for a system install, `--no-path` to manage `PATH`
+yourself, and `--uninstall` to remove the install and its marked `PATH` block.
+On Debian or Ubuntu, `sudo apt install clang llvm` provides the toolchain; the
+installer prints the right command for the distribution it detects.
+
+After installing, the five-minute path is:
+
+```text
+yashy doctor
+yashy init wordcount
+cd wordcount
+yashy run main.ya
+```
+
+The [first-CLI guide](docs/tutorial/12-first-cli.md) builds a stdin filter,
+adds a test, and produces a release binary. macOS is a 1.0 target; this release
+does not ship a macOS archive. A source build on macOS gets `brew` guidance from
+`yashy doctor`.
+
+### From a source checkout
+
+For contributors, the repository builds with Cargo:
+
+```console
+$ cargo build --release --workspace
+$ ./target/release/yashy doctor
+```
 
 `yashy build` compiles to a native executable, `yashy run` compiles and runs
 one in a single step, `yashy check` type-checks without emitting anything, and
@@ -800,7 +856,7 @@ The workspace is one crate per pipeline stage:
 | `yashy-codegen` | typed AST to textual LLVM IR |
 | `yashy-driver` | CLI, pipeline orchestration, toolchain detection |
 | `yashy-runtime` | the C shim: print helpers, allocation, arenas, refcounted strings, array storage, hash maps, threads/channels/mutexes, and fault diagnostics |
-| `yashy-stdlib` | Yashy-source library modules: `alloc`, `io`, `math`, `os`, `string`, `fs`, `path`, `args`, `env`, `process`, `time`, `rand`, `JSON`; `path`, `JSON`, and `rand` carry implementations, the rest document builtins or missing entry points |
+| `yashy-stdlib` | Yashy-source library modules: `alloc`, `io`, `math`, `os`, `string`, `fs`, `path`, `args`, `env`, `process`, `time`, `rand`, `JSON`; `path`, `JSON`, and `rand` carry implementations, the rest document builtins or missing entry points, and `args`/`time`/`os` document the R1 `args()`, `now()`/`sleep(ms)`, and `getcwd()` builtins |
 | `yashy-fmt` | the canonical formatter behind `yashy fmt` |
 | `yashy-lsp` | the language server: diagnostics, hover, go-to-definition, and semantic tokens |
 
@@ -811,8 +867,10 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 
 ## Documentation
 
-- [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in eleven chapters
-- [`docs/superpowers/specs/2026-10-16-yashy-language-design.md`](docs/superpowers/specs/2026-10-16-yashy-language-design.md) — the language design
+- [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in thirteen chapters, ending with [the first-CLI guide](docs/tutorial/12-first-cli.md)
+- [`docs/quickstart.md`](docs/quickstart.md) — install, doctor, init, run, and test in one page
+- [`examples/`](examples) — `hello`, `wordcount`, and `json-report`, each with tests
+- [`docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md`](docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md) — the current language design
 - [`docs/superpowers/plans/`](docs/superpowers/plans) — the milestone plans
 - [`benchmarks/README.md`](benchmarks/README.md) — benchmark methodology and results
 - [`docs/performance-improvements.md`](docs/performance-improvements.md) — where the remaining performance work is

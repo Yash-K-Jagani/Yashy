@@ -1,0 +1,8 @@
+// The standard library is always on the import path, including from a test.
+
+import JSON;
+
+fn main() {
+    const quoted = JSON.quote("hello");
+    assert(quoted.len() == 7);
+}

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #include <fcntl.h>
@@ -23,6 +24,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 /* `yashy_str_data`, defined with the string type further down, gives the bytes
@@ -219,6 +221,52 @@ void yashy_free(void *ptr) {
     }
     free(((void **)ptr)[-1]);
     yashy_count_add(&yashy_live_allocations, -1);
+}
+
+/* Resizes a block from `yashy_alloc`, in place when the allocator can.
+ *
+ * `used` is how many bytes of the block hold live data. The block carries the
+ * raw pointer just below the aligned address, so a move has to re-align the
+ * data and record the new raw pointer; a block the allocator can extend keeps
+ * its address and no byte is copied. That is what makes a doubling `push` cost
+ * one store per element instead of copying everything so far at every grow --
+ * `realloc` can extend a large block by moving the mapping rather than by
+ * copying it.
+ *
+ * Returns NULL and leaves the old block untouched when the allocation fails.
+ */
+void *yashy_realloc(void *ptr, long long used, long long size, long long align) {
+    if (ptr == NULL) {
+        return yashy_alloc(size, align);
+    }
+    size_t alignment = yashy_normalise_align(align);
+    size_t wanted = size > 0 ? (size_t)size : 1;
+    size_t total = wanted + alignment + sizeof(void *);
+    if (total < wanted) {
+        return NULL;
+    }
+    unsigned char *raw = (unsigned char *)((void **)ptr)[-1];
+    /* The data's offset from the raw pointer, read before `realloc`: the old
+     * block may be freed by the call, so its address must not be used after. */
+    size_t offset = (size_t)((unsigned char *)ptr - raw);
+    unsigned char *moved = (unsigned char *)realloc(raw, total);
+    if (moved == NULL) {
+        return NULL;
+    }
+    uintptr_t base = (uintptr_t)moved + sizeof(void *);
+    uintptr_t aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
+    /* `realloc` preserves the block's bytes at their old offsets, so the data
+     * is still at its old offset from the raw pointer. */
+    unsigned char *data = moved + offset;
+    size_t carried = used > 0 ? (size_t)used : 0;
+    if (carried > wanted) {
+        carried = wanted;
+    }
+    if (data != (unsigned char *)aligned) {
+        memmove((void *)aligned, data, carried);
+    }
+    ((void **)aligned)[-1] = moved;
+    return (void *)aligned;
 }
 
 /* ---- Arenas ----------------------------------------------------------
@@ -628,6 +676,65 @@ yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b) {
     if (len_b > 0) {
         memcpy(out->data + len_a, b->data, len_b);
     }
+    return out;
+}
+
+/* Appends `b` to `a` in place when `a` is uniquely owned and has room;
+ * otherwise builds a new string and releases the old reference.
+ *
+ * This is the `out = out + piece` shape the debug printers and interpolation
+ * lowering use. The caller owns `a` and hands that ownership to the result, so
+ * a new result takes over the reference and the old one is released here. */
+yashy_str *yashy_str_append(yashy_str *a, const yashy_str *b) {
+    size_t len_a = a == NULL ? 0 : (size_t)a->len;
+    size_t len_b = b == NULL ? 0 : (size_t)b->len;
+    size_t total = len_a + len_b;
+
+    /* `s = s + s` names the same string twice. Growing `a` can move its
+     * bytes, so copy both halves out of the old buffer before touching it. */
+    if (a != NULL && a == b) {
+        yashy_str *out = yashy_str_new(NULL, total);
+        if (out == NULL) {
+            return NULL;
+        }
+        if (len_a > 0) {
+            memcpy(out->data, a->data, len_a);
+            memcpy(out->data + len_a, a->data, len_a);
+        }
+        yashy_str_release(a);
+        return out;
+    }
+
+    if (a != NULL && a->refcount == 1) {
+        if ((size_t)a->cap < total) {
+            size_t new_cap = total + total / 2 + 16;
+            char *data = (char *)realloc(a->data, new_cap + 1);
+            if (data != NULL) {
+                a->data = data;
+                a->cap = (long long)new_cap;
+            }
+        }
+        if ((size_t)a->cap >= total) {
+            if (len_b > 0 && b != NULL) {
+                memcpy(a->data + len_a, b->data, len_b);
+            }
+            a->len = (long long)total;
+            a->data[total] = '\0';
+            return a;
+        }
+    }
+
+    yashy_str *out = yashy_str_new(NULL, total);
+    if (out == NULL) {
+        return NULL;
+    }
+    if (len_a > 0) {
+        memcpy(out->data, a->data, len_a);
+    }
+    if (len_b > 0) {
+        memcpy(out->data + len_a, b->data, len_b);
+    }
+    yashy_str_release(a);
     return out;
 }
 
@@ -1260,6 +1367,164 @@ yashy_str *yashy_getenv(const char *name) {
     return yashy_str_new(value, strlen(value));
 }
 
+/* ---- Program arguments ----
+ *
+ * The entry point is emitted as `i32 @main(i32 %argc, i8** %argv)` and calls
+ * `yashy_args_init` once, before the Yashy body runs. The vector belongs to the
+ * C runtime for the life of the process, so it is stored rather than copied;
+ * `yashy_args_slice` copies the pieces a program actually asks for.
+ *
+ * `args()` excludes `argv[0]`: the first element is the first argument after
+ * `yashy run --`, which is what a CLI wants to read. A second init keeps the
+ * first vector -- the entry point calls it once, and a recursive `main` call
+ * passes a null pair that must not erase the real one.
+ */
+static int yashy_argc = 0;
+static char **yashy_argv = NULL;
+
+void yashy_args_init(int argc, char **argv) {
+    if (yashy_argv != NULL) {
+        return;
+    }
+    yashy_argc = argc;
+    yashy_argv = argv;
+}
+
+/* Fills `out` with owned strings for `argv[1..argc]`. A failed push releases
+ * the string it could not append, so a short slice is not a leak. */
+void yashy_args_slice(yashy_slice *out) {
+    if (out == NULL) {
+        return;
+    }
+    out->data = NULL;
+    out->len = 0;
+    out->cap = 0;
+    if (yashy_argv == NULL) {
+        return;
+    }
+    for (int index = 1; index < yashy_argc; index++) {
+        const char *argument = yashy_argv[index];
+        if (argument == NULL) {
+            break;
+        }
+        yashy_str *piece = yashy_str_new(argument, strlen(argument));
+        if (piece == NULL) {
+            return;
+        }
+        long long before = out->len;
+        yashy_slice_push(out, &piece, (long long)sizeof piece);
+        if (out->len == before) {
+            yashy_str_release(piece);
+            return;
+        }
+    }
+}
+
+/* ---- Current directory ---- */
+
+yashy_str *yashy_getcwd(void) {
+#if defined(_WIN32)
+    DWORD cap = 256;
+    for (int attempt = 0; attempt < 12; attempt++) {
+        wchar_t *wide = (wchar_t *)malloc((size_t)cap * sizeof(wchar_t));
+        if (wide == NULL) {
+            return yashy_str_new("", 0);
+        }
+        DWORD length = GetCurrentDirectoryW(cap, wide);
+        if (length == 0) {
+            free(wide);
+            return yashy_str_new("", 0);
+        }
+        if (length < cap) {
+            int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, NULL, 0, NULL, NULL);
+            yashy_str *out = bytes > 0 ? yashy_str_new(NULL, (size_t)bytes) : NULL;
+            if (out != NULL) {
+                (void)WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, out->data, bytes, NULL,
+                                          NULL);
+            }
+            free(wide);
+            return out == NULL ? yashy_str_new("", 0) : out;
+        }
+        free(wide);
+        if (length > (1u << 20)) {
+            break;
+        }
+        cap = length + 1;
+    }
+    return yashy_str_new("", 0);
+#else
+    size_t cap = 256;
+    for (int attempt = 0; attempt < 12; attempt++) {
+        char *buffer = (char *)malloc(cap);
+        if (buffer == NULL) {
+            return yashy_str_new("", 0);
+        }
+        if (getcwd(buffer, cap) != NULL) {
+            yashy_str *out = yashy_str_new(buffer, strlen(buffer));
+            free(buffer);
+            return out;
+        }
+        int failure = errno;
+        free(buffer);
+        if (failure != ERANGE || cap >= (1u << 20)) {
+            break;
+        }
+        cap *= 2;
+    }
+    return yashy_str_new("", 0);
+#endif
+}
+
+/* ---- Clock and sleep ----
+ *
+ * `now()` is a wall clock in milliseconds since the Unix epoch, not a
+ * monotonic one: a system clock adjustment can make it go backwards. That is
+ * the value a CLI timestamp wants; a monotonic clock is a separate builtin if
+ * one is ever needed.
+ */
+
+long long yashy_now_ms(void) {
+#if defined(_WIN32)
+    FILETIME file_time;
+    GetSystemTimeAsFileTime(&file_time);
+    ULARGE_INTEGER value;
+    value.LowPart = file_time.dwLowDateTime;
+    value.HighPart = file_time.dwHighDateTime;
+    /* 100-nanosecond intervals since 1601-01-01; shift to the Unix epoch. */
+    return (long long)((value.QuadPart - 116444736000000000ULL) / 10000ULL);
+#else
+    struct timespec now;
+#if defined(CLOCK_REALTIME)
+    if (clock_gettime(CLOCK_REALTIME, &now) == 0) {
+        return (long long)now.tv_sec * 1000LL + (long long)(now.tv_nsec / 1000000L);
+    }
+#endif
+    return (long long)time(NULL) * 1000LL;
+#endif
+}
+
+/* Blocks for at least `ms` milliseconds. A non-positive request is a no-op.
+ * POSIX retries after a signal; Windows splits a value too large for one
+ * `Sleep` call into chunks. */
+void yashy_sleep_ms(long long ms) {
+    if (ms <= 0) {
+        return;
+    }
+#if defined(_WIN32)
+    while (ms > 0) {
+        DWORD chunk = ms > 0x7fffffffLL ? 0x7fffffffUL : (DWORD)ms;
+        Sleep(chunk);
+        ms -= (long long)chunk;
+    }
+#else
+    struct timespec request;
+    request.tv_sec = (time_t)(ms / 1000LL);
+    request.tv_nsec = (long)((ms % 1000LL) * 1000000LL);
+    while (nanosleep(&request, &request) == -1 && errno == EINTR) {
+    }
+#endif
+}
+
 /* Whether only whitespace is left in `s` -- the second half of "the whole
  * string is a number". `strtoll` stops at the first character it cannot read, so
  * the position it stopped at is the only evidence that anything was left over. */
@@ -1312,23 +1577,44 @@ double yashy_parse_f64(const yashy_str *s) {
  *   in the ABI, and faking one by aborting would make an allocation failure
  *   look like a language fault; the caller sees the element simply not arrive.
  */
+void yashy_slice_reserve(yashy_slice *slice, long long cap, long long element_size) {
+    if (slice == NULL || cap <= 0 || element_size <= 0) {
+        return;
+    }
+    if (cap > LLONG_MAX / element_size) {
+        return;
+    }
+    char *data = (char *)yashy_alloc((size_t)(cap * element_size), 8);
+    if (data == NULL) {
+        return;
+    }
+    yashy_free(slice->data);
+    slice->data = data;
+    slice->len = 0;
+    slice->cap = cap;
+}
+
 void yashy_slice_push(yashy_slice *slice, const void *element, long long element_size) {
     if (slice == NULL || element == NULL || element_size <= 0) {
         return;
+    }
+    if (slice->data == NULL) {
+        /* A header can carry a capacity without bytes when a reservation was
+         * skipped (a failed allocation, or an empty source). Start over so the
+         * grow path allocates instead of writing through a null pointer. */
+        slice->len = 0;
+        slice->cap = 0;
     }
     if (slice->len >= slice->cap) {
         long long cap = slice->cap > 0 ? slice->cap * 2 : 4;
         if (cap > LLONG_MAX / element_size) {
             return;
         }
-        char *data = (char *)yashy_alloc(cap * element_size, 8);
+        char *data = (char *)yashy_realloc(slice->data, slice->len * element_size,
+                                           cap * element_size, 8);
         if (data == NULL) {
             return;
         }
-        if (slice->len > 0 && slice->data != NULL) {
-            memcpy(data, slice->data, (size_t)(slice->len * element_size));
-        }
-        yashy_free(slice->data);
         slice->data = data;
         slice->cap = cap;
     }

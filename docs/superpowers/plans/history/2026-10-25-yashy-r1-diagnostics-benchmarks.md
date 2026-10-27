@@ -4,7 +4,7 @@
 > independent halves: diagnostics and measurement. Land them as separate
 > commits so a noisy benchmark cannot block a diagnostic fix.
 
-**Status:** Draft for review, 2026-10-25.
+**Status:** Implemented and pushed, accepted tip `e015b77`; plan record `70bd566`, 2026-10-26. Bench run `40284700659` and CI run `40284703807` are green on Ubuntu and Windows.
 **Source of truth:** `docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md` §10.2, §13, and §15.3.
 **Master plan:** `docs/superpowers/plans/2026-10-25-yashy-super-language-master.md` §7.3.
 **Goal:** Errors teach the fix ("did you mean", notes, stable codes), agents can
@@ -330,158 +330,367 @@ Rules:
 
 ### Task 1 — Suggestion helper
 
-- [ ] Add `crates/yashy-common/src/suggest.rs` with `closest` and tests:
+- [x] Add `crates/yashy-common/src/suggest.rs` with `closest` and tests:
   - exact match returns `None` (the caller already handles it);
   - one substitution, insertion, deletion, and adjacent transpose;
   - case-insensitive match;
   - length-dependent bounds;
   - ties prefer the same first character, then alphabetical;
   - an unrelated name returns `None`.
-- [ ] Export it from `yashy-common`.
-- [ ] Run the tests.
+- [x] Export it from `yashy-common`.
+- [x] Run the tests.
 
 ### Task 2 — Unknown value and function suggestions
 
-- [ ] Add a `names()` or `suggest(name)` method to `Scope` that exposes the
+- [x] Add a `names()` or `suggest(name)` method to `Scope` that exposes the
   visible binding names without leaking the map.
-- [ ] Wire `Scope`'s unknown-value path and the `check_expr.rs` unknown-value
+- [x] Wire `Scope`'s unknown-value path and the `check_expr.rs` unknown-value
   paths to `closest`.
-- [ ] Wire the unknown-function path to the function/builtin table.
-- [ ] Add sema tests:
+- [x] Wire the unknown-function path to the function/builtin table.
+- [x] Add sema tests:
   - `let count = 1; print(cuont);` suggests `count`;
   - `prntln("x")` suggests `println`;
   - a genuinely unrelated name gets no suggestion;
   - a name in an outer scope is found, not suggested.
-- [ ] Add a driver test that the rendered diagnostic contains
+- [x] Add a driver test that the rendered diagnostic contains
   `did you mean` and the candidate.
 
 ### Task 3 — Type and field suggestions
 
-- [ ] Wire unknown-type errors to the struct/enum/builtin type names.
-- [ ] Wire unknown-field errors (struct fields, enum variant fields) to the
+- [x] Wire unknown-type errors to the struct/enum/builtin type names.
+- [x] Wire unknown-field errors (struct fields, enum variant fields) to the
   type's fields.
-- [ ] Add tests for each case, including a field that exists on a different
+- [x] Add tests for each case, including a field that exists on a different
   struct (no suggestion if the distance is too large).
-- [ ] Keep the existing messages; add the suggestion as a label.
+- [x] Keep the existing messages; add the suggestion as a label.
 
 ### Task 4 — Notes
 
-- [ ] Decide whether a second note line is needed. If yes, add
+- [x] Decide whether a second note line is needed. If yes, add
   `notes: Vec<String>` to `Diagnostic` and update the struct literals and
   `SourceMap::render`.
-- [ ] Add the `const` reassignment note.
-- [ ] Add the missing-import note only if the checker can name the module
+- [x] Add the `const` reassignment note.
+- [x] Add the missing-import note only if the checker can name the module
   reliably; otherwise skip it and record why.
-- [ ] Add render tests for one note and for no notes.
-- [ ] Do not duplicate the message in a note.
+- [x] Add render tests for one note and for no notes.
+- [x] Do not duplicate the message in a note.
 
 ### Task 5 — Cross-platform measurement
 
-- [ ] Refactor `benchmarks/ci.ps1` so the measurement functions are reusable
+- [x] Refactor `benchmarks/ci.ps1` so the measurement functions are reusable
   and it can emit the `key=value` format (`-Output <file>`).
-- [ ] Add `benchmarks/ci.sh` for Linux with the same rows and format.
-- [ ] Add a hello-world benchmark program and a ~1,000-line compile-time
+- [x] Add `benchmarks/ci.sh` for Linux with the same rows and format.
+- [x] Add a hello-world benchmark program and a ~1,000-line compile-time
   program if the latter is stable enough to gate.
-- [ ] Run both scripts locally and compare the output shape.
-- [ ] Keep the C comparison in the report; mark it non-gating.
+- [x] Run both scripts locally and compare the output shape.
+- [x] Keep the C comparison in the report; mark it non-gating.
+
+Measured 2026-10-26: Windows `fib_compile_ms=348.3`, `hello_compile_ms=353.0`,
+`large_compile_ms=1683.1`, `fib_run_ms=176.0`, `fib_binary_bytes=57344`,
+`hello_binary_bytes=56320`. Linux (WSL) `fib_compile_ms=494.9`,
+`hello_compile_ms=513.1`, `large_compile_ms=2547.4`, `fib_run_ms=140.2`,
+`fib_binary_bytes=48000`, `hello_binary_bytes=47968`. Two Linux runs spread
++17% on `fib_compile_ms` (the `/mnt/c` filesystem), +2% on hello and +3% on
+large, so `large_compile_ms` is stable enough to gate. The Windows local run
+has no C row because this host's clang has no MSVC CRT headers; the script
+treats the C comparison as context and CI's MSVC environment supplies it.
 
 ### Task 6 — Comparator
 
-- [ ] Add `crates/yashy-bench` with `compare` and `update` subcommands.
-- [ ] Add `benchmarks/thresholds.bench`.
-- [ ] Unit-test the comparator:
+- [x] Add `crates/yashy-bench` with `compare` and `update` subcommands.
+- [x] Add `benchmarks/thresholds.bench`.
+- [x] Unit-test the comparator:
   - within threshold passes;
   - a compile regression fails;
   - a binary-size regression fails;
   - a runtime regression fails;
   - a missing row is reported, not silently ignored;
   - a negative or zero baseline is handled without division by zero.
-- [ ] Add the crate to the workspace and to `cargo check --workspace
+- [x] Add the crate to the workspace and to `cargo check --workspace
   --all-targets`.
+
+Verified 2026-10-26: `cargo test -p yashy-bench` runs 16 tests, all passing.
+`compare` on the Linux measurement is all-pass; a copy with
+`fib_compile_ms=900.0` (+81.9%) fails with exit 1, `--report-only` exits 0, and
+a usage error exits 2. The thresholds file defaults to `compile=20`,
+`binary=10`, `runtime=20`, with a `large_compile_ms=25` override.
 
 ### Task 7 — Baselines and CI
 
-- [ ] Add `benchmarks/baselines/windows.bench` and `linux.bench` from a clean run
+- [x] Add `benchmarks/baselines/windows.bench` and `linux.bench` from a clean run
   on each OS. Record the toolchain and commit in the file.
-- [ ] Update `.github/workflows/bench.yml`:
+- [x] Update `.github/workflows/bench.yml`:
   - Linux and Windows jobs;
   - schedule, manual dispatch, and PR-with-`bench`-label;
   - compare step with the comparator;
   - upload the measurement file and text log;
   - fail on a threshold breach for scheduled/manual runs, report-only on PRs.
-- [ ] Add a `bench-baseline` manual workflow (or document the local command) to
+- [x] Add a `bench-baseline` manual workflow (or document the local command) to
   regenerate a baseline.
-- [ ] Document the update process in `benchmarks/README.md`: run on a quiet
+- [x] Document the update process in `benchmarks/README.md`: run on a quiet
   machine, review the diff, commit with the reason.
+
+Seeded 2026-10-26: the Linux baseline is an ext4 run (clang 18.1.8,
+`fib_compile_ms=327.2`, `large_compile_ms=2319.4`), the Windows baseline a local
+MSVC-free run (clang 23.1.4, `fib_compile_ms=348.3`, `large_compile_ms=1683.1`),
+both at commit `fec9b8c`. The comparator passes both and fails a +127% `fib_run_ms`
+copy with exit 1. The manual **Bench** dispatch takes *Measure only and upload a
+candidate baseline*; the artifact is reviewed and committed, and the README
+carries the local `update` command. If a runner's first measurement lands
+outside a threshold for an environmental reason, the candidate run replaces the
+seeded baseline rather than the gate being widened.
+
+Runner update 2026-10-26: the first CI bench run (`40283838983`) was green on
+Linux and failed on Windows only. The runner's clang 20.1.8 linked
+`fib_binary_bytes=201216` and `hello_binary_bytes=200192`, against the local
+clang 23.1.4 baseline's `57344`/`56320`; the C comparison also grew from `16032`
+to `140288` bytes, so the change is the runner's linker/toolchain, not Yashy
+codegen. Commit `984702f` runs the Windows compare under `pwsh` (Git Bash's
+`/usr/bin/link.exe` shadows the MSVC linker), and `e015b77` replaces the Windows
+baseline with the runner measurement (`fib_compile_ms=206.1`,
+`fib_run_ms=96.6`, `large_compile_ms=707.8`) as the README's environmental
+replacement allows. The next bench run (`40284700659`) is green on
+`ubuntu-22.04` and `windows-latest`.
 
 ### Task 8 — Top-three performance fixes
 
-- [ ] Run the new baseline and the existing feature suite; list the three
+- [x] Run the new baseline and the existing feature suite; list the three
   largest gaps that are codegen/runtime issues, not measurement noise.
-- [ ] Choose the three and record the evidence in this plan. Candidates from
+- [x] Choose the three and record the evidence in this plan. Candidates from
   `docs/performance-improvements.md`: checked-arithmetic elision (the fib
   checked row is ~1.8×), map/array paths, string/debug formatting, interned
   identifiers, iterative parser, one IR buffer.
-- [ ] Do not implement the fixes in this slice. Hand the three, with their
+- [x] Do not implement the fixes in this slice. Hand the three, with their
   baseline numbers and a suggested order, to slice 3b.
-- [ ] Record the slice 3b start condition in the master plan: diagnostics and
+- [x] Record the slice 3b start condition in the master plan: diagnostics and
   the gate are green, and the three fixes are chosen.
-- [ ] Do not claim a speedup without a before/after measurement.
+- [x] Do not claim a speedup without a before/after measurement.
+
+Measured 2026-10-26 with a fresh `run-features.ps1 -Runs 3 -Passes 1` on
+Windows (GNU Rust toolchain; this host has no MSVC linker), cross-checked with
+the published 9 × 3 table in `benchmarks/README.md`:
+
+| Row | Published | Fresh | Ratio | Chosen |
+|---|---|---:|---:|---|
+| Array mapping (`map_array`) | 417.1 vs C gcc 110.8 | 445.0 vs 122.8 | 3.76× / 3.62× | yes |
+| Debug formatting (`debug_format`) | 1753.6 vs Rust 513.4 | 1931.3 vs 583.4 | 3.42× / 3.31× | yes |
+| Tuples (`tuple`) | 133.6 vs gcc 74.7 | 142.1 vs 93.3 | 1.79× / 1.52× | yes |
+| Map walking (`map_scan`) | 1065.4 vs Rust 567.3 | 1119.1 vs 625.2 | 1.88× / 1.79× | no — copy by design |
+| Fixed-array checked `+` | 192.8 vs clang 16.9 | 195.6 vs 22.2 | 11.4× / 8.8× | no — contract |
+
+The three largest ratios are map_array, debug and map_scan; `map_scan` copies
+the map's keys and values into caller-owned arrays, which the README records as
+the shape the language chose, not a codegen defect. The third fixable row is
+therefore tuples. The checked add's gap is the overflow test (and the reason
+`wrapping_*` exists); it is a language-contract item, not one of 3b's three.
+
+Suggested order: array mapping, debug formatting, tuples. Each needs a design
+note, before/after numbers on Windows and Linux, and no regression in another
+row. No fix is implemented in slice 3.
 
 ### Task 9 — Docs
 
-- [ ] Update `benchmarks/README.md` with the R1 gate rows, baseline format,
+- [x] Update `benchmarks/README.md` with the R1 gate rows, baseline format,
   thresholds, and the update process.
-- [ ] Update the spec's R1 performance bullet to point at the baseline files.
-- [ ] Add a short "diagnostics" section to the tutorial or README showing a
+- [x] Update the spec's R1 performance bullet to point at the baseline files.
+- [x] Add a short "diagnostics" section to the tutorial or README showing a
   "did you mean" example.
-- [ ] Update the master plan's gap table.
+- [x] Update the master plan's gap table.
+
+The README's gate section landed with Task 7 (`abd9575`). This task adds the
+spec's `hello_compile_ms`, `hello_binary_bytes` and
+`benchmarks/baselines/<os>.bench` pointers, and the tutorial's "Diagnostics that
+teach" section with the exact `did you mean` block. The master plan's gate row
+is Done (committed in `0772658`). Verified 2026-10-26:
+`cargo test -p yashy-driver --test tutorial` → 2 passed.
 
 ### Task 10 — Error codes and catalog
 
-- [ ] Add `code: Option<&'static str>` to `Diagnostic` (or a small
+- [x] Add `code: Option<&'static str>` to `Diagnostic` (or a small
   `DiagnosticCode` enum) and set it at the emission site.
-- [ ] Add `crates/yashy-common/src/codes.rs` with the R1 codes and their
+- [x] Add `crates/yashy-common/src/codes.rs` with the R1 codes and their
   one-line meanings.
-- [ ] Assign codes to the common corpus: unknown name/type, type mismatch,
+- [x] Assign codes to the common corpus: unknown name/type, type mismatch,
   missing/unknown field, missing `?`, const reassignment, moved value,
   non-exhaustive match, wrong argument count.
-- [ ] Add `docs/errors/<code>.md` with cause, example, and fix.
-- [ ] Tests: code and span are present for the corpus; codes are not reused;
+- [x] Add `docs/errors/<code>.md` with cause, example, and fix.
+- [x] Tests: code and span are present for the corpus; codes are not reused;
   an uncoded diagnostic is allowed but counted.
-- [ ] Do not derive a code from the message text.
+- [x] Do not derive a code from the message text.
+
+Implemented 2026-10-26 (commit `b5fcb11`).
+
+- `Diagnostic` and `TypeError` carry `code: Option<&'static str>`, set where the
+  diagnostic is built; `DiagnosticBag::uncoded_count` counts the rest.
+- `codes.rs` holds the §3.8 scheme: `E0001` unknown name, `E0002` unknown
+  type, `E0100` type mismatch, `E0200` unknown field, `E0201` missing field,
+  `E0300` missing `?`, `E0400` const reassignment, `E0500` moved value,
+  `E0600` non-exhaustive match, and `E0700` wrong argument count. Each entry
+  has a title, a one-line summary, and an embedded `docs/errors/<code>.md`
+  page (cause, example, fix). The page is embedded with `include_str!`, so
+  `yashy explain` will work offline.
+- Human output is `error[CODE]: ...` when coded and the old `error: ...` when
+  not. `Diagnostic::docs_url` and `codes::docs_url` point at
+  `https://yashy.dev/errors/<code>`.
+- The corpus is `crates/yashy-sema/tests/codes.rs`: ten programs covering
+  unknown name/type, scalar mismatch, unknown/missing field, wrong argument
+  count, moved value, const reassignment, non-exhaustive switch, and missing
+  `?`. All ten have a code and a real span; the uncoded duplicate-definition
+  case is counted rather than treated as coded.
+- The 90% figure is scoped to that corpus (10/10). Parse errors, visibility,
+  operator mismatch, and linear-copy errors still have no code; they are
+  allowed and counted, not silently treated as complete.
+- Verified 2026-10-26: `cargo test -p yashy-common -p yashy-sema` (25 common,
+  181 sema, 11 corpus), `cargo test -p yashy-driver --test e2e` (115 passed),
+  `cargo test -p yashy-driver --test docs` (3 passed),
+  `cargo test -p yashy-driver --test tutorial` (2 passed), and the full
+  `cargo test --workspace --no-fail-fast` (98 result lines, all ok).
 
 ### Task 11 — JSON diagnostics for `check` and `test`
 
-- [ ] Add a small JSON writer helper in `yashy-common` (no new dependency).
-- [ ] Add `yashy check --json` with `schema_version`, `tool`, `success`,
+- [x] Add a small JSON writer helper in `yashy-common` (no new dependency).
+- [x] Add `yashy check --json` with `schema_version`, `tool`, `success`,
   `diagnostics`, and `summary`.
-- [ ] Add `yashy test --json` with `tests` and `summary`, reusing the diagnostic
+- [x] Add `yashy test --json` with `tests` and `summary`, reusing the diagnostic
   object.
-- [ ] `--json` implies no color and no prompt; exit codes are `0/1/2/3`.
-- [ ] Tests: schema shape snapshot; human and JSON facts agree on code,
+- [x] `--json` implies no color and no prompt; exit codes are `0/1/2/3`.
+- [x] Tests: schema shape snapshot; human and JSON facts agree on code,
   severity, file, span, and summary; a usage error returns `2`; an internal error
   returns `3`.
-- [ ] Keep the human output unchanged except for the added code.
+- [x] Keep the human output unchanged except for the added code.
+
+Implemented 2026-10-26 (commit `cde33d8`).
+
+- `crates/yashy-common/src/json.rs` is a dependency-free `Json` value tree with
+  a pretty printer and centralized string escaping; it has eight unit tests.
+  `EXIT_USAGE = 2` and `EXIT_INTERNAL = 3` live beside the existing exit codes.
+- `check --json` prints the v1 envelope on stdout: `schema_version`, `tool`,
+  `yashy_version`, `success`, `diagnostics`, and `summary {errors, warnings}`.
+  A diagnostic has `code` (null when uncoded), `severity`, `message`, `file`,
+  `span {start, end, line, column}`, optional `labels`, optional `notes`, and
+  `docs_url` only when coded. `fix` is not emitted in R1.
+- `test --json` uses the same envelope plus `tests` and a test summary
+  (`passed`, `failed`, `skipped`). Compile diagnostics are nested under the
+  test that produced them; top-level `diagnostics` is reserved for setup errors
+  such as a missing toolchain. A runtime failure gets a synthetic diagnostic
+  with the exit status. `--list` and `--json` are mutually exclusive.
+- Exit codes: `usage_error` and a missing `check` source now return `2`; a
+  missing explicit test root and an unreadable test root return `2`; a test
+  temporary directory that cannot be created returns `3`. The human `test`
+  progress lines, the human `check` renderer, and the human diagnostics are
+  otherwise unchanged. The two e2e tests that asserted `1` for a usage error
+  now assert `2`.
+- `crates/yashy-driver/tests/diagnostics_json.rs` parses the output with a tiny
+  local JSON reader and covers the schema and facts, human/JSON agreement,
+  success, mixed test results, usage exit `2`, and internal exit `3`.
+- `docs/cli.md` documents the shared exit codes, both `--json` commands, and the
+  schema v1 diagnostic and test objects.
+
+Verified 2026-10-26: `cargo test -p yashy-common` (31 unit, 25 integration),
+`cargo test -p yashy-driver --test diagnostics_json` (8 passed),
+`cargo test -p yashy-driver --test e2e usage_error` (2 passed),
+`cargo test -p yashy-driver --test test_runner` (5 passed),
+`cargo test -p yashy-driver --test docs` (3 passed),
+`cargo check --workspace --all-targets` (clean, GNU Windows), and the full
+`cargo test --workspace --no-fail-fast` (99 result lines, all ok, WSL Ubuntu).
 
 ### Task 12 — `yashy explain`
 
-- [ ] Add `yashy explain <code>`; unknown codes exit `2` with the nearest known
+- [x] Add `yashy explain <code>`; unknown codes exit `2` with the nearest known
   code if one is close.
-- [ ] Add `yashy explain --json` with the catalog entry and `docs_url`.
-- [ ] Tests: every code in `codes.rs` has a catalog page; a known code prints the
+- [x] Add `yashy explain --json` with the catalog entry and `docs_url`.
+- [x] Tests: every code in `codes.rs` has a catalog page; a known code prints the
   cause/example/fix; an unknown code fails cleanly.
-- [ ] Link the code in the human diagnostic to the same catalog page.
+- [x] Link the code in the human diagnostic to the same catalog page.
+
+Implemented 2026-10-26 (commit `58b8522`).
+
+- `yashy explain <code> [--json]` reads `codes::CODES`. The human form prints the
+  embedded Markdown page verbatim; `--json` emits `schema_version`, `tool`,
+  `yashy_version`, `success`, `code`, `title`, `summary`, `page`, and
+  `docs_url`. The two forms share one entry, so their facts cannot drift.
+- An unknown code exits `2`. When `codes::closest` finds a near miss, stderr
+  says ``unknown error code `E010`; did you mean `E0100`?``; an unrelated string
+  gets the same message without a suggestion. `--json` with an unknown code
+  still writes the human message to stderr, matching the usage-error behavior of
+  `check --json` and `test --json`.
+- A coded human diagnostic now ends with `  docs: https://yashy.dev/errors/<code>`
+  after any notes. An uncoded diagnostic prints no docs line. The missing-source
+  fallback keeps the docs line.
+- `crates/yashy-driver/tests/explain.rs` (12 tests) covers every catalog code,
+  the human page, the JSON envelope, shared facts, near and unrelated unknown
+  codes, missing/extra/unknown arguments, and the coded/uncoded human link.
+  `crates/yashy-common/tests/render.rs` (27 tests) pins the docs line, its place
+  after notes, and the uncoded case. `e2e.rs` (117 tests) adds the coded docs
+  link and two top-level usage tests.
+- Also closes Task 11's top-level usage gap: no command and an unknown command
+  now exit `2` (`EXIT_USAGE`) instead of `1`.
+- Docs: `docs/cli.md` gains the explain command, its schema, and the human
+  diagnostic link; `docs/errors.md`, all ten `docs/errors/<code>.md` pages, and
+  `docs/tutorial/06-errors.md` show the docs line and name `yashy explain`.
+- Ruling: the human link is a final indented `docs:` line, not an OSC 8 terminal
+  hyperlink - it survives pipes and logs and is testable in plain output - cost
+  if wrong: one extra line on every coded diagnostic.
+- Ruling: `explain --json` has its own envelope instead of the diagnostics
+  envelope - the command returns a catalog entry, not a compile result - cost if
+  wrong: one more documented schema for an agent to learn.
+
+Verified 2026-10-26: `cargo test -p yashy-common --test render` (27 passed),
+`cargo test -p yashy-driver --test explain` (12 passed),
+`cargo test -p yashy-driver --test e2e` (117 passed),
+`cargo test -p yashy-driver --test diagnostics_json` (8 passed),
+`cargo test -p yashy-driver --test test_runner` (5 passed),
+`cargo test -p yashy-driver --test docs` (3 passed),
+`cargo check --workspace --all-targets` (clean, GNU Windows), and the full
+`cargo test --workspace --no-fail-fast` in WSL Ubuntu (100 result lines, all ok).
+`cargo test -p yashy-common` cannot run its unit-test binary on this Windows host
+because Application Control blocks the freshly linked image; the same suite runs
+in WSL.
 
 ### Task 13 — AI contract v0
 
-- [ ] Extend `AGENTS.md` with error catalog links, JSON/`explain` commands, and
+- [x] Extend `AGENTS.md` with error catalog links, JSON/`explain` commands, and
   the diagnostic workflow.
-- [ ] Extend `llms.txt` with the error catalog, JSON schema v1, and `explain`.
-- [ ] Add tests that the commands in `AGENTS.md` run and every link in
+- [x] Extend `llms.txt` with the error catalog, JSON schema v1, and `explain`.
+- [x] Add tests that the commands in `AGENTS.md` run and every link in
   `llms.txt` resolves.
-- [ ] Do not add the semantic index, context packs, MCP, or sandbox in this
+- [x] Do not add the semantic index, context packs, MCP, or sandbox in this
   slice; those are R2.5.
+
+Implemented 2026-10-26 (commit `4644ec7`).
+
+- `AGENTS.md` gains the `explain`, `diagnostics_json`, `docs`, and `agents` test
+  targets plus a "Diagnostics and JSON" section: the human `docs:` link, four
+  runnable CLI commands, schema v1 fields, the four exit codes, and a three-step
+  error workflow. Its links point at `docs/cli.md#json-diagnostics-schema-v1`,
+  `docs/errors.md`, and `docs/errors/E0100.md`.
+- `llms.txt` names diagnostic schema v1 and `yashy explain`, adds a Diagnostics
+  section with the same commands, and keeps every local link resolvable.
+- `crates/yashy-driver/tests/agents.rs` (2 tests) parses the `## Commands` block
+  and asserts every `cargo test -p yashy-driver --test <name>` target exists,
+  then parses the `## Diagnostics and JSON` block and runs all four CLI commands
+  from the repository root. The checks cover schema v1, success, a clean
+  `check`, the test list, and the human page. Cargo commands that would recurse
+  are validated by target rather than executed; the test doc comment records
+  that trade-off.
+- The existing `docs.rs` tests `llms_links_resolve` and
+  `repo_agents_links_resolve` cover the link requirement.
+- No semantic index, context packs, MCP, or sandbox was added; those remain
+  R2.5.
+
+Verified 2026-10-26: `cargo test -p yashy-driver --test docs` (3 passed, GNU
+Windows), `cargo test -p yashy-driver --test agents --test docs` in WSL Ubuntu
+(2 and 3 passed), `cargo check --workspace --all-targets` (clean, GNU Windows),
+and the full `cargo test --workspace --no-fail-fast` in WSL Ubuntu (101 result
+lines, all ok).
+
+CI acceptance 2026-10-26: run `40284703807` is green on all five jobs,
+including `install-smoke` on `ubuntu-22.04` and `windows-latest`. The first run
+(`40283841997`) failed only `install-smoke (windows-latest)`: the installer
+wrote the long `C:\Users\runneradmin\...` path while the test compared the short
+`C:\Users\RUNNER~1\...` path. Commit `e015b77` canonicalizes both sides with
+`Get-Item -LiteralPath ... .FullName`; the local
+`pwsh scripts/test-install.ps1` run and the rerun both pass.
 
 ---
 
@@ -494,7 +703,7 @@ cargo test -p yashy-bench
 cargo test -p yashy-driver --test e2e
 cargo test -p yashy-driver --test diagnostics_json
 cargo test -p yashy-driver --test explain
-cargo run -p yashy-driver -- check --json examples/hello
+cargo run -p yashy-driver -- check --json examples/hello/main.ya
 cargo run -p yashy-driver -- test --json
 cargo run -p yashy-driver -- explain E0100
 cargo check --workspace --all-targets
@@ -607,3 +816,28 @@ removing the failing step; keep the measurement artifact and the baseline.
   3b; the slice 3b start condition is recorded in the master plan.
 - The master plan's gap table marks slice 3 complete.
 - Commit and push; record the commit hashes in this plan.
+
+Observed 2026-10-26: bench run `40284700659` is green on `ubuntu-22.04` and
+`windows-latest`; CI run `40284703807` is green on all five jobs. A temporary
+branch (`ad53959`, never merged) forced `-O0`; bench run `40285205362` failed the
+Linux compare on `fib_binary_bytes` (`57400`, +19.6%) and `hello_binary_bytes`
+(`57368`, +19.6%). The Windows job stayed within its thresholds (binary +4.1% /
++4.3%, runtime +17.4%), which is why the proof uses the Linux row. The branch was
+deleted; the accepted tip remains `e015b77`.
+
+---
+
+## 10. Commit record
+
+| Commit | Contents |
+|---|---|
+| `b5fcb11` | Task 10: stable error codes and catalog |
+| `cde33d8` | Task 11: schema v1 JSON diagnostics and exit codes |
+| `c8ee623` | Task 11 plan record |
+| `58b8522` | Task 12: `explain`, docs links, top-level usage exits |
+| `2dffa8c` | Task 12 plan record |
+| `4644ec7` | Task 13: AGENTS/llms diagnostics contract |
+| `d87d8ff` | Task 13 plan record |
+| `984702f` | Windows benchmark compare under `pwsh` |
+| `e015b77` | Runner Windows baseline and canonical install paths |
+| this commit | Slice 3 acceptance record |

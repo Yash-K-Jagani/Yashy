@@ -14,6 +14,7 @@ declare void @yashy_free(i8*)
 declare i8* @yashy_arena_new()
 declare i8* @yashy_arena_alloc(i8*, i64, i64)
 declare void @yashy_arena_free_all(i8*)
+declare void @yashy_slice_reserve(ptr, i64, i64)
 declare void @yashy_slice_push(ptr, ptr, i64)
 declare i64 @yashy_slice_get(ptr, i64, ptr, i64)
 declare i64 @yashy_slice_pop(ptr, ptr, i64)
@@ -57,6 +58,7 @@ declare void @yashy_chan_free(i8*)
 declare i64 @yashy_str_len(i8*)
 declare i8 @yashy_str_byte_at(i8*, i64)
 declare i8* @yashy_str_concat(i8*, i8*)
+declare i8* @yashy_str_append(i8*, i8*)
 declare i8* @yashy_str_from_i64(i64)
 declare i8* @yashy_str_from_f64(double)
 declare i8* @yashy_str_from_bool(i64)
@@ -95,6 +97,11 @@ declare double @yashy_parse_f64(i8*)
 declare i8* @yashy_read_file(i8*)
 declare i64 @yashy_write_file(i8*, i8*, i64)
 declare i8* @yashy_getenv(i8*)
+declare void @yashy_args_init(i32, i8**)
+declare void @yashy_args_slice(ptr)
+declare i8* @yashy_getcwd()
+declare i64 @yashy_now_ms()
+declare void @yashy_sleep_ms(i64)
 declare void @yashy_panic(i8*, i8*, i64, i64)
 declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)
 declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
@@ -114,7 +121,7 @@ call void @yashy_print_str(i8* %t1)
 call void @yashy_str_release_atomic(i8* %t1)
 ret void
 }
-define i32 @main() {
+define i32 @main(i32 %argc, i8** %argv) {
 entry:
 %slot0 = alloca i8*
 %slot1 = alloca i8*
@@ -123,6 +130,7 @@ entry:
 %slot4 = alloca i64
 %slot5 = alloca { i64 }
 %slot6 = alloca i64
+call void @yashy_args_init(i32 %argc, i8** %argv)
 %t2 = call i8* @yashy_mutex_new()
 store i8* %t2, ptr %slot0
 %t3 = load i8*, ptr %slot0

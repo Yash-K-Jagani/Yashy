@@ -1,7 +1,9 @@
 //! The standard library: the builtin-surface modules (`io`, `string`, `math`,
 //! `os`, `alloc`) and the Plan B modules (`fs`, `path`, `args`, `env`,
 //! `process`, `time`, `rand`, `JSON`), written in Yashy and compiled by the
-//! compiler they ship with.
+//! compiler they ship with. The R1 process builtins -- `args()`, `getcwd()`,
+//! `now()`, and `sleep(ms)` -- are in scope without an import; the `args`,
+//! `time`, and `os` modules document them.
 //!
 //! Most programs here import the modules through `YASHY_PATH` so the test can
 //! pin the exact source tree it is exercising. The loader also discovers the
@@ -265,6 +267,13 @@ fn main() {
     let second = next(1);
     if first == second { println(\"deterministic\"); }
     if first >= 0 { println(\"non-negative\"); }
+    let argv = args();
+    println_i64(argv.len());
+    argv.free();
+    let here = getcwd();
+    if here.len() > 0 { println(\"cwd\"); }
+    if now() > 0 { println(\"clock\"); }
+    sleep(0);
 }
 ";
 
@@ -288,7 +297,7 @@ fn every_stdlib_module_imports_and_the_path_and_json_helpers_run() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     assert_eq!(
         stdout_of(&output),
-        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\ndeterministic\nnon-negative\n"
+        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\ndeterministic\nnon-negative\n0\ncwd\nclock\n"
     );
     assert!(
         stderr_of(&output).contains("yashy: leak report: 0 live allocations"),

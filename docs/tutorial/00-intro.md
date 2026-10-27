@@ -30,6 +30,12 @@ syntax:
 
 ## Build and run
 
+> **Using a release?** Installing a prebuilt Yashy is the normal path: download
+> the archive for Windows or Linux, run its installer, then run `yashy doctor`.
+> The [first-CLI guide](12-first-cli.md) walks through the install, `yashy
+> init`, and a complete program. The source build below is for contributors and
+> for working on the compiler itself.
+
 Build the compiler from the repository root:
 
 ```text
@@ -138,4 +144,6 @@ and a code-generation bug can be read as a diff. The type checker runs before
 any IR exists, which is why most mistakes in this tutorial are reported before
 a binary is written.
 
-Continue to [01-hello](01-hello.md).
+Continue to [01-hello](01-hello.md). If you installed a release and want the
+project-shaped path first, read [12-first-cli](12-first-cli.md); the language
+chapters assume a working `yashy` and can be read in either order.
