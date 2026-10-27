@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   bench:
-    name: ${{ matrix.os }}
+    name: bench (${{ matrix.os }})
     # A PR runs only when it carries the `bench` label; scheduled and manual
     # runs always run.
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'bench')
