@@ -33,6 +33,5 @@
 
 ## Design records
 
-- [Super-language v2 design](docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md): the current design and R1/R2 contracts.
-- [Master plan](docs/superpowers/plans/2026-10-25-yashy-super-language-master.md): the full slice sequence.
+- [Master design](docs/superpowers/specs/2026-10-27-yashy-master-design.md): the current design, the verifier whitelist, and the phase spine.
 - [Slice 1 plan](docs/superpowers/plans/history/2026-10-25-yashy-r1-install-first-cli.md): install and first CLI.

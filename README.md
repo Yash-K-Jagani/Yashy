@@ -870,8 +870,8 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 - [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in thirteen chapters, ending with [the first-CLI guide](docs/tutorial/12-first-cli.md)
 - [`docs/quickstart.md`](docs/quickstart.md) — install, doctor, init, run, and test in one page
 - [`examples/`](examples) — `hello`, `wordcount`, and `json-report`, each with tests
-- [`docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md`](docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md) — the current language design
-- [`docs/superpowers/plans/`](docs/superpowers/plans) — the milestone plans
+- [`docs/superpowers/specs/2026-10-27-yashy-master-design.md`](docs/superpowers/specs/2026-10-27-yashy-master-design.md) — the current design: trust-first verifier, speed program, phase spine
+- [`docs/superpowers/plans/`](docs/superpowers/plans) — the master plan; [`history/`](docs/superpowers/plans/history) keeps superseded plans
 - [`benchmarks/README.md`](benchmarks/README.md) — benchmark methodology and results
 - [`docs/performance-improvements.md`](docs/performance-improvements.md) — where the remaining performance work is
 

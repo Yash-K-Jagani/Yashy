@@ -2,9 +2,11 @@
 
 Yashy is a small statically typed language compiled to native binaries through
 LLVM. The compiler is Rust; the language and its runtime are not. This file is
-the short guide for a coding agent working in the repository. The plans under
-`docs/superpowers/plans/` are the source of truth for what to build next; read
-the active slice plan before changing behavior.
+the short guide for a coding agent working in the repository. The design is
+`docs/superpowers/specs/2026-10-27-yashy-master-design.md`; the master plan under
+`docs/superpowers/plans/` is the source of truth for what to build next. Read the
+active phase before changing behavior. Superseded plans and specs sit in
+`history/` inside those two folders and are not authoritative.
 
 ## Commands
 

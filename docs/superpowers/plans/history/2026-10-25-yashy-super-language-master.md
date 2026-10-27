@@ -347,7 +347,7 @@ gate green.
 **Complete (2026-10-27):** all three rows are under target on Windows and Linux,
 the full workspace suite is green, and the design notes and before/after tables
 are in
-[the slice plan](history/2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
+[the slice plan](2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
 `98ed053`.
 
 **Cut order:** M9, PGO/LTO, SIMD (later releases).
