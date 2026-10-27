@@ -33,7 +33,7 @@ The four goals, in the order they win when they conflict (settled 2026-10-27):
 
 | Axis | Measurable success |
 |---|---|
-| Trust | Every language construct has verifier rules; zero false positives on stdlib and examples; seeded-bug corpus caught 100% |
+| Trust | Every language construct has verifier rules; zero false positives on stdlib, examples and three realistic programs; seeded-bug corpus caught 100%; one implementation per rule |
 | Speed | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; scalar runtime ≤ 1.2× C; feature rows ≤ 2×; hello binary < 500 KB |
 | AI-native | Schema v1 frozen and stable; context ≤ 8k tokens; sandbox escape tests green; agent benchmark runs and is published |
 | DX | 90% of common errors carry code + span + fix; first test < 1 min after `init`; LSP conformance in two editors |
@@ -48,6 +48,8 @@ The four goals, in the order they win when they conflict (settled 2026-10-27):
 | Tests | 80 Rust test files, 97 `.ya` programs |
 | Compile | hello 318 ms, 1000-line program 2.3 s |
 | Existing gates | benchmark gate (compile, binary, runtime), schema-v1 JSON diagnostics, both-OS CI |
+| Existing ownership rules | `yashy-sema` already rejects double-move and use-after-move (`ownership.rs`, `scope.rs`); phase 1a moves the decision into `yashy-verify` |
+| Timing | no `--timings` flag exists yet; it ships in phase 1a |
 
 ---
 
@@ -70,6 +72,10 @@ later reader does not reopen it by accident.
 | 10 | **Every phase carries one experience slice** so no phase is purely language or purely infrastructure | Pure language phases; pure infrastructure phases |
 | 11 | **All eight requested features are in scope** over 24–36 months | Deferring async, macros or named arguments to a later plan |
 | 12 | **Old plans and specs are archived, not deleted.** "Forget" means "no longer authoritative" | Deleting history |
+| 13 | **`yashy-verify` is the only judge of ownership**; `sema` keeps type classification and delegates | Two implementations of one rule; verifier as a second opinion |
+| 14 | **`--no-verify` is narrow**: no contracts/effects/typestate, warns, stamps unverified provenance, fatal under `YASHY_REQUIRE_VERIFY=1` | An unrestricted escape hatch |
+| 15 | **Phase 1 is split into 1a (usable, warn mode) and 1b (enforcing)**, and `--timings` ships in 1a | One 12-week phase with no artifact until the end; measuring the 30% budget only from phase 3 |
+| 16 | **The plan is an index plus one just-in-time file per phase** | A single 124-week plan file written up front |
 
 ---
 
@@ -119,6 +125,15 @@ It does not replace the type checker; types stay as they are and the verifier
 adds proofs on top. This is what makes phase 1 shippable without destabilising
 `yashy-sema`.
 
+**Invariant: one rule, one implementation.** `sema` already rejects double-move
+and use-after-move today — `crates/yashy-sema/src/ownership.rs` holds
+`Linearity` and `Live`/`Moved`, and `scope.rs` joins moved sets across branches.
+Two implementations of the same rule will eventually disagree, and then neither
+is authoritative. So `yashy-verify` becomes the **only** judge of ownership:
+`sema` keeps `linearity_of` (a pure type classification) and delegates every
+ownership decision to the verifier. Migration is part of phase 1a, not a later
+cleanup, and a rule duplicated in both crates is a defect.
+
 | Property | Mechanism |
 |---|---|
 | Ownership linearity, use-after-free, double-free, leak | Per-variable ownership state machine over the CFG (owned → moved → freed → dead), joined at merges |
@@ -139,18 +154,33 @@ cannot discharge them. That is the sound direction of failure.
 
 - `yashy verify` — standalone, human and `--json` output.
 - `yashy build` — runs the verifier by default. An unverified binary is not a
-  build. `--no-verify` exists as a documented bootstrap escape hatch.
+  build.
+- `--no-verify` is deliberately narrow, because an unrestricted escape hatch
+  becomes the default path and quietly voids the guarantee:
+  - legal only for a program that declares **no** contracts, effects or
+    typestate;
+  - always prints a warning;
+  - stamps *unverified* provenance that `yashy inspect` reports and that
+    `yashy --version`-style metadata keeps with the binary;
+  - `YASHY_REQUIRE_VERIFY=1` (set in CI) turns any use into a hard error.
 - Diagnostics get their own code range and reuse schema v1, so an agent receives
   proof failures and errors in one shape.
 - **Proof traces:** a rejection explains which fact could not be established and
-  where. "Cannot prove" alone is not acceptable output.
+  where. "Cannot prove" alone is not acceptable output. The trace record is part
+  of schema v1 **from phase 1** — it is defined with the diagnostics, not
+  retrofitted at phase 9, because the shape agents consume is the expensive thing
+  to change later.
 
 ### 4.4 Budget and evidence
 
-- Verifier ≤ 30% of `check` wall time; results cached per function.
+- Verifier ≤ 30% of `check` wall time; results cached per function. This budget is
+  measured from phase 1, which is why a minimal `--timings` (per-phase wall time,
+  human and `--json`) ships with 1a instead of waiting for phase 3.
 - Seeded-bug corpus: at least one program per property, all must be caught.
-- Zero false positives on stdlib and examples is a hard gate. A false positive is
-  a compiler bug, not a user problem.
+- Zero false positives on stdlib, examples, **and three realistic programs**
+  ported in phase 1 (`wordcount`, `json-report`, a file-IO CLI). The small
+  programs do not exercise aliasing or real control flow, so a corpus of them
+  alone would pass trivially and manufacture confidence.
 - `unsafe` and FFI boundaries carry explicit, inventoried assumptions, so
   "proven" never silently means "trusted".
 
@@ -195,7 +225,9 @@ person and an agent equally.
 
 ### 6.1 Compiler observability
 
-- `--timings` per phase; cache hit/miss per compilation.
+- `--timings` per phase; cache hit/miss per compilation. The minimal version ships
+  in phase 1a so the verifier's 30% budget is measurable from the day the budget
+  exists.
 - Proof traces for every verifier rejection.
 - `yashy cache stats` and `yashy verify --json` summaries.
 
@@ -220,8 +252,10 @@ person and an agent equally.
 ### 6.4 Schema discipline
 
 Schema v1 freezes at phase 9. Additive changes only. A CI schema-diff job fails
-on removal or type change. Contracts and effects appear in the schema from phase
-1, so agents see proofs, not just errors.
+on removal or type change. Contracts, effects, typestate and the proof-trace
+record appear in the schema from **phase 1**, so agents see proofs and proof
+failures, not just errors — and the shape they consume is fixed before anything
+depends on it.
 
 ---
 
@@ -244,19 +278,21 @@ audit and lockfile machinery.
 
 ## 8. The phase spine
 
-Eleven phases, ~124 weeks (~29 months). Each phase ends with its gate run on a
-clean checkout on Windows and Linux, a demo, and a recorded commit.
+Eleven phases in twelve slices, ~124 weeks (~29 months). Each phase ends with its
+gate run on a clean checkout on Windows and Linux, a demo, and a recorded commit.
+Phase 1 is split so a usable verifier exists at week 6 rather than only at week 12.
 
 | # | Phase | Outcome | Gate | ~wks |
 |---|---|---|---|---|
-| 1 | Verifier core | `yashy verify`: ownership, use-after-free, double-free, leak, `defer`, exhaustiveness, bounds, overflow; contracts v1; coded diagnostics + `--json` | Seeded-bug corpus 100% caught; zero false positives; unprovable contracts rejected | 12 |
+| **1a** | Verifier core, usable | `crates/yashy-verify` as the single owner of ownership (sema delegates); use-after-free, double-free, leak, `defer`; contracts v1 in **warn** mode; coded diagnostics + `--json`; minimal `--timings`; proof-trace record in schema v1 | Runs on every example without crashing; seeded-bug corpus for ownership/defer 100% caught; false positives mined and fixed | 6 |
+| **1b** | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs added to the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the three realistic programs; unprovable contracts rejected | 6 |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 |
-| 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB | 12 |
+| 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; **closes with a 2-week async spike** (state-machine lowering against the verifier, scheduler sketch, no shipping code) | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 |
 | 4 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 |
 | 5 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 |
 | 6 | Traits + iterators | Interfaces, generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget | 12 |
 | 7 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 |
-| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support | Conformance suite; no data races proven; `async` effect enforced | 16 |
+| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Capped in writing:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 |
 | 9 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 |
 | 10 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 |
 | 11 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 |
@@ -268,6 +304,11 @@ earlier means rebuilding it. Modules precede AI-native because `index` and `grap
 need a module graph to describe. Libraries follow async because an HTTP server
 without it is a toy.
 
+**Why the async spike sits in phase 3.** Async is the largest single phase and
+lands around month 18, where drift is most likely. Two weeks of design against the
+finished verifier — before traits, macros and modules are in the way — is the
+cheapest point at which the unknown can be reduced.
+
 ---
 
 ## 9. Governance
@@ -277,6 +318,8 @@ without it is a toy.
 - **Gate or exception.** A missed gate gets a written exception with a reason,
   an owner and a date. No silent slips.
 - **One slice at a time.** No parallel compiler slices.
+- **Plan just-in-time.** The phase plan is written when the phase is about to
+  start, from the index and the current code; it is not forecast 30 months ahead.
 - **Quarterly re-plan.** Adjust dates and the cut list, never the identity or the
   whitelist.
 - **No silent scope growth.** A new idea goes to the next plan, not the current
@@ -293,8 +336,8 @@ contract/effect schema.
 
 ### 9.2 Definition of done
 
-All 11 gates pass on Windows and Linux; every construct has verifier rules; schema
-v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
+All twelve gates pass on Windows and Linux; every construct has verifier rules;
+schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
 
 ---
 
@@ -303,9 +346,10 @@ v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
 | Risk | Mitigation |
 |---|---|
 | Verifier unsoundness manufactures confidence | Differential testing vs ASan/UBSan; negative test per proof rule; inventoried `unsafe` assumptions |
-| False positives kill adoption | Zero-false-positive gate; a false positive blocks release |
-| 30-month drift | Quarterly re-plan; phase gates; cut list; dated exceptions |
-| Async scope explosion | One executor, no generic runtime, no async traits in v1; cut list applies |
+| Two implementations of one rule | `yashy-verify` is the only judge of ownership; `sema` delegates; a duplicated rule is a defect |
+| False positives kill adoption | Zero-false-positive gate on stdlib, examples **and** three realistic programs; a false positive blocks release |
+| 30-month drift | Quarterly re-plan; phase gates; cut list; dated exceptions; plan written per phase, not all at once |
+| Async scope explosion | Written cap (one executor, no async traits, no generic runtime) plus a 2-week spike at the end of phase 3 |
 | Cache staleness produces a wrong binary | Key covers compiler version, flags, source hash; `cache verify`; CI never trusts a foreign cache |
 | Design-space creep | Closed whitelist; anything else needs a written exception |
 | Burnout | Visible win per phase; phases shrink instead of slipping |
@@ -313,13 +357,24 @@ v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
 
 ---
 
-## 11. What this supersedes
+## 11. What this supersedes, and how the plan is shaped
 
 All nine files that were in `docs/superpowers/plans/` have moved to
 `docs/superpowers/plans/history/`. The four superseded specs moved to
-`docs/superpowers/specs/history/`. After the master plan lands, `plans/` holds
-exactly that one file and `specs/` exactly this design. Nothing is deleted;
-history stays readable, and every old plan is explicitly non-authoritative.
+`docs/superpowers/specs/history/`. Nothing is deleted; history stays readable, and
+every old plan is explicitly non-authoritative.
+
+**The plan is an index, not a monolith.** `docs/superpowers/plans/` will hold:
+
+- `2026-10-27-yashy-master-plan.md` — the index: the phase spine, the invariants,
+  the gates, the cut list, and the status of each phase;
+- one file per phase (`…-phase-01a-verifier-core.md`, `…-phase-01b-…`), written
+  **just before that phase starts**, not all at the outset.
+
+A single 124-week file would be wrong by phase 3 and then stop being read, which
+is how the previous plan set decayed. An index plus a just-in-time phase plan
+matches "read the active phase before changing behavior" in `AGENTS.md` and makes
+quarterly re-plan a two-file edit instead of a rewrite.
 
 Carried forward deliberately from the old set, because it worked: the benchmark
 gate with per-OS baselines, schema-v1 JSON diagnostics, coded errors with
