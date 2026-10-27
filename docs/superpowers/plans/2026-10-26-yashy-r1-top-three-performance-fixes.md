@@ -1,5 +1,9 @@
 # Slice 3b — Top‑three performance fixes
 
+**Status:** complete (2026‑10‑27). All three rows are under target on Windows
+and Linux; see the per-fix sections for the design notes and the before/after
+tables, and the commit record for the hashes.
+
 **Goal:** close the three worst benchmark rows before 0.2.0.
 
 **Start condition (2026‑10‑26):** slice 3’s diagnostics work and the benchmark gate
