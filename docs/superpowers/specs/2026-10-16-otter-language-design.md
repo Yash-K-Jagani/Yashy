@@ -670,9 +670,9 @@ documents that execute in order:
 | Plan | Covers |
 |---|---|
 | `plans/2026-10-16-otter-m0-m2-compiler.md` | M0–M2: lexer, parser, sema, codegen, driver |
-| `plans/2026-10-16-otter-m3-m4-memory-and-faults.md` | M3–M4: memory model, panic and unwinding |
-| `plans/2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6: C FFI, slices, maps, modules, stdlib |
-| `plans/2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8: threads, formatter, LSP, tutorial |
+| `plans/history/2026-10-16-otter-m3-m4-memory-and-faults.md` | M3–M4: memory model, panic and unwinding |
+| `plans/history/2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6: C FFI, slices, maps, modules, stdlib |
+| `plans/history/2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8: threads, formatter, LSP, tutorial |
 | `plans/2026-10-16-otter-m9-m10-optimization-and-bootstrap.md` | M9–M10: escape analysis, self-hosting |
 
 `plans/2026-10-16-otter-master-plan.md` holds the cross-plan interface ledger and
@@ -738,7 +738,7 @@ Not blocking v1; decide when the milestone is reached.
 ## 14. Post-v1 surface addendum (M12–M15)
 
 The v1 non-goals and open questions above are historical. The post-v1
-language-surface plan (`docs/superpowers/plans/2026-10-20-otter-m12-language-surface.md`)
+language-surface plan (`docs/superpowers/plans/history/2026-10-20-otter-m12-language-surface.md`)
 records the deliberate changes:
 
 - `let x = expr;` is a block-scoped mutable binding, beside `var` (mutable) and

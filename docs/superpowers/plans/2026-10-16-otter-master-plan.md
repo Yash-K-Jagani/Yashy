@@ -15,12 +15,12 @@
 | Phase plan | Milestones | Tasks | Estimate |
 |---|---|---|---|
 | `2026-10-16-otter-m0-m2-compiler.md` | M0–M2 | 14 | 8–12 weeks |
-| `2026-10-16-otter-m3-m4-memory-and-faults.md` | M3–M4 | 13 | 11–17 weeks |
-| `2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6 | 13 | 7–10 weeks |
-| `2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8 | 10 | 8–12 weeks |
+| `history/2026-10-16-otter-m3-m4-memory-and-faults.md` | M3–M4 | 13 | 11–17 weeks |
+| `history/2026-10-16-otter-m5-m6-ffi-and-containers.md` | M5–M6 | 13 | 7–10 weeks |
+| `history/2026-10-16-otter-m7-m8-concurrency-and-tooling.md` | M7–M8 | 10 | 8–12 weeks |
 | `2026-10-16-otter-m9-m10-optimization-and-bootstrap.md` | M9–M10 | 8 | 12–24 weeks |
 | `2026-10-16-otter-m11-adoption.md` | M11 | 9 | 4–6 weeks |
-| `2026-10-20-otter-m12-language-surface.md` | M12–M15 | 22 | 24–36 weeks |
+| `history/2026-10-20-otter-m12-language-surface.md` | M12–M15 | 22 | 24–36 weeks |
 
 Cumulative: **74–117 weeks** (17–27 months) at 25–30 effective hours/week. See
 spec §10.1.

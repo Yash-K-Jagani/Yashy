@@ -347,7 +347,7 @@ gate green.
 **Complete (2026-10-27):** all three rows are under target on Windows and Linux,
 the full workspace suite is green, and the design notes and before/after tables
 are in
-[the slice plan](2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
+[the slice plan](history/2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
 `98ed053`.
 
 **Cut order:** M9, PGO/LTO, SIMD (later releases).
@@ -978,7 +978,7 @@ alternative that was rejected, so a later reader does not reopen it by accident.
 | 1 | `history/2026-10-25-yashy-r1-install-first-cli.md` | Implemented and pushed, `d30e1af` |
 | 2 | `history/2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented and pushed, `d30e1af` |
 | 3 | `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Implemented and pushed, accepted tip `e015b77`; plan record `70bd566` |
-| 3b | This master plan, §7.4 | Section approved; detailed plan after slice 3 baseline |
+| 3b | `history/2026-10-26-yashy-r1-top-three-performance-fixes.md` | Complete, `98ed053` |
 | 4 | `2026-10-25-yashy-r2-package-manager-spike.md` | Updated from v2 spec §15.5; ready for approval |
 
 **Phase plan:**
