@@ -212,6 +212,38 @@ GNU toolchain, ten runs each):**
 8. **Push & verify CI** – `git push origin slice-1-install-first-cli`; watch the two benchmark jobs (Ubuntu + Windows) turn green.
 
 ---
+## Acceptance evidence (runner)
+
+PR [#1](https://github.com/Yash-K-Jagani/Otter/pull/1) carries the branch, so
+both workflows ran on the head commit `7aa5b16`:
+
+| Workflow | Result | Run |
+|---|---|---|
+| CI (ubuntu-latest + windows-latest) | success | [40457017373](https://github.com/Yash-K-Jagani/Otter/actions/runs/40457017373) |
+| Bench (ubuntu-22.04 + windows-latest) | success | [40457020413](https://github.com/Yash-K-Jagani/Otter/actions/runs/40457020413) |
+
+The gate rows, compared against the stored runner baselines:
+
+| Row | Linux | Windows |
+|---|---|---|
+| `fib_compile_ms` | 327.2 → 198.5 (−39.3%) pass | 206.1 → 120.1 (−41.7%) pass |
+| `fib_binary_bytes` | 48,000 → 52,296 (+8.9%) pass | 201,216 → 202,752 (+0.8%) pass |
+| `fib_run_ms` | 132.2 → 50.7 (−61.6%) pass | 96.6 → 44.4 (−54.0%) pass |
+| `hello_compile_ms` | 318.5 → 97.7 (−69.3%) pass | 218.4 → 122.2 (−44.0%) pass |
+| `hello_binary_bytes` | 47,968 → 52,264 (+9.0%) pass | 200,192 → 202,240 (+1.0%) pass |
+| `large_compile_ms` | 2,319.4 → 709.6 (−69.4%) pass | 707.8 → 510.0 (−27.9%) pass |
+
+Both runs report "all 6 gate rows within threshold". The binary rows are the
+one number to watch: the runtime gained three entry points (`yashy_realloc`,
+`yashy_str_append`, `yashy_slice_reserve`), which costs about 4.3 KB per
+compiled program on Linux -- inside the 10% threshold, but with little room
+left before the next runtime addition trips it.
+
+Note that a pull request runs the comparison with `--report-only`, so a
+regression would be printed rather than fail the job; the verdicts above are
+from the printed table, not from the job's exit code.
+
+---
 ## Commit record (to be filled after each landing)
 
 | Commit | Contents |
@@ -227,7 +259,8 @@ GNU toolchain, ten runs each):**
 | `e015b77` | Runner Windows baseline and canonical install paths |
 | `f4d0ec6` | `perf: array mapping 3.76× → ≤2×` (superseded: its capacity sentinel wrote through a null pointer) |
 | `98ed053` | `perf: close the array, debug-format and tuple benchmark gaps` |
-| **this commit** | Slice 3b acceptance record and master-plan status |
+| `c0b4819` | Slice 3b acceptance record and master-plan status |
+| **this commit** | Runner acceptance evidence (PR #1, CI and Bench green) |
 
 ---
 ## How to use the plan
