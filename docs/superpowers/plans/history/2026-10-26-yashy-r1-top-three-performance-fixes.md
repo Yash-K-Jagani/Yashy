@@ -265,7 +265,7 @@ from the printed table, not from the job's exit code.
 ---
 ## How to use the plan
 
-1. **Copy** this file to `docs/superpowers/plans/2026-10-26-yashy-r1-top-three-performance-fixes.md`.
+1. **Copy** this file to `docs/superpowers/plans/history/2026-10-26-yashy-r1-top-three-performance-fixes.md`.
 2. **Record the exact before numbers** (step 1) and fill the “Commit record” table as each fix lands.
 3. **Work through the three fixes in order** (array → debug → tuple). Do not start the next fix until the previous one has a green benchmark gate on both OSes and all differential/tests pass.
 4. **After the third fix**, the plan’s “Gate” clause is satisfied; mark slice 3b complete in the master plan and record the final commit hash.

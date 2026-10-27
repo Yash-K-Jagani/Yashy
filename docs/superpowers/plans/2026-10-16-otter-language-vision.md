@@ -1749,7 +1749,7 @@ A user should be able to:
 This document complements, not replaces:
 
 - `docs/superpowers/plans/2026-10-16-otter-master-plan.md` — cross-milestone contract and interface ledger.
-- `docs/superpowers/plans/2026-10-16-otter-m0-m2-compiler.md` through `m11-adoption.md` — implementation task lists with checkboxes.
+- `docs/superpowers/plans/2026-10-16-otter-m0-m2-compiler.md` and the other phase plans under `docs/superpowers/plans/` and `docs/superpowers/plans/history/` — implementation task lists with checkboxes.
 - `docs/superpowers/specs/2026-10-16-otter-language-design.md` — language specification.
 
 When a feature from this vision is ready to implement, an executor writes a phase plan with checkbox tasks, adds it to the master plan's dependency order, and derives interface ledger entries from this vision's feature table.
