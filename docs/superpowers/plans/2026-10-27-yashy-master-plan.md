@@ -42,35 +42,46 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 
 ## How this plan is organised
 
-`docs/superpowers/plans/` holds this index plus **one file per phase**, written just before that phase starts:
+`docs/superpowers/plans/` holds this index plus **one file per phase**. All twelve phase plans are written up front, so the whole programme can be read, reviewed and costed as one artefact:
 
 ```text
-2026-10-27-yashy-master-plan.md          <- this file
-2026-10-27-phase-01a-verifier-core.md    <- written; ready to execute
-2026-11-…-phase-01b-verifier-enforcing.md
-…
+2026-10-27-yashy-master-plan.md                    <- this file
+2026-10-27-phase-01a-verifier-core.md
+2026-10-27-phase-01b-verifier-enforcing.md
+2026-10-27-phase-02-effects-typestate.md
+2026-10-27-phase-03-speed-foundation.md
+2026-10-27-phase-04-modules-unicode.md
+2026-10-27-phase-05-patterns-named-args.md
+2026-10-27-phase-06-traits-iterators.md
+2026-10-27-phase-07-macros.md
+2026-10-27-phase-08-async.md
+2026-10-27-phase-09-ai-native-observability.md
+2026-10-27-phase-10-libraries-packages.md
+2026-10-27-phase-11-hardening.md
 ```
 
-A phase plan is written from the spec, this index, and the code as it exists on that day. It is not forecast now: a 124-week file would be wrong by phase 3 and would stop being read, which is how the previous plan set decayed.
+**Detail falls off with distance, deliberately.** Phases 1a–3 are executable to the step: every task names its files, its interfaces and its test. Phases 4–8 name files and interfaces and leave step-level detail to the revision at phase start, because the code they touch does not exist yet. Phases 9–11 name deliverables and gates, because their shape depends on everything before them.
 
-**A phase is not started until its plan exists and its predecessor's gate has passed.** The exception is a written exception record (see Gate protocol).
+**A phase plan is revised at phase start, never rewritten from scratch.** The revision re-reads the code as it exists that day, keeps the outcome and the gate, and updates task detail. A plan that has drifted from the code is corrected in the revision; the spec and this index are what the revision may not contradict.
+
+**A phase is not started until its predecessor's gate has passed and its plan has been revised.** The exception is a written exception record (see Gate protocol).
 
 ## Phase spine
 
 | # | Phase | Outcome | Gate | ~wks | Status |
 |---|---|---|---|---|---|
 | 1a | Verifier core, usable | `yashy-verify` owns ownership; use-after-free, double-free, leak, `defer`; contracts in **warn** mode; `yashy verify` + `--json` + proof trace; `--timings` | Runs on every example without crashing; ownership/defer corpus 100% caught; false positives mined and fixed | 6 | **plan written** |
-| 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected | 6 | not started |
-| 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 | not started |
-| 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; closes with a 2-week async spike | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 | not started |
-| 4 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 | not started |
-| 5 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 | not started |
-| 6 | Traits + iterators | Interfaces, generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget | 12 | not started |
-| 7 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 | not started |
-| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Cap:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 | not started |
-| 9 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 | not started |
-| 10 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 | not started |
-| 11 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 | not started |
+| 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected | 6 | plan written |
+| 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 | plan written |
+| 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; closes with a 2-week async spike | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 | plan written |
+| 4 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 | plan written |
+| 5 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 | plan written |
+| 6 | Traits + iterators | Interfaces, generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget | 12 | plan written |
+| 7 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 | plan written |
+| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Cap:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 | plan written |
+| 9 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 | plan written |
+| 10 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 | plan written |
+| 11 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 | plan written |
 
 Total ≈ 124 weeks.
 
@@ -97,7 +108,7 @@ When a phase runs long, cut in this order: playground → profiler → coverage/
 ## Starting a phase
 
 1. Read the spec §8 row for the phase and the previous phase's plan's "Outcome" section.
-2. Read the current code the phase touches; the plan is written from today's code, not from the spec's memory of it.
-3. Write `docs/superpowers/plans/<date>-phase-<id>-<name>.md` using the header and task structure of the phase 1a plan.
+2. Read the current code the phase touches; the revision is written from today's code, not from the spec's memory of it.
+3. Revise `docs/superpowers/plans/2026-10-27-phase-<id>-<name>.md` in place, keeping its header, outcome and gate.
 4. Run its self-review against the spec: every spec requirement in that phase maps to a task.
-5. Set this table's Status to `plan written`, then execute with `superpowers:executing-plans` or `superpowers:subagent-driven-development`.
+5. Set this table's Status to `in progress`, then execute with `superpowers:executing-plans` or `superpowers:subagent-driven-development`.

@@ -75,7 +75,7 @@ later reader does not reopen it by accident.
 | 13 | **`yashy-verify` is the only judge of ownership**; `sema` keeps type classification and delegates | Two implementations of one rule; verifier as a second opinion |
 | 14 | **`--no-verify` is narrow**: no contracts/effects/typestate, warns, stamps unverified provenance, fatal under `YASHY_REQUIRE_VERIFY=1` | An unrestricted escape hatch |
 | 15 | **Phase 1 is split into 1a (usable, warn mode) and 1b (enforcing)**, and `--timings` ships in 1a | One 12-week phase with no artifact until the end; measuring the 30% budget only from phase 3 |
-| 16 | **The plan is an index plus one just-in-time file per phase** | A single 124-week plan file written up front |
+| 16 | **The plan is an index plus one file per phase, all written up front and revised at phase start**, with detail falling off with distance | A single 124-week monolith; or plans invented one at a time with no whole-programme view |
 
 ---
 
@@ -318,8 +318,10 @@ cheapest point at which the unknown can be reduced.
 - **Gate or exception.** A missed gate gets a written exception with a reason,
   an owner and a date. No silent slips.
 - **One slice at a time.** No parallel compiler slices.
-- **Plan just-in-time.** The phase plan is written when the phase is about to
-  start, from the index and the current code; it is not forecast 30 months ahead.
+- **Plans up front, revised at phase start.** All phase plans are written before
+  execution begins, with detail falling off with distance; the plan for the phase
+  about to start is revised from the current code. The spec and the index are what
+  a revision may not contradict.
 - **Quarterly re-plan.** Adjust dates and the cut list, never the identity or the
   whitelist.
 - **No silent scope growth.** A new idea goes to the next plan, not the current
@@ -348,7 +350,7 @@ schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
 | Verifier unsoundness manufactures confidence | Differential testing vs ASan/UBSan; negative test per proof rule; inventoried `unsafe` assumptions |
 | Two implementations of one rule | `yashy-verify` is the only judge of ownership; `sema` delegates; a duplicated rule is a defect |
 | False positives kill adoption | Zero-false-positive gate on stdlib, examples **and** three realistic programs; a false positive blocks release |
-| 30-month drift | Quarterly re-plan; phase gates; cut list; dated exceptions; plan written per phase, not all at once |
+| 30-month drift | Quarterly re-plan; phase gates; cut list; dated exceptions; plan revised per phase, detail falling off with distance |
 | Async scope explosion | Written cap (one executor, no async traits, no generic runtime) plus a 2-week spike at the end of phase 3 |
 | Cache staleness produces a wrong binary | Key covers compiler version, flags, source hash; `cache verify`; CI never trusts a foreign cache |
 | Design-space creep | Closed whitelist; anything else needs a written exception |
@@ -364,17 +366,25 @@ All nine files that were in `docs/superpowers/plans/` have moved to
 `docs/superpowers/specs/history/`. Nothing is deleted; history stays readable, and
 every old plan is explicitly non-authoritative.
 
-**The plan is an index, not a monolith.** `docs/superpowers/plans/` will hold:
+**The plan is an index plus one file per phase, all written up front.**
+`docs/superpowers/plans/` holds:
 
 - `2026-10-27-yashy-master-plan.md` — the index: the phase spine, the invariants,
   the gates, the cut list, and the status of each phase;
-- one file per phase (`…-phase-01a-verifier-core.md`, `…-phase-01b-…`), written
-  **just before that phase starts**, not all at the outset.
+- one file per phase (`…-phase-01a-verifier-core.md` … `…-phase-11-hardening.md`),
+  **all twelve written at the outset** so the programme can be reviewed and costed
+  as one artefact.
 
 A single 124-week file would be wrong by phase 3 and then stop being read, which
-is how the previous plan set decayed. An index plus a just-in-time phase plan
-matches "read the active phase before changing behavior" in `AGENTS.md` and makes
-quarterly re-plan a two-file edit instead of a rewrite.
+is how the previous plan set decayed. An index plus per-phase files keeps each
+unit small enough to be read in one sitting. Writing them all up front is the
+opposite risk — detail that is wrong by the time it is used — and the mitigation
+is explicit: **detail falls off with distance.** Phases 1a–3 are executable to
+the step; 4–8 name files and interfaces; 9–11 name deliverables and gates. Each
+plan is **revised at phase start**, never rewritten from scratch, and the
+revision may not contradict the spec or the index. That keeps "read the active
+phase before changing behavior" in `AGENTS.md` true, and makes quarterly
+re-plan a two-file edit instead of a rewrite.
 
 Carried forward deliberately from the old set, because it worked: the benchmark
 gate with per-OS baselines, schema-v1 JSON diagnostics, coded errors with
