@@ -1,4 +1,4 @@
-# Phase 4 — Modules and Unicode: Implementation Plan
+# Phase 6 — Modules and Unicode: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** `crates/yashy-driver/src/modules.rs`, `crates/yashy-sema/src/check_expr.rs` (resolution), `crates/yashy-runtime` (C string functions), `crates/yashy-stdlib/yashy/string.ya`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 4. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-03-speed-foundation.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-05-syntax-ergonomics.md`.
 
 ## Global Constraints
 
@@ -17,6 +17,7 @@ See the master index. The ones that bite here:
 - No new runtime dependencies. Unicode tables are vendored data files, not a crate.
 - No implicit coercion; a byte index and a grapheme index are different functions, not overloads.
 - One rule, one implementation: the module graph is built once, in the driver.
+- **The phase 4 query engine must learn module queries here, not be bypassed.** The graph is a query input (`module_graph(entry)`), and every per-file query key gains its imports' hashes; a module edit therefore invalidates its importers and nothing else. Building the graph outside the database would make phase 4's invalidation unsound the first time a project has two files.
 - Both operating systems or it is not done.
 
 ## Review Focus
@@ -38,6 +39,7 @@ See the master index. The ones that bite here:
 
 **Interfaces:**
 - Produces: `pub struct ModuleGraph { pub modules: Vec<Module>, pub edges: Vec<(FileId, FileId)> }`; `modules::load` returns it instead of `Vec<Module>`.
+- Produces: the graph as a phase 4 query — `Db::module_graph(entry)` — so a change to `b.ya` invalidates `a.ya`'s check when `a` imports `b`, and a change to an unrelated file invalidates nothing.
 - Produces: `E0802` at the import that closes a cycle, with the cycle path in the label (`a -> b -> a`).
 
 - [ ] **Step 1: Write the failing tests** — a two-file cycle is `E0802` once; a diamond (`a` imports `b` and `c`, both import `d`) loads `d` once; a self-import is `E0802`; the module order is deterministic across runs.
@@ -143,7 +145,7 @@ See the master index. The ones that bite here:
 
 - [ ] **Step 1: Write the tutorial chapters** with runnable blocks (the tutorial harness compiles every block).
 - [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: modules and Unicode, and close phase 4"`.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: modules and Unicode, and close phase 6"`.
 
 ---
 

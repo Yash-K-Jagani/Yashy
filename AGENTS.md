@@ -89,6 +89,16 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **Keep the language's identity.** No garbage collector, borrow checker,
   exceptions, implicit coercion, operator overloading, class inheritance, or
   power-user procedural macros.
+- **The object model is Rust-style, not class-based.** Traits are requirement
+  sets with no state; `impl` is inherent or `impl Trait for Type`; dispatch is
+  static only, so there is no `dyn`, no vtable and no runtime type information;
+  receivers are `self` or `self: *mut T`; associated functions are `Type::name`
+  and are not methods. There is no `Drop`: release is `defer` and `.free()`.
+  A trait never gains fields, a type never gains a parent.
+- **Optimization is a phase, not a habit.** Do not add a backend trick, an
+  attribute or an `inline` keyword to make one benchmark faster. The optimizer
+  spends what the verifier proved (phase 4); a pass is registered in the pass
+  manager and held to its own benchmark row.
 - **Tests are ordinary programs.** A file under `tests/` is a Yashy program
   with a `main`; exit 0 is a pass. Do not add `#[test]` attributes or test
   macros.

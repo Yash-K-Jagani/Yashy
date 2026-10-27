@@ -198,7 +198,7 @@ See the master index. The ones that bite here:
 - Produces: a design document with four decisions: state-machine lowering shape, executor model (single-threaded `block_on` plus a thread pool for `spawn`), cancellation representation, and how the verifier treats an `await` point (a yield is not an `io` effect, but a suspended borrow is a typestate question).
 
 - [ ] **Step 1: Write the document** — no shipping code. It answers, with the current code named: where the state machine is built (codegen `fn_gen.rs`), how a local that lives across an `await` is stored (an explicit frame struct, not the LLVM stack), and which of the eight async features are cut from v1.
-- [ ] **Step 2: Review it against phase 8's cap** — one executor, no async traits, no generic runtime. A design that needs more is out of scope.
+- [ ] **Step 2: Review it against phase 10's cap** — one executor, no async traits, no generic runtime. A design that needs more is out of scope.
 - [ ] **Step 3: Commit** — `git commit -m "docs: async spike — lowering, executor and verifier interaction"`
 
 ---

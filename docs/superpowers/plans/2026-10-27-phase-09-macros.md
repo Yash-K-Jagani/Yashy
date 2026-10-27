@@ -1,4 +1,4 @@
-# Phase 7 — Macros: Implementation Plan
+# Phase 9 — Macros: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-lexer` (token trees over the existing `TokenKind`), `yashy-parser` (fragment re-parsing per metavariable kind), a new `crates/yashy-expand` crate (no dependencies), `yashy-common` (`Span` gains an expansion frame), `yashy-verify` (unchanged by design — that is the point).
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-06-traits-iterators.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 9. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-08-traits-oop-iterators.md`.
 
 ## Global Constraints
 
@@ -240,7 +240,7 @@ fn two_expansions_of_one_macro_get_different_marks() {
 
 - [ ] **Step 1: Write the chapter** with runnable blocks, including the two hygiene examples from Task 3.
 - [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: macros, and close phase 7"`.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: macros, and close phase 9"`.
 
 ---
 

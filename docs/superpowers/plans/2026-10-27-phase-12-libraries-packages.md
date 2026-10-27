@@ -1,4 +1,4 @@
-# Phase 10 — Libraries and Packages: Implementation Plan
+# Phase 12 — Libraries and Packages: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-manifest` (new, zero deps), `yashy-driver/src/{resolve.rs,fetch.rs,audit.rs}`, the phase 3 `yashy-cache`, `yashy-runtime` (Winsock/POSIX sockets), `crates/yashy-stdlib/` as a versioned package, and new `packages/{http,cli,net,test,bench,fuzz}`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-09-ai-native-observability.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-11-ai-native-observability.md`.
 
 ## Global Constraints
 
@@ -59,7 +59,7 @@ See the master index. The ones that bite here:
 
 - [ ] **Step 1: Write the failing tests** — all 15 valid manifests parse to the expected struct; each of the 15 invalid ones produces `E1800` at the right line; a 1 MiB manifest is rejected with a size diagnostic rather than a slow parse; a `git` dependency without `rev` is `E1800` ("a git dependency is pinned to a commit").
 - [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — a line-oriented reader with a small state machine; keys are `BTreeMap` so error order is deterministic. The parser is total: every input returns `Result`, never panics, and the fuzz corpus from phase 7's harness gains ten manifest cases.
+- [ ] **Step 3: Implement** — a line-oriented reader with a small state machine; keys are `BTreeMap` so error order is deterministic. The parser is total: every input returns `Result`, never panics, and the fuzz corpus from phase 9's harness gains ten manifest cases.
 - [ ] **Step 4: Run** `cargo test -p yashy-manifest` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat(manifest): a small, total TOML subset and yashy.toml (E1800)"`
 
@@ -110,7 +110,7 @@ See the master index. The ones that bite here:
 
 - [ ] **Step 1: Write the failing tests** — a path dependency compiles; a diamond resolves one copy; a cycle is `E1801` with the path; a git dependency at a fixed rev is reproducible across two fetches; `--offline` with a cold store is `E1803`; `--offline` with a warm store builds.
 - [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — DFS with a visiting stack for cycles (the phase 4 module-graph pattern, reused); fetching shells out to `git` only when `git` is on `PATH`, and the absence of `git` is a documented diagnostic, not a panic. Fetched trees are read-only in the store.
+- [ ] **Step 3: Implement** — DFS with a visiting stack for cycles (the phase 6 module-graph pattern, reused); fetching shells out to `git` only when `git` is on `PATH`, and the absence of `git` is a documented diagnostic, not a panic. Fetched trees are read-only in the store.
 - [ ] **Step 4: Run** `cargo test -p yashy-driver --test dependencies` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat(pkg): resolve path and pinned git dependencies, offline (E1801, E1803)"`
 
@@ -250,7 +250,7 @@ See the master index. The ones that bite here:
 
 - [ ] **Step 1: Write the docs** with a worked publish → depend → build cycle.
 - [ ] **Step 2: Run the gate table on both OSes, from a fresh clone with an empty cache and no network for the offline row.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: packages and libraries, and close phase 10"`.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: packages and libraries, and close phase 12"`.
 
 ---
 

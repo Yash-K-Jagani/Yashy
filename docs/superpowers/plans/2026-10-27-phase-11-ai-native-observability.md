@@ -1,14 +1,14 @@
-# Phase 9 — AI-Native Tooling and Observability: Implementation Plan
+# Phase 11 — AI-Native Tooling and Observability: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the compiler legible to a machine without making it worse for a person: a symbol index, a context packer with a token budget, an MCP server that exposes only compiler verbs, a sandbox that can be tested for escapes, and program-side observability that is deterministic when a test needs it.
 
-**Architecture:** One rule — **one fact, two renderings**. Every command in this phase builds a JSON model first and renders the human form from it, so the agent and the human cannot drift. The index is computed from the module graph (phase 4), the HIR, and the verifier's facts (phases 1–2), which is why this phase comes after them. The MCP server is a thin adapter over the same in-process functions the CLI calls — never a shell, never a new code path. The sandbox is a capability set attached to a process launch, enforced with OS primitives on each platform, and proven by escape tests that run in CI.
+**Architecture:** One rule — **one fact, two renderings**. Every command in this phase builds a JSON model first and renders the human form from it, so the agent and the human cannot drift. The index is computed from the module graph (phase 6), the HIR, and the verifier's facts (phases 1–2), which is why this phase comes after them. The MCP server is a thin adapter over the same in-process functions the CLI calls — never a shell, never a new code path. The sandbox is a capability set attached to a process launch, enforced with OS primitives on each platform, and proven by escape tests that run in CI.
 
 **Tech Stack:** `yashy-driver` (commands), `yashy-hir`, `yashy-verify` (`ProofFacts`, effects, typestate), `yashy-lsp/src/json.rs` (JSON-RPC framing to reuse), `yashy-runtime` (log/trace/metrics, deterministic clock and RNG), and OS primitives: Windows Job Objects + restricted token, Linux rlimits + path allowlist. No new Rust dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-08-async.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-10-async.md`.
 
 ## Global Constraints
 
@@ -185,7 +185,7 @@ See the master index. The ones that bite here:
 - Modify: `docs/cli.md`, `docs/tutorial/17-debugging.md`
 
 **Interfaces:**
-- Produces: `yashy run --debug` launches under LLDB with a generated command file that sets a breakpoint on the entry function and prints the async task table (phase 8) on stop; the documented workflow covers both OSes.
+- Produces: `yashy run --debug` launches under LLDB with a generated command file that sets a breakpoint on the entry function and prints the async task table (phase 10) on stop; the documented workflow covers both OSes.
 - Produces: `yashy profile prog.ya` builds with per-function counters and prints a table sorted by self time, with the instrumentation overhead measured and printed; on Linux it also documents the `perf` workflow with the emitted frame pointers.
 
 - [ ] **Step 1: Write the failing test** — the profiler table names the function that dominates a synthetic workload (≥ 50% self time) and reports its overhead as a number; the LLDB command file is generated and syntactically valid.
@@ -220,7 +220,7 @@ See the master index. The ones that bite here:
 
 - [ ] **Step 1: Write the chapter** with a worked `context` → `index` → `verify` session.
 - [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: AI-native tooling and observability, and close phase 9"`.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: AI-native tooling and observability, and close phase 11"`.
 
 ---
 

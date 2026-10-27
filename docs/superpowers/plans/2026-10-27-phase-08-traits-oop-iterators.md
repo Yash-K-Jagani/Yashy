@@ -1,24 +1,43 @@
-# Phase 6 — Traits and Iterators: Implementation Plan
+# Phase 8 — Traits, OOP and Iterators: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let a function state what it needs from a type (`T: Show`), let a type state what it can do (`impl Show for Point`), and make `for x in xs` a protocol rather than a special case — without adding vtables, runtime type information, or a second dispatch mechanism the verifier cannot see through.
+**Goal:** Let a function state what it needs from a type (`T: Show`), let a type state what it can do (`impl Show for Point`), let a type offer constructors and namespaced functions (`Point::origin()`), and make `for x in xs` a protocol rather than a special case — without adding vtables, runtime type information, inheritance, or a second dispatch mechanism the verifier cannot see through.
 
 **Architecture:** A trait is a named set of method signatures; an impl is a checked bundle of bodies; a bound is a constraint on an existing type parameter. Dispatch is **static only** in v1: a call to a trait method resolves to one concrete `impl` at type-check time and is monomorphised exactly like today's generic functions (`mangled_generic_name` in `check_expr.rs` already does this). That choice is what makes "dispatch proven safe" a fact rather than an aspiration — there is no dynamic target, so there is nothing the verifier has to trust. The iterator protocol is one trait, `Iterator[T]`, and `for x in xs` lowers to it in the HIR, so every existing `for` over an array becomes a protocol use that the verifier sees.
 
+This phase also completes the **object model written in spec §3.1** — `object` and `impl` already parse and run (`objects.ya`, `methods.ya`), so what remains is the parts the model promises and the language does not yet have: associated functions called through a type path, visibility applied to fields and methods rather than only to items, and the negative rules (no inheritance, no `Drop`, no operator overloading) enforced by tests rather than by prose. The phase is not done when the model is documented; it is done when a conformance program exercises every rule and a corpus proves the excluded forms do not compile.
+
 **Tech Stack:** `yashy-parser` (`Item::Fn.type_params`, `Item::Impl`), `yashy-sema/src/check_expr.rs` (`GenericFn`, `mangled_generic_name`, method resolution), `yashy-hir` (`HirStmt::ForIn`), `yashy-codegen` (`stmt_gen.rs`), `yashy-verify`, `yashy-lsp`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-05-patterns-named-args.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.1 (the object model), §8 row 8. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-07-patterns-named-args.md`.
 
 ## Global Constraints
 
 See the master index. The ones that bite here:
 
-- No class inheritance. A trait is a set of requirements, never a base class with state.
+- No class inheritance. A trait is a set of requirements, never a base class with state; a type has one representation and no parent.
 - No operator overloading. A trait method is called by name; `+` stays `+`.
+- No `Drop` and no destructors. `defer` and `.free()` are the release path, and a trait may not declare a release hook.
 - One rule, one implementation: a trait method has one dispatch path, static.
 - Every construct ships with its verifier rules in the same phase.
 - Both operating systems or it is not done.
+
+## The object model this phase completes (spec §3.1)
+
+The model is nine rules. Five hold in the code today and are proved to keep holding by Task 11's conformance program; four are built here, because the language currently has `object`/`impl`/methods but not traits, trait impls, type paths or member visibility. The list is repeated so the plan can be checked against it without opening the spec:
+
+| Rule | State entering this phase | Built here |
+|---|---|---|
+| One representation per type; a struct's layout is its declaration order | Holds (`object`/`struct` lowering) | — |
+| A trait is a requirement set, never state or fields | — | Task 1, Task 2 |
+| `impl` is inherent or `impl Trait for Type` | Inherent holds; trait impls are new | Task 2 |
+| Static dispatch only: no `dyn`, no vtable, no RTTI | Holds by construction | Task 1 (cap), Task 10 |
+| Receivers are `self` (by value) or `self: *mut T` | Holds (`mutating_methods.ya`) | Task 2 (receiver-kind check) |
+| No `Drop`: release is `defer` and `.free()` | Holds (no hook exists) | Task 11 (proves it stays true) |
+| No operator overloading | Holds (no trait-driven operators) | Task 11 (proves it stays true) |
+| Associated functions `Type::name(..)` | **Does not exist** (no `::` token) | Task 5 |
+| Visibility applies to fields and methods, not only items | Items hold (phase 6); members do not | Task 6 |
 
 ## Written cap (this phase)
 
@@ -33,6 +52,8 @@ See the master index. The ones that bite here:
 3. **A bound is checked at the call site, not inside the generic body.** Inside `fn f[T: Show](x: T)`, only `Show`'s methods are available on `x`; calling anything else is `E1503` naming the missing bound. This is the rule that keeps generic bodies analysable without knowing their instantiations.
 4. **The effect of a trait method is the join of every impl's effect.** A `pure` caller may not call a trait method whose impls include an `io` body, because the call site does not know which impl it will get — even under static dispatch, the *generic body* was checked once. The remedy is a `pure` trait, and every impl is then required to be pure.
 5. **`for x in xs` must produce identical results to today for arrays and slices.** The lowering changes; the observable behaviour may not. The existing `for` tests are the regression proof.
+6. **The excluded parts of the object model fail to compile, and a test says so.** `object A : B` (inheritance), `impl Drop for T` (a release hook), `trait T { x: i64 }` (state in a trait) and `a + b` on a user type that has an `add` method (operator overloading) must each be rejected with a diagnostic that names the excluded feature and the replacement (`defer`/`.free()`, a named method, an explicit function). Prose in the spec is not enforcement; the corpus is.
+7. **An associated function is not a method.** `Point::origin()` has no receiver and cannot touch `self`; `Point::new(x)` returns a value and does not mutate an existing one. Allowing `self` in an associated function would make the type path a second way to spell a method call, and the two would drift in resolution order. A body that names `self` in a function with no receiver is `E0001` at that `self` — an ordinary unresolved name, not a special diagnostic — and the fix note says to add a receiver if a method was meant.
 
 ---
 
@@ -142,7 +163,56 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 5: The iterator protocol
+### Task 5: Associated functions and type paths
+
+**Files:**
+- Modify: `crates/yashy-lexer/src/token.rs` (`ColonColon`; `KEYWORDS` stays at 29)
+- Modify: `crates/yashy-parser/src/{ast.rs,exprs.rs}` (`Expr::TypePath { type_name, name, span }`)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (resolution through the impl table)
+- Modify: `crates/yashy-codegen/src/{expr_gen.rs,module.rs}` (mangled symbol, no receiver)
+- Modify: `crates/yashy-common/src/codes.rs` (`METHOD_THROUGH_TYPE = "E1506"`, `ASSOC_THROUGH_VALUE = "E1507"`, `UNKNOWN_ASSOCIATED_FN = "E1508"`), create `docs/errors/{E1506,E1507,E1508}.md`, modify `docs/errors.md`
+- Modify: `crates/yashy-fmt/src/lib.rs`
+- Create: `crates/yashy-driver/tests/programs/associated_fns.ya`
+
+**Interfaces:**
+- Produces: `impl Point { fn origin() -> Point { .. } fn new(x: i64, y: i64) -> Point { .. } }`, called as `Point::origin()` and `Point::new(1, 2)`. A function in an `impl` or `object` block whose first parameter is not `self` is an **associated function**, not a method.
+- Produces: the symbol is mangled from `(type, name)` — `Point::new` and a free `fn new` coexist, and so do `Point::new` and `Circle::new`.
+- Produces: `E1506` for `Point::get()` where `get` takes a receiver ("`get` is a method; call it on a value: `p.get()`"), `E1507` for `p.origin()` where `origin` has no receiver ("`origin` is an associated function; call it as `Point::origin()`"), `E1508` for a name the type does not declare, with the nearest names suggested.
+- Produces: `self` inside an associated function is an ordinary unresolved name (`E0001`), because there is no receiver to bind — not a panic and not a special diagnostic.
+- Produces: a trait may declare an associated function (no receiver); its call is still `Type::name(..)`, resolved from the impl, so there is no `Trait::name` path in v1.
+
+- [ ] **Step 1: Write the failing tests** — `Point::new(1, 2)` parses, type-checks and runs; `Point::new` and `fn new` in the same module both resolve; `Point::get()` is `E1506`; `p.origin()` is `E1507`; `Point::missing()` is `E1508` with suggestions; `self` inside an associated function is `E0001`; a three-segment path (`a::b::c`) is a parse error naming the missing feature (namespaced paths arrive with the module system, not here); the formatter round-trips `::`.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — the lexer adds `::` as one token (not two `:`); the parser, in expression position, turns `Ident :: Ident` into `TypePath` and refuses a third segment. Resolution looks the type up in the same table method calls use, then asks the impl table for a function with that name and no receiver. Codegen emits the same mangled name the impl block already produces for a receiver-less function, so there is one symbol per `(type, name)` and no second naming scheme.
+- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: associated functions called through a type path (E1506-E1508)"`
+
+---
+
+### Task 6: Visibility on fields and methods
+
+**Files:**
+- Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`FieldDef.visibility`; `pub` accepted on a method inside `impl`/`object`)
+- Modify: `crates/yashy-sema/src/{check_expr.rs,scope.rs}` (member visibility table, member lookup)
+- Modify: `crates/yashy-common/src/codes.rs` (no new code — reuse `PRIVATE_ITEM = "E0801"`), modify `docs/errors/E0801.md` (extend from items to members)
+- Create: `crates/yashy-driver/tests/programs/visibility.ya`
+
+**Interfaces:**
+- Produces: `object Counter { pub value: i64, secret: i64, pub fn get(self) -> i64 { .. } fn bump(self: *mut Counter) { .. } }` — `pub` on a field or a method is legal, and the absence of it means private, exactly as for items.
+- Produces: `E0801` when another module reads a private field, calls a private method, or names a private field in a struct literal, with the message naming the field, the type and the module that hides it.
+- Produces: inside the declaring module, private members are reachable. Visibility is **module-scoped, not type-scoped**, so a sibling type's methods can use `secret` — the same rule phase 6 applies to items, not a second one.
+- Produces: a type whose fields are not all public cannot be constructed by a struct literal from another module; the diagnostic names the private fields and the `pub fn new` that would be the way in.
+- Produces: `pub` on a local `const`/`var` is a parse error — visibility applies to items and members, never to locals.
+
+- [ ] **Step 1: Write the failing tests** — a public field and a public method are reachable across modules; a private field read across modules is `E0801` naming field, type and module; a private method called across modules is `E0801`; a sibling type in the same module may read the private field; a struct literal naming a private field from another module is `E0801`; `pub const x = 1;` inside a function is a parse error; a `pub` method round-trips through the formatter.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — the member table is built where the impl table is (Task 2), so visibility and dispatch cannot disagree about which functions exist. Phase 6's cross-module check gains a member case that calls the same `is_visible` predicate; there is no second visibility implementation. The struct-literal check reuses the field list the literal already builds (phase 5's `fill_struct_fields`), so defaults, spread and privacy are decided in one place.
+- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: pub on fields and methods, private members behind E0801"`
+
+---
+
+### Task 7: The iterator protocol
 
 **Files:**
 - Modify: `crates/yashy-stdlib/yashy/iter.ya` (new): `trait Iterator[T] { fn next(self: *mut Self) -> Option[T]; }`
@@ -158,12 +228,12 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 - [ ] **Step 1: Write the failing test** — `iterators.ya` collects from an array, a range, a map and a string and asserts the exact sequence; a type with no `Iterator` impl is `E1503` at the `for`.
 - [ ] **Step 2: Watch it fail.**
 - [ ] **Step 3: Implement** — `Iterator[T]`'s `next` takes `*mut Self` because it mutates its cursor; that makes the iterator a linear value the verifier tracks, so using it after the loop is `E1002`-class and the loop itself releases nothing the caller did not ask it to. `Option[T]` already exists.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test e2e iterators` → PASS.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test e2e` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat: the iterator protocol and a protocol-based for-in"`
 
 ---
 
-### Task 6: Comprehensions
+### Task 8: Comprehensions
 
 **Files:**
 - Modify: `crates/yashy-parser/src/exprs.rs` (`[expr for x in xs if cond]`, `{k: v for x in xs}`)
@@ -183,7 +253,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 7: Monomorphisation budget
+### Task 9: Monomorphisation budget
 
 **Files:**
 - Modify: `crates/yashy-sema/src/check_expr.rs` (instantiation cache and cap)
@@ -203,7 +273,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 8: The verifier learns traits
+### Task 10: The verifier learns traits
 
 **Files:**
 - Modify: `crates/yashy-verify/src/pass/effects.rs` (trait method effect = join over impls; `pure` trait ⇒ every impl must be pure)
@@ -223,26 +293,47 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 9: Tooling
+### Task 11: The OOP conformance program
 
 **Files:**
-- Modify: `crates/yashy-lsp/src/server.rs` (completion lists trait methods with their signatures; go-to-definition on `x.show()` lands on the impl, and on the trait declaration from a bound)
-- Modify: `crates/yashy-fmt/src/lib.rs` (impl and trait formatting)
-- Modify: `docs/tutorial/04-structs.md`, create `docs/tutorial/14-traits.md`
+- Create: `crates/yashy-driver/tests/programs/oop_conformance.ya`
+- Create: `crates/yashy-driver/tests/verify_corpus/{inherit.ya,drop_hook.ya,trait_state.ya,operator_overload.ya}`
+- Modify: `crates/yashy-driver/tests/verify.rs` (the expected-code table gains the four entries)
+- Modify: `docs/tutorial/14-traits.md`
 
-- [ ] **Step 1: Write the LSP test** — completion inside an impl body offers only the trait's unimplemented methods; definition on a trait-bound call lands on the trait method, not an impl (there is no single impl to land on).
+**Interfaces:**
+- Produces: one program that exercises every rule of spec §3.1 and prints a stable transcript: an `object` with a mix of public and private members, an inherent impl, a trait impl, a bound, an associated constructor, a receiver-taking mutator, a `defer` release, and an iterator consumed by `for`. The transcript is the proof that the rules compose, not just that each compiles.
+- Produces: four negative programs in the phase 1b corpus, each rejected with the named code: inheritance syntax, a `Drop` hook, state in a trait, and `+` on a user type that has an `add` method.
+- Produces: the excluded programs are part of the never-panics corpus too — they must produce a diagnostic, not a Rust panic.
+
+- [ ] **Step 1: Write the conformance program** with the transcript in a comment, then run it and paste the actual output into the e2e test's expectation.
+- [ ] **Step 2: Write the four excluded programs** and add their expected code sets to `verify.rs`; run them and confirm the codes are the ones named in Review Focus 6.
+- [ ] **Step 3: Fix what the conformance program finds.** A rule that is only true in the spec shows up here as a compile error or a wrong transcript, and the fix belongs in the phase's earlier tasks, not in the program.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test verify --test e2e --test never_panics` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "test: the OOP conformance program and the four excluded forms"`
+
+---
+
+### Task 12: Tooling
+
+**Files:**
+- Modify: `crates/yashy-lsp/src/server.rs` (completion lists trait methods with their signatures; go-to-definition on `x.show()` lands on the impl, and on the trait declaration from a bound; completion after `Point::` lists associated functions and `Point::` alone never lists a receiver-taking method)
+- Modify: `crates/yashy-fmt/src/lib.rs` (impl, trait and object formatting; `pub` on members)
+- Modify: `docs/tutorial/04-structs.md` (point at the object model chapter)
+
+- [ ] **Step 1: Write the LSP test** — completion inside an impl body offers only the trait's unimplemented methods; definition on a trait-bound call lands on the trait method, not an impl (there is no single impl to land on); completion after `Point::` lists `new` and `origin` but not `get`.
 - [ ] **Step 2: Run** `cargo test -p yashy-lsp -p yashy-fmt` → PASS.
 - [ ] **Step 3: Commit** — `git commit -m "feat(lsp): trait-aware completion and definition"`
 
 ---
 
-### Task 10: Docs and gate
+### Task 13: Docs and gate
 
-**Files:** `docs/tutorial/14-traits.md`, `docs/tutorial/09-arrays.md` (comprehensions), `docs/errors/{E1500..E1505}.md`, `AGENTS.md` (identity: static dispatch only; the written cap), `llms.txt`.
+**Files:** `docs/tutorial/14-traits.md` (rewritten as "Traits and objects", covering §3.1 rule by rule), `docs/tutorial/09-arrays.md` (comprehensions), `docs/errors/{E0801,E1500..E1508}.md`, `AGENTS.md` (identity: static dispatch only; no inheritance; no `Drop`; associated functions are not methods; the written cap), `llms.txt`.
 
-- [ ] **Step 1: Write the chapters** with runnable blocks.
+- [ ] **Step 1: Write the chapters** with runnable blocks, including the conformance program from Task 11 as the worked example.
 - [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: traits, iterators and comprehensions, and close phase 6"`.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: traits, the object model, iterators and comprehensions, and close phase 8"`.
 
 ---
 
@@ -253,7 +344,10 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 | Dispatch proven safe | `cargo test -p yashy-sema` | no dynamic target exists; every trait call names one impl |
 | Coherence | `cargo test -p yashy-sema` | duplicate impl `E1501`, incomplete impl `E1502` |
 | Bounds | `cargo test -p yashy-sema` | unsatisfied bound `E1503`, ambiguity `E1504` |
+| Associated functions | `cargo test -p yashy-driver --test e2e` | `associated_fns.ya`: `Type::name(..)` resolves; `E1506`/`E1507`/`E1508` fire on the three wrong forms |
+| Member visibility | `cargo test -p yashy-driver --test e2e` | `visibility.ya`: private field/method across modules is `E0801`; sibling types may read it |
+| Object model conformance | `cargo test -p yashy-driver --test verify --test e2e --test never_panics` | the conformance transcript matches; the four excluded forms are diagnostics with their expected codes |
 | Monomorphisation within budget | `cargo test -p yashy-bench` + `--timings` | count ≤ caps on the corpus; `E1505` fires at 65 |
-| Iterators unchanged | `cargo test -p yashy-driver --test e2e iterators` | every existing `for` produces identical output |
+| Iterators unchanged | `cargo test -p yashy-driver --test e2e` | every existing `for` produces identical output |
 | Verifier covers traits | `cargo test -p yashy-verify` + corpus loop | trait effect/ownership/typestate rules hold; no false positive |
 | No regression | `cargo test --workspace` | green on Windows and Linux |

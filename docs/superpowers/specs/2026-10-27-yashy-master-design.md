@@ -75,7 +75,10 @@ later reader does not reopen it by accident.
 | 13 | **`yashy-verify` is the only judge of ownership**; `sema` keeps type classification and delegates | Two implementations of one rule; verifier as a second opinion |
 | 14 | **`--no-verify` is narrow**: no contracts/effects/typestate, warns, stamps unverified provenance, fatal under `YASHY_REQUIRE_VERIFY=1` | An unrestricted escape hatch |
 | 15 | **Phase 1 is split into 1a (usable, warn mode) and 1b (enforcing)**, and `--timings` ships in 1a | One 12-week phase with no artifact until the end; measuring the 30% budget only from phase 3 |
-| 16 | **The plan is an index plus one file per phase, all written up front and revised at phase start**, with detail falling off with distance | A single 124-week monolith; or plans invented one at a time with no whole-programme view |
+| 16 | **The plan is an index plus one file per phase, all written up front and revised at phase start**, with detail falling off with distance | A single 142-week monolith; or plans invented one at a time with no whole-programme view |
+| 17 | **A dedicated optimization phase sits between speed and features** (new phase 4), covering both the dev loop (query pipeline, parallel front end) and the generated program (verifier facts as IR attributes, escape promotion, interning, LTO/PGO) | Folding optimization into phase 3; optimizing after the features exist; relying on LLVM alone |
+| 18 | **Syntax growth is curated and additive** (new phase 5): eight items, no keyword renames, no attributes, no `?.`, no operator overloading. Every item desugars to existing HIR | A broad modernisation that renames `switch` and unifies bindings; performance-only syntax |
+| 19 | **Rust-style OOP without inheritance**: traits are requirement sets, `impl` blocks carry methods, dispatch is static, there is no `Drop` and no operator overloading | Class inheritance; vtables and `dyn` in 1.0; a `Drop` trait replacing `defer` |
 
 ---
 
@@ -102,6 +105,39 @@ And one is **demoted**, deliberately:
 - "As small a design space as Go" is now a *preference* applied per feature. It
   no longer forbids traits, iterators, async, macros, Unicode, named arguments or
   modules. The whitelist in §4.1 is what constrains surface growth instead.
+
+### 3.1 Object model (Rust-style OOP, no inheritance)
+
+The object model is stated here once so it is not inferred from a phase plan.
+It is Rust's shape minus the parts that need a borrow checker or a vtable.
+
+1. **One representation per type.** A `struct`, an `enum` or an `object` is the
+   whole layout. There is no base type, no subtyping, no field inheritance.
+2. **A trait is a requirement set, never a base type.** It declares method
+   signatures and nothing else: no fields, no state, no constructors.
+3. **`impl` carries behaviour.** `impl Point { .. }` is inherent; `impl Show for
+   Point { .. }` satisfies a trait. `object` is a struct and its inherent impl
+   written together. An impl must implement exactly the trait's methods, with
+   matching receiver kinds.
+4. **Dispatch is static in 1.0.** Every trait call names one impl at type-check
+   time and is monomorphised. There is no `dyn`, no vtable, no runtime type
+   information, so there is no call target the verifier cannot see.
+5. **Two receivers.** `self` moves the value in; `self: *mut T` passes its
+   address for mutation. There is no shared-borrow receiver, because there are no
+   borrows — reading through a pointer receiver is explicit.
+6. **No `Drop` trait.** Release is `defer` at scope exit, or `.free()` when the
+   value is linear. A trait cannot run code when a value dies, because that code
+   would run at an unbounded set of program points the verifier does not model.
+7. **No operator overloading.** `+` is addition on numbers; a trait method is
+   called by name. This is the §3 identity rule, restated where OOP readers will
+   look for `Add`.
+8. **Associated functions** have no receiver and are called `Type::name(..)`.
+9. **Visibility applies to all of it.** A `pub` trait, method or field is usable
+   across modules; everything else is private to its module (phase 6).
+
+Default trait methods are deliberately absent in 1.0: a default body is code
+that runs in every impl's context, and its effect and ownership rules need their
+own design. A trait method is a signature, and every impl supplies the body.
 
 ---
 
@@ -168,7 +204,7 @@ cannot discharge them. That is the sound direction of failure.
 - **Proof traces:** a rejection explains which fact could not be established and
   where. "Cannot prove" alone is not acceptable output. The trace record is part
   of schema v1 **from phase 1** — it is defined with the diagnostics, not
-  retrofitted at phase 9, because the shape agents consume is the expensive thing
+  retrofitted at phase 11, because the shape agents consume is the expensive thing
   to change later.
 
 ### 4.4 Budget and evidence
@@ -196,19 +232,24 @@ cannot discharge them. That is the sound direction of failure.
 
 Trust and speed multiply: every proof the verifier produces is a licence to
 delete a runtime check. Bounds and overflow elision in phase 3 depend on proofs
-from phases 1–2, which is why the order is verifier-then-speed.
+from phases 1–2, which is why the order is verifier-then-speed. Phase 4 then
+spends those proofs as *information*: `noalias` where ownership proves
+uniqueness, `nonnull` where the type is not optional, `readonly` where the
+effect is `pure`. C cannot state those facts; this language derives them.
 
 | Workstream | Mechanism | Gate |
 |---|---|---|
 | **Dev loop** | Content-addressed cache (source + flags + compiler version), per-function IR reuse, `-O0` for `run`/`test`, `-O2` for `build`, `-O3` for `--release`, parallel test workers, fast-linker detection (`lld`, `mold`, fallback) | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s |
+| **Query pipeline** (phase 4) | Hand-written memoised queries (`parse`/`check`/`verify`/`emit`) keyed by content hash, parallel front end, incremental verification of changed functions and their dependents | Incremental check < 50 ms on a 10k-line project; ≥ 2 cores busy; byte-identical output |
 | **Compiler rebuild** | Faster workspace linker, fewer generic instantiations, split slow test binaries, cached test binaries, `sccache` where present | Rebuild after touching `sema` < 60 s |
-| **Runtime and binary** | Verifier-driven bounds/overflow elision, escape analysis (stack/arena promotion), inlined runtime calls, array/debug/tuple fast paths, string interning, LTO/PGO at release | Scalar ≤ 1.2× C; feature rows ≤ 2×; hello < 500 KB |
+| **Program optimization** (phase 4) | Verifier facts as IR attributes, escape-to-stack/arena promotion, literal interning, inlined runtime fast paths, ThinLTO + PGO, a pass manager with a per-pass regression gate, and `--opt-report` naming why each check or allocation survived | fib ≤ 1.1× C; feature rows ≤ 1.8×; no pass regresses a row by more than 2%; every unelided check explained |
 
 Measurement discipline (kept from the existing gate): `key=value` artifacts,
 per-OS baselines, medians of 5, report-only on PRs, hard gate on scheduled and
-manual runs. Two additions: a **dev-loop gate** (real project `yashy test`, not
-just synthetic rows) and a **per-phase regression budget** rather than a
-per-release one.
+manual runs. Three additions: a **dev-loop gate** (real project `yashy test`, not
+just synthetic rows), a **per-phase regression budget** rather than a
+per-release one, and a **per-pass gate** so a new optimization pass cannot buy
+one row by selling another.
 
 **Cache design:** one content-addressed store under the user profile, shared by
 all projects, with a per-project lockfile, a size cap, `yashy cache clean`, and
@@ -243,7 +284,7 @@ person and an agent equally.
 
 ### 6.3 Tooling for humans
 
-- `yashy doc`; debugger (DWARF + LLDB, async-aware after phase 8); profiler
+- `yashy doc`; debugger (DWARF + LLDB, async-aware after phase 10); profiler
   integration.
 - Stdlib `log`, `trace`, `metrics` for structured program observability.
 - Deterministic mode (fixed clock, RNG and environment) for reproducible tests
@@ -251,7 +292,7 @@ person and an agent equally.
 
 ### 6.4 Schema discipline
 
-Schema v1 freezes at phase 9. Additive changes only. A CI schema-diff job fails
+Schema v1 freezes at phase 11. Additive changes only. A CI schema-diff job fails
 on removal or type change. Contracts, effects, typestate and the proof-trace
 record appear in the schema from **phase 1**, so agents see proofs and proof
 failures, not just errors — and the shape they consume is fixed before anything
@@ -263,11 +304,11 @@ depends on it.
 
 | Piece | Phase | Content |
 |---|---|---|
-| Package manager MVP | 10 | `yashy.toml`, `yashy.lock`, path + git deps pinned to commits, no build scripts, `audit`, `--offline`, local registry prototype |
-| Stdlib core | 4–10 | `io`, `fs`, `string` (Unicode), `math`, `JSON`, `time`, `log`, `path`, `rand` |
-| First-party packages | 10 | `http` (client/server), `cli`, `net`, `test`, `bench`, `fuzz` |
-| Precompiled stdlib | 10 | Stdlib ships as cached IR so `hello` does not re-typecheck it |
-| Dev environment | 7–9 | LSP completion/references/rename/signature/code actions, `watch`, `fix`, `doc`, `task`, coverage, `lint`, playground |
+| Package manager MVP | 12 | `yashy.toml`, `yashy.lock`, path + git deps pinned to commits, no build scripts, `audit`, `--offline`, local registry prototype |
+| Stdlib core | 6–12 | `io`, `fs`, `string` (Unicode), `math`, `JSON`, `time`, `log`, `path`, `rand` |
+| First-party packages | 12 | `http` (client/server), `cli`, `net`, `test`, `bench`, `fuzz` |
+| Precompiled stdlib | 12 | Stdlib ships as cached IR so `hello` does not re-typecheck it |
+| Dev environment | 9–11 | LSP completion/references/rename/signature/code actions, `watch`, `fix`, `doc`, `task`, coverage, `lint`, playground |
 
 **Organising idea: the stdlib is a package.** Versioned, tested, documented and
 depended on like any third-party package, so the package manager is dogfooded by
@@ -278,9 +319,10 @@ audit and lockfile machinery.
 
 ## 8. The phase spine
 
-Eleven phases in twelve slices, ~124 weeks (~29 months). Each phase ends with its
-gate run on a clean checkout on Windows and Linux, a demo, and a recorded commit.
-Phase 1 is split so a usable verifier exists at week 6 rather than only at week 12.
+Thirteen phases in fourteen slices, ~142 weeks (~33 months). Each phase ends with
+its gate run on a clean checkout on Windows and Linux, a demo, and a recorded
+commit. Phase 1 is split so a usable verifier exists at week 6 rather than only at
+week 12.
 
 | # | Phase | Outcome | Gate | ~wks |
 |---|---|---|---|---|
@@ -288,21 +330,30 @@ Phase 1 is split so a usable verifier exists at week 6 rather than only at week 
 | **1b** | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs added to the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the three realistic programs; unprovable contracts rejected | 6 |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 |
 | 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; **closes with a 2-week async spike** (state-machine lowering against the verifier, scheduler sketch, no shipping code) | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 |
-| 4 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 |
-| 5 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 |
-| 6 | Traits + iterators | Interfaces, generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget | 12 |
-| 7 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 |
-| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Capped in writing:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 |
-| 9 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 |
-| 10 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 |
-| 11 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 |
+| 4 | Optimization | Memoised query pipeline (parse/check/verify/emit), parallel front end, incremental verification; verifier facts as IR attributes (`noalias`, `nonnull`, `readonly`, alignment); escape-to-stack/arena promotion; interning and fast paths; inlined runtime calls; ThinLTO + PGO; pass manager with a per-pass gate; `--opt-report` | Incremental check < 50 ms; fib ≤ 1.1× C; feature rows ≤ 1.8×; no pass regresses a row by more than 2%; ASan/UBSan differential corpus clean | 10 |
+| 5 | Syntax + ergonomics | Eight additive forms: `if let`/`while let`, `?` on `Option`, trailing block with closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }`. Interpolation (`${…}`) and `const fn` already ship; this phase documents them rather than rebuilding them | Every form desugars to existing HIR; no new keywords; verifier corpus covers the three that touch ownership (`E1002`, `E1003`, `E1004`) | 8 |
+| 6 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings; module queries in the phase 4 pipeline | Large-project import test; Unicode conformance; verifier covers both | 10 |
+| 7 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 |
+| 8 | Traits, OOP + iterators | Interfaces, Rust-style OOP without inheritance (traits, impl, static dispatch, associated functions `Type::name`, member visibility, no `Drop`), generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget; the OOP conformance program passes and the four excluded forms are rejected | 12 |
+| 9 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 |
+| 10 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Capped in writing:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 |
+| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 |
+| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 |
+| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 |
 
 **Why this order.** The verifier comes first because every later construct is
-cheaper to prove at birth than to retrofit; phases 4–8 each extend it. Speed comes
+cheaper to prove at birth than to retrofit; phases 6–10 each extend it. Speed comes
 third because the cache must understand the IR the verifier inspects — building it
-earlier means rebuilding it. Modules precede AI-native because `index` and `graph`
-need a module graph to describe. Libraries follow async because an HTTP server
-without it is a toy.
+earlier means rebuilding it. **Optimization comes fourth because it is the phase
+that spends what phases 1–3 produced**: the query pipeline makes the dev loop
+incremental, and verifier facts become `noalias`, `nonnull` and `readonly` in the
+IR — facts C cannot state. Doing it before the features means each feature lands on
+an optimizing, measured backend rather than on a pipeline that has to be
+retrofitted underneath it. **Syntax comes fifth because syntax churn is cheapest
+before modules, traits and macros exist**: one parser change, one formatter change,
+one tutorial update, instead of five. Modules precede AI-native because `index` and
+`graph` need a module graph to describe. Libraries follow async because an HTTP
+server without it is a toy.
 
 **Why the async spike sits in phase 3.** Async is the largest single phase and
 lands around month 18, where drift is most likely. Two weeks of design against the
@@ -330,16 +381,18 @@ cheapest point at which the unknown can be reduced.
 ### 9.1 Cut order
 
 Playground → profiler → coverage/lint → `task` → third-party registry → macOS
-signing → async cancellation → macro hygiene edge cases → typestate for channels →
-iterator comprehensions.
+signing → async cancellation → macro hygiene edge cases → chained comparison →
+indexed `for` → struct spread → `arena` block → typestate for channels → iterator
+comprehensions.
 
 **Never cut:** the verifier, gate commands, both-OS CI, the benchmark gate, or the
 contract/effect schema.
 
 ### 9.2 Definition of done
 
-All twelve gates pass on Windows and Linux; every construct has verifier rules;
-schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
+All fourteen phase gates pass on Windows and Linux; every construct has verifier
+rules; schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0
+open.
 
 ---
 
@@ -351,6 +404,9 @@ schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0 open.
 | Two implementations of one rule | `yashy-verify` is the only judge of ownership; `sema` delegates; a duplicated rule is a defect |
 | False positives kill adoption | Zero-false-positive gate on stdlib, examples **and** three realistic programs; a false positive blocks release |
 | 30-month drift | Quarterly re-plan; phase gates; cut list; dated exceptions; plan revised per phase, detail falling off with distance |
+| Optimization promotes something that escapes | Escape promotion is gated on verifier facts agreeing; ASan/UBSan differential corpus is mandatory; `--no-opt=escape` for bisecting; a per-pass regression gate |
+| Syntax growth becomes design-space creep | Eight named items, all desugaring to existing HIR; no renames, no attributes, no `?.`; anything else needs a written exception |
+| OOP drifts toward inheritance or vtables | The object model is written in §3.1: one representation, traits without state, static dispatch, no `Drop`, no operator overloading |
 | Async scope explosion | Written cap (one executor, no async traits, no generic runtime) plus a 2-week spike at the end of phase 3 |
 | Cache staleness produces a wrong binary | Key covers compiler version, flags, source hash; `cache verify`; CI never trusts a foreign cache |
 | Design-space creep | Closed whitelist; anything else needs a written exception |
@@ -371,17 +427,34 @@ every old plan is explicitly non-authoritative.
 
 - `2026-10-27-yashy-master-plan.md` — the index: the phase spine, the invariants,
   the gates, the cut list, and the status of each phase;
-- one file per phase (`…-phase-01a-verifier-core.md` … `…-phase-11-hardening.md`),
-  **all twelve written at the outset** so the programme can be reviewed and costed
-  as one artefact.
+- one file per phase, **all fourteen written at the outset** so the programme can
+  be reviewed and costed as one artefact:
 
-A single 124-week file would be wrong by phase 3 and then stop being read, which
+  ```text
+  2026-10-27-yashy-master-plan.md                    <- the index
+  2026-10-27-phase-01a-verifier-core.md
+  2026-10-27-phase-01b-verifier-enforcing.md
+  2026-10-27-phase-02-effects-typestate.md
+  2026-10-27-phase-03-speed-foundation.md
+  2026-10-27-phase-04-optimization.md
+  2026-10-27-phase-05-syntax-ergonomics.md
+  2026-10-27-phase-06-modules-unicode.md
+  2026-10-27-phase-07-patterns-named-args.md
+  2026-10-27-phase-08-traits-oop-iterators.md
+  2026-10-27-phase-09-macros.md
+  2026-10-27-phase-10-async.md
+  2026-10-27-phase-11-ai-native-observability.md
+  2026-10-27-phase-12-libraries-packages.md
+  2026-10-27-phase-13-hardening.md
+  ```
+
+A single 142-week file would be wrong by phase 3 and then stop being read, which
 is how the previous plan set decayed. An index plus per-phase files keeps each
 unit small enough to be read in one sitting. Writing them all up front is the
 opposite risk — detail that is wrong by the time it is used — and the mitigation
-is explicit: **detail falls off with distance.** Phases 1a–3 are executable to
-the step; 4–8 name files and interfaces; 9–11 name deliverables and gates. Each
-plan is **revised at phase start**, never rewritten from scratch, and the
+is explicit: **detail falls off with distance.** Phases 1a–5 are executable to
+the step; 6–10 name files and interfaces; 11–13 name deliverables and gates.
+Each plan is **revised at phase start**, never rewritten from scratch, and the
 revision may not contradict the spec or the index. That keeps "read the active
 phase before changing behavior" in `AGENTS.md` true, and makes quarterly
 re-plan a two-file edit instead of a rewrite.

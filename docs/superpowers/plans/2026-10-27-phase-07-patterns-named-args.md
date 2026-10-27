@@ -1,4 +1,4 @@
-# Phase 5 — Patterns and Named Arguments: Implementation Plan
+# Phase 7 — Patterns and Named Arguments: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-parser` (`ast::Pattern`, `Stmt::Destructure`), `yashy-hir::exhaustive` (the module phase 1b moved out of sema), `yashy-sema/src/check_expr.rs` (pattern typing, call resolution), `yashy-verify` (partial-move rule), `yashy-fmt`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 5. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-04-modules-unicode.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-06-modules-unicode.md`.
 
 ## Global Constraints
 
@@ -178,12 +178,12 @@ fn a_move_in_one_alternative_and_not_the_other_is_rejected() {
 **Files:**
 - Modify: `crates/yashy-parser/src/ast.rs` (`CallArg { name: Option<String>, value: Expr, span }`; `CallExpr.args: Vec<CallArg>`; `Param.default: Option<Expr>`)
 - Modify: `crates/yashy-parser/src/{exprs.rs,items.rs}`, `crates/yashy-sema/src/check_expr.rs` (resolution to positional), `crates/yashy-fmt/src/lib.rs`
-- Modify: `codes.rs` (`UNKNOWN_NAMED_ARGUMENT = "E0701"`, `DUPLICATE_ARGUMENT = "E0702"`, `DEFAULT_NOT_CONSTANT = "E0703"`), create the three pages
+- Modify: `codes.rs` (`UNKNOWN_NAMED_ARGUMENT = "E0701"`, `DUPLICATE_ARGUMENT = "E0702"`), create the two pages
 
 **Interfaces:**
 - Produces: `f(1, name: "x")`, `f(name: "x", 1)` (positional after named is `E0701`), and `fn f(a: int, b: int = 2) -> int`.
 - Produces: the HIR call is **positional**; defaults are inserted at resolution, so no later pass learns about named arguments.
-- Produces: `E0701` unknown name or positional-after-named; `E0702` a parameter given twice; `E0703` a default that is not a literal or a `const` name.
+- Produces: `E0701` unknown name or positional-after-named; `E0702` a parameter given twice; **`E0102`** (the code phase 5 introduced for field defaults) for a default that is not a literal or a `const` name. One rule, one code: `is_const_default` is a single function that both a field declaration and a parameter declaration call, so the two default sites cannot drift apart.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -210,7 +210,7 @@ fn a_positional_argument_after_a_named_one_is_rejected() {
 
 #[test]
 fn a_default_that_calls_a_function_is_rejected() {
-    // fn f(a: int = g()) is E0703
+    // fn f(a: int = g()) is E0102, the same code as a field default that calls one
 }
 ```
 
@@ -242,11 +242,11 @@ fn a_default_that_calls_a_function_is_rejected() {
 
 ### Task 8: Docs, tutorial and gate
 
-**Files:** `docs/tutorial/05-patterns.md` (rewritten with guards, or, ranges, nested), `docs/tutorial/11-functions.md` (named/default section), `docs/errors/{E0601,E0602,E0701,E0702,E0703,E1002}.md`, `AGENTS.md` (identity section: patterns are irrefutable in binding position).
+**Files:** `docs/tutorial/05-patterns.md` (rewritten with guards, or, ranges, nested), `docs/tutorial/11-functions.md` (named/default section), `docs/errors/{E0102,E0601,E0602,E0701,E0702,E1002}.md`, `AGENTS.md` (identity section: patterns are irrefutable in binding position).
 
 - [ ] **Step 1: Write the chapters** with runnable blocks; the tutorial harness compiles every block.
 - [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: patterns and named arguments, and close phase 5"`; update the index status and the ledger.
+- [ ] **Step 3: Commit and record** — `git commit -m "docs: patterns and named arguments, and close phase 7"`; update the index status and the ledger.
 
 ---
 

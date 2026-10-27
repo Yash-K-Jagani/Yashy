@@ -1,14 +1,14 @@
-# Phase 11 — 1.0 Hardening: Implementation Plan
+# Phase 13 — 1.0 Hardening: Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn eleven phases of work into a release someone can install, reproduce, read about, and trust — with macOS actually supported rather than mentioned, and with a self-hosting spike that answers the 2.0 question with evidence instead of optimism.
+**Goal:** Turn thirteen phases of work into a release someone can install, reproduce, read about, and trust — with macOS actually supported rather than mentioned, and with a self-hosting spike that answers the 2.0 question with evidence instead of optimism.
 
 **Architecture:** This phase adds almost no language. It adds the four things a 1.0 needs and a prototype does not: **a third platform** (macOS, signed and notarised, tested by the installer suite), **reproducible builds** (a hash a stranger can recompute), **a release process** (signed artifacts, checksums, changelog, clean-VM installs), and **documentation a newcomer can finish** (book, playground, `yashy doc`). The self-hosting spike is a design record plus a differential test, deliberately not a compiler.
 
-**Tech Stack:** `.github/workflows/{release,ci,bench}.yml`, `scripts/{package-release,install,test-install,checksums}.*`, `crates/yashy-driver` (`--reproducible`), the phase 9 sandbox (playground), the phase 10 registry format (hosted index), and a new `selfhost/` directory for the spike.
+**Tech Stack:** `.github/workflows/{release,ci,bench}.yml`, `scripts/{package-release,install,test-install,checksums}.*`, `crates/yashy-driver` (`--reproducible`), the phase 11 sandbox (playground), the phase 12 registry format (hosted index), and a new `selfhost/` directory for the spike.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 11. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-10-libraries-packages.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 13. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-12-libraries-packages.md`.
 
 ## Global Constraints
 
@@ -22,7 +22,7 @@ See the master index. The ones that bite here:
 
 ## Written cap (this phase)
 
-- **The playground compiles on the server, not in the browser.** A WASM compiler is a 2.0 project with its own performance story; the playground is the phase 9 sandbox behind a small HTTP front end.
+- **The playground compiles on the server, not in the browser.** A WASM compiler is a 2.0 project with its own performance story; the playground is the phase 11 sandbox behind a small HTTP front end.
 - **The self-hosting spike parses a subset** — lexing plus parsing of the current grammar, no type checking, no codegen. It is measured against the Rust parser on the corpus and written up, not shipped.
 - **No third-party registry hosting.** A read-only static index is published; uploads stay local (`file://`).
 
@@ -30,7 +30,7 @@ See the master index. The ones that bite here:
 
 1. **Reproducibility is proven by a stranger, not by the author.** CI builds the release twice, in two directories, on two machines of the same OS, and compares SHA-256 of the archives. Any difference is a bug in path normalisation, timestamps, or map ordering — and the diff is printed.
 2. **A signed macOS archive is not the same as a working one.** The installer test runs on a clean macOS VM, with Gatekeeper on, and the tutorial's first three chapters must pass from the installed binary.
-3. **The playground is the sandbox's customer, not a second sandbox.** It calls `yashy run --sandbox` with the phase 9 capability set; a request that would escape is refused by the same code the escape corpus tests.
+3. **The playground is the sandbox's customer, not a second sandbox.** It calls `yashy run --sandbox` with the phase 11 capability set; a request that would escape is refused by the same code the escape corpus tests.
 4. **The book's every code block is executed by CI.** A book with a broken example is worse than no book, and the tutorial harness already proves the mechanism.
 5. **A P0 is anything that produces a wrong binary, a panic on valid input, or a security escape.** "No P0 open" means the triage list is empty and the crash corpus is clean, not that the list was relabelled.
 
@@ -119,14 +119,14 @@ See the master index. The ones that bite here:
 
 **Files:**
 - Create: `playground/` (a static front end and a tiny server that shells out to `yashy run --sandbox`)
-- Create: `playground/tests/` (escape attempts reused from phase 9, plus rate limits)
+- Create: `playground/tests/` (escape attempts reused from phase 11, plus rate limits)
 - Modify: `docs/cli.md` (the sandbox flags the playground uses)
 
 **Interfaces:**
 - Produces: `POST /run` with `{source, args}` → `{stdout, stderr, exit, diagnostics}`; every run is `--sandbox --allow-read /tmp/playground/<id> --time 2000 --memory 128 --output 65536`.
 - Produces: per-IP rate limit, a 64 KB source cap, a 2 s wall clock, and a queue depth cap; a refused request returns `429`, never a hang.
 
-- [ ] **Step 1: Write the failing tests** — the phase 9 escape corpus is replayed through `POST /run`; every attempt is denied; a fork bomb is killed at the process cap; a 64 KB+ source is `413`; 100 requests from one IP hit the rate limit.
+- [ ] **Step 1: Write the failing tests** — the phase 11 escape corpus is replayed through `POST /run`; every attempt is denied; a fork bomb is killed at the process cap; a 64 KB+ source is `413`; 100 requests from one IP hit the rate limit.
 - [ ] **Step 2: Watch them fail.**
 - [ ] **Step 3: Implement** — the server is a thin shell around the compiler binary with a temp dir per request; the front end is static HTML/JS with no build step, because a playground that needs a toolchain is not a playground.
 - [ ] **Step 4: Run** `cargo test -p yashy-driver --test playground` → PASS.
@@ -146,7 +146,7 @@ See the master index. The ones that bite here:
 - Produces: publishing stays `file://`; a pull request to the registry repo is how a package is added, reviewed by a human.
 
 - [ ] **Step 1: Write the failing test** — a local HTTP server serving `registry/` is added as a registry; `yashy add` fetches, verifies the hash and builds; a tampered tarball fails the hash check.
-- [ ] **Step 2: Implement** — the HTTPS path reuses `net` from phase 10 and requires TLS; if TLS is unavailable on a platform, the command fails with a clear message rather than falling back to plaintext.
+- [ ] **Step 2: Implement** — the HTTPS path reuses `net` from phase 12 and requires TLS; if TLS is unavailable on a platform, the command fails with a clear message rather than falling back to plaintext.
 - [ ] **Step 3: Commit** — `git commit -m "feat(registry): a read-only hosted index with hash-verified fetches"`
 
 ---
@@ -181,7 +181,7 @@ See the master index. The ones that bite here:
 - Produces: one command that runs the whole gate set on a clean checkout, with a machine-readable `--json` summary.
 - Produces: a triage list with every open issue classified; "no P0" means the P0 section is empty and the crash corpus (`never_panics`, `sandbox_escape`, `repro-check`) is green.
 
-- [ ] **Step 1: Write the runbook** by collecting the gate tables from all eleven phase plans; a missing gate is a finding.
+- [ ] **Step 1: Write the runbook** by collecting the gate tables from all thirteen phase plans; a missing gate is a finding.
 - [ ] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception.
 - [ ] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
 - [ ] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
@@ -214,7 +214,7 @@ See the master index. The ones that bite here:
 | Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
 | Book | `book.yml` | every code block compiles; reference generated from `yashy index` |
-| Playground safe | `cargo test -p yashy-driver --test playground` | phase 9 escape corpus denied through `/run` |
+| Playground safe | `cargo test -p yashy-driver --test playground` | phase 11 escape corpus denied through `/run` |
 | Registry | `cargo test -p yashy-driver --test registry` | hosted index add builds; tampered tarball rejected |
 | Self-hosting evidence | `cargo test -p yashy-driver --test selfhost_diff` | pass rate recorded; design record written |
 | All gates | `scripts/gates` | every phase gate green, or a dated exception |

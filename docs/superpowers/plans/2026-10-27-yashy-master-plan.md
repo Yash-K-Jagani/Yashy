@@ -4,9 +4,9 @@
 
 **Goal:** Turn Yashy into a language whose programs are provably safer than C while staying as fast and as pleasant to build as Go, with a compiler that is equally legible to a human and to an agent.
 
-**Architecture:** Eleven phases in twelve slices, ~124 weeks. A separate `yashy-verify` pass proves ownership, effects, typestate and contracts over the typed HIR; a content-addressed cache and `-O0` dev defaults make the loop fast; every later language construct ships with its verifier rules in the same phase.
+**Architecture:** Thirteen phases in fourteen slices, ~142 weeks. A separate `yashy-verify` pass proves ownership, effects, typestate and contracts over the typed HIR; a content-addressed cache, a memoised query pipeline and `-O0` dev defaults make the loop fast; a dedicated optimization phase spends what the verifier proved; a dedicated syntax phase removes boilerplate without adding a concept; every later language construct ships with its verifier rules in the same phase.
 
-**Tech Stack:** Rust workspace (11 crates), LLVM via `clang`/`llc`, a C runtime shim, and Yashy-source stdlib. No external prover, no new runtime dependencies.
+**Tech Stack:** Rust workspace (one crate per compiler stage, plus a benchmark harness), LLVM via `clang`/`llc`, a C runtime shim, and Yashy-source stdlib. No external prover, no new runtime dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` — read it before any phase. It is the authority on *why*; this file is the authority on *what next*; the phase plan is the authority on *how*.
 
@@ -42,7 +42,7 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 
 ## How this plan is organised
 
-`docs/superpowers/plans/` holds this index plus **one file per phase**. All twelve phase plans are written up front, so the whole programme can be read, reviewed and costed as one artefact:
+`docs/superpowers/plans/` holds this index plus **one file per phase**. All fourteen phase plans are written up front, so the whole programme can be read, reviewed and costed as one artefact:
 
 ```text
 2026-10-27-yashy-master-plan.md                    <- this file
@@ -50,17 +50,19 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 2026-10-27-phase-01b-verifier-enforcing.md
 2026-10-27-phase-02-effects-typestate.md
 2026-10-27-phase-03-speed-foundation.md
-2026-10-27-phase-04-modules-unicode.md
-2026-10-27-phase-05-patterns-named-args.md
-2026-10-27-phase-06-traits-iterators.md
-2026-10-27-phase-07-macros.md
-2026-10-27-phase-08-async.md
-2026-10-27-phase-09-ai-native-observability.md
-2026-10-27-phase-10-libraries-packages.md
-2026-10-27-phase-11-hardening.md
+2026-10-27-phase-04-optimization.md
+2026-10-27-phase-05-syntax-ergonomics.md
+2026-10-27-phase-06-modules-unicode.md
+2026-10-27-phase-07-patterns-named-args.md
+2026-10-27-phase-08-traits-oop-iterators.md
+2026-10-27-phase-09-macros.md
+2026-10-27-phase-10-async.md
+2026-10-27-phase-11-ai-native-observability.md
+2026-10-27-phase-12-libraries-packages.md
+2026-10-27-phase-13-hardening.md
 ```
 
-**Detail falls off with distance, deliberately.** Phases 1a–3 are executable to the step: every task names its files, its interfaces and its test. Phases 4–8 name files and interfaces and leave step-level detail to the revision at phase start, because the code they touch does not exist yet. Phases 9–11 name deliverables and gates, because their shape depends on everything before them.
+**Detail falls off with distance, deliberately.** Phases 1a–5 are executable to the step: every task names its files, its interfaces and its test. Phases 6–10 name files and interfaces and leave step-level detail to the revision at phase start, because the code they touch does not exist yet. Phases 11–13 name deliverables and gates, because their shape depends on everything before them.
 
 **A phase plan is revised at phase start, never rewritten from scratch.** The revision re-reads the code as it exists that day, keeps the outcome and the gate, and updates task detail. A plan that has drifted from the code is corrected in the revision; the spec and this index are what the revision may not contradict.
 
@@ -74,18 +76,20 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 | 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected | 6 | plan written |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 | plan written |
 | 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; closes with a 2-week async spike | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 | plan written |
-| 4 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 | plan written |
-| 5 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 | plan written |
-| 6 | Traits + iterators | Interfaces, generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget | 12 | plan written |
-| 7 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 | plan written |
-| 8 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Cap:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 | plan written |
-| 9 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 | plan written |
-| 10 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 | plan written |
-| 11 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 | plan written |
+| 4 | Optimization | Memoised query pipeline, parallel front end, verifier facts as IR attributes, escape promotion, interning, inlined runtime fast paths, ThinLTO + PGO, pass manager with `--opt-report` | Incremental re-analysis < 200 ms; `wordcount` allocations −40%; runtime ≤ 1.1× C on `fib`; no pass regresses its own row by >2% | 10 | plan written |
+| 5 | Syntax + ergonomics | `if let`/`while let`, `?` on `Option`, trailing block + closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }` — each desugaring to existing HIR | Every form's HIR equals its hand-written expansion; `KEYWORDS.len() == 28`; verifier corpus covers `E1002`/`E1003`/`E1004` | 8 | plan written |
+| 6 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 | plan written |
+| 7 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 | plan written |
+| 8 | Traits, OOP + iterators | Interfaces, generic constraints, the object model of spec §3.1 (associated functions, member visibility, no inheritance/`Drop`/operator overloading), iterator protocol, comprehensions | Dispatch proven safe; OOP conformance program; four excluded forms rejected; monomorphisation within budget | 12 | plan written |
+| 9 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 | plan written |
+| 10 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Cap:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 | plan written |
+| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 | plan written |
+| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 | plan written |
+| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 | plan written |
 
-Total ≈ 124 weeks.
+Total ≈ 142 weeks.
 
-**Why this order.** The verifier comes first because every later construct is cheaper to prove at birth than to retrofit; phases 4–8 each extend it. Speed comes third because the cache must understand the IR the verifier inspects. Modules precede AI-native because `index` and `graph` need a module graph. Libraries follow async because an HTTP server without it is a toy.
+**Why this order.** The verifier comes first because every later construct is cheaper to prove at birth than to retrofit; phases 5–10 each extend it. Speed foundation (3) makes the loop fast enough that the verifier is usable; optimization (4) then spends what the verifier proved — `noalias`, `nonnull`, escape promotion — which is only sound because 1–3 established the facts, and which must land before the language grows more constructs for it to re-prove. Syntax (5) comes after optimization because sugar must lower onto the HIR the optimizer already understands, and before modules because a form that desugars is easier to review while the language is still one file per program. Modules (6) precede AI-native (11) because `index` and `graph` need a module graph. Traits and the object model (8) precede macros (9) and async (10) because both lower onto the dispatch and iterator machinery. Libraries (12) follow async because an HTTP server without it is a toy.
 
 ## Gate protocol
 
@@ -101,7 +105,7 @@ A missed gate is recorded as an **exception**: a dated entry in the phase plan n
 
 ## Cut order
 
-When a phase runs long, cut in this order: playground → profiler → coverage/lint → `task` → third-party registry → macOS signing → async cancellation → macro hygiene edge cases → typestate for channels → iterator comprehensions.
+When a phase runs long, cut in this order: playground → profiler → coverage/lint → `task` → third-party registry → macOS signing → async cancellation → macro hygiene edge cases → chained comparison → indexed `for` → struct spread → `arena` block → typestate for channels → iterator comprehensions.
 
 **Never cut:** the verifier, the gate commands, both-OS CI, the benchmark gate, or the contract/effect schema.
 
