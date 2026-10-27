@@ -207,9 +207,9 @@ and 4; 3b is the required performance slice between 3 and 4. They run in order:
 
 | Slice | Outcome | Depends on | Detailed plan |
 |---|---|---|---|
-| **1. Install + first CLI** | A fresh Windows or Linux machine installs a prebuilt Yashy, runs `yashy doctor`, and completes a first CLI project. Linux release artifact and `install.sh` exist. | Nothing. The first-CLI guide reads standard input, not `args()`. | `2026-10-25-yashy-r1-install-first-cli.md` |
-| **2. Runtime stdlib gaps** | `args()`, `getcwd()`, `now()`, and `sleep(ms)` work on Windows and Linux, with ownership and leak tests. The guide gains an arguments section. | Slice 1 for the guide; independent for runtime work. | `2026-10-25-yashy-r1-runtime-stdlib.md` |
-| **3. Diagnostics + benchmarks + AI v0** | "Did you mean," error codes, `check --json`, `test --json`, `explain`, and a benchmark gate with stored baselines. | Slice 1 CI; slice 2 runtime for timing rows. | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` |
+| **1. Install + first CLI** | A fresh Windows or Linux machine installs a prebuilt Yashy, runs `yashy doctor`, and completes a first CLI project. Linux release artifact and `install.sh` exist. | Nothing. The first-CLI guide reads standard input, not `args()`. | `history/2026-10-25-yashy-r1-install-first-cli.md` |
+| **2. Runtime stdlib gaps** | `args()`, `getcwd()`, `now()`, and `sleep(ms)` work on Windows and Linux, with ownership and leak tests. The guide gains an arguments section. | Slice 1 for the guide; independent for runtime work. | `history/2026-10-25-yashy-r1-runtime-stdlib.md` |
+| **3. Diagnostics + benchmarks + AI v0** | "Did you mean," error codes, `check --json`, `test --json`, `explain`, and a benchmark gate with stored baselines. | Slice 1 CI; slice 2 runtime for timing rows. | `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md` |
 | **3b. Top-three performance fixes** | The three worst benchmark rows improve; no row is worse than 2× without an exception. | Slice 3 baseline. | Specified in this section; detailed plan written after slice 3. |
 | **4. Package-manager spike** | A decision-complete design plus a throwaway prototype for path and git dependencies. No registry, no stable CLI commitment. | Slice 2 (program args for the demo) and slice 3 (benchmark discipline). | `2026-10-25-yashy-r2-package-manager-spike.md` |
 
@@ -969,9 +969,9 @@ alternative that was rejected, so a later reader does not reopen it by accident.
 
 | Slice | Plan | Status |
 |---|---|---|
-| 1 | `2026-10-25-yashy-r1-install-first-cli.md` | Implemented and pushed, `d30e1af` |
-| 2 | `2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented and pushed, `d30e1af` |
-| 3 | `2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Updated from v2 spec §15.3; ready for approval |
+| 1 | `history/2026-10-25-yashy-r1-install-first-cli.md` | Implemented and pushed, `d30e1af` |
+| 2 | `history/2026-10-25-yashy-r1-runtime-stdlib.md` | Implemented and pushed, `d30e1af` |
+| 3 | `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md` | Implemented and pushed, accepted tip `e015b77`; plan record `70bd566` |
 | 3b | This master plan, §7.4 | Section approved; detailed plan after slice 3 baseline |
 | 4 | `2026-10-25-yashy-r2-package-manager-spike.md` | Updated from v2 spec §15.5; ready for approval |
 

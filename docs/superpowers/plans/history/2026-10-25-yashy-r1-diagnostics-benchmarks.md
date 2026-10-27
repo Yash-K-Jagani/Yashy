@@ -4,7 +4,7 @@
 > independent halves: diagnostics and measurement. Land them as separate
 > commits so a noisy benchmark cannot block a diagnostic fix.
 
-**Status:** Draft for review, 2026-10-25.
+**Status:** Implemented and pushed, accepted tip `e015b77`; plan record `70bd566`, 2026-10-26. Bench run `40284700659` and CI run `40284703807` are green on Ubuntu and Windows.
 **Source of truth:** `docs/superpowers/specs/2026-10-25-yashy-super-language-v2-design.md` §10.2, §13, and §15.3.
 **Master plan:** `docs/superpowers/plans/2026-10-25-yashy-super-language-master.md` §7.3.
 **Goal:** Errors teach the fix ("did you mean", notes, stable codes), agents can

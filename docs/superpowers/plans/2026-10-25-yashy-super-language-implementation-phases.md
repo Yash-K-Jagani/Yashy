@@ -14,9 +14,9 @@
 
 **Detailed R1 plans:**
 
-- Slice 1: `docs/superpowers/plans/2026-10-25-yashy-r1-install-first-cli.md`
-- Slice 2: `docs/superpowers/plans/2026-10-25-yashy-r1-runtime-stdlib.md`
-- Slice 3: `docs/superpowers/plans/2026-10-25-yashy-r1-diagnostics-benchmarks.md`
+- Slice 1: `docs/superpowers/plans/history/2026-10-25-yashy-r1-install-first-cli.md`
+- Slice 2: `docs/superpowers/plans/history/2026-10-25-yashy-r1-runtime-stdlib.md`
+- Slice 3: `docs/superpowers/plans/history/2026-10-25-yashy-r1-diagnostics-benchmarks.md`
 - Slice 3b: master plan §7.4; detailed task plan written after slice 3's baseline
 - Slice 4: `docs/superpowers/plans/2026-10-25-yashy-r2-package-manager-spike.md`
 
@@ -257,7 +257,7 @@ Phase 7 (2.0: async, self-hosting, ecosystem, SIMD, const generics, MCP v2)
 
 **Outcome:** a fresh Windows or Linux machine installs a prebuilt Yashy, runs `yashy doctor`, and completes a first CLI project. Linux release artifact and `install.sh` exist.
 
-**Detailed plan:** `2026-10-25-yashy-r1-install-first-cli.md`. Execute its task list exactly. The checkboxes below are the phase-level checkpoints.
+**Detailed plan:** `history/2026-10-25-yashy-r1-install-first-cli.md`. Execute its task list exactly. The checkboxes below are the phase-level checkpoints.
 
 **Primary areas:** `.github/workflows/release.yml`, `scripts/install.ps1`, new `scripts/install.sh`, new checksum script, `crates/yashy-driver/src/main.rs`, `crates/yashy-driver/src/toolchain.rs`, `crates/yashy-driver/tests/doctor.rs`, `crates/yashy-driver/tests/init.rs`, `docs/`, repository-root `AGENTS.md` and `llms.txt`.
 
@@ -282,7 +282,7 @@ Phase 7 (2.0: async, self-hosting, ecosystem, SIMD, const generics, MCP v2)
 
 **Outcome:** `args()`, `getcwd()`, `now()`, and `sleep(ms)` work on Windows and Linux, with ownership and leak tests. The guide gains an arguments section. Bundled stdlib discovery works without `YASHY_PATH`.
 
-**Detailed plan:** `2026-10-25-yashy-r1-runtime-stdlib.md`. Execute its task list exactly.
+**Detailed plan:** `history/2026-10-25-yashy-r1-runtime-stdlib.md`. Execute its task list exactly.
 
 **Primary areas:** `crates/yashy-runtime/runtime.c`, `crates/yashy-runtime/` tests, `crates/yashy-driver/src/modules.rs`, `crates/yashy-driver/src/pipeline.rs`, `crates/yashy-driver/tests/programs/`, `crates/yashy-driver/tests/modules.rs`, `crates/yashy-driver/tests/leaks.rs`, stdlib docs.
 
@@ -306,7 +306,7 @@ Phase 7 (2.0: async, self-hosting, ecosystem, SIMD, const generics, MCP v2)
 
 **Outcome:** errors teach; performance is measured; agents can read results.
 
-**Detailed plan:** `2026-10-25-yashy-r1-diagnostics-benchmarks.md`. Execute its task list exactly.
+**Detailed plan:** `history/2026-10-25-yashy-r1-diagnostics-benchmarks.md`. Execute its task list exactly.
 
 **Primary areas:** `crates/yashy-common/` (diagnostic codes), `crates/yashy-lexer/`, `crates/yashy-parser/`, `crates/yashy-sema/`, `crates/yashy-driver/src/main.rs`, `crates/yashy-driver/tests/`, `benchmarks/`, `.github/workflows/`, `docs/errors/`, `AGENTS.md`, `llms.txt`.
 
@@ -1197,4 +1197,4 @@ This plan is done when:
 - [ ] Start **slice 1 only** after approval, using its detailed plan.
 - [ ] Do not start slices 2, 3, 3b, or 4 early. They have dependencies and gates.
 
-**The first command after approval is not `cargo build`. It is the first task in `2026-10-25-yashy-r1-install-first-cli.md`.**
+**The first command after approval is not `cargo build`. It is the first task in `history/2026-10-25-yashy-r1-install-first-cli.md`.**
