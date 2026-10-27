@@ -14,6 +14,7 @@ declare void @yashy_free(i8*)
 declare i8* @yashy_arena_new()
 declare i8* @yashy_arena_alloc(i8*, i64, i64)
 declare void @yashy_arena_free_all(i8*)
+declare void @yashy_slice_reserve(ptr, i64, i64)
 declare void @yashy_slice_push(ptr, ptr, i64)
 declare i64 @yashy_slice_get(ptr, i64, ptr, i64)
 declare i64 @yashy_slice_pop(ptr, ptr, i64)
@@ -57,6 +58,7 @@ declare void @yashy_chan_free(i8*)
 declare i64 @yashy_str_len(i8*)
 declare i8 @yashy_str_byte_at(i8*, i64)
 declare i8* @yashy_str_concat(i8*, i8*)
+declare i8* @yashy_str_append(i8*, i8*)
 declare i8* @yashy_str_from_i64(i64)
 declare i8* @yashy_str_from_f64(double)
 declare i8* @yashy_str_from_bool(i64)
@@ -127,6 +129,7 @@ entry:
 %slot7 = alloca i64
 %slot8 = alloca i64
 %slot9 = alloca i64
+%slot10 = alloca { i8*, i64, i64 }
 call void @yashy_args_init(i32 %argc, i8** %argv)
 %t0 = mul i64 3, 8
 %t1 = call i8* @yashy_alloc(i64 %t0, i64 8)
@@ -207,6 +210,9 @@ bb7_ok:
 call void @yashy_print_str(i8* %t42)
 call void @yashy_str_release(i8* %t42)
 call void @yashy_print_line_str(i8* @.str.2)
-call void @yashy_slice_free(ptr %slot0)
+%t43 = load { i8*, i64, i64 }, ptr %slot0
+store { i8*, i64, i64 } %t43, ptr %slot10
+call void @yashy_slice_free(ptr %slot10)
+store { i8*, i64, i64 } zeroinitializer, ptr %slot0
 ret i32 0
 }

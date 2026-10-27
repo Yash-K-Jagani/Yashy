@@ -14,6 +14,7 @@ declare void @yashy_free(i8*)
 declare i8* @yashy_arena_new()
 declare i8* @yashy_arena_alloc(i8*, i64, i64)
 declare void @yashy_arena_free_all(i8*)
+declare void @yashy_slice_reserve(ptr, i64, i64)
 declare void @yashy_slice_push(ptr, ptr, i64)
 declare i64 @yashy_slice_get(ptr, i64, ptr, i64)
 declare i64 @yashy_slice_pop(ptr, ptr, i64)
@@ -57,6 +58,7 @@ declare void @yashy_chan_free(i8*)
 declare i64 @yashy_str_len(i8*)
 declare i8 @yashy_str_byte_at(i8*, i64)
 declare i8* @yashy_str_concat(i8*, i8*)
+declare i8* @yashy_str_append(i8*, i8*)
 declare i8* @yashy_str_from_i64(i64)
 declare i8* @yashy_str_from_f64(double)
 declare i8* @yashy_str_from_bool(i64)
@@ -112,7 +114,9 @@ declare void @yashy_exit(i64)
 define { i8*, i64, i64 } @build() {
 entry:
 %slot0 = alloca { i8*, i64, i64 }
-%slot1 = alloca i64
+%slot1 = alloca { i8*, i64, i64 }
+%slot2 = alloca i64
+%slot3 = alloca { i8*, i64, i64 }
 %t0 = mul i64 2, 8
 %t1 = call i8* @yashy_alloc(i64 %t0, i64 8)
 %t2 = getelementptr i64, ptr %t1, i64 0
@@ -123,20 +127,51 @@ store i64 20, ptr %t3
 %t5 = insertvalue { i8*, i64, i64 } %t4, i64 2, 1
 %t6 = insertvalue { i8*, i64, i64 } %t5, i64 2, 2
 store { i8*, i64, i64 } %t6, ptr %slot0
-store i64 30, ptr %slot1
-call void @yashy_slice_push(ptr %slot0, ptr %slot1, i64 8)
-call void @yashy_slice_free(ptr %slot0)
-%t7 = insertvalue { i8*, i64, i64 } undef, i8* null, 0
-%t8 = insertvalue { i8*, i64, i64 } %t7, i64 0, 1
-%t9 = insertvalue { i8*, i64, i64 } %t8, i64 0, 2
-ret { i8*, i64, i64 } %t9
+%t7 = getelementptr { i8*, i64, i64 }, ptr %slot0, i32 0, i32 1
+%t8 = load i64, ptr %t7
+%t9 = getelementptr { i8*, i64, i64 }, ptr %slot0, i32 0, i32 2
+%t10 = load i64, ptr %t9
+%t11 = getelementptr { i8*, i64, i64 }, ptr %slot0, i32 0, i32 0
+%t12 = load i8*, ptr %t11
+%t13 = icmp slt i64 %t8, %t10
+%t14 = icmp ne i8* %t12, null
+%t15 = and i1 %t13, %t14
+br i1 %t15, label %bb0_store, label %bb1_grow
+bb0_store:
+%t16 = mul i64 %t8, 8
+%t17 = getelementptr i8, ptr %t12, i64 %t16
+store i64 30, ptr %t17
+%t18 = add i64 %t8, 1
+store i64 %t18, ptr %t7
+br label %bb2_pushed
+bb1_grow:
+%t19 = load { i8*, i64, i64 }, ptr %slot0
+store { i8*, i64, i64 } %t19, ptr %slot1
+store i64 30, ptr %slot2
+call void @yashy_slice_push(ptr %slot1, ptr %slot2, i64 8)
+%t20 = load { i8*, i64, i64 }, ptr %slot1
+store { i8*, i64, i64 } %t20, ptr %slot0
+br label %bb2_pushed
+bb2_pushed:
+%t21 = load { i8*, i64, i64 }, ptr %slot0
+store { i8*, i64, i64 } %t21, ptr %slot3
+call void @yashy_slice_free(ptr %slot3)
+store { i8*, i64, i64 } zeroinitializer, ptr %slot0
+%t22 = insertvalue { i8*, i64, i64 } undef, i8* null, 0
+%t23 = insertvalue { i8*, i64, i64 } %t22, i64 0, 1
+%t24 = insertvalue { i8*, i64, i64 } %t23, i64 0, 2
+ret { i8*, i64, i64 } %t24
 }
 define i32 @main(i32 %argc, i8** %argv) {
 entry:
 %slot0 = alloca { i8*, i64, i64 }
+%slot1 = alloca { i8*, i64, i64 }
 call void @yashy_args_init(i32 %argc, i8** %argv)
-%t10 = call { i8*, i64, i64 } @build()
-store { i8*, i64, i64 } %t10, ptr %slot0
-call void @yashy_slice_free(ptr %slot0)
+%t25 = call { i8*, i64, i64 } @build()
+store { i8*, i64, i64 } %t25, ptr %slot0
+%t26 = load { i8*, i64, i64 }, ptr %slot0
+store { i8*, i64, i64 } %t26, ptr %slot1
+call void @yashy_slice_free(ptr %slot1)
+store { i8*, i64, i64 } zeroinitializer, ptr %slot0
 ret i32 0
 }

@@ -1,8 +1,13 @@
 // Mapping an array: the same loop in every language, building a new array.
 //
-// The C, Go and Rust rows build the mapped array the same way -- a second
-// array the size of the first -- so the numbers are about the mapping, not
-// about how the language grows an array.
+// Yashy builds the source by `push`, so it grows the backing array as it goes.
+// The C, Go and Rust rows size the source once; the mapped array is the size of
+// the source in every row. The Yashy row therefore includes growth work the
+// others skip, and still has to match them.
+//
+// The closure uses `wrapping_mul` to match the unchecked arithmetic in the
+// other rows: this row is about mapping an array, not about Yashy's overflow
+// checks.
 fn main() {
     const n = 10000000;
     let xs = []int {};
@@ -12,7 +17,7 @@ fn main() {
         i = wrapping_add(i, 1);
     }
 
-    let doubled = xs.map(|x: int| -> int { return x * 2; });
+    let doubled = xs.map(|x: int| -> int { return wrapping_mul(x, 2); });
 
     let sum = 0;
     for x in doubled {

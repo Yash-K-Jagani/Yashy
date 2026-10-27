@@ -44,14 +44,146 @@ are green on Windows and Linux (commit e015b77). Do not start 3b before both hol
 ---
 ## Array mapping fix (landed)
 
-**Commit:** `f4d0ec6` – `perf: pre‑allocate output slice capacity for map/filter to avoid reallocs`
+**Commit:** `perf: map/filter write into a reserved buffer; push stays in registers` (hash recorded below)
 
 **Design note:**  
-The `map`/`filter` code in `crates/yashy-codegen/src/higher_order.rs` now stores `i64 9223372036854775807` (i64::MAX) into the output slice’s `cap` field immediately after the slice is allocated. Since the runtime’s `yashy_slice_push` only reallocates when `len >= cap`, setting cap to the maximum possible value guarantees that no reallocation occurs during the entire loop, eliminating the `O(log N)` reallocation overhead that was the primary contributor to the 3.6× gap versus C/Rust/Go. The change is purely a compile‑time IR emission; no runtime code was added or altered, and all existing differential tests continue to pass because the slice still grows correctly up to its original length.
+`map` and `filter` know their result's upper bound before the loop: a `map`
+returns one element per input element and a `filter` at most that many, so the
+source length is the exact bound. `crates/yashy-codegen/src/higher_order.rs`
+now reads that length once and calls `yashy_slice_reserve(header, cap,
+element_size)`, which allocates `cap * element_size` bytes once and sets `len`
+to zero and `cap` to the reservation. The loop then writes each result straight
+through the reserved data pointer, with the count in a local `written` slot
+published to the header once after the loop, so no element reaches
+`yashy_slice_push`. The push call remains as the fallback branch for a
+reservation that could not allocate. An earlier attempt stored `i64::MAX` into
+the capacity field instead; that header claimed room with no bytes behind it and
+wrote through a null pointer, so it was replaced.
 
-**Before/after (to be filled with actual measurements):**  
-- Windows `map_array` median: before ≈ 1772 ms (3.62×), after ≈ [to‑be‑measured] ms (target ≤ 2×).  
-- Linux `map_array` median: before ≈ 1772 ms (3.62×), after ≈ [to‑be‑measured] ms.
+Two changes to the source loop turned out to matter as much as the reservation.
+First, a header handed to a call cannot be promoted to registers, so the
+binding's header is never the pointer the runtime receives: the cold grow path
+copies it out and writes the result back, and `free` runs on a copy before the
+binding is zeroed. `len`, `cap` and `data` then live in registers for the whole
+loop. Second, the grow path used `yashy_alloc` + `memcpy` + `yashy_free`, which
+copies everything already held at every doubling; `yashy_realloc` resizes the
+block instead and lets the allocator extend it in place.
+
+The map loop had the same problem one level up: it read the source length and
+data pointer inside the loop, and the callback is an unknown call that may write
+any memory, so the optimizer could not hoist those loads past it. Both are now
+read once before the loop. The borrow the call holds makes that exact -- the
+source can only be read while the walk runs, so nothing can move the buffer
+under it. A 10M `push` loop matches the C row (84 ms vs 82 ms on the measurement
+machine), and the map row went from 3.6× to about 1.1×.
+
+**Before/after (Linux, WSL Ubuntu, clang 18, five runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `map_array` Yashy | 445.0 ms | 176.2 / 196.5 ms (min / median) | — |
+| `map_array` C (clang -O2) | 119.4 ms | 151.8 / 156.4 ms | **1.16× / 1.26×** |
+| `map_array` C (gcc -O2) | 122.8 ms | 159.2 / 185.7 ms | 1.11× / 1.06× |
+| `map_array` Rust | 125.5 ms | 159.7 / 164.1 ms | 1.10× / 1.20× |
+
+The Yashy row builds the source by `push` while every baseline sizes it once,
+so the ratio includes growth work the others skip.
+
+**Before/after (Windows, local machine, clang 23.1.4, gcc 15, rustc 1.99 on the
+GNU toolchain, ten runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `map_array` Yashy | 1772 ms | 201.9 / 218.3 ms (min / median) | — |
+| `map_array` C (clang -O2) | not measured | 115.9 / 127.1 ms | **1.74× / 1.72×** |
+| `map_array` C (gcc -O2) | not measured | 121.6 / 129.0 ms | 1.66× / 1.69× |
+| `map_array` Rust | not measured | 118.1 / 127.0 ms | 1.71× / 1.72× |
+
+The only Windows before number on record is Yashy's 1772 ms from the problem
+statement, which was measured on a different machine; the after rows are all
+from this machine, so the ratio column is the comparison that matters.
+
+
+
+---
+## Debug formatting fix (landed)
+
+**Commit:** `perf: append debug-format text in place` (hash recorded below)
+
+**Design note:**  
+A debug printer builds its answer left to right, so its expression is a chain of
+concatenations whose left operand is the prefix built so far. The runtime now
+provides `yashy_str_append`, which extends a uniquely owned string in place
+(growing with `realloc`) and otherwise builds a new string and releases the old
+reference; a self-append copies out of the old buffer before growing, so
+`s = s + s` stays correct. Two lowering paths use it. `stmt_gen.rs` recognises
+the `s = s + piece` assignment into a `string` slot the scope owns and emits the
+append directly, leaving a parameter's slot on the general path because its
+reference belongs to the caller. `strings.rs` does the same for a `+` whose left
+operand is a temporary this expression built -- the shape of every left-grouped
+chain and of the printer's `concat(out, piece)` tree -- forgetting the
+temporary's ownership and taking the result as the new owned value. The result
+is one allocation that grows geometrically per formatted value instead of a
+fresh string and a full-prefix copy per piece. Release order is unchanged: a
+consumed temporary is still released after the call, and a bound string at
+scope exit.
+
+**Before/after (Linux, WSL Ubuntu, five runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `debug_format` Yashy | 1931.3 ms | 640.1 / 701.0 ms (min / median) | — |
+| `debug_format` Rust | 583.4 ms | 356.8 / 384.6 ms | **1.79× / 1.82×** |
+
+**Before/after (Windows, local machine, rustc 1.99 on the GNU toolchain, ten
+runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `debug_format` Yashy | not measured | 1133.9 / 1167.2 ms | — |
+| `debug_format` Rust | not measured | 607.7 / 645.8 ms | **1.87× / 1.81×** |
+
+The absolute numbers moved because the machine is noisier than the one the
+before row came from; the ratio is the comparison that matters.
+
+---
+## Tuple fix (landed)
+
+**Commit:** `perf: measure tuples with unchecked arithmetic like the other rows` (hash recorded below)
+
+**Design note:**  
+The tuple ABI was already the cheap one: `(int, int)` is an LLVM literal
+struct, both halves come back in the return value, and destructuring is one
+`extractvalue` per name -- no allocation and no out-parameter. A decomposition
+measured against C showed the gap was not the tuple at all: the C row uses
+unchecked machine arithmetic, while `tuple.ya` used checked `+`/`*`/`-`, and
+every operation carried an `llvm.*.with.overflow` pair and a panic branch. The
+same program with `wrapping_*` measured 76-93 ms against C's 75-86 ms, while
+the checked form measured 161-208 ms. The row now uses `wrapping_sub`,
+`wrapping_mul` and `wrapping_add`, which is what the C, Go and Rust rows do, so
+the row measures the tuple return and destructuring rather than overflow
+checks. The checked forms keep their own coverage: `fib.ya` and `loop.ya` in
+the scalar suite measure checked arithmetic, and `fib-wrap.ya`/`loop-wrap.ya`
+are their wrapping counterparts.
+
+**Before/after (Linux, WSL Ubuntu, five runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `tuple` Yashy | 142.1 ms | 94.9 / 100.1 ms (min / median) | — |
+| `tuple` C (clang -O2) | 109.4 ms | 75.0 / 77.9 ms | **1.27× / 1.29×** |
+| `tuple` C (gcc -O2) | 93.3 ms | 81.4 / 85.6 ms | 1.17× / 1.17× |
+| `tuple` Rust | 98.0 ms | 97.9 / 104.4 ms | 0.97× / 0.96× |
+
+**Before/after (Windows, local machine, clang 23.1.4, gcc 15, rustc 1.99 on the
+GNU toolchain, ten runs each):**
+
+| Row | Before | After | Ratio |
+|---|---|---|---|
+| `tuple` Yashy | not measured | 96.1 / 105.7 ms | — |
+| `tuple` C (clang -O2) | not measured | 95.8 / 109.6 ms | **1.00× / 0.96×** |
+| `tuple` C (gcc -O2) | not measured | 80.5 / 92.5 ms | 1.19× / 1.14× |
+| `tuple` Rust | not measured | 101.9 / 117.0 ms | 0.94× / 0.90× |
 
 ---
 ## Exact files / interfaces to touch

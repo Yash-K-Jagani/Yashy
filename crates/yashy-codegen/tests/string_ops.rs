@@ -106,10 +106,11 @@ fn a_bound_string_is_released_at_scope_exit_not_by_the_read() {
 }
 
 #[test]
-fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
-    // `s = s + "x"` reads `s`, builds the replacement, and only then drops what
-    // `s` held. Dropping first would free the bytes the concatenation was about
-    // to read.
+fn reassignment_appends_to_the_bound_string_in_place() {
+    // `s = s + "x"` is the append shape: the binding owns its reference, so the
+    // runtime extends that buffer instead of building a new string and dropping
+    // the old one. The append happens before the scope-exit release, which is
+    // what keeps the bytes readable while they are copied.
     let ir_text = ir(
         "fn main() {\n\
          \x20   let s = \"a\";\n\
@@ -117,27 +118,53 @@ fn reassignment_keeps_the_new_reference_before_dropping_the_old() {
          \x20   print(s);\n\
          }",
     );
-    let concat = ir_text
-        .find("call i8* @yashy_str_concat")
-        .expect("the replacement is built");
+    assert_eq!(
+        call_count(&ir_text, "@yashy_str_append"),
+        1,
+        "the binding is extended in place:\n{ir_text}"
+    );
+    assert_eq!(
+        call_count(&ir_text, "@yashy_str_concat"),
+        0,
+        "no fresh string is built for the append:\n{ir_text}"
+    );
+    let append = ir_text
+        .find("call i8* @yashy_str_append")
+        .expect("the replacement is appended");
     let release = ir_text
         .find("call void @yashy_str_release")
-        .expect("the old value is dropped");
+        .expect("the binding is released at scope exit");
     assert!(
-        concat < release,
-        "the new value is built before the old is dropped:\n{ir_text}"
+        append < release,
+        "the new bytes land before the binding is released:\n{ir_text}"
     );
 }
 
 #[test]
-fn chained_concat_is_one_call_per_operator() {
-    // `"a" + "b" + "c"` groups left, so it is two concatenations and the result
-    // of the first feeds the second.
+fn chained_concat_builds_once_then_extends() {
+    // `"a" + "b" + "c"` groups left, so the first pair is a concatenation and
+    // the second operator has a temporary on the left. That temporary is
+    // extended in place rather than copied into a third string.
     let ir_text = ir("fn main() { const s = \"a\" + \"b\" + \"c\"; print(s); }");
     assert_eq!(
         call_count(&ir_text, "@yashy_str_concat"),
-        2,
-        "two operators, two calls:\n{ir_text}"
+        1,
+        "the first pair is the one fresh string:\n{ir_text}"
+    );
+    assert_eq!(
+        call_count(&ir_text, "@yashy_str_append"),
+        1,
+        "the second operator extends the first result:\n{ir_text}"
+    );
+    let concat = ir_text
+        .find("call i8* @yashy_str_concat")
+        .expect("the first pair is concatenated");
+    let append = ir_text
+        .find("call i8* @yashy_str_append")
+        .expect("the second operator appends");
+    assert!(
+        concat < append,
+        "the string is built before it is extended:\n{ir_text}"
     );
 }
 
@@ -198,7 +225,12 @@ fn a_string_operation_result_can_be_bound_and_reassigned() {
          \x20   print(s);\n\
          }",
     );
-    assert_eq!(call_count(&ir_text, "@yashy_str_concat"), 2, "{ir_text}");
+    assert_eq!(call_count(&ir_text, "@yashy_str_concat"), 1, "{ir_text}");
+    assert_eq!(
+        call_count(&ir_text, "@yashy_str_append"),
+        1,
+        "the reassignment appends to the bound string:\n{ir_text}"
+    );
     assert!(
         ir_text.contains("store i8* ") && ir_text.contains("load i8*, ptr"),
         "string values live in slots like any other value:\n{ir_text}"

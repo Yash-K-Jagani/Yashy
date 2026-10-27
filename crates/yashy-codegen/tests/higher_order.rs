@@ -138,9 +138,65 @@ fn the_mapped_array_is_a_new_one() {
         "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
     );
     let pushes = ir_text.matches("call void @yashy_slice_push(").count();
-    assert_eq!(pushes, 1, "one push per element of the source:\n{ir_text}");
+    assert_eq!(
+        pushes, 1,
+        "the fallback path has one push site:\n{ir_text}"
+    );
     assert!(
         ir_text.contains("store { i8*, i64, i64 } zeroinitializer"),
         "the new array starts empty:\n{ir_text}"
+    );
+}
+
+#[test]
+fn map_reserves_the_source_length_before_it_writes() {
+    // The result cannot be longer than the source, so one reservation covers
+    // every element and the loop never reallocates. The reservation has to
+    // happen before the first write, and it must not write a capacity the
+    // runtime will trust without bytes behind it.
+    let ir_text = ir_of(
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
+    );
+    let reserve = ir_text
+        .find("call void @yashy_slice_reserve(")
+        .expect("the result's capacity is reserved");
+    let push = ir_text
+        .find("call void @yashy_slice_push(")
+        .expect("the mapped value is pushed");
+    assert!(
+        reserve < push,
+        "the reservation comes before the loop:\n{ir_text}"
+    );
+    assert!(
+        !ir_text.contains("9223372036854775807"),
+        "the capacity is the source length, not a sentinel:\n{ir_text}"
+    );
+}
+
+#[test]
+fn map_writes_straight_into_the_reserved_buffer() {
+    // The reservation is the output's capacity, so the common case is a store
+    // through the data pointer: no runtime call per element. The push site
+    // remains only as the fallback for a reservation that could not allocate.
+    let ir_text = ir_of(
+        "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
+    );
+    let store = ir_text
+        .find("_store:")
+        .expect("the reserved buffer has a write path");
+    let push = ir_text
+        .find("call void @yashy_slice_push(")
+        .expect("the fallback push exists");
+    assert!(
+        store < push,
+        "the write path is the branch that runs first:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("icmp ne i8* "),
+        "the data pointer decides which path runs:\n{ir_text}"
+    );
+    assert!(
+        ir_text.contains("getelementptr i8, ptr "),
+        "the element is addressed inside the reserved bytes:\n{ir_text}"
     );
 }

@@ -223,6 +223,52 @@ void yashy_free(void *ptr) {
     yashy_count_add(&yashy_live_allocations, -1);
 }
 
+/* Resizes a block from `yashy_alloc`, in place when the allocator can.
+ *
+ * `used` is how many bytes of the block hold live data. The block carries the
+ * raw pointer just below the aligned address, so a move has to re-align the
+ * data and record the new raw pointer; a block the allocator can extend keeps
+ * its address and no byte is copied. That is what makes a doubling `push` cost
+ * one store per element instead of copying everything so far at every grow --
+ * `realloc` can extend a large block by moving the mapping rather than by
+ * copying it.
+ *
+ * Returns NULL and leaves the old block untouched when the allocation fails.
+ */
+void *yashy_realloc(void *ptr, long long used, long long size, long long align) {
+    if (ptr == NULL) {
+        return yashy_alloc(size, align);
+    }
+    size_t alignment = yashy_normalise_align(align);
+    size_t wanted = size > 0 ? (size_t)size : 1;
+    size_t total = wanted + alignment + sizeof(void *);
+    if (total < wanted) {
+        return NULL;
+    }
+    unsigned char *raw = (unsigned char *)((void **)ptr)[-1];
+    /* The data's offset from the raw pointer, read before `realloc`: the old
+     * block may be freed by the call, so its address must not be used after. */
+    size_t offset = (size_t)((unsigned char *)ptr - raw);
+    unsigned char *moved = (unsigned char *)realloc(raw, total);
+    if (moved == NULL) {
+        return NULL;
+    }
+    uintptr_t base = (uintptr_t)moved + sizeof(void *);
+    uintptr_t aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
+    /* `realloc` preserves the block's bytes at their old offsets, so the data
+     * is still at its old offset from the raw pointer. */
+    unsigned char *data = moved + offset;
+    size_t carried = used > 0 ? (size_t)used : 0;
+    if (carried > wanted) {
+        carried = wanted;
+    }
+    if (data != (unsigned char *)aligned) {
+        memmove((void *)aligned, data, carried);
+    }
+    ((void **)aligned)[-1] = moved;
+    return (void *)aligned;
+}
+
 /* ---- Arenas ----------------------------------------------------------
  *
  * An arena is a bump allocator over a linked list of blocks. Allocation is a
@@ -630,6 +676,65 @@ yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b) {
     if (len_b > 0) {
         memcpy(out->data + len_a, b->data, len_b);
     }
+    return out;
+}
+
+/* Appends `b` to `a` in place when `a` is uniquely owned and has room;
+ * otherwise builds a new string and releases the old reference.
+ *
+ * This is the `out = out + piece` shape the debug printers and interpolation
+ * lowering use. The caller owns `a` and hands that ownership to the result, so
+ * a new result takes over the reference and the old one is released here. */
+yashy_str *yashy_str_append(yashy_str *a, const yashy_str *b) {
+    size_t len_a = a == NULL ? 0 : (size_t)a->len;
+    size_t len_b = b == NULL ? 0 : (size_t)b->len;
+    size_t total = len_a + len_b;
+
+    /* `s = s + s` names the same string twice. Growing `a` can move its
+     * bytes, so copy both halves out of the old buffer before touching it. */
+    if (a != NULL && a == b) {
+        yashy_str *out = yashy_str_new(NULL, total);
+        if (out == NULL) {
+            return NULL;
+        }
+        if (len_a > 0) {
+            memcpy(out->data, a->data, len_a);
+            memcpy(out->data + len_a, a->data, len_a);
+        }
+        yashy_str_release(a);
+        return out;
+    }
+
+    if (a != NULL && a->refcount == 1) {
+        if ((size_t)a->cap < total) {
+            size_t new_cap = total + total / 2 + 16;
+            char *data = (char *)realloc(a->data, new_cap + 1);
+            if (data != NULL) {
+                a->data = data;
+                a->cap = (long long)new_cap;
+            }
+        }
+        if ((size_t)a->cap >= total) {
+            if (len_b > 0 && b != NULL) {
+                memcpy(a->data + len_a, b->data, len_b);
+            }
+            a->len = (long long)total;
+            a->data[total] = '\0';
+            return a;
+        }
+    }
+
+    yashy_str *out = yashy_str_new(NULL, total);
+    if (out == NULL) {
+        return NULL;
+    }
+    if (len_a > 0) {
+        memcpy(out->data, a->data, len_a);
+    }
+    if (len_b > 0) {
+        memcpy(out->data + len_a, b->data, len_b);
+    }
+    yashy_str_release(a);
     return out;
 }
 
@@ -1472,23 +1577,44 @@ double yashy_parse_f64(const yashy_str *s) {
  *   in the ABI, and faking one by aborting would make an allocation failure
  *   look like a language fault; the caller sees the element simply not arrive.
  */
+void yashy_slice_reserve(yashy_slice *slice, long long cap, long long element_size) {
+    if (slice == NULL || cap <= 0 || element_size <= 0) {
+        return;
+    }
+    if (cap > LLONG_MAX / element_size) {
+        return;
+    }
+    char *data = (char *)yashy_alloc((size_t)(cap * element_size), 8);
+    if (data == NULL) {
+        return;
+    }
+    yashy_free(slice->data);
+    slice->data = data;
+    slice->len = 0;
+    slice->cap = cap;
+}
+
 void yashy_slice_push(yashy_slice *slice, const void *element, long long element_size) {
     if (slice == NULL || element == NULL || element_size <= 0) {
         return;
+    }
+    if (slice->data == NULL) {
+        /* A header can carry a capacity without bytes when a reservation was
+         * skipped (a failed allocation, or an empty source). Start over so the
+         * grow path allocates instead of writing through a null pointer. */
+        slice->len = 0;
+        slice->cap = 0;
     }
     if (slice->len >= slice->cap) {
         long long cap = slice->cap > 0 ? slice->cap * 2 : 4;
         if (cap > LLONG_MAX / element_size) {
             return;
         }
-        char *data = (char *)yashy_alloc(cap * element_size, 8);
+        char *data = (char *)yashy_realloc(slice->data, slice->len * element_size,
+                                           cap * element_size, 8);
         if (data == NULL) {
             return;
         }
-        if (slice->len > 0 && slice->data != NULL) {
-            memcpy(data, slice->data, (size_t)(slice->len * element_size));
-        }
-        yashy_free(slice->data);
         slice->data = data;
         slice->cap = cap;
     }

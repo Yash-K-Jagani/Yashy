@@ -106,6 +106,18 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// Resizes a block from [`yashy_alloc`] to `size` bytes, keeping the first
+    /// `used` bytes. Returns the block's new address, which may be the old one,
+    /// or null when the allocation fails and the old block is still valid.
+    pub fn yashy_realloc(
+        ptr: *mut c_void,
+        used: c_longlong,
+        size: c_longlong,
+        align: c_longlong,
+    ) -> *mut c_void;
+}
+
+unsafe extern "C" {
     /// Creates an arena. Free it with [`yashy_arena_free_all`]; individual
     /// allocations from it are never freed one at a time.
     pub fn yashy_arena_new() -> *mut c_void;
@@ -171,6 +183,12 @@ pub struct YashySlice {
     pub len: c_longlong,
     /// Elements the allocation can hold before the next grow.
     pub cap: c_longlong,
+}
+
+unsafe extern "C" {
+    /// Allocates room for `cap` elements up front. Leaves the slice untouched
+    /// when the size overflows or the allocation fails.
+    pub fn yashy_slice_reserve(slice: *mut YashySlice, cap: c_longlong, element_size: c_longlong);
 }
 
 unsafe extern "C" {
@@ -302,6 +320,14 @@ unsafe extern "C" {
     /// A fresh owned string holding `a` followed by `b`. Neither operand is
     /// modified, and the result's refcount is 1: the caller owns it.
     pub fn yashy_str_concat(a: *const YashyStr, b: *const YashyStr) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// Appends `b` to `a`. When `a` is uniquely owned and has capacity it is
+    /// extended in place and returned; otherwise a fresh string is built, `a`
+    /// is released, and the new string is returned. The caller hands its
+    /// reference to the result.
+    pub fn yashy_str_append(a: *mut YashyStr, b: *const YashyStr) -> *mut YashyStr;
 }
 
 unsafe extern "C" {

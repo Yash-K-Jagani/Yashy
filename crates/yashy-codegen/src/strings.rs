@@ -24,6 +24,31 @@ const SLICE_REPR: &str = "{ i8*, i64, i64 }";
 pub fn gen_string_binary(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenValue) -> GenValue {
     match op {
         BinOp::Add => {
+            // A left operand this expression built is a temporary with no other
+            // reader, so the runtime can extend its buffer instead of copying
+            // it into a fresh string. That is the shape of every left-grouped
+            // chain -- `"a" + "b" + "c"`, and the tree a debug printer or an
+            // interpolation builds -- so the chain stays linear in the bytes it
+            // produces rather than copying the whole prefix at each step.
+            //
+            // `yashy_str_append` takes over the left reference: it returns the
+            // same pointer when it can grow in place, and otherwise builds a
+            // new string and releases the old one. Either way the temporary is
+            // forgotten here and the result is what the caller owns.
+            if ctx.is_owned(&l.value) {
+                let appended = ctx.tmp();
+                ctx.push(format!(
+                    "{appended} = call i8* @yashy_str_append(i8* {}, i8* {})",
+                    l.value, r.value
+                ));
+                ctx.forget_owned(&l.value);
+                ctx.mark_owned(&appended, RefKind::Str);
+                ctx.release_owned(&r.value);
+                return GenValue {
+                    value: appended,
+                    ty: TypeKind::Str,
+                };
+            }
             let joined = ctx.tmp();
             ctx.push(format!(
                 "{joined} = call i8* @yashy_str_concat(i8* {}, i8* {})",

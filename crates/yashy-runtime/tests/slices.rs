@@ -9,8 +9,9 @@ use std::ffi::c_void;
 use std::ptr::null_mut;
 
 use yashy_runtime::{
-    yashy_slice_free, yashy_slice_free_strings, yashy_slice_get, yashy_slice_pop, yashy_slice_push,
-    yashy_str_from_i64, yashy_str_release, yashy_str_retain, YashyStr, YashySlice,
+    yashy_slice_free, yashy_slice_free_strings, yashy_slice_get, yashy_slice_pop,
+    yashy_slice_push, yashy_slice_reserve, yashy_str_from_i64, yashy_str_release, yashy_str_retain,
+    YashyStr, YashySlice,
 };
 
 /// The `i64` elements currently in `slice`.
@@ -43,6 +44,43 @@ fn pushing_into_an_empty_slice_allocates_and_stores() {
 }
 
 #[test]
+fn reserving_sets_the_capacity_and_a_push_uses_it() {
+    unsafe {
+        let mut slice = YashySlice::default();
+        yashy_slice_reserve(&mut slice, 8, 8);
+        assert!(!slice.data.is_null(), "the reservation allocates");
+        assert_eq!(slice.len, 0);
+        assert_eq!(slice.cap, 8);
+
+        for value in 0..8_i64 {
+            push(&mut slice, value);
+        }
+        assert_eq!(slice.cap, 8, "the reserved room covers every push");
+        assert_eq!(values(&slice), (0..8).collect::<Vec<_>>());
+
+        yashy_slice_free(&mut slice);
+    }
+}
+
+#[test]
+fn a_capacity_without_bytes_is_repaired_by_push() {
+    // A reservation that could not allocate leaves `cap` at zero, but a header
+    // built by hand (or by an older compiler) can claim room it does not have.
+    // `push` must allocate rather than write through a null data pointer.
+    unsafe {
+        let mut slice = YashySlice {
+            data: null_mut(),
+            len: 0,
+            cap: 8,
+        };
+        push(&mut slice, 7);
+        assert_eq!(slice.len, 1);
+        assert_eq!(values(&slice), vec![7]);
+        yashy_slice_free(&mut slice);
+    }
+}
+
+#[test]
 fn pushing_past_capacity_doubles_and_preserves_the_elements() {
     unsafe {
         let mut slice = YashySlice::default();
@@ -60,6 +98,26 @@ fn pushing_past_capacity_doubles_and_preserves_the_elements() {
         // above is not the only thing proving growth: the capacity must have
         // doubled rather than grown one element at a time.
         assert_eq!(slice.cap, 128);
+        yashy_slice_free(&mut slice);
+    }
+}
+
+#[test]
+fn a_large_grow_keeps_every_element_in_order() {
+    // Past the allocator's mmap threshold, so a doubling is a mapping move
+    // rather than a copy inside the heap: the aligned data has to follow the
+    // block to its new address, and nothing may be lost on the way.
+    unsafe {
+        let mut slice = YashySlice::default();
+        for index in 0..200_000_i64 {
+            push(&mut slice, index);
+        }
+        assert_eq!(slice.len, 200_000);
+        let seen = values(&slice);
+        assert_eq!(seen.len(), 200_000);
+        assert_eq!(seen[0], 0);
+        assert_eq!(seen[123_456], 123_456);
+        assert_eq!(seen[199_999], 199_999);
         yashy_slice_free(&mut slice);
     }
 }

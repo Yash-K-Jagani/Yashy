@@ -5,6 +5,12 @@
 // come back in the return value and the destructuring is one extraction per
 // name -- no allocation, no out-parameter, no second call.
 //
+// The arithmetic is `wrapping_*` on purpose: the C, Go and Rust rows use
+// unchecked machine arithmetic, and this row is about the tuple return and
+// destructuring, not about Yashy's overflow checks. The scalar suite's `fib.ya`
+// and `loop.ya` rows measure the checked forms; `fib-wrap.ya` and `loop-wrap.ya`
+// are their wrapping counterparts.
+//
 // The printed number is the sum of `3 * lo + hi` over every iteration:
 // 3,750,000,000,000,000.
 fn min_max(a: int, b: int) -> (int, int) {
@@ -19,9 +25,9 @@ fn main() {
     let total = 0;
     let i = 0;
     while i < rounds {
-        const (lo, hi) = min_max(i, rounds - i);
-        total = total + lo * 3 + hi;
-        i = i + 1;
+        const (lo, hi) = min_max(i, wrapping_sub(rounds, i));
+        total = wrapping_add(wrapping_add(total, wrapping_mul(lo, 3)), hi);
+        i = wrapping_add(i, 1);
     }
     print(total);
     println("");
