@@ -221,10 +221,9 @@ GNU toolchain, ten runs each):**
 | `d87d8ff` | Task 13 plan record |
 | `984702f` | Windows benchmark compare under `pwsh` |
 | `e015b77` | Runner Windows baseline and canonical install paths |
-| `f4d0ec6` | `perf: array mapping 3.76× → ≤2×` |
-| **<debug‑formatting‑fix hash>** | `perf: debug formatting 3.42× → ≤2×` |
-| **<tuple‑fix hash>** | `perf: tuples 1.79× → ≤1.5×` |
-| **this commit** | Slice 3b acceptance record |
+| `f4d0ec6` | `perf: array mapping 3.76× → ≤2×` (superseded: its capacity sentinel wrote through a null pointer) |
+| `98ed053` | `perf: close the array, debug-format and tuple benchmark gaps` |
+| **this commit** | Slice 3b acceptance record and master-plan status |
 
 ---
 ## How to use the plan

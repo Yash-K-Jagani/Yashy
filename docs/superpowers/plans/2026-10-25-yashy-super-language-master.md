@@ -74,7 +74,7 @@ are enough to build real native programs.
 | `args()`, `now()`, `getcwd()`, `sleep(ms)` | A real CLI cannot read arguments or time work. | 2 | Done |
 | "Did you mean," error codes, JSON diagnostics | Errors are correct but do not teach or integrate. | 3 | Done |
 | Benchmark gate and stored baselines | Performance can regress silently. | 3 | Done |
-| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Open |
+| Top-three feature-row performance fixes | Array, debug, and tuple rows are 3.76×, 3.42×, 1.79×. | 3b | Done |
 | Package-manager design | The required R2 feature has no design. | 4 | Open |
 | Fast dev loop (`-O0`, cache, watch) | The edit/test loop is the tax on every feature. | 5 | Open |
 | Safety harnesses (fuzz, sanitizers, audit) | "Safe" is not yet evidenced. | 6 | Open |
@@ -343,6 +343,12 @@ them; the slice 3 plan records why.
 
 **Gate:** each row improves; no row > 2× without a recorded exception; benchmark
 gate green.
+
+**Complete (2026-10-27):** all three rows are under target on Windows and Linux,
+the full workspace suite is green, and the design notes and before/after tables
+are in
+[the slice plan](2026-10-26-yashy-r1-top-three-performance-fixes.md). Landed in
+`98ed053`.
 
 **Cut order:** M9, PGO/LTO, SIMD (later releases).
 

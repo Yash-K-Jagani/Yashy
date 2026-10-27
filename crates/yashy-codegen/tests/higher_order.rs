@@ -138,10 +138,7 @@ fn the_mapped_array_is_a_new_one() {
         "fn main() { let xs = []int { 1, 2 }; const ys = xs.map(|x: int| -> int { return x; }); }",
     );
     let pushes = ir_text.matches("call void @yashy_slice_push(").count();
-    assert_eq!(
-        pushes, 1,
-        "the fallback path has one push site:\n{ir_text}"
-    );
+    assert_eq!(pushes, 1, "the fallback path has one push site:\n{ir_text}");
     assert!(
         ir_text.contains("store { i8*, i64, i64 } zeroinitializer"),
         "the new array starts empty:\n{ir_text}"
