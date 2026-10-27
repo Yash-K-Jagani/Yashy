@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-verify` (no external deps), `HirFn`/`HirItem::Extern`, the existing mutex and channel builtins in `crates/yashy-runtime`, and `HirProgram::uses_threads`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4.1 (effects, typestate), §8 row 2. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4.1 (effects, typestate), §8 row 2. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-01b-verifier-enforcing.md`.
 
 ## Global Constraints
 

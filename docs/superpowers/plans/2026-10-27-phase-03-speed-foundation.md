@@ -8,7 +8,7 @@
 
 **Tech Stack:** `std::fs`, `std::hash`, the existing `fnv1a` and `runtime_cache_key` in `crates/yashy-driver/src/pipeline.rs` (a runtime-object cache already exists and is the model to follow), `lld`/`mold` when present, and `crates/yashy-bench`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §5, §8 row 3. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §5, §8 row 3. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-02-effects-typestate.md`.
 
 ## Global Constraints
 
