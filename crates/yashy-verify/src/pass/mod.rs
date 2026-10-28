@@ -5,4 +5,5 @@
 //! every rule, which is what lets contracts, effects and typestate land later
 //! without touching [`crate::verify`].
 
+pub mod contracts;
 pub mod leak;

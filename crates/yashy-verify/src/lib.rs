@@ -6,8 +6,10 @@
 //! and typestate. The crate takes no external dependency: the rules are the
 //! compiler's, not a library's.
 
+pub mod domain;
 pub mod ownership;
 pub mod pass;
+pub mod render;
 
 use yashy_common::Diagnostic;
 use yashy_hir::hir::HirProgram;
@@ -65,11 +67,8 @@ impl VerifyReport {
 /// HIR, and a program that did not type-check has no HIR to read. Every pass
 /// runs; the report holds their diagnostics in pass order.
 pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
-    // `options.contracts` is consulted by the contract pass, which lands with
-    // contract syntax. Until then the field is part of the interface and
-    // nothing reads it.
-    let _ = options;
     let mut diagnostics = Vec::new();
     pass::leak::check(hir, &mut diagnostics);
+    pass::contracts::check(hir, options.contracts, &mut diagnostics);
     VerifyReport { diagnostics }
 }

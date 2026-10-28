@@ -43,6 +43,8 @@ pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 /// A linear value is never released.
 pub const LEAK: &str = "E1000";
+/// A contract clause is not proved.
+pub const CONTRACT: &str = "E1100";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -111,6 +113,12 @@ pub const CODES: &[Code] = &[
         title: "leaked linear value",
         summary: "A linear value is never released.",
         page: include_str!("../../../docs/errors/E1000.md"),
+    },
+    Code {
+        id: CONTRACT,
+        title: "undischarged contract",
+        summary: "A contract clause is not proved.",
+        page: include_str!("../../../docs/errors/E1100.md"),
     },
 ];
 

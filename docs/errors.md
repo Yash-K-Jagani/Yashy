@@ -36,6 +36,7 @@ the declaration or import involved when that is not obvious.
 | [E0600](errors/E0600.md) | non-exhaustive match |
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E1000](errors/E1000.md) | leaked linear value |
+| [E1100](errors/E1100.md) | undischarged contract |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.

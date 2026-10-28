@@ -10,7 +10,6 @@
 //! to infer it, and the only way to build a `HirStmt` is to check one.
 
 use yashy_common::{FileId, Span};
-use yashy_parser::ast::Literal;
 
 use crate::ty::{Mutability, Type};
 
@@ -637,7 +636,7 @@ pub enum HigherOrderOp {
 
 /// Re-exported so the HIR can reference the AST's operator enums without
 /// repeating the parser crate's paths everywhere.
-pub use yashy_parser::ast::{BinOp, UnOp};
+pub use yashy_parser::ast::{BinOp, Literal, UnOp};
 
 /// Whether `name` is the arena's allocation intrinsic, `arena_alloc`.
 ///
