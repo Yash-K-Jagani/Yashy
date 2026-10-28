@@ -30,14 +30,17 @@ use yashy_common::{
     EXIT_OK, EXIT_USAGE,
 };
 use yashy_driver::{
-    compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
+    check_and_verify, compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget,
+    OptLevel,
 };
+use yashy_verify::VerifyOptions;
 
 const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
   yashy check <file.ya> [--json]
+  yashy verify <file.ya> [--json]
   yashy test [path] [--filter <substring>] [--list] [--json]
   yashy explain <code> [--json]
   yashy init [path]
@@ -48,6 +51,7 @@ usage:
   build   compile a program to a native executable
   run     compile and execute a program
   check   lex, parse and type-check without emitting anything
+  verify  prove the program sound: every linear value has an owner
   test    compile and run the programs under tests/
   explain print the long-form page for an error code
   init    create a new Yashy project
@@ -62,7 +66,7 @@ usage:
                optimization level defaults to -O3 unless an explicit -O
                level is given
   --emit-ir    print the generated LLVM IR to stdout and stop
-  --json       print a stable machine-readable report (check, test, explain, doctor)";
+  --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -84,6 +88,7 @@ fn main() -> ExitCode {
         "build" => build(rest),
         "run" => run(rest),
         "check" => check(rest),
+        "verify" => verify(rest),
         "test" => test(rest),
         "explain" => explain(rest),
         "init" => init(rest),
@@ -190,10 +195,26 @@ fn build(args: &[String]) -> ExitCode {
     // as it reads that file, so a diagnostic from a module renders against the
     // module's own text. The entry point is file id zero.
     let mut sources = SourceMap::new();
-    let hir = match load_and_check(&mut sources, &input, source, release) {
-        Ok(hir) => hir,
+    let (hir, report) = match check_and_verify(
+        &mut sources,
+        &input,
+        source,
+        release,
+        &VerifyOptions::default(),
+    ) {
+        Ok(checked) => checked,
         Err(diagnostics) => return render(&sources, &diagnostics),
     };
+
+    // An unverified binary is not a build. A verifier diagnostic may be a
+    // warning, which is printed and does not stop the build; an error stops it
+    // here, before `clang` is ever started.
+    if !report.is_empty() {
+        let code = render(&sources, &report.diagnostics);
+        if report.error_count() > 0 {
+            return code;
+        }
+    }
 
     // `--emit-ir` is a pure front-end operation, so it deliberately does not
     // require an LLVM toolchain: dumping IR is exactly what you want to do on a
@@ -1387,7 +1408,7 @@ fn json_opt_path(value: Option<&Path>) -> String {
     }
 }
 
-fn print_check_json(sources: &SourceMap, diagnostics: &[Diagnostic]) {
+fn print_check_json(tool: &str, sources: &SourceMap, diagnostics: &[Diagnostic]) {
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.is_error())
@@ -1400,7 +1421,7 @@ fn print_check_json(sources: &SourceMap, diagnostics: &[Diagnostic]) {
 
     let mut report = Json::object();
     report.set("schema_version", Json::number(1));
-    report.set("tool", Json::string("check"));
+    report.set("tool", Json::string(tool));
     report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
     report.set("success", Json::bool(errors == 0));
     report.set(
@@ -1449,6 +1470,13 @@ fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
     }
     if let Some(url) = diagnostic.docs_url() {
         object.set("docs_url", Json::string(url));
+    }
+    if let Some(proof) = &diagnostic.proof {
+        let mut proof_object = Json::object();
+        proof_object.set("obligation", Json::string(proof.obligation));
+        proof_object.set("missing_fact", Json::string(proof.missing_fact.as_str()));
+        proof_object.set("remedy", Json::string(proof.remedy.as_str()));
+        object.set("proof", proof_object);
     }
     object
 }
@@ -1500,7 +1528,7 @@ fn check(args: &[String]) -> ExitCode {
     match load_and_check(&mut sources, &input, source, false) {
         Ok(_) => {
             if json {
-                print_check_json(&sources, &[]);
+                print_check_json("check", &sources, &[]);
             }
             exit_code(EXIT_OK)
         }
@@ -1510,7 +1538,86 @@ fn check(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json(&sources, &diagnostics);
+                print_check_json("check", &sources, &diagnostics);
+                if errors > 0 {
+                    exit_code(EXIT_COMPILE_ERROR)
+                } else {
+                    exit_code(EXIT_OK)
+                }
+            } else {
+                render(&sources, &diagnostics)
+            }
+        }
+    }
+}
+
+/// `yashy verify <file.ya> [--json]`.
+///
+/// The same front half as `check`, followed by the verifier. The difference the
+/// user sees is what the exit code means: `check` fails when the program is
+/// not well-typed, `verify` also fails when it is well-typed but unsound.
+///
+/// The two failure modes stay distinguishable in the output, because a check
+/// diagnostic names the source it is about and a verifier diagnostic carries a
+/// proof trace saying what could not be established.
+fn verify(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut input: Option<PathBuf> = None;
+    for argument in args {
+        match argument.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `verify`"));
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`verify` needs a source file");
+    };
+    let source = match read_source_with(&input, EXIT_USAGE) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    // Verification never depends on how hard the program will be optimized, so
+    // there is no `--release` here for the same reason `check` has none.
+    let mut sources = SourceMap::new();
+    match check_and_verify(
+        &mut sources,
+        &input,
+        source,
+        false,
+        &VerifyOptions::default(),
+    ) {
+        Ok((_, report)) => {
+            if json {
+                print_check_json("verify", &sources, &report.diagnostics);
+            } else if !report.is_empty() {
+                for diagnostic in &report.diagnostics {
+                    eprint!("{}", sources.render(diagnostic));
+                }
+            }
+            if report.error_count() > 0 {
+                exit_code(EXIT_COMPILE_ERROR)
+            } else {
+                exit_code(EXIT_OK)
+            }
+        }
+        // A program that did not type-check has no typed HIR to verify, so the
+        // check diagnostics are the whole answer. Saying so in the envelope
+        // keeps `verify` honest about what it could not run.
+        Err(diagnostics) => {
+            if json {
+                let errors = diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.is_error())
+                    .count();
+                print_check_json("verify", &sources, &diagnostics);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {

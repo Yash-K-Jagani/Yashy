@@ -41,19 +41,22 @@ Human diagnostics are the primary interface. A coded diagnostic ends with a
 
 ```text
 yashy check --json examples/hello/main.ya
+yashy verify --json examples/hello/main.ya
 yashy test --json examples/hello
 yashy explain E0100
 yashy explain --json E0100
 ```
 
-`check --json` and `test --json` share
+`check --json`, `verify --json` and `test --json` share
 [schema v1](docs/cli.md#json-diagnostics-schema-v1). The envelope has
 `schema_version`, `tool`, `yashy_version`, `success`, `diagnostics`, and
 `summary`; a diagnostic has `code` (null when uncoded), `severity`, `message`,
 `file`, `span`, optional `labels`, optional `notes`, and `docs_url` only when
-coded. `test --json` adds `tests` and its own summary. `--json` implies no color
-and no prompt; exit codes are `0` success, `1` diagnostics or tests failed, `2`
-usage or configuration error, and `3` internal error.
+coded. A verifier diagnostic also carries a `proof` object naming the
+`obligation`, the `missing_fact`, and the `remedy`. `test --json` adds `tests`
+and its own summary. `--json` implies no color and no prompt; exit codes are `0`
+success, `1` diagnostics or tests failed, `2` usage or configuration error, and
+`3` internal error.
 
 Workflow for a compiler error:
 
@@ -62,6 +65,8 @@ Workflow for a compiler error:
    `page`, and `docs_url`; `yashy explain <code>` prints the human page.
 3. Fix the cause, rerun `check`, then run `yashy test --json` and inspect
    `tests[]` and `summary`.
+4. Run `yashy verify --json <file.ya>` before claiming a build: `build` and
+   `run` refuse an unsound program, and `proof` says what is missing.
 
 The catalog lives in [docs/errors.md](docs/errors.md); every code has a page such
 as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.

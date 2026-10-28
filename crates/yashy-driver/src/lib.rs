@@ -13,6 +13,7 @@ pub mod toolchain;
 
 pub use modules::{default_stdlib_root, load, module_roots, resolve_import, Module};
 pub use pipeline::{
-    compile_hir, compile_to_binary, load_and_check, resolve_opt, BuildOptions, CpuTarget, OptLevel,
+    check_and_verify, compile_hir, compile_to_binary, load_and_check, resolve_opt, BuildOptions,
+    CpuTarget, OptLevel,
 };
 pub use toolchain::{detect, detect_with, Toolchain};

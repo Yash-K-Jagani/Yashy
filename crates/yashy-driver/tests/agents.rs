@@ -91,11 +91,12 @@ fn agents_diagnostic_commands_run() {
 
     assert_eq!(
         commands.len(),
-        4,
-        "AGENTS.md should document four diagnostic commands: {commands:?}"
+        5,
+        "AGENTS.md should document five diagnostic commands: {commands:?}"
     );
     for expected in [
         "yashy check --json",
+        "yashy verify --json",
         "yashy test --json",
         "yashy explain",
         "yashy explain --json",
@@ -135,6 +136,16 @@ fn agents_diagnostic_commands_run() {
             assert!(
                 stdout.contains("\"diagnostics\": []"),
                 "the example must be clean:\n{stdout}"
+            );
+        }
+        if command.starts_with("yashy verify --json") {
+            assert!(
+                stdout.contains("\"tool\": \"verify\""),
+                "`{command}` must be a verifier report:\n{stdout}"
+            );
+            assert!(
+                stdout.contains("\"diagnostics\": []"),
+                "the example must be sound:\n{stdout}"
             );
         }
         if command.starts_with("yashy test --json") {

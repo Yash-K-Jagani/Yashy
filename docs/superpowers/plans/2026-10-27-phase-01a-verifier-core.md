@@ -53,7 +53,7 @@ Detail in the master index; the five failure modes this slice's tests must pin:
 - Consumes: nothing.
 - Produces: `yashy_hir::hir` (all HIR types), `yashy_hir::ty::{Type, TypeKind, Mutability}`. `yashy_sema` re-exports both as `yashy_sema::hir` and `yashy_sema::ty`, so every existing import keeps working.
 
-- [ ] **Step 1: Create the crate and move the two files**
+- [x] **Step 1: Create the crate and move the two files**
 
 `crates/yashy-hir/Cargo.toml` declares `name = "yashy-hir"`, `edition = "2021"`, and dependencies `yashy-common` and `yashy-parser` (path deps, matching the style of `crates/yashy-sema/Cargo.toml`). No other dependency.
 
@@ -72,7 +72,7 @@ pub mod ty;
 
 Move `crates/yashy-sema/src/hir.rs` and `crates/yashy-sema/src/ty.rs` with `git mv`, byte for byte. Their `use crate::ty::…` and `use yashy_common::…` lines already resolve inside the new crate.
 
-- [ ] **Step 2: Make `yashy-sema` re-export instead of own**
+- [x] **Step 2: Make `yashy-sema` re-export instead of own**
 
 In `crates/yashy-sema/src/lib.rs`, replace `pub mod hir;` and `pub mod ty;` with:
 
@@ -82,12 +82,12 @@ pub use yashy_hir::{hir, ty};
 
 Leave `pub use hir::*;` and `pub use ty::{Mutability, Type, TypeKind};` untouched.
 
-- [ ] **Step 3: Build the workspace and confirm nothing changed**
+- [x] **Step 3: Build the workspace and confirm nothing changed**
 
 Run: `cargo check --workspace --all-targets`
 Expected: PASS with no new warnings. `yashy-codegen` and `yashy-driver` need no edits because their `yashy_sema::hir::…` paths now resolve through the re-export.
 
-- [ ] **Step 4: Prove the move is a move**
+- [x] **Step 4: Prove the move is a move**
 
 Run: `cargo test --workspace`
 Expected: every test passes, and the count equals the count before this task. Record both counts in the commit message.
@@ -95,7 +95,7 @@ Expected: every test passes, and the count equals the count before this task. Re
 Run: `git status --short crates/yashy-sema/src/hir.rs crates/yashy-sema/src/ty.rs`
 Expected: both show as deleted (the content is added under `crates/yashy-hir/src/`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -126,7 +126,7 @@ git commit -m "refactor: move the typed IR into yashy-hir so the verifier can re
   - `pub fn move_out(state: &mut Ownership, name: &str) -> Result<(), AlreadyMoved>`
   - `pub fn check_live(state: Ownership, name: &str) -> Result<(), AlreadyMoved>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `crates/yashy-verify/src/ownership.rs`:
 
@@ -170,12 +170,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cargo test -p yashy-verify`
 Expected: FAIL — the crate does not exist yet.
 
-- [ ] **Step 3: Create the crate and move the rules**
+- [x] **Step 3: Create the crate and move the rules**
 
 `crates/yashy-verify/Cargo.toml`: `name = "yashy-verify"`, dependencies `yashy-common` and `yashy-hir` only.
 
@@ -212,7 +212,7 @@ pub fn check_live(state: Ownership, name: &str) -> Result<(), AlreadyMoved> {
 }
 ```
 
-- [ ] **Step 4: Make `sema` call the rules**
+- [x] **Step 4: Make `sema` call the rules**
 
 `crates/yashy-sema/src/scope.rs`: `move_out` and `check_live` keep their signatures and their `TypeError` construction (message and `codes::MOVED_VALUE` stay byte-identical), but the decision comes from `yashy_verify::ownership`:
 
@@ -228,12 +228,12 @@ pub fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
 
 `crates/yashy-sema/src/lib.rs` replaces its `pub mod ownership;` with `pub use yashy_verify::ownership::{linearity_of, Linearity, Ownership};` so `yashy_sema::Ownership` and `crate::ownership::` paths keep working.
 
-- [ ] **Step 5: Run the whole suite**
+- [x] **Step 5: Run the whole suite**
 
 Run: `cargo test -p yashy-verify && cargo test --workspace`
 Expected: PASS. The `E0500` message text is unchanged, so `crates/yashy-driver/tests/e2e.rs` and `never_panics.rs` pass without edits.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -260,7 +260,7 @@ git commit -m "refactor: make yashy-verify the single owner of the ownership rul
   - `pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport`
 - Dev-only dependency: `yashy-sema`, so the unit tests can parse and check a source string. This is a dev-dependency cycle (`sema` depends on `verify`), which Cargo permits because dev-dependencies are not part of the library build. The library still depends on `yashy-hir` and `yashy-common` only.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `crates/yashy-verify/src/pass/leak.rs`, using a helper that parses and checks a `.ya` source string through `yashy_sema` (add `yashy-sema` as a **dev-dependency** only, so the library keeps its no-cycle rule):
 
@@ -279,13 +279,13 @@ fn freeing_the_pointer_is_not_a_leak() {
 
 #[test]
 fn returning_the_pointer_is_not_a_leak() {
-    let source = "fn make() -> *mut i64 { let buf = alloc(16); return buf; } fn main() { let p = make(); p.free(); }";
+    let source = "fn make() -> *mut int { let buf = alloc(16); return buf; } fn main() { let p = make(); p.free(); }";
     assert!(verify_source(source).diagnostics.is_empty());
 }
 
 #[test]
 fn storing_the_pointer_in_a_struct_field_is_not_a_leak() {
-    let source = "struct Holder { p: *mut i64 } fn main() { let buf = alloc(16); let h = Holder { p: buf }; h.p.free(); }";
+    let source = "struct Holder { p: *mut int } fn main() { let buf = alloc(16); let h = Holder { p: buf }; }";
     assert!(verify_source(source).diagnostics.is_empty());
 }
 
@@ -308,12 +308,22 @@ fn freeing_on_only_one_branch_is_a_leak_on_the_other_path() {
 }
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+Two corrections to the tests as first drafted, made during execution and
+recorded here because the plan is the record:
+
+- The language spells the pointer type `*mut int`, not `*mut i64`; `i64` is a
+  parse-level error that tells the user to write `int`.
+- `h.p.free()` does not type-check: the checker requires a method receiver to be
+  a local binding, and reports "a field access is not a binding". The struct
+  test therefore checks the hand-off itself (`Holder { p: buf }` releases
+  `buf`), which is what the rule is about.
+
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cargo test -p yashy-verify leak`
 Expected: FAIL — `verify_source` and the pass do not exist.
 
-- [ ] **Step 3: Add the code and the catalog page**
+- [x] **Step 3: Add the code and the catalog page**
 
 `codes.rs`: `pub const LEAK: &str = "E1000";` with title `"leaked linear value"`, summary `"A linear value is never released."`, page `include_str!("../../../docs/errors/E1000.md")`, appended to `CODES`.
 
@@ -328,14 +338,14 @@ Expected: FAIL — `verify_source` and the pass do not exist.
 
 Rule 2 is deliberately generous: anything that could hand the value to someone else counts as released, because a false "leak" on correct code is worse than a missed leak that the runtime leak report (`YASHY_LEAK_REPORT=1`) already catches.
 
-`verify_source(source: &str) -> VerifyReport` parses and checks the string with `yashy-sema`, then runs `verify`; the returned report carries **both** check and verifier diagnostics in that order, which is why the `defer` test below expects `E0500` before `E1001`.
+`verify_source(source: &str) -> VerifyReport` parses and checks the string with `yashy-sema`, then runs `verify`. **When the check fails, the report is the check diagnostics and nothing else** (dated decision, 2026-10-28): the verifier reasons over the typed HIR, and a program that did not type-check has no HIR to reason over. That is why the test above expects `E0500` alone: `sema`'s union join rejects the second `free` before the verifier ever runs.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p yashy-verify`
 Expected: PASS, all four.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -344,63 +354,46 @@ git commit -m "feat(verify): catch a linear value that is never released (E1000)
 
 ---
 
-### Task 4: `defer` discipline (E1001)
+### Task 4: `defer` discipline (E1001) — withdrawn from 1a, 2026-10-28
 
-**Files:**
-- Create: `crates/yashy-verify/src/pass/defer.rs`
-- Modify: `crates/yashy-verify/src/pass/mod.rs`
-- Modify: `crates/yashy-common/src/codes.rs` (`DEFER = "E1001"`)
-- Create: `docs/errors/E1001.md`, modify `docs/errors.md`
+> **Dated exception.** This task cannot be built as written, and the finding is
+> recorded here rather than worked around.
+>
+> 1. `defer` takes a **block**, not an expression. `defer buf.free();` does not
+>    parse; the spelling is `defer { buf.free(); }`. Every test in this task
+>    used the expression form.
+> 2. `yashy-sema` checks a `defer` body **eagerly**, at the point the `defer` is
+>    written (`Checker::check_stmt`, `Stmt::Defer` -> `check_block_with_ret`).
+>    Registering `defer { buf.free(); }` therefore marks `buf` moved from that
+>    statement onwards. Every double release this task describes is already
+>    `E0500` before the verifier runs: the second `defer`'s body reads a spent
+>    binding, and the check fails first.
+>
+> So `E1001` as specified has **no reachable input** in 1a. Implementing it
+> would ship a rule, a catalog page and a public code that never fire — dead
+> code with a promise attached, which is worse than an honest gap.
+>
+> What the eager model does leave open is a different bug, found while
+> checking this: a `defer` written inside a **loop** that releases a binding
+> declared **outside** the loop. The body is checked once, but it runs at every
+> iteration's block exit, so the value is freed once per iteration. That is a
+> real, reachable `E1001`, and it belongs with the `defer` model rather than
+> with this slice, because the fix may be to make `defer` release at scope exit
+> instead of moving the binding eagerly — a language change that the design
+> spec's memory section (§8.1) owns.
+>
+> **Decision:** Task 4 is withdrawn from 1a. `E1001` stays reserved for the
+> `defer` rule and is not assigned to anything else. The loop case is written
+> down as the first test for phase 1b's `defer` work, and the tutorial's
+> description of the eager behaviour (`docs/tutorial/07-memory.md`, and the
+> comment at the top of `tests/programs/buffer.ya`) is the evidence that the
+> behaviour is known and load-bearing today.
 
-**Interfaces:**
-- Consumes: the released-binding walk from Task 3.
-- Produces: `E1001` diagnostics from `verify`; no new public type.
+**Files:** none in 1a.
 
-- [ ] **Step 1: Write the failing tests**
-
-```rust
-#[test]
-fn deferring_a_release_twice_is_an_error() {
-    let source = "fn main() { let buf = alloc(16); defer buf.free(); defer buf.free(); }";
-    assert_eq!(codes(&verify_source(source)), vec!["E1001"]);
-}
-
-#[test]
-fn deferring_a_value_that_was_already_freed_is_an_error() {
-    let source = "fn main() { let buf = alloc(16); buf.free(); defer buf.free(); }";
-    assert_eq!(codes(&verify_source(source)), vec!["E0500", "E1001"]);
-}
-
-#[test]
-fn deferring_once_is_fine() {
-    assert!(verify_source("fn main() { let buf = alloc(16); defer buf.free(); }").diagnostics.is_empty());
-}
-```
-
-- [ ] **Step 2: Run them and watch them fail**
-
-Run: `cargo test -p yashy-verify defer`
-Expected: FAIL — no E1001 is produced.
-
-- [ ] **Step 3: Implement the rule**
-
-In a function body, a `HirStmt::Defer` whose body releases binding `b` is an error when either:
-- another `HirStmt::Defer` in the same scope already releases `b` (message: `` `b` is released twice at scope exit ``, label on the second `defer`), or
-- `b` was already released by a non-`defer` statement before the `defer` (message: `` `b` was already freed before this `defer` ``).
-
-Both use `codes::DEFER`. Add `docs/errors/E1001.md` in the standard shape.
-
-- [ ] **Step 4: Run the tests**
-
-Run: `cargo test -p yashy-verify`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add -A
-git commit -m "feat(verify): reject a double release at scope exit (E1001)"
-```
+**Acceptance:** `docs/errors.md` does not list `E1001`; `crates/yashy-common/src/codes.rs`
+does not define it. The next slice that touches `defer` reopens this task with
+the loop test above.
 
 ---
 
@@ -418,10 +411,10 @@ git commit -m "feat(verify): reject a double release at scope exit (E1001)"
   - `yashy verify <file.ya> [--json]` — exit `0` when no errors, `1` when a verifier diagnostic is an error, `2` on usage.
   - JSON envelope: the same keys as `check` plus `"tool": "verify"`, and each diagnostic may carry a `"proof"` object:
     ```json
-    "proof": { "obligation": "leak", "missing_fact": "`buf` is released on the path at line 4", "remedy": "add `defer buf.free();`" }
+    "proof": { "obligation": "leak", "missing_fact": "`buf` is not released on every path out of its scope", "remedy": "release it with `buf.free()`, `defer { buf.free(); }`, or by returning it" }
     ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `crates/yashy-driver/tests/verify.rs`:
 
@@ -448,12 +441,12 @@ fn verify_accepts_every_program_in_the_examples_and_programs_directories() {
 }
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+- [x] **Step 2: Run and watch it fail**
 
 Run: `cargo test -p yashy-driver --test verify`
 Expected: FAIL — `verify` is not a command.
 
-- [ ] **Step 3: Implement the command**
+- [x] **Step 3: Implement the command**
 
 `main.rs`: add `"verify" => verify(rest),` beside `"check"`, and a `fn verify(args: &[String]) -> ExitCode` that mirrors `check` (same argument loop, same `read_source_with`, same exit codes) but calls:
 
@@ -470,7 +463,7 @@ pub fn check_and_verify(
 
 Add `fn diagnostic_json` support for the optional `"proof"` key by introducing `pub struct ProofTrace { pub obligation: &'static str, pub missing_fact: String, pub remedy: String }` in `yashy-common/src/diagnostic.rs` and an `Option<ProofTrace>` field on `Diagnostic`, set through `with_proof`. `check` output is unchanged because the field is `None` there.
 
-- [ ] **Step 4: Make `build` and `run` verify by default**
+- [x] **Step 4: Make `build` and `run` verify by default**
 
 `build` (`main.rs:193`) and `run` switch from `load_and_check` to `check_and_verify`, so the spec's "an unverified binary is not a build" is true from this slice. A verifier error exits `1` with the same rendering as a check error.
 
@@ -478,21 +471,46 @@ Add `fn diagnostic_json` support for the optional `"proof"` key by introducing `
 
 This is the step that will surface false positives: `crates/yashy-driver/tests/e2e.rs` and `examples` now run every program through the verifier. Fix the rule, never the test.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `cargo test -p yashy-driver --test verify --test diagnostics_json --test e2e --test examples`
 Expected: PASS. `diagnostics_json` passing unchanged is the evidence that the envelope is additive; `e2e` and `examples` passing is the evidence that `build`/`run` did not gain a false positive.
 
-- [ ] **Step 6: Document the command**
+- [x] **Step 6: Document the command**
 
 `docs/cli.md`: a `## yashy verify <file.ya> [--json]` section, a note in `## yashy build` that it verifies by default, and in `## JSON diagnostics (schema v1)` a paragraph for the optional `proof` object with the field names above.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
 git commit -m "feat(driver): add yashy verify and run the verifier on every build"
 ```
+
+**Note found in Step 5 (dated, 2026-10-28): `arena_alloc` is a borrow.** The
+corpus test failed on `tests/programs/arena.ya`: the pass tracked `first` and
+`second` as owning values, because `arena_alloc` returns `*mut int` and nothing
+in the type system distinguishes a block the arena owns from a block the caller
+owns. The checker already had the fact -- `arena_alloc` is its one exception to
+"a linear parameter consumes its argument" -- so the fact moved into
+`yashy_hir::hir::is_arena_alloc` and both crates read it. The pass now treats
+`arena_alloc`'s first argument as a borrow and does not track its result; a
+leaked *arena* is still `E1000`, which a test pins. Because the design has no
+borrow checker and no lifetimes (§1), a view type is out of scope, so this
+predicate is the permanent shape rather than a stopgap.
+
+**Note found in Step 5 (dated, 2026-10-28): a viewed array is a warning.** The
+tutorial harness then failed on `docs/tutorial/09-arrays.md:249`, the view
+example. A `[]T` that has been viewed cannot be released -- `xs.free()` is
+refused while the view is alive, and the tutorial says so in prose -- so the
+program is not wrong; the language has no way to release the value. Reporting an
+error would refuse a documented idiom, and `build` now verifies by default, so
+the idiom would stop building. Silence would be a verifier that claims to catch
+leaks and does not. The pass therefore reports it as `Severity::Warning` with
+the same `E1000` code and a proof trace that says why; `verify` exits `0`, and
+the tutorial program builds and runs. This is the first real warning, ahead of
+1b's `-W` surface, and it is a deviation worth naming: 1b owns the warning
+policy, and this one exists because a documented program needs it.
 
 ---
 

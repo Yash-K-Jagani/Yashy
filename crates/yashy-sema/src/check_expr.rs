@@ -6638,8 +6638,10 @@ impl<'src> Checker<'src> {
                                 // reusable across many allocations, so its handle
                                 // is not consumed by `alloc`. Only
                                 // `arena_free_all` consumes the handle, which is
-                                // what makes a double free a type error.
-                                let consumes = !(name == "arena_alloc" && i == 0);
+                                // what makes a double free a type error. The
+                                // predicate lives in `yashy-hir` because the
+                                // verifier needs the same fact.
+                                let consumes = !(is_arena_alloc(&name) && i == 0);
                                 if consumes
                                     && matches!(linearity_of(&param.kind), Linearity::Linear)
                                 {

@@ -35,6 +35,7 @@ use yashy_codegen::{check_main_exists, emit_program, host_target_triple, Codegen
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
+use yashy_verify::{verify, VerifyOptions, VerifyReport};
 use yashy_runtime::{
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
     RUNTIME_SOURCE_NAME,
@@ -512,6 +513,29 @@ pub fn load_and_check(
         .map(|module| (module.file, &module.program))
         .collect();
     check_modules_with(&programs, sources, CheckOptions { release })
+}
+
+/// Load, check, then verify: the pipeline every build goes through.
+///
+/// The two stages are separate because they answer different questions. The
+/// checker asks whether the program is *well-typed*; the verifier asks whether
+/// it is *sound* -- whether every linear value has an owner and, later, whether
+/// every contract holds. A program that fails the first has no typed HIR for
+/// the second to read, which is why `Err` carries check diagnostics alone.
+///
+/// On success the caller gets both the HIR and the report. The report is not an
+/// error channel: a verifier diagnostic may be a warning, and the caller decides
+/// whether to build. An `Err` is always fatal.
+pub fn check_and_verify(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    options: &VerifyOptions,
+) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
+    let hir = load_and_check(sources, entry_path, entry_source, release)?;
+    let report = verify(&hir, options);
+    Ok((hir, report))
 }
 
 /// Emit and link an already-checked program.

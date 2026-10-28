@@ -15,3 +15,4 @@ yashy-lexer = { path = "../yashy-lexer" }
 yashy-parser = { path = "../yashy-parser" }
 yashy-sema = { path = "../yashy-sema" }
 yashy-runtime = { path = "../yashy-runtime" }
+yashy-verify = { path = "../yashy-verify" }
