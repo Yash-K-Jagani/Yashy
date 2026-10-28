@@ -55,6 +55,7 @@ impl TypeError {
             label: self.label.clone(),
             notes: self.notes.clone(),
             code: self.code,
+            proof: None,
         }
     }
 }

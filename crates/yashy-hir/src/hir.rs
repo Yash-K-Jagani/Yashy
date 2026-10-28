@@ -9,7 +9,7 @@
 //! No untyped AST node appears here: the only way to build a `HirExpr` is
 //! to infer it, and the only way to build a `HirStmt` is to check one.
 
-use yashy_common::Span;
+use yashy_common::{FileId, Span};
 use yashy_parser::ast::Literal;
 
 use crate::ty::{Mutability, Type};
@@ -95,6 +95,14 @@ pub struct HirFn {
     /// The values the function captured, in the order the environment holds
     /// them. Empty for every function that is not a closure.
     pub captures: Vec<HirCapture>,
+    /// The module the function was written in.
+    ///
+    /// A program's items arrive flattened, one list in dependency order, so a
+    /// later stage that reports a problem inside a body cannot recover the file
+    /// from the item list alone. Spans index their own module's text, and two
+    /// modules' spans can name the same bytes, which is why the file travels
+    /// with the function rather than being guessed.
+    pub file: FileId,
     pub span: Span,
 }
 
@@ -607,6 +615,23 @@ pub enum HigherOrderOp {
 /// Re-exported so the HIR can reference the AST's operator enums without
 /// repeating the parser crate's paths everywhere.
 pub use yashy_parser::ast::{BinOp, UnOp};
+
+/// Whether `name` is the arena's allocation intrinsic, `arena_alloc`.
+///
+/// `arena_alloc(arena, n)` is the one call in the language that neither takes
+/// nor gives ownership: it **borrows** the arena handle and returns a block the
+/// arena owns. The handle stays usable for the next allocation, and the block
+/// stays valid until `arena_free_all` releases every block at once.
+///
+/// Both halves of the compiler need that fact and neither may invent its own
+/// version of it: the checker so it does not move the handle at the call
+/// (`check_expr.rs`, where `arena_alloc` is the exception to "a linear
+/// parameter consumes its argument"), and the verifier so it does not treat the
+/// returned block as a value the binding has to release. It lives here, next to
+/// the HIR both of them read, so the two cannot disagree.
+pub fn is_arena_alloc(name: &str) -> bool {
+    name == "arena_alloc"
+}
 
 /// The span of a typed expression.
 pub fn expr_span(expr: &HirExpr) -> Span {

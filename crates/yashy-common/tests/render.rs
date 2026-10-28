@@ -37,6 +37,7 @@ fn at(file: FileId, span: Span) -> Diagnostic {
         label: None,
         notes: Vec::new(),
         code: None,
+        proof: None,
     }
 }
 

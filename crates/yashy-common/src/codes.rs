@@ -41,6 +41,8 @@ pub const MOVED_VALUE: &str = "E0500";
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
+/// A linear value is never released.
+pub const LEAK: &str = "E1000";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -103,6 +105,12 @@ pub const CODES: &[Code] = &[
         title: "wrong argument count",
         summary: "A call passes the wrong number of arguments.",
         page: include_str!("../../../docs/errors/E0700.md"),
+    },
+    Code {
+        id: LEAK,
+        title: "leaked linear value",
+        summary: "A linear value is never released.",
+        page: include_str!("../../../docs/errors/E1000.md"),
     },
 ];
 

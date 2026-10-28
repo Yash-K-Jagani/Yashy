@@ -6,3 +6,12 @@ edition.workspace = true
 [dependencies]
 yashy-common = { path = "../yashy-common" }
 yashy-hir = { path = "../yashy-hir" }
+
+# Tests parse and check a source string before verifying it, so they need the
+# front half of the pipeline. These are dev-dependencies only: the library still
+# depends on `yashy-hir` and `yashy-common` alone, and the `yashy-sema` edge is
+# the direction the library must never take.
+[dev-dependencies]
+yashy-lexer = { path = "../yashy-lexer" }
+yashy-parser = { path = "../yashy-parser" }
+yashy-sema = { path = "../yashy-sema" }

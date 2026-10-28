@@ -53,6 +53,7 @@ dependencies = [
  "yashy-parser",
  "yashy-runtime",
  "yashy-sema",
+ "yashy-verify",
 ]
 
 [[package]]
@@ -122,4 +123,7 @@ version = "0.1.0"
 dependencies = [
  "yashy-common",
  "yashy-hir",
+ "yashy-lexer",
+ "yashy-parser",
+ "yashy-sema",
 ]

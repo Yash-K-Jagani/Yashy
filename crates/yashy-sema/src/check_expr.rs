@@ -2118,6 +2118,7 @@ impl<'src> Checker<'src> {
             ret: ret_ty.clone(),
             body,
             captures: Vec::new(),
+            file: self.file,
             span,
         })
     }
@@ -2667,6 +2668,7 @@ impl<'src> Checker<'src> {
                 ret: ret_ty,
                 body,
                 captures: Vec::new(),
+                file: self.file,
                 span: *span,
             }));
         }
@@ -7386,6 +7388,7 @@ impl<'src> Checker<'src> {
                         ret: ret_ty,
                         body: checked_body,
                         captures: frame.captures,
+                        file: self.file,
                         span: *span,
                     }),
                     span: *span,

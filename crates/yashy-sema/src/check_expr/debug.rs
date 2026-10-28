@@ -143,6 +143,7 @@ impl Checker<'_> {
             ret: prim(TypeKind::Str),
             body,
             captures: Vec::new(),
+            file: self.file,
             span,
         });
         Some(name)

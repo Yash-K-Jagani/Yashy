@@ -47,6 +47,22 @@ impl Severity {
     }
 }
 
+/// Why a verifier obligation was not met, in a form a machine can act on.
+///
+/// A check diagnostic says what is wrong with the source; a verifier
+/// diagnostic says what the verifier could not prove. The three fields are the
+/// smallest set that lets a tool answer "what do I have to write for this to
+/// pass?": the obligation, the fact that is missing, and the fix.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProofTrace {
+    /// The obligation that failed, such as `"leak"` or `"contract"`.
+    pub obligation: &'static str,
+    /// The fact the verifier could not establish, in one sentence.
+    pub missing_fact: String,
+    /// What the user can write to establish it.
+    pub remedy: String,
+}
+
 /// One thing the compiler wants to tell the user about a piece of source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -73,6 +89,13 @@ pub struct Diagnostic {
     /// `None` means the mistake has no R1 code yet; it still has a span and a
     /// message, and [`DiagnosticBag::uncoded_count`] counts it.
     pub code: Option<&'static str>,
+    /// Why a verifier obligation was not met.
+    ///
+    /// `None` for every diagnostic the front half of the pipeline produces: a
+    /// type error is a fact about the program, not a missing proof. A verifier
+    /// diagnostic sets it so a tool can act on the obligation without parsing
+    /// the message.
+    pub proof: Option<ProofTrace>,
 }
 
 impl Diagnostic {
@@ -86,6 +109,7 @@ impl Diagnostic {
             label: None,
             notes: Vec::new(),
             code: None,
+            proof: None,
         }
     }
 
@@ -105,6 +129,13 @@ impl Diagnostic {
     /// Attaches the stable catalog code, and returns the diagnostic.
     pub fn with_code(mut self, code: &'static str) -> Diagnostic {
         self.code = Some(code);
+        self
+    }
+
+    /// Attaches the proof trace a verifier diagnostic carries, and returns the
+    /// diagnostic.
+    pub fn with_proof(mut self, proof: ProofTrace) -> Diagnostic {
+        self.proof = Some(proof);
         self
     }
 

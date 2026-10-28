@@ -10,7 +10,8 @@ pub mod suggest;
 
 pub use codes::Code;
 pub use diagnostic::{
-    Diagnostic, DiagnosticBag, Severity, EXIT_COMPILE_ERROR, EXIT_INTERNAL, EXIT_OK, EXIT_USAGE,
+    Diagnostic, DiagnosticBag, ProofTrace, Severity, EXIT_COMPILE_ERROR, EXIT_INTERNAL, EXIT_OK,
+    EXIT_USAGE,
 };
 pub use json::Json;
 pub use source::{FileId, Location, SourceMap};

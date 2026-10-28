@@ -229,6 +229,7 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
             label: None,
             notes: Vec::new(),
             code: None,
+            proof: None,
         }),
         Some(main) => {
             if let Some(first) = main.params.first() {
@@ -243,6 +244,7 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
                     label: None,
                     notes: Vec::new(),
                     code: None,
+                    proof: None,
                 });
             }
             let ok = matches!(
@@ -260,6 +262,7 @@ pub fn check_main_exists(items: &[HirItem]) -> Result<(), Diagnostic> {
                     label: None,
                     notes: Vec::new(),
                     code: None,
+                    proof: None,
                 })
             }
         }
