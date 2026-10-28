@@ -143,27 +143,22 @@ impl Scope {
 
     /// Mark `name` as moved out. Errors if it has already been moved, because a
     /// second move is a double free waiting to happen.
+    ///
+    /// The decision is the verifier's ([`yashy_verify::move_out`]); this
+    /// function only finds the binding, reports an unbound name with its
+    /// suggestion, and turns the verifier's answer into a [`TypeError`].
     pub fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
-        match self.resolve_mut(name) {
-            Some(binding) if binding.ownership == Ownership::Moved => Err(TypeError::new(
-                span,
-                format!("value `{name}` has already been moved"),
-            )
-            .with_code(codes::MOVED_VALUE)),
-            Some(binding) => {
-                binding.ownership = Ownership::Moved;
-                Ok(())
+        let Some(binding) = self.resolve_mut(name) else {
+            let mut error =
+                TypeError::new(span, format!("cannot find value `{name}` in this scope"))
+                    .with_code(codes::UNKNOWN_NAME);
+            if let Some(suggestion) = yashy_common::closest(name, self.names()) {
+                error = error.with_label(format!("did you mean `{suggestion}`?"));
             }
-            None => {
-                let mut error =
-                    TypeError::new(span, format!("cannot find value `{name}` in this scope"))
-                        .with_code(codes::UNKNOWN_NAME);
-                if let Some(suggestion) = yashy_common::closest(name, self.names()) {
-                    error = error.with_label(format!("did you mean `{suggestion}`?"));
-                }
-                Err(error)
-            }
-        }
+            return Err(error);
+        };
+        yashy_verify::move_out(&mut binding.ownership, name)
+            .map_err(|moved| already_moved(span, &moved))
     }
 
     /// Error on a read of a binding that has been moved out. A name that is not
@@ -171,12 +166,9 @@ impl Scope {
     /// that, and reporting it twice would double the diagnostic.
     pub fn check_live(&self, name: &str, span: Span) -> Result<(), TypeError> {
         match self.resolve(name) {
-            Some(binding) if binding.ownership == Ownership::Moved => Err(TypeError::new(
-                span,
-                format!("value `{name}` has already been moved"),
-            )
-            .with_code(codes::MOVED_VALUE)),
-            _ => Ok(()),
+            Some(binding) => yashy_verify::check_live(binding.ownership, name)
+                .map_err(|moved| already_moved(span, &moved)),
+            None => Ok(()),
         }
     }
 
@@ -221,4 +213,17 @@ impl Default for Scope {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The one place the "already moved" diagnostic is built.
+///
+/// The verifier says *that* a value was spent and names it; this says how the
+/// compiler spells that to a user. Keeping the wording and the code in one
+/// function is what stops the two crates drifting apart.
+fn already_moved(span: Span, moved: &yashy_verify::AlreadyMoved) -> TypeError {
+    TypeError::new(
+        span,
+        format!("value `{}` has already been moved", moved.name),
+    )
+    .with_code(codes::MOVED_VALUE)
 }

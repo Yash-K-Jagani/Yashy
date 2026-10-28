@@ -5,6 +5,7 @@ members = [
     "crates/yashy-lexer",
     "crates/yashy-parser",
     "crates/yashy-hir",
+    "crates/yashy-verify",
     "crates/yashy-sema",
     "crates/yashy-codegen",
     "crates/yashy-driver",

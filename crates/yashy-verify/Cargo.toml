@@ -1,0 +1,8 @@
+[package]
+name = "yashy-verify"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-hir = { path = "../yashy-hir" }

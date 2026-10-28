@@ -113,4 +113,13 @@ dependencies = [
  "yashy-hir",
  "yashy-lexer",
  "yashy-parser",
+ "yashy-verify",
+]
+
+[[package]]
+name = "yashy-verify"
+version = "0.1.0"
+dependencies = [
+ "yashy-common",
+ "yashy-hir",
 ]
