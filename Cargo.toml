@@ -4,6 +4,7 @@ members = [
     "crates/yashy-common",
     "crates/yashy-lexer",
     "crates/yashy-parser",
+    "crates/yashy-hir",
     "crates/yashy-sema",
     "crates/yashy-codegen",
     "crates/yashy-driver",

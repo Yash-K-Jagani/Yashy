@@ -65,6 +65,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "yashy-hir"
+version = "0.1.0"
+dependencies = [
+ "yashy-common",
+ "yashy-parser",
+]
+
+[[package]]
 name = "yashy-lexer"
 version = "0.1.0"
 dependencies = [
@@ -102,6 +110,7 @@ name = "yashy-sema"
 version = "0.1.0"
 dependencies = [
  "yashy-common",
+ "yashy-hir",
  "yashy-lexer",
  "yashy-parser",
 ]

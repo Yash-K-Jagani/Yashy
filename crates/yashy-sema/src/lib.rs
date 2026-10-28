@@ -9,10 +9,10 @@ pub mod check_pat;
 pub mod const_eval;
 pub mod error;
 pub mod exhaustive;
-pub mod hir;
 pub mod ownership;
 pub mod scope;
-pub mod ty;
+
+pub use yashy_hir::{hir, ty};
 
 pub use check_expr::{check_modules_with, check_program, check_program_with, CheckOptions};
 pub use check_pat::check_pattern;

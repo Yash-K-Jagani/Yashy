@@ -70,7 +70,7 @@ pub enum TypeKind {
     /// way a handle reaches a second thread without a copy.
     Channel(Box<Type>),
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
-    /// [`crate::ownership`]): at most one binding owns it at a time.
+    /// `yashy_verify::ownership`): at most one binding owns it at a time.
     Ptr(Box<Type>),
     /// A signed C integer of the given bit width: `i8`, `i16`, `i32`.
     ///
