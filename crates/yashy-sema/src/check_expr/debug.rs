@@ -142,6 +142,8 @@ impl Checker<'_> {
             }],
             ret: prim(TypeKind::Str),
             body,
+            requires: Vec::new(),
+            ensures: Vec::new(),
             captures: Vec::new(),
             file: self.file,
             span,

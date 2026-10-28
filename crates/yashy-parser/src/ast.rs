@@ -130,6 +130,12 @@ pub enum Item {
         type_params: Vec<(String, Span)>,
         params: Vec<Param>,
         ret: Option<TypeExpr>,
+        /// `requires` clauses, in the order written. Empty for a function that
+        /// declares none, which is almost every function.
+        requires: Vec<Contract>,
+        /// `ensures` clauses, in the order written. Inside one, `result` names
+        /// the value being returned.
+        ensures: Vec<Contract>,
         body: Block,
         span: Span,
     },
@@ -251,6 +257,21 @@ pub struct VariantDef {
 pub struct Param {
     pub name: String,
     pub ty: TypeExpr,
+    pub span: Span,
+}
+
+/// One contract clause: `requires n > 0` or `ensures result > 0`.
+///
+/// A clause is a `bool` expression plus the span it was written at. It is kept
+/// as an expression rather than a folded value because the verifier reads it:
+/// the clause is a formula, and the checker has only proved that it is
+/// well-typed and of type `bool`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Contract {
+    pub expr: Expr,
+    /// The span of the clause's expression, which is where a proof failure is
+    /// reported. The keyword's own span is not kept: a diagnostic that points
+    /// at `requires` says less than one that points at `n > 0`.
     pub span: Span,
 }
 
@@ -395,6 +416,7 @@ impl Stmt {
             | Stmt::Break(span)
             | Stmt::Continue(span)
             | Stmt::Defer { span, .. } => *span,
+            Stmt::Invariant(contract) => contract.span,
         }
     }
 }
@@ -564,6 +586,13 @@ pub enum Stmt {
     Continue(Span),
     /// `defer { .. }` -- always a braced block, never an expression.
     Defer { body: Block, span: Span },
+    /// `invariant n >= 0` -- a fact a loop promises at its head.
+    ///
+    /// It is a statement rather than a field on each loop variant because the
+    /// three loop forms already differ in their headers and a fourth field on
+    /// each would be three copies of one concept. The parser puts it at the
+    /// front of the loop body, which is where the verifier reads it.
+    Invariant(Contract),
 }
 
 /// One arm of a `switch`, in either statement or expression position.

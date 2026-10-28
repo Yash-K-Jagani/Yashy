@@ -517,13 +517,13 @@ policy, and this one exists because a documented program needs it.
 ### Task 6: Contract syntax (`requires`, `ensures`, `invariant`)
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/lib.rs` (three keywords)
-- Modify: `crates/yashy-parser/src/ast.rs` (`Contract` on `Item::Fn`)
-- Modify: `crates/yashy-parser/src/*` (parse the clauses)
-- Modify: `crates/yashy-hir/src/hir.rs` (`HirFn { requires, ensures, invariants }`)
+- Modify: `crates/yashy-lexer/src/token.rs` (three keywords; the table lives here, not in `lib.rs`)
+- Modify: `crates/yashy-parser/src/ast.rs` (`Contract` on `Item::Fn`, `Stmt::Invariant`)
+- Modify: `crates/yashy-parser/src/items.rs`, `crates/yashy-parser/src/stmts.rs` (parse the clauses)
+- Modify: `crates/yashy-hir/src/hir.rs` (`HirFn { requires, ensures }`, `HirContract`, `HirStmt::LoopInvariant`)
 - Modify: `crates/yashy-sema/src/check_expr.rs` (check contract expressions as `bool`, bind `result`)
-- Modify: `crates/yashy-fmt/src/*` (print the clauses)
-- Create: `crates/yashy-parser/src/` unit tests (in-file `#[cfg(test)]`)
+- Modify: `crates/yashy-fmt/src/lib.rs` (print the clauses)
+- Create: `crates/yashy-parser/tests/contracts.rs`, `crates/yashy-sema/tests/contracts.rs` (the parser and checker tests; the crate's tests are ordinary files under `tests/`, not in-file modules)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -544,18 +544,23 @@ fn clamp(n: int) -> int
     {
         n = n - 1;
     }
-    n
+    return n;
 }
 ```
 
-- [ ] **Step 3: Write the failing parser tests**
+- [x] **Step 3: Write the failing parser tests**
 
-`crates/yashy-parser/src/` unit tests:
+`crates/yashy-parser/tests/contracts.rs` (eleven tests): the clauses reach the
+tree, keep the span of their expression, repeat, survive `pub`, and a `const fn`
+refuses one. `crates/yashy-sema/tests/contracts.rs` (eleven tests): the clauses
+reach the HIR, `result` exists only in `ensures`, a non-`bool` clause is
+`E0100`, a method contract is refused, and a generic contract is checked per
+instantiation.
 
 ```rust
 #[test]
 fn a_function_can_declare_a_precondition_and_a_postcondition() {
-    let program = parse("fn f(n: int) -> int requires n > 0 ensures result > 0 { n }");
+    let program = parse("fn f(n: int) -> int requires n > 0 ensures result > 0 { return n; }");
     // assert one Item::Fn whose contracts are [requires n > 0, ensures result > 0]
 }
 
@@ -571,27 +576,35 @@ fn a_contract_without_a_bool_expression_is_a_type_error() {
 }
 ```
 
-- [ ] **Step 4: Run and watch them fail**
+- [x] **Step 4: Run and watch them fail**
 
 Run: `cargo test -p yashy-parser contracts && cargo test -p yashy-sema contracts`
 Expected: FAIL — the keywords do not exist.
 
-- [ ] **Step 5: Lex and parse**
+- [x] **Step 5: Lex and parse**
 
-Lexer: `requires`, `ensures`, `invariant` become keywords; `result` stays an ordinary identifier, bound only inside `ensures`.
+Lexer: `requires`, `ensures`, `invariant` become keywords (`KEYWORDS` 28 → 31); `result` stays an ordinary identifier, bound only inside `ensures`.
 
-Parser: clauses appear after the return type and before the body; a loop's `invariant` appears after the loop header and before `{`. An empty clause list is the common case and must not change any existing parse. The HIR carries `HirContract { expr, span }`; a loop invariant is `HirStmt::LoopInvariant(HirContract)`, accepted only as the first statement of a loop body — the statement form avoids changing three existing loop variants and the verifier reads it in order.
+Parser: clauses appear after the return type and before the body, in either order and repeated as written; a loop's `invariant` appears after the loop header and before `{`, and every loop form (`for` range, `for ... in`, C-style `for`, `while`) takes one. An empty clause list is the common case and does not change any existing parse. The HIR carries `HirContract { expr, span }`; a loop invariant is `HirStmt::LoopInvariant(HirContract)`, accepted only among the first statements of a loop body — the statement form avoids changing three existing loop variants and the verifier reads it in order.
 
-- [ ] **Step 6: Check and format**
+Three decisions taken while building this:
 
-Sema: every contract expression is checked as `bool` (E0100 on mismatch). Inside `ensures`, `result` is declared with the function's return type. A contract may not call a function that is not `pure` — in this slice nothing is marked, so that check is not written; it arrives with effects in phase 2.
+- **`const fn` refuses a clause at parse time.** It runs at compile time and has no call site to check one against, so a clause written there is an error rather than a clause silently dropped.
+- **A method refuses a clause in the checker.** Discharging it at every call through a receiver is not part of this slice; refusing is the honest answer, because a contract the compiler ignores is worse than one it rejects.
+- **The clauses are ordinary expressions with no purity rule yet.** Nothing is marked `pure` in this slice, so the check that a clause cannot call an impure function waits for effects in phase 2.
 
-Formatter: contracts print one per line, indented four spaces, before the opening brace, matching the example above.
+- [x] **Step 6: Check and format**
 
-- [ ] **Step 7: Run the tests**
+Sema: every contract expression is checked as `bool` (`E0100` on mismatch). `requires` is checked with the parameters in scope and no `result`; `ensures` is checked in a scope of its own where `result` is declared with the function's return type, so neither the body nor a precondition can name it. A generic function's clauses are checked once per substitution, like its body.
+
+Formatter: contracts print one per line, indented four spaces, and the body brace starts its own line at the signature's indent. A `{` that looks like a struct literal (`{ ident :`) belongs to the clause's expression, not to the body, so the clause list ends at the first brace that is not one.
+
+- [x] **Step 7: Run the tests**
 
 Run: `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt`
 Expected: PASS, including the existing formatter round-trip tests.
+
+Result: 12 fmt tests, 11 parser contract tests, 11 sema contract tests; full workspace 1229 tests, exit 0.
 
 - [ ] **Step 8: Commit**
 
@@ -620,13 +633,13 @@ git commit -m "feat: parse requires, ensures and loop invariants into the HIR"
 ```rust
 #[test]
 fn a_provable_precondition_is_silent() {
-    let source = "fn f(n: int) -> int requires n > 0 ensures result > 0 { n } fn main() { let x = f(1); }";
+    let source = "fn f(n: int) -> int requires n > 0 ensures result > 0 { return n; } fn main() { let x = f(1); }";
     assert!(verify_source(source).diagnostics.is_empty());
 }
 
 #[test]
 fn an_unprovable_precondition_warns_and_names_the_fact() {
-    let source = "fn f(n: int) -> int requires n > 0 { n } fn main() { let x = f(-1); }";
+    let source = "fn f(n: int) -> int requires n > 0 { return n; } fn main() { let x = f(-1); }";
     let report = verify_source(source);
     assert_eq!(codes(&report), vec!["E1100"]);
     assert_eq!(report.diagnostics[0].severity, Severity::Warning);
@@ -635,7 +648,7 @@ fn an_unprovable_precondition_warns_and_names_the_fact() {
 
 #[test]
 fn a_contract_naming_an_unknown_identifier_is_a_type_error_not_a_proof_failure() {
-    let source = "fn f(n: int) -> int requires m > 0 { n } fn main() { }";
+    let source = "fn f(n: int) -> int requires m > 0 { return n; } fn main() { }";
     assert_eq!(codes(&verify_source(source)), vec!["E0001"]);
 }
 ```

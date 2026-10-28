@@ -313,6 +313,13 @@ impl LeakPass<'_> {
                 let _ = self.block(body);
                 Flow::Falls
             }
+            // A contract is not executed, but the checker did read it, so a
+            // value it hands to a call is spent from here on. Walking the
+            // clause keeps the two halves agreeing about what is still owned.
+            HirStmt::LoopInvariant(contract) => {
+                self.walk(&contract.expr);
+                Flow::Falls
+            }
         }
     }
 

@@ -544,6 +544,7 @@ fn statement_kind(statement: &Stmt) -> &'static str {
         Stmt::Break(_) => "a `break`",
         Stmt::Continue(_) => "a `continue`",
         Stmt::Defer { .. } => "a `defer`",
+        Stmt::Invariant(_) => "a loop `invariant`",
     }
 }
 

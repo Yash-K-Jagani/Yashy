@@ -322,6 +322,12 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("move", TokenKind::Move),
     ("true", TokenKind::True),
     ("false", TokenKind::False),
+    ("impl", TokenKind::Impl),
+    ("object", TokenKind::Object),
+    ("pub", TokenKind::Pub),
+    ("requires", TokenKind::Requires),
+    ("ensures", TokenKind::Ensures),
+    ("invariant", TokenKind::Invariant),
 ];
 
 #[test]

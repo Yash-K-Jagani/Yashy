@@ -162,6 +162,35 @@ fn formatting_preserves_meaning() {
 }
 
 #[test]
+fn contracts_print_one_per_line_before_the_brace() {
+    // A clause sits between the signature and its body, one per line, indented
+    // one level past the signature. The body brace keeps the signature's own
+    // indent, so the clauses read as a list that belongs to the signature.
+    let source = "fn clamp(n: int) -> int requires n >= 0 ensures result >= 0 {\n    while n > 10 invariant n >= 0 {\n        n = n - 1;\n    }\n    return n;\n}\n";
+    assert_eq!(
+        format(source),
+        "fn clamp(n: int) -> int\n    requires n >= 0\n    ensures result >= 0\n{\n    while n > 10\n        invariant n >= 0\n    {\n        n = n - 1;\n    }\n    return n;\n}\n"
+    );
+}
+
+#[test]
+fn a_formatted_contract_file_is_a_fixed_point() {
+    let source = "fn f(n: int) -> int\n    requires n > 0\n    ensures result > 0\n{\n    while n > 1\n        invariant n > 0\n    {\n        n = n - 1;\n    }\n    return n;\n}\n";
+    let once = format(source);
+    assert_eq!(once, source, "the clause layout must be the canonical one");
+    assert_eq!(format(&once), once, "formatting must be idempotent");
+}
+
+#[test]
+fn a_contract_with_a_struct_literal_keeps_its_literal_nested() {
+    // The clause list ends at the body brace. A `{` that looks like a struct
+    // literal is part of the clause's expression, not the body's, so the
+    // formatter must not treat it as the end of the list.
+    let source = "struct P {\n    x: int\n}\n\nfn f(p: P) -> bool\n    requires p == P {\n        x: 1\n    }\n{\n    return true;\n}\n";
+    assert_eq!(format(source), source);
+}
+
+#[test]
 fn empty_braces_collapse_to_one_pair() {
     // A brace pair with nothing in it is one token pair even when the source
     // split it across lines, and the `;` still attaches to it.

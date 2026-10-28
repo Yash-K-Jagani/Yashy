@@ -675,6 +675,12 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             });
             Flow::Fallthrough
         }
+        HirStmt::LoopInvariant(_) => {
+            // An invariant is a promise to the verifier, not work the program
+            // does. It has no lowering: the compiler spends it, it does not run
+            // it.
+            Flow::Fallthrough
+        }
     }
 }
 

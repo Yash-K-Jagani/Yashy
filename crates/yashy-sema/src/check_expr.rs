@@ -26,8 +26,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_parser::ast::{
-    BinOp, BindingKeyword, Block, Expr, InterpFormat, InterpPart, Item, Literal, Param, Pattern,
-    PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, Contract, Expr, InterpFormat, InterpPart, Item, Literal, Param,
+    Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -110,6 +110,10 @@ struct GenericFn {
     params: Vec<Param>,
     /// The return annotation, if the source wrote one.
     ret: Option<TypeExpr>,
+    /// `requires` clauses, checked per substitution like the body.
+    requires: Vec<Contract>,
+    /// `ensures` clauses, checked per substitution like the body.
+    ensures: Vec<Contract>,
     /// The body, checked once per substitution.
     body: Block,
     /// The item's span, used when the item itself is at fault.
@@ -1180,6 +1184,8 @@ impl<'src> Checker<'src> {
         type_params: &[(String, Span)],
         params: &[Param],
         ret: &Option<TypeExpr>,
+        requires: &[Contract],
+        ensures: &[Contract],
         body: &Block,
         span: Span,
     ) {
@@ -1218,6 +1224,8 @@ impl<'src> Checker<'src> {
                 type_params: type_params.to_vec(),
                 params: params.to_vec(),
                 ret: ret.clone(),
+                requires: requires.to_vec(),
+                ensures: ensures.to_vec(),
                 body: body.clone(),
                 span,
                 file: self.file,
@@ -1326,6 +1334,8 @@ impl<'src> Checker<'src> {
                 type_params,
                 params,
                 ret,
+                requires,
+                ensures,
                 body,
                 span,
             } => {
@@ -1339,6 +1349,8 @@ impl<'src> Checker<'src> {
                         type_params,
                         params,
                         ret,
+                        requires,
+                        ensures,
                         body,
                         *span,
                     );
@@ -1391,6 +1403,8 @@ impl<'src> Checker<'src> {
                         params,
                         ret,
                         body: _,
+                        requires: _,
+                        ensures: _,
                         span: method_span,
                     } = unwrap_public(method)
                     else {
@@ -1472,6 +1486,8 @@ impl<'src> Checker<'src> {
                         params,
                         ret,
                         body: _,
+                        requires: _,
+                        ensures: _,
                         span: method_span,
                     } = unwrap_public(method)
                     else {
@@ -2070,6 +2086,8 @@ impl<'src> Checker<'src> {
         params: &[Param],
         param_tys: &[Type],
         ret_ty: &Type,
+        requires: &[Contract],
+        ensures: &[Contract],
         body: &Block,
         span: Span,
     ) -> Option<HirFn> {
@@ -2092,11 +2110,32 @@ impl<'src> Checker<'src> {
         // the closure returns, and holding the source for the rest of the
         // enclosing function is the conservative answer.
         let outer_borrows = std::mem::take(&mut self.borrowed_bindings);
+        // A precondition is checked with the parameters in scope and no
+        // `result`: there is no return value yet. A postcondition sees
+        // `result`, in a scope of its own so the body cannot name it.
+        let requires = self.check_contracts(requires);
         let checked = self.check_block_with_ret(body, ret_ty);
+        let ensures = {
+            self.scope.push();
+            let _ = self.scope.declare(
+                "result".to_string(),
+                Binding {
+                    ty: ret_ty.clone(),
+                    mutability: Mutability::Const,
+                    span,
+                    ownership: Ownership::Live,
+                },
+            );
+            let checked = self.check_contracts(ensures);
+            self.scope.pop();
+            checked
+        };
         self.borrowed_bindings = outer_borrows;
         self.fn_ret = outer_ret;
         self.scope.pop();
         let body = checked?;
+        let requires = requires?;
+        let ensures = ensures?;
         // A function that returns a value has to return one on every path out
         // of its body.
         if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
@@ -2117,9 +2156,37 @@ impl<'src> Checker<'src> {
                 .collect(),
             ret: ret_ty.clone(),
             body,
+            requires,
+            ensures,
             captures: Vec::new(),
             file: self.file,
             span,
+        })
+    }
+
+    /// Check a list of contract clauses as `bool`, keeping each expression for
+    /// the verifier.
+    ///
+    /// A clause that is not a `bool` is an ordinary type mismatch: the language
+    /// has one error for "this expression has the wrong type", and a contract
+    /// is not a second kind of expression.
+    fn check_contracts(&mut self, clauses: &[Contract]) -> Option<Vec<HirContract>> {
+        let mut checked = Vec::with_capacity(clauses.len());
+        for clause in clauses {
+            checked.push(self.check_contract(clause)?);
+        }
+        Some(checked)
+    }
+
+    /// Check one contract clause as `bool`.
+    fn check_contract(&mut self, clause: &Contract) -> Option<HirContract> {
+        let expr = self.check_expr(&clause.expr)?;
+        if !expr_ty(&expr).eq_ignoring_span(&prim(TypeKind::Bool)) {
+            self.mismatch(expr_span(&expr), &prim(TypeKind::Bool), &expr_ty(&expr));
+        }
+        Some(HirContract {
+            expr,
+            span: clause.span,
         })
     }
 
@@ -2407,6 +2474,8 @@ impl<'src> Checker<'src> {
                 &generic.params,
                 &param_tys,
                 &ret_ty,
+                &generic.requires,
+                &generic.ensures,
                 &generic.body,
                 generic.span,
             );
@@ -2434,6 +2503,8 @@ impl<'src> Checker<'src> {
                 type_params,
                 params,
                 ret: _,
+                requires,
+                ensures,
                 body,
                 span,
             } => {
@@ -2444,7 +2515,16 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 let sig = self.fns.get(name).cloned()?;
-                let checked = self.check_fn_body(name, params, &sig.params, &sig.ret, body, *span)?;
+                let checked = self.check_fn_body(
+                    name,
+                    params,
+                    &sig.params,
+                    &sig.ret,
+                    requires,
+                    ensures,
+                    body,
+                    *span,
+                )?;
                 Some(vec![HirItem::Fn(checked)])
             }
             Item::Struct { name, fields, span } => {
@@ -2610,6 +2690,8 @@ impl<'src> Checker<'src> {
                 type_params,
                 params,
                 ret,
+                requires,
+                ensures,
                 body,
                 span,
             } = unwrap_public(method)
@@ -2619,6 +2701,16 @@ impl<'src> Checker<'src> {
             if !type_params.is_empty() {
                 self.error(*span, "a method cannot have type parameters yet");
                 continue;
+            }
+            // A method's contract would have to be checked at every call site
+            // through the receiver, which the contract pass does not do yet.
+            // Refusing it here is the honest answer: silently dropping a clause
+            // the user wrote is worse than saying it is not supported.
+            if !requires.is_empty() || !ensures.is_empty() {
+                self.error(
+                    *span,
+                    "a method cannot declare a contract yet: write it on a free function",
+                );
             }
             let sig = self.method_signature(
                 type_name,
@@ -2667,6 +2759,8 @@ impl<'src> Checker<'src> {
                     .collect(),
                 ret: ret_ty,
                 body,
+                requires: Vec::new(),
+                ensures: Vec::new(),
                 captures: Vec::new(),
                 file: self.file,
                 span: *span,
@@ -2684,7 +2778,22 @@ impl<'src> Checker<'src> {
     fn check_block_with_ret(&mut self, block: &Block, ret: &Type) -> Option<HirBlock> {
         self.scope.push();
         let mut stmts = Vec::new();
+        let mut seen_statement = false;
         for stmt in &block.stmts {
+            // An invariant is the loop header's clause, which the parser puts
+            // at the head of the body. One written after a statement would be
+            // a promise made too late to hold at the loop's entry, and the
+            // verifier reads clauses in order.
+            if matches!(stmt, Stmt::Invariant(_)) {
+                if seen_statement {
+                    self.error(
+                        stmt.span(),
+                        "an `invariant` may only appear at the head of a loop body",
+                    );
+                }
+            } else {
+                seen_statement = true;
+            }
             let checked = self.check_stmt(stmt, ret)?;
             stmts.push(checked);
         }
@@ -3331,6 +3440,10 @@ impl<'src> Checker<'src> {
             Stmt::Defer { body, span } => {
                 let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::Defer { body, span: *span })
+            }
+            Stmt::Invariant(contract) => {
+                let checked = self.check_contract(contract)?;
+                Some(HirStmt::LoopInvariant(checked))
             }
         }
     }
@@ -7389,6 +7502,8 @@ impl<'src> Checker<'src> {
                             .collect(),
                         ret: ret_ty,
                         body: checked_body,
+                        requires: Vec::new(),
+                        ensures: Vec::new(),
                         captures: frame.captures,
                         file: self.file,
                         span: *span,

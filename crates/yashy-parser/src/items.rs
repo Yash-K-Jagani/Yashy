@@ -49,7 +49,7 @@
 use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
-use crate::ast::{ExternDecl, FieldDef, Item, Param, TypeExpr, VariantDef, VariantField};
+use crate::ast::{Contract, ExternDecl, FieldDef, Item, Param, TypeExpr, VariantDef, VariantField};
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
 
@@ -401,6 +401,32 @@ impl<'src> Parser<'src> {
             None
         };
 
+        // Clauses sit between the signature and the body: `requires` says what
+        // the caller must establish, `ensures` what the function promises. Both
+        // are optional and repeatable. Either order is accepted and kept as
+        // written -- the formatter reprints the tokens rather than reordering
+        // them -- and an empty list is the common case, so a function with no
+        // clause parses exactly as it did before.
+        let mut requires = Vec::new();
+        let mut ensures = Vec::new();
+        loop {
+            match self.peek() {
+                TokenKind::Requires => {
+                    let _ = self.expect(TokenKind::Requires)?;
+                    let expr = self.parse_expr()?;
+                    let span = crate::exprs::expr_span(&expr);
+                    requires.push(Contract { expr, span });
+                }
+                TokenKind::Ensures => {
+                    let _ = self.expect(TokenKind::Ensures)?;
+                    let expr = self.parse_expr()?;
+                    let span = crate::exprs::expr_span(&expr);
+                    ensures.push(Contract { expr, span });
+                }
+                _ => break,
+            }
+        }
+
         // The body is a seam: `parse_block` is Task 4's half of it and Task 5
         // finishes it. It is what makes the delimiters inside a function body
         // part of this task's stack rather than a hole in it.
@@ -412,6 +438,8 @@ impl<'src> Parser<'src> {
             type_params,
             params,
             ret,
+            requires,
+            ensures,
             body,
             span,
         })
@@ -442,6 +470,17 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
+
+        // A `const fn` runs at compile time and has no call site to check a
+        // clause against, so a clause written here is refused where it is
+        // written rather than silently dropped: a contract the compiler ignores
+        // is worse than one it rejects.
+        if matches!(self.peek(), TokenKind::Requires | TokenKind::Ensures) {
+            return Err(error::ParseError::new(
+                self.peek_span(),
+                "a `const fn` cannot declare a contract: it has no call site to check one against",
+            ));
+        }
 
         let body = self.parse_block()?;
         let span = cover(const_keyword.span, body.span);

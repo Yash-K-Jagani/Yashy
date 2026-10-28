@@ -92,6 +92,10 @@
           "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|as|move|impl|object|pub)\\b"
         },
         {
+          "name": "keyword.contract.yashy",
+          "match": "\\b(?:requires|ensures|invariant)\\b"
+        },
+        {
           "name": "keyword.constant.yashy",
           "match": "\\b(?:true|false)\\b"
         }

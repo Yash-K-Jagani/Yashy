@@ -7,7 +7,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syntax keyword yashyKeyword fn struct enum const var let import extern unsafe defer return break continue if else for while in switch case default as move true false impl object pub
+syntax keyword yashyKeyword fn struct enum const var let import extern unsafe defer return break continue if else for while in switch case default as move true false impl object pub requires ensures invariant
 syntax keyword yashyType i64 f64 bool string void usize Option Result Channel map
 
 syntax match yashyComment "//.*$"

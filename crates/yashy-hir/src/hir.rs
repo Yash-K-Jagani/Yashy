@@ -85,6 +85,17 @@ impl HirVariantField {
     }
 }
 
+/// One contract clause, after checking: `requires n > 0`.
+///
+/// The expression is checked as `bool`, so the verifier can read it as a
+/// formula without asking what type it has. The span is the clause
+/// expression's, which is where a proof that fails is reported.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HirContract {
+    pub expr: HirExpr,
+    pub span: Span,
+}
+
 /// A function item: its signature and its checked body.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirFn {
@@ -92,6 +103,11 @@ pub struct HirFn {
     pub params: Vec<HirParam>,
     pub ret: Type,
     pub body: HirBlock,
+    /// `requires` clauses: what the caller must establish.
+    pub requires: Vec<HirContract>,
+    /// `ensures` clauses: what the callee promises. `result` names the value
+    /// being returned inside one.
+    pub ensures: Vec<HirContract>,
     /// The values the function captured, in the order the environment holds
     /// them. Empty for every function that is not a closure.
     pub captures: Vec<HirCapture>,
@@ -344,6 +360,13 @@ pub enum HirStmt {
         body: HirBlock,
         span: Span,
     },
+    /// `invariant n >= 0` -- a loop's promise at its head.
+    ///
+    /// The checker accepts one only among the first statements of a loop body,
+    /// which is where the parser puts the clause that was written in the loop
+    /// header. The verifier reads it in order, so the invariant is available
+    /// from the first body statement on.
+    LoopInvariant(HirContract),
 }
 
 /// One arm of a `switch`: the pattern, its body, and whether it is `default`.

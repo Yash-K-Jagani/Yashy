@@ -665,6 +665,16 @@ pub enum TokenKind {
     /// A module's own items are private to it unless they are marked `pub`;
     /// another module may use a `pub` item and may not use a private one.
     Pub,
+    /// `requires` -- a function's precondition.
+    ///
+    /// It introduces a clause between the signature and the body, so it is a
+    /// keyword rather than an identifier: a program that used it as a name
+    /// would be unable to declare a precondition on the function below it.
+    Requires,
+    /// `ensures` -- a function's postcondition.
+    Ensures,
+    /// `invariant` -- a fact that holds at a loop's head on every iteration.
+    Invariant,
 
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
@@ -743,10 +753,11 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 28] = [
+    pub const KEYWORDS: [&'static str; 31] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl", "object", "pub",
+        "default", "as", "move", "true", "false", "impl", "object", "pub", "requires", "ensures",
+        "invariant",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -779,6 +790,9 @@ impl TokenKind {
             "impl" => TokenKind::Impl,
             "object" => TokenKind::Object,
             "pub" => TokenKind::Pub,
+            "requires" => TokenKind::Requires,
+            "ensures" => TokenKind::Ensures,
+            "invariant" => TokenKind::Invariant,
             _ => return None,
         })
     }
@@ -815,6 +829,9 @@ impl TokenKind {
                 | TokenKind::Impl
                 | TokenKind::Object
                 | TokenKind::Pub
+                | TokenKind::Requires
+                | TokenKind::Ensures
+                | TokenKind::Invariant
         )
     }
 
@@ -861,6 +878,9 @@ impl TokenKind {
             TokenKind::True => Naming::Fixed("true"),
             TokenKind::False => Naming::Fixed("false"),
             TokenKind::Pub => Naming::Fixed("pub"),
+            TokenKind::Requires => Naming::Fixed("requires"),
+            TokenKind::Ensures => Naming::Fixed("ensures"),
+            TokenKind::Invariant => Naming::Fixed("invariant"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -952,7 +972,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 28] = [
+    const KEYWORDS: [(&str, TokenKind); 31] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -981,6 +1001,9 @@ mod tests {
         ("impl", TokenKind::Impl),
         ("object", TokenKind::Object),
         ("pub", TokenKind::Pub),
+        ("requires", TokenKind::Requires),
+        ("ensures", TokenKind::Ensures),
+        ("invariant", TokenKind::Invariant),
     ];
 
     #[test]

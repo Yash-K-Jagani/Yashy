@@ -7,7 +7,7 @@
 use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
-use crate::ast::{BindingKeyword, BinOp, Block, Expr, Literal, Pattern, Stmt, SwitchArm};
+use crate::ast::{BinOp, BindingKeyword, Block, Contract, Expr, Literal, Pattern, Stmt, SwitchArm};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -207,6 +207,37 @@ impl<'src> Parser<'src> {
         })
     }
 
+    /// The body of a loop, with any `invariant` clauses its header wrote.
+    ///
+    /// An invariant is written between the header and the body:
+    ///
+    /// ```text
+    /// while n > 0
+    ///     invariant n >= 0
+    /// {
+    ///     ...
+    /// }
+    /// ```
+    ///
+    /// The clause becomes the first statement of the body, which is where the
+    /// verifier reads it and the only position in a body that is not executed.
+    /// Several are kept in the order written.
+    fn parse_loop_body(&mut self) -> Result<Block, ParseError> {
+        let mut clauses = Vec::new();
+        while self.check(TokenKind::Invariant) {
+            let _ = self.expect(TokenKind::Invariant)?;
+            let expr = self.parse_expr()?;
+            let span = crate::exprs::expr_span(&expr);
+            clauses.push(Stmt::Invariant(Contract { expr, span }));
+        }
+        let mut body = self.parse_block()?;
+        if !clauses.is_empty() {
+            clauses.append(&mut body.stmts);
+            body.stmts = clauses;
+        }
+        Ok(body)
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::For)?;
         // Range form: for <ident> in <expr> .. <expr> { }
@@ -217,7 +248,7 @@ impl<'src> Parser<'src> {
             self.expect(TokenKind::In)?;
             let first = self.parse_expr()?;
             if !self.check(TokenKind::DotDot) {
-                let body = self.parse_block()?;
+                let body = self.parse_loop_body()?;
                 let body_span = body.span;
                 return Ok(Stmt::ForIn {
                     name,
@@ -228,7 +259,7 @@ impl<'src> Parser<'src> {
             }
             self.expect(TokenKind::DotDot)?;
             let end = self.parse_expr()?;
-            let body = self.parse_block()?;
+            let body = self.parse_loop_body()?;
             let body_span = body.span;
             return Ok(Stmt::ForRange {
                 name,
@@ -262,7 +293,7 @@ impl<'src> Parser<'src> {
         } else {
             Some(self.parse_expr()?)
         };
-        let body = self.parse_block()?;
+        let body = self.parse_loop_body()?;
         let body_span = body.span;
         Ok(Stmt::ForC {
             init,
@@ -285,7 +316,7 @@ impl<'src> Parser<'src> {
     fn parse_while(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::While)?;
         let cond = self.parse_expr()?;
-        let body = self.parse_block()?;
+        let body = self.parse_loop_body()?;
         let body_span = body.span;
         Ok(Stmt::ForC {
             init: None,

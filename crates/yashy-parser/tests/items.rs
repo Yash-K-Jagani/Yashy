@@ -171,6 +171,8 @@ fn parses_import_struct_enum_and_fn() {
             type_params: _,
             params,
             ret,
+            requires: _,
+            ensures: _,
             body,
             span,
         } => {

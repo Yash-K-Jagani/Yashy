@@ -83,6 +83,14 @@ struct Printer<'a> {
     prev: Option<TokenKind>,
     /// The `{` just printed is immediately followed by `}`.
     compact_brace: bool,
+    /// A contract clause has been printed and its body brace is still to come.
+    ///
+    /// A clause is written between a signature and its body, so the brace that
+    /// ends the clause list is the only one the formatter has to place: it
+    /// starts its own line at the signature's indent. A brace that looks like a
+    /// struct literal is part of the clause's expression, not the body's, and
+    /// is printed as usual.
+    in_clause: bool,
 }
 
 impl<'a> Printer<'a> {
@@ -94,6 +102,7 @@ impl<'a> Printer<'a> {
             line_break: Break::None,
             prev: None,
             compact_brace: false,
+            in_clause: false,
         }
     }
 
@@ -120,7 +129,17 @@ impl<'a> Printer<'a> {
                 self.line_break = Break::None;
             }
             self.trivia(gap);
-            self.token(token, tokens.get(index + 1).map(|next| next.kind));
+            // The parser's own definition of a struct literal: `{ name: ... }`.
+            // The printer needs it to tell a literal inside a contract clause
+            // from the body brace that ends the clause list.
+            let struct_lit = token.kind == TokenKind::LBrace
+                && tokens.get(index + 1).map(|next| next.kind) == Some(TokenKind::Ident)
+                && tokens.get(index + 2).map(|next| next.kind) == Some(TokenKind::Colon);
+            self.token(
+                token,
+                tokens.get(index + 1).map(|next| next.kind),
+                struct_lit,
+            );
             end = token.span.end as usize;
         }
         // Comments after the last token are in the final gap.
@@ -231,11 +250,33 @@ impl<'a> Printer<'a> {
 
     /// Print one token, after the break and spacing rules decide what precedes
     /// it.
-    fn token(&mut self, token: &Token, next: Option<TokenKind>) {
+    fn token(&mut self, token: &Token, next: Option<TokenKind>, struct_lit: bool) {
         let text = &self.src[token.span.start as usize..token.span.end as usize];
         // `{}` stays on one line: it is a container with nothing in it, and
         // splitting it would put the closing brace under the opening one.
         let compact = token.kind == TokenKind::RBrace && self.compact_brace;
+        // A contract clause starts a line of its own, one level past the
+        // signature it belongs to. The extra level lasts until the body brace:
+        // a struct literal inside the clause nests under the clause's line,
+        // and the brace that ends the list drops back to the signature.
+        let clause = matches!(
+            token.kind,
+            TokenKind::Requires | TokenKind::Ensures | TokenKind::Invariant
+        );
+        if clause {
+            if !self.in_clause {
+                self.indent += 1;
+                self.in_clause = true;
+            }
+            self.raise(Break::Line);
+        }
+        if token.kind == TokenKind::LBrace && self.in_clause && !struct_lit {
+            // The brace that ends the clause list starts its own line, at the
+            // signature's indent: the clauses sit between the two.
+            self.indent = self.indent.saturating_sub(1);
+            self.in_clause = false;
+            self.raise(Break::Line);
+        }
         if compact {
             // `{}` was split in the source; the canonical form joins it.
             self.line_break = Break::None;
