@@ -630,7 +630,7 @@ Committed as `12bc350`.
 - Consumes: `HirContract`, `HirFn.requires/ensures`, `HirStmt::LoopInvariant`.
 - Produces: `E1100` diagnostics whose severity is `Warning` under `ContractMode::Warn` and `Error` under `ContractMode::Enforce`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -655,12 +655,19 @@ fn a_contract_naming_an_unknown_identifier_is_a_type_error_not_a_proof_failure()
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+- [x] **Step 2: Run and watch them fail**
 
 Run: `cargo test -p yashy-verify contracts`
 Expected: FAIL — no contract pass.
 
-- [ ] **Step 3: Implement the domain and the pass**
+Result: FAIL as expected — the tests did not exist yet, then the first run of
+the new pass failed on three domain unit tests (a congruence `disjoint` that
+treated an exact value as period 1, an arithmetic test that expected bottom
+where the domain clamps, and a test that compared an exact value with a
+one-point range). Each was a bug in the test or the domain, fixed there rather
+than by weakening an assertion.
+
+- [x] **Step 3: Implement the domain and the pass**
 
 `domain.rs`: a value is an interval `[lo, hi]` over `i64` plus a congruence `(modulus, residue)`; `join` widens to the union hull, `widen` after two iterations drops to `[-inf, inf]`. Operations: `+`, `-`, `*` by a constant, comparisons, and `len()` for a slice whose length is a literal. No other operation is modelled.
 
@@ -674,17 +681,33 @@ Expected: FAIL — no contract pass.
 
 Anything the domain cannot decide is a failure, never an assumption. `ContractMode::Warn` sets `Severity::Warning`; the driver's `verify` uses `Warn` in this slice, and `Enforce` is wired but unused until 1b.
 
-- [ ] **Step 4: Run the tests**
+Decisions taken while building this:
+
+- **Bottom means unreachable, and nothing else.** Arithmetic whose result leaves `int` is `TOP` (unknown), not bottom: overflow is a fact the domain does not model, and "no value" would make every clause about the result vacuously true. A result that only crosses one edge is clamped, because the executions that do not panic produce exactly the values left inside the range.
+- **An impossible path is skipped, not reported.** `Env` carries an `impossible` flag, set by a contradictory refinement (`if n > 0` on an `n` that is exactly `-1`) or a literal-false condition; `walk_block` returns without walking. A warning about dead code is noise the user cannot act on, and every clause holds on an empty set of states.
+- **A local integer survives a call; a slice length does not.** The source cannot take the address of a local (`HirExpr::AddrOf` is written only by the checker, for a `*mut self` receiver, and a receiver is never an `int`), so a callee cannot write to one. A slice's length lives in a header the callee shares, so every length is dropped at a call.
+- **Lengths are passed into a callee's scope.** `requires xs.len() > 0` is provable from `first([]int { 1, 2 })` because the call site hands the parameter the argument's known length. `len(x)` is rejected by the checker (`xs.len()` is the spelling), and `render` prints the lowered call back as `xs.len()` so a message quotes what the user wrote.
+- **A loop invariant is checked at the first iteration and at every back edge, not at a `break`.** A `break` leaves before re-establishing the invariant, and the post-loop environment does not assume it, so checking it there would reject a correct loop. The fixpoint runs at most three walks with widening, all quiet; one final walk reports.
+- **The call-site table keys by exact `HirFn` name.** Methods cannot declare a contract (refused in the checker), and a generic function's instances carry mangled names, so a key is always the function whose clause is being checked.
+- **`report` takes the missing fact explicitly.** Parsing it back out of the message by splitting on backticks would couple the proof record to the wording.
+- **`yashy-hir` re-exports `Literal`** (and `BinOp`/`UnOp`) so `render.rs` names the literal without a `yashy-parser` dependency; the verifier still depends on `yashy-hir` and `yashy-common` alone.
+
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p yashy-verify && cargo test -p yashy-driver --test verify`
 Expected: PASS. The examples corpus still verifies clean because a warning does not fail the run.
 
-- [ ] **Step 5: Commit**
+Result: 49 verifier tests (13 domain, 3 render, 18 contract, 15 leak) and the
+driver's `verify` suite pass; full workspace 1263 tests, exit 0.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
 git commit -m "feat(verify): discharge contracts in an interval domain, warn in 1a (E1100)"
 ```
+
+Committed as `e4fb4a3`.
 
 ---
 
