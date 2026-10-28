@@ -209,6 +209,90 @@ fn test_json_reports_each_test_and_the_summary() {
     assert_eq!(summary.get("skipped").as_i64(), 0);
 }
 
+/// `test` and `test --json` are two views of one run, so they must agree about
+/// what passes. A leaking test is rejected by the verifier on the human path;
+/// before this test existed, `--json` used the checker alone and called it a
+/// pass. Two surfaces disagreeing about soundness is the one bug a schema test
+/// must not miss.
+#[test]
+fn test_json_verifies_like_the_human_command() {
+    let dir = work_dir("json-test-verify");
+    write(
+        &dir,
+        "tests/leak.ya",
+        "fn main() {\n    let buf = alloc(16);\n}\n",
+    );
+
+    let human = run(&dir, &["test"]);
+    assert_eq!(
+        human.status.code(),
+        Some(1),
+        "the human path must reject a leak:\n{}",
+        stderr(&human)
+    );
+    assert!(
+        stderr(&human).contains("E1000"),
+        "the human path must name the code:\n{}",
+        stderr(&human)
+    );
+
+    let output = run(&dir, &["test", "--json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the JSON path must reject the same leak:\n{}",
+        stderr(&output)
+    );
+    let report = Json::parse(&stdout(&output));
+    assert!(!report.get("success").as_bool());
+    assert_eq!(report.get("summary").get("failed").as_i64(), 1);
+
+    let tests = report.get("tests").as_array();
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0].get("status").as_str(), "failed");
+    let diagnostics = tests[0].get("diagnostics").as_array();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].get("code").as_str(), "E1000");
+    assert_eq!(diagnostics[0].get("severity").as_str(), "error");
+    assert_eq!(diagnostics[0].get("file").as_str(), "tests/leak.ya");
+    assert_eq!(
+        diagnostics[0].get("proof").get("obligation").as_str(),
+        "leak",
+        "the JSON surface carries the same proof record as `verify --json`"
+    );
+}
+
+/// A warning is not a failure. A viewed `[]T` cannot be released by the
+/// language, so the verifier warns and the test still passes -- but the warning
+/// has to be visible in the JSON, or a tool cannot report it.
+#[test]
+fn test_json_carries_a_verifier_warning_without_failing() {
+    let dir = work_dir("json-test-warning");
+    write(
+        &dir,
+        "tests/viewed.ya",
+        "fn main() {\n    let xs = []int { 1, 2, 3 };\n    const view = xs[0..2];\n    print(view.len());\n    println(\"\");\n}\n",
+    );
+
+    let output = run(&dir, &["test", "--json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a warning must not fail the run:\n{}",
+        stderr(&output)
+    );
+    let report = Json::parse(&stdout(&output));
+    assert!(report.get("success").as_bool());
+
+    let tests = report.get("tests").as_array();
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0].get("status").as_str(), "passed");
+    let diagnostics = tests[0].get("diagnostics").as_array();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].get("code").as_str(), "E1000");
+    assert_eq!(diagnostics[0].get("severity").as_str(), "warning");
+}
+
 #[test]
 fn test_json_all_pass_exits_zero() {
     let dir = work_dir("json-test-ok");

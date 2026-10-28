@@ -714,21 +714,46 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
         // from this entry just as it does from the native form.
         let entry = Path::new(&file);
         let mut phases = Vec::new();
-        let outcome = match load_and_check_timed(&mut sources, entry, source, false, &mut phases) {
-            Ok(hir) => compile_hir_timed(
-                &hir,
-                &file,
-                &exe,
-                &toolchain,
-                BuildOptions::default(),
-                &mut phases,
-            ),
+        // `test` and `test --json` must agree about what passes. The human path
+        // builds through `build_measured`, which verifies, so a test that leaks
+        // is a failure there and has to be one here too. Warnings travel with a
+        // passing test, exactly as `build` prints them and still links.
+        let outcome = match check_and_verify_timed(
+            &mut sources,
+            entry,
+            source,
+            false,
+            &VerifyOptions::default(),
+            &mut phases,
+        ) {
+            Ok((hir, report)) => {
+                if report.error_count() > 0 {
+                    Err(report.diagnostics)
+                } else {
+                    let warnings = report.diagnostics;
+                    match compile_hir_timed(
+                        &hir,
+                        &file,
+                        &exe,
+                        &toolchain,
+                        BuildOptions::default(),
+                        &mut phases,
+                    ) {
+                        Ok(()) => Ok(warnings),
+                        Err(more) => {
+                            let mut diagnostics = warnings;
+                            diagnostics.extend(more);
+                            Err(diagnostics)
+                        }
+                    }
+                }
+            }
             Err(diagnostics) => Err(diagnostics),
         };
         accumulate(&mut timings, &phases);
 
         match outcome {
-            Ok(()) => match output_with_retry(&exe, &[]) {
+            Ok(warnings) => match output_with_retry(&exe, &[]) {
                 Ok(output) if output.status.success() => {
                     passed += 1;
                     results.push(test_json_object(
@@ -737,12 +762,13 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                         "passed",
                         elapsed_ms(started),
                         &sources,
-                        &[],
+                        &warnings,
                     ));
                 }
                 Ok(output) => {
                     failed += 1;
-                    let diagnostic = Diagnostic::new(
+                    let mut diagnostics = warnings;
+                    diagnostics.push(Diagnostic::new(
                         Severity::Error,
                         FileId::from_index(0),
                         Span::SYNTHETIC,
@@ -750,31 +776,32 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                             Some(code) => format!("test exited with status {code}"),
                             None => "test was terminated without an exit status".to_string(),
                         },
-                    );
+                    ));
                     results.push(test_json_object(
                         &name,
                         &file,
                         "failed",
                         elapsed_ms(started),
                         &sources,
-                        &[diagnostic],
+                        &diagnostics,
                     ));
                 }
                 Err(error) => {
                     failed += 1;
-                    let diagnostic = Diagnostic::new(
+                    let mut diagnostics = warnings;
+                    diagnostics.push(Diagnostic::new(
                         Severity::Error,
                         FileId::from_index(0),
                         Span::SYNTHETIC,
                         format!("cannot run the test: {error}"),
-                    );
+                    ));
                     results.push(test_json_object(
                         &name,
                         &file,
                         "failed",
                         elapsed_ms(started),
                         &sources,
-                        &[diagnostic],
+                        &diagnostics,
                     ));
                 }
             },

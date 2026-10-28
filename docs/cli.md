@@ -77,8 +77,9 @@ language gives no way to release it ([E1000](errors/E1000.md)), and a contract
 clause the verifier's domain cannot prove ([E1100](errors/E1100.md)).
 
 `build` and `run` verify by default. An unverified binary is not a build, so a
-program that leaks is refused before `clang` is started. `test` still runs the
-checker alone in R1.
+program that leaks is refused before `clang` is started. `test` verifies too,
+and both surfaces agree: a leaking test fails whether you run `test` or
+`test --json`, and a verifier warning is reported without failing the run.
 
 ## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings]`
 
@@ -93,11 +94,11 @@ failure.
 | `--json` | Print the [schema v1 report](#json-diagnostics-schema-v1) instead of the progress lines. |
 | `--timings` | Print the suite's total time per pipeline phase. See [Timings](#timings). |
 
-`--json` writes one envelope to stdout. Compile diagnostics are nested under
-the test that produced them; top-level `diagnostics` holds setup errors such as
-a missing toolchain. `--list` and `--json` cannot be combined. A failing test
-makes the command exit `1`; a setup problem exits `2`; a directory that cannot
-be created exits `3`.
+`--json` writes one envelope to stdout. Diagnostics -- check or verifier -- are
+nested under the test that produced them; top-level `diagnostics` holds setup
+errors such as a missing toolchain. `--list` and `--json` cannot be combined. A
+failing test makes the command exit `1`; a setup problem exits `2`; a directory
+that cannot be created exits `3`.
 
 ## `yashy explain <code> [--json]`
 
