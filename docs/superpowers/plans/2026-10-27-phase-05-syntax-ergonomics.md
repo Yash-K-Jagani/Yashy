@@ -23,7 +23,7 @@ The two items that replace them in this phase are **default field values** and t
 
 See the master index. The ones that bite here:
 
-- **No new keywords.** `if let`, `while let`, `for i, x`, `arena` and `..` are all spelled with tokens that already exist. `KEYWORDS` stays at 28.
+- **No new keywords in this phase.** `if let`, `while let`, `for i, x`, `arena` and `..` are all spelled with tokens that already exist. `repr(C)` in phase 3b added exactly one keyword, so `KEYWORDS` is 32 entering this phase (28 at the start, plus phase 1a's three contract keywords, plus phase 3b's `repr`) and stays 32.
 - **No HIR growth for sugar.** If an item needs a new `HirExpr`/`HirStmt` variant, it is not sugar and does not belong in this phase. The exception is `arena { }`, whose *placement* is a codegen concept, not a new statement kind.
 - **No keyword renames, no unification, no attributes.** `switch` stays `switch`; `let`/`const`/`var` keep their meanings; there is no `@inline`.
 - **One rule, one implementation.** Each desugaring lives in one function in `sema`, called from every place the form can appear.
@@ -259,24 +259,83 @@ fn a_break_out_of_an_arena_still_releases_it() {
 
 ---
 
-### Task 9: The sugar proof, docs and gate
+### Task 9: Labeled `break` and `continue`
+
+**Files:**
+- Modify: `crates/yashy-parser/src/ast.rs` (`Stmt::ForIn`/`ForRange`/`ForC`/`WhileLet` gain `label: Option<String>`; `Stmt::Break(Option<String>, Span)`, `Stmt::Continue(Option<String>, Span)`)
+- Modify: `crates/yashy-parser/src/stmts.rs` (`ident : for` and `ident : while` in statement position; `break ident`, `continue ident`)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (label resolution and the flag lowering)
+- Modify: `crates/yashy-common/src/codes.rs` (`UNKNOWN_LABEL = "E0604"`, `DUPLICATE_LABEL = "E0605"`), create `docs/errors/{E0604,E0605}.md`
+- Modify: `crates/yashy-fmt/src/lib.rs`
+- Create: `crates/yashy-driver/tests/programs/labeled_loops.ya`, modify `crates/yashy-driver/tests/e2e.rs`
+
+**Interfaces:**
+- Produces: `outer: for i in 0..3 { for j in 0..3 { if j == 1 { break outer; } } }` and `continue outer`.
+- Produces: a label is an identifier and a colon in **statement position only**, immediately before `for` or `while`. No new keyword, and `x: int` in a `const`/`let` or a struct literal is unaffected because those positions are not statement starts.
+- Produces: `E0604` for `break nope` with no enclosing label of that name, listing the labels in scope; `E0605` for two loops with the same label nested inside each other.
+- Produces: the lowering is **flags, not new HIR**, so the HIR-equality gate stays true. For a label `L`:
+  - each loop strictly between the `break L`/`continue L` site and the labelled loop, and the labelled loop itself, gets `const __brk_L = false;` / `const __cont_L = false;` as needed;
+  - `break L;` becomes `__brk_L = true; break;` — the existing `break`, which already exits the innermost loop through a `switch`;
+  - `continue L;` becomes `__cont_L = true; break;`, and the labelled loop's body opens with `if __cont_L { __cont_L = false; continue; }`;
+  - every intervening loop's body opens with `if __brk_L { break; }`.
+
+  The cost is one boolean test per iteration of each intervening loop, and the plan accepts it: the alternative — a label on `HirStmt::Break` — is a new HIR concept, and phase 5's whole claim is that it adds none. The optimizer in phase 4 removes the test when the flag is provably false at that point.
+- Produces: `defer` still runs on every path, because the lowering only ever emits a real `break`/`continue` — the arena and cleanup tests are the regression proof.
+- Produces: an unlabelled `break` keeps its meaning exactly (innermost loop, through a `switch`), and the existing `loop_exit.ya` test is unchanged.
+
+- [ ] **Step 1: Write the failing tests** — `break outer` from two loops deep exits both; `continue outer` skips the rest of the inner loop and re-tests the outer; a label on a `while` works; `break nope` is `E0604` with the in-scope labels; nested `L:` is `E0605`; a `defer` inside the inner loop runs when `break outer` fires; an unlabelled `break` in the same program still exits only the inner loop; the HIR of the sugar equals the HIR of the hand-written flags.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — the parser accepts `Ident Colon` only when the next token is `For` or `While`, which is decided by one token of lookahead and cannot misfire in a declaration; resolution walks the loop stack, which already exists for `break`/`continue` checking; the lowering runs in `check_expr` beside the existing `break` handling so there is one place that knows what "innermost loop" means.
+- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: labeled break and continue, lowered to flags (E0604, E0605)"`
+
+---
+
+### Task 10: Doc comments
+
+**Files:**
+- Modify: `crates/yashy-lexer/src/token.rs` (`TokenKind::DocComment(StringLit)`; `///` is lexed as one token carrying its text with the leading `/// ` stripped)
+- Modify: `crates/yashy-lexer/src/lexer.rs` (`///` is checked before `//`; `////` is an ordinary comment)
+- Modify: `crates/yashy-parser/src/ast.rs` (`Item::Documented { docs: Vec<StringLit>, item: Box<Item>, span }` — the same wrapper pattern as `Item::Public`, so no other item variant gains a field)
+- Modify: `crates/yashy-parser/src/items.rs` (a run of `DocComment` tokens becomes one `Documented` wrapper; `Public` and `Documented` nest in either order)
+- Modify: `crates/yashy-sema/src/lib.rs` (unwraps both wrappers when building the item table)
+- Modify: `crates/yashy-common/src/codes.rs` (`DOC_COMMENT_MISPLACED = "E2100"`), create `docs/errors/E2100.md`
+- Modify: `crates/yashy-fmt/src/lib.rs` (re-emits the doc block immediately above the item, with one space after `///`)
+- Create: `crates/yashy-driver/tests/programs/doc_comments.ya`, modify `crates/yashy-driver/tests/e2e.rs`
+
+**Interfaces:**
+- Produces: `/// Adds two numbers.` above a `fn`, `struct`, `enum`, `object`, `const`, or a method inside `impl`; consecutive `///` lines form one block; the block attaches to the next item.
+- Produces: `///` before a statement, an expression, or the end of a file is `E2100`, naming the item kinds a doc comment may precede.
+- Produces: the text is **stored, not interpreted** in this phase — no Markdown rendering, no `#[doc]`, no doc tests. Phase 11's `yashy doc` reads it, and `yashy doc` is the only consumer.
+- Produces: the formatter preserves the block byte-for-byte except for normalising `///` + no space to `/// `; `////` stays an ordinary comment and never attaches.
+- Produces: the LSP hovers the doc block (a one-line change to the hover handler, which already has the item's span).
+
+- [ ] **Step 1: Write the failing tests** — a doc block above `pub fn` is stored and round-trips through the formatter; two blocks separated by a blank line attach only the second; `///` before a `let` is `E2100`; `////` is not a doc comment; `///` at end of file is `E2100`; the LSP hover for a documented function returns the text; a doc comment does not change the program's output.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — the lexer's comment branch checks the third `/` before falling through to `//`; the parser's item loop collects a leading run into one wrapper and unwraps it when it dispatches on the item kind; the formatter prints `docs` before the item's own text. The AST change is one variant, so every `match` on `Item` gains one arm — the compiler finds them all.
+- [ ] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-lsp -p yashy-driver --test e2e` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: doc comments, stored for yashy doc (E2100)"`
+
+---
+
+### Task 11: The sugar proof, docs and gate
 
 **Files:**
 - Create: `crates/yashy-sema/tests/desugar.rs` (each new form's HIR equals the hand-written form's HIR)
-- Modify: `docs/tutorial/` (new sections in `04-structs.md`, `05-patterns.md`, `09-arrays.md`, `11-functions.md`, `13-memory.md`)
-- Modify: `docs/errors/{E0101,E0102,E0202,E0301,E0603,E1003,E1004}.md`, `docs/errors.md`
-- Modify: `AGENTS.md` (identity: sugar desugars, it does not add HIR), `llms.txt`
+- Modify: `docs/tutorial/` (new sections in `04-structs.md`, `05-patterns.md`, `09-arrays.md`, `11-functions.md`, `13-memory.md`, and a "Labels and doc comments" section in `03-control-flow.md`)
+- Modify: `docs/errors/{E0101,E0102,E0202,E0301,E0603,E0604,E0605,E1003,E1004,E2100}.md`, `docs/errors.md`
+- Modify: `AGENTS.md` (identity: sugar desugars, it does not add HIR; `///` is documentation, not an attribute), `llms.txt`
 - Create: `crates/yashy-driver/tests/verify_corpus/{spread_partial_move.ya,arena_escape.ya,arena_free.ya}`
 
 **Interfaces:**
 - Produces: a test per item asserting **HIR equality** between the sugar and its expansion — the only way the "no new concept" claim stays true after this phase. The helper compares with `==` (`HirProgram` already derives `PartialEq`) and prints both with `{:#?}` only on mismatch, so a failure names the differing node rather than dumping two whole programs.
 - Produces: the three seeded bugs join the phase 1b corpus with their expected code sets (`E1002`, `E1003`, `E1004`).
 
-- [ ] **Step 1: Write the HIR-equality tests** — eight tests, one per item (except `arena`, whose test asserts the inserted `defer` and placement instead).
+- [ ] **Step 1: Write the HIR-equality tests** — ten tests, one per item (except `arena`, whose test asserts the inserted `defer` and placement instead, and `///`, which is stored rather than lowered).
 - [ ] **Step 2: Run** `cargo test -p yashy-sema --test desugar` → PASS; any failure is a real desugaring difference and is fixed in the lowering, not in the test.
 - [ ] **Step 3: Write the tutorial sections** with runnable blocks; the tutorial harness compiles every block.
 - [ ] **Step 4: Run the gate table on both OSes**, then the zero-false-positive loop from phase 1b Task 7 → no new `FALSE POSITIVE` line.
-- [ ] **Step 5: Commit and record** — `git commit -m "docs: the eight forms, their proofs, and close phase 5"`; update the index status and the ledger.
+- [ ] **Step 5: Commit and record** — `git commit -m "docs: the ten forms, their proofs, and close phase 5"`; update the index status and the ledger.
 
 ---
 
@@ -285,11 +344,13 @@ fn a_break_out_of_an_arena_still_releases_it() {
 | Gate | Command | Passes when |
 |---|---|---|
 | Sugar adds no concept | `cargo test -p yashy-sema --test desugar` | every form's HIR equals its hand-written expansion |
-| No new keywords | `cargo test -p yashy-lexer` | `KEYWORDS.len() == 28` |
+| No new keywords | `cargo test -p yashy-lexer` | `KEYWORDS.len() == 32` (28 at the start, plus `requires`/`ensures`/`invariant` from phase 1a, plus `repr` from phase 3b) |
 | `?` is not inverted | `cargo test -p yashy-driver --test e2e` | `option_try.ya`: `None` returns early; `Some` continues with the payload |
 | Middle operand evaluated once | `cargo test -p yashy-driver --test e2e` | `chained_cmp.ya`: the counter in the middle is 1 |
 | Spread moves | `cargo test -p yashy-verify` + corpus | partial move `E1002`; duplicate field `E0202` |
 | Arena sound | `cargo test -p yashy-driver --test e2e arena` + leak suite | escape `E1003`, individual free `E1004`, no leak on `break` |
+| Labels exit the right loop | `cargo test -p yashy-driver --test e2e` | `labeled_loops.ya`: `break outer` exits both; unlabelled `break` still exits one |
+| Doc comments are inert | `cargo test -p yashy-driver --test e2e` | `doc_comments.ya` output is identical with and without the blocks; `E2100` on a misplaced one |
 | Formatter | `cargo test -p yashy-fmt` | every new form round-trips byte-identically |
 | No false positives | the phase 1b loop | no `FALSE POSITIVE` line |
 | No regression | `cargo test --workspace` | green on Windows and Linux |

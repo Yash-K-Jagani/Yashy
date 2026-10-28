@@ -75,10 +75,13 @@ later reader does not reopen it by accident.
 | 13 | **`yashy-verify` is the only judge of ownership**; `sema` keeps type classification and delegates | Two implementations of one rule; verifier as a second opinion |
 | 14 | **`--no-verify` is narrow**: no contracts/effects/typestate, warns, stamps unverified provenance, fatal under `YASHY_REQUIRE_VERIFY=1` | An unrestricted escape hatch |
 | 15 | **Phase 1 is split into 1a (usable, warn mode) and 1b (enforcing)**, and `--timings` ships in 1a | One 12-week phase with no artifact until the end; measuring the 30% budget only from phase 3 |
-| 16 | **The plan is an index plus one file per phase, all written up front and revised at phase start**, with detail falling off with distance | A single 142-week monolith; or plans invented one at a time with no whole-programme view |
+| 16 | **The plan is an index plus one file per phase, all written up front and revised at phase start**, with detail falling off with distance | A single monolith covering the whole programme; or plans invented one at a time with no whole-programme view |
 | 17 | **A dedicated optimization phase sits between speed and features** (new phase 4), covering both the dev loop (query pipeline, parallel front end) and the generated program (verifier facts as IR attributes, escape promotion, interning, LTO/PGO) | Folding optimization into phase 3; optimizing after the features exist; relying on LLVM alone |
 | 18 | **Syntax growth is curated and additive** (new phase 5): eight items, no keyword renames, no attributes, no `?.`, no operator overloading. Every item desugars to existing HIR | A broad modernisation that renames `switch` and unifies bindings; performance-only syntax |
 | 19 | **Rust-style OOP without inheritance**: traits are requirement sets, `impl` blocks carry methods, dispatch is static, there is no `Drop` and no operator overloading | Class inheritance; vtables and `dyn` in 1.0; a `Drop` trait replacing `defer` |
+| 20 | **The C boundary is a phase of its own** (new phase 3b): bitwise operators, `link_name` and variadic `extern`, `repr(C)` with `sizeof`/`alignof`/`offsetof`, byte buffers, and `Option`/`Result` on the builtins that currently lie. It sits after speed and before optimization | Scattering these across the feature phases; treating FFI as "already done" because `extern "C"` parses; shipping `read_file` returning `""` on error for another three years |
+| 21 | **Bitwise is checked, like arithmetic.** `x << 64` and `x << -1` panic with a position; there is no silent masking. `&`, `|`, `^` and `~` cannot overflow, so they have no checked variant. Operands must be the same integer type: `u8 & i64` is an error, not a promotion | Hardware masking of the shift count (silently wrong); implicit widening at the operator; separate `checked_shl`/`wrapping_shl` builtins |
+| 22 | **The stdlib is a product, not a stub.** Thirteen modules holding about ten real functions is a documented absence, not a library. Phase 12 owns breadth: collections, text encodings, CSV, glob, terminal, date/time, hashing, entropy and process control | Calling the current stub "the stdlib"; ecosystem-first with no first-party packages; breadth before the language can express it |
 
 ---
 
@@ -88,10 +91,13 @@ The identity rules that survive unchanged from every previous plan:
 
 - No tracing GC. Ownership is linear and reference-counted.
 - No borrow checker. Linearity and moves are enforced; lifetimes are not.
-- No exceptions. Failure is a `Result`, a panic, or a process exit.
+- No exceptions. Failure is a `Result`, a panic, or a process exit — and that
+  applies to the builtins too, so no builtin answers `""` or `0` for "it failed"
+  (§3.2.4).
 - No implicit coercion. No operator overloading. No class inheritance.
 - No power-user procedural macros. Declarative macros are the limit.
-- C interop is explicit, marked, and inventoried.
+- C interop is explicit, marked, and inventoried — and **describable**: a type
+  that crosses the boundary can say what its layout is (§3.2.2).
 
 Two invariants are **promoted** by this plan:
 
@@ -138,6 +144,96 @@ It is Rust's shape minus the parts that need a borrow checker or a vtable.
 Default trait methods are deliberately absent in 1.0: a default body is code
 that runs in every impl's context, and its effect and ownership rules need their
 own design. A trait method is a signature, and every impl supplies the body.
+
+### 3.2 The native foundation (bitwise, FFI, layout, buffers, honest failure)
+
+Yashy claims to be "safer than C at C's speed". That claim needs the parts of C
+that programs actually use, or the claim is about a language nobody can write a
+program in. Phase 3b builds those parts; this section states them once.
+
+**1. Bitwise operators.** `&`, `|`, `^`, `~`, `<<`, `>>` and the compound forms
+`&=`, `|=`, `^=`, `<<=`, `>>=`. They are defined on every integer type —
+`i8`…`i64`, `u8`…`u64`, `usize` — and on `bool` for the non-short-circuit
+`&`/`|`/`^` (distinct from `&&`/`||`), and on nothing else: `~x` on a `float` or
+a `string` is `E0103`, which names the operand's type. Operands must have the
+same type: there is no implicit widening, so `u8 & i64` is `E0104` and the fix is
+an explicit `as`.
+
+Shifts are **checked**, matching arithmetic (`+` on `i64::MAX` panics today):
+
+| Expression | Result |
+|---|---|
+| `x << n` where `0 <= n < bits(x)` | the shift |
+| `x << n` where `n >= bits(x)` or `n < 0` | panic, `E0105`, at the operator's position |
+| `x >> n` on a signed type | arithmetic shift; the sign bit is replicated |
+| `x >> n` on an unsigned type | logical shift; zeroes are shifted in |
+
+There is no `wrapping_shl`. A shift count that comes from data is either bounded
+by the verifier's range domain or guarded by the programmer; a program that
+masks the count writes `x << (n & 63)`, which says what it means.
+
+`&`, `|`, `^` and `~` are total: they cannot overflow, so they have no checked
+form and no diagnostic beyond the type rule.
+
+**2. The C boundary is describable.** Three additions to the existing `extern`
+block:
+
+- **`link_name`.** `extern "C" link "m" { fn sqrt_raw(x: f64) -> f64 link_name "sqrt"; }`
+  lets a declaration be called by one name and resolve to another symbol. Today
+  the declaration's name *is* the symbol, which is why `stdlib/math.ya` computes
+  `sqrt` with Newton's method instead of calling the hardware instruction — a
+  self-inflicted performance and accuracy cost that this removes.
+- **Variadic declarations.** `fn printf(fmt: *const u8, ...) -> i32;` — the `...`
+  is legal only as the last parameter of an `extern` declaration, never on a
+  Yashy function. Calling one is `unsafe` and the checker counts the fixed
+  arguments only.
+- **`repr(C)`.** `#[repr(C)]` is not an attribute system; it is one keyword form
+  on a `struct`, `object` or fieldless `enum`, written `repr(C) struct P { .. }`.
+  It means: lay the type out by the C ABI's rules (declaration order, C
+  alignment and padding, `enum` as `int`). Without it, a type keeps Yashy's own
+  layout, which is declaration order with natural alignment but no promise about
+  padding. A `repr(C)` type may not have a type parameter, and an `enum` with
+  payloads may not be `repr(C)` — `E0106`.
+
+`sizeof(T)`, `alignof(T)` and `offsetof(T, field)` are compile-time constants of
+type `usize`, usable anywhere a `const` is. `offsetof` on a non-`repr(C)` type is
+`E0108`, because the offset is not part of the type's contract. These are what
+make it possible to write a binary format, a syscall wrapper, or a binding to a C
+library without hard-coding numbers that drift.
+
+**3. Bytes are bytes.** `alloc(n)` counts `int` slots, which makes a file reader
+allocate eight times what it needs. `alloc_bytes(n) -> *mut u8` and
+`read_bytes(path) -> Result[[]u8, io.Error]` give the byte-level surface; a
+`[]u8` view is an ordinary slice and every existing slice method applies. Byte
+counts are `usize`; an `int` index into a byte buffer is `E0100` with a note, not
+a silent cast.
+
+**4. Failure is a value, including in builtins.** The builtins that today answer
+`""` or `0` for "it failed" are changed, in one commit, to say so:
+
+| Today | Becomes | Why |
+|---|---|---|
+| `read_file(path) -> string` (`""` on error) | `read_file(path) -> Result[string, io.Error]` | a missing file and an empty file are different |
+| `write_file(path, body) -> int` (`1`/`0`) | `write_file(path, body) -> Result[void, io.Error]` | `1`/`0` is a boolean pretending to be an error |
+| `getenv(name) -> string` (`""` unset) | `getenv(name) -> Option[string]` | unset and empty are different |
+| `getcwd() -> string` (`""` on error) | `getcwd() -> Result[string, io.Error]` | same |
+| `read_line() -> string` (`""` at EOF) | `read_line() -> Option[string]` | **EOF and an empty line are the same value today** |
+| `parse_i64(s) -> int` (`0` on garbage) | `parse_i64(s) -> Option[int]` | `"abc"` and `"0"` are the same value today |
+| `parse_f64(s) -> float` | `parse_f64(s) -> Option[float]` | same |
+
+This is a breaking change to the standard library and the tutorial, and it is
+deliberately one commit with no deprecation window: 1.0 has not shipped, and a
+second way to spell "read a file" would be worse than the churn. The verifier
+gains nothing here — `Result` and `Option` are already in its domain — which is
+exactly why the change is cheap.
+
+**5. Why this is one phase and not five.** Every item above is the same
+sentence from a different side: *a program can say what it means when it talks to
+the machine*. A bitmask with no `&` is a `switch` on powers of two; a C struct
+with no `repr(C)` is a byte array with hand-computed offsets; a file read that
+cannot fail is a lie the compiler repeats. They are also the last features that
+must land **before** the optimizer, because bitwise operations, layout and
+aliasing are precisely what phase 4's passes reason about.
 
 ---
 
@@ -319,41 +415,49 @@ audit and lockfile machinery.
 
 ## 8. The phase spine
 
-Thirteen phases in fourteen slices, ~142 weeks (~33 months). Each phase ends with
+Fourteen phases in fifteen slices, ~166 weeks (~38 months). Each phase ends with
 its gate run on a clean checkout on Windows and Linux, a demo, and a recorded
 commit. Phase 1 is split so a usable verifier exists at week 6 rather than only at
-week 12.
+week 12, and phase 3b is a letter suffix rather than a renumbering so that every
+phase after it keeps its number.
 
 | # | Phase | Outcome | Gate | ~wks |
 |---|---|---|---|---|
 | **1a** | Verifier core, usable | `crates/yashy-verify` as the single owner of ownership (sema delegates); use-after-free, double-free, leak, `defer`; contracts v1 in **warn** mode; coded diagnostics + `--json`; minimal `--timings`; proof-trace record in schema v1 | Runs on every example without crashing; seeded-bug corpus for ownership/defer 100% caught; false positives mined and fixed | 6 |
-| **1b** | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs added to the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the three realistic programs; unprovable contracts rejected | 6 |
+| **1b** | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; **the warning surface becomes real** (unused binding, unused import, unused parameter, unreachable code, `var` never reassigned) with `-W`/`--deny warnings`; three realistic programs added to the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the three realistic programs; unprovable contracts rejected; every warning has a code and a `--deny` test | 8 |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 |
 | 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; **closes with a 2-week async spike** (state-machine lowering against the verifier, scheduler sketch, no shipping code) | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 |
+| **3b** | Native foundation | Bitwise operators with checked shifts; `link_name` and variadic `extern`; `repr(C)` with `sizeof`/`alignof`/`offsetof`; byte buffers (`alloc_bytes`, `[]u8`); the seven builtins that answer `""`/`0` on failure become `Option`/`Result` | Every bitwise and shift case in the corpus has a diagnostic or a value; `libc.ya` calls `sqrt` through `link_name`; a `repr(C)` struct round-trips through C; no builtin returns a sentinel on failure | 8 |
 | 4 | Optimization | Memoised query pipeline (parse/check/verify/emit), parallel front end, incremental verification; verifier facts as IR attributes (`noalias`, `nonnull`, `readonly`, alignment); escape-to-stack/arena promotion; interning and fast paths; inlined runtime calls; ThinLTO + PGO; pass manager with a per-pass gate; `--opt-report` | Incremental check < 50 ms; fib ≤ 1.1× C; feature rows ≤ 1.8×; no pass regresses a row by more than 2%; ASan/UBSan differential corpus clean | 10 |
-| 5 | Syntax + ergonomics | Eight additive forms: `if let`/`while let`, `?` on `Option`, trailing block with closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }`. Interpolation (`${…}`) and `const fn` already ship; this phase documents them rather than rebuilding them | Every form desugars to existing HIR; no new keywords; verifier corpus covers the three that touch ownership (`E1002`, `E1003`, `E1004`) | 8 |
+| 5 | Syntax + ergonomics | Eight additive forms: `if let`/`while let`, `?` on `Option`, trailing block with closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }`; plus **labeled `break`/`continue`** and **doc comments `///`**. Interpolation (`${…}`) and `const fn` already ship; this phase documents them rather than rebuilding them | Every form desugars to existing HIR; no new keywords; verifier corpus covers the three that touch ownership (`E1002`, `E1003`, `E1004`); a label never changes the meaning of an unlabelled `break` | 10 |
 | 6 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings; module queries in the phase 4 pipeline | Large-project import test; Unicode conformance; verifier covers both | 10 |
 | 7 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 |
-| 8 | Traits, OOP + iterators | Interfaces, Rust-style OOP without inheritance (traits, impl, static dispatch, associated functions `Type::name`, member visibility, no `Drop`), generic constraints, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget; the OOP conformance program passes and the four excluded forms are rejected | 12 |
+| 8 | Traits, OOP + iterators | Interfaces, Rust-style OOP without inheritance (traits, impl, static dispatch, associated functions `Type::name`, member visibility, no `Drop`), generic constraints, **generic structs and enums**, iterator protocol, comprehensions | Dispatch proven safe; monomorphisation within budget; the OOP conformance program passes and the four excluded forms are rejected; a generic `Pair[T]` monomorphises like a generic function | 15 |
 | 9 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 |
 | 10 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Capped in writing:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 |
-| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 |
-| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 |
-| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 |
+| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing; **`yashy doc`** over the doc comments phase 5 parses; **`yashy lsp`** as a real subcommand | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs; `yashy doc` renders every public item and `yashy lsp` answers initialize | 13 |
+| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib; **stdlib breadth**: `Set`, `Deque`, `PriorityQueue`, `sort_by`, `regex`, `base64`/`hex`, `csv`, `glob`, `ANSI`, `datetime`, `hash`, OS entropy, `process.spawn` | Clean-checkout dependency build; real HTTP service; audit green; every module in `stdlib/` has a documented function with a test | 18 |
+| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike; **`fmt --check`**, **`--target`**, **`cfg`/platform conditionals** | All metrics met; no P0; reproducible build; CI fails on unformatted source; a program branches on platform with `cfg` | 14 |
 
 **Why this order.** The verifier comes first because every later construct is
 cheaper to prove at birth than to retrofit; phases 6–10 each extend it. Speed comes
 third because the cache must understand the IR the verifier inspects — building it
-earlier means rebuilding it. **Optimization comes fourth because it is the phase
-that spends what phases 1–3 produced**: the query pipeline makes the dev loop
-incremental, and verifier facts become `noalias`, `nonnull` and `readonly` in the
-IR — facts C cannot state. Doing it before the features means each feature lands on
-an optimizing, measured backend rather than on a pipeline that has to be
-retrofitted underneath it. **Syntax comes fifth because syntax churn is cheapest
-before modules, traits and macros exist**: one parser change, one formatter change,
-one tutorial update, instead of five. Modules precede AI-native because `index` and
-`graph` need a module graph to describe. Libraries follow async because an HTTP
-server without it is a toy.
+earlier means rebuilding it. **The native foundation (3b) sits between speed and
+optimization because it is the last language surface that must exist before the
+optimizer is written**: bitwise operations, `repr(C)` layout and byte buffers are
+what phase 4's escape promotion, interning and aliasing attributes reason about,
+and an optimizer written before them would be rewritten after. It is also the
+phase that repairs the builtin signatures, which is a breaking change and so is
+cheapest while the standard library is still small. **Optimization comes fourth
+because it is the phase that spends what phases 1–3b produced**: the query
+pipeline makes the dev loop incremental, and verifier facts become `noalias`,
+`nonnull` and `readonly` in the IR — facts C cannot state. Doing it before the
+features means each feature lands on an optimizing, measured backend rather than
+on a pipeline that has to be retrofitted underneath it. **Syntax comes fifth
+because syntax churn is cheapest before modules, traits and macros exist**: one
+parser change, one formatter change, one tutorial update, instead of five.
+Modules precede AI-native because `index` and `graph` need a module graph to
+describe. Libraries follow async because an HTTP server without it is a toy.
 
 **Why the async spike sits in phase 3.** Async is the largest single phase and
 lands around month 18, where drift is most likely. Two weeks of design against the
@@ -381,16 +485,23 @@ cheapest point at which the unknown can be reduced.
 ### 9.1 Cut order
 
 Playground → profiler → coverage/lint → `task` → third-party registry → macOS
-signing → async cancellation → macro hygiene edge cases → chained comparison →
-indexed `for` → struct spread → `arena` block → typestate for channels → iterator
+signing → `yashy doc` → `--target` → `cfg`/platform conditionals → generic structs
+and enums → stdlib breadth (`regex` → `csv` → `glob` → `ANSI` → `datetime` →
+`PriorityQueue` → `Deque` → `Set`) → `process.spawn` → OS entropy → variadic FFI
+→ async cancellation → macro hygiene edge cases → chained comparison → indexed
+`for` → struct spread → `arena` block → typestate for channels → iterator
 comprehensions.
 
-**Never cut:** the verifier, gate commands, both-OS CI, the benchmark gate, or the
-contract/effect schema.
+**Never cut:** the verifier, gate commands, both-OS CI, the benchmark gate, the
+contract/effect schema — **and the native foundation**: bitwise operators,
+`link_name`, `repr(C)`/`sizeof`, byte buffers, and the honest `Option`/`Result`
+builtin signatures. Cutting those does not shrink the language, it withdraws the
+claim that it can replace C. The warning surface is in the same class: a compiler
+that never warns is a compiler whose `Warning` severity is decoration.
 
 ### 9.2 Definition of done
 
-All fourteen phase gates pass on Windows and Linux; every construct has verifier
+All fifteen phase gates pass on Windows and Linux; every construct has verifier
 rules; schema v1 frozen; agent benchmark runs; 1.0 signed and reproducible; no P0
 open.
 
@@ -408,6 +519,9 @@ open.
 | Syntax growth becomes design-space creep | Eight named items, all desugaring to existing HIR; no renames, no attributes, no `?.`; anything else needs a written exception |
 | OOP drifts toward inheritance or vtables | The object model is written in §3.1: one representation, traits without state, static dispatch, no `Drop`, no operator overloading |
 | Async scope explosion | Written cap (one executor, no async traits, no generic runtime) plus a 2-week spike at the end of phase 3 |
+| Bitwise or FFI semantics drift from C | A differential corpus: the same expression evaluated by Yashy and by a generated C program, compared bit for bit, on both OSes and both integer signednesses |
+| The `repr(C)` surface grows into an attribute system | `repr(C)` is one keyword form on three item kinds; there is no `#[...]` syntax and no other `repr`, and a second `repr` is a written exception |
+| The builtin-signature change breaks the tutorial and examples | It is one commit with no deprecation window, landing before 1.0; the tutorial harness compiles every block, so a stale example fails the build rather than the reader |
 | Cache staleness produces a wrong binary | Key covers compiler version, flags, source hash; `cache verify`; CI never trusts a foreign cache |
 | Design-space creep | Closed whitelist; anything else needs a written exception |
 | Burnout | Visible win per phase; phases shrink instead of slipping |
@@ -427,7 +541,7 @@ every old plan is explicitly non-authoritative.
 
 - `2026-10-27-yashy-master-plan.md` — the index: the phase spine, the invariants,
   the gates, the cut list, and the status of each phase;
-- one file per phase, **all fourteen written at the outset** so the programme can
+- one file per phase, **all fifteen written at the outset** so the programme can
   be reviewed and costed as one artefact:
 
   ```text
@@ -436,6 +550,7 @@ every old plan is explicitly non-authoritative.
   2026-10-27-phase-01b-verifier-enforcing.md
   2026-10-27-phase-02-effects-typestate.md
   2026-10-27-phase-03-speed-foundation.md
+  2026-10-27-phase-03b-native-foundation.md
   2026-10-27-phase-04-optimization.md
   2026-10-27-phase-05-syntax-ergonomics.md
   2026-10-27-phase-06-modules-unicode.md
@@ -448,7 +563,7 @@ every old plan is explicitly non-authoritative.
   2026-10-27-phase-13-hardening.md
   ```
 
-A single 142-week file would be wrong by phase 3 and then stop being read, which
+A single 166-week file would be wrong by phase 3 and then stop being read, which
 is how the previous plan set decayed. An index plus per-phase files keeps each
 unit small enough to be read in one sitting. Writing them all up front is the
 opposite risk — detail that is wrong by the time it is used — and the mitigation

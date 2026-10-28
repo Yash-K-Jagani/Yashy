@@ -42,7 +42,7 @@ See the master index. The ones that bite here:
 **Files:**
 - Create: `crates/yashy-expand/{Cargo.toml,src/lib.rs,src/tt.rs}`
 - Modify: `Cargo.toml` (member), `crates/yashy-driver/Cargo.toml`
-- Modify: `crates/yashy-lexer/src/token.rs` (`macro` keyword; `KEYWORDS` 29 → 30)
+- Modify: `crates/yashy-lexer/src/token.rs` (`macro` keyword; `KEYWORDS` 33 -> 34)
 - Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`Item::Macro { name, arms: Vec<MacroArm>, span }`)
 - Modify: `crates/yashy-fmt/src/lib.rs`
 

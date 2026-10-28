@@ -8,7 +8,7 @@
 
 **Tech Stack:** a new `crates/yashy-query` (std-only, no dependencies), `crates/yashy-codegen/src/{ir.rs,module.rs,fn_gen.rs,memory.rs,arena.rs}` (attribute and fast-path emission), `crates/yashy-verify` (`ProofFacts`, already produced in phase 3), `crates/yashy-runtime` (`alwaysinline` C entry points), `crates/yashy-driver/src/{main.rs,pipeline.rs}` (`--opt-report`, `--no-opt`, `--pgo`), and `crates/yashy-bench`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §5, §8 row 4. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-03-speed-foundation.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §5, §8 row 4. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-03b-native-foundation.md`.
 
 ## Global Constraints
 

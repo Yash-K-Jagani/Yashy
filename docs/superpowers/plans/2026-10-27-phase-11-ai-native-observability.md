@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the compiler legible to a machine without making it worse for a person: a symbol index, a context packer with a token budget, an MCP server that exposes only compiler verbs, a sandbox that can be tested for escapes, and program-side observability that is deterministic when a test needs it.
+**Goal:** Make the compiler legible to a machine without making it worse for a person: a symbol index, a context packer with a token budget, an MCP server that exposes only compiler verbs, a sandbox that can be tested for escapes, program-side observability that is deterministic when a test needs it — and the two ordinary tools every editor and every library expects, `yashy lsp` and `yashy doc`.
 
 **Architecture:** One rule — **one fact, two renderings**. Every command in this phase builds a JSON model first and renders the human form from it, so the agent and the human cannot drift. The index is computed from the module graph (phase 6), the HIR, and the verifier's facts (phases 1–2), which is why this phase comes after them. The MCP server is a thin adapter over the same in-process functions the CLI calls — never a shell, never a new code path. The sandbox is a capability set attached to a process launch, enforced with OS primitives on each platform, and proven by escape tests that run in CI.
 
-**Tech Stack:** `yashy-driver` (commands), `yashy-hir`, `yashy-verify` (`ProofFacts`, effects, typestate), `yashy-lsp/src/json.rs` (JSON-RPC framing to reuse), `yashy-runtime` (log/trace/metrics, deterministic clock and RNG), and OS primitives: Windows Job Objects + restricted token, Linux rlimits + path allowlist. No new Rust dependencies.
+**Tech Stack:** `yashy-driver` (commands), `yashy-hir`, `yashy-verify` (`ProofFacts`, effects, typestate), `yashy-lsp/src/json.rs` (JSON-RPC framing to reuse), `yashy-runtime` (log/trace/metrics, deterministic clock and RNG), and OS primitives: Windows Job Objects + restricted token, Linux rlimits + path allowlist. No new Rust dependencies — which is also why `yashy doc` emits Markdown rather than HTML, and why `yashy lsp` launches the sibling binary rather than duplicating the server.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-10-async.md`.
 
@@ -214,11 +214,62 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 10: Docs and gate
+### Task 10: `yashy doc`
 
-**Files:** `docs/tutorial/18-tooling.md`, `docs/cli.md` (all seven commands), `AGENTS.md` (the MCP verbs, the sandbox default), `llms.txt`.
+**Files:**
+- Create: `crates/yashy-driver/src/doc.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`doc` subcommand; `--out DIR`, `--json`, `--private`), `docs/cli.md`
+- Modify: `crates/yashy-parser/src/ast.rs` (none — phase 5's `Item::Documented` already carries the text; this task reads it)
+- Modify: `crates/yashy-sema/src/lib.rs` (expose the public item table with doc blocks and signatures)
+- Create: `crates/yashy-driver/tests/doc.rs`
+- Create: `crates/yashy-driver/tests/programs/documented_lib/` (a two-module library with documented and undocumented items)
 
-- [ ] **Step 1: Write the chapter** with a worked `context` → `index` → `verify` session.
+**Interfaces:**
+- Produces: `yashy doc` writes one Markdown file per module into `target/doc/`, plus an `index.md` listing every module and its items. The source of every fact is the compiler's own tables: the signature comes from the checked item, the text from the phase 5 doc block, the effects and contracts from phases 1–2, the typestate from phase 2.
+- Produces: a **public** item is rendered; a private one only with `--private`, because the default output is the library's surface.
+- Produces: an item with no doc block is still rendered, with its signature and the note `No documentation.` — an undocumented public item is a fact worth printing, not a gap to hide. (Phase 1b's warning surface does **not** gain an "undocumented public item" lint; that is a policy decision for a project, not for the language.)
+- Produces: `--json` emits the same model the Markdown is rendered from — `{ modules: [{ name, path, items: [{ name, kind, signature, docs, effects, contracts, typestate }] }] }` — so the "one fact, two renderings" rule holds here too.
+- Produces: the Markdown is **diff-stable**: items are sorted by (kind, name), and the same source produces byte-identical output on Windows and Linux (no paths in the body, no timestamps). A CI job can therefore assert the committed docs are current.
+- Produces: HTML is **out of scope in this phase**, with the reason recorded: an HTML renderer is a template engine and a CSS surface, and the project has neither. The Markdown is what `llms.txt` and the phase 11 index already consume.
+
+- [ ] **Step 1: Write the failing tests** — a documented `pub fn` appears with its text and signature; an undocumented one appears with `No documentation.`; a private item is absent by default and present with `--private`; the output is byte-identical across two runs and across the two OSes; `--json` parses and carries every field; an item whose doc block has a `{` or a `|` renders without corrupting the Markdown table; a module with no public items still gets a file.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — walk the checked program's module table, filter by visibility, sort, and render. Escaping is the only tricky part: a doc line that starts with `#` or `|` is indented inside the item's section so it cannot become a heading or a table row in the surrounding document.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test doc` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: yashy doc renders the public surface from the compiler's own tables"`
+
+---
+
+### Task 11: `yashy lsp`
+
+**Files:**
+- Modify: `crates/yashy-driver/src/main.rs` (`lsp` subcommand; `--stdio` is the only transport and is the default)
+- Modify: `crates/yashy-lsp/src/{main.rs,server.rs}` (the standalone binary keeps working; `serve` gains a `--version` handshake report so a mismatch is visible)
+- Modify: `crates/yashy-driver/src/pipeline.rs` (nothing — the LSP already calls the same check path)
+- Modify: `docs/cli.md`, `docs/editor.md` (new: the client configuration for Neovim, VS Code and Helix)
+- Create: `crates/yashy-driver/tests/lsp.rs`
+
+**Interfaces:**
+- Produces: `yashy lsp` starts the language server on stdio, so an editor is configured with one command and there is no second thing to install or keep in step.
+- Produces: the implementation is **an exec, not a reimplementation**: `yashy lsp` locates the `yashy-lsp` binary in the same directory as `std::env::current_exe()` and hands it the same stdin/stdout. The driver cannot link the LSP crate — `yashy-lsp` depends on `yashy-driver`, so the dependency would be a cycle — and moving the server into the driver would make the driver depend on the whole editor surface. One process launch is the honest seam.
+- Produces: when the sibling binary is missing (a partial install), `yashy lsp` exits **2** with a diagnostic naming the expected path and the install step, not a panic and not a silent hang.
+- Produces: the exit code of the server is propagated, so an editor sees a crash rather than a clean exit.
+- Produces: `yashy lsp --version` prints the server's version and the driver's, and warns when they differ — a split install is the failure mode that produces "hover does nothing" bug reports.
+- Produces: `yashy doctor` gains one line reporting whether the LSP binary was found, using the same lookup function, so the check exists in the place a user runs when something is wrong.
+
+- [ ] **Step 1: Write the failing tests** — `yashy lsp` with a stub sibling binary spawns it and forwards stdin to its stdout; a missing sibling exits 2 with the path in the message; the server's non-zero exit becomes `yashy lsp`'s exit; `--version` prints both versions; `yashy doctor` reports the lookup result. The real handshake (`initialize`/`initialized`/`shutdown`) is a test in `yashy-lsp`, run through `yashy lsp`, asserting one JSON-RPC round trip.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — one `fn lsp(args)` in `main.rs`: resolve the sibling path, print the diagnostic if absent, spawn with `Stdio::inherit()` on all three streams, wait, return its code. `--version` runs the sibling with `--version` and compares. No new dependency, no thread, no protocol code in the driver.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test lsp -p yashy-lsp` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: yashy lsp, so an editor needs one command"`
+
+---
+
+### Task 12: Docs and gate
+
+**Files:** `docs/tutorial/18-tooling.md`, `docs/editor.md` (the LSP client setup, written in Task 11), `docs/cli.md` (all nine commands), `AGENTS.md` (the MCP verbs, the sandbox default, `yashy doc` as the documentation source of truth), `llms.txt`.
+
+- [ ] **Step 1: Write the chapter** with a worked `context` → `index` → `verify` session, and a second one that goes `yashy doc --json` → an agent answering "what does this module do".
 - [ ] **Step 2: Run the gate table on both OSes.**
 - [ ] **Step 3: Commit and record** — `git commit -m "docs: AI-native tooling and observability, and close phase 11"`.
 
@@ -234,4 +285,6 @@ See the master index. The ones that bite here:
 | Schema v1 frozen | `cargo test -p yashy-driver --test schema_diff` | no removal, no type change |
 | Benchmark runs | `yashy-bench agent --tasks benchmarks/agent` | 10 tasks + variants, five metrics recorded |
 | Determinism | `cargo test -p yashy-driver --test e2e observability` | byte-identical stderr across runs |
+| `doc` covers the surface | `cargo test -p yashy-driver --test doc` | every public item appears with its signature; output byte-identical on both OSes and across runs |
+| `lsp` starts a server | `cargo test -p yashy-driver --test lsp` | `initialize` answered through `yashy lsp`; a missing sibling exits 2 with the path named |
 | No regression | `cargo test --workspace` | green on Windows and Linux |

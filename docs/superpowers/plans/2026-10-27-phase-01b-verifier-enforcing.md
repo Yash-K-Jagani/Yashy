@@ -19,6 +19,7 @@ See the master index for the full list; every task includes it. The ones that bi
 - A malformed program produces a diagnostic, never a panic.
 - Both operating systems or it is not done.
 - No unproven claim: "proven in bounds" is a statement about the domain, not about all inputs.
+- **A warning is a diagnostic with a code, a page, and a `--deny` test.** `Severity::Warning` already exists in `yashy-common`; this phase is where something finally produces one. A lint without a code is not allowed, because `yashy explain` cannot explain it.
 - Format touched files only.
 
 ## Review Focus
@@ -28,6 +29,8 @@ See the master index for the full list; every task includes it. The ones that bi
 3. **A `switch` that is exhaustive only because of a `default` stays accepted**, and a new variant added later must break every non-defaulted switch.
 4. **`yashy test` verifying must not change test semantics**: a failing test still exits 1 for the test's reason, not the verifier's.
 5. **The inventory is complete or it is a lie**: every `extern` declaration and every `unsafe_call: true` site appears, including ones inside stdlib modules.
+6. **A warning must never fail a build by default.** `yashy build` exits 0 with warnings; only `--deny warnings` (or `YASHY_DENY_WARNINGS=1`) turns them into errors. A compiler that fails on an unused binding by default is a compiler people turn off.
+7. **A warning must be silent on code that is legitimately unused.** A `pub` item is reachable from another module and is never "unused"; a parameter named `_` is deliberately ignored; a `var` that is only mutated through a `self: *mut` receiver is not "never reassigned". Each suppression is a test, not a comment.
 
 ---
 
@@ -289,9 +292,45 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 
 ---
 
-### Task 9: Docs and the gate
+### Task 9: The warning surface
 
-**Files:** `docs/errors/E1200.md`, `E1201.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section); `AGENTS.md` (the `verify` line gains `--inventory`).
+**Files:**
+- Create: `crates/yashy-verify/src/pass/warnings.rs`
+- Modify: `crates/yashy-common/src/diagnostic.rs` (`Diagnostic::warning(code, message, span)`, a `docs_url` for warnings, and `Severity` ordering so `--deny` can upgrade in one place)
+- Modify: `crates/yashy-common/src/codes.rs` (`UNUSED_BINDING = "E2000"`, `UNUSED_IMPORT = "E2001"`, `UNREACHABLE_CODE = "E2002"`, `UNUSED_PARAMETER = "E2003"`, `NEVER_REASSIGNED = "E2004"`), create the five pages, modify `docs/errors.md`
+- Modify: `crates/yashy-driver/src/main.rs` (`-W`, `--deny warnings`, `--allow warnings`, `YASHY_DENY_WARNINGS`)
+- Modify: `crates/yashy-driver/src/pipeline.rs` (the warning pass runs after `check`, before `verify`, and its diagnostics join the same bag)
+- Modify: `docs/cli.md` (the three flags, the environment variable, and the exit-code rule)
+- Create: `crates/yashy-driver/tests/warnings.rs`
+- Create: `crates/yashy-driver/tests/verify_corpus/` is not used — warnings are a positive corpus, so the programs live in `tests/programs/warnings/`
+
+**Interfaces:**
+- Produces: five coded warnings, each with a page and a `--deny` test:
+
+  | Code | Fires when | Suppressed when |
+  |---|---|---|
+  | `E2000` | a `const`/`var`/`let` binding is never read | the name is `_` or starts with `_` |
+  | `E2001` | an `import` is never used | the module has a side effect the checker records (phase 2's effect table) |
+  | `E2002` | a statement cannot be reached | the function returns `!` before it (a deliberate `exit`) |
+  | `E2003` | a parameter is never read | the name is `_` or starts with `_` |
+  | `E2004` | a `var` is never assigned after its declaration | the value's address is taken (`*mut`) |
+
+- Produces: `yashy build`/`run`/`test`/`check` print warnings to stderr and exit **0**; `--deny warnings` exits **1** and every warning becomes an error in the JSON envelope (`"severity": "error"`, same `code`).
+- Produces: `--allow warnings` suppresses them entirely (for a generated file), and `-W none` is a spelling of it. The two are one code path.
+- Produces: a `pub` item is never `E2000`/`E2003`, because it is reachable from another module; the reachability rule is the one phase 6 will use, so it lives in `yashy-sema`'s visibility table from the start.
+- Produces: the JSON envelope's `summary` gains `warnings: usize`, so an agent can gate on it without parsing text.
+
+- [ ] **Step 1: Write the failing tests** — `const x = 1;` with no read is `E2000`; `let _ = f();` and `fn f(_unused: int)` are silent; a `pub fn` with an unread local is still `E2000` for the *local* but never for the `pub` item itself; an unused `import` is `E2001`; code after `return` is `E2002`; `var x = 1;` never reassigned is `E2004`; `var x = 1; bump(&mut x);` is silent; `yashy build` with a warning exits 0; `--deny warnings` exits 1; `--allow warnings` prints nothing; the JSON envelope has `severity: "error"` under `--deny` and `summary.warnings == 1`.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — one pass over the typed HIR that collects reads, writes and imports into sets and reports the difference; the suppression rules are predicates on the same sets, not a second walk. `--deny` is applied once, in the driver, by mapping severity after all diagnostics are collected — never inside the pass, so the pass cannot disagree with the flag. The pass is registered in the phase 4 pass manager like every other, so `--no-opt=warnings` disables it for bisecting.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test warnings --test diagnostics_json` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: five coded warnings, and --deny warnings (E2000-E2004)"`
+
+---
+
+### Task 10: Docs and the gate
+
+**Files:** `docs/errors/E1200.md`, `E1201.md`, `docs/errors/{E2000..E2004}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule).
 
 - [ ] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples.
 
@@ -310,5 +349,7 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 | Contracts enforce | `cargo test -p yashy-driver --test verify` | unproved contract exits 1 |
 | Test integration | `cargo test -p yashy-driver --test test_runner` | compile_error vs failed are distinguished |
 | Inventory | `yashy verify --inventory --json` on a program with FFI | every `extern` and `unsafe` site listed |
+| Warnings fire | `cargo test -p yashy-driver --test warnings` | all five codes fire on their program and stay silent on their suppression |
+| Warnings are warnings | `yashy build` on a program with one unused binding | exits 0, prints one `warning:`, and `--deny warnings` exits 1 |
 | No panic | `cargo test -p yashy-driver --test never_panics` | passes |
 | Workspace | `cargo test --workspace` | green on Windows and Linux |

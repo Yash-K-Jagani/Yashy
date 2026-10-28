@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make a Yashy program able to depend on code it did not write, reproducibly and offline, and ship enough first-party packages that a real HTTP service is a weekend project rather than a research project.
+**Goal:** Make a Yashy program able to depend on code it did not write, reproducibly and offline, ship a standard library that is a library rather than thirteen files of prose, and ship enough first-party packages that a real HTTP service is a weekend project rather than a research project.
 
 **Architecture:** A manifest (`yashy.toml`) is parsed by a deliberately small TOML subset reader in a new `yashy-manifest` crate — no dependency, a documented grammar, and a 30-manifest conformance corpus. Resolution is exact-pin only: a lockfile names every package, version, source and content hash, and the resolver refuses anything it cannot pin. Dependencies are compiled from source with the phase 3 cache, so a second build is free. The stdlib becomes a package like any other: versioned, locked, and shipped as cached IR so `hello` does not re-typecheck it. Networking is new C in the runtime — sockets on both platforms — and `http` is a Yashy package on top of it.
 
-**Tech Stack:** `yashy-manifest` (new, zero deps), `yashy-driver/src/{resolve.rs,fetch.rs,audit.rs}`, the phase 3 `yashy-cache`, `yashy-runtime` (Winsock/POSIX sockets), `crates/yashy-stdlib/` as a versioned package, and new `packages/{http,cli,net,test,bench,fuzz}`.
+**Tech Stack:** `yashy-manifest` (new, zero deps), `yashy-driver/src/{resolve.rs,fetch.rs,audit.rs}`, the phase 3 `yashy-cache`, `yashy-runtime` (Winsock/POSIX sockets, OS entropy, process control, directory iteration, file metadata), `crates/yashy-stdlib/` as a versioned package with the modules from Task 10, and new `packages/{http,cli,net,test,bench,fuzz}`.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-11-ai-native-observability.md`.
 
@@ -33,6 +33,9 @@ See the master index. The ones that bite here:
 3. **A dependency cycle is a diagnostic, not a stack overflow.** `E1801` with the cycle path, detected before any source is read.
 4. **The precompiled stdlib must be byte-identical to compiling it from source.** The gate compiles `hello` both ways and compares the binary's hash. A cache that changes semantics is worse than no cache.
 5. **The HTTP server must be a real server**: it handles keep-alive, chunked requests, a 10 MB body cap, slowloris timeouts, and concurrent connections, and the test suite proves each. "Real HTTP service" in the gate means these tests, not a hello-world handler.
+6. **A stdlib function that can fail returns `Result` or `Option`.** Phase 3b changed the seven builtins that answered `""` or `0`; this phase must not reintroduce the pattern in the modules it rewrites. The gate greps the doc blocks for the sentinel phrasing, because a doc block that says "or the empty string" is the same bug with a comment on it.
+7. **`regex` returns an error rather than a wrong answer.** An unsupported construct (`(?=`, `\1`, `*?`) is `Err(Unsupported)` at compile time, and exhausting the backtracking budget is `Err(Budget)` at match time. A matcher that silently falls back to a substring search when its pattern is too hard is the failure mode this rule exists to prevent.
+8. **Determinism is a stdlib property, not a test-only one.** `env.vars` and `fs.read_dir` are sorted, `hash` and `text` are pure, and nothing reads a clock or an RNG unless its name says so. A program that prints a directory listing must print the same listing twice.
 
 ---
 
@@ -244,9 +247,59 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 10: Docs and gate
+### Task 10: Stdlib breadth
 
-**Files:** `docs/packages.md` (new: manifest grammar, lockfile, audit, registry), `docs/tutorial/12-first-cli.md`, `docs/cli.md`, `AGENTS.md` (layout: `packages/`), `llms.txt`.
+**Files:**
+- Create: `crates/yashy-stdlib/yashy/{collections,text,regex,csv,glob,term,datetime,hash}.ya`
+- Rewrite: `crates/yashy-stdlib/yashy/{args,env,fs,os,process,rand,string,time}.ya` (the eight modules that are currently documentation stubs — see the note below)
+- Modify: `crates/yashy-runtime` (C: OS entropy, process spawn/wait/pipes, directory iteration, file metadata, `isatty`, monotonic clock)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (the slice method `sort_by`, if it is not already covered by the closure machinery from phase 8)
+- Create: `crates/yashy-driver/tests/programs/stdlib/` (one program per module, pinned output)
+- Create: `crates/yashy-driver/tests/stdlib_coverage.rs`
+- Modify: `crates/yashy-driver/tests/e2e.rs`, `docs/cli.md` (nothing new — say so)
+
+**Interfaces:**
+
+| Module | Adds | Runtime C |
+|---|---|---|
+| `collections` | `Set[T]` (insert/remove/contains/len/to_array/free), `Deque[T]` (push/pop at both ends, front/back/len/free), `PriorityQueue[T]` (binary heap over `[]T` with a `fn(T, T) -> i64` comparator; `push`, `pop -> Option[T]`, `peek -> Option[T]`), and `slice.sort_by(cmp)` | no |
+| `text` | `base64_encode([]u8) -> string`, `base64_decode(string) -> Result[[]u8, text.Error]`, `hex_encode`, `hex_decode` | no |
+| `regex` | `Regex::compile(pat) -> Result[Regex, regex.Error]`; `is_match`, `find -> Option[Match]`, `find_all -> []Match`, `replace_all`. Subset: literals, `.`, `*`, `+`, `?`, `[...]` with ranges and `^`, `(...)`, `\|`, `^`, `$`, `\d \w \s` and negations. **No** backreferences, lookaround, lazy quantifiers or Unicode classes — those compile to `Err(Unsupported)`, never to a wrong answer. A backtracking matcher with a step budget; exhaustion is `Err(Budget)` | no |
+| `csv` | RFC 4180 reader and writer: quoted fields, doubled quotes, embedded newlines, CRLF and LF both accepted on input, LF on output with an opt-in CRLF | no |
+| `glob` | `matches(pattern, path) -> bool` with `*`, `?`, `**`, `[abc]`, `[a-z]`, `[!...]`. **No** brace expansion | no |
+| `term` | `is_tty() -> bool`, `color(name)`, `bold()`, `reset()`, `move_to(row, col)`, `clear_screen()`. `color` returns `""` when `NO_COLOR` is set, `TERM=dumb`, or stdout is not a tty | yes (`isatty`) |
+| `datetime` | `DateTime` (fields + `offset_minutes`), `now`, `from_unix`, `to_unix`, `add_seconds`, `format(fmt)`, `parse(s, fmt)`. Specifiers `%Y %m %d %H %M %S %f %z %%` only. **No** locale, no timezone database, no DST: a civil time carries a fixed offset, and that limit is documented in the module | yes (clock) |
+| `hash` | `fnv1a64`, `xxhash64`, `sha256` (returns a 32-byte `[]u8`; the length is asserted, not implied). The module says in one line that none of these is a password hash | no |
+| `rand` | `fill([]u8)`, `u64()`, `range(lo, hi)` by rejection sampling (no modulo bias), `shuffle([]T)`. Replaces the current header, which admits there is no entropy source | yes (`getrandom` / `BCryptGenRandom`) |
+| `process` | `Command::new([]string)`, `.env`, `.cwd`, `.capture_stdout`, `.spawn -> Result[Child, io.Error]`; `Child.wait -> Result[int, io.Error]`, `Child.stdout -> Result[string, io.Error]`, `Child.kill`, `Child.id`. **Argv only, never a shell** — that is the injection defence, and it is a test | yes (spawn/wait/pipes) |
+| `fs` | `read_dir -> Result[[]DirEntry, io.Error]`, `metadata -> Result[Metadata, io.Error]` (`size: usize`, `is_dir: bool`, `modified_unix: i64`), `create_dir`, `create_dir_all`, `remove_file`, `remove_dir`, `rename`, `copy`, `exists` | yes |
+| `path` | `absolute`, `normalize`, `file_stem`, `parent`, `is_absolute` (beside the existing `join`/`basename`/`dirname`/`extension`) | no |
+| `env` | `vars() -> []EnvVar` **sorted by name**, `set`, `unset` | yes |
+| `io` | `read_all -> Result[[]u8, io.Error]` (stdin), `write_stderr` | yes |
+| `time` | `monotonic_ns() -> u64`, `now_unix_ns() -> i64` | yes |
+| `os` | `platform() -> Platform`, `arch() -> Arch` (fieldless enums), `pid() -> i64` | yes |
+| `string` | `join([]string, sep)`, `pad_start`, `pad_end`, `char_at -> Option[string]` (one grapheme, per phase 6), `to_bytes -> []u8`, `from_bytes -> Result[string, text.Error]` — UTF-8 validated, so invalid input is an error and never a replacement character | no |
+| `args` | `all() -> []string`, `get(i) -> Option[string]`, `flag(name) -> bool` for `--name` | no |
+
+- Produces: **no sentinel on failure.** Every function that can fail returns `Result` or `Option` — the phase 3b rule, applied to every module. `grep` for a `-> string` function whose doc block says "or the empty string" is a gate.
+- Produces: **every module has at least one `pub fn` with a `///` block and at least one test program.** `crates/yashy-driver/tests/stdlib_coverage.rs` walks `crates/yashy-stdlib/yashy/*.ya` and fails when a module has no documented function or no program under `tests/programs/stdlib/` that imports it. This is the mechanical form of "the stdlib is a product, not a stub".
+- Produces: **determinism where it is cheap.** `env.vars` is sorted; `fs.read_dir` is sorted by name; `hash` and `text` are pure; nothing in the stdlib reads a clock or an RNG unless the function's name says so. The programs assert this by running twice and comparing bytes.
+- Produces: the eight rewritten modules keep their existing function names where they have one (`math.abs`, `path.join`, `JSON.escape`), so this task adds rather than renames. `math.sqrt` is already a `link_name` wrapper after phase 3b.
+- Produces: every module is part of the precompiled stdlib package from Task 4, so `hello` does not pay for `regex` being present.
+
+**Note on the eight stubs.** `alloc`, `args`, `env`, `fs`, `io`, `JSON`, `math`, `os`, `path`, `process`, `rand`, `string`, `time` are thirteen modules today; five of them (`alloc`, `io`, `JSON`, `math`, `path`) hold real code and are left alone. The other eight are prose that describes builtins living in the one shared scope, and their headers say so ("the language has no `Option` in a builtin's signature yet"). Phase 3b removed that excuse. This task gives them the functions they describe, as real functions where the language can express them and as documented builtin re-exports where it cannot.
+
+- [ ] **Step 1: Write the failing tests** — one program per module with pinned output; `Set[i64]` deduplicates and `to_array` is order-independent when compared as a set; `Deque` push/pop at both ends; `PriorityQueue` pops in comparator order; `sort_by` sorts by the closure; base64 and hex round-trip every byte value 0–255; `regex` matches and rejects the documented subset and returns `Err(Unsupported)` for a backreference; `csv` round-trips a field containing a comma, a quote and a newline; `glob` matches `**` across separators and not a `?` against `/`; `term.color` returns `""` under `NO_COLOR`; `datetime` round-trips `%Y-%m-%dT%H:%M:%S%z`; `hash.sha256("abc")` equals the published digest; `rand.range(0, 3)` never returns 3 and the distribution over 100 000 draws is within 1% of uniform; `process` runs a child, captures its stdout and its exit code, and a child that does not exist is `Err`; `fs.read_dir` is sorted; `path.normalize` collapses `..` lexically and says so in its doc block; `env.vars` is sorted; `time.monotonic_ns` never goes backwards over 10 000 calls; `os.platform` matches the build target.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — pure-Yashy modules first (`collections`, `text`, `csv`, `glob`, `hash`, `datetime`'s arithmetic, `regex`), then the runtime additions behind them. The C functions follow the phase 3b convention: a tag plus an out-parameter, never a sentinel. `PriorityQueue` and `Deque` are Yashy structs over `[]T`, so the leak suite sees them like any other array. `regex` compiles to a small instruction list and the matcher is one loop with a step counter, so the budget is a counter, not a timeout.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test stdlib_coverage --test e2e` and the leak suite → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat(stdlib): collections, text, regex, csv, glob, term, datetime, hash, entropy and process control"`
+
+---
+
+### Task 11: Docs and gate
+
+**Files:** `docs/packages.md` (new: manifest grammar, lockfile, audit, registry), `docs/stdlib.md` (new: one section per module, generated from the doc blocks by `yashy doc` so it cannot drift), `docs/tutorial/12-first-cli.md`, `docs/cli.md`, `AGENTS.md` (layout: `packages/`; the stdlib rule that a failure is a `Result`/`Option`, never a sentinel), `llms.txt`.
 
 - [ ] **Step 1: Write the docs** with a worked publish → depend → build cycle.
 - [ ] **Step 2: Run the gate table on both OSes, from a fresh clone with an empty cache and no network for the offline row.**
@@ -264,5 +317,8 @@ See the master index. The ones that bite here:
 | Precompiled stdlib equivalent | `cargo test -p yashy-driver --test stdlib_precompiled` | binary hash equals the from-source build |
 | Offline | `yashy build --offline` with a warm store | succeeds; with a cold store, `E1803` names the package |
 | Audit green | `yashy audit` on the repo's own packages | `ok: true` |
+| Stdlib is a product | `cargo test -p yashy-driver --test stdlib_coverage` | every module in `crates/yashy-stdlib/yashy/` has a documented `pub fn` and a test program |
+| No sentinel on failure | `cargo test -p yashy-driver --test stdlib_coverage` | no `-> string`/`-> int` stdlib function documents "or the empty string"/"or zero" as its failure value |
+| Stdlib is deterministic | `cargo test -p yashy-driver --test e2e` | two runs of every `tests/programs/stdlib/` program produce identical bytes |
 | Registry round-trip | `cargo test -p yashy-driver --test registry` | publish → add → build passes |
 | No regression | `cargo test --workspace` | green on Windows and Linux |

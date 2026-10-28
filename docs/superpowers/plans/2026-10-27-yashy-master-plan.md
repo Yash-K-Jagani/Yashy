@@ -4,7 +4,7 @@
 
 **Goal:** Turn Yashy into a language whose programs are provably safer than C while staying as fast and as pleasant to build as Go, with a compiler that is equally legible to a human and to an agent.
 
-**Architecture:** Thirteen phases in fourteen slices, ~142 weeks. A separate `yashy-verify` pass proves ownership, effects, typestate and contracts over the typed HIR; a content-addressed cache, a memoised query pipeline and `-O0` dev defaults make the loop fast; a dedicated optimization phase spends what the verifier proved; a dedicated syntax phase removes boilerplate without adding a concept; every later language construct ships with its verifier rules in the same phase.
+**Architecture:** Fourteen phases in fifteen slices, ~166 weeks. A separate `yashy-verify` pass proves ownership, effects, typestate and contracts over the typed HIR; a content-addressed cache, a memoised query pipeline and `-O0` dev defaults make the loop fast; a **native-foundation phase (3b)** makes the language express what C can — bitwise, `repr(C)`, byte buffers, honest `Option`/`Result` builtins — before the optimizer is written; a dedicated optimization phase spends what the verifier proved; a dedicated syntax phase removes boilerplate without adding a concept; every later language construct ships with its verifier rules in the same phase.
 
 **Tech Stack:** Rust workspace (one crate per compiler stage, plus a benchmark harness), LLVM via `clang`/`llc`, a C runtime shim, and Yashy-source stdlib. No external prover, no new runtime dependencies.
 
@@ -42,7 +42,7 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 
 ## How this plan is organised
 
-`docs/superpowers/plans/` holds this index plus **one file per phase**. All fourteen phase plans are written up front, so the whole programme can be read, reviewed and costed as one artefact:
+`docs/superpowers/plans/` holds this index plus **one file per phase**. All fifteen phase plans are written up front, so the whole programme can be read, reviewed and costed as one artefact:
 
 ```text
 2026-10-27-yashy-master-plan.md                    <- this file
@@ -50,6 +50,7 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 2026-10-27-phase-01b-verifier-enforcing.md
 2026-10-27-phase-02-effects-typestate.md
 2026-10-27-phase-03-speed-foundation.md
+2026-10-27-phase-03b-native-foundation.md
 2026-10-27-phase-04-optimization.md
 2026-10-27-phase-05-syntax-ergonomics.md
 2026-10-27-phase-06-modules-unicode.md
@@ -73,23 +74,24 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 | # | Phase | Outcome | Gate | ~wks | Status |
 |---|---|---|---|---|---|
 | 1a | Verifier core, usable | `yashy-verify` owns ownership; use-after-free, double-free, leak, `defer`; contracts in **warn** mode; `yashy verify` + `--json` + proof trace; `--timings` | Runs on every example without crashing; ownership/defer corpus 100% caught; false positives mined and fixed | 6 | **plan written** |
-| 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected | 6 | plan written |
+| 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; **the warning surface** (unused binding/import/parameter, unreachable code, `var` never reassigned) with `-W`/`--deny warnings`; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected; every warning has a code and a `--deny` test | 8 | plan written |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 | plan written |
 | 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; closes with a 2-week async spike | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 | plan written |
+| 3b | Native foundation | Bitwise operators with checked shifts; `link_name` + variadic `extern`; `repr(C)` with `sizeof`/`alignof`/`offsetof`; byte buffers; seven builtins return `Option`/`Result` instead of `""`/`0` | Every bitwise/shift case has a value or a diagnostic; `sqrt` called through `link_name`; a `repr(C)` struct round-trips through C; no builtin returns a sentinel on failure | 8 | plan written |
 | 4 | Optimization | Memoised query pipeline, parallel front end, verifier facts as IR attributes, escape promotion, interning, inlined runtime fast paths, ThinLTO + PGO, pass manager with `--opt-report` | Incremental re-analysis < 200 ms; `wordcount` allocations −40%; runtime ≤ 1.1× C on `fib`; no pass regresses its own row by >2% | 10 | plan written |
-| 5 | Syntax + ergonomics | `if let`/`while let`, `?` on `Option`, trailing block + closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }` — each desugaring to existing HIR | Every form's HIR equals its hand-written expansion; `KEYWORDS.len() == 28`; verifier corpus covers `E1002`/`E1003`/`E1004` | 8 | plan written |
+| 5 | Syntax + ergonomics | `if let`/`while let`, `?` on `Option`, trailing block + closure inference, struct/array spread, chained comparison, `for i, x`, default field values, `arena { }` — each desugaring to existing HIR; plus labeled `break`/`continue` and doc comments `///` | Every form's HIR equals its hand-written expansion; `KEYWORDS.len() == 32` (28 plus phase 1a's three contract keywords plus phase 3b's `repr`); verifier corpus covers `E1002`/`E1003`/`E1004`; a label never changes an unlabelled `break` | 10 | plan written |
 | 6 | Modules + Unicode | Namespacing, visibility, package-prefixed imports; grapheme-correct strings | Large-project import test; Unicode conformance; verifier covers both | 10 | plan written |
 | 7 | Patterns + named args | Guards, or-patterns, range patterns, nested destructuring; named/default arguments | Every form has verifier rules; exhaustiveness still proven | 8 | plan written |
-| 8 | Traits, OOP + iterators | Interfaces, generic constraints, the object model of spec §3.1 (associated functions, member visibility, no inheritance/`Drop`/operator overloading), iterator protocol, comprehensions | Dispatch proven safe; OOP conformance program; four excluded forms rejected; monomorphisation within budget | 12 | plan written |
+| 8 | Traits, OOP + iterators | Interfaces, generic constraints, generic **structs and enums**, the object model of spec §3.1 (associated functions, member visibility, no inheritance/`Drop`/operator overloading), iterator protocol, comprehensions | Dispatch proven safe; OOP conformance program; four excluded forms rejected; monomorphisation within budget; a generic `Pair[T]` monomorphises like a generic function | 15 | plan written |
 | 9 | Macros | Declarative, hygienic, `expand` | Verifier runs on expanded code; expansion deterministic and inspectable | 8 | plan written |
 | 10 | Async | Executor, futures, state machines, structured concurrency, cancellation, debugger support. **Cap:** one executor, no async traits, no generic runtime | Conformance suite; no data races proven; `async` effect enforced | 16 | plan written |
-| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs | 12 | plan written |
-| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib | Clean-checkout dependency build; real HTTP service; audit green | 12 | plan written |
-| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike | All metrics met; no P0; reproducible build | 12 | plan written |
+| 11 | AI-native + observability | `index`/`outline`/`graph`/`search`/`context`, MCP v0, sandbox v0, agent benchmark, debugger, profiler, tracing; `yashy doc` and `yashy lsp` as real subcommands | Context ≤ 8k tokens; escape tests; schema v1 frozen; benchmark runs; `yashy doc` renders every public item | 13 | plan written |
+| 12 | Libraries + packages | Package manager MVP, first-party packages, precompiled stdlib; stdlib breadth (`Set`/`Deque`/`PriorityQueue`, `regex`, `base64`/`hex`, `csv`, `glob`, `ANSI`, `datetime`, `hash`, entropy, `process.spawn`) | Clean-checkout dependency build; real HTTP service; audit green; every stdlib module has a documented, tested function | 18 | plan written |
+| 13 | 1.0 / 2.0 hardening | macOS, signed and reproducible releases, book/playground, registry prototype, self-hosting spike; `fmt --check`, `--target`, `cfg`/platform conditionals | All metrics met; no P0; reproducible build; CI fails on unformatted source | 14 | plan written |
 
-Total ≈ 142 weeks.
+Total ≈ 166 weeks.
 
-**Why this order.** The verifier comes first because every later construct is cheaper to prove at birth than to retrofit; phases 5–10 each extend it. Speed foundation (3) makes the loop fast enough that the verifier is usable; optimization (4) then spends what the verifier proved — `noalias`, `nonnull`, escape promotion — which is only sound because 1–3 established the facts, and which must land before the language grows more constructs for it to re-prove. Syntax (5) comes after optimization because sugar must lower onto the HIR the optimizer already understands, and before modules because a form that desugars is easier to review while the language is still one file per program. Modules (6) precede AI-native (11) because `index` and `graph` need a module graph. Traits and the object model (8) precede macros (9) and async (10) because both lower onto the dispatch and iterator machinery. Libraries (12) follow async because an HTTP server without it is a toy.
+**Why this order.** The verifier comes first because every later construct is cheaper to prove at birth than to retrofit; phases 5–10 each extend it. Speed foundation (3) makes the loop fast enough that the verifier is usable. **Native foundation (3b) then makes the language able to say what C says** — bitwise operations, `repr(C)` layout, byte buffers, and builtins that report failure — because those are the last surfaces the optimizer must see before it is written, and because the builtin-signature repair is a breaking change that is cheapest while the standard library is small. Optimization (4) then spends what the verifier proved — `noalias`, `nonnull`, escape promotion — which is only sound because 1–3b established the facts, and which must land before the language grows more constructs for it to re-prove. Syntax (5) comes after optimization because sugar must lower onto the HIR the optimizer already understands, and before modules because a form that desugars is easier to review while the language is still one file per program. Modules (6) precede AI-native (11) because `index` and `graph` need a module graph. Traits and the object model (8) precede macros (9) and async (10) because both lower onto the dispatch and iterator machinery. Libraries (12) follow async because an HTTP server without it is a toy.
 
 ## Gate protocol
 
@@ -105,9 +107,9 @@ A missed gate is recorded as an **exception**: a dated entry in the phase plan n
 
 ## Cut order
 
-When a phase runs long, cut in this order: playground → profiler → coverage/lint → `task` → third-party registry → macOS signing → async cancellation → macro hygiene edge cases → chained comparison → indexed `for` → struct spread → `arena` block → typestate for channels → iterator comprehensions.
+When a phase runs long, cut in this order: playground → profiler → coverage/lint → `task` → third-party registry → macOS signing → `yashy doc` → `--target` → `cfg`/platform conditionals → generic structs and enums → stdlib breadth (`regex` → `csv` → `glob` → `ANSI` → `datetime` → `PriorityQueue` → `Deque` → `Set`) → `process.spawn` → OS entropy → variadic FFI → async cancellation → macro hygiene edge cases → chained comparison → indexed `for` → struct spread → `arena` block → typestate for channels → iterator comprehensions.
 
-**Never cut:** the verifier, the gate commands, both-OS CI, the benchmark gate, or the contract/effect schema.
+**Never cut:** the verifier, the gate commands, both-OS CI, the benchmark gate, the contract/effect schema — **or the native foundation** (bitwise operators, `link_name`, `repr(C)`/`sizeof`, byte buffers, the honest `Option`/`Result` builtin signatures) **or the warning surface**. Cutting those does not shrink the language; it withdraws the claim that it can replace C.
 
 ## Starting a phase
 

@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn thirteen phases of work into a release someone can install, reproduce, read about, and trust — with macOS actually supported rather than mentioned, and with a self-hosting spike that answers the 2.0 question with evidence instead of optimism.
+**Goal:** Turn fifteen phases of work into a release someone can install, reproduce, read about, and trust — with macOS actually supported rather than mentioned, with a self-hosting spike that answers the 2.0 question with evidence instead of optimism, and with the three developer surfaces a release needs: a format gate CI can enforce, a `--target` that is not the host by assumption, and `cfg` so a program can be platform-specific.
 
-**Architecture:** This phase adds almost no language. It adds the four things a 1.0 needs and a prototype does not: **a third platform** (macOS, signed and notarised, tested by the installer suite), **reproducible builds** (a hash a stranger can recompute), **a release process** (signed artifacts, checksums, changelog, clean-VM installs), and **documentation a newcomer can finish** (book, playground, `yashy doc`). The self-hosting spike is a design record plus a differential test, deliberately not a compiler.
+**Architecture:** This phase adds one small piece of language and the four things a 1.0 needs and a prototype does not: **a third platform** (macOS, signed and notarised, tested by the installer suite), **reproducible builds** (a hash a stranger can recompute), **a release process** (signed artifacts, checksums, changelog, clean-VM installs), and **documentation a newcomer can finish** (book, playground, `yashy doc`). The one language addition is `cfg`, and it is here because it is the last thing a release needs from the front end: without it a program cannot be platform-specific. Beside it, `--target` stops the target triple being an assumption hidden in the emitter, and `fmt --check` gives CI the format gate the rest of the programme has been doing by hand. The self-hosting spike is a design record plus a differential test, deliberately not a compiler.
 
-**Tech Stack:** `.github/workflows/{release,ci,bench}.yml`, `scripts/{package-release,install,test-install,checksums}.*`, `crates/yashy-driver` (`--reproducible`), the phase 11 sandbox (playground), the phase 12 registry format (hosted index), and a new `selfhost/` directory for the spike.
+**Tech Stack:** `.github/workflows/{release,ci,bench}.yml`, `scripts/{package-release,install,test-install,checksums}.*`, `crates/yashy-driver` (`--reproducible`, `fmt --check`, `--target`), `crates/yashy-lexer`/`yashy-parser`/`yashy-driver` (the `cfg` keyword and the pre-resolution filter), `crates/yashy-codegen` (one `target_triple` threaded through), the phase 11 sandbox (playground), the phase 12 registry format (hosted index), and a new `selfhost/` directory for the spike.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 13. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-12-libraries-packages.md`.
 
@@ -33,10 +33,48 @@ See the master index. The ones that bite here:
 3. **The playground is the sandbox's customer, not a second sandbox.** It calls `yashy run --sandbox` with the phase 11 capability set; a request that would escape is refused by the same code the escape corpus tests.
 4. **The book's every code block is executed by CI.** A book with a broken example is worse than no book, and the tutorial harness already proves the mechanism.
 5. **A P0 is anything that produces a wrong binary, a panic on valid input, or a security escape.** "No P0 open" means the triage list is empty and the crash corpus is clean, not that the list was relabelled.
+6. **A disabled `cfg` item is not checked, and that is the feature.** If the filter ran after resolution, `cfg(windows) { win32_call() }` would fail to compile on Linux and the construct would be useless. The test that proves it is a program whose disabled branch calls a function that exists nowhere.
+7. **A misspelled cfg key must not delete code.** `cfg(window)` is `E2202`, not `false`. Every other unknown-name rule in the compiler is strict; this one matters more than most, because the symptom is a branch that silently disappears and a program that silently does the wrong thing on one platform.
+8. **`fmt --check` must not depend on the checkout's line endings.** `core.autocrlf=true` is the default on Windows and the repository uses LF in the index, so the comparison normalises CRLF before comparing. A gate that fails on a clean tree is a gate people disable.
 
 ---
 
-### Task 1: macOS build, sign and notarise
+### Task 1: The developer surface — `fmt --check`, `--target`, `cfg`
+
+**Files:**
+- Modify: `crates/yashy-driver/src/main.rs` (`fmt --check`; `--target` on `build`/`run`/`check`/`test`; `check --print-cfg`)
+- Modify: `crates/yashy-driver/src/pipeline.rs` (`host_target_triple()` becomes `target_triple(options)`, so every caller names its target instead of assuming the host)
+- Modify: `crates/yashy-codegen/src/{ir.rs,module.rs}` (the data layout, the triple in the IR header, and the C ABI for `repr(C)` all take the target from the options — no `cfg!(target_os)` in the emitter)
+- Modify: `crates/yashy-runtime` (the shim is compiled with `clang --target=<triple>`, not with the host compiler)
+- Modify: `crates/yashy-lexer/src/token.rs` (`cfg` keyword; `KEYWORDS` 36 → 37)
+- Modify: `crates/yashy-parser/src/{ast.rs,items.rs,stmts.rs}` (`Item::Cfg { key: CfgExpr, item: Box<Item>, span }`, `Stmt::Cfg { key, block, span }`, `CfgExpr::{Key, Not, Any, All}`)
+- Modify: `crates/yashy-driver/src/pipeline.rs` (a **cfg filter** runs between parse and resolve, so a disabled item is never resolved, checked or verified)
+- Modify: `crates/yashy-common/src/codes.rs` (`UNSUPPORTED_TARGET = "E2200"`, `TARGET_TOOLCHAIN_MISSING = "E2201"`, `UNKNOWN_CFG_KEY = "E2202"`, `CFG_MISPLACED = "E2203"`), create the four pages, modify `docs/errors.md`
+- Modify: `crates/yashy-fmt/src/lib.rs`
+- Modify: `.github/workflows/ci.yml` (the format gate), `docs/cli.md`
+- Create: `crates/yashy-driver/tests/{fmt_check,target,cfg}.rs`, `crates/yashy-driver/tests/programs/cfg_platform.ya`
+
+**Interfaces:**
+
+- Produces: `yashy fmt --check <files…>` writes nothing, prints one line per file that is not already canonical, and exits **1** if any file would change and **0** if none. `--check` and `--write` together is a usage error (exit 2). `--json` emits the same list as `{ "schema_version": 1, "tool": "fmt", "success": bool, "files": [{ "file": …, "changed": bool }] }`, so CI can gate on it without parsing text.
+- Produces: `yashy build --target <triple>` (and `run`, `check`, `test`). The supported list is exactly six triples — `x86_64` and `aarch64` for `pc-windows-msvc`, `unknown-linux-gnu` and `apple-darwin` — and an unsupported one is `E2200` listing them. `yashy doctor --target <triple>` reports whether the C toolchain for that triple is present.
+- Produces: `E2201` when the cross C compiler is absent, naming the program it looked for. Cross-compiling is **not** made self-contained: a target needs its C toolchain, and pretending otherwise is how a cross build silently links the host's runtime.
+- Produces: `cfg(windows)`, `cfg(linux)`, `cfg(macos)`, `cfg(unix)`, `cfg(arch_x86_64)`, `cfg(arch_aarch64)`, `cfg(debug)`, `cfg(release)`, and the combinators `not(…)`, `any(…)`, `all(…)`, as an **item modifier** (`cfg(windows) import win;`), a **statement block** (`cfg(unix) { … }`), and inside a struct's field list.
+- Produces: a disabled item is **not resolved, not checked, not verified, not emitted** — that is the whole point, and it is what distinguishes `cfg` from `if false`. The filter runs on the AST before name resolution, so platform-only code that does not compile elsewhere is legal and inert.
+- Produces: `E2202` for an unknown key — `cfg(window)` is an error, never a silently false condition. A typo that deletes code is the failure mode this rule exists for, and it is the one case where being strict costs nothing.
+- Produces: `E2203` for `cfg` anywhere it cannot apply (on an expression, on a parameter, on a `let`), naming the three positions it is allowed in.
+- Produces: `yashy check --print-cfg` prints the active set for the current target, one key per line, sorted — so a build script or a confused user can see what was true.
+- Produces: the formatter round-trips all three forms; `cfg` is one keyword and adds no syntax beyond the parenthesis.
+
+- [ ] **Step 1: Write the failing tests** — `fmt --check` exits 1 on a file with a stray space and 0 after `fmt -w`; `--check --write` exits 2; `--json` lists exactly the changed files; `--target aarch64-apple-darwin` on Windows produces an object for that triple (assert the IR header and, where a cross linker exists, the archive); an unsupported triple is `E2200`; a missing cross toolchain is `E2201` with the program named; `cfg(windows) { a() } cfg(linux) { b() }` runs exactly one; the disabled branch may contain a call to a function that does not exist anywhere and still compiles; `cfg(window)` is `E2202`; `cfg` on a `let` is `E2203`; `--print-cfg` lists the expected keys for the host; the formatter round-trips all three positions; `KEYWORDS.len() == 37`.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — `fmt --check` reuses the existing `format` function and compares bytes after normalising CRLF, so a checkout with `core.autocrlf=true` does not report every file. `target_triple` threads one value from the CLI to codegen and to the runtime build; nothing else reads `cfg!(target_os)`. The cfg filter is a pure AST transform with the key set derived from the target triple plus the build profile, and it runs before `resolve` so that "not resolved" is the default for a disabled item. `cfg` is parsed as a modifier by looking one token past the identifier.
+- [ ] **Step 4: Run** `cargo test -p yashy-driver --test fmt_check --test target --test cfg --test e2e` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: fmt --check, --target and cfg, so CI can gate formatting and a program can be platform-specific (E2200-E2203)"`
+
+---
+
+### Task 2: macOS build, sign and notarise
 
 **Files:**
 - Modify: `.github/workflows/release.yml` (a `macos-14` job: arm64 and x86_64 universal or two archives)
@@ -57,7 +95,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 2: Reproducible builds
+### Task 3: Reproducible builds
 
 **Files:**
 - Modify: `crates/yashy-driver/src/{main.rs,pipeline.rs}` (`--reproducible`, `SOURCE_DATE_EPOCH`)
@@ -78,7 +116,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 3: The release process
+### Task 4: The release process
 
 **Files:**
 - Modify: `.github/workflows/release.yml` (all three platforms, one draft release, checksums, changelog)
@@ -97,11 +135,12 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 4: The book
+### Task 5: The book
 
 **Files:**
 - Create: `book/src/` (mdBook layout: getting started, language guide, verification guide, tooling, packages, cookbook, reference)
 - Modify: `docs/tutorial/` (the chapters become book chapters; the tutorial harness keeps running them from one source)
+- Create: `docs/tutorial/19-platforms.md` (the chapter Task 1 makes possible: `cfg`, `--target`, what the three platforms guarantee, and what cross-compiling does and does not give you)
 - Create: `.github/workflows/book.yml` (build the book, run every code block, deploy on tag)
 
 **Interfaces:**
@@ -115,7 +154,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 5: The playground
+### Task 6: The playground
 
 **Files:**
 - Create: `playground/` (a static front end and a tiny server that shells out to `yashy run --sandbox`)
@@ -134,7 +173,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 6: A hosted read-only registry index
+### Task 7: A hosted read-only registry index
 
 **Files:**
 - Create: `registry/` (a static index generated from the first-party packages, published to a static host)
@@ -151,7 +190,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 7: The self-hosting spike
+### Task 8: The self-hosting spike
 
 **Files:**
 - Create: `selfhost/{yashy.toml,src/{lexer.ya,parser.ya,ast.ya}}`
@@ -169,7 +208,7 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 8: The all-gates runbook and P0 triage
+### Task 9: The all-gates runbook and P0 triage
 
 **Files:**
 - Create: `docs/gates.md` (every gate from every phase, its command, its budget, and its owner)
@@ -181,14 +220,14 @@ See the master index. The ones that bite here:
 - Produces: one command that runs the whole gate set on a clean checkout, with a machine-readable `--json` summary.
 - Produces: a triage list with every open issue classified; "no P0" means the P0 section is empty and the crash corpus (`never_panics`, `sandbox_escape`, `repro-check`) is green.
 
-- [ ] **Step 1: Write the runbook** by collecting the gate tables from all thirteen phase plans; a missing gate is a finding.
+- [ ] **Step 1: Write the runbook** by collecting the gate tables from all fifteen phase plans; a missing gate is a finding.
 - [ ] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception.
 - [ ] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
 - [ ] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
 
 ---
 
-### Task 9: The 1.0 release
+### Task 10: The 1.0 release
 
 **Files:**
 - Modify: `Cargo.toml` (version 1.0.0), `CHANGELOG.md`, `README.md`
@@ -196,10 +235,10 @@ See the master index. The ones that bite here:
 
 **Interfaces:**
 - Produces: a release note that states, with numbers: compile and test times, runtime ratios, binary size, the verifier's corpus results, the false-positive count (zero), and the platform list.
-- Produces: `docs/1.0.md`'s "does not promise" list — no dynamic dispatch, no generic types, no async traits, no procedural macros, no WASM target, no third-party registry hosting. Naming the limits is part of shipping.
+- Produces: `docs/1.0.md`'s "does not promise" list — no dynamic dispatch, no generic traits, no async traits, no procedural macros, no WASM target, no third-party registry hosting. Naming the limits is part of shipping.
 
 - [ ] **Step 1: Run the full gate set** one last time on a clean checkout, all three platforms.
-- [ ] **Step 2: Tag `v1.0.0`** and publish through the Task 3 process.
+- [ ] **Step 2: Tag `v1.0.0`** and publish through the Task 4 process.
 - [ ] **Step 3: Verify the published artifacts** with the install matrix, from the tag, on all three platforms.
 - [ ] **Step 4: Commit and record** — `git commit -m "release: 1.0.0"`; record the tag, the hashes and the gate table in this plan and in the index.
 
@@ -219,4 +258,7 @@ See the master index. The ones that bite here:
 | Self-hosting evidence | `cargo test -p yashy-driver --test selfhost_diff` | pass rate recorded; design record written |
 | All gates | `scripts/gates` | every phase gate green, or a dated exception |
 | No P0 | `docs/triage.md` | P0 list empty; crash corpus green |
+| CI fails on unformatted source | `cargo test -p yashy-driver --test fmt_check` | `fmt --check` exits 1 on a misformatted file, 0 on the repository, and agrees with `fmt -w` |
+| Cross-compilation | `yashy build --target <triple>` on each of the six triples | the binary runs on that platform; `E2200`/`E2201` name the unsupported triple and the missing toolchain |
+| Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |

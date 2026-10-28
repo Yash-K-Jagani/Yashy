@@ -8,7 +8,7 @@
 
 This phase also completes the **object model written in spec §3.1** — `object` and `impl` already parse and run (`objects.ya`, `methods.ya`), so what remains is the parts the model promises and the language does not yet have: associated functions called through a type path, visibility applied to fields and methods rather than only to items, and the negative rules (no inheritance, no `Drop`, no operator overloading) enforced by tests rather than by prose. The phase is not done when the model is documented; it is done when a conformance program exercises every rule and a corpus proves the excluded forms do not compile.
 
-**Tech Stack:** `yashy-parser` (`Item::Fn.type_params`, `Item::Impl`), `yashy-sema/src/check_expr.rs` (`GenericFn`, `mangled_generic_name`, method resolution), `yashy-hir` (`HirStmt::ForIn`), `yashy-codegen` (`stmt_gen.rs`), `yashy-verify`, `yashy-lsp`.
+**Tech Stack:** `yashy-parser` (`Item::Fn.type_params`, `Item::Struct`/`Item::Enum` type parameters, `Item::Impl`), `yashy-sema/src/check_expr.rs` (`GenericFn`, `mangled_generic_name`, `TypeScheme` for generic types, method resolution), `yashy-hir` (`HirStmt::ForIn`), `yashy-codegen` (`stmt_gen.rs`), `yashy-verify`, `yashy-lsp`.
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.1 (the object model), §8 row 8. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-07-patterns-named-args.md`.
 
@@ -25,25 +25,25 @@ See the master index. The ones that bite here:
 
 ## The object model this phase completes (spec §3.1)
 
-The model is nine rules. Five hold in the code today and are proved to keep holding by Task 11's conformance program; four are built here, because the language currently has `object`/`impl`/methods but not traits, trait impls, type paths or member visibility. The list is repeated so the plan can be checked against it without opening the spec:
+The model is nine rules. Five hold in the code today and are proved to keep holding by Task 12's conformance program; four are built here, because the language currently has `object`/`impl`/methods but not traits, trait impls, type paths or member visibility. The list is repeated so the plan can be checked against it without opening the spec:
 
 | Rule | State entering this phase | Built here |
 |---|---|---|
 | One representation per type; a struct's layout is its declaration order | Holds (`object`/`struct` lowering) | — |
 | A trait is a requirement set, never state or fields | — | Task 1, Task 2 |
 | `impl` is inherent or `impl Trait for Type` | Inherent holds; trait impls are new | Task 2 |
-| Static dispatch only: no `dyn`, no vtable, no RTTI | Holds by construction | Task 1 (cap), Task 10 |
+| Static dispatch only: no `dyn`, no vtable, no RTTI | Holds by construction | Task 1 (cap), Task 11 |
 | Receivers are `self` (by value) or `self: *mut T` | Holds (`mutating_methods.ya`) | Task 2 (receiver-kind check) |
-| No `Drop`: release is `defer` and `.free()` | Holds (no hook exists) | Task 11 (proves it stays true) |
-| No operator overloading | Holds (no trait-driven operators) | Task 11 (proves it stays true) |
-| Associated functions `Type::name(..)` | **Does not exist** (no `::` token) | Task 5 |
-| Visibility applies to fields and methods, not only items | Items hold (phase 6); members do not | Task 6 |
+| No `Drop`: release is `defer` and `.free()` | Holds (no hook exists) | Task 12 (proves it stays true) |
+| No operator overloading | Holds (no trait-driven operators) | Task 12 (proves it stays true) |
+| Associated functions `Type::name(..)` | **Does not exist** (no `::` token) | Task 6 |
+| Visibility applies to fields and methods, not only items | Items hold (phase 6); members do not | Task 7 |
 
 ## Written cap (this phase)
 
 **Static dispatch only. No `dyn Trait`, no trait objects, no vtable, no runtime type information.** Dynamic dispatch is not cut for time; it is excluded because it would put a call target the verifier cannot name behind every trait call, and the verifier's soundness argument is the whole product. A future dynamic-dispatch design needs its own spec section, its own verifier story and its own phase. Recording it here is the exception record the governance section requires.
 
-**Generic functions only.** Generic structs, enums and traits-with-generic-parameters are out of scope; `Vec[T]` and `Map[K, V]` remain built-in types with monomorphic runtime representations.
+**Generic functions, structs and enums — but not generic traits.** `trait From[T]` is out of scope: a generic trait multiplies the coherence question (one impl per argument tuple, and two impls can overlap without either being a duplicate) and coherence is the thing this phase exists to prove. `Vec[T]` and `Map[K, V]` remain built-in types with monomorphic runtime representations.
 
 ## Review Focus
 
@@ -54,13 +54,15 @@ The model is nine rules. Five hold in the code today and are proved to keep hold
 5. **`for x in xs` must produce identical results to today for arrays and slices.** The lowering changes; the observable behaviour may not. The existing `for` tests are the regression proof.
 6. **The excluded parts of the object model fail to compile, and a test says so.** `object A : B` (inheritance), `impl Drop for T` (a release hook), `trait T { x: i64 }` (state in a trait) and `a + b` on a user type that has an `add` method (operator overloading) must each be rejected with a diagnostic that names the excluded feature and the replacement (`defer`/`.free()`, a named method, an explicit function). Prose in the spec is not enforcement; the corpus is.
 7. **An associated function is not a method.** `Point::origin()` has no receiver and cannot touch `self`; `Point::new(x)` returns a value and does not mutate an existing one. Allowing `self` in an associated function would make the type path a second way to spell a method call, and the two would drift in resolution order. A body that names `self` in a function with no receiver is `E0001` at that `self` — an ordinary unresolved name, not a special diagnostic — and the fix note says to add a receiver if a method was meant.
+8. **A generic type is a scheme that is instantiated, not a template that is copied.** `Pair[i64]` and `Pair[string]` are two types, interned once each, and `Pair[i64]` written at ten sites is still one type with one layout and one emitted `type` definition. The failure mode this guards against is a naive substitution that emits a fresh struct per *use site*, which inflates the binary and defeats the monomorphisation budget in Task 10. The test asserts one `type` per argument tuple, not one per use.
+9. **A generic type's bound is checked where it is instantiated, which includes inside another generic body.** `fn first[T](p: Pair[T]) -> T` is only legal if `Pair`'s own bound is satisfiable for every `T` the function can be called with, so the check is on the function's bound set, not deferred to the call. Deferring it would let a monomorphisation fail at codegen time, where there is no diagnostic span for it.
 
 ---
 
 ### Task 1: Trait declarations
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/token.rs` (`trait` keyword; `KEYWORDS` grows from 28 to 29)
+- Modify: `crates/yashy-lexer/src/token.rs` (`trait` keyword; `KEYWORDS` grows from 32 to 33)
 - Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`Item::Trait { name, methods: Vec<TraitMethod>, span }`)
 - Modify: `crates/yashy-fmt/src/lib.rs`
 
@@ -146,7 +148,38 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 4: Method resolution order
+### Task 4: Generic structs and enums
+
+**Files:**
+- Modify: `crates/yashy-parser/src/ast.rs` (`Item::Struct` and `Item::Enum` gain `type_params: Vec<(String, Span)>`, the same shape `Item::Fn` already has; `TypeExpr::Generic { name, args }` already parses in a signature, so a field type needs no new syntax)
+- Modify: `crates/yashy-parser/src/items.rs` (parse `struct Pair[T] { .. }`, `enum Maybe[T] { .. }`, `struct Entry[K, V] { .. }`)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (a generic type is a **scheme**: `TypeScheme { params: Vec<String>, body: StructBody }` in the type table; instantiating `Pair[i64]` produces one monomorphic object type per argument tuple, named by the existing `mangled_generic_name`)
+- Modify: `crates/yashy-sema/src/lib.rs` (field and variant lookup instantiates the scheme before consulting the field table)
+- Modify: `crates/yashy-sema/src/ty.rs` (no new `TypeKind` variant: a monomorphised generic type *is* an object type, so every existing rule — layout, ownership, pattern matching, exhaustiveness — applies unchanged)
+- Modify: `crates/yashy-codegen/src/{ir.rs,module.rs}` (one emitted type per monomorphisation, memoised on the mangled name)
+- Modify: `crates/yashy-common/src/codes.rs` (`WRONG_TYPE_ARG_COUNT = "E1509"`, `UNUSED_TYPE_PARAMETER = "E1510"`), create `docs/errors/{E1509,E1510}.md`, modify `docs/errors.md`
+- Modify: `crates/yashy-fmt/src/lib.rs`
+- Create: `crates/yashy-driver/tests/programs/generic_types.ya`, modify `crates/yashy-driver/tests/e2e.rs`
+- Create: `crates/yashy-driver/tests/verify_corpus/{generic_type_arity.ya,generic_type_unused_param.ya}`
+
+**Interfaces:**
+- Produces: `struct Pair[T] { first: T, second: T }`, `enum Maybe[T] { Nothing, Just(T) }`, `struct Entry[K, V] { key: K, value: V }`, used as `Pair[i64]`, `Maybe[string]`, `Entry[string, i64]` in a type position, a field, a parameter, a return type and a `let`.
+- Produces: **one monomorphisation per distinct argument tuple**, mangled by the same `mangled_generic_name` that generic functions already use (`Pair[i64]` → `Pair$i64`). A generic type and a generic function therefore share one naming scheme, one memo and one budget — Task 10's budget covers both, and there is no second instantiation cache.
+- Produces: `E1509` for the wrong number of type arguments — `Pair[i64, i64]`, `Pair[]`, or a bare `Pair` where an argument is required — naming the declared arity and the arity given.
+- Produces: `E1510` for a declared type parameter that no field or variant payload uses (`struct Wrapper[T] { n: i64 }`), because the type would then have two distinct instantiations with one layout and nothing to distinguish them.
+- Produces: bounds from Task 3 apply to a type parameter of a struct or enum: `struct Pair[T: Show]` checks the bound at every instantiation, and a missing impl is the existing `E1503` at the instantiation site, not a new code.
+- Produces: a type that names itself in a field list (`struct Node { next: Node }`, `struct Node[T] { next: Node[T] }`) is still rejected, because a type's name is not in scope inside its own fields. That behaviour is asserted by a test and **not changed here** — recursion through a pointer is the supported form and needs no new rule.
+- Produces: `Pair[i64]` and `Pair[string]` are distinct types with distinct layouts and distinct symbols; `Pair[i64]` written twice is one type, and the test asserts the IR contains one `%Pair$i64 = type` definition.
+
+- [ ] **Step 1: Write the failing tests** — `Pair[i64]` and `Entry[string, i64]` construct, read their fields and print; `Maybe[T]` matches exhaustively for each instantiation and a missing arm is still `E0600`; two instantiations of one scheme emit two types and one instantiation emits one; `Pair[i64, i64]` is `E1509` with both arities; a bare `Pair` is `E1509`; `struct Wrapper[T] { n: i64 }` is `E1510`; `Pair[T: Show]` with an unbounded argument type is `E1503`; `Pair[i64]` and `Pair[string]` do not unify; a generic type used inside a generic function (`fn first[T](p: Pair[T]) -> T`) monomorphises once per `T`; the formatter round-trips the declaration and the use.
+- [ ] **Step 2: Watch them fail.**
+- [ ] **Step 3: Implement** — `Struct`/`Enum` gain `type_params`; the item pass records a `TypeScheme` instead of a concrete type when the list is non-empty; `resolve_type` on `TypeExpr::Generic` looks the scheme up, checks arity (`E1509`), substitutes the arguments into the fields, and interns the result under `mangled_generic_name`; a non-generic name with type arguments is `E1509` too, and a generic name with none is `E1509`. The unused-parameter check (`E1510`) is one walk over the field types collecting the parameters actually mentioned. Codegen emits from the interned table, so a type used twice is declared once.
+- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e --test verify` → PASS.
+- [ ] **Step 5: Commit** — `git commit -m "feat: generic structs and enums, one monomorphisation per argument tuple (E1509, E1510)"`
+
+---
+
+### Task 5: Method resolution order
 
 **Files:**
 - Modify: `crates/yashy-sema/src/check_expr.rs` (method call path)
@@ -163,10 +196,10 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 5: Associated functions and type paths
+### Task 6: Associated functions and type paths
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/token.rs` (`ColonColon`; `KEYWORDS` stays at 29)
+- Modify: `crates/yashy-lexer/src/token.rs` (`ColonColon`; `KEYWORDS` stays at 33)
 - Modify: `crates/yashy-parser/src/{ast.rs,exprs.rs}` (`Expr::TypePath { type_name, name, span }`)
 - Modify: `crates/yashy-sema/src/check_expr.rs` (resolution through the impl table)
 - Modify: `crates/yashy-codegen/src/{expr_gen.rs,module.rs}` (mangled symbol, no receiver)
@@ -189,7 +222,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 6: Visibility on fields and methods
+### Task 7: Visibility on fields and methods
 
 **Files:**
 - Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`FieldDef.visibility`; `pub` accepted on a method inside `impl`/`object`)
@@ -212,7 +245,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 7: The iterator protocol
+### Task 8: The iterator protocol
 
 **Files:**
 - Modify: `crates/yashy-stdlib/yashy/iter.ya` (new): `trait Iterator[T] { fn next(self: *mut Self) -> Option[T]; }`
@@ -233,7 +266,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 8: Comprehensions
+### Task 9: Comprehensions
 
 **Files:**
 - Modify: `crates/yashy-parser/src/exprs.rs` (`[expr for x in xs if cond]`, `{k: v for x in xs}`)
@@ -253,7 +286,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 9: Monomorphisation budget
+### Task 10: Monomorphisation budget
 
 **Files:**
 - Modify: `crates/yashy-sema/src/check_expr.rs` (instantiation cache and cap)
@@ -273,7 +306,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 10: The verifier learns traits
+### Task 11: The verifier learns traits
 
 **Files:**
 - Modify: `crates/yashy-verify/src/pass/effects.rs` (trait method effect = join over impls; `pure` trait ⇒ every impl must be pure)
@@ -293,7 +326,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 11: The OOP conformance program
+### Task 12: The OOP conformance program
 
 **Files:**
 - Create: `crates/yashy-driver/tests/programs/oop_conformance.ya`
@@ -314,7 +347,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 12: Tooling
+### Task 13: Tooling
 
 **Files:**
 - Modify: `crates/yashy-lsp/src/server.rs` (completion lists trait methods with their signatures; go-to-definition on `x.show()` lands on the impl, and on the trait declaration from a bound; completion after `Point::` lists associated functions and `Point::` alone never lists a receiver-taking method)
@@ -327,11 +360,11 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 
 ---
 
-### Task 13: Docs and gate
+### Task 14: Docs and gate
 
-**Files:** `docs/tutorial/14-traits.md` (rewritten as "Traits and objects", covering §3.1 rule by rule), `docs/tutorial/09-arrays.md` (comprehensions), `docs/errors/{E0801,E1500..E1508}.md`, `AGENTS.md` (identity: static dispatch only; no inheritance; no `Drop`; associated functions are not methods; the written cap), `llms.txt`.
+**Files:** `docs/tutorial/14-traits.md` (rewritten as "Traits and objects", covering §3.1 rule by rule), `docs/tutorial/04-structs.md` (generic structs and enums), `docs/tutorial/09-arrays.md` (comprehensions), `docs/errors/{E0801,E1500..E1510}.md`, `AGENTS.md` (identity: static dispatch only; no inheritance; no `Drop`; associated functions are not methods; a generic type is a scheme, not a template; the written cap), `llms.txt`.
 
-- [ ] **Step 1: Write the chapters** with runnable blocks, including the conformance program from Task 11 as the worked example.
+- [ ] **Step 1: Write the chapters** with runnable blocks, including the conformance program from Task 12 as the worked example.
 - [ ] **Step 2: Run the gate table on both OSes.**
 - [ ] **Step 3: Commit and record** — `git commit -m "docs: traits, the object model, iterators and comprehensions, and close phase 8"`.
 
@@ -344,6 +377,8 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 | Dispatch proven safe | `cargo test -p yashy-sema` | no dynamic target exists; every trait call names one impl |
 | Coherence | `cargo test -p yashy-sema` | duplicate impl `E1501`, incomplete impl `E1502` |
 | Bounds | `cargo test -p yashy-sema` | unsatisfied bound `E1503`, ambiguity `E1504` |
+| Generic types instantiate once | `cargo test -p yashy-codegen -p yashy-driver --test e2e` | `generic_types.ya`: `Pair[i64]` written twice emits one `type`; `Pair[i64]` and `Pair[string]` emit two |
+| Generic type arity and parameters | `cargo test -p yashy-driver --test verify` | wrong arity `E1509`; unused type parameter `E1510`; a generic type inside a generic function monomorphises per argument |
 | Associated functions | `cargo test -p yashy-driver --test e2e` | `associated_fns.ya`: `Type::name(..)` resolves; `E1506`/`E1507`/`E1508` fire on the three wrong forms |
 | Member visibility | `cargo test -p yashy-driver --test e2e` | `visibility.ya`: private field/method across modules is `E0801`; sibling types may read it |
 | Object model conformance | `cargo test -p yashy-driver --test verify --test e2e --test never_panics` | the conformance transcript matches; the four excluded forms are diagnostics with their expected codes |
