@@ -726,7 +726,7 @@ Committed as `e4fb4a3`.
   - Human form on stderr: `timing: check 41 ms`
   - JSON form: `"timings": [{"phase": "check", "ms": 41}]`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```rust
 #[test]
@@ -738,28 +738,55 @@ fn timings_go_to_stderr_and_the_json_report_and_never_to_stdout() {
 }
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+Written as two tests: the sketch above, plus
+`test_timings_are_one_report_for_the_whole_suite`, which compiles two tests and
+asserts exactly one `timing: link` line. The aggregate is a decision, not an
+accident, so it gets its own assertion.
+
+- [x] **Step 2: Run and watch it fail**
 
 Run: `cargo test -p yashy-driver --test verify timings`
 Expected: FAIL — unknown option `--timings`.
 
-- [ ] **Step 3: Instrument the phases**
+Result: FAIL as expected — `error: unknown option `--timings` for `run`` and the
+usage text printed by the CLI.
+
+- [x] **Step 3: Instrument the phases**
 
 Phases measured: `load` (module loading), `check` (`check_modules_with`), `verify`, `emit` (`emit_program`), `link` (`clang`). `load_and_check` becomes a wrapper that calls `load_and_check_timed` with a scratch vector, so no call site changes.
 
 `--timings` is accepted by every command that compiles; it prints after the work finishes, to stderr, one line per phase in order, and adds the array to the JSON envelope. It never writes to stdout.
 
-- [ ] **Step 4: Run the tests**
+Decisions taken while building this:
+
+- **A timed function keeps the untimed one's signature.** `load_and_check`, `check_and_verify` and `compile_hir` each became a three-line wrapper around a `*_timed` variant that takes `&mut Vec<PhaseTiming>`. Nothing outside the CLI changes, and the tests that call the library directly keep compiling unchanged.
+- **`build` grew an outcome type.** `build_measured` returns `BuildOutcome { code, timings }` and never prints; `build` is the wrapper that prints. `test` calls `build_measured` directly, which is what lets it print one report for the suite instead of five lines per test.
+- **"Empty vector" is how a command says the flag was not passed.** `check` and `verify` collect into a scratch vector when `--timings` is absent, so `report_timings` needs no flag parameter and cannot disagree with what was collected. The first draft always collected into the reported vector, and `verify` printed timings without being asked — the test caught it.
+- **stderr and the envelope are disjoint.** The human form writes one `timing: <phase> <ms> ms` line to stderr and never to stdout, so `run`'s program output stays byte-identical. `--json` puts the numbers in the envelope and writes nothing to stderr, so a tool parsing the JSON never sees a stray line.
+- **`test --json` aggregates with `accumulate`**, keeping first-seen order and saturating the sum, so the report answers "where did the run's time go?" rather than listing every test's phases.
+- **A failing build still reports.** A type error prints `load` and `check` after the diagnostic, because a build that is slow *and* broken is when the number is most useful.
+- **Deviation from the sketch above.** It expected `check --json --timings` to carry a `verify` row. `check` does not run the verifier — Task 5 wired verification into `build` and `run`, not into `check` — so its report is `load` + `check`. The test asserts that, and `verify --json --timings` is the command that carries `load`, `check` and `verify`. Making `check` verify would be a different change with its own exit-code question.
+
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p yashy-driver --test verify --test diagnostics_json`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Result: PASS. The driver's `verify` suite is 7 tests (the two timings tests plus
+the five verifier tests), `diagnostics_json` is unchanged at 8, and the full
+workspace is 1265 tests, exit 0. The manual smoke test also holds: `test
+--timings` prints one aggregate after the summary, `test --json --timings`
+carries the same totals in `timings`, and `build --timings` on a program with a
+type error prints `load` and `check` after the diagnostic.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
 git commit -m "feat(driver): add --timings so phase budgets are measurable"
 ```
+
+Committed as `TBD`.
 
 ---
 

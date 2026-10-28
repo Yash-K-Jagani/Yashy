@@ -30,18 +30,18 @@ use yashy_common::{
     EXIT_OK, EXIT_USAGE,
 };
 use yashy_driver::{
-    check_and_verify, compile_hir, detect, load_and_check, resolve_opt, BuildOptions, CpuTarget,
-    OptLevel,
+    check_and_verify_timed, compile_hir_timed, detect, load_and_check_timed, resolve_opt, timed,
+    BuildOptions, CpuTarget, OptLevel, PhaseTiming,
 };
 use yashy_verify::VerifyOptions;
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [-- <args>...]
-  yashy check <file.ya> [--json]
-  yashy verify <file.ya> [--json]
-  yashy test [path] [--filter <substring>] [--list] [--json]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [-- <args>...]
+  yashy check <file.ya> [--json] [--timings]
+  yashy verify <file.ya> [--json] [--timings]
+  yashy test [path] [--filter <substring>] [--list] [--json] [--timings]
   yashy explain <code> [--json]
   yashy init [path]
   yashy doctor [--json]
@@ -66,6 +66,8 @@ usage:
                optimization level defaults to -O3 unless an explicit -O
                level is given
   --emit-ir    print the generated LLVM IR to stdout and stop
+  --timings    print how long each pipeline phase took, to stderr (or in the
+               JSON report); stdout is never touched
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
 fn main() -> ExitCode {
@@ -101,11 +103,35 @@ fn main() -> ExitCode {
     }
 }
 
-/// `yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir]`.
+/// What one build produced: its exit code and the phases it measured.
+///
+/// A build is callable without printing a timing report of its own because
+/// `test` compiles one program per test and wants one report for the suite, not
+/// five lines per test. [`build`] is the wrapper that prints.
+struct BuildOutcome {
+    code: ExitCode,
+    /// Empty unless `--timings` was passed.
+    timings: Vec<PhaseTiming>,
+}
+
+/// `yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings]`.
 fn build(args: &[String]) -> ExitCode {
+    let outcome = build_measured(args);
+    // An empty vector means the flag was not passed, so this is silent then.
+    report_timings(&outcome.timings);
+    outcome.code
+}
+
+fn build_measured(args: &[String]) -> BuildOutcome {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
+    let mut timings_flag = false;
+    // Every exit before the pipeline starts has no phase to report.
+    let stopped = |code: ExitCode| BuildOutcome {
+        code,
+        timings: Vec::new(),
+    };
     // Defaulting to `-O2` is the whole point of exposing this: the compiler
     // emits unoptimized IR so it stays readable, and hands the optimization to
     // LLVM. A build that passes no level gets `-O0` and a binary an order of
@@ -132,37 +158,40 @@ fn build(args: &[String]) -> ExitCode {
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
+            "--timings" => timings_flag = true,
             "--fast-math" => fast_math = true,
             "--release" => release = true,
             "--native" => cpu = CpuTarget::Native,
             "--cpu" => match args.next() {
                 Some(value) => match CpuTarget::parse(value) {
                     Some(target) => cpu = target,
-                    None => return usage_error(&unknown_cpu(value)),
+                    None => return stopped(usage_error(&unknown_cpu(value))),
                 },
-                None => return usage_error("`--cpu` needs a value"),
+                None => return stopped(usage_error("`--cpu` needs a value")),
             },
             "-o" | "--output" => match args.next() {
                 Some(value) => output = Some(PathBuf::from(value)),
-                None => return usage_error("`-o` needs a path"),
+                None => return stopped(usage_error("`-o` needs a path")),
             },
             other => {
                 if let Some(value) = other.strip_prefix("--cpu=") {
                     match CpuTarget::parse(value) {
                         Some(target) => cpu = target,
-                        None => return usage_error(&unknown_cpu(value)),
+                        None => return stopped(usage_error(&unknown_cpu(value))),
                     }
                 } else if let Some(level) = OptLevel::parse(other) {
                     opt = Some(level);
                 } else if other.starts_with("-O") {
-                    return usage_error(&format!(
+                    return stopped(usage_error(&format!(
                         "`{other}` is not an optimization level; use -O0, -O1, -O2 or -O3"
-                    ));
+                    )));
                 } else if other.starts_with('-') {
-                    return usage_error(&format!("unknown option `{other}`"));
+                    return stopped(usage_error(&format!("unknown option `{other}`")));
                 } else {
                     if input.is_some() {
-                        return usage_error(&format!("unexpected extra argument `{other}`"));
+                        return stopped(usage_error(&format!(
+                            "unexpected extra argument `{other}`"
+                        )));
                     }
                     input = Some(PathBuf::from(other));
                 }
@@ -175,35 +204,52 @@ fn build(args: &[String]) -> ExitCode {
     // mismatch is refused here where it can name the two architectures rather
     // than left for `clang` to report against a build far from the cause.
     if cpu.requires_x86_64() && !host_target_triple().starts_with("x86_64") {
-        return usage_error(&format!(
+        return stopped(usage_error(&format!(
             "`{}` is an x86-64 feature level, but this compiler targets `{}`",
             cpu.name(),
             host_target_triple()
-        ));
+        )));
     }
 
     let Some(input) = input else {
-        return usage_error("`build` needs a source file");
+        return stopped(usage_error("`build` needs a source file"));
     };
     let source = match read_source(&input) {
         Ok(source) => source,
-        Err(code) => return code,
+        Err(code) => return stopped(code),
     };
     let entry = input.to_string_lossy().into_owned();
+
+    // Timings are collected only when asked. An empty vector is how the
+    // outcome says "the flag was not passed", so `build` prints without having
+    // to parse the arguments a second time.
+    let mut timings = Vec::new();
+    let mut scratch = Vec::new();
+    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+        &mut timings
+    } else {
+        &mut scratch
+    };
 
     // One map for the whole program: the loader adds every imported file to it
     // as it reads that file, so a diagnostic from a module renders against the
     // module's own text. The entry point is file id zero.
     let mut sources = SourceMap::new();
-    let (hir, report) = match check_and_verify(
+    let (hir, report) = match check_and_verify_timed(
         &mut sources,
         &input,
         source,
         release,
         &VerifyOptions::default(),
+        measured,
     ) {
         Ok(checked) => checked,
-        Err(diagnostics) => return render(&sources, &diagnostics),
+        Err(diagnostics) => {
+            return BuildOutcome {
+                code: render(&sources, &diagnostics),
+                timings,
+            }
+        }
     };
 
     // An unverified binary is not a build. A verifier diagnostic may be a
@@ -212,7 +258,7 @@ fn build(args: &[String]) -> ExitCode {
     if !report.is_empty() {
         let code = render(&sources, &report.diagnostics);
         if report.error_count() > 0 {
-            return code;
+            return BuildOutcome { code, timings };
         }
     }
 
@@ -220,23 +266,28 @@ fn build(args: &[String]) -> ExitCode {
     // require an LLVM toolchain: dumping IR is exactly what you want to do on a
     // machine where the backend cannot run yet.
     if emit_ir {
-        return match check_main_exists(&hir.items) {
+        let code = match check_main_exists(&hir.items) {
             Ok(()) => {
                 let options = CodegenOptions {
                     fp_contract: fast_math,
                 };
-                print!("{}", emit_program(&hir, &entry, options));
+                let ir = timed(measured, "emit", || emit_program(&hir, &entry, options));
+                print!("{ir}");
                 exit_code(EXIT_OK)
             }
             Err(diagnostic) => render(&sources, &[diagnostic]),
         };
+        return BuildOutcome { code, timings };
     }
 
     let toolchain = match detect() {
         Ok(toolchain) => toolchain,
         Err(message) => {
             eprintln!("error: {message}");
-            return exit_code(EXIT_COMPILE_ERROR);
+            return BuildOutcome {
+                code: exit_code(EXIT_COMPILE_ERROR),
+                timings,
+            };
         }
     };
 
@@ -248,10 +299,11 @@ fn build(args: &[String]) -> ExitCode {
         fast_math,
         release,
     };
-    match compile_hir(&hir, &entry, &output, &toolchain, options) {
+    let code = match compile_hir_timed(&hir, &entry, &output, &toolchain, options, measured) {
         Ok(()) => exit_code(EXIT_OK),
         Err(diagnostics) => render(&sources, &diagnostics),
-    }
+    };
+    BuildOutcome { code, timings }
 }
 
 /// `yashy run <file.ya> [build flags] [-- <program args>...]`.
@@ -277,7 +329,9 @@ fn run(args: &[String]) -> ExitCode {
                     "`run` chooses its own output path; use `build -o` to keep a binary",
                 )
             }
-            "--release" | "--fast-math" | "--native" => build_args.push(argument.clone()),
+            "--release" | "--fast-math" | "--native" | "--timings" => {
+                build_args.push(argument.clone())
+            }
             "--cpu" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--cpu` needs a value");
@@ -433,12 +487,14 @@ fn test(args: &[String]) -> ExitCode {
     let mut filter: Option<String> = None;
     let mut list = false;
     let mut json = false;
+    let mut timings_flag = false;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--list" => list = true,
             "--json" => json = true,
+            "--timings" => timings_flag = true,
             "--filter" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--filter` needs a substring");
@@ -481,7 +537,7 @@ fn test(args: &[String]) -> ExitCode {
     }
 
     if json {
-        return test_json(&root, &tests);
+        return test_json(&root, &tests, timings_flag);
     }
 
     if list {
@@ -504,6 +560,9 @@ fn test(args: &[String]) -> ExitCode {
 
     let mut passed = 0usize;
     let mut failed = 0usize;
+    // One report for the suite: five lines per test would be noise, and what a
+    // user wants from `test --timings` is where the suite's wall time went.
+    let mut timings: Vec<PhaseTiming> = Vec::new();
     for path in &tests {
         let name = display_test_path(path);
         let dir = temp_run_dir();
@@ -513,13 +572,19 @@ fn test(args: &[String]) -> ExitCode {
             continue;
         }
         let exe = dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
-        let build_args = vec![
+        let mut build_args = vec![
             path.to_string_lossy().into_owned(),
             "-o".to_string(),
             exe.to_string_lossy().into_owned(),
         ];
-        let code = build(&build_args);
-        if code != exit_code(EXIT_OK) {
+        // The build collects only when asked, and `test` prints the aggregate
+        // itself, so the flag travels without `build` printing per test.
+        if timings_flag {
+            build_args.push("--timings".to_string());
+        }
+        let outcome = build_measured(&build_args);
+        accumulate(&mut timings, &outcome.timings);
+        if outcome.code != exit_code(EXIT_OK) {
             println!("test {name} ... FAILED (compile error)");
             failed += 1;
             let _ = fs::remove_dir_all(&dir);
@@ -550,6 +615,7 @@ fn test(args: &[String]) -> ExitCode {
         "test result: {}. {passed} passed; {failed} failed",
         if failed == 0 { "ok" } else { "FAILED" }
     );
+    report_timings(&timings);
     if failed == 0 {
         exit_code(EXIT_OK)
     } else {
@@ -563,12 +629,15 @@ fn test(args: &[String]) -> ExitCode {
 /// Compile diagnostics are collected through the same checker and code
 /// generator the human path uses, so a fact in the JSON (code, severity, file,
 /// span) is the fact the human renderer prints.
-fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
+fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
     let mut global_sources = SourceMap::new();
     let root_file = global_sources.add_file(root.display().to_string(), String::new());
+    // The suite's phase totals, so `test --json --timings` answers "where did
+    // the run spend its time?" without a line per test.
+    let mut timings: Vec<PhaseTiming> = Vec::new();
 
     if tests.is_empty() {
-        print_test_json(&global_sources, &[], &[], 0, 0);
+        print_test_json(&global_sources, &[], &[], 0, 0, None);
         return exit_code(EXIT_OK);
     }
 
@@ -576,7 +645,7 @@ fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
         Ok(toolchain) => toolchain,
         Err(message) => {
             let diagnostic = Diagnostic::new(Severity::Error, root_file, Span::SYNTHETIC, message);
-            print_test_json(&global_sources, &[diagnostic], &[], 0, 0);
+            print_test_json(&global_sources, &[diagnostic], &[], 0, 0, None);
             return exit_code(EXIT_USAGE);
         }
     };
@@ -602,7 +671,14 @@ fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
                 Span::SYNTHETIC,
                 format!("cannot create {}: {error}", dir.display()),
             );
-            print_test_json(&global_sources, &[diagnostic], &results, passed, failed);
+            print_test_json(
+                &global_sources,
+                &[diagnostic],
+                &results,
+                passed,
+                failed,
+                timings_flag.then_some(timings.as_slice()),
+            );
             return exit_code(EXIT_INTERNAL);
         }
 
@@ -637,10 +713,19 @@ fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
         // Windows accepts `/` in a path, and the module loader resolves imports
         // from this entry just as it does from the native form.
         let entry = Path::new(&file);
-        let outcome = match load_and_check(&mut sources, entry, source, false) {
-            Ok(hir) => compile_hir(&hir, &file, &exe, &toolchain, BuildOptions::default()),
+        let mut phases = Vec::new();
+        let outcome = match load_and_check_timed(&mut sources, entry, source, false, &mut phases) {
+            Ok(hir) => compile_hir_timed(
+                &hir,
+                &file,
+                &exe,
+                &toolchain,
+                BuildOptions::default(),
+                &mut phases,
+            ),
             Err(diagnostics) => Err(diagnostics),
         };
+        accumulate(&mut timings, &phases);
 
         match outcome {
             Ok(()) => match output_with_retry(&exe, &[]) {
@@ -709,7 +794,14 @@ fn test_json(root: &Path, tests: &[PathBuf]) -> ExitCode {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    print_test_json(&global_sources, &[], &results, passed, failed);
+    print_test_json(
+        &global_sources,
+        &[],
+        &results,
+        passed,
+        failed,
+        timings_flag.then_some(timings.as_slice()),
+    );
     if failed == 0 {
         exit_code(EXIT_OK)
     } else {
@@ -752,6 +844,7 @@ fn print_test_json(
     tests: &[Json],
     passed: usize,
     failed: usize,
+    timings: Option<&[PhaseTiming]>,
 ) {
     let mut summary = Json::object();
     summary.set("passed", Json::number(passed as i64));
@@ -774,7 +867,55 @@ fn print_test_json(
     );
     report.set("tests", Json::array(tests.to_vec()));
     report.set("summary", summary);
+    set_timings(&mut report, timings);
     println!("{}", report.render());
+}
+
+/// Add the `timings` array to an envelope when the flag was passed.
+///
+/// Omitted rather than empty when it was not: a report that never asked for
+/// timings should stay byte-identical to the one this compiler printed before
+/// the flag existed, and an empty array would be a new field for every caller.
+fn set_timings(report: &mut Json, timings: Option<&[PhaseTiming]>) {
+    let Some(timings) = timings else {
+        return;
+    };
+    report.set(
+        "timings",
+        Json::array(
+            timings
+                .iter()
+                .map(|timing| {
+                    let mut entry = Json::object();
+                    entry.set("phase", Json::string(timing.phase));
+                    entry.set("ms", Json::number(timing.ms as i64));
+                    entry
+                })
+                .collect(),
+        ),
+    );
+}
+
+/// Add one phase's time to a running total, keeping first-seen order.
+fn accumulate(total: &mut Vec<PhaseTiming>, timings: &[PhaseTiming]) {
+    for timing in timings {
+        match total.iter_mut().find(|seen| seen.phase == timing.phase) {
+            Some(seen) => seen.ms = seen.ms.saturating_add(timing.ms),
+            None => total.push(*timing),
+        }
+    }
+}
+
+/// Print one `timing:` line per phase, to stderr.
+///
+/// stderr is deliberate: stdout belongs to the program under `run` and to the
+/// machine-readable envelope under `--json`, and a timing line in either would
+/// corrupt it. An empty slice prints nothing, which is how a caller says the
+/// flag was not passed.
+fn report_timings(timings: &[PhaseTiming]) {
+    for timing in timings {
+        eprintln!("timing: {} {} ms", timing.phase, timing.ms);
+    }
 }
 
 fn collect_tests(root: &Path, tests: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -1408,7 +1549,12 @@ fn json_opt_path(value: Option<&Path>) -> String {
     }
 }
 
-fn print_check_json(tool: &str, sources: &SourceMap, diagnostics: &[Diagnostic]) {
+fn print_check_json(
+    tool: &str,
+    sources: &SourceMap,
+    diagnostics: &[Diagnostic],
+    timings: Option<&[PhaseTiming]>,
+) {
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.is_error())
@@ -1434,6 +1580,7 @@ fn print_check_json(tool: &str, sources: &SourceMap, diagnostics: &[Diagnostic])
         ),
     );
     report.set("summary", summary);
+    set_timings(&mut report, timings);
     println!("{}", report.render());
 }
 
@@ -1499,10 +1646,12 @@ fn span_range_json(span: Span) -> Json {
 /// `yashy check <file.ya> [--json]`.
 fn check(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut timings_flag = false;
     let mut input: Option<PathBuf> = None;
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
+            "--timings" => timings_flag = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `check`"));
             }
@@ -1525,10 +1674,21 @@ fn check(args: &[String]) -> ExitCode {
     // build still checks a `debug_assert`'s condition, it only declines to
     // lower it -- so there is no `--release` here to accept and ignore.
     let mut sources = SourceMap::new();
-    match load_and_check(&mut sources, &input, source, false) {
+    let mut timings = Vec::new();
+    let mut scratch = Vec::new();
+    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+        &mut timings
+    } else {
+        &mut scratch
+    };
+    let outcome = load_and_check_timed(&mut sources, &input, source, false, measured);
+    let reported = timings_flag.then_some(timings.as_slice());
+    match outcome {
         Ok(_) => {
             if json {
-                print_check_json("check", &sources, &[]);
+                print_check_json("check", &sources, &[], reported);
+            } else {
+                report_timings(&timings);
             }
             exit_code(EXIT_OK)
         }
@@ -1538,14 +1698,16 @@ fn check(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("check", &sources, &diagnostics);
+                print_check_json("check", &sources, &diagnostics, reported);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {
                     exit_code(EXIT_OK)
                 }
             } else {
-                render(&sources, &diagnostics)
+                let code = render(&sources, &diagnostics);
+                report_timings(&timings);
+                code
             }
         }
     }
@@ -1562,10 +1724,12 @@ fn check(args: &[String]) -> ExitCode {
 /// proof trace saying what could not be established.
 fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut timings_flag = false;
     let mut input: Option<PathBuf> = None;
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
+            "--timings" => timings_flag = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `verify`"));
             }
@@ -1587,20 +1751,33 @@ fn verify(args: &[String]) -> ExitCode {
     // Verification never depends on how hard the program will be optimized, so
     // there is no `--release` here for the same reason `check` has none.
     let mut sources = SourceMap::new();
-    match check_and_verify(
+    let mut timings = Vec::new();
+    let mut scratch = Vec::new();
+    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+        &mut timings
+    } else {
+        &mut scratch
+    };
+    let outcome = check_and_verify_timed(
         &mut sources,
         &input,
         source,
         false,
         &VerifyOptions::default(),
-    ) {
+        measured,
+    );
+    let reported = timings_flag.then_some(timings.as_slice());
+    match outcome {
         Ok((_, report)) => {
             if json {
-                print_check_json("verify", &sources, &report.diagnostics);
+                print_check_json("verify", &sources, &report.diagnostics, reported);
             } else if !report.is_empty() {
                 for diagnostic in &report.diagnostics {
                     eprint!("{}", sources.render(diagnostic));
                 }
+            }
+            if !json {
+                report_timings(&timings);
             }
             if report.error_count() > 0 {
                 exit_code(EXIT_COMPILE_ERROR)
@@ -1617,14 +1794,16 @@ fn verify(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("verify", &sources, &diagnostics);
+                print_check_json("verify", &sources, &diagnostics, reported);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {
                     exit_code(EXIT_OK)
                 }
             } else {
-                render(&sources, &diagnostics)
+                let code = render(&sources, &diagnostics);
+                report_timings(&timings);
+                code
             }
         }
     }

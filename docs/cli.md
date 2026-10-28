@@ -30,13 +30,14 @@ yashy build main.ya --emit-ir
 | `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native`. |
 | `--fast-math` | Allow fused multiply-add; results may differ. |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
+| `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
 
 ## `yashy run <file.ya>`
 
-Compiles and runs in one step. It accepts the same optimization, CPU, and
-release options as `build`. Arguments after `--` go to the program.
+Compiles and runs in one step. It accepts the same optimization, CPU, release
+and timing options as `build`. Arguments after `--` go to the program.
 
-## `yashy check <file.ya> [--json]`
+## `yashy check <file.ya> [--json] [--timings]`
 
 Lexes, parses, and type-checks without emitting an executable. Use it for fast
 feedback.
@@ -47,12 +48,14 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
-## `yashy verify <file.ya> [--json]`
+## `yashy verify <file.ya> [--json] [--timings]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
-a well-typed program is also *sound*. In R1 that means every linear value --
-every pointer, slice, map, mutex and channel -- is released on every path out of
-its scope.
+a well-typed program is also *sound*. In 1a that means two things: every linear
+value -- every pointer, slice, map, mutex and channel -- is released on every
+path out of its scope, and every `requires`, `ensures` and loop `invariant` is
+discharged. A clause the verifier cannot prove is a warning in this slice
+(see [E1100](errors/E1100.md)), so the program still builds.
 
 ```text
 yashy verify main.ya
@@ -68,16 +71,16 @@ A verifier diagnostic carries a proof trace in its JSON form -- the obligation,
 the fact that could not be established, and the remedy -- so a tool can act on
 it without parsing the message.
 
-`verify` exits `0` when every diagnostic is a warning. A `[]T` that has been
-viewed is the one case R1 warns about: the view keeps the array alive until the
-function returns, so the language gives no way to release it
-(see [E1000](errors/E1000.md)).
+`verify` exits `0` when every diagnostic is a warning. Two kinds are warnings in
+1a: a viewed `[]T`, which the view keeps alive until the function returns so the
+language gives no way to release it ([E1000](errors/E1000.md)), and a contract
+clause the verifier's domain cannot prove ([E1100](errors/E1100.md)).
 
 `build` and `run` verify by default. An unverified binary is not a build, so a
 program that leaks is refused before `clang` is started. `test` still runs the
 checker alone in R1.
 
-## `yashy test [path] [--filter <substring>] [--list] [--json]`
+## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings]`
 
 Runs every `.ya` file under `tests/` (or `path`). Each file is an ordinary
 program with a `main`; exit `0` is a pass, a panic or non-zero exit is a
@@ -88,6 +91,7 @@ failure.
 | `--filter <substring>` | Run only tests whose path contains the substring. |
 | `--list` | Print the tests that would run and exit. |
 | `--json` | Print the [schema v1 report](#json-diagnostics-schema-v1) instead of the progress lines. |
+| `--timings` | Print the suite's total time per pipeline phase. See [Timings](#timings). |
 
 `--json` writes one envelope to stdout. Compile diagnostics are nested under
 the test that produced them; top-level `diagnostics` holds setup errors such as
@@ -128,6 +132,33 @@ message names the nearest known code, for example
 ``unknown error code `E010`; did you mean `E0100`?``. With `--json`, an unknown
 code still writes that human message to stderr; the JSON envelope is for a
 catalog entry that exists.
+
+## Timings
+
+`--timings` makes the compiler report how long each pipeline phase took. It is
+accepted by `build`, `run`, `check`, `verify` and `test`, and it never writes to
+stdout: the human report goes to stderr, one line per phase, and `--json` puts
+the same numbers in the envelope instead.
+
+```text
+$ yashy run hello.ya --timings
+hello
+timing: load 1 ms
+timing: check 4 ms
+timing: verify 0 ms
+timing: emit 2 ms
+timing: link 253 ms
+```
+
+The phases are `load` (reading and parsing the entry point and its imports),
+`check` (names and types), `verify` (soundness), `emit` (LLVM IR) and `link`
+(the single `clang` invocation). A command reports only the phases it runs:
+`check` has no `verify`, `emit` or `link`, and `verify` has no `emit` or `link`.
+A phase that fails still gets a line, because a build that is slow *and* broken
+is when the number is most useful.
+
+`test --timings` prints one total for the whole suite rather than five lines per
+test, so the report answers where the run's wall time went.
 
 ## JSON diagnostics (schema v1)
 
@@ -176,10 +207,24 @@ stdout; `--json` implies no color and no prompt.
   }
   ```
 
-  `obligation` is a stable name (`leak` in R1), `missing_fact` says what the
+  `obligation` is a stable name: `leak` for ownership, and `requires`,
+  `ensures` or `invariant` for a contract clause. `missing_fact` says what the
   verifier could not prove, and `remedy` says what to write instead. A check
   diagnostic never carries one: a type error is a fact about the program, not a
   missing proof.
+- `timings` is present only when `--timings` was passed, and is omitted
+  otherwise so a report without the flag stays byte-identical:
+
+  ```json
+  "timings": [
+    { "phase": "load", "ms": 1 },
+    { "phase": "check", "ms": 4 },
+    { "phase": "verify", "ms": 0 }
+  ]
+  ```
+
+  `phase` is the stable name from [Timings](#timings) and `ms` is whole
+  milliseconds. `test --json --timings` carries the suite's totals.
 
 `test --json` uses the same envelope plus `tests` and a test summary:
 

@@ -137,6 +137,91 @@ fn verify_json_is_silent_about_proof_when_the_program_is_clean() {
     assert!(!json.contains("\"proof\""), "{json}");
 }
 
+/// A timing report is for the person measuring the compiler, never for the
+/// program being compiled: stdout must stay byte-identical whether or not the
+/// flag is passed, because a program's output is its own.
+#[test]
+fn timings_go_to_stderr_and_the_json_report_and_never_to_stdout() {
+    let dir = work_dir("timings");
+    write(
+        &dir,
+        "hello.ya",
+        "fn main() {\n    println(\"hello\");\n}\n",
+    );
+
+    let plain = run(&dir, &["run", "hello.ya"]);
+    let timed = run(&dir, &["run", "hello.ya", "--timings"]);
+    assert_eq!(plain.status.code(), Some(0), "{}", stderr(&plain));
+    assert_eq!(timed.status.code(), Some(0), "{}", stderr(&timed));
+    assert_eq!(stdout(&plain), "hello\n");
+    assert_eq!(
+        stdout(&timed),
+        stdout(&plain),
+        "`--timings` must not change what the program prints"
+    );
+    assert!(
+        stderr(&plain).is_empty(),
+        "a run without the flag stays quiet:\n{}",
+        stderr(&plain)
+    );
+
+    let report = stderr(&timed);
+    let phases: Vec<&str> = report
+        .lines()
+        .filter_map(|line| line.strip_prefix("timing: "))
+        .map(|line| line.split(' ').next().unwrap_or_default())
+        .collect();
+    for phase in ["load", "check", "verify", "emit", "link"] {
+        assert!(phases.contains(&phase), "missing `{phase}` in:\n{report}");
+    }
+
+    // `check` stops after the checker, so it has no verify phase; `verify` runs
+    // the verifier and neither of them links.
+    let check = run(&dir, &["check", "--json", "--timings", "hello.ya"]);
+    let json = stdout(&check);
+    assert_eq!(check.status.code(), Some(0), "{json}");
+    assert!(json.contains("\"phase\": \"load\""), "{json}");
+    assert!(json.contains("\"phase\": \"check\""), "{json}");
+    assert!(!json.contains("\"phase\": \"verify\""), "{json}");
+    assert!(!json.contains("\"phase\": \"link\""), "{json}");
+    assert!(stderr(&check).is_empty(), "{}", stderr(&check));
+
+    let verify = run(&dir, &["verify", "--json", "--timings", "hello.ya"]);
+    let json = stdout(&verify);
+    assert_eq!(verify.status.code(), Some(0), "{json}");
+    assert!(json.contains("\"phase\": \"load\""), "{json}");
+    assert!(json.contains("\"phase\": \"check\""), "{json}");
+    assert!(json.contains("\"phase\": \"verify\""), "{json}");
+    assert!(!json.contains("\"phase\": \"link\""), "{json}");
+}
+
+/// `test --timings` reports the suite once, not once per test: five lines per
+/// test would be unreadable at a hundred tests, and the question is where the
+/// run's wall time went.
+#[test]
+fn test_timings_are_one_report_for_the_whole_suite() {
+    let dir = work_dir("timings-suite");
+    write(&dir, "tests/a.ya", "fn main() { }\n");
+    write(&dir, "tests/b.ya", "fn main() { }\n");
+
+    let output = run(&dir, &["test", "--timings"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output).matches("... ok").count(),
+        2,
+        "{}",
+        stdout(&output)
+    );
+
+    let report = stderr(&output);
+    assert_eq!(
+        report.matches("timing: link ").count(),
+        1,
+        "one link line for the suite, not one per test:\n{report}"
+    );
+    assert_eq!(report.matches("timing: load ").count(), 1, "{report}");
+}
+
 /// Every program the repository ships, entry points only.
 fn corpus() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

@@ -30,6 +30,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 
 use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
@@ -44,6 +45,38 @@ use yashy_sema::{check_modules_with, check_program_with, CheckOptions, HirItem, 
 
 use crate::modules;
 use crate::toolchain::Toolchain;
+
+/// One measured phase of the pipeline, in the order it ran.
+///
+/// The name is `&'static str` rather than an enum because a phase is a label in
+/// a report, not a thing the program branches on: the compiler's stages are
+/// fixed at compile time, and a caller that prints them should not have to
+/// match every variant to do it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhaseTiming {
+    /// The phase's name, such as `load` or `link`.
+    pub phase: &'static str,
+    /// How long it took, rounded down to whole milliseconds.
+    pub ms: u64,
+}
+
+/// Run `work`, record how long it took under `phase`, and return its result.
+///
+/// A failing phase still gets a row: the time a stage took is exactly what a
+/// user is looking for when a build is slow *and* broken.
+pub fn timed<T>(
+    timings: &mut Vec<PhaseTiming>,
+    phase: &'static str,
+    work: impl FnOnce() -> T,
+) -> T {
+    let started = Instant::now();
+    let value = work();
+    timings.push(PhaseTiming {
+        phase,
+        ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    });
+    value
+}
 
 /// The `clang` optimization level applied to the generated IR.
 ///
@@ -507,12 +540,33 @@ pub fn load_and_check(
     entry_source: String,
     release: bool,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
-    let modules = modules::load(sources, entry_path, entry_source)?;
+    let mut timings = Vec::new();
+    load_and_check_timed(sources, entry_path, entry_source, release, &mut timings)
+}
+
+/// [`load_and_check`], recording how long loading and checking took.
+///
+/// The two stages are timed apart because they answer different questions
+/// about a slow build: loading is I/O and parsing, checking is the type system.
+/// A row is pushed even when the stage fails, because "slow *and* broken" is
+/// exactly when the number is wanted.
+pub fn load_and_check_timed(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    timings: &mut Vec<PhaseTiming>,
+) -> Result<HirProgram, Vec<Diagnostic>> {
+    let modules = timed(timings, "load", || {
+        modules::load(sources, entry_path, entry_source)
+    })?;
     let programs: Vec<(FileId, &yashy_parser::ast::Program)> = modules
         .iter()
         .map(|module| (module.file, &module.program))
         .collect();
-    check_modules_with(&programs, sources, CheckOptions { release })
+    timed(timings, "check", || {
+        check_modules_with(&programs, sources, CheckOptions { release })
+    })
 }
 
 /// Load, check, then verify: the pipeline every build goes through.
@@ -533,8 +587,28 @@ pub fn check_and_verify(
     release: bool,
     options: &VerifyOptions,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
-    let hir = load_and_check(sources, entry_path, entry_source, release)?;
-    let report = verify(&hir, options);
+    let mut timings = Vec::new();
+    check_and_verify_timed(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        options,
+        &mut timings,
+    )
+}
+
+/// [`check_and_verify`], recording the load, check and verify phases.
+pub fn check_and_verify_timed(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    options: &VerifyOptions,
+    timings: &mut Vec<PhaseTiming>,
+) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
+    let hir = load_and_check_timed(sources, entry_path, entry_source, release, timings)?;
+    let report = timed(timings, "verify", || verify(&hir, options));
     Ok((hir, report))
 }
 
@@ -550,17 +624,35 @@ pub fn compile_hir(
     toolchain: &Toolchain,
     options: BuildOptions,
 ) -> Result<(), Vec<Diagnostic>> {
+    let mut timings = Vec::new();
+    compile_hir_timed(hir, entry_name, out, toolchain, options, &mut timings)
+}
+
+/// [`compile_hir`], recording the emit and link phases.
+///
+/// `link` covers the whole `clang` invocation -- compiling the runtime, the IR
+/// and the link -- because that is one process and the user waits on it once.
+pub fn compile_hir_timed(
+    hir: &HirProgram,
+    entry_name: &str,
+    out: &Path,
+    toolchain: &Toolchain,
+    options: BuildOptions,
+    timings: &mut Vec<PhaseTiming>,
+) -> Result<(), Vec<Diagnostic>> {
     if let Err(diagnostic) = check_main_exists(&hir.items) {
         return Err(vec![diagnostic]);
     }
 
-    let ir_text = emit_program(
-        hir,
-        entry_name,
-        CodegenOptions {
-            fp_contract: options.fast_math,
-        },
-    );
+    let ir_text = timed(timings, "emit", || {
+        emit_program(
+            hir,
+            entry_name,
+            CodegenOptions {
+                fp_contract: options.fast_math,
+            },
+        )
+    });
 
     // The IR next to the output is a debugging aid, not a temporary: when a
     // program misbehaves, "what did we actually hand to LLVM?" is the first
@@ -687,7 +779,9 @@ pub fn compile_hir(
         }
     }
     args.extend(libraries);
-    run_tool(toolchain, &args, entry_name, "compiling the program")?;
+    timed(timings, "link", || {
+        run_tool(toolchain, &args, entry_name, "compiling the program")
+    })?;
 
     Ok(())
 }
