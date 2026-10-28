@@ -606,12 +606,14 @@ Expected: PASS, including the existing formatter round-trip tests.
 
 Result: 12 fmt tests, 11 parser contract tests, 11 sema contract tests; full workspace 1229 tests, exit 0.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
 git commit -m "feat: parse requires, ensures and loop invariants into the HIR"
 ```
+
+Committed as `12bc350`.
 
 ---
 
