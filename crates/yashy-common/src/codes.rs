@@ -47,6 +47,10 @@ pub const LEAK: &str = "E1000";
 pub const CONTRACT: &str = "E1100";
 /// Checked integer arithmetic is provably out of range.
 pub const OVERFLOW: &str = "E1201";
+/// A declared effect is exceeded by the body.
+pub const EFFECT: &str = "E1300";
+/// An unsafe call outside an unsafe function.
+pub const UNSAFE_CALL: &str = "E1301";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// An `import` is never used.
@@ -135,6 +139,18 @@ pub const CODES: &[Code] = &[
         title: "provable integer overflow",
         summary: "Checked integer arithmetic always overflows.",
         page: include_str!("../../../docs/errors/E1201.md"),
+    },
+    Code {
+        id: EFFECT,
+        title: "effect exceeded",
+        summary: "A declared effect is exceeded by the body.",
+        page: include_str!("../../../docs/errors/E1300.md"),
+    },
+    Code {
+        id: UNSAFE_CALL,
+        title: "unsafe call",
+        summary: "An unsafe call outside an unsafe function.",
+        page: include_str!("../../../docs/errors/E1301.md"),
     },
     Code {
         id: UNUSED_BINDING,
