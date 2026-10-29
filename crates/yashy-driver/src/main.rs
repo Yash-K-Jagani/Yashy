@@ -685,6 +685,9 @@ fn test(args: &[String]) -> ExitCode {
 
     let mut passed = 0usize;
     let mut failed = 0usize;
+    // A test that does not build never runs, so it is not a failing test. The
+    // per-test line already says so; the aggregate says it too.
+    let mut compile_errors = 0usize;
     // One report for the suite: five lines per test would be noise, and what a
     // user wants from `test --timings` is where the suite's wall time went.
     let mut timings: Vec<PhaseTiming> = Vec::new();
@@ -711,7 +714,7 @@ fn test(args: &[String]) -> ExitCode {
         accumulate(&mut timings, &outcome.timings);
         if outcome.code != exit_code(EXIT_OK) {
             println!("test {name} ... FAILED (compile error)");
-            failed += 1;
+            compile_errors += 1;
             let _ = fs::remove_dir_all(&dir);
             continue;
         }
@@ -737,11 +740,15 @@ fn test(args: &[String]) -> ExitCode {
 
     println!();
     println!(
-        "test result: {}. {passed} passed; {failed} failed",
-        if failed == 0 { "ok" } else { "FAILED" }
+        "test result: {}. {passed} passed; {failed} failed; {compile_errors} compile errors",
+        if failed == 0 && compile_errors == 0 {
+            "ok"
+        } else {
+            "FAILED"
+        }
     );
     report_timings(&timings);
-    if failed == 0 {
+    if failed == 0 && compile_errors == 0 {
         exit_code(EXIT_OK)
     } else {
         exit_code(EXIT_COMPILE_ERROR)
@@ -762,7 +769,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
     let mut timings: Vec<PhaseTiming> = Vec::new();
 
     if tests.is_empty() {
-        print_test_json(&global_sources, &[], &[], 0, 0, None);
+        print_test_json(&global_sources, &[], &[], 0, 0, 0, None);
         return exit_code(EXIT_OK);
     }
 
@@ -770,7 +777,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
         Ok(toolchain) => toolchain,
         Err(message) => {
             let diagnostic = Diagnostic::new(Severity::Error, root_file, Span::SYNTHETIC, message);
-            print_test_json(&global_sources, &[diagnostic], &[], 0, 0, None);
+            print_test_json(&global_sources, &[diagnostic], &[], 0, 0, 0, None);
             return exit_code(EXIT_USAGE);
         }
     };
@@ -778,6 +785,10 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
     let mut results: Vec<Json> = Vec::new();
     let mut passed = 0usize;
     let mut failed = 0usize;
+    // A test that does not compile or does not verify never runs. Counting it
+    // as `failed` would tell a reader an assertion fired when the truth is that
+    // no test code ran, so it gets its own bucket and its own status.
+    let mut compile_errors = 0usize;
 
     for path in tests {
         let started = Instant::now();
@@ -802,6 +813,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                 &results,
                 passed,
                 failed,
+                compile_errors,
                 timings_flag.then_some(timings.as_slice()),
             );
             return exit_code(EXIT_INTERNAL);
@@ -926,11 +938,11 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                 }
             },
             Err(diagnostics) => {
-                failed += 1;
+                compile_errors += 1;
                 results.push(test_json_object(
                     &name,
                     &file,
-                    "failed",
+                    "compile_error",
                     elapsed_ms(started),
                     &sources,
                     &diagnostics,
@@ -947,9 +959,10 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
         &results,
         passed,
         failed,
+        compile_errors,
         timings_flag.then_some(timings.as_slice()),
     );
-    if failed == 0 {
+    if failed == 0 && compile_errors == 0 {
         exit_code(EXIT_OK)
     } else {
         exit_code(EXIT_COMPILE_ERROR)
@@ -991,18 +1004,23 @@ fn print_test_json(
     tests: &[Json],
     passed: usize,
     failed: usize,
+    compile_errors: usize,
     timings: Option<&[PhaseTiming]>,
 ) {
     let mut summary = Json::object();
     summary.set("passed", Json::number(passed as i64));
     summary.set("failed", Json::number(failed as i64));
+    summary.set("compile_errors", Json::number(compile_errors as i64));
     summary.set("skipped", Json::number(0));
 
     let mut report = Json::object();
     report.set("schema_version", Json::number(1));
     report.set("tool", Json::string("test"));
     report.set("yashy_version", Json::string(env!("CARGO_PKG_VERSION")));
-    report.set("success", Json::bool(failed == 0 && global.is_empty()));
+    report.set(
+        "success",
+        Json::bool(failed == 0 && compile_errors == 0 && global.is_empty()),
+    );
     report.set(
         "diagnostics",
         Json::array(

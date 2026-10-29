@@ -173,6 +173,20 @@ not from the pre-flight scan. They are numbered after the eight above.
     runtime panic has to say what they mean with `wrapping_*`, `checked_*` or
     `saturating_*`; that is the trade the rule makes.
 
+12. **A test that never ran is `compile_error`, and it is its own summary
+    bucket.** Task 5 asked for `summary.compile_errors` without saying whether
+    `failed` also counts those tests. **Ruling: the buckets are disjoint.** A
+    check error, a verifier refusal and a codegen failure are all "the test did
+    not run"; a non-zero exit from a program that compiled and verified is
+    "the test ran and failed". Counting the first as `failed` would tell a tool
+    an assertion fired when no test code ran. `passed + failed + compile_errors
+    + skipped` is the number of tests. This changes two assertions in
+    `tests/diagnostics_json.rs` that called a check error `failed`; the intent
+    (the two surfaces agree) is unchanged, and the new vocabulary is strictly
+    more precise. Cost if wrong: a consumer that only reads `failed` sees zero
+    for a broken build, so it must also read `compile_errors` -- which the
+    schema now documents.
+
 ---
 
 ### Task 1: Move exhaustiveness into `yashy-hir` and re-check it
@@ -365,33 +379,22 @@ The four runtime-fault tests in `tests/e2e.rs` and `tests/programs/overflow.ya` 
 **Files:**
 - Modify: `crates/yashy-driver/src/main.rs` (`test`, `test_json` compile path)
 - Modify: `crates/yashy-driver/tests/test_runner.rs` (the file that already owns the JSON test report; `tests/verify.rs` owns the corpus)
+- Modify: `crates/yashy-driver/tests/diagnostics_json.rs` (the schema's status and summary vocabulary)
+- Modify: `docs/cli.md` (the `test --json` schema)
 
 **Interfaces:**
 - Consumes: `check_and_verify` from 1a.
 - Produces: a test program that fails verification is reported as a **compile failure of that test**, not as a failing test.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests** — `a_test_program_that_fails_verification_is_a_compile_error` (a leaking `tests/leak.ya`: exit `1`, `"status": "compile_error"`, `"compile_errors": 1`, `"failed": 0`, `"code": "E1000"`) and `a_failing_test_still_reports_as_failed_not_compile_error` (an `assert(false)` test: exit `1`, `"status": "failed"`, no `compile_error`, `"compile_errors": 0`, `"failed": 1`).
 
-```rust
-#[test]
-fn a_test_program_that_fails_verification_is_a_compile_error() {
-    // a temp project whose tests/leak.ya leaks; `yashy test --json`
-    // assert tests[0].status == "compile_error", summary.compile_errors == 1
-}
+- [x] **Step 2: Watch them fail** — **two failed**: the status was `"failed"` and the summary had no `compile_errors` key.
 
-#[test]
-fn a_failing_test_still_reports_as_failed_not_compile_error() {
-    // a temp project whose tests/fail.ya asserts false; assert status "failed"
-}
-```
+- [x] **Step 3: Implement** — the compile step already called `check_and_verify_timed` on the JSON path and `build_measured` on the human path; what was missing was the *vocabulary*. `status` gains `compile_error` for a test that never ran (check error, verifier refusal or codegen failure), and `summary` gains a disjoint `compile_errors` bucket. `success` and the exit code are false/`1` when either bucket is non-zero. The human path's aggregate line gains the same count (`N passed; M failed; K compile errors`), so the two surfaces agree. The read-failure branch stays `failed`: a file the runner cannot read is a harness failure, not a compile error. `docs/cli.md` describes the three statuses and the four summary counts.
 
-- [ ] **Step 2: Watch them fail.**
+- [x] **Step 4: Run the tests** — `cargo test -p yashy-driver --test test_runner --test diagnostics_json` → **17 passed**; `cargo test --workspace` → **1319 passed, 0 failed**.
 
-- [ ] **Step 3: Implement** — the test runner's compile step calls `check_and_verify`; a verifier diagnostic marks the test `compile_error` with the same diagnostic shape as a check error. The exit code stays `1`.
-
-- [ ] **Step 4: Run the tests** → PASS.
-
-- [ ] **Step 5: Commit** — `git commit -m "feat(test): verify every test program before running it"`
+- [x] **Step 5: Commit** — `git commit -m "feat(test): verify every test program before running it"`
 
 ---
 

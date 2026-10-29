@@ -194,7 +194,11 @@ fn test_json_reports_each_test_and_the_summary() {
         .find(|test| test.get("file").as_str() == "tests/bad.ya")
         .expect("the failing test");
     assert_eq!(failed.get("name").as_str(), "bad");
-    assert_eq!(failed.get("status").as_str(), "failed");
+    assert_eq!(
+        failed.get("status").as_str(),
+        "compile_error",
+        "a check error never ran, so it is a compile error"
+    );
     let diagnostics = failed.get("diagnostics").as_array();
     assert_eq!(diagnostics.len(), 1);
     let diagnostic = &diagnostics[0];
@@ -205,7 +209,8 @@ fn test_json_reports_each_test_and_the_summary() {
 
     let summary = report.get("summary");
     assert_eq!(summary.get("passed").as_i64(), 1);
-    assert_eq!(summary.get("failed").as_i64(), 1);
+    assert_eq!(summary.get("failed").as_i64(), 0);
+    assert_eq!(summary.get("compile_errors").as_i64(), 1);
     assert_eq!(summary.get("skipped").as_i64(), 0);
 }
 
@@ -245,11 +250,12 @@ fn test_json_verifies_like_the_human_command() {
     );
     let report = Json::parse(&stdout(&output));
     assert!(!report.get("success").as_bool());
-    assert_eq!(report.get("summary").get("failed").as_i64(), 1);
+    assert_eq!(report.get("summary").get("failed").as_i64(), 0);
+    assert_eq!(report.get("summary").get("compile_errors").as_i64(), 1);
 
     let tests = report.get("tests").as_array();
     assert_eq!(tests.len(), 1);
-    assert_eq!(tests[0].get("status").as_str(), "failed");
+    assert_eq!(tests[0].get("status").as_str(), "compile_error");
     let diagnostics = tests[0].get("diagnostics").as_array();
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].get("code").as_str(), "E1000");

@@ -288,13 +288,19 @@ stdout; `--json` implies no color and no prompt.
       "diagnostics": []
     }
   ],
-  "summary": { "passed": 0, "failed": 1, "skipped": 0 }
+  "summary": { "passed": 0, "failed": 1, "compile_errors": 0, "skipped": 0 }
 }
 ```
 
-`status` is `passed` or `failed`; `skipped` is reserved for a later release.
-`duration_ms` covers compiling and running the test. A runtime failure has a
-synthetic diagnostic with the exit status and no code.
+`status` is `passed`, `failed` or `compile_error`. `compile_error` means the
+test never ran: it did not type-check, the verifier refused it, or code
+generation failed. `failed` means the test ran and exited non-zero. The two are
+distinct on purpose — a tool that counts red tests must not count a build
+failure as one, and a reader must not go looking for an assertion that fired.
+`summary` counts the two separately, and `passed + failed + compile_errors +
+skipped` is the number of tests. `duration_ms` covers compiling and running the
+test. A runtime failure has a synthetic diagnostic with the exit status and no
+code; a compile error carries the same diagnostic the compiler prints.
 
 ## `yashy init [path]`
 
