@@ -54,7 +54,7 @@ const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--no-verify] [-- <args>...]
-  yashy check <file.ya> [--json] [--timings]
+  yashy check <file.ya> [--json] [--timings] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings]
   yashy explain <code> [--json]
@@ -148,6 +148,8 @@ fn build_measured(args: &[String]) -> BuildOutcome {
     let mut emit_ir = false;
     let mut timings_flag = false;
     let mut no_verify = false;
+    let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
+    let mut allow_warnings = false;
     // Every exit before the pipeline starts has no phase to report.
     let stopped = |code: ExitCode| BuildOutcome {
         code,
@@ -181,6 +183,19 @@ fn build_measured(args: &[String]) -> BuildOutcome {
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
             "--no-verify" => no_verify = true,
+            "--deny" => match args.next() {
+                Some(value) if value == "warnings" => deny_warnings = true,
+                _ => return stopped(usage_error("unknown option `--deny` for `build`")),
+            },
+            "--allow" => match args.next() {
+                Some(value) if value == "warnings" => allow_warnings = true,
+                _ => return stopped(usage_error("unknown option `--allow` for `build`")),
+            },
+            "-W" => match args.next() {
+                Some(value) if value == "none" => allow_warnings = true,
+                _ => return stopped(usage_error("unknown option `-W` for `build`")),
+            },
+            "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
             "--release" => release = true,
             "--native" => cpu = CpuTarget::Native,
@@ -312,6 +327,19 @@ fn build_measured(args: &[String]) -> BuildOutcome {
             }
         }
     };
+
+    let (hir, mut report) = (hir, report);
+
+    // Apply the warning policy: --allow suppresses, --deny upgrades to errors.
+    if allow_warnings {
+        report.diagnostics.retain(|d| d.severity != Severity::Warning);
+    } else if deny_warnings {
+        for d in &mut report.diagnostics {
+            if d.severity == Severity::Warning {
+                d.severity = Severity::Error;
+            }
+        }
+    }
 
     // An unverified binary is not a build. A verifier diagnostic may be a
     // warning, which is printed and does not stop the build; an error stops it
@@ -1868,11 +1896,41 @@ fn span_range_json(span: Span) -> Json {
 fn check(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
+    let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
+    let mut allow_warnings = false;
     let mut input: Option<PathBuf> = None;
-    for argument in args {
-        match argument.as_str() {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--deny" => {
+                if i + 1 < args.len() && args[i + 1] == "warnings" {
+                    deny_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `--deny` for `check`"));
+                }
+            }
+            "--allow" => {
+                if i + 1 < args.len() && args[i + 1] == "warnings" {
+                    allow_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `--allow` for `check`"));
+                }
+            }
+            "-W" => {
+                if i + 1 < args.len() && args[i + 1] == "none" {
+                    allow_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `-W` for `check`"));
+                }
+            }
+            "-W none" => allow_warnings = true,
+            "--deny warnings" => deny_warnings = true,
+            "--allow warnings" => allow_warnings = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `check`"));
             }
@@ -1883,6 +1941,7 @@ fn check(args: &[String]) -> ExitCode {
                 input = Some(PathBuf::from(other));
             }
         }
+        i += 1;
     }
     let Some(input) = input else {
         return usage_error("`check` needs a source file");
@@ -1905,13 +1964,32 @@ fn check(args: &[String]) -> ExitCode {
     let outcome = load_and_check_timed(&mut sources, &input, source, false, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
-        Ok(_) => {
+        Ok(hir) => {
+            let mut warning_diags = Vec::new();
+            yashy_verify::pass::warnings::check(&hir, &mut warning_diags);
+            // Apply the warning policy.
+            if allow_warnings {
+                warning_diags.clear();
+            } else if deny_warnings {
+                for d in &mut warning_diags {
+                    d.severity = Severity::Error;
+                }
+            }
+            let has_denied = deny_warnings && !warning_diags.is_empty();
             if json {
-                print_check_json("check", &sources, &[], reported, None);
+                let mut all = warning_diags;
+                print_check_json("check", &sources, &all, reported, None);
             } else {
+                for d in &warning_diags {
+                    eprint!("{}", sources.render(d));
+                }
                 report_timings(&timings);
             }
-            exit_code(EXIT_OK)
+            if has_denied {
+                exit_code(EXIT_COMPILE_ERROR)
+            } else {
+                exit_code(EXIT_OK)
+            }
         }
         Err(diagnostics) => {
             if json {
@@ -1951,12 +2029,42 @@ fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
     let mut inventory_flag = false;
+    let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
+    let mut allow_warnings = false;
     let mut input: Option<PathBuf> = None;
-    for argument in args {
-        match argument.as_str() {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--inventory" => inventory_flag = true,
+            "--deny" => {
+                if i + 1 < args.len() && args[i + 1] == "warnings" {
+                    deny_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `--deny` for `verify`"));
+                }
+            }
+            "--allow" => {
+                if i + 1 < args.len() && args[i + 1] == "warnings" {
+                    allow_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `--allow` for `verify`"));
+                }
+            }
+            "-W" => {
+                if i + 1 < args.len() && args[i + 1] == "none" {
+                    allow_warnings = true;
+                    i += 1;
+                } else {
+                    return usage_error(&format!("unknown option `-W` for `verify`"));
+                }
+            }
+            "-W none" => allow_warnings = true,
+            "--deny warnings" => deny_warnings = true,
+            "--allow warnings" => allow_warnings = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `verify`"));
             }
@@ -1967,6 +2075,7 @@ fn verify(args: &[String]) -> ExitCode {
                 input = Some(PathBuf::from(other));
             }
         }
+        i += 1;
     }
     let Some(input) = input else {
         return usage_error("`verify` needs a source file");
@@ -1988,7 +2097,17 @@ fn verify(args: &[String]) -> ExitCode {
     let outcome = check_and_verify_timed(&mut sources, &input, source, false, &OPTIONS, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
-        Ok((hir, report)) => {
+        Ok((hir, mut report)) => {
+            // Apply the warning policy.
+            if allow_warnings {
+                report.diagnostics.retain(|d| d.severity != Severity::Warning);
+            } else if deny_warnings {
+                for d in &mut report.diagnostics {
+                    if d.severity == Severity::Warning {
+                        d.severity = Severity::Error;
+                    }
+                }
+            }
             // The inventory is computed from the checked HIR, so it exists
             // exactly when the program type-checked. It never changes the
             // exit code: the verifier accepted the program with these

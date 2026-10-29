@@ -37,6 +37,23 @@ pub enum Severity {
     Warning,
 }
 
+impl PartialOrd for Severity {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Severity {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Warning < Error: a warning is "less serious" than an error.
+        match (self, other) {
+            (Severity::Warning, Severity::Error) => std::cmp::Ordering::Less,
+            (Severity::Error, Severity::Warning) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        }
+    }
+}
+
 impl Severity {
     /// The word used when rendering, lowercase like every other compiler.
     pub fn as_str(self) -> &'static str {
@@ -99,6 +116,20 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    /// A warning diagnostic: the program is fine, but something is worth saying.
+    pub fn warning(code: &'static str, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
+        Diagnostic {
+            severity: Severity::Warning,
+            message: message.into(),
+            file,
+            span,
+            label: None,
+            notes: Vec::new(),
+            code: Some(code),
+            proof: None,
+        }
+    }
+
     /// A diagnostic of the given severity at `span`, with no label.
     pub fn new(severity: Severity, file: FileId, span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic {

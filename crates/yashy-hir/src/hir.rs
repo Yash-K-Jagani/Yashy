@@ -162,6 +162,8 @@ pub struct HirParam {
 pub struct HirImport {
     pub path: Vec<String>,
     pub span: Span,
+    /// The file the import was written in.
+    pub file: FileId,
 }
 
 /// An `extern` block after type checking.

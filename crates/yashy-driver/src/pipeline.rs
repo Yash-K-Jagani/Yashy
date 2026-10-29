@@ -608,7 +608,21 @@ pub fn check_and_verify_timed(
     timings: &mut Vec<PhaseTiming>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
     let hir = load_and_check_timed(sources, entry_path, entry_source, release, timings)?;
+    // Warnings run after the checker and before the verifier. They are
+    // collected into the same diagnostic bag as the verifier's output, so
+    // `yashy check` (which never reaches here) does not see them and
+    // `yashy verify` sees both. A warning is not a soundness failure: it
+    // does not change the exit code unless `--deny warnings` is set, which
+    // the driver applies after collection.
+    let mut warnings = Vec::new();
+    timed(timings, "warnings", || {
+        yashy_verify::pass::warnings::check(&hir, &mut warnings);
+    });
     let report = timed(timings, "verify", || verify(&hir, options));
+    // Join the warning diagnostics into the report's bag so they travel
+    // with the verifier's output and are rendered by the same code path.
+    let mut report = report;
+    report.diagnostics.splice(0..0, warnings);
     Ok((hir, report))
 }
 

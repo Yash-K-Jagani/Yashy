@@ -47,6 +47,14 @@ pub const LEAK: &str = "E1000";
 pub const CONTRACT: &str = "E1100";
 /// Checked integer arithmetic is provably out of range.
 pub const OVERFLOW: &str = "E1201";
+/// A `const` or `let` binding is never read.
+pub const UNUSED_BINDING: &str = "E2000";
+/// An `import` is never used.
+pub const UNUSED_IMPORT: &str = "E2001";
+/// A statement cannot be reached.
+pub const UNREACHABLE_CODE: &str = "E2002";
+/// A function parameter is never read.
+pub const UNUSED_PARAMETER: &str = "E2003";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -127,6 +135,30 @@ pub const CODES: &[Code] = &[
         title: "provable integer overflow",
         summary: "Checked integer arithmetic always overflows.",
         page: include_str!("../../../docs/errors/E1201.md"),
+    },
+    Code {
+        id: UNUSED_BINDING,
+        title: "unused binding",
+        summary: "A `const` or `let` binding is never read.",
+        page: include_str!("../../../docs/errors/E2000.md"),
+    },
+    Code {
+        id: UNUSED_IMPORT,
+        title: "unused import",
+        summary: "An `import` is never used.",
+        page: include_str!("../../../docs/errors/E2001.md"),
+    },
+    Code {
+        id: UNREACHABLE_CODE,
+        title: "unreachable code",
+        summary: "A statement cannot be reached.",
+        page: include_str!("../../../docs/errors/E2002.md"),
+    },
+    Code {
+        id: UNUSED_PARAMETER,
+        title: "unused parameter",
+        summary: "A function parameter is never read.",
+        page: include_str!("../../../docs/errors/E2003.md"),
     },
 ];
 

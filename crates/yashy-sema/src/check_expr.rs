@@ -2590,8 +2590,10 @@ impl<'src> Checker<'src> {
                     .collect(),
                 span: *span,
             })]),
-            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {                path: path.clone(),
+            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {
+                path: path.clone(),
                 span: *span,
+                file: self.file,
             })]),
             Item::Extern {
                 abi,
