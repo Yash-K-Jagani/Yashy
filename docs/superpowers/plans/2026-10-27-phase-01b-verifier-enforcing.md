@@ -187,6 +187,20 @@ not from the pre-flight scan. They are numbered after the eight above.
     for a broken build, so it must also read `compile_errors` -- which the
     schema now documents.
 
+13. **An `extern` block carries its file, and the inventory is not part of the
+    report.** Two things the Task 6 file list did not foresee. First, items are
+    flattened across modules, so `HirExternBlock` had no way to say which file
+    it came from; the inventory needs a position, so the block gains
+    `file: FileId` (set by the checker where it builds the block, exactly as
+    `HirFn` already does). That is a `yashy-hir` and `yashy-sema` change the
+    plan's file list omitted, recorded here rather than hidden. Second, the
+    inventory is a **standalone function** `inventory(&HirProgram) ->
+    Vec<Assumption>`, not a field on `VerifyReport`: it is not a diagnostic, it
+    has no severity, and it must never reach `error_count()`, so putting it in
+    the report would invite a future pass to treat an assumption as a verdict.
+    Cost if wrong: one more field on a HIR node and one more public function,
+    both additive.
+
 ---
 
 ### Task 1: Move exhaustiveness into `yashy-hir` and re-check it

@@ -8,5 +8,6 @@
 pub mod bounds;
 pub mod contracts;
 pub mod exhaustive;
+pub mod inventory;
 pub mod leak;
 pub mod overflow;

@@ -33,7 +33,7 @@ use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, load_and_check_timed, resolve_opt, timed,
     BuildOptions, CpuTarget, OptLevel, PhaseTiming,
 };
-use yashy_verify::{first_contract, ContractMode, VerifyOptions, VerifyReport};
+use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
 
 /// How every command that verifies reads the program.
 ///
@@ -55,7 +55,7 @@ usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings]
-  yashy verify <file.ya> [--json] [--timings]
+  yashy verify <file.ya> [--json] [--timings] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings]
   yashy explain <code> [--json]
   yashy init [path]
@@ -86,6 +86,8 @@ usage:
                `<output>.unverified` beside the binary
   --timings    print how long each pipeline phase took, to stderr (or in the
                JSON report); stdout is never touched
+  --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
+               the assumptions the proof rests on; never changes the exit code
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
 fn main() -> ExitCode {
@@ -1719,6 +1721,7 @@ fn print_check_json(
     sources: &SourceMap,
     diagnostics: &[Diagnostic],
     timings: Option<&[PhaseTiming]>,
+    assumptions: Option<&[Assumption]>,
 ) {
     let errors = diagnostics
         .iter()
@@ -1746,7 +1749,60 @@ fn print_check_json(
     );
     report.set("summary", summary);
     set_timings(&mut report, timings);
+    // Only `verify --inventory` asks the question, so only it answers: an
+    // absent key means "not computed", which is not the same fact as an empty
+    // list. A program that trusts nothing says so with `[]`.
+    if let Some(assumptions) = assumptions {
+        report.set(
+            "assumptions",
+            Json::array(
+                assumptions
+                    .iter()
+                    .map(|assumption| assumption_json(sources, assumption))
+                    .collect(),
+            ),
+        );
+    }
     println!("{}", report.render());
+}
+
+/// One assumption in the schema-v1 shape: what it is, what it names, where.
+fn assumption_json(sources: &SourceMap, assumption: &Assumption) -> Json {
+    let mut object = Json::object();
+    object.set("kind", Json::string(assumption.kind.as_str()));
+    object.set("name", Json::string(assumption.name.as_str()));
+    object.set("file", Json::string(sources.path(assumption.file)));
+    object.set("span", span_json(sources, assumption.file, assumption.span));
+    object
+}
+
+/// The human inventory: one line per assumption, aligned, in source order.
+///
+/// `assumptions: 0` is printed too. "This program trusts nothing" is an answer,
+/// and a user who asked for the list should get one even when it is empty.
+fn print_inventory(sources: &SourceMap, assumptions: &[Assumption]) {
+    println!("assumptions: {}", assumptions.len());
+    let kind_width = assumptions
+        .iter()
+        .map(|assumption| assumption.kind.as_str().len())
+        .max()
+        .unwrap_or(0);
+    let name_width = assumptions
+        .iter()
+        .map(|assumption| assumption.name.len())
+        .max()
+        .unwrap_or(0);
+    for assumption in assumptions {
+        let location = sources.locate(assumption.file, assumption.span);
+        println!(
+            "  {kind:<kind_width$}  {name:<name_width$}  {file}:{line}:{column}",
+            kind = assumption.kind.as_str(),
+            name = assumption.name,
+            file = sources.path(assumption.file),
+            line = location.line,
+            column = location.col,
+        );
+    }
 }
 
 fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
@@ -1851,7 +1907,7 @@ fn check(args: &[String]) -> ExitCode {
     match outcome {
         Ok(_) => {
             if json {
-                print_check_json("check", &sources, &[], reported);
+                print_check_json("check", &sources, &[], reported, None);
             } else {
                 report_timings(&timings);
             }
@@ -1863,7 +1919,7 @@ fn check(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("check", &sources, &diagnostics, reported);
+                print_check_json("check", &sources, &diagnostics, reported, None);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {
@@ -1878,11 +1934,15 @@ fn check(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy verify <file.ya> [--json]`.
+/// `yashy verify <file.ya> [--json] [--inventory]`.
 ///
 /// The same front half as `check`, followed by the verifier. The difference the
 /// user sees is what the exit code means: `check` fails when the program is
 /// not well-typed, `verify` also fails when it is well-typed but unsound.
+///
+/// `--inventory` answers a second question, "what does this program trust?", by
+/// listing every C declaration and every `unsafe` call the proof rests on. It is
+/// evidence, not a verdict: the exit code is the same with and without it.
 ///
 /// The two failure modes stay distinguishable in the output, because a check
 /// diagnostic names the source it is about and a verifier diagnostic carries a
@@ -1890,11 +1950,13 @@ fn check(args: &[String]) -> ExitCode {
 fn verify(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
+    let mut inventory_flag = false;
     let mut input: Option<PathBuf> = None;
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--inventory" => inventory_flag = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `verify`"));
             }
@@ -1926,12 +1988,28 @@ fn verify(args: &[String]) -> ExitCode {
     let outcome = check_and_verify_timed(&mut sources, &input, source, false, &OPTIONS, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
-        Ok((_, report)) => {
+        Ok((hir, report)) => {
+            // The inventory is computed from the checked HIR, so it exists
+            // exactly when the program type-checked. It never changes the
+            // exit code: the verifier accepted the program with these
+            // assumptions before the flag existed, and it still does.
+            let assumptions = inventory_flag.then(|| yashy_verify::inventory(&hir));
             if json {
-                print_check_json("verify", &sources, &report.diagnostics, reported);
-            } else if !report.is_empty() {
-                for diagnostic in &report.diagnostics {
-                    eprint!("{}", sources.render(diagnostic));
+                print_check_json(
+                    "verify",
+                    &sources,
+                    &report.diagnostics,
+                    reported,
+                    assumptions.as_deref(),
+                );
+            } else {
+                if !report.is_empty() {
+                    for diagnostic in &report.diagnostics {
+                        eprint!("{}", sources.render(diagnostic));
+                    }
+                }
+                if let Some(assumptions) = &assumptions {
+                    print_inventory(&sources, assumptions);
                 }
             }
             if !json {
@@ -1952,7 +2030,7 @@ fn verify(args: &[String]) -> ExitCode {
                     .iter()
                     .filter(|diagnostic| diagnostic.is_error())
                     .count();
-                print_check_json("verify", &sources, &diagnostics, reported);
+                print_check_json("verify", &sources, &diagnostics, reported, None);
                 if errors > 0 {
                     exit_code(EXIT_COMPILE_ERROR)
                 } else {

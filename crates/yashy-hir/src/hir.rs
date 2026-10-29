@@ -174,6 +174,13 @@ pub struct HirExternBlock {
     pub abi: Option<String>,
     pub link: Option<String>,
     pub decls: Vec<HirExternDecl>,
+    /// The file the block was written in.
+    ///
+    /// Items are flattened across modules, so a block that did not carry its
+    /// file could not say where it came from. The inventory needs that: an
+    /// assumption is evidence, and evidence without a position is not
+    /// checkable.
+    pub file: FileId,
     pub span: Span,
 }
 

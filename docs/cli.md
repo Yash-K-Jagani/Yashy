@@ -50,7 +50,7 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
-## `yashy verify <file.ya> [--json] [--timings]`
+## `yashy verify <file.ya> [--json] [--timings] [--inventory]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
 a well-typed program is also *sound*. That means every linear value -- every
@@ -84,12 +84,37 @@ program that leaks or breaks a contract is refused before `clang` is started.
 run `test` or `test --json`, and a verifier warning is reported without failing
 the run.
 
+### `--inventory`
+
+A proof rests on assumptions, and the assumptions are worth naming. `--inventory`
+lists every `extern` declaration and every call the source marked `unsafe`: the
+places where the program trusts something the verifier cannot see.
+
+```text
+$ yashy verify --inventory libc.ya
+assumptions: 3
+  extern_decl  malloc  libc.ya:2:5
+  extern_decl  free    libc.ya:3:5
+  unsafe_call  free    libc.ya:8:12
+```
+
+The list is in source order, one line per assumption, and it is printed even
+when it is empty (`assumptions: 0`): "this program trusts nothing" is an answer.
+`--inventory --json` puts the same list in the envelope as `assumptions`, an
+array of `{kind, name, file, span}` where `kind` is `extern_decl` or
+`unsafe_call`. Without the flag the key is absent, which means "not computed",
+not "none".
+
+The inventory never changes the exit code. A program the verifier accepted
+before the flag existed is still accepted with it; what changed is that its
+assumptions can be read instead of guessed at.
+
 ## `--no-verify`
 
 An escape hatch for the case where the verifier is wrong and a binary is still
 needed. It skips the proof, not the type system: `check` still runs, so a
 program that does not type-check is still refused. What it skips is everything
-in [`yashy verify`](#yashy-verify-fileya---json---timings): the leak pass and
+in [`yashy verify`](#yashy-verify-fileya---json---timings---inventory): the leak pass and
 contract discharge.
 
 The flag is narrow, loud and traceable:
@@ -238,6 +263,9 @@ stdout; `--json` implies no color and no prompt.
 - `code` is `null` for a diagnostic without a catalog entry.
 - `labels` and `notes` are omitted when empty; `fix` is not part of R1.
 - `docs_url` is present only when `code` is present.
+- `assumptions` is present only on `verify --inventory`, and is an array of
+  `{kind, name, file, span}` in source order, where `kind` is `extern_decl` or
+  `unsafe_call`. An absent key means the inventory was not computed.
 - `span.start` and `span.end` are byte offsets; `line` and `column` are
   one-based and refer to `span.start`.
 - `proof` is present only on a verifier diagnostic, and describes why an

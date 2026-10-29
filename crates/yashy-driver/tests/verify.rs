@@ -421,3 +421,120 @@ fn run_refuses_a_program_whose_contract_is_not_proved() {
         "the code must be in the header:\n{errors}"
     );
 }
+
+/// A program that trusts C for two declarations and one pointer crossing.
+///
+/// The block comes before `main`, so the list is also the source order: both
+/// declarations, then the call that crosses a raw pointer.
+const TRUSTS_C: &str = "\
+extern \"C\" link \"m\" {
+    unsafe fn malloc(n: usize) -> *mut u8;
+    unsafe fn free(p: *mut u8) -> void;
+}
+
+fn main() {
+    const buffer = malloc(64 as usize);
+    unsafe free(buffer);
+}
+";
+
+#[test]
+fn inventory_lists_every_extern_declaration_and_unsafe_call() {
+    let dir = work_dir("verify-inventory-human");
+    write(&dir, "trust.ya", TRUSTS_C);
+
+    let output = run(&dir, &["verify", "--inventory", "trust.ya"]);
+    let text = stdout(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the inventory must not change the verdict:\n{}",
+        stderr(&output)
+    );
+
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines.len(),
+        4,
+        "one line per assumption plus the header:\n{text}"
+    );
+    assert_eq!(lines[0], "assumptions: 3", "{text}");
+    assert!(
+        lines[1].contains("extern_decl") && lines[1].contains("malloc"),
+        "{text}"
+    );
+    assert!(
+        lines[2].contains("extern_decl") && lines[2].contains("free"),
+        "{text}"
+    );
+    assert!(
+        lines[3].contains("unsafe_call") && lines[3].contains("free"),
+        "{text}"
+    );
+    assert!(
+        lines[1].contains("trust.ya:2:"),
+        "the declaration's position is its own:\n{text}"
+    );
+    assert!(
+        lines[3].contains("trust.ya:8:"),
+        "the call's position is its own:\n{text}"
+    );
+}
+
+#[test]
+fn inventory_json_reports_the_same_assumptions_in_source_order() {
+    let dir = work_dir("verify-inventory-json");
+    write(&dir, "trust.ya", TRUSTS_C);
+
+    let output = run(&dir, &["verify", "--inventory", "--json", "trust.ya"]);
+    let json = stdout(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the inventory must not change the verdict:\n{}",
+        stderr(&output)
+    );
+
+    assert!(json.contains("\"assumptions\""), "{json}");
+    assert_eq!(
+        json.matches("\"kind\": \"extern_decl\"").count(),
+        2,
+        "both declarations are listed:\n{json}"
+    );
+    assert_eq!(
+        json.matches("\"kind\": \"unsafe_call\"").count(),
+        1,
+        "the pointer crossing is listed:\n{json}"
+    );
+
+    let malloc = json
+        .find("\"name\": \"malloc\"")
+        .unwrap_or_else(|| panic!("the `malloc` declaration is missing:\n{json}"));
+    let free = json
+        .find("\"name\": \"free\"")
+        .unwrap_or_else(|| panic!("the `free` declaration is missing:\n{json}"));
+    let crossing = json
+        .find("\"kind\": \"unsafe_call\"")
+        .unwrap_or_else(|| panic!("the unsafe call is missing:\n{json}"));
+    assert!(
+        malloc < free && free < crossing,
+        "the list must read like the source:\n{json}"
+    );
+}
+
+#[test]
+fn verify_json_without_the_flag_does_not_claim_an_inventory() {
+    // An absent key means "not computed". An empty array would say the program
+    // trusts nothing, which is a different fact and a false one here.
+    let dir = work_dir("verify-inventory-absent");
+    write(&dir, "trust.ya", TRUSTS_C);
+
+    let output = run(&dir, &["verify", "--json", "trust.ya"]);
+    let json = stdout(&output);
+
+    assert_eq!(output.status.code(), Some(0), "{json}");
+    assert!(
+        !json.contains("\"assumptions\""),
+        "`--inventory` was not asked for:\n{json}"
+    );
+}

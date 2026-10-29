@@ -2625,6 +2625,7 @@ impl<'src> Checker<'src> {
                         span: decl.span,
                     })
                     .collect(),
+                file: self.file,
                 span: *span,
             })]),
             Item::Impl {

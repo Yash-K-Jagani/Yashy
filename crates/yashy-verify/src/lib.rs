@@ -15,6 +15,7 @@ use yashy_common::{Diagnostic, Span};
 use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
 
 pub use ownership::{check_live, linearity_of, move_out, AlreadyMoved, Linearity, Ownership};
+pub use pass::inventory::{inventory, Assumption, AssumptionKind};
 
 /// What to do with a contract the verifier cannot discharge.
 ///
