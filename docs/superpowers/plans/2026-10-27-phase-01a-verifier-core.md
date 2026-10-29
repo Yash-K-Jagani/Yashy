@@ -802,7 +802,12 @@ Committed as `1d7ff25`.
 - Produces: sidecar file `<output>.unverified` containing
   `{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"0.1.0"}`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
+
+Created `crates/yashy-driver/tests/unverified.rs` with the four tests below plus
+three the plan did not name: a loop `invariant` is a contract too, `--emit-ir`
+has nothing to stamp, and a program the verifier rejects (a leak) still builds
+under the flag -- that last one is the whole point of the escape hatch.
 
 ```rust
 #[test]
@@ -829,26 +834,61 @@ fn require_verify_makes_no_verify_a_usage_error() {
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+**Decision.** The stale-stamp test writes the stamp directly instead of running
+an unverified build first: the property under test is "a verified build retires
+a stamp", and one build proves it faster than two.
+
+- [x] **Step 2: Run and watch them fail**
 
 Run: `cargo test -p yashy-driver --test unverified`
-Expected: FAIL — the flag does not exist.
+Expected: FAIL -- the flag does not exist.
 
-- [ ] **Step 3: Implement**
+Observed with `main.rs` reverted: 6 of 7 failed with `unknown option
+--no-verify`. The seventh (the `--emit-ir` refusal) passed *vacuously*: an
+unknown flag is also a usage error, and the printed usage block contains both
+flag names. The test was tightened to require the refusal's own wording (`IR is
+not a binary`), and a second red run then failed it too. A test that cannot
+distinguish the feature from an unknown argument is not a test.
+
+- [x] **Step 3: Implement**
 
 Refusals are `EXIT_USAGE` (2) with a one-line message naming the reason; they are not diagnostics, because nothing is wrong with the program. The sidecar is written after a successful link and removed after a verified build; a failed link removes neither.
 
-- [ ] **Step 4: Run the tests**
+**Decisions.**
+- The write/remove lives in `main.rs`, not `pipeline.rs`: `compile_hir_timed`
+  knows neither the output path nor whether the flag was passed, and threading
+  both through it would make the pipeline aware of a CLI policy. The CLI owns
+  the build outcome, so it owns the stamp.
+- `first_contract` lives in `yashy-verify` and walks statements, expressions,
+  lambdas, switch arms, `defer` bodies and every loop form. Contract semantics
+  are the verifier's business, and the walk has to reach a loop invariant inside
+  a lambda inside a call argument.
+- If the stamp cannot be written the binary is removed and the build fails with
+  `EXIT_COMPILE_ERROR`: an unverified binary must not exist unstamped. If a
+  stale stamp cannot be removed, that is a warning, not a failed build -- a
+  stale stamp over-states caution rather than hiding a risk.
+- `--no-verify` is also refused with `--emit-ir` (`IR is not a binary`).
+- `run` forwards the flag; its temporary binary and stamp die with the run
+  directory.
+
+- [x] **Step 4: Run the tests**
 
 Run: `cargo test -p yashy-driver --test unverified`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Observed: 7 passed. Then `cargo test --workspace`: **1274 passed, 0 failed**
+(1267 before this task plus the 7 new tests).
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
 git commit -m "feat(driver): make --no-verify narrow, loud and traceable"
 ```
+
+Committed as `df3a4ac`. The commit stages the four touched paths explicitly
+rather than `-A`, so an unrelated untracked file in the tree cannot ride along.
+
 
 ---
 
