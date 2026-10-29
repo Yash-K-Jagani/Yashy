@@ -1,0 +1,9 @@
+// The release happens first and the deferred block releases again at scope
+// exit. The block is checked where it is written, so this is the same second
+// release as `defer_twice`, in the other order.
+// Expected: E0500 on the `free` inside `defer`.
+fn main() {
+    let buf = alloc(16);
+    buf.free();
+    defer { buf.free(); }
+}

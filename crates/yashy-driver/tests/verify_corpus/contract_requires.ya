@@ -1,0 +1,11 @@
+// A precondition the caller does not establish. `0` does not satisfy `n > 0`,
+// and the verifier cannot discharge the obligation, so it warns (E1100) rather
+// than blocking the build in this slice.
+// Expected: E1100 at the call to `positive`.
+fn positive(n: int) requires n > 0 {
+    let unused = n;
+}
+
+fn main() {
+    positive(0);
+}

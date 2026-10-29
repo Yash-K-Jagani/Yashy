@@ -346,6 +346,40 @@ fn arguments_arrive_in_order_and_exclude_the_program_path() {
     assert_eq!(stdout_of(&empty), "0\n", "no arguments is an empty slice");
 }
 
+/// A realistic file tool: read a file, count its lines and words, write a
+/// report beside it, release every owned slice. It is ordinary code -- a
+/// helper, a loop, an allocation and a free -- and it is the verifier's
+/// anti-false-positive case: `verify` must have nothing to say about it.
+#[test]
+fn file_cli_counts_lines_and_words_and_writes_its_report() {
+    let (dir, exe, compile) = build_program("file_cli");
+    assert!(
+        compile.status.success(),
+        "compiling file_cli.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let input = dir.join("notes.txt");
+    fs::write(&input, "one two three\nfour five\n\nsix\n")
+        .expect("the test input file must be writable");
+    let output = run_with_args(
+        &exe,
+        &[input.to_str().expect("the test path must be UTF-8")],
+    );
+    assert!(
+        output.status.success(),
+        "file_cli exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "lines=4 words=6\n");
+
+    let report = dir.join("notes.txt.report");
+    assert_eq!(
+        fs::read_to_string(&report).expect("the report must be written"),
+        "lines=4 words=6\n"
+    );
+}
+
 #[test]
 fn getcwd_reports_the_directory_the_program_started_in() {
     let (dir, exe, compile) = build_program("cwd");

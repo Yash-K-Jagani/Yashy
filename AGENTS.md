@@ -14,9 +14,12 @@ active phase before changing behavior. Superseded plans and specs sit in
 cargo build --release --workspace
 cargo check --workspace --all-targets
 cargo test --workspace
+yashy verify --json --timings examples/hello/main.ya
 cargo test -p yashy-driver --test doctor
 cargo test -p yashy-driver --test tutorial
 cargo test -p yashy-driver --test examples
+cargo test -p yashy-driver --test verify
+cargo test -p yashy-driver --test unverified
 cargo test -p yashy-driver --test init
 cargo test -p yashy-driver --test explain
 cargo test -p yashy-driver --test diagnostics_json
@@ -24,6 +27,11 @@ cargo test -p yashy-driver --test docs
 cargo test -p yashy-driver --test agents
 cargo fmt --all
 ```
+
+The active phase plan under `docs/superpowers/plans/` is the source of truth for
+what to build next; the ledger under `.superpowers/sdd/` records what landed and
+which acceptance commands ran. Do not start a later slice before the current
+one's gate passes.
 
 On Windows, the default MSVC toolchain links the compiler, but a local
 `x86_64-pc-windows-gnu` toolchain is the one used by some contributors:

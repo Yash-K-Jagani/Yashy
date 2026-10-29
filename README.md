@@ -173,6 +173,14 @@ out `debug_assert` and raises the default optimization level to `-O3`; an
 explicit `-O` level still wins. A `main` returning `int` is the process exit
 status, and `os.exit(code)` ends the program with a chosen status from anywhere.
 
+`yashy verify` proves the program is sound before it runs: every linear value is
+released on every path out of its scope, and every `requires`, `ensures` and
+loop `invariant` is discharged. `build` and `run` verify by default, so a
+program that leaks is refused before `clang` starts. `--timings` reports how
+long each pipeline phase took. `--no-verify` skips the proof for the case where
+the verifier is wrong; it warns, stamps `<output>.unverified` beside the binary,
+and refuses a program that carries a contract.
+
 `yashy test` treats every `.ya` file under `tests/` as one test program: it
 compiles and runs each one, prints `ok` or `FAILED`, and exits nonzero if any
 program fails. `yashy test --filter <substring>` selects by path and

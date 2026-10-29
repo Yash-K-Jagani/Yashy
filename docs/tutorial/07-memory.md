@@ -5,7 +5,7 @@
 - How to allocate and release a block of heap memory.
 - What `move` transfers, and what the compiler refuses after it.
 - When a `defer` body runs, in what order, and what it captures.
-- Why an unfreed allocation is a leak rather than an error.
+- Why an unfreed allocation is rejected by the verifier.
 
 `alloc(n)` returns a `*mut int` pointing at `n` slots; `p.free()` releases
 it. Indexing works: `buffer[0] = 7` writes the first slot.
@@ -44,9 +44,9 @@ Three rules make this safe without a garbage collector:
   makes `owned.free()` run at the end of `main` even though the line appears
   before the last statement.
 - **A pointer is linear.** It cannot be copied, so it cannot be freed twice.
-  Using it after it is moved is a compile error. Not freeing it is not: the
-  checker tracks ownership, not reachability, so a forgotten `.free()` is a
-  leak rather than a diagnostic.
+  Using it after it is moved is a compile error. Not freeing it is a verifier
+  error: `yashy verify`, and therefore `build` and `run`, reports `E1000` and
+  refuses to link until the value is released on every path.
 
 `defer` takes a block: `defer { owned.free(); }`. The spec's shorter
 `defer expression;` spelling is not accepted by this parser; writing
@@ -117,12 +117,63 @@ noise.
   been moved``. The callee owns the block now; it frees it or leaks it.
 - **Writing `defer b.free();`.** The parser expects a block and reports
   ``error: expected `{`, found an identifier``. Write `defer { b.free(); }`.
-- **Forgetting to free.** No diagnostic. The checker follows ownership, not
-  reachability, so the block stays allocated until the process exits. That is
-  a leak, which is visible with the runtime's leak report but not at compile
-  time.
+- **Forgetting to free.** `yashy verify` reports `E1000`: ``linear value `b`
+  is never released``. The verifier checks every path out of the binding's
+  scope, so a release on one branch of an `if` is not enough. `build` and `run`
+  run the same check, so the program is refused before it is linked.
 - **Reading an unwritten slot.** No diagnostic. The value is whatever the
   allocator returned; write before you read.
+
+## Proving your program
+
+`yashy verify file.ya` runs the verifier. It proves two things before the
+program ever runs: every linear value is released on every path out of its
+scope, and every contract the program states is discharged. `yashy build` and
+`yashy run` run the same verifier by default, so a program it rejects never
+reaches `clang`.
+
+The forgotten `.free()` from the mistakes above is the first half. `verify`
+names the binding and the path it leaks on:
+
+```text
+$ yashy verify leak.ya
+leak.ya:2:5
+error[E1000]: linear value `buffer` is never released
+    let buffer = alloc(4);
+    ^^^^^^^^^^^^^^^^^^^^
+  docs: https://yashy.dev/errors/E1000
+```
+
+The second half is a contract: a function can state what it needs and what it
+promises, and the verifier checks the statement at every call and every return.
+
+```yashy
+fn positive(n: int) -> int requires n > 0 ensures result > 0 {
+    return n;
+}
+
+fn main() {
+    let value = positive(3);
+    print(value);
+    println();
+    // => 3
+}
+```
+
+`requires` is the caller's obligation, `ensures` is the callee's promise, and
+`result` is the returned value inside `ensures`. A loop can carry an
+`invariant`: a condition that holds before the first iteration and after every
+back edge. A clause the verifier cannot prove is a warning in this slice
+(`E1100`), not a build failure, so a contract never turns a working program
+into a broken one while the domain grows. A clause it *can* prove costs nothing
+at run time: it is checked at compile time and then disappears.
+
+When the verifier is wrong and you still need a binary, `yashy build --no-verify`
+skips the proof. It warns, writes `<output>.unverified` beside the binary so a
+later reader can see what happened, and refuses a program that carries a
+contract, because a contract is a promise only the verifier can honour. A CI
+that wants proof can set `YASHY_REQUIRE_VERIFY=1` and the flag becomes a usage
+error.
 
 ## Try it
 

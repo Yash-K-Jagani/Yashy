@@ -1,0 +1,68 @@
+// A small file tool: read a file, count its lines and words, and write a
+// report beside it. It is deliberately ordinary code -- the kind a user writes
+// on a Tuesday -- because the verifier's worst failure is refusing a correct
+// program. Every owned slice is released on every path out of `main`.
+//
+// Usage: file_cli <path>
+
+/// Count words in one line: runs of anything that is not space, tab or
+/// carriage return. Written as a scan rather than `split` so the program
+/// allocates nothing per line.
+fn count_words(line: string) -> int {
+    let words = 0;
+    let in_word = false;
+    let index = 0;
+    while index < line.len() {
+        let byte = line.byte_at(index).to_int();
+        let separator = byte == 32 || byte == 9 || byte == 13;
+        if separator {
+            in_word = false;
+        } else {
+            if !in_word {
+                words = words + 1;
+                in_word = true;
+            }
+        }
+        index = index + 1;
+    }
+    return words;
+}
+
+fn main() {
+    let arguments = args();
+    // Indexing is checked and yields `Option`, so an empty argument list needs
+    // no branch of its own; a branch that frees would mark the slice moved for
+    // the rest of the function under the checker's conservative join.
+    let path = switch arguments[0] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    arguments.free();
+    if path.len() == 0 {
+        println("usage: file_cli <path>");
+        return;
+    }
+
+    let text = read_file(path);
+    if text.len() == 0 {
+        println("file_cli: cannot read " + path);
+        return;
+    }
+
+    let lines = text.lines();
+    let line_count = lines.len();
+    let words = 0;
+    for line in lines {
+        words = words + count_words(line);
+    }
+    lines.free();
+
+    let report = "lines=" + str_from_i64(line_count) + " words=" + str_from_i64(words) + "\n";
+    let report_path = path + ".report";
+    let wrote = write_file(report_path, report);
+    if wrote == 0 {
+        println("file_cli: cannot write " + report_path);
+        return;
+    }
+    print(report);
+}

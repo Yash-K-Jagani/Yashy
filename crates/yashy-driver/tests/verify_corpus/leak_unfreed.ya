@@ -1,0 +1,5 @@
+// A heap allocation that is never released: the plainest leak there is.
+// Expected: E1000 on `buf`.
+fn main() {
+    let buf = alloc(16);
+}

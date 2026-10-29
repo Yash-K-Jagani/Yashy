@@ -1,0 +1,10 @@
+// Released on one path only. The leak pass joins branches by intersection, so
+// a binding live on any path out of the `if` is still a leak.
+// Expected: E1000 on `buf`.
+fn main() {
+    let buf = alloc(16);
+    let release = true;
+    if release {
+        buf.free();
+    }
+}

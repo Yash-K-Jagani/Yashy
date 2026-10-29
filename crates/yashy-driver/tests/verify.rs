@@ -262,9 +262,18 @@ fn verify_accepts_every_program_in_the_examples_and_programs_directories() {
     );
 
     for program in &programs {
-        let output = run(&dir, &["verify", program.to_str().unwrap()]);
-        if output.status.code() != Some(0) {
-            failures.push(format!("{}\n{}", program.display(), stderr(&output)));
+        // `--json` rather than the exit status alone: a warning also exits 0,
+        // and "the verifier has nothing to say about the language's own code"
+        // is stronger than "no errors".
+        let output = run(&dir, &["verify", "--json", program.to_str().unwrap()]);
+        let json = stdout(&output);
+        if output.status.code() != Some(0) || !codes_in(&json).is_empty() {
+            failures.push(format!(
+                "{}\n{}{}",
+                program.display(),
+                json,
+                stderr(&output)
+            ));
         }
     }
 
@@ -275,4 +284,89 @@ fn verify_accepts_every_program_in_the_examples_and_programs_directories() {
         programs.len(),
         failures.join("\n")
     );
+}
+
+/// Every seeded bug, the exit status it must produce, and the exact codes in
+/// order. The table is exhaustive: the test refuses to run if the directory
+/// holds a file the table does not name, so a new bug cannot be added silently.
+const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
+    ("leak_unfreed", 1, &["E1000"]),
+    ("leak_branch", 1, &["E1000"]),
+    ("leak_loop", 1, &["E1000"]),
+    ("defer_twice", 1, &["E0500"]),
+    ("defer_after_free", 1, &["E0500"]),
+    ("contract_requires", 0, &["E1100"]),
+    ("contract_ensures", 0, &["E1100"]),
+    ("contract_invariant", 0, &["E1100"]),
+];
+
+/// The `code` values in a schema-v1 report, in order.
+///
+/// A scan rather than a parser: the field is a fixed string in the schema and
+/// the test only needs the codes, while the JSON parser used elsewhere is
+/// larger than the question warrants.
+fn codes_in(json: &str) -> Vec<String> {
+    const FIELD: &str = "\"code\": \"";
+    let mut codes = Vec::new();
+    let mut rest = json;
+    while let Some(start) = rest.find(FIELD) {
+        let after = &rest[start + FIELD.len()..];
+        let Some(end) = after.find('"') else {
+            break;
+        };
+        codes.push(after[..end].to_string());
+        rest = &after[end..];
+    }
+    codes
+}
+
+fn seeded_corpus_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("verify_corpus")
+}
+
+#[test]
+fn every_seeded_bug_produces_exactly_its_expected_codes() {
+    let dir = work_dir("verify-seeded-bugs");
+    let corpus_dir = seeded_corpus_dir();
+
+    let mut files: Vec<String> = fs::read_dir(&corpus_dir)
+        .expect("the seeded corpus directory must exist")
+        .map(|entry| {
+            entry
+                .expect("a readable directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.ends_with(".ya"))
+        .collect();
+    files.sort();
+    let mut named: Vec<String> = SEEDED_BUGS
+        .iter()
+        .map(|(name, _, _)| format!("{name}.ya"))
+        .collect();
+    named.sort();
+    assert_eq!(
+        files, named,
+        "every file in tests/verify_corpus must appear in SEEDED_BUGS"
+    );
+
+    for (name, status, expected) in SEEDED_BUGS {
+        let source = corpus_dir.join(format!("{name}.ya"));
+        let output = run(&dir, &["verify", "--json", source.to_str().unwrap()]);
+        let json = stdout(&output);
+        assert_eq!(
+            output.status.code(),
+            Some(*status),
+            "{name} must exit {status}:\n{json}{}",
+            stderr(&output)
+        );
+        assert_eq!(
+            codes_in(&json),
+            *expected,
+            "{name} must produce exactly {expected:?}:\n{json}"
+        );
+    }
 }

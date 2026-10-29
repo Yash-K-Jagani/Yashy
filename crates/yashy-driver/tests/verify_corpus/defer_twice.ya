@@ -1,0 +1,8 @@
+// `defer` takes a block and the checker reads that block eagerly, so the
+// deferred release is a second release of the same binding.
+// Expected: E0500 on the `free` inside `defer`.
+fn main() {
+    let buf = alloc(16);
+    defer { buf.free(); }
+    buf.free();
+}

@@ -1,0 +1,9 @@
+// An invariant the body breaks: it holds at the first iteration, then the
+// back edge lands at `i == 10`, which is not `< 5`.
+// Expected: E1100 at the loop's back edge.
+fn main() {
+    let index = 0;
+    while index < 3 invariant index < 5 {
+        index = index + 10;
+    }
+}

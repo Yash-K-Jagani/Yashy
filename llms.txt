@@ -17,9 +17,11 @@
 
 ## Diagnostics
 
-- `yashy check --json <file.ya>` and `yashy test --json` share [schema v1](docs/cli.md#json-diagnostics-schema-v1); `--json` implies no color or prompt.
+- `yashy verify <file.ya> [--json]` proves soundness: every linear value is released on every path, and every `requires`, `ensures` and loop `invariant` is discharged. `build` and `run` verify by default; `--no-verify` is a loud, stamped escape hatch.
+- `yashy check --json <file.ya>`, `yashy verify --json <file.ya>` and `yashy test --json` share [schema v1](docs/cli.md#json-diagnostics-schema-v1); `--json` implies no color or prompt.
 - `yashy explain <code> [--json]` prints the embedded [error catalog](docs/errors.md) page for a stable code, offline.
 - [Example page](docs/errors/E0100.md): the cause, minimal example, and fix for a type mismatch.
+- [Leak page](docs/errors/E1000.md): the cause, minimal example, and fix for a linear value that is never released.
 
 ## Source and examples
 

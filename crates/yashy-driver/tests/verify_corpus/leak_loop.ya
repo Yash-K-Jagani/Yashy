@@ -1,0 +1,11 @@
+// A fresh allocation every iteration, released on none of them. The loop body
+// is checked with the state it entered with, so the leak is reported at the
+// binding, not at the loop.
+// Expected: E1000 on `buf`.
+fn main() {
+    let index = 0;
+    while index < 3 {
+        let buf = alloc(16);
+        index = index + 1;
+    }
+}

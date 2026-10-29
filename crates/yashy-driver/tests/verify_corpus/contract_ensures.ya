@@ -1,0 +1,11 @@
+// A postcondition the body does not establish: `n` may be zero or negative, so
+// `result > 0` is unknown at the return. Unknown is not proved, so E1100.
+// Expected: E1100 on `result > 0`.
+fn positive(n: int) -> int ensures result > 0 {
+    return n;
+}
+
+fn main() {
+    let value = positive(1);
+    let unused = value;
+}
