@@ -45,6 +45,8 @@ pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 pub const LEAK: &str = "E1000";
 /// A contract clause is not proved.
 pub const CONTRACT: &str = "E1100";
+/// Checked integer arithmetic is provably out of range.
+pub const OVERFLOW: &str = "E1201";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -119,6 +121,12 @@ pub const CODES: &[Code] = &[
         title: "undischarged contract",
         summary: "A contract clause is not proved.",
         page: include_str!("../../../docs/errors/E1100.md"),
+    },
+    Code {
+        id: OVERFLOW,
+        title: "provable integer overflow",
+        summary: "Checked integer arithmetic always overflows.",
+        page: include_str!("../../../docs/errors/E1201.md"),
     },
 ];
 

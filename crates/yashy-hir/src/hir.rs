@@ -708,3 +708,24 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::HigherOrder { ty, .. } => ty.clone(),
     }
 }
+
+impl HirExpr {
+    /// The position this expression reports a runtime fault from, when the
+    /// operation it is can fault.
+    ///
+    /// Only checked integer arithmetic carries a [`FaultSite`]: `+`, `-`, `*`,
+    /// `/`, `%` on `int`, and unary `-`. A comparison, a boolean operator, a
+    /// float operation and a string concatenation cannot fault and answer
+    /// `None`.
+    ///
+    /// The field stays private so this is the one way to read it. The verifier
+    /// uses it to tell an operation that can overflow from one that cannot,
+    /// without duplicating the checker's decision about which operations are
+    /// checked.
+    pub fn fault(&self) -> Option<&FaultSite> {
+        match self {
+            HirExpr::Binary { fault, .. } | HirExpr::Unary { fault, .. } => fault.as_ref(),
+            _ => None,
+        }
+    }
+}

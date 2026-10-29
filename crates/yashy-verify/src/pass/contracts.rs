@@ -30,13 +30,13 @@ use std::collections::HashMap;
 
 use yashy_common::{codes, Diagnostic, FileId, ProofTrace, Severity, Span};
 use yashy_hir::hir::{
-    expr_ty, BinOp, HirBlock, HirContract, HirExpr, HirFn, HirItem, HirProgram, HirStmt, Literal,
-    UnOp,
+    expr_span, expr_ty, BinOp, HirBlock, HirContract, HirExpr, HirFn, HirItem, HirProgram, HirStmt,
+    Literal, UnOp,
 };
 use yashy_hir::ty::{Type, TypeKind};
 
 use crate::domain::{self, Env, Interval, Tri, Value};
-use crate::pass::bounds;
+use crate::pass::{bounds, overflow};
 use crate::render;
 use crate::{ContractMode, ObligationKind, ProofObligation};
 
@@ -650,6 +650,14 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             HirExpr::Binary { op, lhs, rhs, .. } => {
                 let left = self.eval(lhs, env);
                 let right = self.eval(rhs, env);
+                // Only an operation the checker marked as checked integer
+                // arithmetic can fault, and only a fault can overflow. A
+                // comparison, a float operation and a string concatenation all
+                // carry no fault mark and are not this rule's business.
+                if expr.fault().is_some() {
+                    let verdict = overflow::check(*op, left.interval, right.interval);
+                    self.check_overflow(expr, verdict);
+                }
                 match op {
                     BinOp::Add => left.add(right),
                     BinOp::Sub => left.sub(right),
@@ -660,13 +668,18 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                     _ => Value::top(),
                 }
             }
-            HirExpr::Unary { op, operand, .. } => match op {
-                UnOp::Neg => self.eval(operand, env).neg(),
-                UnOp::Not => {
-                    self.eval(operand, env);
-                    Value::top()
+            HirExpr::Unary { op, operand, .. } => {
+                let value = self.eval(operand, env);
+                // `-x` is checked when `x` is an `int`; `!b` cannot fault.
+                if expr.fault().is_some() {
+                    let verdict = overflow::check_neg(value.interval);
+                    self.check_overflow(expr, verdict);
                 }
-            },
+                match op {
+                    UnOp::Neg => value.neg(),
+                    UnOp::Not => Value::top(),
+                }
+            }
             HirExpr::Move(inner, ..) => self.eval(inner, env),
             HirExpr::Call {
                 callee, args, span, ..
@@ -990,6 +1003,47 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             TypeKind::FixedArray(_, length) => i64::try_from(*length).ok(),
             _ => self.length_of(base, env),
         }
+    }
+
+    /// Record, or reject, one checked integer operation.
+    ///
+    /// The obligation is recorded even when the operation is rejected: the
+    /// verdict is a fact about the expression, and phase 3 reads the
+    /// established ones to decide which runtime checks it may delete. A
+    /// certain fault is also a diagnostic, because the program cannot get past
+    /// it; a "maybe" is not, because the check has to stay.
+    fn check_overflow(&mut self, expr: &HirExpr, verdict: overflow::Overflow) {
+        // A loop's fixpoint walks the same body more than once; only the last
+        // walk may record, exactly as only the last walk may report.
+        if self.quiet {
+            return;
+        }
+        self.obligations.push(ProofObligation {
+            kind: ObligationKind::Overflow,
+            span: expr_span(expr),
+            established: verdict == overflow::Overflow::InRange,
+        });
+        if verdict != overflow::Overflow::OutOfRange {
+            return;
+        }
+        let text = render::expr(expr);
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                expr_span(expr),
+                format!("`{text}` always overflows: every result is outside the range of `int`"),
+            )
+            .with_code(codes::OVERFLOW)
+            .with_label("this operation always overflows")
+            .with_proof(ProofTrace {
+                obligation: "overflow",
+                missing_fact: "the operands' ranges put every result outside `int`".to_string(),
+                remedy: "bound the operands, or use a `wrapping_*`, `checked_*` or \
+                         `saturating_*` operation"
+                    .to_string(),
+            }),
+        );
     }
 }
 

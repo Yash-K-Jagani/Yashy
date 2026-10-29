@@ -37,6 +37,7 @@ the declaration or import involved when that is not obvious.
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E1000](errors/E1000.md) | leaked linear value |
 | [E1100](errors/E1100.md) | undischarged contract |
+| [E1201](errors/E1201.md) | provable integer overflow |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.

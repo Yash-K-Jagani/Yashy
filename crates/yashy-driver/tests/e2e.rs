@@ -1855,9 +1855,13 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // nowhere else to put the error (spec 6.1). The message names the numbers as
     // well as the operation, because "it overflowed" is far less useful than
     // "these two added to too much".
+    //
+    // `same` hides the range from the verifier: an overflow it can prove is a
+    // compile error (E1201), and this test is about the runtime check that
+    // handles a value the verifier does not know.
     let output = compile_and_run(
         "overflow-add",
-        "fn main() {\n    print(\"before\\n\");\n    let big = 9223372036854775807;\n    print(big + 1);\n    print(\"after\\n\");\n}\n",
+        "fn main() {\n    print(\"before\\n\");\n    let big = same(9223372036854775807);\n    print(big + 1);\n    print(\"after\\n\");\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -1885,10 +1889,11 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
 fn an_overflowing_multiplication_is_a_fault_too() {
     // The multiply is the one that would have needed a hand-rolled test -- the
     // sign of the result is not enough to know whether the product fit -- which
-    // is why it goes through LLVM's `smul.with.overflow`.
+    // is why it goes through LLVM's `smul.with.overflow`. `same` keeps the
+    // operand opaque so this tests the runtime check, not E1201.
     let output = compile_and_run(
         "overflow-mul",
-        "fn main() {\n    let big = 4000000000000000000;\n    print(big * 3);\n}\n",
+        "fn main() {\n    let big = same(4000000000000000000);\n    print(big * 3);\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -1950,10 +1955,11 @@ fn dividing_the_smallest_i64_by_minus_one_is_an_overflow() {
 fn negating_the_smallest_i64_is_an_overflow() {
     // `-i64::MIN` wraps to itself, which is the one negation that cannot be
     // right. It reports as an overflow of a subtraction from zero, because that
-    // is what negation is.
+    // is what negation is. `same` hides the range from the verifier so the
+    // runtime check runs instead of E1201 firing at compile time.
     let output = compile_and_run(
         "overflow-neg",
-        "fn main() {\n    let m = -9223372036854775808;\n    print(-m);\n}\n",
+        "fn main() {\n    let m = same(-9223372036854775808);\n    print(-m);\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);

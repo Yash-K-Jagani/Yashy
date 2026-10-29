@@ -159,6 +159,20 @@ not from the pre-flight scan. They are numbered after the eight above.
     its existing `eval`.** One walk, one set of facts. `contracts::check` gains
     an `obligations` sink; `verify` fills `VerifyReport::obligations`.
 
+11. **A provable overflow is a compile error, so the runtime-fault tests hide
+    the operand.** Integer `+`, `-`, `*` and unary `-` are checked and panic at
+    run time, so an operation whose whole result range is outside `i64` is a
+    certain fault and `E1201` rejects it. That is unlike bounds (ruling 9): a
+    miss is a defined `None`, an overflow is not a value. Four e2e tests and
+    `tests/programs/overflow.ya` overflowed on purpose and now fail to build.
+    The rule is not wrong -- those programs can never reach the fault -- so the
+    **tests** change: each value goes through `fn same(n: int) -> int { return n; }`,
+    which the verifier does not see through, and the runtime check still runs.
+    The corpus gate stays at zero codes on every shipped program. Cost if wrong:
+    a program that provably overflows no longer builds, so a user who wanted the
+    runtime panic has to say what they mean with `wrapping_*`, `checked_*` or
+    `saturating_*`; that is the trade the rule makes.
+
 ---
 
 ### Task 1: Move exhaustiveness into `yashy-hir` and re-check it
@@ -282,13 +296,17 @@ A pointer index is skipped (no length to compare against). A view is skipped: cl
 
 **Files:**
 - Create: `crates/yashy-verify/src/pass/overflow.rs`
+- Create: `crates/yashy-verify/tests/overflow.rs`
+- Modify: `crates/yashy-hir/src/hir.rs` (`HirExpr::fault`)
+- Modify: `crates/yashy-verify/src/lib.rs` (`ObligationKind::Overflow`), `crates/yashy-verify/src/pass/mod.rs`, `crates/yashy-verify/src/pass/contracts.rs` (the walk calls the rule)
 - Modify: `codes.rs` (`OVERFLOW = "E1201"`), `docs/errors/E1201.md`, `docs/errors.md`
+- Modify: `crates/yashy-driver/tests/programs/overflow.ya`, `crates/yashy-driver/tests/e2e.rs` (the runtime-fault tests keep a value the verifier cannot see)
 
 **Interfaces:**
 - Consumes: the fault mark the checker already puts on exactly the operations that can fault, read through a new `HirExpr::fault(&self) -> Option<&FaultSite>` accessor added in this task; the field stays private, so there is one way to read it.
-- Produces: `E1201` only when the result range is entirely outside `i64`.
+- Produces: `E1201` only when the result range is entirely outside `i64`; an `Overflow` obligation for every checked operation, established exactly when the whole result range fits.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests** — `tests/overflow.rs`, thirteen whole programs: adding one and adding two to `i64::MAX`, subtracting past `i64::MIN`, multiplying, negating `i64::MIN` (all `E1201`); `1 + 2` and a `for`-bounded `i + 1` (silent, established); two parameters and a sum that straddles the boundary (silent, unestablished); a string concatenation, a float product and a comparison (no obligation, because they carry no fault mark); arithmetic after `return` (not recorded).
 
 ```rust
 #[test]
@@ -298,25 +316,24 @@ fn adding_one_to_the_largest_int_is_rejected() {
 }
 
 #[test]
-fn adding_two_small_ints_is_not() {
-    assert!(verify_source("fn main() { let x = 1 + 2; }").diagnostics.is_empty());
-}
-
-#[test]
 fn arithmetic_on_parameters_is_recorded_not_rejected() {
-    let report = verify_source("fn f(a: int, b: int) -> int { a + b } fn main() { }");
+    let report = verify_source("fn f(a: int, b: int) { a + b; } fn main() { }");
     assert!(report.diagnostics.is_empty());
     assert!(report.obligations.iter().any(|o| o.kind == ObligationKind::Overflow && !o.established));
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail** → FAIL.
+The plan's `fn f(a: int, b: int) -> int { a + b }` did not parse: an expression statement needs a `;`, and a `-> int` body with no `return` is now a "missing return" error. The test uses a `void` function, which is what it meant.
 
-- [ ] **Step 3: Implement** — the same domain arithmetic as the contract pass; `i64::MAX + 1` is `[MIN, MIN]`-wrapped, so the pass must compute the mathematical result range *before* wrapping and compare against the bounds. Undecidable → obligation, never an error.
+- [x] **Step 2: Run and watch them fail** — compile error: `ObligationKind` has no `Overflow`.
 
-- [ ] **Step 4: Run the tests** → PASS.
+- [x] **Step 3: Implement** — `pass/overflow.rs` computes the mathematical result range in `i128` *before* clamping (`Interval` clamps and answers `TOP` when a result leaves `i64`, which would lose exactly the fact the rule needs). `Overflow::{InRange, OutOfRange, Unknown}`; empty operands are vacuously in range; division and remainder are not modelled, because the domain does not model them and their faults are a different rule. `contracts.rs` calls it from `eval`'s `Binary` arm when `expr.fault().is_some()`, and from the `Unary` arm for `-x`. An `OutOfRange` verdict is an error with `E1201` and an `Overflow` obligation (`established: false`); `Unknown` is the obligation alone; `InRange` is `established: true`. The rule is skipped while the loop fixpoint is quiet, so it records once.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): reject provable integer overflow (E1201)"`
+- [x] **Step 4: Run the tests** — `cargo test -p yashy-verify` → **88 passed, 0 failed** (43 lib unit tests, 10 bounds, 18 contracts, 4 exhaustive, 13 overflow). `cargo check --workspace --all-targets` clean; `cargo test --workspace` **1315 passed**.
+
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): reject provable integer overflow (E1201)"`
+
+The four runtime-fault tests in `tests/e2e.rs` and `tests/programs/overflow.ya` overflowed on purpose, and E1201 now rejects them at compile time. That is the rule working, not a false positive: the program can never reach the fault. The tests are about the *runtime* check, so each value now goes through `fn same(n: int) -> int { return n; }`, which hides the range from the verifier. The runtime path is still reachable for any value the verifier does not know, which is exactly what those tests exist to cover. The corpus gate stays at zero codes on every shipped program.
 
 ---
 
@@ -480,9 +497,9 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 
 ### Task 10: Docs and the gate
 
-**Files:** `docs/errors/E1201.md`, `docs/errors/{E2000..E2003}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule). `E1200` has no page: it is reserved but never emitted (ruling 9).
+**Files:** `docs/errors/{E2000..E2003}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule). `E1201.md` already ships with Task 3. `E1200` has no page: it is reserved but never emitted (ruling 9).
 
-- [ ] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples.
+- [ ] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples. While here, settle the proof trace in human output: `yashy-common/src/source.rs` prints the label, the notes and the `docs:` line but **not** `diagnostic.proof`, so `E1100.md`'s example shows `proof:`/`missing:`/`remedy:` lines the renderer does not print. Either render the trace (the DX fix, and then `E1100.md` is accurate) or correct the page to match the renderer. `E1201.md` currently shows only what the renderer prints and says the trace is in `--json`.
 
 - [ ] **Step 2: Run the gate** — the table below, on both operating systems.
 

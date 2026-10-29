@@ -46,6 +46,8 @@ pub struct VerifyOptions {
 pub enum ObligationKind {
     /// An array index is inside the array's length.
     Bounds,
+    /// A checked integer operation's result is inside the `int` range.
+    Overflow,
 }
 
 /// One fact the verifier tried to prove, and whether it could.
