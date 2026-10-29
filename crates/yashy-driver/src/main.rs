@@ -33,7 +33,22 @@ use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, load_and_check_timed, resolve_opt, timed,
     BuildOptions, CpuTarget, OptLevel, PhaseTiming,
 };
-use yashy_verify::{first_contract, VerifyOptions, VerifyReport};
+use yashy_verify::{first_contract, ContractMode, VerifyOptions, VerifyReport};
+
+/// How every command that verifies reads the program.
+///
+/// A contract is a promise the verifier checks, so an unproved one is an error
+/// in every path that claims the program is sound: `verify`, `build`, `run` and
+/// the human `test` path all share this one value. `yashy test`'s JSON path
+/// builds on the same checker, so it agrees with the human path by
+/// construction.
+///
+/// This is deliberately one constant rather than a flag per command. The
+/// contract pass does not know the mode, which is what makes the flip a single
+/// line; a command that wanted to warn would have to say so, and none does.
+const OPTIONS: VerifyOptions = VerifyOptions {
+    contracts: ContractMode::Enforce,
+};
 
 const USAGE: &str = "\
 usage:
@@ -285,14 +300,7 @@ fn build_measured(args: &[String]) -> BuildOutcome {
         }
         (hir, VerifyReport::default())
     } else {
-        match check_and_verify_timed(
-            &mut sources,
-            &input,
-            source,
-            release,
-            &VerifyOptions::default(),
-            measured,
-        ) {
+        match check_and_verify_timed(&mut sources, &input, source, release, &OPTIONS, measured) {
             Ok(checked) => checked,
             Err(diagnostics) => {
                 return BuildOutcome {
@@ -835,38 +843,33 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
         // builds through `build_measured`, which verifies, so a test that leaks
         // is a failure there and has to be one here too. Warnings travel with a
         // passing test, exactly as `build` prints them and still links.
-        let outcome = match check_and_verify_timed(
-            &mut sources,
-            entry,
-            source,
-            false,
-            &VerifyOptions::default(),
-            &mut phases,
-        ) {
-            Ok((hir, report)) => {
-                if report.error_count() > 0 {
-                    Err(report.diagnostics)
-                } else {
-                    let warnings = report.diagnostics;
-                    match compile_hir_timed(
-                        &hir,
-                        &file,
-                        &exe,
-                        &toolchain,
-                        BuildOptions::default(),
-                        &mut phases,
-                    ) {
-                        Ok(()) => Ok(warnings),
-                        Err(more) => {
-                            let mut diagnostics = warnings;
-                            diagnostics.extend(more);
-                            Err(diagnostics)
+        let outcome =
+            match check_and_verify_timed(&mut sources, entry, source, false, &OPTIONS, &mut phases)
+            {
+                Ok((hir, report)) => {
+                    if report.error_count() > 0 {
+                        Err(report.diagnostics)
+                    } else {
+                        let warnings = report.diagnostics;
+                        match compile_hir_timed(
+                            &hir,
+                            &file,
+                            &exe,
+                            &toolchain,
+                            BuildOptions::default(),
+                            &mut phases,
+                        ) {
+                            Ok(()) => Ok(warnings),
+                            Err(more) => {
+                                let mut diagnostics = warnings;
+                                diagnostics.extend(more);
+                                Err(diagnostics)
+                            }
                         }
                     }
                 }
-            }
-            Err(diagnostics) => Err(diagnostics),
-        };
+                Err(diagnostics) => Err(diagnostics),
+            };
         accumulate(&mut timings, &phases);
 
         match outcome {
@@ -1902,14 +1905,7 @@ fn verify(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome = check_and_verify_timed(
-        &mut sources,
-        &input,
-        source,
-        false,
-        &VerifyOptions::default(),
-        measured,
-    );
+    let outcome = check_and_verify_timed(&mut sources, &input, source, false, &OPTIONS, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
         Ok((_, report)) => {

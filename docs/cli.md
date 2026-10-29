@@ -53,11 +53,11 @@ a `docs:` line naming its page, for example
 ## `yashy verify <file.ya> [--json] [--timings]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
-a well-typed program is also *sound*. In 1a that means two things: every linear
-value -- every pointer, slice, map, mutex and channel -- is released on every
-path out of its scope, and every `requires`, `ensures` and loop `invariant` is
-discharged. A clause the verifier cannot prove is a warning in this slice
-(see [E1100](errors/E1100.md)), so the program still builds.
+a well-typed program is also *sound*. That means every linear value -- every
+pointer, slice, map, mutex and channel -- is released on every path out of its
+scope, and every `requires`, `ensures` and loop `invariant` is discharged. A
+clause the verifier cannot prove is an error
+(see [E1100](errors/E1100.md)), so the program is refused.
 
 ```text
 yashy verify main.ya
@@ -73,15 +73,16 @@ A verifier diagnostic carries a proof trace in its JSON form -- the obligation,
 the fact that could not be established, and the remedy -- so a tool can act on
 it without parsing the message.
 
-`verify` exits `0` when every diagnostic is a warning. Two kinds are warnings in
-1a: a viewed `[]T`, which the view keeps alive until the function returns so the
-language gives no way to release it ([E1000](errors/E1000.md)), and a contract
-clause the verifier's domain cannot prove ([E1100](errors/E1100.md)).
+`verify` exits `0` when every diagnostic is a warning. One kind is a warning: a
+viewed `[]T`, which the view keeps alive until the function returns so the
+language gives no way to release it ([E1000](errors/E1000.md)). An unproved
+contract is an error, not a warning.
 
 `build` and `run` verify by default. An unverified binary is not a build, so a
-program that leaks is refused before `clang` is started. `test` verifies too,
-and both surfaces agree: a leaking test fails whether you run `test` or
-`test --json`, and a verifier warning is reported without failing the run.
+program that leaks or breaks a contract is refused before `clang` is started.
+`test` verifies too, and both surfaces agree: a leaking test fails whether you
+run `test` or `test --json`, and a verifier warning is reported without failing
+the run.
 
 ## `--no-verify`
 

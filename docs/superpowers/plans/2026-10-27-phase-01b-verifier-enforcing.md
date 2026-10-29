@@ -340,22 +340,23 @@ The four runtime-fault tests in `tests/e2e.rs` and `tests/programs/overflow.ya` 
 ### Task 4: Contracts enforce
 
 **Files:**
-- Modify: `crates/yashy-driver/src/main.rs` (`verify`, `build`, `run` pass `ContractMode::Enforce`)
-- Modify: `crates/yashy-driver/tests/verify.rs`
+- Modify: `crates/yashy-driver/src/main.rs` (`verify`, `build`, `run` and the human `test` path pass `ContractMode::Enforce`)
+- Modify: `crates/yashy-driver/tests/verify.rs` (two new tests; the three contract fixtures move to exit `1`)
+- Modify: `docs/errors/E1100.md`, `docs/cli.md`, `docs/tutorial/07-memory.md`, `tests/verify_corpus/contract_requires.ya` (the pages and the fixture comment said a clause was a warning)
 
 **Interfaces:**
 - Consumes: `ContractMode::Enforce` from 1a.
-- Produces: an unproved contract exits `1` on `verify`, `build` and `run`.
+- Produces: an unproved contract exits `1` on `verify`, `build`, `run` and `test`.
 
-- [ ] **Step 1: Write the failing test** — a program whose `requires` fails at a call site exits 1 from `yashy build`, and the message carries `E1100` and the clause text.
+- [x] **Step 1: Write the failing test** — `build_refuses_a_program_whose_contract_is_not_proved` and `run_refuses_a_program_whose_contract_is_not_proved`, each a program whose `requires n > 0` is called with `0`: exit `1`, `error[E1100]` in the header, `n > 0` quoted. The three `SEEDED_BUGS` contract rows move from status `0` to `1`, which is the same statement for `verify`.
 
-- [ ] **Step 2: Watch it fail** — currently the diagnostic is a warning, so exit is 0.
+- [x] **Step 2: Watch it fail** — **three failed**: the two new tests (exit `0`, `warning[E1100]`) and the seeded-bug row (expected `1`, got `0`).
 
-- [ ] **Step 3: Flip the mode** — one constant in `main.rs`, `const OPTIONS: VerifyOptions = VerifyOptions { contracts: ContractMode::Enforce };`, replacing the three `&VerifyOptions::default()` expressions at the `verify`, `build` and `run` call sites. The pass is unchanged; this is the whole point of keeping mode out of the pass.
+- [x] **Step 3: Flip the mode** — one constant in `main.rs`, `const OPTIONS: VerifyOptions = VerifyOptions { contracts: ContractMode::Enforce };`, replacing the three `&VerifyOptions::default()` expressions. The plan said "the `verify`, `build` and `run` call sites"; in fact `run` goes through `build_measured`, so the third site is the human `test` path. Flipping it is right: `test` already verifies, and Task 5 only has the JSON path left. The pass is unchanged; this is the whole point of keeping mode out of the pass.
 
-- [ ] **Step 4: Run the suite** — `cargo test -p yashy-driver --test verify --test e2e --test examples` → PASS. Any failure is a false positive to fix in the domain, not a reason to go back to `Warn`.
+- [x] **Step 4: Run the suite** — `cargo test -p yashy-driver --test verify --test e2e --test examples` plus `--test tutorial --test test_runner --test unverified --test never_panics --test doctor` → **154 passed**. `cargo check --workspace --all-targets` clean; `cargo test --workspace` → **1317 passed** (the two new tests). No false positive: every shipped program still verifies clean.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): enforce contracts in build, run and verify"`
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): enforce contracts in build, run and verify"`
 
 ---
 

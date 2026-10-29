@@ -295,9 +295,9 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("leak_loop", 1, &["E1000"]),
     ("defer_twice", 1, &["E0500"]),
     ("defer_after_free", 1, &["E0500"]),
-    ("contract_requires", 0, &["E1100"]),
-    ("contract_ensures", 0, &["E1100"]),
-    ("contract_invariant", 0, &["E1100"]),
+    ("contract_requires", 1, &["E1100"]),
+    ("contract_ensures", 1, &["E1100"]),
+    ("contract_invariant", 1, &["E1100"]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.
@@ -369,4 +369,55 @@ fn every_seeded_bug_produces_exactly_its_expected_codes() {
             "{name} must produce exactly {expected:?}:\n{json}"
         );
     }
+}
+
+/// A program whose `requires` the caller cannot establish.
+const UNPROVED_CONTRACT: &str = "\
+fn positive(n: int) requires n > 0 {
+    let unused = n;
+}
+
+fn main() {
+    positive(0);
+}
+";
+
+#[test]
+fn build_refuses_a_program_whose_contract_is_not_proved() {
+    let dir = work_dir("verify-contract-build");
+    write(&dir, "contract.ya", UNPROVED_CONTRACT);
+
+    let output = run(&dir, &["build", "contract.ya"]);
+    let errors = stderr(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an unproved contract must stop the build:\n{errors}"
+    );
+    assert!(
+        errors.contains("error[E1100]"),
+        "the code must be in the header:\n{errors}"
+    );
+    assert!(
+        errors.contains("n > 0"),
+        "the clause text must be quoted:\n{errors}"
+    );
+}
+
+#[test]
+fn run_refuses_a_program_whose_contract_is_not_proved() {
+    let dir = work_dir("verify-contract-run");
+    write(&dir, "contract.ya", UNPROVED_CONTRACT);
+
+    let output = run(&dir, &["run", "contract.ya"]);
+    let errors = stderr(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an unproved contract must stop the run before the program starts:\n{errors}"
+    );
+    assert!(
+        errors.contains("error[E1100]"),
+        "the code must be in the header:\n{errors}"
+    );
 }

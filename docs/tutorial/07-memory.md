@@ -163,10 +163,10 @@ fn main() {
 `requires` is the caller's obligation, `ensures` is the callee's promise, and
 `result` is the returned value inside `ensures`. A loop can carry an
 `invariant`: a condition that holds before the first iteration and after every
-back edge. A clause the verifier cannot prove is a warning in this slice
-(`E1100`), not a build failure, so a contract never turns a working program
-into a broken one while the domain grows. A clause it *can* prove costs nothing
-at run time: it is checked at compile time and then disappears.
+back edge. A clause the verifier cannot prove is an error (`E1100`), so the
+program is refused rather than shipped with a promise it may break. A clause it
+*can* prove costs nothing at run time: it is checked at compile time and then
+disappears.
 
 When the verifier is wrong and you still need a binary, `yashy build --no-verify`
 skips the proof. It warns, writes `<output>.unverified` beside the binary so a
