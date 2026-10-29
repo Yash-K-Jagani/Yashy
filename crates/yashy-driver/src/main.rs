@@ -33,12 +33,12 @@ use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, load_and_check_timed, resolve_opt, timed,
     BuildOptions, CpuTarget, OptLevel, PhaseTiming,
 };
-use yashy_verify::VerifyOptions;
+use yashy_verify::{first_contract, VerifyOptions, VerifyReport};
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings]
   yashy verify <file.ya> [--json] [--timings]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings]
@@ -66,6 +66,9 @@ usage:
                optimization level defaults to -O3 unless an explicit -O
                level is given
   --emit-ir    print the generated LLVM IR to stdout and stop
+  --no-verify  build without proving the program sound; refused when the program
+               has a contract or `YASHY_REQUIRE_VERIFY` is set, and stamps
+               `<output>.unverified` beside the binary
   --timings    print how long each pipeline phase took, to stderr (or in the
                JSON report); stdout is never touched
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
@@ -114,7 +117,7 @@ struct BuildOutcome {
     timings: Vec<PhaseTiming>,
 }
 
-/// `yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings]`.
+/// `yashy build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
 fn build(args: &[String]) -> ExitCode {
     let outcome = build_measured(args);
     // An empty vector means the flag was not passed, so this is silent then.
@@ -127,6 +130,7 @@ fn build_measured(args: &[String]) -> BuildOutcome {
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
     let mut timings_flag = false;
+    let mut no_verify = false;
     // Every exit before the pipeline starts has no phase to report.
     let stopped = |code: ExitCode| BuildOutcome {
         code,
@@ -159,6 +163,7 @@ fn build_measured(args: &[String]) -> BuildOutcome {
         match argument.as_str() {
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
+            "--no-verify" => no_verify = true,
             "--fast-math" => fast_math = true,
             "--release" => release = true,
             "--native" => cpu = CpuTarget::Native,
@@ -214,6 +219,22 @@ fn build_measured(args: &[String]) -> BuildOutcome {
     let Some(input) = input else {
         return stopped(usage_error("`build` needs a source file"));
     };
+
+    // `--no-verify` is an escape hatch, not a mode. It exists so a user can
+    // build a program the verifier is wrong about, and it has to be loud and
+    // traceable. A pipeline that demands verification refuses it outright, and
+    // so does a program that asks for a proof only the verifier can supply.
+    if no_verify && require_verify_from_env() {
+        return stopped(usage_error(
+            "`YASHY_REQUIRE_VERIFY` is set, so `--no-verify` is refused",
+        ));
+    }
+    if no_verify && emit_ir {
+        return stopped(usage_error(
+            "`--no-verify` has no meaning with `--emit-ir`; IR is not a binary",
+        ));
+    }
+
     let source = match read_source(&input) {
         Ok(source) => source,
         Err(code) => return stopped(code),
@@ -235,19 +256,49 @@ fn build_measured(args: &[String]) -> BuildOutcome {
     // as it reads that file, so a diagnostic from a module renders against the
     // module's own text. The entry point is file id zero.
     let mut sources = SourceMap::new();
-    let (hir, report) = match check_and_verify_timed(
-        &mut sources,
-        &input,
-        source,
-        release,
-        &VerifyOptions::default(),
-        measured,
-    ) {
-        Ok(checked) => checked,
-        Err(diagnostics) => {
+
+    let (hir, report) = if no_verify {
+        // The checker still runs: `--no-verify` skips the proof, not the type
+        // system. A program that does not type-check has no binary worth
+        // stamping.
+        let hir = match load_and_check_timed(&mut sources, &input, source, release, measured) {
+            Ok(hir) => hir,
+            Err(diagnostics) => {
+                return BuildOutcome {
+                    code: render(&sources, &diagnostics),
+                    timings,
+                }
+            }
+        };
+        // A contract is a promise only the verifier can check, so a build that
+        // skips the verifier cannot honour it. The first one is named: "this
+        // program has contracts" is not an actionable message.
+        if let Some(name) = first_contract(&hir) {
+            eprintln!(
+                "error: `--no-verify` is refused because `{name}` has a contract; \
+                 a contract is only meaningful when the verifier runs"
+            );
             return BuildOutcome {
-                code: render(&sources, &diagnostics),
+                code: exit_code(EXIT_USAGE),
                 timings,
+            };
+        }
+        (hir, VerifyReport::default())
+    } else {
+        match check_and_verify_timed(
+            &mut sources,
+            &input,
+            source,
+            release,
+            &VerifyOptions::default(),
+            measured,
+        ) {
+            Ok(checked) => checked,
+            Err(diagnostics) => {
+                return BuildOutcome {
+                    code: render(&sources, &diagnostics),
+                    timings,
+                }
             }
         }
     };
@@ -300,10 +351,76 @@ fn build_measured(args: &[String]) -> BuildOutcome {
         release,
     };
     let code = match compile_hir_timed(&hir, &entry, &output, &toolchain, options, measured) {
-        Ok(()) => exit_code(EXIT_OK),
+        Ok(()) => {
+            let sidecar = unverified_sidecar(&output);
+            if no_verify {
+                // The stamp is the whole point of the escape hatch: an
+                // unverified binary must be identifiable after the fact. If the
+                // stamp cannot be written, the binary must not survive either,
+                // or the one promise `--no-verify` makes is broken.
+                match fs::write(&sidecar, UNVERIFIED_SIDECAR) {
+                    Ok(()) => eprintln!(
+                        "warning: built without verification (`--no-verify`); wrote {}",
+                        sidecar.display()
+                    ),
+                    Err(error) => {
+                        let _ = fs::remove_file(&output);
+                        eprintln!("error: cannot stamp {}: {error}", sidecar.display());
+                        return BuildOutcome {
+                            code: exit_code(EXIT_COMPILE_ERROR),
+                            timings,
+                        };
+                    }
+                }
+            } else {
+                // A verified build retires an earlier unverified claim. A stale
+                // stamp over-states caution rather than hiding a risk, so a
+                // failure to remove it is a warning, not a failed build.
+                if let Err(error) = fs::remove_file(&sidecar) {
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        eprintln!(
+                            "warning: cannot remove stale {}: {error}",
+                            sidecar.display()
+                        );
+                    }
+                }
+            }
+            exit_code(EXIT_OK)
+        }
         Err(diagnostics) => render(&sources, &diagnostics),
     };
     BuildOutcome { code, timings }
+}
+
+/// The provenance stamp that sits beside an unverified binary.
+///
+/// `hello.exe` becomes `hello.exe.unverified`, so the pair travels together
+/// through a copy or a package without a manifest to keep in step.
+fn unverified_sidecar(output: &Path) -> PathBuf {
+    let mut path = output.as_os_str().to_owned();
+    path.push(".unverified");
+    PathBuf::from(path)
+}
+
+/// The stamp's exact bytes. One line of JSON, so a reader can parse it without
+/// guessing at a format, and a human can read it with `cat`.
+const UNVERIFIED_SIDECAR: &str =
+    r#"{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"0.1.0"}"#;
+
+/// True when the environment demands verification.
+///
+/// Set `YASHY_REQUIRE_VERIFY` to anything but empty, `0` or `false` and
+/// `--no-verify` becomes a usage error. A CI that has decided its binaries must
+/// be proved can enforce that without trusting every command line it runs.
+fn require_verify_from_env() -> bool {
+    match env::var_os("YASHY_REQUIRE_VERIFY") {
+        Some(value) => {
+            let value = value.to_string_lossy();
+            let value = value.trim();
+            !(value.is_empty() || value == "0" || value.eq_ignore_ascii_case("false"))
+        }
+        None => false,
+    }
 }
 
 /// `yashy run <file.ya> [build flags] [-- <program args>...]`.
@@ -329,7 +446,7 @@ fn run(args: &[String]) -> ExitCode {
                     "`run` chooses its own output path; use `build -o` to keep a binary",
                 )
             }
-            "--release" | "--fast-math" | "--native" | "--timings" => {
+            "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" => {
                 build_args.push(argument.clone())
             }
             "--cpu" => {

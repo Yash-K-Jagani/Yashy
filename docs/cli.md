@@ -30,12 +30,14 @@ yashy build main.ya --emit-ir
 | `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native`. |
 | `--fast-math` | Allow fused multiply-add; results may differ. |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
+| `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
 
 ## `yashy run <file.ya>`
 
-Compiles and runs in one step. It accepts the same optimization, CPU, release
-and timing options as `build`. Arguments after `--` go to the program.
+Compiles and runs in one step. It accepts the same optimization, CPU, release,
+verification and timing options as `build`. Arguments after `--` go to the
+program.
 
 ## `yashy check <file.ya> [--json] [--timings]`
 
@@ -80,6 +82,46 @@ clause the verifier's domain cannot prove ([E1100](errors/E1100.md)).
 program that leaks is refused before `clang` is started. `test` verifies too,
 and both surfaces agree: a leaking test fails whether you run `test` or
 `test --json`, and a verifier warning is reported without failing the run.
+
+## `--no-verify`
+
+An escape hatch for the case where the verifier is wrong and a binary is still
+needed. It skips the proof, not the type system: `check` still runs, so a
+program that does not type-check is still refused. What it skips is everything
+in [`yashy verify`](#yashy-verify-fileya---json---timings): the leak pass and
+contract discharge.
+
+The flag is narrow, loud and traceable:
+
+```text
+$ yashy build main.ya --no-verify
+warning: built without verification (`--no-verify`); wrote main.unverified
+```
+
+The stamp is the output path plus `.unverified`, so `main.exe` on Windows
+becomes `main.exe.unverified`. It contains one line of JSON:
+
+```json
+{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"0.1.0"}
+```
+
+A verified build removes a stale stamp. If the stamp cannot be written, the
+binary is removed too and the build fails: an unverified binary must not exist
+without one.
+
+The flag is refused, as a usage error (`2`) rather than a diagnostic, in three
+cases, because nothing is wrong with the program:
+
+- the program has a `requires`, `ensures` or loop `invariant`; the message names
+  the first function that carries one, because only the verifier can honour a
+  contract;
+- `YASHY_REQUIRE_VERIFY` is set (to anything but empty, `0` or `false`), so a CI
+  can demand proof without trusting every command line it runs;
+- `--emit-ir` is also given, because IR is not a binary and there is nothing to
+  stamp.
+
+`run --no-verify` forwards the flag to `build`. The temporary binary and its
+stamp live in the run directory and are removed with it; `run` keeps no binary.
 
 ## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings]`
 
@@ -316,6 +358,7 @@ Prints the compiler version.
 | `YASHY_PATH` | Replaces the entry-directory import roots. The bundled stdlib is still appended. |
 | `YASHY_LLC` | Names the `llc` executable directly. Builds still need `clang` on `PATH`. |
 | `YASHY_LEAK_REPORT=1` | Print live allocations at process exit. |
+| `YASHY_REQUIRE_VERIFY` | When set to anything but empty, `0` or `false`, `build` and `run` refuse `--no-verify`. |
 
 ## Installer flags
 
