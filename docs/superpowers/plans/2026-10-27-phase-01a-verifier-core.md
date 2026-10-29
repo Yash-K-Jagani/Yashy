@@ -977,8 +977,16 @@ noise-padded copy that `tests/common/mod.rs` already uses.
 
 The gate itself is not waived: `.github/workflows/ci.yml` runs
 `cargo test --workspace --no-fail-fast` on `windows-latest`, a host with no such
-policy, for every push to `main`. The result of the run that closed this phase
-is recorded in the ledger and in the master index.
+policy, for every push to `main`.
+
+**Observed on Windows (CI).** Run `40826808688` on commit `00bb31c`, job
+`test (windows-latest)`: the `Test` step reported **1277 passed, 0 failed**, and
+the separate `Tooling tests` step (which re-runs `yashy-fmt` and `yashy-lsp`)
+reported 29 passed -- 1306 in total, **zero failures anywhere**. Windows reports
+one more test than Linux because `tests/run.rs` has a `#[cfg(windows)]` case
+(`run_forwards_a_32_bit_exit_code`); 1277 - 1 = 1276, which is exactly the WSL
+total. The `Check` step (`cargo check --workspace --all-targets`) and both
+install-smoke jobs passed as well.
 
 - [x] **Step 4: Measure the budget**
 
@@ -1011,14 +1019,18 @@ compiles and runs, loop invariants, and the escape hatch. Two statements in
 that chapter that said a forgotten `.free()` was not a diagnostic are
 corrected -- the verifier made them false.
 
-- [ ] **Step 6: Commit and record**
+- [x] **Step 6: Commit and record**
 
 ```bash
 git add -A
 git commit -m "test: seed the verifier corpus and close the phase 1a gate"
 ```
 
-Record the commit hash in the master index table and in `.superpowers/sdd/2026-10-27-phase-01a/progress.md`, and set the phase's Status to `complete`.
+Committed as `00bb31c`, staging the nine touched paths explicitly rather than
+`-A` so the unrelated untracked file in the tree could not ride along. CI run
+`40826808688` on that commit was green on both operating systems, so the master
+index row is set to `complete` and the ledger records the run; that follow-up is
+the next commit, which touches documentation only.
 
 ---
 
@@ -1044,5 +1056,7 @@ A gate that cannot be met is recorded as a dated exception in this file; the pha
 refuses to start freshly linked binaries, and in the gate session it refused
 `clang.exe` as well, so Windows is executed by `.github/workflows/ci.yml` on
 `windows-latest` -- the same commands, the same source, a host without that
-policy. The run that closed this phase is named in the ledger. This is a
-delegation, not an exception: the gate has no open exception.
+policy. Run `40826808688` on `00bb31c` was green on both operating systems:
+Linux 1276 passed, Windows 1277 passed (the extra one is `#[cfg(windows)]`), no
+failures. This is a delegation, not an exception: the gate has no open
+exception.

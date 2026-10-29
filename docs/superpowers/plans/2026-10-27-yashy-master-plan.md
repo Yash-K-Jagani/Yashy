@@ -73,7 +73,7 @@ The five failure modes most likely to bite a user of phase 1a, most likely first
 
 | # | Phase | Outcome | Gate | ~wks | Status |
 |---|---|---|---|---|---|
-| 1a | Verifier core, usable | `yashy-verify` owns ownership; use-after-free, double-free, leak, `defer`; contracts in **warn** mode; `yashy verify` + `--json` + proof trace; `--timings` | Runs on every example without crashing; ownership/defer corpus 100% caught; false positives mined and fixed | 6 | **plan written** |
+| 1a | Verifier core, usable | `yashy-verify` owns ownership; use-after-free, double-free, leak, `defer`; contracts in **warn** mode; `yashy verify` + `--json` + proof trace; `--timings` | Runs on every example without crashing; ownership/defer corpus 100% caught; false positives mined and fixed | 6 | **complete** (`00bb31c`) |
 | 1b | Verifier core, enforcing | Bounds, overflow, exhaustiveness re-check; contracts as hard errors; **the warning surface** (unused binding/import/parameter, unreachable code, `var` never reassigned) with `-W`/`--deny warnings`; three realistic programs in the corpus | Seeded-bug corpus 100% caught; zero false positives on stdlib, examples and the realistic programs; unprovable contracts rejected; every warning has a code and a `--deny` test | 8 | plan written |
 | 2 | Effects + typestate | `pure`/`io`/`async`/`unsafe`; race-freedom proof; typestate for file/mutex/channel | Effect inference sound; every `unsafe` inventoried; race tests rejected | 10 | plan written |
 | 3 | Speed foundation | Cache, incremental, `-O0` dev defaults, parallel tests, fast linker, compiler rebuild speed; closes with a 2-week async spike | Incremental < 200 ms; 100 tests < 2 s; hello < 1 s; runtime ≤ 1.2× C; binary < 500 KB; spike notes reviewed | 12 | plan written |
