@@ -14,7 +14,7 @@ active phase before changing behavior. Superseded plans and specs sit in
 cargo build --release --workspace
 cargo check --workspace --all-targets
 cargo test --workspace
-yashy verify --json --timings examples/hello/main.ya
+yashy verify --json --timings --inventory examples/hello/main.ya
 cargo test -p yashy-driver --test doctor
 cargo test -p yashy-driver --test tutorial
 cargo test -p yashy-driver --test examples

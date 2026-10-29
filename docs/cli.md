@@ -109,6 +109,20 @@ The inventory never changes the exit code. A program the verifier accepted
 before the flag existed is still accepted with it; what changed is that its
 assumptions can be read instead of guessed at.
 
+## Warnings
+
+`yashy` emits four coded warnings (E2000-E2003): unused binding, unused
+import, unreachable code, and unused parameter. A warning is reported to
+stderr and does not stop the build: `yashy build` exits 0 with a warning.
+
+- `--deny warnings` treats every warning as an error: the build exits 1, and
+  in `--json` the diagnostic's `severity` becomes `"error"` with the same
+  `code`.
+- `--allow warnings` suppresses all warnings entirely.
+- `-W none` is a spelling of `--allow warnings`.
+- `YASHY_DENY_WARNINGS=1` in the environment has the same effect as
+  `--deny warnings`.
+
 ## `--no-verify`
 
 An escape hatch for the case where the verifier is wrong and a binary is still

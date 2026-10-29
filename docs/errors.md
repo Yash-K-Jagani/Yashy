@@ -38,6 +38,10 @@ the declaration or import involved when that is not obvious.
 | [E1000](errors/E1000.md) | leaked linear value |
 | [E1100](errors/E1100.md) | undischarged contract |
 | [E1201](errors/E1201.md) | provable integer overflow |
+| [E2000](errors/E2000.md) | unused binding |
+| [E2001](errors/E2001.md) | unused import |
+| [E2002](errors/E2002.md) | unreachable code |
+| [E2003](errors/E2003.md) | unused parameter |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.
