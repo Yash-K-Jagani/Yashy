@@ -36,7 +36,7 @@ See the master index for the full list; every task includes it. The ones that bi
 
 ## Revision at phase start (2026-10-29)
 
-The plan was written before 1a shipped. Seven findings from the pre-flight scan
+The plan was written before 1a shipped. Eight findings from the pre-flight scan
 against the code as it now stands, each with the ruling that resolves it.
 
 1. **`var` does not exist.** `crates/yashy-parser/src/stmts.rs` rejects it:
@@ -91,6 +91,23 @@ against the code as it now stands, each with the ruling that resolves it.
    Task 8. Both are additive, and `Diagnostic::warning` does not exist yet --
    Task 9 adds it.
 
+8. **The checker enforces exhaustiveness first, so the verifier's re-check
+   cannot be reached from a source program.** `check_expr.rs` calls
+   `missing_cases` for enum, `Option` and `Result` subjects and reports
+   `E0600`; a non-exhaustive switch never produces HIR, and `verify` never
+   runs. The plan's Step 1 test (`verify_source` on a bad switch) would pass
+   before the pass exists, because the helper returns the *checker's*
+   diagnostics when checking fails.
+   **Ruling: the pass ships anyway and is tested against checked HIR whose
+   arms were removed afterwards.** Exhaustiveness is a soundness property --
+   a switch with no arm for a value has nothing to run -- and the verifier is
+   where soundness rules are owned; the re-check is the guard against a
+   checker regression, and it becomes reachable when phase 8 adds generic
+   enums, whose variant lists the checker must compute. The test mutates the
+   HIR precisely because that is the shape a checker regression would have.
+   The pass's doc comment says all of this, so a future reader does not
+   delete it as dead code. Cost if wrong: one extra walk of the HIR.
+
 Also settled here, so the tasks do not each re-decide it: `E2002` fires after an
 unconditional `return`, `break`, `continue`, `panic` or `os.exit` in the same
 block. There is no `!` type in the language, so the plan's "returns `!`"
@@ -109,29 +126,51 @@ suppression is replaced by that list.
 - Produces: `yashy_hir::exhaustive::{missing_cases, is_exhaustive}` (same signatures as today).
 - Produces: `verify` reports `E0600` for a non-exhaustive `HirStmt::Switch` / `HirExpr::SwitchExpr`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
+
+The test cannot be a source program: the checker rejects a non-exhaustive switch
+before the verifier runs, so `verify_source` on the plan's original fixture would
+return the *checker's* `E0600` and pass without the pass existing. Ruling 8 in
+the revision section explains why the pass ships anyway. `tests/exhaustive.rs`
+therefore checks an exhaustive program, removes an arm from the checked HIR, and
+asks the verifier:
 
 ```rust
 #[test]
-fn a_switch_missing_a_variant_is_rejected_by_the_verifier() {
-    let source = "enum Color { Red, Green, Blue } fn main() { let c = Color::Red; switch c { Color::Red => {}, Color::Green => {} } }";
-    assert_eq!(codes(&verify_source(source)), vec!["E0600"]);
+fn removing_an_arm_is_reported_by_the_recheck() {
+    let mut hir = checked(THREE_COLORS);
+    drop_arm(&mut hir, "Blue");
+    assert_eq!(codes(&verify(&hir, &VerifyOptions::default())), vec!["E0600"]);
 }
 ```
 
-- [ ] **Step 2: Run it and watch it fail** — `cargo test -p yashy-verify exhaustive` → FAIL.
+Four tests: an exhaustive switch is silent, a removed arm is `E0600`, a
+`default` covers the rest, and a guarded arm does not cover its variant.
 
-- [ ] **Step 3: Move the module and re-export**
+- [x] **Step 2: Run it and watch it fail** — `cargo test -p yashy-verify --test exhaustive` → the two detection tests FAIL, the two silence tests pass.
 
-`git mv crates/yashy-sema/src/exhaustive.rs crates/yashy-hir/src/exhaustive.rs`; add `pub mod exhaustive;` to `yashy-hir/src/lib.rs`; in `yashy-sema/src/lib.rs` replace `pub mod exhaustive;` with `pub use yashy_hir::exhaustive;`. Sema's `pub use exhaustive::{is_exhaustive, missing_cases};` keeps working.
+- [x] **Step 3: Move the module and re-export**
 
-- [ ] **Step 4: Re-check in the verifier**
+`git mv crates/yashy-sema/src/exhaustive.rs crates/yashy-hir/src/exhaustive.rs`;
+`pub mod exhaustive;` in `yashy-hir/src/lib.rs`; in `yashy-sema/src/lib.rs`,
+`pub use yashy_hir::{exhaustive, hir, ty};`. Sema's
+`pub use exhaustive::{is_exhaustive, missing_cases};` keeps working. The module's
+`use yashy_parser::ast::{Pattern, VariantDef};` became `pub use`, so the verifier
+can build the shapes `missing_cases` takes without a direct `yashy-parser`
+dependency.
 
-For each switch, collect the arm patterns and `is_default`, map `HirPattern` to the AST `Pattern` shape the function takes (a small `fn to_ast_pattern(&HirPattern) -> Option<Pattern>` in `pass/exhaustive.rs`, `None` for forms the checker has not resolved), and report `E0600` with the missing variant names in the label. A `None` conversion means "not checkable here" and is skipped, not reported.
+- [x] **Step 4: Re-check in the verifier**
 
-- [ ] **Step 5: Run the tests** — `cargo test -p yashy-verify && cargo test -p yashy-sema` → PASS.
+`pass/exhaustive.rs` walks every function (lambdas included) and every
+`HirStmt::Switch` / `HirExpr::SwitchExpr`. For an enum, `Option` or `Result`
+subject it asks `missing_cases`; for anything else it reports `E0600` because no
+arm list can cover it. Guarded arms do not count, exactly as in the checker.
+`to_ast_pattern` is total rather than `Option`: every `HirPattern` has an AST
+counterpart after checking, so a `None` branch would be unreachable.
 
-- [ ] **Step 6: Commit** — `git commit -m "refactor(verify): re-check switch exhaustiveness over the HIR"`
+- [x] **Step 5: Run the tests** — `cargo test -p yashy-verify -p yashy-sema -p yashy-hir` → **400 passed, 0 failed**; `cargo check --workspace --all-targets` → clean.
+
+- [x] **Step 6: Commit** — `refactor(verify): re-check switch exhaustiveness over the HIR`
 
 ---
 

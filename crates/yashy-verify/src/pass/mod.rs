@@ -6,4 +6,5 @@
 //! without touching [`crate::verify`].
 
 pub mod contracts;
+pub mod exhaustive;
 pub mod leak;

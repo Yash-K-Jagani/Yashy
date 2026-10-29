@@ -12,7 +12,7 @@
 //! every lookup is a membership test rather than an index. There is no
 //! `unwrap`, no `expect`, no `panic!` and no unchecked indexing here.
 
-use yashy_parser::ast::{Pattern, VariantDef};
+pub use yashy_parser::ast::{Pattern, VariantDef};
 
 /// The names of the enum variants no arm covers, in declaration order.
 /// Empty means the arms are exhaustive.

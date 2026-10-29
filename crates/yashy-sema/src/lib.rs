@@ -8,10 +8,9 @@ pub mod check_expr;
 pub mod check_pat;
 pub mod const_eval;
 pub mod error;
-pub mod exhaustive;
 pub mod scope;
 
-pub use yashy_hir::{hir, ty};
+pub use yashy_hir::{exhaustive, hir, ty};
 /// The ownership rules are the verifier's; `yashy-sema` only asks them.
 pub use yashy_verify::ownership;
 

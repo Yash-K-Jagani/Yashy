@@ -69,6 +69,7 @@ impl VerifyReport {
 pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let mut diagnostics = Vec::new();
     pass::leak::check(hir, &mut diagnostics);
+    pass::exhaustive::check(hir, &mut diagnostics);
     pass::contracts::check(hir, options.contracts, &mut diagnostics);
     VerifyReport { diagnostics }
 }
