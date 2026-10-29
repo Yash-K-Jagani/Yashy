@@ -21,7 +21,10 @@ fn verify_source_with(source: &str, options: &VerifyOptions) -> VerifyReport {
     let program = parser.parse_program().expect("the fixture must parse");
     match check_program(&program, &sources, file) {
         Ok(hir) => verify(&hir, options),
-        Err(diagnostics) => VerifyReport { diagnostics },
+        Err(diagnostics) => VerifyReport {
+            diagnostics,
+            obligations: Vec::new(),
+        },
     }
 }
 

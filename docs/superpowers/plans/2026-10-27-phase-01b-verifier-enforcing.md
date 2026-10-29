@@ -113,6 +113,52 @@ unconditional `return`, `break`, `continue`, `panic` or `os.exit` in the same
 block. There is no `!` type in the language, so the plan's "returns `!`"
 suppression is replaced by that list.
 
+## Rulings recorded during the phase
+
+These came from reading the code and the shipped programs while doing the work,
+not from the pre-flight scan. They are numbered after the eight above.
+
+9. **Bounds is a proof, not an error. `E1200` is not emitted.** The plan's Task 2
+   rejected a provably out-of-range index (`let xs = [1, 2, 3]; let x = xs[5];`
+   → `E1200`). The language does not agree with that rule:
+   - `docs/tutorial/09-arrays.md` promises "an index may be out of bounds, and
+     the type says so: `None` is the answer, and the compiler makes you match
+     it", and calls a negative index "also a miss, not an error";
+   - `crates/yashy-driver/tests/programs/fixed_arrays.ya` ships
+     `print(show(grid[3]))` on `[int; 3]`, with the comment "indexing is checked,
+     in range and out", and expects `-1` from `show`'s `None` arm;
+   - `tests/verify.rs`'s corpus gate requires `verify --json` to report **zero
+     codes**, warnings included, on every shipped program.
+
+   The rule would therefore reject a documented, deliberate language property
+   and a program the repository ships. It is also not a soundness rule: an
+   out-of-range index never traps, so there is nothing to be unsound about.
+   Worse, `.get(i)`, `.first()` and `.last()` all lower to the same
+   `HirExpr::Index` (sema `check_expr.rs`), so an `Index` rule would also reject
+   `empty.first()` — another documented `None`.
+
+   **Ruling: the pass produces `ProofObligation`s and no diagnostic.** A proved
+   index is `established: true`; an index the domain cannot place inside the
+   length is `established: false`, which means "keep the runtime check". That is
+   exactly what the design spec asks for ("bounds and overflow elision in phase
+   3 depend on proofs") and what phase 3's `ProofFacts { proven: BTreeSet<Span> }`
+   consumes. `E1200` stays reserved and unemitted, like `E2004`; Task 10 does not
+   create its page. **A view is not an obligation either**: `a[0..99]` is defined
+   to clamp and `a[2..1]` is the empty view (`docs/tutorial/09-arrays.md`,
+   `examples`-level `fixed_arrays.ya`), so there is no check to elide. A pointer
+   index is skipped: a pointer carries no length. Cost if wrong: an
+   always-`None` index is not diagnosed; the proof record is still there, so a
+   later slice can add a lint without redoing the analysis.
+
+10. **The bounds rule shares the contract pass's walk.** The plan called for
+    `pass::bounds::check` as its own walk. That would be a second abstract
+    interpreter: it would need the same `Env`, the same branch refinements, the
+    same loop fixpoint and the same `length_of`, and the two would disagree the
+    day one learned a fact. **Ruling: `pass/bounds.rs` holds the rule
+    (`check(length, interval) -> Bounds`) and `pass/contracts.rs` calls it from
+    its existing `eval`.** One walk, one set of facts. `contracts::check` gains
+    an `obligations` sink; `verify` fills `VerifyReport::obligations`.
+
 ---
 
 ### Task 1: Move exhaustiveness into `yashy-hir` and re-check it
@@ -174,58 +220,61 @@ counterpart after checking, so a `None` branch would be unreachable.
 
 ---
 
-### Task 2: Bounds proof for indexing (E1200)
+### Task 2: Bounds proof for indexing
 
 **Files:**
 - Create: `crates/yashy-verify/src/pass/bounds.rs`
-- Modify: `crates/yashy-verify/src/pass/mod.rs`, `crates/yashy-common/src/codes.rs` (`BOUNDS = "E1200"`)
-- Create: `docs/errors/E1200.md`, modify `docs/errors.md`
+- Create: `crates/yashy-verify/tests/bounds.rs`
+- Modify: `crates/yashy-verify/src/lib.rs` (`ProofObligation`, `ObligationKind`, `VerifyReport::obligations`)
+- Modify: `crates/yashy-verify/src/pass/mod.rs`, `crates/yashy-verify/src/pass/contracts.rs` (the walk records the obligation), `crates/yashy-verify/src/pass/leak.rs` and `crates/yashy-verify/tests/contracts.rs` (the two other `VerifyReport` constructions)
 
 **Interfaces:**
-- Consumes: `domain.rs` from 1a; `HirExpr::Index`, `View`, `SliceLit`, `FixedArrayLit`.
-- Produces: `E1200` when the index range is provably outside `[0, len)`; `ProofObligation` recorded when undecidable.
+- Consumes: `domain.rs` from 1a; `HirExpr::Index`, `SliceLit`, `FixedArrayLit`; `expr_ty` for a fixed array's length.
+- Produces: one `ProofObligation` per array index, `established` true exactly when the domain proves `0 <= i < len` on every path that reaches it. **No diagnostic**: see ruling 9.
 
 ```rust
+pub enum ObligationKind { Bounds }
+
 pub struct ProofObligation {
-    pub kind: ObligationKind,   // Bounds | Overflow | Contract | Invariant
-    pub span: Span,
+    pub kind: ObligationKind,
+    pub span: Span,          // the index expression, so phase 3 can find the check
     pub established: bool,
 }
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests** — `tests/bounds.rs`, ten whole programs:
 
 ```rust
 #[test]
-fn a_constant_index_past_the_end_is_rejected() {
-    let source = "fn main() { let xs = [1, 2, 3]; let x = xs[5]; }";
-    assert_eq!(codes(&verify_source(source)), vec!["E1200"]);
-}
-
-#[test]
-fn a_loop_index_bounded_by_the_length_is_accepted() {
-    let source = "fn main() { let xs = [1, 2, 3]; let i = 0; while i < xs.len() { let x = xs[i]; i = i + 1; } }";
-    assert!(verify_source(source).diagnostics.is_empty());
-}
-
-#[test]
-fn an_undecidable_index_is_recorded_not_rejected() {
-    let source = "fn f(i: int, xs: []int) { let x = xs[i]; } fn main() { }";
+fn an_index_into_a_known_length_array_is_proved() {
+    let source = "fn main() { let xs = [1, 2, 3]; xs[1]; }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
-    assert!(report.obligations.iter().any(|o| o.kind == ObligationKind::Bounds && !o.established));
+    assert!(bounds(&report)[0].established);
+}
+
+#[test]
+fn a_constant_index_past_the_end_is_unproved_not_rejected() {
+    let source = "fn main() { let xs = [1, 2, 3]; xs[5]; }";
+    let report = verify_source(source);
+    assert!(report.diagnostics.is_empty());
+    assert!(!bounds(&report)[0].established);
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail** — `cargo test -p yashy-verify bounds` → FAIL.
+The rest cover a negative index, a `for`-bounded index (proved), a branch that bounds the index (proved), the plan's `while` loop (accepted, unproved -- the widening drops the range), a `[]T` parameter (unproved), a view (no obligation), a pointer index (no obligation), and an index after `return` (no obligation).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-verify --test bounds` → compile error: `ObligationKind`, `ProofObligation` and `VerifyReport::obligations` do not exist.
 
-`VerifyReport` gains `pub obligations: Vec<ProofObligation>`. For `HirExpr::Index { base, index }` and `HirExpr::View { base, start, end }`, take the length from the base's type (`FixedArray(_, n)` is exact; `Slice`/`View` length comes from a `.len()` call the domain tracked; otherwise unknown) and the index's interval. Reject only when `hi < 0 || lo >= len`. Otherwise record an obligation with `established: false` so phase 3 can decide about the runtime check.
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run the tests** — PASS.
+`VerifyReport` gains `pub obligations: Vec<ProofObligation>`. `pass/bounds.rs` holds the rule: given a length and the index's [`Interval`], answer `InRange`, `OutOfRange` or `Unknown`; empty intervals are vacuously in range. The contract pass's walk calls it from `eval`'s `HirExpr::Index` arm, because that walk already carries the [`Env`]: it resolves the length (a fixed array's `N` from the type, otherwise `length_of`, which knows a literal's element count, a binding's tracked length and a constant view) and the index's interval. An unknown length is `established: false`. The rule is skipped while the loop fixpoint is quiet, so the obligation is recorded once, by the reporting walk.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): prove or reject array indexing (E1200)"`
+A pointer index is skipped (no length to compare against). A view is skipped: clamping is its definition, so there is no check to prove (ruling 9).
+
+- [x] **Step 4: Run the tests** — `cargo test -p yashy-verify` → **67 passed, 0 failed** (35 lib unit tests, 10 bounds, 18 contracts, 4 exhaustive); `cargo check --workspace --all-targets` → clean.
+
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): prove array indexing in bounds, without rejecting a miss"`
 
 ---
 
@@ -431,7 +480,7 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 
 ### Task 10: Docs and the gate
 
-**Files:** `docs/errors/E1200.md`, `E1201.md`, `docs/errors/{E2000..E2003}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule).
+**Files:** `docs/errors/E1201.md`, `docs/errors/{E2000..E2003}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule). `E1200` has no page: it is reserved but never emitted (ruling 9).
 
 - [ ] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples.
 

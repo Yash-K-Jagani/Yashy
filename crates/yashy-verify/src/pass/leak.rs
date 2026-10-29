@@ -713,7 +713,10 @@ mod tests {
         let program = parser.parse_program().expect("the fixture must parse");
         match check_program(&program, &sources, file) {
             Ok(hir) => verify(&hir, &VerifyOptions::default()),
-            Err(diagnostics) => VerifyReport { diagnostics },
+            Err(diagnostics) => VerifyReport {
+                diagnostics,
+                obligations: Vec::new(),
+            },
         }
     }
 

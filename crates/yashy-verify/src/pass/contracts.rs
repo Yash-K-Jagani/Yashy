@@ -36,11 +36,22 @@ use yashy_hir::hir::{
 use yashy_hir::ty::{Type, TypeKind};
 
 use crate::domain::{self, Env, Interval, Tri, Value};
+use crate::pass::bounds;
 use crate::render;
-use crate::ContractMode;
+use crate::{ContractMode, ObligationKind, ProofObligation};
 
 /// Run the contract pass over every function in `program`.
-pub fn check(program: &HirProgram, mode: ContractMode, out: &mut Vec<Diagnostic>) {
+///
+/// The pass also owns the bounds proof: it is the one walk that carries an
+/// [`Env`], so the index interval and the array length are already at hand.
+/// A second walker would have to rebuild both, and the two would disagree the
+/// day one of them learned a new fact.
+pub fn check(
+    program: &HirProgram,
+    mode: ContractMode,
+    obligations: &mut Vec<ProofObligation>,
+    out: &mut Vec<Diagnostic>,
+) {
     // Only a function that states a precondition has one to check at a call
     // site, so that is the whole table. Methods are named `Type.method` and
     // cannot declare a contract yet, so a name here is always a free function
@@ -55,6 +66,7 @@ pub fn check(program: &HirProgram, mode: ContractMode, out: &mut Vec<Diagnostic>
     }
     let mut pass = ContractPass {
         out,
+        obligations,
         mode,
         functions,
         quiet: false,
@@ -69,6 +81,9 @@ pub fn check(program: &HirProgram, mode: ContractMode, out: &mut Vec<Diagnostic>
 
 struct ContractPass<'p, 'o> {
     out: &'o mut Vec<Diagnostic>,
+    /// Every fact the walk tried to prove, established or not. See
+    /// [`crate::ProofObligation`].
+    obligations: &'o mut Vec<ProofObligation>,
     mode: ContractMode,
     functions: HashMap<&'p str, &'p HirFn>,
     /// True while a loop's fixpoint is iterating. The same body is walked more
@@ -690,9 +705,12 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 self.eval(base, env);
                 Value::top()
             }
-            HirExpr::Index { base, index, .. } => {
+            HirExpr::Index {
+                base, index, span, ..
+            } => {
                 self.eval(base, env);
-                self.eval(index, env);
+                let position = self.eval(index, env);
+                self.check_index(base, *span, position, env);
                 Value::top()
             }
             HirExpr::StructLit { fields, .. } => {
@@ -931,6 +949,46 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 (end >= start).then_some(end - start)
             }
             _ => None,
+        }
+    }
+
+    /// Prove, or fail to prove, that one index is inside its array.
+    ///
+    /// An obligation is recorded even when the domain proves the opposite: an
+    /// index that can never be in range is a proof of absence, and phase 3 must
+    /// keep the check -- the access still answers `None` -- rather than delete
+    /// it. Nothing here reports a diagnostic; see [`bounds`] for why.
+    fn check_index(&mut self, base: &HirExpr, span: Span, position: Value, env: &Env) {
+        // A loop's fixpoint walks the same body more than once; only the last
+        // walk may record, exactly as only the last walk may report.
+        if self.quiet {
+            return;
+        }
+        if matches!(expr_ty(base).kind, TypeKind::Ptr(_)) {
+            // A pointer carries no length, so there is nothing to compare the
+            // index against. The unsafe rules own pointer access.
+            return;
+        }
+        let established = self
+            .index_length(base, env)
+            .map(|length| bounds::check(length, position.interval) == bounds::Bounds::InRange)
+            .unwrap_or(false);
+        self.obligations.push(ProofObligation {
+            kind: ObligationKind::Bounds,
+            span,
+            established,
+        });
+    }
+
+    /// The length of the array an index reads, when the domain knows it.
+    ///
+    /// A fixed array's length is in its type. Everything else -- a literal, a
+    /// binding whose length was written down, a view with constant bounds --
+    /// comes from [`Self::length_of`]. An unknown length proves nothing.
+    fn index_length(&self, base: &HirExpr, env: &Env) -> Option<i64> {
+        match &expr_ty(base).kind {
+            TypeKind::FixedArray(_, length) => i64::try_from(*length).ok(),
+            _ => self.length_of(base, env),
         }
     }
 }

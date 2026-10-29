@@ -11,7 +11,7 @@ pub mod ownership;
 pub mod pass;
 pub mod render;
 
-use yashy_common::Diagnostic;
+use yashy_common::{Diagnostic, Span};
 use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
 
 pub use ownership::{check_live, linearity_of, move_out, AlreadyMoved, Linearity, Ownership};
@@ -37,6 +37,36 @@ pub struct VerifyOptions {
     pub contracts: ContractMode,
 }
 
+/// What a proof obligation is about.
+///
+/// The kinds are a closed set, like error codes: a new analysis adds a variant
+/// and a consumer that knows what to do with it. Phase 3b adds `ShiftInRange`
+/// for the shift-count check; the bounds proof here is the shape the rest copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObligationKind {
+    /// An array index is inside the array's length.
+    Bounds,
+}
+
+/// One fact the verifier tried to prove, and whether it could.
+///
+/// An obligation is not a diagnostic. A fact the verifier could not establish
+/// is not an error -- it is a runtime check that stays -- and a fact it did
+/// establish is what lets a later phase delete that check. Phase 3 turns the
+/// established ones into `ProofFacts` and consults them in codegen; nothing
+/// before that reads them, which is why they live beside the diagnostics rather
+/// than inside them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProofObligation {
+    /// Which rule the fact belongs to.
+    pub kind: ObligationKind,
+    /// The span of the expression the fact is about: the index expression, so
+    /// codegen can find the check it may delete.
+    pub span: Span,
+    /// True when the fact holds on every path that reaches the expression.
+    pub established: bool,
+}
+
 /// What the verifier found.
 ///
 /// The verifier never stops at the first problem: a user fixes a list, not a
@@ -44,6 +74,8 @@ pub struct VerifyOptions {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VerifyReport {
     pub diagnostics: Vec<Diagnostic>,
+    /// Every fact the verifier attempted to prove, established or not.
+    pub obligations: Vec<ProofObligation>,
 }
 
 impl VerifyReport {
@@ -68,10 +100,14 @@ impl VerifyReport {
 /// runs; the report holds their diagnostics in pass order.
 pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let mut diagnostics = Vec::new();
+    let mut obligations = Vec::new();
     pass::leak::check(hir, &mut diagnostics);
     pass::exhaustive::check(hir, &mut diagnostics);
-    pass::contracts::check(hir, options.contracts, &mut diagnostics);
-    VerifyReport { diagnostics }
+    pass::contracts::check(hir, options.contracts, &mut obligations, &mut diagnostics);
+    VerifyReport {
+        diagnostics,
+        obligations,
+    }
 }
 
 /// The name of the first function that declares a contract, if any.
