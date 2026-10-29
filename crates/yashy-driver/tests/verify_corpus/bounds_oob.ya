@@ -1,0 +1,12 @@
+// Out-of-bounds indexing on a fixed array.
+// Bounds are checked but out-of-range answers `None` at runtime, not a fault.
+// Expected: the program builds and runs (exit 0). No E1200 emitted because
+// bounds is a proof, not an error (ruling 9).
+fn main() {
+    let arr = [1, 2, 3];
+    // grid[3] is out of bounds: the checker records the obligation but
+    // the runtime returns None; the program is accepted.
+    let _opt = arr[3];
+    // The None arm of the Option is handled below.
+    let _ = _opt;
+}

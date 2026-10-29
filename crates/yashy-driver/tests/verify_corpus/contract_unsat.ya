@@ -1,0 +1,10 @@
+// Unsatisfied contract / unprovable precondition.
+// The caller does not establish the precondition, so E1100 rejects the build.
+// Expected: compile error (exit 1, E1100).
+fn positive(n: int) -> int requires n > 0 {
+    return n;
+}
+
+fn main() {
+    positive(0); // 0 does not satisfy n > 0
+}

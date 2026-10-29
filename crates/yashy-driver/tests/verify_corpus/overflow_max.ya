@@ -1,0 +1,7 @@
+// Provable overflow at i64::MAX.
+// Integer `+` is checked and panics on overflow; an operation whose whole
+// result range is outside i64 is a certain fault, so E1201 rejects it.
+// Expected: compile error (exit 1, E1201).
+fn main() {
+    let _ = 9223372036854775807 + 1; // i64::MAX + 1
+}

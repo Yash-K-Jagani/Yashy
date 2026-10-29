@@ -298,6 +298,10 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("contract_requires", 1, &["E1100"]),
     ("contract_ensures", 1, &["E1100"]),
     ("contract_invariant", 1, &["E1100"]),
+    ("bounds_oob", 0, &[]),
+    ("overflow_max", 1, &["E1201"]),
+    ("exhaustive_missing", 1, &["E0600"]),
+    ("contract_unsat", 1, &["E1100"]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

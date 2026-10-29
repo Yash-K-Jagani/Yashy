@@ -1,0 +1,20 @@
+// Non-exhaustive switch on an enum.
+// The checker enforces exhaustiveness (E0600). A switch that does not
+// handle all variants is a compile error.
+// Expected: compile error (exit 1, E0600).
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn show(c: Color) -> int {
+    return switch c {
+        case Color.Red { 1 }
+        // Missing: Green and Blue
+    };
+}
+
+fn main() {
+    let _ = show(Color.Red);
+}
