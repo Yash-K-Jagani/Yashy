@@ -11,6 +11,8 @@ pub mod ownership;
 pub mod pass;
 pub mod render;
 
+use std::collections::BTreeMap;
+
 use yashy_common::{Diagnostic, Span};
 use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
 
@@ -79,6 +81,11 @@ pub struct VerifyReport {
     pub diagnostics: Vec<Diagnostic>,
     /// Every fact the verifier attempted to prove, established or not.
     pub obligations: Vec<ProofObligation>,
+    /// How many functions the verifier analysed, counting each one once no
+    /// matter how many times it was reached. A function reached from fifty
+    /// call sites is one analysis, not fifty: the walk is memoised by
+    /// `(name, body span)` so the same body is never walked twice.
+    pub analyses: usize,
 }
 
 impl VerifyReport {
@@ -104,12 +111,187 @@ impl VerifyReport {
 pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let mut diagnostics = Vec::new();
     let mut obligations = Vec::new();
+    // A function is walked once per program, no matter how many times it is
+    // reached. The memo is keyed by (name, body span): a lambda has an empty
+    // name, and two functions with the same name but different bodies are
+    // different analyses.
+    let mut memo: BTreeMap<(String, u32), ()> = BTreeMap::new();
+    let analyses = collect_functions(hir, &mut memo);
     pass::leak::check(hir, &mut diagnostics);
     pass::exhaustive::check(hir, &mut diagnostics);
     pass::contracts::check(hir, options.contracts, &mut obligations, &mut diagnostics);
     VerifyReport {
         diagnostics,
         obligations,
+        analyses,
+    }
+}
+
+/// Walk the program's items (and every lambda nested in them) and count the
+/// distinct functions by `(name, body span)`. The count is the number of
+/// analyses the verifier performs: each unique body is walked once by every
+/// pass, and a body reached from fifty call sites is still one body.
+fn collect_functions(hir: &HirProgram, memo: &mut BTreeMap<(String, u32), ()>) -> usize {
+    for item in &hir.items {
+        if let HirItem::Fn(function) = item {
+            memo.insert((function.name.clone(), function.body.span.start), ());
+            collect_in_block(&function.body, memo);
+        }
+    }
+    memo.len()
+}
+
+fn collect_in_block(block: &HirBlock, memo: &mut BTreeMap<(String, u32), ()>) {
+    for stmt in &block.stmts {
+        collect_in_stmt(stmt, memo);
+    }
+}
+
+fn collect_in_stmt(stmt: &HirStmt, memo: &mut BTreeMap<(String, u32), ()>) {
+    match stmt {
+        HirStmt::Expr(expr, ..)
+        | HirStmt::Const { init: expr, .. }
+        | HirStmt::Var { init: expr, .. }
+        | HirStmt::Destructure { init: expr, .. }
+        | HirStmt::Assign { value: expr, .. }
+        | HirStmt::IndexAssign { value: expr, .. }
+        | HirStmt::FieldAssign { value: expr, .. }
+        | HirStmt::FieldPtrAssign { value: expr, .. } => collect_in_expr(expr, memo),
+        HirStmt::Return(Some(expr), _) => collect_in_expr(expr, memo),
+        HirStmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            if let Some(init) = init {
+                collect_in_stmt(init, memo);
+            }
+            collect_in_expr(cond, memo);
+            collect_in_block(then_block, memo);
+            if let Some(else_block) = else_block {
+                collect_in_block(else_block, memo);
+            }
+        }
+        HirStmt::ForRange {
+            start, end, body, ..
+        } => {
+            collect_in_expr(start, memo);
+            collect_in_expr(end, memo);
+            collect_in_block(body, memo);
+        }
+        HirStmt::ForIn { iterable, body, .. } => {
+            collect_in_expr(iterable, memo);
+            collect_in_block(body, memo);
+        }
+        HirStmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                collect_in_stmt(init, memo);
+            }
+            if let Some(cond) = cond {
+                collect_in_expr(cond, memo);
+            }
+            if let Some(update) = update {
+                collect_in_expr(update, memo);
+            }
+            collect_in_block(body, memo);
+        }
+        HirStmt::Switch { subject, arms, .. } => {
+            collect_in_expr(subject, memo);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    collect_in_expr(guard, memo);
+                }
+                collect_in_expr(&arm.body, memo);
+            }
+        }
+        HirStmt::Defer { body, .. } => collect_in_block(body, memo),
+        HirStmt::LoopInvariant(contract) => collect_in_expr(&contract.expr, memo),
+        HirStmt::Return(None, _)
+        | HirStmt::Break(_)
+        | HirStmt::Continue(_)
+        | HirStmt::Assign { .. }
+        | HirStmt::IndexAssign { .. }
+        | HirStmt::FieldAssign { .. }
+        | HirStmt::FieldPtrAssign { .. } => {}
+    }
+}
+
+fn collect_in_expr(expr: &HirExpr, memo: &mut BTreeMap<(String, u32), ()>) {
+    match expr {
+        HirExpr::Lambda { f, .. } => {
+            memo.insert((f.name.clone(), f.body.span.start), ());
+            collect_in_block(&f.body, memo);
+        }
+        HirExpr::Binary { lhs, rhs, .. } => {
+            collect_in_expr(lhs, memo);
+            collect_in_expr(rhs, memo);
+        }
+        HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
+            collect_in_expr(operand, memo);
+        }
+        HirExpr::Call { args, .. } | HirExpr::CallCapture { args, .. } => {
+            for arg in args {
+                collect_in_expr(arg, memo);
+            }
+        }
+        HirExpr::StructLit { fields, .. } => {
+            for (_, value, _) in fields {
+                collect_in_expr(value, memo);
+            }
+        }
+        HirExpr::SliceLit { elements, .. }
+        | HirExpr::FixedArrayLit { elements, .. }
+        | HirExpr::TupleLit { elements, .. } => {
+            for element in elements {
+                collect_in_expr(element, memo);
+            }
+        }
+        HirExpr::FieldAccess { base, .. } => collect_in_expr(base, memo),
+        HirExpr::Index { base, index, .. } => {
+            collect_in_expr(base, memo);
+            collect_in_expr(index, memo);
+        }
+        HirExpr::View {
+            base, start, end, ..
+        } => {
+            collect_in_expr(base, memo);
+            collect_in_expr(start, memo);
+            collect_in_expr(end, memo);
+        }
+        HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => collect_in_expr(expr, memo),
+        HirExpr::SwitchExpr { subject, arms, .. } => {
+            collect_in_expr(subject, memo);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    collect_in_expr(guard, memo);
+                }
+                collect_in_expr(&arm.body, memo);
+            }
+        }
+        HirExpr::HigherOrder {
+            receiver,
+            func,
+            init,
+            ..
+        } => {
+            collect_in_expr(receiver, memo);
+            collect_in_expr(func, memo);
+            if let Some(init) = init {
+                collect_in_expr(init, memo);
+            }
+        }
+        HirExpr::Literal(..)
+        | HirExpr::Ident(..)
+        | HirExpr::AddrOf { .. }
+        | HirExpr::Capture { .. } => {}
     }
 }
 

@@ -36,6 +36,7 @@ fn verify_source_with(source: &str, options: &VerifyOptions) -> VerifyReport {
         Err(diagnostics) => VerifyReport {
             diagnostics,
             obligations: Vec::new(),
+            analyses: 0,
         },
     }
 }
