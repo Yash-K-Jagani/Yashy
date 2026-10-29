@@ -635,6 +635,10 @@ pub enum TokenKind {
     Import,
     Extern,
     Unsafe,
+    /// `pure`: a function that does no IO and no unsafe operations.
+    Pure,
+    /// `io`: a function that performs IO.
+    Io,
     Defer,
     Return,
     Break,
@@ -753,8 +757,8 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 31] = [
-        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "defer",
+    pub const KEYWORDS: [&'static str; 33] = [
+        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
         "default", "as", "move", "true", "false", "impl", "object", "pub", "requires", "ensures",
         "invariant",
@@ -771,6 +775,8 @@ impl TokenKind {
             "import" => TokenKind::Import,
             "extern" => TokenKind::Extern,
             "unsafe" => TokenKind::Unsafe,
+            "pure" => TokenKind::Pure,
+            "io" => TokenKind::Io,
             "defer" => TokenKind::Defer,
             "return" => TokenKind::Return,
             "break" => TokenKind::Break,
@@ -861,6 +867,8 @@ impl TokenKind {
             TokenKind::Import => Naming::Fixed("import"),
             TokenKind::Extern => Naming::Fixed("extern"),
             TokenKind::Unsafe => Naming::Fixed("unsafe"),
+            TokenKind::Pure => Naming::Fixed("pure"),
+            TokenKind::Io => Naming::Fixed("io"),
             TokenKind::Defer => Naming::Fixed("defer"),
             TokenKind::Return => Naming::Fixed("return"),
             TokenKind::Break => Naming::Fixed("break"),

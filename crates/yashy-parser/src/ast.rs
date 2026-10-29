@@ -78,6 +78,19 @@ pub enum Item {
         /// The span of the `pub` keyword.
         span: Span,
     },
+    /// `pure fn f() { ... }` / `io fn f() { ... }` -- a function with a
+    /// declared effect.
+    ///
+    /// The modifier wraps the item it applies to, exactly like `pub`. The
+    /// effect is the declaration; the inferred effect is computed later.
+    Effect {
+        /// The declared effect.
+        effect: yashy_common::DeclaredEffect,
+        /// The item the modifier applies to.
+        item: Box<Item>,
+        /// The span of the modifier keyword.
+        span: Span,
+    },
     /// `struct P { x: f64 }`
     Struct {
         name: String,

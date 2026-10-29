@@ -7,6 +7,7 @@
 //! compiler's, not a library's.
 
 pub mod domain;
+pub mod effect;
 pub mod ownership;
 pub mod pass;
 pub mod render;

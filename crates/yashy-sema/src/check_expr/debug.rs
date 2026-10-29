@@ -145,6 +145,8 @@ impl Checker<'_> {
             requires: Vec::new(),
             ensures: Vec::new(),
             captures: Vec::new(),
+            effect: yashy_common::Effect::PURE,
+            declared: yashy_common::DeclaredEffect::Inferred,
             file: self.file,
             span,
         });

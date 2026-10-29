@@ -13,6 +13,8 @@ use yashy_common::{FileId, Span};
 
 use crate::ty::{Mutability, Type};
 
+pub use yashy_common::{DeclaredEffect, Effect};
+
 /// A whole program after type checking.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirProgram {
@@ -102,6 +104,10 @@ pub struct HirFn {
     pub params: Vec<HirParam>,
     pub ret: Type,
     pub body: HirBlock,
+    /// The inferred effect of this function.
+    pub effect: yashy_common::Effect,
+    /// What the programmer declared about this function's effect.
+    pub declared: yashy_common::DeclaredEffect,
     /// `requires` clauses: what the caller must establish.
     pub requires: Vec<HirContract>,
     /// `ensures` clauses: what the callee promises. `result` names the value

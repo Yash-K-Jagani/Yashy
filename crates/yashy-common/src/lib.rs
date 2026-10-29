@@ -3,12 +3,14 @@
 
 pub mod codes;
 pub mod diagnostic;
+pub mod effect;
 pub mod json;
 pub mod source;
 pub mod span;
 pub mod suggest;
 
 pub use codes::Code;
+pub use effect::{DeclaredEffect, Effect};
 pub use diagnostic::{
     Diagnostic, DiagnosticBag, ProofTrace, Severity, EXIT_COMPILE_ERROR, EXIT_INTERNAL, EXIT_OK,
     EXIT_USAGE,

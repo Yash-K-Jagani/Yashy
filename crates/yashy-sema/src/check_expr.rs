@@ -64,6 +64,7 @@ struct StructSig {
 fn unwrap_public(item: &Item) -> &Item {
     match item {
         Item::Public { item, .. } => unwrap_public(item),
+        Item::Effect { item, .. } => unwrap_public(item),
         other => other,
     }
 }
@@ -1317,6 +1318,9 @@ impl<'src> Checker<'src> {
                 // `pub` is a modifier in front of an item: the item inside is
                 // declared as usual, and marked as one another module may use.
                 Item::Public { item, .. } => self.declare_item(item, true),
+                // `pure`/`io`/`unsafe` are modifiers like `pub`: the item
+                // inside is declared as usual.
+                Item::Effect { item, .. } => self.declare_item(item, false),
                 other => self.declare_item(other, false),
             }
         }
@@ -1329,6 +1333,7 @@ impl<'src> Checker<'src> {
     fn declare_item(&mut self, item: &Item, public: bool) {
         match item {
             Item::Public { item, .. } => self.declare_item(item, public),
+            Item::Effect { item, .. } => self.declare_item(item, public),
             Item::Fn {
                 name,
                 type_params,
@@ -2159,6 +2164,8 @@ impl<'src> Checker<'src> {
             requires,
             ensures,
             captures: Vec::new(),
+            effect: yashy_common::Effect::PURE,
+            declared: yashy_common::DeclaredEffect::Inferred,
             file: self.file,
             span,
         })
@@ -2498,6 +2505,17 @@ impl<'src> Checker<'src> {
             // checked as usual. The visibility was settled in the declaration
             // pass, where the item's name was recorded.
             Item::Public { item, .. } => self.check_item(item),
+            Item::Effect { effect, item, .. } => {
+                // Check the inner item, then stamp the declared effect onto
+                // the resulting HirFn.
+                let mut items = self.check_item(item)?;
+                for hir_item in &mut items {
+                    if let HirItem::Fn(f) = hir_item {
+                        f.declared = *effect;
+                    }
+                }
+                Some(items)
+            }
             Item::Fn {
                 name,
                 type_params,
@@ -2765,6 +2783,8 @@ impl<'src> Checker<'src> {
                 requires: Vec::new(),
                 ensures: Vec::new(),
                 captures: Vec::new(),
+                effect: yashy_common::Effect::PURE,
+                declared: yashy_common::DeclaredEffect::Inferred,
                 file: self.file,
                 span: *span,
             }));
@@ -7508,6 +7528,8 @@ impl<'src> Checker<'src> {
                         requires: Vec::new(),
                         ensures: Vec::new(),
                         captures: frame.captures,
+                        effect: yashy_common::Effect::PURE,
+                        declared: yashy_common::DeclaredEffect::Inferred,
                         file: self.file,
                         span: *span,
                     }),

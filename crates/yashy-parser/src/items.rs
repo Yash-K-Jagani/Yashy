@@ -76,6 +76,18 @@ impl<'src> Parser<'src> {
             // `pub` is a modifier, not an item: it wraps whatever item
             // follows it, and the item inside keeps its own shape.
             TokenKind::Pub => self.parse_public_item(),
+            // Effect modifiers: `pure`, `io`, `unsafe` before `fn`.
+            TokenKind::Pure => self.parse_effect_item(yashy_common::DeclaredEffect::Pure),
+            TokenKind::Io => self.parse_effect_item(yashy_common::DeclaredEffect::Io),
+            TokenKind::Unsafe => {
+                // `unsafe` is only an effect modifier when followed by `fn`.
+                // Otherwise it's the extern-block marker.
+                if self.peek_second() == TokenKind::Fn {
+                    self.parse_effect_item(yashy_common::DeclaredEffect::Unsafe)
+                } else {
+                    Err(error::item_expected(kind, self.peek_span()))
+                }
+            }
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
     }
@@ -90,6 +102,22 @@ impl<'src> Parser<'src> {
         let keyword = self.expect(TokenKind::Pub)?;
         let item = self.parse_item()?;
         Ok(Item::Public {
+            item: Box::new(item),
+            span: keyword.span,
+        })
+    }
+
+    /// `pure fn f() { ... }` / `io fn f() { ... }` / `unsafe fn f() { ... }`.
+    fn parse_effect_item(&mut self, effect: yashy_common::DeclaredEffect) -> Result<Item, ParseError> {
+        let keyword = match effect {
+            yashy_common::DeclaredEffect::Pure => self.expect(TokenKind::Pure)?,
+            yashy_common::DeclaredEffect::Io => self.expect(TokenKind::Io)?,
+            yashy_common::DeclaredEffect::Unsafe => self.expect(TokenKind::Unsafe)?,
+            _ => return Err(error::item_expected(self.peek(), self.peek_span())),
+        };
+        let item = self.parse_item()?;
+        Ok(Item::Effect {
+            effect,
             item: Box::new(item),
             span: keyword.span,
         })
