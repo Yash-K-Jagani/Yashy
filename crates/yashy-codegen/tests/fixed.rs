@@ -26,7 +26,7 @@ fn check_source(src: &str) -> HirProgram {
 }
 
 fn emit(src: &str) -> String {
-    emit_program(&check_source(src), "fixed.ya", CodegenOptions::default())
+    emit_program(&check_source(src), "fixed.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 /// The text of the basic block `name` starts with, up to the next block label.

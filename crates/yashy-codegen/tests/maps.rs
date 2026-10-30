@@ -23,7 +23,7 @@ fn check_source(src: &str) -> HirProgram {
 }
 
 fn emit(src: &str) -> String {
-    emit_program(&check_source(src), "maps.ya", CodegenOptions::default())
+    emit_program(&check_source(src), "maps.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 #[test]

@@ -160,7 +160,7 @@ fn main_may_not_take_parameters() {
 
 /// Lower a whole program's source to one IR module.
 fn ir_of(src: &str) -> String {
-    emit_program(&check_source(src), "main.ya", CodegenOptions::default())
+    emit_program(&check_source(src), "main.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 #[test]

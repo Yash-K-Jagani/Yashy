@@ -31,7 +31,7 @@ fn ir_of_with(src: &str, options: CodegenOptions) -> String {
         .parse_program()
         .expect("these test sources must parse");
     let hir = check_program(&ast, &sm, file).expect("these test sources must type-check");
-    let ir_text = emit_program(&hir, "main.ya", options);
+    let ir_text = emit_program(&hir, "main.ya", options, &yashy_common::ProofFacts::empty());
     // Every test doubles as a structural check: an appended-after-terminator
     // instruction would still look plausible but be invalid LLVM.
     assert_one_terminator_per_block(&ir_text);

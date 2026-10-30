@@ -81,10 +81,11 @@ pub struct CodegenOptions {
 /// main` still produces a module — the driver calls [`check_main_exists`]
 /// first and reports the missing entry point as a diagnostic, which is the
 /// only place with a file to point at.
-pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions) -> String {
+pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions, facts: &yashy_common::ProofFacts) -> String {
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
+    module.set_facts(facts.clone());
     // One spawn is enough: the checker recorded that the program can share a
     // string with a thread, so every retain/release in the module is atomic.
     // This has to be set before the first `define` is emitted, because the

@@ -28,7 +28,7 @@ fn check_source(src: &str) -> HirProgram {
 
 fn emit(src: &str) -> String {
     let hir = check_source(src);
-    emit_program(&hir, "extern.ya", CodegenOptions::default())
+    emit_program(&hir, "extern.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 const PROGRAM: &str = r#"extern "C" link "m" {

@@ -29,6 +29,7 @@ fn emit(src: &str) -> String {
         &check_source(src),
         "tuples.ya",
         CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
     )
 }
 

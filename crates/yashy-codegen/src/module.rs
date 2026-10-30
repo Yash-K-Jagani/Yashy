@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use yashy_common::Span;
 use yashy_sema::{HirExternDecl, TypeKind};
 
 use crate::ir::repr_type;
@@ -51,6 +52,8 @@ pub struct Module {
     enums: HashMap<String, Vec<VariantRepr>>,
     /// The `source_filename` the driver wants reported in the header.
     source_filename: String,
+    /// Proof facts from the verifier: spans whose checks may be elided.
+    facts: yashy_common::ProofFacts,
     /// Whether floating-point multiply-add contraction is allowed; see
     /// [`Module::set_fp_contract`].
     fp_contract: bool,
@@ -115,6 +118,7 @@ impl Module {
             named_types: Vec::new(),
             enums: HashMap::new(),
             source_filename: "main.ya".to_string(),
+            facts: yashy_common::ProofFacts::empty(),
             fp_contract: false,
             next_value: 0,
             synthesized: Vec::new(),
@@ -169,6 +173,15 @@ impl Module {
     /// A second call for the same name is ignored, so every struct literal of
     /// one struct shares one `%struct.Name` definition regardless of which
     /// function emitted it.
+    pub fn set_facts(&mut self, facts: yashy_common::ProofFacts) {
+        self.facts = facts;
+    }
+
+    /// Whether a span was proven safe by the verifier.
+    pub fn is_proven(&self, span: Span) -> bool {
+        self.facts.is_proven(span)
+    }
+
     pub fn define_named_type(&mut self, name: &str, fields: Vec<String>) {
         if !self.named_types.iter().any(|(n, _)| n == name) {
             self.named_types.push((name.to_string(), fields));

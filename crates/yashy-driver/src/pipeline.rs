@@ -534,7 +534,7 @@ pub fn compile_to_binary(
         },
     )?;
 
-    compile_hir(&hir, entry_name, out, toolchain, options)
+    compile_hir(&hir, entry_name, out, toolchain, options, &yashy_common::ProofFacts::empty())
 }
 
 /// Load the entry point and its imports, then type-check the whole graph.
@@ -678,9 +678,10 @@ pub fn compile_hir(
     out: &Path,
     toolchain: &Toolchain,
     options: BuildOptions,
+    facts: &yashy_common::ProofFacts,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut timings = Vec::new();
-    compile_hir_timed(hir, entry_name, out, toolchain, options, &mut timings)
+    compile_hir_timed(hir, entry_name, out, toolchain, options, facts, &mut timings)
 }
 
 /// [`compile_hir`], recording the emit and link phases.
@@ -693,6 +694,7 @@ pub fn compile_hir_timed(
     out: &Path,
     toolchain: &Toolchain,
     options: BuildOptions,
+    facts: &yashy_common::ProofFacts,
     timings: &mut Vec<PhaseTiming>,
 ) -> Result<(), Vec<Diagnostic>> {
     if let Err(diagnostic) = check_main_exists(&hir.items) {
@@ -706,6 +708,7 @@ pub fn compile_hir_timed(
             CodegenOptions {
                 fp_contract: options.fast_math,
             },
+            &yashy_common::ProofFacts::empty(),
         )
     });
 

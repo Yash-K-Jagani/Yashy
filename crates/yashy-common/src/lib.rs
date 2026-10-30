@@ -5,6 +5,7 @@ pub mod codes;
 pub mod diagnostic;
 pub mod effect;
 pub mod json;
+pub mod proof_facts;
 pub mod source;
 pub mod span;
 pub mod suggest;
@@ -16,6 +17,7 @@ pub use diagnostic::{
     EXIT_USAGE,
 };
 pub use json::Json;
+pub use proof_facts::ProofFacts;
 pub use source::{FileId, Location, SourceMap};
 pub use span::Span;
 pub use suggest::closest;

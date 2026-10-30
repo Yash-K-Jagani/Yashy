@@ -33,6 +33,7 @@ fn emit(src: &str) -> String {
         &check_source(src),
         "threads.ya",
         CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
     )
 }
 

@@ -47,7 +47,7 @@ fn run_pipeline(src: &str) -> bool {
     let Ok(hir) = check_program(&program, &sources, file) else {
         return false;
     };
-    let _ = emit_program(&hir, "fuzz.ya", CodegenOptions::default());
+    let _ = emit_program(&hir, "fuzz.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty());
     true
 }
 

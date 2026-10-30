@@ -30,7 +30,7 @@ fn check_source(src: &str) -> HirProgram {
 }
 
 fn emit(src: &str) -> String {
-    emit_program(&check_source(src), "ffi_copy.ya", CodegenOptions::default())
+    emit_program(&check_source(src), "ffi_copy.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 const STRLEN: &str = r#"extern "C" link "m" {

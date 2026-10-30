@@ -23,7 +23,7 @@ fn ir_of(src: &str) -> String {
         .parse_program()
         .expect("these test sources must parse");
     let hir = check_program(&ast, &sm, file).expect("these test sources must type-check");
-    emit_program(&hir, "main.ya", CodegenOptions::default())
+    emit_program(&hir, "main.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
 }
 
 #[test]
