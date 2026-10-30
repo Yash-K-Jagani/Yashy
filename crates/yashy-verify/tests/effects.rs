@@ -24,6 +24,7 @@ fn verify_source(source: &str) -> VerifyReport {
         Err(diagnostics) => VerifyReport {
             diagnostics,
             obligations: Vec::new(),
+            facts: Default::default(),
             effects: Default::default(),
             analyses: 0,
         },

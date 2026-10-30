@@ -717,6 +717,7 @@ mod tests {
                 diagnostics,
                 obligations: Vec::new(),
                 effects: Default::default(),
+                facts: Default::default(),
                 analyses: 0,
             },
         }

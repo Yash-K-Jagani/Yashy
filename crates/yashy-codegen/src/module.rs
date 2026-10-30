@@ -165,8 +165,6 @@ impl Module {
     pub fn set_source_filename(&mut self, name: &str) {
         self.source_filename = name.to_string();
     }
-
-    /// Define a named aggregate type once, at module level.
     ///
     /// A second call for the same name is ignored, so every struct literal of
     /// one struct shares one `%struct.Name` definition regardless of which

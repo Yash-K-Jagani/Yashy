@@ -90,6 +90,8 @@ pub struct VerifyReport {
     pub analyses: usize,
     /// The inferred effect of every function in the program.
     pub effects: BTreeMap<String, Effect>,
+    /// The spans the verifier proved safe, so codegen may delete their checks.
+    pub facts: ProofFacts,
 }
 
 impl VerifyReport {
@@ -107,7 +109,29 @@ impl VerifyReport {
     }
 }
 
-/// Verify an already-checked program.
+/// What the verifier proved about a program.
+///
+/// Codegen consults this to delete a runtime check it can prove unnecessary:
+/// a span in `proven` had a discharged obligation, so the check it guards is
+/// dead code.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProofFacts {
+    proven: std::collections::HashSet<(u32, u32)>,
+}
+
+impl ProofFacts {
+    pub fn empty() -> Self {
+        Self { proven: std::collections::HashSet::new() }
+    }
+
+    pub fn is_proven(&self, span: Span) -> bool {
+        self.proven.contains(&(span.start, span.end))
+    }
+
+    pub fn insert(&mut self, span: Span) {
+        self.proven.insert((span.start, span.end));
+    }
+}
 ///
 /// The program must have come out of `yashy-sema`: the passes read the typed
 /// HIR, and a program that did not type-check has no HIR to read. Every pass
@@ -126,11 +150,18 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let effects = pass::effects::check(hir, &mut diagnostics);
     pass::contracts::check(hir, options.contracts, &effects, &mut obligations, &mut diagnostics);
     pass::typestate::check(hir, &mut diagnostics);
+    let mut facts = ProofFacts::empty();
+    for ob in &obligations {
+        if ob.established {
+            facts.insert(ob.span);
+        }
+    }
     VerifyReport {
         diagnostics,
         obligations,
         analyses,
         effects,
+        facts,
     }
 }
 
