@@ -14,7 +14,7 @@ pub mod toolchain;
 pub use modules::{default_stdlib_root, load, module_roots, resolve_import, Module};
 pub use pipeline::{
     check_and_verify, check_and_verify_timed, compile_hir, compile_hir_timed, compile_to_binary,
-    load_and_check, load_and_check_timed, resolve_opt, timed, BuildOptions, CpuTarget, OptLevel,
-    PhaseTiming,
+    CommandKind, load_and_check, load_and_check_exports_timed, load_and_check_timed, resolve_opt,
+    timed, BuildOptions, CpuTarget, OptLevel, PhaseTiming,
 };
 pub use toolchain::{detect, detect_with, Toolchain};

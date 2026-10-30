@@ -7,8 +7,10 @@
 
 pub mod bounds;
 pub mod contracts;
+pub mod effects;
 pub mod exhaustive;
 pub mod inventory;
 pub mod leak;
 pub mod overflow;
+pub mod typestate;
 pub mod warnings;

@@ -25,7 +25,7 @@
 //! items keep spans into its own text. That is why checking can attribute a
 //! diagnostic to the module it came from instead of the entry point.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,8 +50,64 @@ pub struct Module {
     pub path: PathBuf,
     /// The id its text got in the source map the loader was given.
     pub file: FileId,
+    /// The last segment of the path the program imported it under, which is
+    /// the name an `import` statement writes and the name the warning pass
+    /// compares against. `None` for the entry file, which nothing imports.
+    ///
+    /// This is recorded rather than derived from `path` because the two
+    /// layouts disagree: `import a.b.c;` finds `<root>/a/b/c/mod.ya` as well
+    /// as `<root>/a/b/c.ya`, and only the loader knows which one it took. A
+    /// module's name is what the program called it, not what its file is
+    /// called.
+    pub name: Option<String>,
     /// Its parsed items, with spans into this module's own text.
     pub program: Program,
+}
+
+/// Every name a loaded module declares at top level, keyed by the name the
+/// program imports it under.
+///
+/// The warning pass needs this to answer "was this import used?" for a program
+/// that uses a module's names without a prefix (`import wc_words;` then
+/// `count_words(..)`): the import is used when any name the module declares is
+/// read, whether or not the module's own name appears.
+///
+/// Every top-level name is listed, not only the `pub` ones, because the checker
+/// puts every module's items in one namespace today, so a private name is
+/// reachable too. Listing it keeps the warning honest about what the program can
+/// actually reach, and the list errs towards silence.
+pub type Exports = BTreeMap<String, BTreeSet<String>>;
+
+/// The [`Exports`] table for `modules`.
+pub fn exports(modules: &[Module]) -> Exports {
+    let mut table = Exports::new();
+    for module in modules {
+        let Some(name) = &module.name else { continue };
+        let names = table.entry(name.clone()).or_default();
+        for item in &module.program.items {
+            if let Some(declared) = declared_name(item) {
+                names.insert(declared.to_string());
+            }
+        }
+    }
+    table
+}
+
+/// The name an item declares, looking through `pub` and effect modifiers.
+///
+/// An `impl` block and an `extern` block declare no name of their own: their
+/// methods and functions belong to a type or to C, not to the module's
+/// namespace.
+fn declared_name(item: &Item) -> Option<&str> {
+    match item {
+        Item::Public { item, .. } | Item::Effect { item, .. } => declared_name(item),
+        Item::Fn { name, .. }
+        | Item::ConstFn { name, .. }
+        | Item::Struct { name, .. }
+        | Item::Enum { name, .. }
+        | Item::Object { name, .. } => Some(name),
+        _ => None,
+    }
 }
 
 /// The standard-library directory shipped with this compiler, if one can be
@@ -214,7 +270,7 @@ pub fn load(
         stack: Vec::new(),
         modules: Vec::new(),
     };
-    loader.visit(identity_of(entry_path), entry_path, entry_source, None)?;
+    loader.visit(identity_of(entry_path), entry_path, entry_source, None, None)?;
     Ok(loader.modules)
 }
 
@@ -243,6 +299,7 @@ impl Loader<'_> {
         path: &Path,
         source: String,
         site: Option<(FileId, Span)>,
+        name: Option<String>,
     ) -> Result<(), Vec<Diagnostic>> {
         match self.seen.get(&identity) {
             Some(Seen::Loaded) => return Ok(()),
@@ -313,6 +370,7 @@ impl Loader<'_> {
                 &target,
                 target_source,
                 Some((file, span)),
+                segments.last().cloned(),
             ) {
                 return Err(self.abandon(identity, diagnostics));
             }
@@ -323,6 +381,7 @@ impl Loader<'_> {
         self.modules.push(Module {
             path: path.to_path_buf(),
             file,
+            name,
             program,
         });
         Ok(())

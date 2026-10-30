@@ -11,10 +11,11 @@ pub mod effect;
 pub mod ownership;
 pub mod pass;
 pub mod render;
+pub mod typestate;
 
 use std::collections::BTreeMap;
 
-use yashy_common::{Diagnostic, Span};
+use yashy_common::{Diagnostic, Effect, Span};
 use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
 
 pub use ownership::{check_live, linearity_of, move_out, AlreadyMoved, Linearity, Ownership};
@@ -87,6 +88,8 @@ pub struct VerifyReport {
     /// call sites is one analysis, not fifty: the walk is memoised by
     /// `(name, body span)` so the same body is never walked twice.
     pub analyses: usize,
+    /// The inferred effect of every function in the program.
+    pub effects: BTreeMap<String, Effect>,
 }
 
 impl VerifyReport {
@@ -120,11 +123,14 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let analyses = collect_functions(hir, &mut memo);
     pass::leak::check(hir, &mut diagnostics);
     pass::exhaustive::check(hir, &mut diagnostics);
-    pass::contracts::check(hir, options.contracts, &mut obligations, &mut diagnostics);
+    let effects = pass::effects::check(hir, &mut diagnostics);
+    pass::contracts::check(hir, options.contracts, &effects, &mut obligations, &mut diagnostics);
+    pass::typestate::check(hir, &mut diagnostics);
     VerifyReport {
         diagnostics,
         obligations,
         analyses,
+        effects,
     }
 }
 

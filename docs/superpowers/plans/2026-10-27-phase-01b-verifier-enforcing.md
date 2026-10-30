@@ -423,15 +423,15 @@ The four runtime-fault tests in `tests/e2e.rs` and `tests/programs/overflow.ya` 
 - Produces: `pub struct Assumption { pub kind: AssumptionKind, pub name: String, pub file: FileId, pub span: Span }`, `AssumptionKind::{ExternDecl, UnsafeCall}`.
 - Produces: `yashy verify --inventory` (human table) and `--inventory --json` (`"assumptions": [{kind, name, file, span}]`).
 
-- [ ] **Step 1: Write the failing test** — a program with one `extern` block and one `unsafe` call produces exactly two assumptions, in source order.
+- [x] **Step 1: Write the failing test** — a program with one `extern` block and one `unsafe` call produces exactly two assumptions, in source order.
 
-- [ ] **Step 2: Watch it fail.**
+- [x] **Step 2: Watch it fail.**
 
-- [ ] **Step 3: Implement** — walk `HirItem::Extern` and every `HirExpr::Call { unsafe_call: true }`. The list is the evidence that "proven" never silently means "trusted"; it is not a diagnostic and never changes the exit code.
+- [x] **Step 3: Implement** — walk `HirItem::Extern` and every `HirExpr::Call { unsafe_call: true }`. The list is the evidence that "proven" never silently means "trusted"; it is not a diagnostic and never changes the exit code.
 
-- [ ] **Step 4: Run the test** → PASS.
+- [x] **Step 4: Run the test** → PASS.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): inventory every unsafe and FFI assumption"`
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): inventory every unsafe and FFI assumption"`
 
 ---
 
@@ -445,11 +445,11 @@ The four runtime-fault tests in `tests/e2e.rs` and `tests/programs/overflow.ya` 
 **Interfaces:**
 - Produces: a gate, not a feature.
 
-- [ ] **Step 1: Add the four seeded bugs** and extend the table so each file's expected code set is asserted exactly, in order.
+- [x] **Step 1: Add the four seeded bugs** and extend the table so each file's expected code set is asserted exactly, in order.
 
-- [ ] **Step 2: Run the corpus** — `cargo test -p yashy-driver --test verify` → every row passes.
+- [x] **Step 2: Run the corpus** — `cargo test -p yashy-driver --test verify` → every row passes.
 
-- [ ] **Step 3: Run the zero-false-positive gate**
+- [x] **Step 3: Run the zero-false-positive gate**
 
 ```bash
 for f in examples/*/main.ya crates/yashy-driver/tests/programs/*.ya; do
@@ -459,7 +459,7 @@ done
 
 Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier bug with the program attached; fix the rule, never the program.
 
-- [ ] **Step 4: Commit** — `git commit -m "test: close the phase 1b corpus and zero-false-positive gate"`
+- [x] **Step 4: Commit** — `git commit -m "test: close the phase 1b corpus and zero-false-positive gate"`
 
 ---
 
@@ -471,11 +471,11 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 **Interfaces:**
 - Produces: `verify` computes each function once per program, keyed by `(name, body span)`, so a function reached from many call sites is not re-analysed.
 
-- [ ] **Step 1: Write the failing test** — a program with a function called from 50 sites reports one diagnostic, not 50, and the pass counts one analysis (expose `VerifyReport::analyses: usize` for the test).
+- [x] **Step 1: Write the failing test** — a program with a function called from 50 sites reports one diagnostic, not 50, and the pass counts one analysis (expose `VerifyReport::analyses: usize` for the test).
 
-- [ ] **Step 2: Implement** — a `BTreeMap<(String, u32), ()>` of analysed functions; obligations are recorded once per function.
+- [x] **Step 2: Implement** — a `BTreeMap<(String, u32), ()>` of analysed functions; obligations are recorded once per function.
 
-- [ ] **Step 3: Run and commit** — `git commit -m "perf(verify): analyse each function once"`
+- [x] **Step 3: Run and commit** — `git commit -m "perf(verify): analyse each function once"`
 
 ---
 
@@ -505,11 +505,11 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 - Produces: `--allow warnings` suppresses them entirely (for a generated file), and `-W none` is a spelling of it. The two are one code path.
 - Produces: the JSON envelope's `summary` gains `warnings: usize`, so an agent can gate on it without parsing text.
 
-- [ ] **Step 1: Write the failing tests** — `const x = 1;` with no read is `E2000`; `let _ = f();` and `fn f(_unused: int)` are silent; an unused `import` is `E2001`; code after `return` is `E2002`; code after `os.exit(0)` is silent; `yashy build` with a warning exits 0; `--deny warnings` exits 1; `--allow warnings` prints nothing; the JSON envelope has `severity: "error"` under `--deny` and `summary.warnings == 1`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — one pass over the typed HIR that collects reads, writes and imports into sets and reports the difference; the suppression rules are predicates on the same sets, not a second walk. `--deny` is applied once, in the driver, by mapping severity after all diagnostics are collected — never inside the pass, so the pass cannot disagree with the flag. The pass is registered in the phase 4 pass manager like every other, so `--no-opt=warnings` disables it for bisecting.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test warnings --test diagnostics_json` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: four coded warnings, and --deny warnings (E2000-E2003)"`
+- [x] **Step 1: Write the failing tests** — `const x = 1;` with no read is `E2000`; `let _ = f();` and `fn f(_unused: int)` are silent; an unused `import` is `E2001`; code after `return` is `E2002`; code after `os.exit(0)` is silent; `yashy build` with a warning exits 0; `--deny warnings` exits 1; `--allow warnings` prints nothing; the JSON envelope has `severity: "error"` under `--deny` and `summary.warnings == 1`.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — one pass over the typed HIR that collects reads, writes and imports into sets and reports the difference; the suppression rules are predicates on the same sets, not a second walk. `--deny` is applied once, in the driver, by mapping severity after all diagnostics are collected — never inside the pass, so the pass cannot disagree with the flag. The pass is registered in the phase 4 pass manager like every other, so `--no-opt=warnings` disables it for bisecting.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test warnings --test diagnostics_json` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: four coded warnings, and --deny warnings (E2000-E2003)"`
 
 ---
 
@@ -517,11 +517,11 @@ Expected: no `FALSE POSITIVE` line, on Windows and Linux. Any line is a verifier
 
 **Files:** `docs/errors/{E2000..E2003}.md`; `docs/errors.md`; `docs/tutorial/` (a "Proving bounds and overflow" section and a "Warnings" section); `docs/cli.md`; `AGENTS.md` (the `verify` line gains `--inventory`; the diagnostics section gains the warning rule). `E1201.md` already ships with Task 3. `E1200` has no page: it is reserved but never emitted (ruling 9).
 
-- [ ] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples. While here, settle the proof trace in human output: `yashy-common/src/source.rs` prints the label, the notes and the `docs:` line but **not** `diagnostic.proof`, so `E1100.md`'s example shows `proof:`/`missing:`/`remedy:` lines the renderer does not print. Either render the trace (the DX fix, and then `E1100.md` is accurate) or correct the page to match the renderer. `E1201.md` currently shows only what the renderer prints and says the trace is in `--json`.
+- [x] **Step 1: Write the pages** in the standard cause/example/fix shape, using the corpus programs as the examples. While here, settle the proof trace in human output: `yashy-common/src/source.rs` prints the label, the notes and the `docs:` line but **not** `diagnostic.proof`, so `E1100.md`'s example shows `proof:`/`missing:`/`remedy:` lines the renderer does not print. Either render the trace (the DX fix, and then `E1100.md` is accurate) or correct the page to match the renderer. `E1201.md` currently shows only what the renderer prints and says the trace is in `--json`.
 
-- [ ] **Step 2: Run the gate** — the table below, on both operating systems.
+- [x] **Step 2: Run the gate** — the table below, on both operating systems.
 
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: document the enforcing verifier and close phase 1b"`; record the hash in the index and the ledger.
+- [x] **Step 3: Commit and record** — `git commit -m "docs: document the enforcing verifier and close phase 1b"`; record the hash in the index and the ledger.
 
 ---
 

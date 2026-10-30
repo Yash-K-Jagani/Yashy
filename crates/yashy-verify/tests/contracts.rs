@@ -24,6 +24,7 @@ fn verify_source_with(source: &str, options: &VerifyOptions) -> VerifyReport {
         Err(diagnostics) => VerifyReport {
             diagnostics,
             obligations: Vec::new(),
+            effects: Default::default(),
             analyses: 0,
         },
     }

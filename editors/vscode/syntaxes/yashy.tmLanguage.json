@@ -89,7 +89,7 @@
         },
         {
           "name": "keyword.declaration.yashy",
-          "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|as|move|impl|object|pub)\\b"
+          "match": "\\b(?:fn|struct|enum|const|var|let|import|extern|unsafe|pure|io|as|move|impl|object|pub)\\b"
         },
         {
           "name": "keyword.contract.yashy",

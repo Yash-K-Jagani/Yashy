@@ -816,6 +816,8 @@ impl TokenKind {
                 | TokenKind::Import
                 | TokenKind::Extern
                 | TokenKind::Unsafe
+                | TokenKind::Pure
+                | TokenKind::Io
                 | TokenKind::Defer
                 | TokenKind::Return
                 | TokenKind::Break
@@ -980,7 +982,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 31] = [
+    const KEYWORDS: [(&str, TokenKind); 33] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -990,6 +992,8 @@ mod tests {
         ("import", TokenKind::Import),
         ("extern", TokenKind::Extern),
         ("unsafe", TokenKind::Unsafe),
+        ("pure", TokenKind::Pure),
+        ("io", TokenKind::Io),
         ("defer", TokenKind::Defer),
         ("return", TokenKind::Return),
         ("break", TokenKind::Break),

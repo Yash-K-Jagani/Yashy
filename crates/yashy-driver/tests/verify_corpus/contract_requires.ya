@@ -1,8 +1,12 @@
 // A precondition the caller does not establish. `0` does not satisfy `n > 0`,
 // and the verifier cannot discharge the obligation, so E1100 rejects the build.
 // Expected: E1100 at the call to `positive`.
+//
+// The body reads `n` into a deliberately-unused binding: this file seeds one
+// bug, the unproved contract, and a fixture that also seeds a dead-code warning
+// would make "exactly E1100" a statement about two things at once.
 fn positive(n: int) requires n > 0 {
-    let unused = n;
+    let _unused = n;
 }
 
 fn main() {

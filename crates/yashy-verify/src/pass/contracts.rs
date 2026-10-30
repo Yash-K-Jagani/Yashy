@@ -26,9 +26,9 @@
 //! about locals survive a call, and only slice lengths -- which live in a
 //! header the callee shares -- are dropped at one.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use yashy_common::{codes, Diagnostic, FileId, ProofTrace, Severity, Span};
+use yashy_common::{codes, Diagnostic, Effect, FileId, ProofTrace, Severity, Span};
 use yashy_hir::hir::{
     expr_span, expr_ty, BinOp, HirBlock, HirContract, HirExpr, HirFn, HirItem, HirProgram, HirStmt,
     Literal, UnOp,
@@ -49,6 +49,7 @@ use crate::{ContractMode, ObligationKind, ProofObligation};
 pub fn check(
     program: &HirProgram,
     mode: ContractMode,
+    effects: &BTreeMap<String, Effect>,
     obligations: &mut Vec<ProofObligation>,
     out: &mut Vec<Diagnostic>,
 ) {
@@ -71,6 +72,7 @@ pub fn check(
         functions,
         quiet: false,
         file: FileId::from_index(0),
+        effects,
     };
     for item in &program.items {
         if let HirItem::Fn(function) = item {
@@ -93,6 +95,9 @@ struct ContractPass<'p, 'o> {
     /// The file of the function being walked. Spans index their own module's
     /// text, so a diagnostic needs this to point at the right source.
     file: FileId,
+    /// The inferred effects of every function, used to check that contract
+    /// expressions only call pure functions.
+    effects: &'p BTreeMap<String, Effect>,
 }
 
 /// What a `return` promises.
@@ -164,6 +169,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
         // A precondition is the caller's promise, so it is a fact in here. A
         // call site that cannot establish it is reported where it is written.
         for clause in &function.requires {
+            self.check_contract_purity(&clause.expr);
             self.assume(&clause.expr, &mut env);
         }
 
@@ -518,6 +524,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
 
     fn check_invariants(&mut self, invariants: &[&HirContract], env: &Env) {
         for invariant in invariants {
+            self.check_contract_purity(&invariant.expr);
             let mut scope = env.clone();
             if self.truth(&invariant.expr, &mut scope) != Tri::True {
                 let text = render::expr(&invariant.expr);
@@ -541,6 +548,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
         let mut scope = env.clone();
         scope.set("result", result);
         for clause in ctx.ensures {
+            self.check_contract_purity(&clause.expr);
             let mut clause_env = scope.clone();
             if self.truth(&clause.expr, &mut clause_env) != Tri::True {
                 let text = render::expr(&clause.expr);
@@ -684,6 +692,8 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             HirExpr::Call {
                 callee, args, span, ..
             } => {
+                // Contracts may only call pure functions. (Checked separately
+                // for contract expressions; see check_contract_purity.)
                 let values: Vec<Value> = args.iter().map(|arg| self.eval(arg, env)).collect();
                 if is_len(callee) {
                     return match args.first() {
@@ -1045,6 +1055,70 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             }),
         );
     }
+    fn check_contract_purity(&mut self, expr: &HirExpr) {
+        match expr {
+            HirExpr::Call { callee, args, span, .. } => {
+                if let Some(name) = callee.last() {
+                    if let Some(effect) = self.effects.get(name.as_str()) {
+                        if !effect.is_pure() {
+                            self.out.push(Diagnostic::new(
+                                Severity::Error,
+                                self.file,
+                                *span,
+                                format!("contract calls non-pure function `{}`", name),
+                            ).with_code(codes::EFFECT));
+                        }
+                    }
+                }
+                for arg in args {
+                    self.check_contract_purity(arg);
+                }
+            }
+            HirExpr::Binary { lhs, rhs, .. } => {
+                self.check_contract_purity(lhs);
+                self.check_contract_purity(rhs);
+            }
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
+                self.check_contract_purity(operand);
+            }
+            HirExpr::StructLit { fields, .. } => {
+                for (_, v, _) in fields { self.check_contract_purity(v); }
+            }
+            HirExpr::SliceLit { elements, .. }
+            | HirExpr::FixedArrayLit { elements, .. }
+            | HirExpr::TupleLit { elements, .. } => {
+                for e in elements { self.check_contract_purity(e); }
+            }
+            HirExpr::FieldAccess { base, .. } => self.check_contract_purity(base),
+            HirExpr::Index { base, index, .. } => {
+                self.check_contract_purity(base);
+                self.check_contract_purity(index);
+            }
+            HirExpr::View { base, start, end, .. } => {
+                self.check_contract_purity(base);
+                self.check_contract_purity(start);
+                self.check_contract_purity(end);
+            }
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => {
+                self.check_contract_purity(expr);
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => {
+                self.check_contract_purity(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard { self.check_contract_purity(guard); }
+                    self.check_contract_purity(&arm.body);
+                }
+            }
+            HirExpr::HigherOrder { receiver, func, init, .. } => {
+                self.check_contract_purity(receiver);
+                self.check_contract_purity(func);
+                if let Some(init) = init { self.check_contract_purity(init); }
+            }
+            _ => {}
+        }
+    }
+
+
 }
 
 /// The join of every environment that reaches the loop's head again.

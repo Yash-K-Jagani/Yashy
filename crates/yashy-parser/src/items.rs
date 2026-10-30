@@ -146,11 +146,22 @@ impl<'src> Parser<'src> {
     /// The error here is about the *path*, not about the token: "expected an
     /// identifier, found `;`" is true of `import ;` and tells the reader nothing
     /// about what they meant to write.
+    ///
+    /// A segment may be a keyword as well as an identifier. Module paths name
+    /// things, and `std.io` is the standard input/output module: making `io` a
+    /// modifier keyword must not rename the module or refuse the file that
+    /// imports it. What is recorded is the segment's own text, so `io` here is
+    /// the word `io`, not the modifier.
     fn import_segment(&mut self) -> Result<String, ParseError> {
-        if !self.check(TokenKind::Ident) {
+        let kind = self.peek();
+        if kind != TokenKind::Ident && !kind.is_keyword() {
             return Err(error::import_needs_a_path(self.peek_span()));
         }
-        let (name, _span) = self.identifier()?;
+        let token = self.advance();
+        let name = self.text(token.span)?;
+        if name.is_empty() {
+            return Err(error::unreadable_text(token.span));
+        }
         Ok(name)
     }
 

@@ -29,6 +29,8 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::toolchain::Linker;
 use std::process::Command;
 use std::time::Instant;
 
@@ -137,16 +139,26 @@ impl OptLevel {
 
 /// The optimization level a build should use.
 ///
-/// `explicit` is the level the user wrote on the command line, if any. A
-/// release build without an explicit level gets `-O3`; a debug build keeps
-/// the historical `-O2` default. An explicit level always wins, so
-/// `-O0 --release` remains a usable debugging build.
-pub fn resolve_opt(release: bool, explicit: Option<OptLevel>) -> OptLevel {
-    explicit.unwrap_or(if release {
-        OptLevel::Aggressive
-    } else {
-        OptLevel::Full
-    })
+/// Which command is invoking the build pipeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandKind {
+    Build,
+    Run,
+    Test,
+}
+
+/// Resolve the optimization level.
+pub fn resolve_opt(command: CommandKind, release: bool, explicit: Option<OptLevel>) -> OptLevel {
+    if let Some(level) = explicit {
+        return level;
+    }
+    if release {
+        return OptLevel::Aggressive;
+    }
+    match command {
+        CommandKind::Build => OptLevel::Full,
+        CommandKind::Run | CommandKind::Test => OptLevel::None,
+    }
 }
 
 /// Which instruction set the generated program may use.
@@ -557,6 +569,22 @@ pub fn load_and_check_timed(
     release: bool,
     timings: &mut Vec<PhaseTiming>,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
+    load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)
+        .map(|(hir, _exports)| hir)
+}
+
+/// [`load_and_check_timed`], also returning the name-to-exports table the
+/// warning pass needs.
+///
+/// Only the warning pass reads it, and only `check` and `verify` run the
+/// warning pass, so a caller that just wants to build asks for the HIR alone.
+pub fn load_and_check_exports_timed(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+    release: bool,
+    timings: &mut Vec<PhaseTiming>,
+) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
     let modules = timed(timings, "load", || {
         modules::load(sources, entry_path, entry_source)
     })?;
@@ -564,9 +592,11 @@ pub fn load_and_check_timed(
         .iter()
         .map(|module| (module.file, &module.program))
         .collect();
-    timed(timings, "check", || {
+    let exports = modules::exports(&modules);
+    let hir = timed(timings, "check", || {
         check_modules_with(&programs, sources, CheckOptions { release })
-    })
+    })?;
+    Ok((hir, exports))
 }
 
 /// Load, check, then verify: the pipeline every build goes through.
@@ -607,7 +637,8 @@ pub fn check_and_verify_timed(
     options: &VerifyOptions,
     timings: &mut Vec<PhaseTiming>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
-    let hir = load_and_check_timed(sources, entry_path, entry_source, release, timings)?;
+    let (hir, exports) =
+        load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)?;
     // Warnings run after the checker and before the verifier. They are
     // collected into the same diagnostic bag as the verifier's output, so
     // `yashy check` (which never reaches here) does not see them and
@@ -616,12 +647,22 @@ pub fn check_and_verify_timed(
     // the driver applies after collection.
     let mut warnings = Vec::new();
     timed(timings, "warnings", || {
-        yashy_verify::pass::warnings::check(&hir, &mut warnings);
+        yashy_verify::pass::warnings::check(&hir, &exports, &mut warnings);
     });
-    let report = timed(timings, "verify", || verify(&hir, options));
+    let mut report = timed(timings, "verify", || verify(&hir, options));
+    // One mistake, one diagnostic: a warning about a declaration an error
+    // already rejected is the same fact said twice. `let buf = alloc(16);`
+    // that is never freed is a leak, and saying `buf` is never read as well
+    // describes the same line from the other side. The spans are the
+    // declaration's, so they match exactly.
+    warnings.retain(|warning| {
+        !report
+            .diagnostics
+            .iter()
+            .any(|error| error.is_error() && error.file == warning.file && error.span == warning.span)
+    });
     // Join the warning diagnostics into the report's bag so they travel
     // with the verifier's output and are rendered by the same code path.
-    let mut report = report;
     report.diagnostics.splice(0..0, warnings);
     Ok((hir, report))
 }
@@ -979,10 +1020,13 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+use crate::toolchain::Linker;
+
     fn fake_toolchain(tool: &Path) -> Toolchain {
         Toolchain {
             llc: tool.to_path_buf(),
             found: "test",
+            linker: Linker::System,
         }
     }
 

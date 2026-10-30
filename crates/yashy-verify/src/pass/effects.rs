@@ -5,20 +5,41 @@
 //! its own body's direct effects. The fixpoint terminates because the
 //! lattice has height 3 (three booleans).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use yashy_common::{codes, DeclaredEffect, Diagnostic, Effect, FileId, Severity, Span};
-use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm};
+use yashy_common::{codes, DeclaredEffect, Diagnostic, Effect, FileId, Severity};
+use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
 
 /// Run the effect pass over `program`, pushing diagnostics into `out`.
 /// Returns the inferred effect map.
 pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) -> BTreeMap<String, Effect> {
     let mut effects = infer_effects(program);
 
+    // A function whose body contains an unsafe call outside an `unsafe fn`
+    // already earns `E1301` at the call site. Reporting `E1300` on top would
+    // state the same mistake twice, so those functions are skipped below.
+    //
+    // An unannotated function is not a violation: `unsafe free(p)` is the
+    // language's ordinary spelling for releasing memory, and the `unsafe`
+    // marker at the call site is the acknowledgement. Such a function simply
+    // *becomes* unsafe-effect, which then errors at any declared caller. The
+    // declaration is what makes the call a promise that is being broken.
+    let mut unsafe_violators: BTreeSet<String> = BTreeSet::new();
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            if requires_unsafe_declaration(function.declared) && has_unsafe_calls(&function.body) {
+                unsafe_violators.insert(function.name.clone());
+            }
+        }
+    }
+
     // Check declarations against inferred effects.
     for item in &program.items {
         if let HirItem::Fn(function) = item {
-            if let Some(declared) = function.declared.to_effect() {
+            if unsafe_violators.contains(&function.name) {
+                continue;
+            }
+            if function.declared.to_effect().is_some() {
                 let inferred = effects.get(&function.name).copied().unwrap_or(Effect::PURE);
                 // A declaration that is stricter than the body is an error.
                 let violated = match function.declared {
@@ -30,24 +51,33 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) -> BTreeMap<String
                 };
                 if violated {
                     let (missing, remedy) = match function.declared {
-                        DeclaredEffect::Pure => ("io", "remove `pure`, or remove the IO call"),
+                        DeclaredEffect::Pure => {
+                            if inferred.unsafe_ {
+                                ("unsafe", "declare the function `unsafe`, or remove the unsafe call")
+                            } else {
+                                ("io", "remove `pure`, or remove the IO call")
+                            }
+                        }
                         DeclaredEffect::Io => ("unsafe", "declare the function `unsafe`"),
                         _ => ("", ""),
                     };
                     if !missing.is_empty() {
-                        out.push(Diagnostic::new(
-                            Severity::Error,
-                            function.file,
-                            function.span,
-                            format!(
-                                "declared `{}`, but the body performs `{}`",
-                                declared_name(function.declared),
-                                missing,
-                            ),
-                        ).with_code(codes::EFFECT));
+                        out.push(
+                            Diagnostic::new(
+                                Severity::Error,
+                                function.file,
+                                function.span,
+                                format!(
+                                    "declared `{}`, but the body performs `{}`",
+                                    declared_name(function.declared),
+                                    missing,
+                                ),
+                            )
+                            .with_label(remedy)
+                            .with_code(codes::EFFECT),
+                        );
                     }
                 }
-                let _ = declared;
             }
         }
     }
@@ -62,6 +92,17 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) -> BTreeMap<String
     effects
 }
 
+/// True when `declared` makes an `unsafe` call in the body a broken promise.
+///
+/// `pure` and `io` are promises about the body, so an `unsafe` call inside one
+/// is a violation. `unsafe` obviously allows it. An unannotated function makes
+/// no promise: `unsafe free(p)` is the ordinary spelling for a release, so the
+/// call is allowed there and simply makes the function's inferred effect
+/// unsafe, which every declared caller then has to account for.
+fn requires_unsafe_declaration(declared: DeclaredEffect) -> bool {
+    matches!(declared, DeclaredEffect::Pure | DeclaredEffect::Io | DeclaredEffect::Async)
+}
+
 fn declared_name(d: DeclaredEffect) -> &'static str {
     match d {
         DeclaredEffect::Inferred => "inferred",
@@ -72,22 +113,112 @@ fn declared_name(d: DeclaredEffect) -> &'static str {
     }
 }
 
+/// True when `block` contains an unsafe call anywhere inside it.
+fn has_unsafe_calls(block: &HirBlock) -> bool {
+    block.stmts.iter().any(stmt_has_unsafe_call)
+}
+
+fn stmt_has_unsafe_call(stmt: &HirStmt) -> bool {
+    match stmt {
+        HirStmt::Expr(expr, ..) => expr_has_unsafe_call(expr),
+        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+            expr_has_unsafe_call(init)
+        }
+        HirStmt::Assign { value, .. } => expr_has_unsafe_call(value),
+        HirStmt::IndexAssign { base, index, value, .. } => {
+            expr_has_unsafe_call(base) || expr_has_unsafe_call(index) || expr_has_unsafe_call(value)
+        }
+        HirStmt::FieldAssign { value, .. } => expr_has_unsafe_call(value),
+        HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+            expr_has_unsafe_call(pointer) || expr_has_unsafe_call(index) || expr_has_unsafe_call(value)
+        }
+        HirStmt::Return(Some(expr), _) => expr_has_unsafe_call(expr),
+        HirStmt::If { init, cond, then_block, else_block, .. } => {
+            init.as_ref().is_some_and(|i| stmt_has_unsafe_call(i))
+                || expr_has_unsafe_call(cond)
+                || has_unsafe_calls(then_block)
+                || else_block.as_ref().is_some_and(has_unsafe_calls)
+        }
+        HirStmt::ForRange { start, end, body, .. } => {
+            expr_has_unsafe_call(start) || expr_has_unsafe_call(end) || has_unsafe_calls(body)
+        }
+        HirStmt::ForIn { iterable, body, .. } => expr_has_unsafe_call(iterable) || has_unsafe_calls(body),
+        HirStmt::ForC { init, cond, update, body, .. } => {
+            init.as_ref().is_some_and(|i| stmt_has_unsafe_call(i))
+                || cond.as_ref().is_some_and(|e| expr_has_unsafe_call(e))
+                || update.as_ref().is_some_and(|e| expr_has_unsafe_call(e))
+                || has_unsafe_calls(body)
+        }
+        HirStmt::Switch { subject, arms, .. } => {
+            expr_has_unsafe_call(subject)
+                || arms.iter().any(|arm| {
+                    arm.guard.as_ref().is_some_and(expr_has_unsafe_call) || expr_has_unsafe_call(&arm.body)
+                })
+        }
+        HirStmt::Defer { body, .. } => has_unsafe_calls(body),
+        HirStmt::LoopInvariant(c) => expr_has_unsafe_call(&c.expr),
+        _ => false,
+    }
+}
+
+fn expr_has_unsafe_call(expr: &HirExpr) -> bool {
+    match expr {
+        HirExpr::Call { args, unsafe_call, .. } => {
+            *unsafe_call || args.iter().any(expr_has_unsafe_call)
+        }
+        HirExpr::Binary { lhs, rhs, .. } => expr_has_unsafe_call(lhs) || expr_has_unsafe_call(rhs),
+        HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => expr_has_unsafe_call(operand),
+        HirExpr::StructLit { fields, .. } => fields.iter().any(|(_, v, _)| expr_has_unsafe_call(v)),
+        HirExpr::SliceLit { elements, .. }
+        | HirExpr::FixedArrayLit { elements, .. }
+        | HirExpr::TupleLit { elements, .. } => elements.iter().any(expr_has_unsafe_call),
+        HirExpr::FieldAccess { base, .. } => expr_has_unsafe_call(base),
+        HirExpr::Index { base, index, .. } => expr_has_unsafe_call(base) || expr_has_unsafe_call(index),
+        HirExpr::View { base, start, end, .. } => {
+            expr_has_unsafe_call(base) || expr_has_unsafe_call(start) || expr_has_unsafe_call(end)
+        }
+        HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => expr_has_unsafe_call(expr),
+        HirExpr::SwitchExpr { subject, arms, .. } => {
+            expr_has_unsafe_call(subject)
+                || arms.iter().any(|arm| {
+                    arm.guard.as_ref().is_some_and(expr_has_unsafe_call) || expr_has_unsafe_call(&arm.body)
+                })
+        }
+        HirExpr::Lambda { f, .. } => has_unsafe_calls(&f.body),
+        HirExpr::CallCapture { args, .. } => args.iter().any(expr_has_unsafe_call),
+        HirExpr::HigherOrder { receiver, func, init, .. } => {
+            expr_has_unsafe_call(receiver)
+                || expr_has_unsafe_call(func)
+                || init.as_ref().is_some_and(|e| expr_has_unsafe_call(e))
+        }
+        _ => false,
+    }
+}
+
 /// Check that unsafe calls only happen inside unsafe functions.
 fn check_unsafe_calls(function: &HirFn, _effects: &BTreeMap<String, Effect>, out: &mut Vec<Diagnostic>) {
-    // An unsafe fn may call unsafe things. A non-unsafe fn may not.
-    let is_unsafe_fn = function.declared == DeclaredEffect::Unsafe;
-    if is_unsafe_fn {
+    // An `unsafe fn` may call unsafe things, and an unannotated function has
+    // made no promise to break: the call is recorded in its inferred effect
+    // instead. Only a declared `pure`/`io`/`async` body is a violation.
+    if !requires_unsafe_declaration(function.declared) {
         return;
     }
     // Walk the body looking for unsafe calls.
-    let mut walker = UnsafeWalker { out, file: function.file, is_unsafe: is_unsafe_fn };
+    let mut walker = UnsafeWalker {
+        out,
+        file: function.file,
+        owner: &function.name,
+        declared: function.declared,
+    };
     walker.block(&function.body);
 }
 
 struct UnsafeWalker<'a> {
     out: &'a mut Vec<Diagnostic>,
     file: FileId,
-    is_unsafe: bool,
+    /// The function whose promise the call would break.
+    owner: &'a str,
+    declared: DeclaredEffect,
 }
 
 impl UnsafeWalker<'_> {
@@ -144,13 +275,17 @@ impl UnsafeWalker<'_> {
             HirExpr::Binary { lhs, rhs, .. } => { self.expr(lhs); self.expr(rhs); }
             HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => self.expr(operand),
             HirExpr::Call { callee, args, unsafe_call, span, .. } => {
-                if *unsafe_call && !self.is_unsafe {
+                if *unsafe_call {
                     let name = callee.join(".");
                     self.out.push(Diagnostic::new(
                         Severity::Error,
                         self.file,
                         *span,
-                        format!("`{name}` is an unsafe call outside an `unsafe fn`"),
+                        format!(
+                            "`{name}` is an unsafe call, but `{}` is declared `{}`",
+                            self.owner,
+                            declared_name(self.declared),
+                        ),
                     ).with_code(codes::UNSAFE_CALL));
                 }
                 for arg in args { self.expr(arg); }
@@ -173,15 +308,13 @@ impl UnsafeWalker<'_> {
                 }
             }
             HirExpr::Lambda { f, .. } => {
-                // Nested function: check it too.
+                // A lambda is part of the enclosing function's body, so the
+                // enclosing declaration is the promise it must keep. Only the
+                // file changes, because a lambda may be written in another one.
                 let saved = self.file;
                 self.file = f.file;
-                let was = self.is_unsafe;
-                // A lambda inherits... actually lambdas don't have declared effects.
-                // Just walk the body.
                 self.block(&f.body);
                 self.file = saved;
-                self.is_unsafe = was;
             }
             HirExpr::CallCapture { args, .. } => {
                 for arg in args { self.expr(arg); }

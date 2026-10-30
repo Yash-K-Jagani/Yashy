@@ -7,5 +7,5 @@ fn positive(n: int) -> int ensures result > 0 {
 
 fn main() {
     let value = positive(1);
-    let unused = value;
+    let _unused = value;
 }

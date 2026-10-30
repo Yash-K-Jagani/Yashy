@@ -46,6 +46,7 @@ fn span_of(src: &str, text: &str) -> Span {
 fn item_span(item: &Item) -> Span {
     match item {
         Item::Public { item, .. } => item_span(item),
+        Item::Effect { item, .. } => item_span(item),
         Item::Import { span, .. }
         | Item::Struct { span, .. }
         | Item::Enum { span, .. }
@@ -231,6 +232,27 @@ fn parses_dotted_import_path() {
             );
         }
         other => panic!("expected an import, got {other:?}"),
+    }
+}
+
+/// A module path may use a word that is also a keyword.
+///
+/// `io` is a function modifier and `std.io` is the standard input/output
+/// module; the same spelling has to be able to name both. The segment is
+/// recorded as its own text, so the path is `["std", "io"]` and not something
+/// the modifier rule rewrote.
+#[test]
+fn an_import_path_segment_may_be_a_keyword() {
+    for (source, expected) in [
+        ("import std.io;", vec!["std", "io"]),
+        ("import pure.io.defer;", vec!["pure", "io", "defer"]),
+    ] {
+        match &parse_ok(source).items[0] {
+            Item::Import { path, .. } => {
+                assert_eq!(path, &expected.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+            }
+            other => panic!("expected an import, got {other:?}"),
+        }
     }
 }
 

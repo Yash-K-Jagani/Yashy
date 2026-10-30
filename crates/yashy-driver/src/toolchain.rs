@@ -32,6 +32,17 @@ pub struct Toolchain {
     /// Callers must not infer this from `llc`'s file name: `YASHY_LLC` may
     /// legitimately point at something called anything at all.
     pub found: &'static str,
+
+    /// The linker to use, detected once per run.
+    pub linker: Linker,
+}
+
+/// The linker used to link the final binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Linker {
+    Mold,
+    Lld,
+    System,
 }
 
 /// Locates the LLVM toolchain, honouring `YASHY_LLC` and then `PATH`.
@@ -40,6 +51,29 @@ pub struct Toolchain {
 /// LLVM installed is told what to install rather than just "not found".
 pub fn detect() -> Result<Toolchain, String> {
     detect_with(probe_environment)
+}
+
+/// Probe which linker clang supports, in preference order mold > lld > system.
+pub fn detect_linker(clang: &std::path::Path) -> Linker {
+    for flag in ["-fuse-ld=mold", "-fuse-ld=lld"] {
+        let tmp = std::env::temp_dir().join("yashy-linker-probe.c");
+        let _ = std::fs::write(&tmp, "int main(){return 0;}\n");
+        let out = std::env::temp_dir().join("yashy-linker-probe");
+        let status = std::process::Command::new(clang)
+            .arg(flag)
+            .arg(&tmp)
+            .arg("-o")
+            .arg(&out)
+            .stderr(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .status();
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&out);
+        if status.map(|s| s.success()).unwrap_or(false) {
+            return if flag == "-fuse-ld=mold" { Linker::Mold } else { Linker::Lld };
+        }
+    }
+    Linker::System
 }
 
 /// `detect`, with the "where could this binary be?" question handed to `probe`.
@@ -60,9 +94,11 @@ where
     for name in CANDIDATES {
         match probe(name) {
             Some(path) if path.is_file() => {
+                let linker = detect_linker(&path);
                 return Ok(Toolchain {
                     llc: path,
                     found: name,
+                    linker,
                 });
             }
             Some(path) => {

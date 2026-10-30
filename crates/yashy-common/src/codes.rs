@@ -51,6 +51,12 @@ pub const OVERFLOW: &str = "E1201";
 pub const EFFECT: &str = "E1300";
 /// An unsafe call outside an unsafe function.
 pub const UNSAFE_CALL: &str = "E1301";
+/// A resource is released twice, or released in the wrong state.
+pub const DOUBLE_CLOSE: &str = "E1400";
+/// A resource is used after it has been released.
+pub const USE_AFTER_CLOSE: &str = "E1401";
+/// A bare linear value is shared across a thread boundary.
+pub const RACE: &str = "E1402";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
 /// An `import` is never used.
@@ -148,9 +154,27 @@ pub const CODES: &[Code] = &[
     },
     Code {
         id: UNSAFE_CALL,
-        title: "unsafe call",
-        summary: "An unsafe call outside an unsafe function.",
+        title: "unsafe call in a declared function",
+        summary: "An `unsafe` call appears in a function that declared it would not make one.",
         page: include_str!("../../../docs/errors/E1301.md"),
+    },
+    Code {
+        id: DOUBLE_CLOSE,
+        title: "double close",
+        summary: "A resource is released twice, or released in the wrong state.",
+        page: include_str!("../../../docs/errors/E1400.md"),
+    },
+    Code {
+        id: USE_AFTER_CLOSE,
+        title: "use after close",
+        summary: "A resource is used after it has been released.",
+        page: include_str!("../../../docs/errors/E1401.md"),
+    },
+    Code {
+        id: RACE,
+        title: "race",
+        summary: "A bare linear value is shared across a thread boundary.",
+        page: include_str!("../../../docs/errors/E1402.md"),
     },
     Code {
         id: UNUSED_BINDING,

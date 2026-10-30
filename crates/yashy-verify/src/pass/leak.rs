@@ -716,6 +716,7 @@ mod tests {
             Err(diagnostics) => VerifyReport {
                 diagnostics,
                 obligations: Vec::new(),
+                effects: Default::default(),
                 analyses: 0,
             },
         }

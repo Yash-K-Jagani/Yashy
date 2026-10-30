@@ -12,11 +12,20 @@
 
 use std::collections::HashSet;
 
-use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
-use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm};
+use yashy_common::{codes, Diagnostic, FileId, Span};
+use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt};
+
+/// The names each imported module declares, keyed by the name it is imported
+/// under. Empty is a legal table: an import is then used only when its own name
+/// is read.
+pub type Exports = std::collections::BTreeMap<String, std::collections::BTreeSet<String>>;
 
 /// Run the warning pass over `program`, pushing diagnostics into `out`.
-pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
+///
+/// `exports` says which names each module declares, so an import counts as used
+/// when the program reads one of them without a prefix. A caller that has no
+/// table passes an empty one and gets the conservative answer.
+pub fn check(program: &HirProgram, exports: &Exports, out: &mut Vec<Diagnostic>) {
     // Collect all identifiers that are read anywhere in the program.
     let mut reads: HashSet<String> = HashSet::new();
     let mut imports: Vec<(String, FileId, Span)> = Vec::new();
@@ -39,14 +48,26 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
 
     // E2001: unused imports.
     for (name, file, span) in &imports {
-        if !reads.contains(name) && !name.starts_with('_') {
-            out.push(Diagnostic::warning(
-                codes::UNUSED_IMPORT,
-                *file,
-                *span,
-                format!("`{name}` is never used"),
-            ));
+        if name.starts_with('_') {
+            continue;
         }
+        if reads.contains(name) {
+            continue;
+        }
+        // A module may be used through its names rather than through its own
+        // name: `import wc_words;` then `count_words(..)`. The import is used
+        // when any name that module declares is read.
+        if let Some(declared) = exports.get(name) {
+            if declared.iter().any(|declared| reads.contains(declared)) {
+                continue;
+            }
+        }
+        out.push(Diagnostic::warning(
+            codes::UNUSED_IMPORT,
+            *file,
+            *span,
+            format!("`{name}` is never used"),
+        ));
     }
 
     // Second pass: check bindings, parameters, and unreachable code.
@@ -59,6 +80,13 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
 
 /// Collect all identifiers read in a function (including nested lambdas).
 fn collect_reads_in_fn(function: &HirFn, reads: &mut HashSet<String>) {
+    // A capture is a read of the outer binding: the body says `Capture`, not
+    // `Ident`, because the value comes out of the environment. The name is
+    // recorded on the function, and it is the name the enclosing scope must
+    // still consider used.
+    for capture in &function.captures {
+        reads.insert(capture.name.clone());
+    }
     collect_reads_in_block(&function.body, reads);
     for clause in function.requires.iter().chain(function.ensures.iter()) {
         collect_reads_in_expr(&clause.expr, reads);
@@ -150,12 +178,28 @@ fn collect_reads_in_expr(expr: &HirExpr, reads: &mut HashSet<String>) {
         HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
             collect_reads_in_expr(operand, reads);
         }
-        HirExpr::Call { args, .. } | HirExpr::CallCapture { args, .. } => {
+        // A call reads the thing being called: `f(4)` reads `f`, and
+        // `JSON.quote(x)` reads `JSON`. The callee is a path, not an
+        // expression, so this is the only place the name can be collected.
+        // Without it a function value passed in, bound to a local, or called
+        // through a parameter looks unused.
+        HirExpr::Call { callee, args, .. } => {
+            if let Some(first) = callee.first() {
+                reads.insert(first.clone());
+            }
             for arg in args {
                 collect_reads_in_expr(arg, reads);
             }
         }
-        HirExpr::StructLit { fields, .. } => {
+        HirExpr::CallCapture { args, .. } => {
+            for arg in args {
+                collect_reads_in_expr(arg, reads);
+            }
+        }
+        HirExpr::StructLit { path, fields, .. } => {
+            if let Some(first) = path.first() {
+                reads.insert(first.clone());
+            }
             for (_, value, _) in fields {
                 collect_reads_in_expr(value, reads);
             }

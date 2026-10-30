@@ -29,6 +29,13 @@ name = "yashy-bench"
 version = "0.1.0"
 
 [[package]]
+name = "yashy-cache"
+version = "0.1.0"
+dependencies = [
+ "yashy-common",
+]
+
+[[package]]
 name = "yashy-codegen"
 version = "0.1.0"
 dependencies = [

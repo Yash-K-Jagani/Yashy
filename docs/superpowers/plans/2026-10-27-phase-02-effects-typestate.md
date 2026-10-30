@@ -49,11 +49,11 @@ See the master index. The ones that bite here:
   ```
 - Produces: `HirFn.declared: DeclaredEffect`.
 
-- [ ] **Step 1: Write the failing tests** — `pure fn f() -> int { 1 }` parses; `io fn g() { println("x"); }` parses; `fn h()` has `DeclaredEffect::Inferred`; the formatter round-trips all four spellings.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — a modifier before `fn`, exactly where `pub` already sits (`Item::Public` wraps an item; effects need the same treatment: `Item::Effect { effect, item, span }`). Reuse the existing `unsafe` keyword rather than adding a second one.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: parse pure, io and unsafe function modifiers"`
+- [x] **Step 1: Write the failing tests** — `pure fn f() -> int { 1 }` parses; `io fn g() { println("x"); }` parses; `fn h()` has `DeclaredEffect::Inferred`; the formatter round-trips all four spellings.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — a modifier before `fn`, exactly where `pub` already sits (`Item::Public` wraps an item; effects need the same treatment: `Item::Effect { effect, item, span }`). Reuse the existing `unsafe` keyword rather than adding a second one.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: parse pure, io and unsafe function modifiers"`
 
 ---
 
@@ -67,7 +67,7 @@ See the master index. The ones that bite here:
 - Consumes: `HirFn.declared`, `HirExpr::Call { unsafe_call, .. }`, `HirItem::Extern`.
 - Produces: `pub fn infer_effects(hir: &HirProgram) -> BTreeMap<String, Effect>`; `verify` reports `E1300` when a declaration is exceeded.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -97,10 +97,10 @@ fn mutual_recursion_terminates_and_propagates() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — worklist over the call graph; a function's effect starts at `PURE` and joins each callee's effect plus its own body's direct effects (`println`/`print`/`read_line`/`read_file`/`write_file`/`getcwd`/`process_*`/`rand`/`time` are `io`; `alloc`/`free`/`len`/arithmetic/string building are `pure`; `extern` calls are `unsafe`). Terminate on lattice height (three flags ⇒ at most three updates per function).
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): infer function effects to a fixpoint (E1300)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — worklist over the call graph; a function's effect starts at `PURE` and joins each callee's effect plus its own body's direct effects (`println`/`print`/`read_line`/`read_file`/`write_file`/`getcwd`/`process_*`/`rand`/`time` are `io`; `alloc`/`free`/`len`/arithmetic/string building are `pure`; `extern` calls are `unsafe`). Terminate on lattice height (three flags ⇒ at most three updates per function).
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): infer function effects to a fixpoint (E1300)"`
 
 ---
 
@@ -115,11 +115,11 @@ fn mutual_recursion_terminates_and_propagates() {
 - Produces: `E1300` — "declared `pure`, but the body performs `io`"; the label names the call that leaks the effect.
 - Produces: `E1301` — an `unsafe` call outside an `unsafe fn` (or inside a `pure` one, which is the same violation stated twice).
 
-- [ ] **Step 1: Write the failing tests** — `pure fn f() { unsafe_c_fn(); }` gives `E1301` and not `E1300` (one diagnostic per mistake); an `unsafe fn` may call the extern; `io fn` may not call `unsafe` without declaring it.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — declaration check: `declared` must be ≥ inferred. `DeclaredEffect::Pure` requires `inferred.is_pure()`; `Io` requires `!inferred.unsafe_`; `Unsafe` allows everything. A declaration that is *stricter* than the body is the error; a declaration that is *looser* is allowed and documented as "the function may do this, it currently does not".
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): check declared effects against inferred ones"`
+- [x] **Step 1: Write the failing tests** — `pure fn f() { unsafe_c_fn(); }` gives `E1301` and not `E1300` (one diagnostic per mistake); an `unsafe fn` may call the extern; `io fn` may not call `unsafe` without declaring it.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — declaration check: `declared` must be ≥ inferred. `DeclaredEffect::Pure` requires `inferred.is_pure()`; `Io` requires `!inferred.unsafe_`; `Unsafe` allows everything. A declaration that is *stricter* than the body is the error; a declaration that is *looser* is allowed and documented as "the function may do this, it currently does not".
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): check declared effects against inferred ones"`
 
 ---
 
@@ -138,7 +138,7 @@ fn mutual_recursion_terminates_and_propagates() {
   ```
 - Produces: `E1400` on a second release of the same resource; `E1401` on a use of a resource in a terminal state.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -165,10 +165,10 @@ fn lock_then_unlock_is_accepted() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lattice is driven by the builtin call names, not by types alone: `mutex_new` → `Unlocked`, `mutex_lock` requires `Unlocked` and produces `Locked`, `mutex_unlock` requires `Locked` and produces `Unlocked`, `mutex_free` requires `Unlocked`; `chan_new` → `Open`, `chan_close` requires `Open` → `Closed`, `chan_send`/`chan_recv` require `Open`; `alloc` → `Allocated`, free-family → `Freed`. Merge = intersection for "state is X on every path"; a disagreement at a merge is `E1400` with the two states named.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): track resource typestate across the CFG (E1400, E1401)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lattice is driven by the builtin call names, not by types alone: `mutex_new` → `Unlocked`, `mutex_lock` requires `Unlocked` and produces `Locked`, `mutex_unlock` requires `Locked` and produces `Unlocked`, `mutex_free` requires `Unlocked`; `chan_new` → `Open`, `chan_close` requires `Open` → `Closed`, `chan_send`/`chan_recv` require `Open`; `alloc` → `Allocated`, free-family → `Freed`. Merge = intersection for "state is X on every path"; a disagreement at a merge is `E1400` with the two states named.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): track resource typestate across the CFG (E1400, E1401)"`
 
 ---
 
@@ -182,11 +182,11 @@ fn lock_then_unlock_is_accepted() {
 - Consumes: `HirProgram::uses_threads`, `HirExpr::Lambda` captures, `HirExpr::Call { callee: ["thread_spawn", ..] }`.
 - Produces: `E1402` when a capture that reaches a spawned thread is a bare linear value.
 
-- [ ] **Step 1: Write the failing tests** — spawning a closure that captures `*mut i64` is `E1402`; capturing a `Mutex` is accepted; capturing a `string` is accepted (atomic refcounts when `uses_threads`).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — a capture is shareable if its type is `Copy`, or `Mutex`, or `Channel`, or `Str` (when `uses_threads`). Everything else is `E1402` with the capture named and the remedy "wrap it in a `Mutex`".
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): reject unproven sharing across threads (E1402)"`
+- [x] **Step 1: Write the failing tests** — spawning a closure that captures `*mut i64` is `E1402`; capturing a `Mutex` is accepted; capturing a `string` is accepted (atomic refcounts when `uses_threads`).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — a capture is shareable if its type is `Copy`, or `Mutex`, or `Channel`, or `Str` (when `uses_threads`). Everything else is `E1402` with the capture named and the remedy "wrap it in a `Mutex`".
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): reject unproven sharing across threads (E1402)"`
 
 ---
 
@@ -199,11 +199,11 @@ fn lock_then_unlock_is_accepted() {
 - Consumes: `infer_effects` from Task 2.
 - Produces: `E1300` when a `requires`/`ensures`/`invariant` expression calls a non-pure function.
 
-- [ ] **Step 1: Write the failing test** — `fn f(n: int) -> int requires g(n) > 0 { n }` with `io fn g` gives `E1300` at the contract span.
-- [ ] **Step 2: Watch it fail.**
-- [ ] **Step 3: Implement** — this is the check deliberately deferred from phase 1a; the pass already walks contract expressions, so it now also asks the effect map about each callee.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): require contracts to be pure"`
+- [x] **Step 1: Write the failing test** — `fn f(n: int) -> int requires g(n) > 0 { n }` with `io fn g` gives `E1300` at the contract span.
+- [x] **Step 2: Watch it fail.**
+- [x] **Step 3: Implement** — this is the check deliberately deferred from phase 1a; the pass already walks contract expressions, so it now also asks the effect map about each callee.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): require contracts to be pure"`
 
 ---
 
@@ -211,10 +211,10 @@ fn lock_then_unlock_is_accepted() {
 
 **Files:** `crates/yashy-driver/tests/verify_corpus/{effect_hidden_io.ya,effect_unsafe.ya,typestate_double_close.ya,typestate_after_close.ya,race_bare_pointer.ya}`; `docs/tutorial/` section "Effects and resource states"; `AGENTS.md` (identity section mentions effects and typestate).
 
-- [ ] **Step 1: Add the five seeded bugs** and extend the expected-code table.
-- [ ] **Step 2: Run the zero-false-positive loop** from phase 1b Task 7 on examples and programs.
-- [ ] **Step 3: Run the gate table below on both OSes.**
-- [ ] **Step 4: Commit and record** — `git commit -m "test: close phase 2 with the effect and typestate corpus"`.
+- [x] **Step 1: Add the five seeded bugs** and extend the expected-code table.
+- [x] **Step 2: Run the zero-false-positive loop** from phase 1b Task 7 on examples and programs.
+- [x] **Step 3: Run the gate table below on both OSes.**
+- [x] **Step 4: Commit and record** — `git commit -m "test: close phase 2 with the effect and typestate corpus"`.
 
 ---
 

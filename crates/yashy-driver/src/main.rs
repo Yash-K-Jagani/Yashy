@@ -30,8 +30,9 @@ use yashy_common::{
     EXIT_OK, EXIT_USAGE,
 };
 use yashy_driver::{
-    check_and_verify_timed, compile_hir_timed, detect, load_and_check_timed, resolve_opt, timed,
-    BuildOptions, CpuTarget, OptLevel, PhaseTiming,
+    check_and_verify_timed, compile_hir_timed, detect, load_and_check_exports_timed,
+    load_and_check_timed, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
+    PhaseTiming,
 };
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
 
@@ -107,7 +108,7 @@ fn main() -> ExitCode {
             println!("{USAGE}");
             exit_code(EXIT_OK)
         }
-        "build" => build(rest),
+        "build" => build(CommandKind::Build, rest),
         "run" => run(rest),
         "check" => check(rest),
         "verify" => verify(rest),
@@ -135,14 +136,14 @@ struct BuildOutcome {
 }
 
 /// `yashy build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
-fn build(args: &[String]) -> ExitCode {
-    let outcome = build_measured(args);
+fn build(command: CommandKind, args: &[String]) -> ExitCode {
+    let outcome = build_measured(command, args);
     // An empty vector means the flag was not passed, so this is silent then.
     report_timings(&outcome.timings);
     outcome.code
 }
 
-fn build_measured(args: &[String]) -> BuildOutcome {
+fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut emit_ir = false;
@@ -381,7 +382,7 @@ fn build_measured(args: &[String]) -> BuildOutcome {
     };
 
     let output = output.unwrap_or_else(|| default_output(&input));
-    let opt = resolve_opt(release, opt);
+    let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
         opt,
         cpu,
@@ -526,7 +527,7 @@ fn run(args: &[String]) -> ExitCode {
     ];
     build_arguments.extend(build_args);
 
-    let code = build(&build_arguments);
+    let code = build(CommandKind::Run, &build_arguments);
     if code != exit_code(EXIT_OK) {
         let _ = fs::remove_dir_all(&dir);
         return code;
@@ -740,7 +741,7 @@ fn test(args: &[String]) -> ExitCode {
         if timings_flag {
             build_args.push("--timings".to_string());
         }
-        let outcome = build_measured(&build_args);
+        let outcome = build_measured(CommandKind::Build, &build_args);
         accumulate(&mut timings, &outcome.timings);
         if outcome.code != exit_code(EXIT_OK) {
             println!("test {name} ... FAILED (compile error)");
@@ -898,7 +899,10 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                             &file,
                             &exe,
                             &toolchain,
-                            BuildOptions::default(),
+                            BuildOptions {
+                                opt: OptLevel::None,
+                                ..BuildOptions::default()
+                            },
                             &mut phases,
                         ) {
                             Ok(()) => Ok(warnings),
@@ -1961,12 +1965,12 @@ fn check(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome = load_and_check_timed(&mut sources, &input, source, false, measured);
+    let outcome = load_and_check_exports_timed(&mut sources, &input, source, false, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
-        Ok(hir) => {
+        Ok((hir, exports)) => {
             let mut warning_diags = Vec::new();
-            yashy_verify::pass::warnings::check(&hir, &mut warning_diags);
+            yashy_verify::pass::warnings::check(&hir, &exports, &mut warning_diags);
             // Apply the warning policy.
             if allow_warnings {
                 warning_diags.clear();
