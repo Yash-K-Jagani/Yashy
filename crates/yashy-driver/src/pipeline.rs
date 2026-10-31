@@ -708,7 +708,7 @@ pub fn compile_hir_timed(
             CodegenOptions {
                 fp_contract: options.fast_math,
             },
-            &yashy_common::ProofFacts::empty(),
+            facts,
         )
     });
 

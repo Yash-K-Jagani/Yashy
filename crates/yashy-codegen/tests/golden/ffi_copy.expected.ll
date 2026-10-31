@@ -110,6 +110,7 @@ declare i64 @llvm.sadd.sat.i64(i64, i64)
 declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
+declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
 @.str.0.data = private unnamed_addr constant [3 x i8] c"hi\00"
 @.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 2, i64 2, i8* @.str.0.data }

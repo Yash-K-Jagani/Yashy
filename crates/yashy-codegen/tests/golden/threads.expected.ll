@@ -110,6 +110,7 @@ declare i64 @llvm.sadd.sat.i64(i64, i64)
 declare i64 @llvm.ssub.sat.i64(i64, i64)
 declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
+declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
 define void @work(i64 %arg0) {
 entry:

@@ -647,6 +647,9 @@ out.push_str("declare void @yashy_print_line_str(i8*)\n");
         // it, the way `yashy_panic` owns `panic:`.
         out.push_str("declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)\n");
         out.push_str("declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)\n");
+        // The third: a shift count outside the shifted type's range. The type's
+        // spelling and width are passed so the message can name both.
+        out.push_str("declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)\n");
         // `os.exit(code)` (spec 6.3). Declared up front like everything else, so
         // a program that exits early does not rewrite every golden file; an
         // unused `declare` is legal IR.

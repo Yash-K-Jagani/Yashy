@@ -337,13 +337,25 @@ fn gen_shift_checked(
         "br i1 {in_range}, label %{merge}, label %{fault}"
     ));
     let name = l.ty.to_string();
+    let signed = l.ty.is_signed_integer();
     close_fault(ctx, &fault, |ctx| {
         crate::stmt_gen::run_all_scopes_defers(ctx);
         let type_name = ctx.module.intern_bytes_ptr(name.as_bytes());
         let file = ctx.module.intern_bytes_ptr(site.file.as_bytes());
+        // The runtime takes the count as an `i64`; a narrower shift widens it
+        // here, on the cold path, so the message prints the value that was
+        // actually used rather than a truncated one.
+        let count = if repr == "i64" {
+            r.value.clone()
+        } else {
+            let extended = ctx.tmp();
+            let mnemonic = if signed { "sext" } else { "zext" };
+            ctx.push(format!("{extended} = {mnemonic} {repr} {} to i64", r.value));
+            extended
+        };
         format!(
-            "call void @yashy_panic_shift(i8* {type_name}, i64 {}, i64 {bits}, i8* {file}, i64 {}, i64 {})",
-            r.value, site.line, site.column
+            "call void @yashy_panic_shift(i8* {type_name}, i64 {count}, i64 {bits}, i8* {file}, i64 {}, i64 {})",
+            site.line, site.column
         )
     });
     ctx.push(format!("{merge}:"));

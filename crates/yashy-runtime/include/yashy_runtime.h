@@ -548,6 +548,23 @@ void yashy_panic_division(
     long long column
 );
 
+/*     declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
+ *
+ * The third way a checked integer operation stops a program: a shift count that
+ * is not in `0..bits` for the shifted type. `type_name` is the type's spelling
+ * (`int`, `u8`, `usize`), `count` is the offending count, `bits` is the type's
+ * width, and the rest is the position the checker resolved. A negative count
+ * reads as a huge unsigned number in the generated comparison and arrives here
+ * too. Never returns; generated code follows it with `unreachable`. */
+void yashy_panic_shift(
+    const yashy_str *type_name,
+    long long count,
+    long long bits,
+    const yashy_str *file,
+    long long line,
+    long long column
+);
+
 #ifdef __cplusplus
 }
 #endif

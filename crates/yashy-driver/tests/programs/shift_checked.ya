@@ -1,0 +1,27 @@
+// Checked shifts. `x << n` is checked at every integer width, and the check is
+// removed only when the verifier proves `0 <= n < bits(x)`. A shift by a
+// literal is already inside the range, so it carries no check; a count the
+// verifier cannot bound keeps one and faults when it is out of range.
+
+// The count is a run-time value, so the check stays -- except inside the guard,
+// where the interval domain proves `n` is in `0..8` and codegen deletes it.
+fn shift_below_eight(n: int) -> int {
+    if n >= 0 && n < 8 {
+        return 1 << n;
+    }
+    return 0;
+}
+
+fn main() {
+    // `1 << 63` is the sign bit: the smallest int, printed without overflow.
+    print(1 << 63);
+    println("");
+
+    // A literal count, proven at compile time: no run-time check is emitted.
+    print(1 << 3);
+    println("");
+
+    // A guarded count: the verifier's range fact removes the check.
+    print(shift_below_eight(3));
+    println("");
+}

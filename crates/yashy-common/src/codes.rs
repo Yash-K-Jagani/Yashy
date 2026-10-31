@@ -31,6 +31,8 @@ pub const TYPE_MISMATCH: &str = "E0100";
 pub const BITWISE_NOT_INTEGER: &str = "E0103";
 /// A bitwise operator is applied to two different types.
 pub const BITWISE_MIXED_TYPES: &str = "E0104";
+/// A shift count is outside the valid range for the shifted type.
+pub const SHIFT_OUT_OF_RANGE: &str = "E0105";
 /// A struct or enum variant has no such field.
 pub const UNKNOWN_FIELD: &str = "E0200";
 /// A struct literal or pattern leaves a field out.
@@ -101,6 +103,12 @@ pub const CODES: &[Code] = &[
         title: "bitwise operands have different types",
         summary: "A bitwise operator was applied to two integers of different types.",
         page: include_str!("../../../docs/errors/E0104.md"),
+    },
+    Code {
+        id: SHIFT_OUT_OF_RANGE,
+        title: "shift count out of range",
+        summary: "A shift count is outside `0..bits` for the type being shifted.",
+        page: include_str!("../../../docs/errors/E0105.md"),
     },
     Code {
         id: UNKNOWN_FIELD,

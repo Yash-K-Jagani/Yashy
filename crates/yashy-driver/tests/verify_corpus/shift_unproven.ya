@@ -1,0 +1,10 @@
+// A shift count the verifier cannot pin to `0..64`: `read_line` returns whatever
+// the user typed and `parse_i64` does not narrow it. The verifier accepts the
+// program and the runtime check stays in the IR -- "the verifier could not prove
+// it" is not the same as "the program is wrong".
+fn main() {
+    const line = read_line();
+    const n = line.parse_i64();
+    print(1 << n);
+    println("");
+}

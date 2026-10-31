@@ -195,6 +195,10 @@ impl Missing {
 pub struct ConstError {
     pub span: Span,
     pub message: String,
+    /// The catalog code to report with, when the failure has one. A shift count
+    /// outside its type's range is `E0105`; an overflow keeps the general
+    /// (uncoded) path it has always had.
+    pub code: Option<&'static str>,
 }
 
 impl ConstError {
@@ -202,7 +206,14 @@ impl ConstError {
         ConstError {
             span,
             message: message.into(),
+            code: None,
         }
+    }
+
+    /// Attach the catalog code this failure reports under.
+    fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
     }
 }
 
@@ -362,7 +373,26 @@ fn check_expr(
         } => {
             let left = check_expr(lhs, env, consts, context, work)?;
             let right = check_expr(rhs, env, consts, context, work)?;
-            binary_kind(*op, &left, &right, *span)
+            let kind = binary_kind(*op, &left, &right, *span)?;
+            // A literal count outside the type's range is known to fault, so the
+            // declaration is rejected here rather than at every call. The
+            // message is the runtime's, so both build modes say the same thing.
+            if matches!(op, BinOp::Shl | BinOp::Shr) {
+                if let (Some(count), Some(bits)) = (ast_int(rhs), kind.kind.bit_width()) {
+                    if count < 0 || count as i128 >= bits as i128 {
+                        return Err(TypeError::new(
+                            *span,
+                            format!(
+                                "shift amount {count} is out of range for {} (0..{})",
+                                kind.kind,
+                                bits - 1
+                            ),
+                        )
+                        .with_code(codes::SHIFT_OUT_OF_RANGE));
+                    }
+                }
+            }
+            Ok(kind)
         }
         Expr::Unary {
             op,
@@ -453,6 +483,22 @@ fn literal_kind(literal: &Literal) -> TypeKind {
         Literal::Bool(_) => TypeKind::Bool,
         Literal::Str(_) => TypeKind::Str,
         Literal::Char(_) => TypeKind::Char,
+    }
+}
+
+/// The value of a literal integer expression, or `None` when it is not one.
+///
+/// The constant language has one integer width, so a literal and a negated
+/// literal are the only shapes that can be folded here.
+fn ast_int(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::Literal(Literal::I64(value), _) => Some(*value),
+        Expr::Unary {
+            op: UnOp::Neg,
+            operand,
+            ..
+        } => ast_int(operand).map(i64::wrapping_neg),
+        _ => None,
     }
 }
 
@@ -963,7 +1009,7 @@ fn evaluate_binary(
         }
         (BinOp::Shl, ConstValue::I64(a), ConstValue::I64(b)) => {
             if *b < 0 || *b >= 64 {
-                return Err(ConstError::new(span, "shift amount out of range".to_string()));
+                return Err(shift_out_of_range(span, *b));
             }
             a.checked_shl(*b as u32)
                 .map(ConstValue::I64)
@@ -971,7 +1017,7 @@ fn evaluate_binary(
         }
         (BinOp::Shr, ConstValue::I64(a), ConstValue::I64(b)) => {
             if *b < 0 || *b >= 64 {
-                return Err(ConstError::new(span, "shift amount out of range".to_string()));
+                return Err(shift_out_of_range(span, *b));
             }
             a.checked_shr(*b as u32)
                 .map(ConstValue::I64)
@@ -992,4 +1038,17 @@ fn evaluate_binary(
 /// The message an integer operation that overflows produces.
 fn overflow(span: Span) -> ConstError {
     ConstError::new(span, "integer overflow")
+}
+
+/// The message a constant shift count outside `0..64` produces.
+///
+/// The wording matches the runtime's `yashy_panic_shift` so a program cannot
+/// pass the check in one build mode and fail in another. The type is always
+/// `int` here: the constant evaluator has one integer width.
+fn shift_out_of_range(span: Span, count: i64) -> ConstError {
+    ConstError::new(
+        span,
+        format!("shift amount {count} is out of range for int (0..63)"),
+    )
+    .with_code(codes::SHIFT_OUT_OF_RANGE)
 }

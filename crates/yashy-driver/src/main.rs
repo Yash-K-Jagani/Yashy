@@ -361,7 +361,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                 let options = CodegenOptions {
                     fp_contract: fast_math,
                 };
-                let ir = timed(measured, "emit", || emit_program(&hir, &entry, options, &yashy_common::ProofFacts::empty()));
+                let ir = timed(measured, "emit", || emit_program(&hir, &entry, options, &report.facts));
                 print!("{ir}");
                 exit_code(EXIT_OK)
             }
@@ -389,7 +389,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         fast_math,
         release,
     };
-    let code = match compile_hir_timed(&hir, &entry, &output, &toolchain, options, &yashy_common::ProofFacts::empty(), measured) {
+    let code = match compile_hir_timed(&hir, &entry, &output, &toolchain, options, &report.facts, measured) {
         Ok(()) => {
             let sidecar = unverified_sidecar(&output);
             if no_verify {
@@ -893,6 +893,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                     if report.error_count() > 0 {
                         Err(report.diagnostics)
                     } else {
+                        let facts = report.facts;
                         let warnings = report.diagnostics;
                         match compile_hir_timed(
                             &hir,
@@ -903,7 +904,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
                                 opt: OptLevel::None,
                                 ..BuildOptions::default()
                             },
-                            &yashy_common::ProofFacts::empty(),
+                            &facts,
                             &mut phases,
                         ) {
                             Ok(()) => Ok(warnings),

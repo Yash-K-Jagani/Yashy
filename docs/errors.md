@@ -30,6 +30,7 @@ the declaration or import involved when that is not obvious.
 | [E0100](errors/E0100.md) | type mismatch |
 | [E0103](errors/E0103.md) | bitwise operand is not an integer |
 | [E0104](errors/E0104.md) | bitwise operands have different types |
+| [E0105](errors/E0105.md) | shift count out of range |
 | [E0200](errors/E0200.md) | unknown field |
 | [E0201](errors/E0201.md) | missing field |
 | [E0300](errors/E0300.md) | missing `?` |

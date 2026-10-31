@@ -89,11 +89,11 @@ Carried from the spec and enforced by tests:
 - Produces: `ProofFacts` gains `ShiftInRange { span, bits }`, emitted by `yashy-verify` when the count's range domain is within `0..bits`. The check is removed only when the fact exists, exactly as bounds checks work in phase 3.
 - Produces: a constant shift in `const fn` or a `const` initialiser is rejected at compile time with the same text and the operator's span, so a program cannot pass the check in one build mode and fail in another.
 
-- [ ] **Step 1: Write the failing tests** — `1 << 63` is `i64::MIN`; `1 << 64` panics with the range message and the operator's column; `1u8 << 8` panics; `1 << -1` panics; `const BAD = 1 << 64;` is the same panic at compile time; a shift by a literal `3` emits no check (assert on the IR text); a shift by a value from `parse_i64` keeps its check (assert the `icmp` is present); the verifier proves `n` in `0..8` from an `if n < 8` guard and the check disappears.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `shift_checked` builds the comparison, the branch to the panic call, and the shift; it takes `bits` from `TypeKind` rather than a constant, so `u8` and `usize` are not special cases. The verifier's fact is produced by the same interval code that proves array bounds; there is no second range analysis.
-- [ ] **Step 4: Run** `cargo test -p yashy-codegen -p yashy-sema -p yashy-verify -p yashy-driver --test e2e --test verify` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: checked shifts, removed only by a verifier range fact (E0105)"`
+- [x] **Step 1: Write the failing tests** — `1 << 63` is `i64::MIN`; `1 << 64` panics with the range message and the operator's column; `1u8 << 8` panics; `1 << -1` panics; `const BAD = 1 << 64;` is the same panic at compile time; a shift by a literal `3` emits no check (assert on the IR text); a shift by a value from `parse_i64` keeps its check (assert the `icmp` is present); the verifier proves `n` in `0..8` from an `if n < 8` guard and the check disappears.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `shift_checked` builds the comparison, the branch to the panic call, and the shift; it takes `bits` from `TypeKind` rather than a constant, so `u8` and `usize` are not special cases. The verifier's fact is produced by the same interval code that proves array bounds; there is no second range analysis.
+- [x] **Step 4: Run** `cargo test -p yashy-codegen -p yashy-sema -p yashy-verify -p yashy-driver --test e2e --test verify` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: checked shifts, removed only by a verifier range fact (E0105)"`
 
 ---
 

@@ -446,6 +446,13 @@ pub struct Checker<'src> {    scope: Scope,
     /// program can reach it through an argument or a call, and a per-binding
     /// answer would need the alias analysis this milestone does not have.
     uses_threads: bool,
+    /// Whether the expression being checked is a `const` initializer.
+    ///
+    /// A literal shift count outside its type's range is a compile-time fault
+    /// there and only there: in ordinary code the same count is left to the
+    /// run-time check, so the program has one rule and two build modes agree
+    /// about it.
+    in_const_init: bool,
     /// Names bound by an active `for x in slice` loop. Moving one of them while
     /// the loop can still read its header would free the array the next
     /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
@@ -705,6 +712,7 @@ impl<'src> Checker<'src> {
             file,
             release: options.release,
             uses_threads: false,
+            in_const_init: false,
             iteration_borrows: Vec::new(),
             closures: Vec::new(),
             debug_printers: Vec::new(),
@@ -2856,7 +2864,10 @@ impl<'src> Checker<'src> {
                 Some(value.to_expr(span))
             }
             Err(error) => {
-                self.error(span, error.message);
+                match error.code {
+                    Some(code) => self.error_code(span, code, error.message),
+                    None => self.error(span, error.message),
+                }
                 None
             }
         }
@@ -2883,7 +2894,10 @@ impl<'src> Checker<'src> {
                     self.check_visibility(name, *call_span);
                 }
             }
-            Err(error) => self.error(error.span, error.message),
+            Err(error) => match error.code {
+                Some(code) => self.error_code(error.span, code, error.message),
+                None => self.error(error.span, error.message),
+            },
         }
         self.file = outer;
     }
@@ -2932,10 +2946,19 @@ impl<'src> Checker<'src> {
                     };
                     folded
                 } else {
-                    match &declared {
-                        Some(declared) => self.check_expr_with_expected(init, declared)?,
-                        None => self.check_expr(init)?,
-                    }
+                    // The initializer is a constant expression, so a literal
+                    // shift count outside its type's range is a compile-time
+                    // fault here. The flag is restored before `?` so a later
+                    // expression in the same function is not treated as a
+                    // constant initializer.
+                    let outer = self.in_const_init;
+                    self.in_const_init = true;
+                    let checked = match &declared {
+                        Some(declared) => self.check_expr_with_expected(init, declared),
+                        None => self.check_expr(init),
+                    };
+                    self.in_const_init = outer;
+                    checked?
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
@@ -6451,8 +6474,38 @@ impl<'src> Checker<'src> {
                                 }
                             }
                         }
-                        let checked =
-                            is_checked_arithmetic(*op) && matches!(ty.kind, TypeKind::I64);
+                        // Arithmetic is checked on `int` only (the other widths
+                        // are reached through a cast and keep their C
+                        // behaviour); a shift is checked on every integer
+                        // width, because the count has to be inside the
+                        // storage type's bits.
+                        let checked = if matches!(op, BinOp::Shl | BinOp::Shr) {
+                            ty.kind.bit_width().is_some()
+                        } else {
+                            is_checked_arithmetic(*op) && matches!(ty.kind, TypeKind::I64)
+                        };
+                        // A literal count outside the type's range in a `const`
+                        // initializer is known to fault, so it is rejected here
+                        // rather than left to a run-time check that can never
+                        // pass. Ordinary code keeps the run-time check, so both
+                        // build modes agree about the same expression.
+                        if matches!(op, BinOp::Shl | BinOp::Shr) && self.in_const_init {
+                            if let (Some(count), Some(bits)) =
+                                (const_int(&rhs), ty.kind.bit_width())
+                            {
+                                if count < 0 || count as i128 >= bits as i128 {
+                                    self.error_code(
+                                        *span,
+                                        codes::SHIFT_OUT_OF_RANGE,
+                                        format!(
+                                            "shift amount {count} is out of range for {} (0..{})",
+                                            ty.kind,
+                                            bits - 1
+                                        ),
+                                    );
+                                }
+                            }
+                        }
                         let fault = self.fault_site(*span, checked);
                         Some(HirExpr::Binary {
                             op: *op,
@@ -8264,6 +8317,26 @@ fn is_checked_arithmetic(op: BinOp) -> bool {
         op,
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
     )
+}
+
+/// The value of a checked integer expression when it is a compile-time
+/// constant, or `None` when it is not.
+///
+/// Only what the source can spell without running anything is folded: a
+/// literal, a cast of one (which is how `1 as u8` reaches a narrow type), and a
+/// negated literal (which is how `-1` is written). Anything else is a run-time
+/// value the check has to handle.
+fn const_int(expr: &HirExpr) -> Option<i64> {
+    match expr {
+        HirExpr::Literal(Literal::I64(value), _, _) => Some(*value),
+        HirExpr::Cast { expr, ty, .. } if ty.kind.is_integer() => const_int(expr),
+        HirExpr::Unary {
+            op: UnOp::Neg,
+            operand,
+            ..
+        } => const_int(operand).map(i64::wrapping_neg),
+        _ => None,
+    }
 }
 
 /// A [`StringLit`] from its decoded text, keeping `value` and `bytes` in step.

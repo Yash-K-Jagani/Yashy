@@ -843,6 +843,196 @@ fn a_compound_bitwise_assignment_to_a_const_is_e0400() {
 }
 
 #[test]
+fn checked_shifts_print_their_values() {
+    // `1 << 63` is the sign bit, a literal count is proven at compile time, and
+    // the guarded count is proven from the interval domain.
+    let output = build_and_run("shift_checked");
+    assert_eq!(
+        stdout_of(&output),
+        "-9223372036854775808\n8\n8\n"
+    );
+}
+
+#[test]
+fn a_shift_count_out_of_range_panics_with_the_type_and_range() {
+    // `same` hides the count from the verifier, so the run-time check runs.
+    let output = compile_and_run(
+        "shift-oob",
+        concat!(
+            "fn same(n: int) -> int { return n; }\n",
+            "fn main() {\n",
+            "    print(\"before\\n\");\n",
+            "    const n = same(64);\n",
+            "    print(1 << n);\n",
+            "    print(\"after\\n\");\n",
+            "}\n",
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1), "a fault is a failure status");
+    assert_eq!(
+        stdout_of(&output),
+        "before\n",
+        "output from before the fault must survive it, and nothing after may run"
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: shift amount 64 is out of range for int (0..63)"),
+        "the count, the type and the valid range belong in the message:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("shift-oob.ya:5:11:"),
+        "and so does the position the shift was written at:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_shift_on_a_narrow_type_names_its_own_range() {
+    // The check takes its width from the shifted type, so a `u8` shift is
+    // checked against `0..8` rather than `0..64`.
+    let output = compile_and_run(
+        "shift-u8",
+        concat!(
+            "fn same(n: int) -> int { return n; }\n",
+            "fn main() {\n",
+            "    const a = 1 as u8;\n",
+            "    const n = same(8) as u8;\n",
+            "    print((a << n) as int);\n",
+            "}\n",
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: shift amount 8 is out of range for u8 (0..7)"),
+        "a narrow type reports its own width:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_negative_shift_count_is_out_of_range() {
+    // The generated comparison is unsigned, so a negative count reads as a huge
+    // number and takes the same fault path.
+    let output = compile_and_run(
+        "shift-negative",
+        concat!(
+            "fn same(n: int) -> int { return n; }\n",
+            "fn main() {\n",
+            "    const n = same(0 - 1);\n",
+            "    print(1 << n);\n",
+            "}\n",
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("panic: shift amount -1 is out of range for int (0..63)"),
+        "a negative count is out of range too:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
+    // The same text as the run-time fault, at the operator's span, so the
+    // program cannot pass in one build mode and fail in another.
+    let dir = work_dir("shift-const");
+    let source = dir.join("shift.ya");
+    fs::write(
+        &source,
+        "fn main() {\n    const BAD: int = 1 << 64;\n}\n",
+    )
+    .expect("write shift.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "a constant shift out of range is an error");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0105]"),
+        "the shift diagnostic needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("shift amount 64 is out of range for int (0..63)"),
+        "the message is the runtime's:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0105"),
+        "the diagnostic must link its catalog page:\n{stderr}"
+    );
+}
+
+/// The IR a program with one shift emits, with `--emit-ir`.
+fn shift_ir(name: &str, source: &str) -> String {
+    let dir = work_dir(name);
+    let file = dir.join(format!("{name}.ya"));
+    fs::write(&file, source).expect("writing the test program");
+    let output = Command::new(yashy())
+        .arg("build")
+        .arg(&file)
+        .arg("--emit-ir")
+        .output()
+        .expect("run the yashy CLI");
+    assert!(
+        output.status.success(),
+        "--emit-ir failed for {name}:\n{}",
+        stderr_of(&output)
+    );
+    stdout_of(&output)
+}
+
+/// How many `yashy_panic_shift` **calls** the IR contains (the declaration is
+/// always emitted and is not a check).
+fn shift_calls(ir: &str) -> usize {
+    ir.matches("call void @yashy_panic_shift").count()
+}
+
+#[test]
+fn a_literal_shift_emits_no_check_and_an_unproven_one_keeps_it() {
+    let literal = shift_ir("shift-ir-literal", "fn main() {\n    print(1 << 3);\n}\n");
+    assert_eq!(
+        shift_calls(&literal),
+        0,
+        "a literal count is proven at compile time:\n{literal}"
+    );
+
+    let unproven = shift_ir(
+        "shift-ir-unproven",
+        "fn main() {\n    const line = read_line();\n    const n = line.parse_i64();\n    print(1 << n);\n}\n",
+    );
+    assert_eq!(
+        shift_calls(&unproven),
+        1,
+        "a count the verifier cannot bound keeps its check:\n{unproven}"
+    );
+}
+
+#[test]
+fn a_guard_bounds_the_count_and_the_check_disappears() {
+    // The interval domain proves `0 <= n < 8` inside the guard, and the shift
+    // fact is what lets codegen delete the branch.
+    let ir = shift_ir(
+        "shift-ir-guard",
+        "fn shift(n: int) -> int {\n\
+             if n >= 0 && n < 8 {\n\
+                 return 1 << n;\n\
+             }\n\
+             return 0;\n\
+         }\n\
+         fn main() {\n\
+             print(shift(3));\n\
+         }\n",
+    );
+    assert_eq!(
+        shift_calls(&ir),
+        0,
+        "a proven count needs no run-time check:\n{ir}"
+    );
+}
+
+#[test]
 fn a_catalogued_error_prints_its_code() {
     let dir = work_dir("coded-error");
     let source = dir.join("coded.ya");

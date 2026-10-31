@@ -302,6 +302,9 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("overflow_max", 1, &["E1201"]),
     ("exhaustive_missing", 1, &["E0600"]),
     ("contract_unsat", 1, &["E1100"]),
+    // Not a bug: an unproven shift count keeps its run-time check and the
+    // verifier has nothing to say about it.
+    ("shift_unproven", 0, &[]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

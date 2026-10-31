@@ -2170,6 +2170,38 @@ void yashy_panic_division(
     );
 }
 
+/* A shift count outside `0..bits` is undefined behaviour in LLVM, so generated
+ * code tests it and calls this from the block that is never taken on the happy
+ * path. The message names the count, the shifted type and the valid range:
+ *
+ *     main.ot:4:13: panic: shift amount 64 is out of range for int (0..63)
+ *
+ * `bits` is the type's width; the range is printed as `0..bits-1`, which is what
+ * a reader writes. A negative count is out of range too, and the unsigned
+ * comparison in generated code reports it here rather than wrapping. */
+void yashy_panic_shift(
+    const yashy_str *type_name,
+    long long count,
+    long long bits,
+    const yashy_str *file,
+    long long line,
+    long long column
+) {
+    fflush(stdout);
+    fprintf(
+        stderr,
+        "%s:%lld:%lld: panic: shift amount %lld is out of range for %s (0..%lld)\n",
+        file != NULL ? file->data : "<unknown>",
+        line,
+        column,
+        count,
+        yashy_str_data(type_name),
+        bits - 1
+    );
+    fflush(stderr);
+    exit(1);
+}
+
 /* ---- Threads, mutexes and channels ------------------------------------
  *
  * Three OS abstractions behind one ABI, so generated code and the C tests see
