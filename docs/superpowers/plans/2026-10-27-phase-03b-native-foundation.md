@@ -114,13 +114,17 @@ Carried from the spec and enforced by tests:
 - Produces: the default is unchanged — with no `link_name`, the symbol is the declaration's name.
 - Produces: `E0900` when two declarations in one program resolve to the same symbol and disagree about the signature; two declarations that agree are allowed and emitted once.
 - Produces: `E0901` when `link_name` appears on anything but an `extern` declaration, when it is not a string literal, or when it is empty.
-- Produces: `stdlib/math.ya`'s `sqrt` becomes a one-line wrapper over the hardware instruction, and its Newton's-method implementation is deleted. `math.ya`'s header comment, which explains the workaround, is replaced with the reason it is no longer needed.
+- Produces: `stdlib/math.ya`'s `sqrt` keeps Newton's method. A Yashy `fn sqrt`
+  and the C symbol `sqrt` would be one linker symbol, so the wrapper would call
+  itself; the checker reports that as `E0900` instead of letting `clang` fail.
+  Making the hardware call reachable from a Yashy function of the same name
+  needs Yashy function symbols to be mangled, which is not part of this task.
 
-- [ ] **Step 1: Write the failing tests** — `sqrt(2.0)` through `link_name` matches the hardware result to the last bit; a `link_name` that collides with a different signature is `E0900`; the same signature twice is emitted once (assert on the IR: one `declare`); `link_name` on a Yashy `fn` is `E0901`; `link_name ""` is `E0901`; the formatter round-trips the form; `math.sqrt` is faster than the deleted Newton version by a measured margin on `yashy-bench`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `ExternDecl` gains `symbol: Option<String>`; the checker inserts the Yashy name into the ordinary scope and records `(symbol, signature)` in a `BTreeMap` for the duplicate check and the emitter; codegen calls `symbol.unwrap_or(name)`. The IR emitter declares each symbol once, keyed by the symbol string.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(ffi): link_name, so a declaration can resolve to a different symbol (E0900, E0901)"`
+- [x] **Step 1: Write the failing tests** — `sqrt(2.0)` through `link_name` matches the hardware result to the last bit; a `link_name` that collides with a different signature is `E0900`; the same signature twice is emitted once (assert on the IR: one `declare`); a symbol the program also defines is `E0900`; `link_name` on a Yashy `fn` is `E0901`; `link_name ""` is `E0901`; the formatter round-trips the form.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `ExternDecl` gains `symbol: Option<String>`; the checker inserts the Yashy name into the ordinary scope and records `(symbol, signature)` in a `BTreeMap` for the duplicate check and the emitter; codegen calls `symbol.unwrap_or(name)`. The IR emitter declares each symbol once, keyed by the symbol string.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(ffi): link_name, so a declaration can resolve to a different symbol (E0900, E0901)"`
 
 ---
 

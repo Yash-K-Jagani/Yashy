@@ -965,7 +965,7 @@ fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
 }
 
 /// The IR a program with one shift emits, with `--emit-ir`.
-fn shift_ir(name: &str, source: &str) -> String {
+fn ir_of(name: &str, source: &str) -> String {
     let dir = work_dir(name);
     let file = dir.join(format!("{name}.ya"));
     fs::write(&file, source).expect("writing the test program");
@@ -991,14 +991,14 @@ fn shift_calls(ir: &str) -> usize {
 
 #[test]
 fn a_literal_shift_emits_no_check_and_an_unproven_one_keeps_it() {
-    let literal = shift_ir("shift-ir-literal", "fn main() {\n    print(1 << 3);\n}\n");
+    let literal = ir_of("shift-ir-literal", "fn main() {\n    print(1 << 3);\n}\n");
     assert_eq!(
         shift_calls(&literal),
         0,
         "a literal count is proven at compile time:\n{literal}"
     );
 
-    let unproven = shift_ir(
+    let unproven = ir_of(
         "shift-ir-unproven",
         "fn main() {\n    const line = read_line();\n    const n = line.parse_i64();\n    print(1 << n);\n}\n",
     );
@@ -1013,7 +1013,7 @@ fn a_literal_shift_emits_no_check_and_an_unproven_one_keeps_it() {
 fn a_guard_bounds_the_count_and_the_check_disappears() {
     // The interval domain proves `0 <= n < 8` inside the guard, and the shift
     // fact is what lets codegen delete the branch.
-    let ir = shift_ir(
+    let ir = ir_of(
         "shift-ir-guard",
         "fn shift(n: int) -> int {\n\
              if n >= 0 && n < 8 {\n\
@@ -2827,7 +2827,269 @@ fn libc_is_reachable_from_yashy() {
         "libc.ya must exit 0; stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(stdout_of(&output), "hello from C\n5\n");
+    assert_eq!(stdout_of(&output), "hello from C\n5\ntrue\n");
+}
+
+// --- Phase 3b: `link_name` ---------------------------------------------------
+
+/// A program that calls `sqrt` through a declaration named `c_sqrt`.
+const LINKED_SQRT: &str = concat!(
+    "extern \"C\" link \"m\" {\n",
+    "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+    "}\n",
+    "\n",
+    "fn main() {\n",
+    "    print(c_sqrt(2.0) == 1.4142135623730951);\n",
+    "    println(\"\");\n",
+    "}\n",
+);
+
+#[test]
+fn link_name_calls_the_symbol_not_the_declaration_name() {
+    // `sqrt(2.0)` is the nearest double to the real square root, so the
+    // comparison is exact: the hardware instruction and the literal agree to
+    // the last bit.
+    let output = compile_and_run("link-name", LINKED_SQRT);
+    assert_eq!(stdout_of(&output), "true\n");
+}
+
+/// The number of `declare` lines that mention `symbol`.
+fn declares_of(ir: &str, symbol: &str) -> usize {
+    ir.lines()
+        .filter(|line| line.starts_with("declare ") && line.contains(&format!("@{symbol}(")))
+        .count()
+}
+
+#[test]
+fn two_declarations_of_one_symbol_emit_one_declare() {
+    // Two Yashy names for one C function: the signatures agree, so this is one
+    // declaration described twice and the IR declares the symbol once.
+    let ir = ir_of(
+        "link-name-dedupe",
+        concat!(
+            "extern \"C\" link \"m\" {\n",
+            "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+            "    unsafe fn also_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(c_sqrt(9.0) + also_sqrt(16.0));\n",
+            "    println(\"\");\n",
+            "}\n",
+        ),
+    );
+    assert_eq!(
+        declares_of(&ir, "sqrt"),
+        1,
+        "one symbol is one `declare`:\n{ir}"
+    );
+}
+
+#[test]
+fn a_symbol_declared_with_two_signatures_is_e0900() {
+    let dir = work_dir("link-name-e0900");
+    let source = dir.join("dup.ya");
+    fs::write(
+        &source,
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn getpid() -> i32;\n",
+            "    unsafe fn process_id() -> i64 link_name \"getpid\";\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(1);\n",
+            "    println(\"\");\n",
+            "}\n",
+        ),
+    )
+    .expect("write dup.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a conflicting symbol is an error"
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0900]"),
+        "the conflict needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("both resolve to symbol `getpid`"),
+        "the message names the symbol:\n{stderr}"
+    );
+    // `i64` in an `extern` signature is the C spelling of Yashy `int`, so the
+    // second signature prints as `int`; the point is that it differs from `i32`.
+    assert!(
+        stderr.contains("`() -> i32` and `() -> int`"),
+        "and both signatures:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0900"),
+        "the diagnostic links its page:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_symbol_the_program_defines_is_e0900() {
+    // The Yashy function `sqrt` and the C symbol `sqrt` would be one linker
+    // symbol, so the wrapper would call itself. The checker refuses it rather
+    // than emitting a `declare` and a `define` for one name.
+    let dir = work_dir("link-name-defined-symbol");
+    let source = dir.join("clash.ya");
+    fs::write(
+        &source,
+        concat!(
+            "extern \"C\" link \"m\" {\n",
+            "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+            "}\n",
+            "\n",
+            "fn sqrt(x: float) -> float {\n",
+            "    return unsafe c_sqrt(x);\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(sqrt(9.0));\n",
+            "    println(\"\");\n",
+            "}\n",
+        ),
+    )
+    .expect("write clash.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a claimed symbol is an error"
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0900]"),
+        "the collision needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("which this program also defines"),
+        "the message says what the symbol is already used by:\n{stderr}"
+    );
+}
+
+#[test]
+fn link_name_on_a_yashy_fn_is_e0901() {
+    let dir = work_dir("link-name-on-fn");
+    let source = dir.join("fn.ya");
+    fs::write(
+        &source,
+        concat!(
+            "fn twice(n: int) -> int link_name \"twice\" {\n",
+            "    return n * 2;\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(twice(21));\n",
+            "    println(\"\");\n",
+            "}\n",
+        ),
+    )
+    .expect("write fn.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0901]"),
+        "the misplaced clause needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("`link_name` is only allowed on a declaration inside an `extern` block"),
+        "the message says where the clause goes:\n{stderr}"
+    );
+}
+
+#[test]
+fn an_empty_link_name_is_e0901() {
+    let dir = work_dir("link-name-empty");
+    let source = dir.join("empty.ya");
+    fs::write(
+        &source,
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn puts(s: *const u8) -> i32 link_name \"\";\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    puts(\"hi\");\n",
+            "}\n",
+        ),
+    )
+    .expect("write empty.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0901]"),
+        "an empty symbol needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("`link_name` must not be empty"),
+        "the message says what is wrong:\n{stderr}"
+    );
+}
+
+#[test]
+fn fmt_round_trips_link_name() {
+    let dir = work_dir("fmt-link-name");
+    let file = dir.join("link.ya");
+    let canonical = concat!(
+        "extern \"C\" link \"m\" {\n",
+        "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+        "}\n",
+        "\n",
+        "fn main() {\n",
+        "    print(c_sqrt(9.0));\n",
+        "    println(\"\");\n",
+        "}\n",
+    );
+    fs::write(&file, canonical).expect("write link.ya");
+
+    let output = Command::new(yashy())
+        .arg("fmt")
+        .arg("-w")
+        .arg(&file)
+        .output()
+        .expect("run the yashy CLI");
+    assert!(
+        output.status.success(),
+        "fmt -w failed:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(
+        fs::read_to_string(&file).expect("the formatted file must be readable"),
+        canonical,
+        "the canonical text must survive a round trip"
+    );
 }
 
 #[test]

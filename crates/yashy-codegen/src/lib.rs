@@ -98,7 +98,12 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions, fact
     for item in &hir.items {
         if let HirItem::Extern(block) = item {
             for decl in &block.decls {
-                gen_extern_decl(&mut module, decl);
+                // Two declarations may resolve to one symbol (they describe the
+                // same C function); the `declare` is emitted once, keyed by the
+                // symbol, and both Yashy names call it.
+                if module.mark_extern_symbol(decl.symbol()) {
+                    gen_extern_decl(&mut module, decl);
+                }
                 module.add_extern_decl(decl.clone());
                 module.add_fn_signature(
                     &decl.name,

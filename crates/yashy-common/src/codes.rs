@@ -47,6 +47,12 @@ pub const MOVED_VALUE: &str = "E0500";
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
+/// Two things claim the same linker symbol: two `extern` declarations that
+/// disagree about the signature, or a declaration and a function the program
+/// defines.
+pub const DUPLICATE_EXTERN_SYMBOL: &str = "E0900";
+/// A `link_name` is misplaced or malformed.
+pub const MALFORMED_EXTERN: &str = "E0901";
 /// A linear value is never released.
 pub const LEAK: &str = "E1000";
 /// A contract clause is not proved.
@@ -151,6 +157,18 @@ pub const CODES: &[Code] = &[
         title: "wrong argument count",
         summary: "A call passes the wrong number of arguments.",
         page: include_str!("../../../docs/errors/E0700.md"),
+    },
+    Code {
+        id: DUPLICATE_EXTERN_SYMBOL,
+        title: "duplicate extern symbol",
+        summary: "Two `extern` declarations resolve to one symbol with different signatures.",
+        page: include_str!("../../../docs/errors/E0900.md"),
+    },
+    Code {
+        id: MALFORMED_EXTERN,
+        title: "malformed extern declaration",
+        summary: "A `link_name` is written where it is not allowed, or is not a non-empty string.",
+        page: include_str!("../../../docs/errors/E0901.md"),
     },
     Code {
         id: LEAK,

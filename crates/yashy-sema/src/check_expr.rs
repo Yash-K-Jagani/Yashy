@@ -26,8 +26,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_parser::ast::{
-    BinOp, BindingKeyword, Block, Contract, Expr, InterpFormat, InterpPart, Item, Literal, Param,
-    Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef, VariantField,
+    BinOp, BindingKeyword, Block, Contract, Expr, ExternDecl, InterpFormat, InterpPart, Item,
+    Literal, Param, Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef,
+    VariantField,
 };
 
 use crate::check_pat::check_pattern;
@@ -93,6 +94,22 @@ struct EnumSig {
 struct FnSig {
     params: Vec<Type>,
     ret: Type,
+}
+
+/// One linker symbol an `extern` declaration resolved to.
+///
+/// Two declarations may share a symbol when they describe the same C function,
+/// so the first one is kept and a second is compared with it. The Yashy name and
+/// the span are kept for the `E0900` message: the reader has to know which two
+/// declarations disagree, and where the second one is.
+#[derive(Clone, Debug)]
+struct ExternSymbol {
+    name: String,
+    sig: FnSig,
+    span: Span,
+    /// The module the declaration was written in, so the collision diagnostic
+    /// names that file rather than whichever module was read last.
+    file: FileId,
 }
 
 /// A generic function, kept until a call fixes its type parameters.
@@ -453,6 +470,20 @@ pub struct Checker<'src> {    scope: Scope,
     /// run-time check, so the program has one rule and two build modes agree
     /// about it.
     in_const_init: bool,
+    /// The linker symbols the `extern` declarations resolved to, keyed by the
+    /// symbol string.
+    ///
+    /// Two declarations that name the same symbol describe one C function, so
+    /// the second is checked against the first: agreeing signatures are the same
+    /// function described twice and are allowed, disagreeing ones are `E0900`.
+    extern_symbols: HashMap<String, ExternSymbol>,
+    /// The names of the functions this program defines.
+    ///
+    /// A defined function's linker symbol is its name, and the extern
+    /// declarations share that one flat namespace. A symbol claimed by both is
+    /// the same function twice -- so a call through the declaration would reach
+    /// the Yashy body instead of the C one, which is `E0900`.
+    defined_fns: HashSet<String>,
     /// Names bound by an active `for x in slice` loop. Moving one of them while
     /// the loop can still read its header would free the array the next
     /// iteration indexes, so `move_out` rejects it (see [`Checker::move_out`]).
@@ -713,6 +744,8 @@ impl<'src> Checker<'src> {
             release: options.release,
             uses_threads: false,
             in_const_init: false,
+            extern_symbols: HashMap::new(),
+            defined_fns: HashSet::new(),
             iteration_borrows: Vec::new(),
             closures: Vec::new(),
             debug_printers: Vec::new(),
@@ -731,6 +764,74 @@ impl<'src> Checker<'src> {
     fn error_code(&mut self, span: Span, code: &'static str, message: impl Into<String>) {
         self.errors
             .push((self.file, TypeError::new(span, message).with_code(code)));
+    }
+
+    /// Record an `extern` declaration's linker symbol.
+    ///
+    /// The symbol is `link_name`'s value when the declaration wrote one and the
+    /// declaration's own name otherwise. Two declarations that resolve to one
+    /// symbol are one C function: agreeing signatures are the same function
+    /// described twice, and the emitter declares it once; disagreeing ones are
+    /// `E0900`, because neither signature can be trusted for both call sites.
+    fn check_extern_symbol(&mut self, decl: &ExternDecl, sig: &FnSig) {
+        let symbol = decl.symbol.as_deref().unwrap_or(&decl.name).to_string();
+        match self.extern_symbols.get(&symbol) {
+            None => {
+                self.extern_symbols.insert(
+                    symbol,
+                    ExternSymbol {
+                        name: decl.name.clone(),
+                        sig: sig.clone(),
+                        span: decl.span,
+                        file: self.file,
+                    },
+                );
+            }
+            Some(existing) if same_signature(&existing.sig, sig) => {}
+            Some(existing) => {
+                let message = format!(
+                    "`{}` and `{}` both resolve to symbol `{}`, but their signatures differ: `{}` and `{}`",
+                    decl.name,
+                    existing.name,
+                    symbol,
+                    signature_text(&existing.sig),
+                    signature_text(sig),
+                );
+                self.error_code(decl.span, codes::DUPLICATE_EXTERN_SYMBOL, message);
+            }
+        }
+    }
+
+    /// Refuse a declaration whose symbol is a function this program defines.
+    ///
+    /// The program's functions and the C functions it declares share one flat
+    /// linker namespace, so a symbol cannot be both. If it were allowed, the
+    /// emitter would write a `declare` and a `define` for one name -- which
+    /// `clang` rejects -- and, were it accepted, the declaration's call would
+    /// reach the Yashy body: a wrapper around a C function of its own name
+    /// would call itself. Reported once, after every item is declared, because
+    /// the declaration and the definition may appear in either order.
+    fn check_symbol_collisions(&mut self) {
+        let mut collisions = Vec::new();
+        for (symbol, declared) in &self.extern_symbols {
+            if self.defined_fns.contains(symbol) {
+                collisions.push((
+                    declared.file,
+                    declared.span,
+                    format!(
+                        "`{}` resolves to symbol `{}`, which this program also defines: \
+                         a call would reach the Yashy function instead of the C one",
+                        declared.name, symbol
+                    ),
+                ));
+            }
+        }
+        for (file, span, message) in collisions {
+            self.errors.push((
+                file,
+                TypeError::new(span, message).with_code(codes::DUPLICATE_EXTERN_SYMBOL),
+            ));
+        }
     }
 
     /// Report a type mismatch from the expected and found types.
@@ -1054,6 +1155,7 @@ impl<'src> Checker<'src> {
             self.file = *file;
             self.declare_items(&ast.items);
         }
+        self.check_symbol_collisions();
         let mut items = Vec::new();
         for (file, ast) in modules {
             self.file = *file;
@@ -1395,6 +1497,7 @@ impl<'src> Checker<'src> {
                     self.report(e);
                 }
                 self.fns.insert(name.clone(), sig);
+                self.defined_fns.insert(name.clone());
                 self.record_origin(name, public);
             }
             Item::Impl {
@@ -1640,8 +1743,9 @@ impl<'src> Checker<'src> {
                     if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
                         self.report(e);
                     }
-                    self.fns.insert(decl.name.clone(), sig);
+                    self.fns.insert(decl.name.clone(), sig.clone());
                     self.externs.insert(decl.name.clone());
+                    self.check_extern_symbol(decl, &sig);
                 }
             }
             Item::Import { .. } => {}
@@ -2633,6 +2737,7 @@ impl<'src> Checker<'src> {
                     .iter()
                     .map(|decl| HirExternDecl {
                         name: decl.name.clone(),
+                        symbol: decl.symbol.clone(),
                         params: decl
                             .params
                             .iter()
@@ -8317,6 +8422,25 @@ fn is_checked_arithmetic(op: BinOp) -> bool {
         op,
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
     )
+}
+
+/// Whether two declarations describe the same C function.
+///
+/// Spans are ignored: two declarations written at different lines are still the
+/// same function when their parameter and return types agree.
+fn same_signature(a: &FnSig, b: &FnSig) -> bool {
+    a.params.len() == b.params.len()
+        && a.params
+            .iter()
+            .zip(b.params.iter())
+            .all(|(left, right)| left.kind == right.kind)
+        && a.ret.kind == b.ret.kind
+}
+
+/// A signature as the `E0900` message writes it: `(int, f64) -> int`.
+fn signature_text(sig: &FnSig) -> String {
+    let params: Vec<String> = sig.params.iter().map(|p| p.to_string()).collect();
+    format!("({}) -> {}", params.join(", "), sig.ret)
 }
 
 /// The value of a checked integer expression when it is a compile-time

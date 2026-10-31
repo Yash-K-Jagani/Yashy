@@ -60,6 +60,14 @@ impl<'src> Parser<'src> {
     ///
     /// A [`ParseError`] for a token that cannot begin an item.
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
+        // A stray `link_name` at item position is the clause without a
+        // declaration to attach to. Reporting the rule is more useful than
+        // "expected an item", and it is the same mistake as `link_name` on a
+        // Yashy `fn`.
+        if self.at_word("link_name") {
+            let span = self.peek_span();
+            return Err(error::link_name_outside_extern(span));
+        }
         let kind = self.peek();
         match kind {
             TokenKind::Import => self.parse_import(),
@@ -91,7 +99,6 @@ impl<'src> Parser<'src> {
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
     }
-
     /// `pub fn f() { ... }` -- an item another module may use.
     ///
     /// The `pub` wraps the item it applies to, so the modifier is one thing
@@ -440,6 +447,14 @@ impl<'src> Parser<'src> {
             None
         };
 
+        // `link_name` belongs to an `extern` declaration. On a Yashy `fn` it is
+        // a rule about the language rather than a token the parser cannot read,
+        // so it gets its own code and a message that says where the clause goes.
+        if self.at_word("link_name") {
+            let span = self.peek_span();
+            return Err(error::link_name_outside_extern(span));
+        }
+
         // Clauses sit between the signature and the body: `requires` says what
         // the caller must establish, `ensures` what the function promises. Both
         // are optional and repeatable. Either order is accepted and kept as
@@ -674,7 +689,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// One declaration: `unsafe fn name(params) -> ret;`.
+    /// One declaration: `unsafe fn name(params) -> ret link_name "symbol";`.
     ///
     /// The `unsafe` marker is required, not optional. It is checked before the
     /// `fn` is read so the diagnostic points at the declaration the user forgot
@@ -698,13 +713,46 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
+        // `link_name "symbol"` is optional and sits between the signature and
+        // the semicolon, so a declaration that omits it parses exactly as it did
+        // before and its name stays the symbol.
+        let symbol = if self.at_word("link_name") {
+            Some(self.parse_link_name()?)
+        } else {
+            None
+        };
         let semicolon = self.expect(TokenKind::Semi)?;
         Ok(ExternDecl {
             name,
+            symbol,
             params,
             ret,
             span: cover(start, semicolon.span),
         })
+    }
+
+    /// `link_name "symbol"`: the clause that renames the linker symbol.
+    ///
+    /// The value has to be a literal: the symbol is decided while the program is
+    /// compiled, and an interpolated name is not known until it runs. Empty is
+    /// refused here rather than left to the linker, whose message names a symbol
+    /// the reader never wrote.
+    fn parse_link_name(&mut self) -> Result<String, ParseError> {
+        self.advance();
+        if !self.check(TokenKind::Str) {
+            return Err(error::link_name_needs_a_string(self.peek_span()));
+        }
+        let token = self.expect(TokenKind::Str)?;
+        let raw = self.text(token.span)?;
+        let decoded = yashy_lexer::StringLit::decode(&raw)
+            .map_err(|_| error::link_name_needs_a_string(token.span))?;
+        if decoded.value.is_empty() {
+            return Err(error::link_name_must_not_be_empty(token.span));
+        }
+        if decoded.value.contains("${") {
+            return Err(error::link_name_needs_a_string(token.span));
+        }
+        Ok(decoded.value)
     }
 
     /// One string literal in an `extern` header: the ABI or a library name.

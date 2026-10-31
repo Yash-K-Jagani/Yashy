@@ -76,7 +76,7 @@ pub fn gen_ffi_call(
     let result = if ret == "void" {
         ctx.push(format!(
             "call void @{}({})",
-            decl.name,
+            decl.symbol(),
             operands.join(", ")
         ));
         String::new()
@@ -84,7 +84,7 @@ pub fn gen_ffi_call(
         let result = ctx.tmp();
         ctx.push(format!(
             "{result} = call {ret} @{}({})",
-            decl.name,
+            decl.symbol(),
             operands.join(", ")
         ));
         result

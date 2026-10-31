@@ -114,6 +114,7 @@ fn a_raw_pointer_argument_is_passed_unchanged() {
     let mut module = Module::new();
     let decl = HirExternDecl {
         name: "touch".to_string(),
+        symbol: None,
         params: vec![HirParam {
             name: "p".to_string(),
             ty: Type {

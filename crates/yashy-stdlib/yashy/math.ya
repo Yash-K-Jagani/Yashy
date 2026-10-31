@@ -1,10 +1,15 @@
 // Arithmetic helpers written in Yashy (M6 Task 10).
 //
 // Every function here is Yashy source. `sqrt` is Newton's method rather than the
-// hardware instruction: an `extern` declaration's name *is* the symbol it calls
-// (M5 Task 2), so a wrapper named `sqrt` cannot sit beside an `extern fn sqrt`.
-// Newton's method needs no C, is exact to the last bit for the cases a test pins,
-// and is a useful proof that the language can express a numeric routine at all.
+// hardware instruction, and phase 3b's `link_name` does not change that: a
+// declaration's *symbol* is what the linker resolves, so `link_name "sqrt"`
+// would name the C function correctly, but this module also defines a Yashy
+// function called `sqrt`, and a program's functions share the linker's one flat
+// namespace with the C functions it declares. The two would be one symbol, and
+// the wrapper would call itself. The checker refuses that with `E0900` rather
+// than letting `clang` fail. Newton's method needs no C, is exact to the last
+// bit for the cases a test pins, and is a useful proof that the language can
+// express a numeric routine at all.
 //
 // Integer results are checked: overflow panics with the operation's position
 // rather than wrapping, which is the language default (spec 6.1).

@@ -304,6 +304,13 @@ pub struct Contract {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternDecl {
     pub name: String,
+    /// The linker symbol, when `link_name "..."` named one.
+    ///
+    /// `None` means the declaration's name *is* the symbol, which is the
+    /// default and by far the common case. The two names are separate because
+    /// they answer separate questions: `name` is what the program writes and
+    /// the checker puts in scope, `symbol` is what the linker resolves.
+    pub symbol: Option<String>,
     pub params: Vec<Param>,
     pub ret: Option<TypeExpr>,
     pub span: Span,

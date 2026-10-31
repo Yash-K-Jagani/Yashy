@@ -64,7 +64,12 @@ pub fn inventory(hir: &HirProgram) -> Vec<Assumption> {
                 for decl in &block.decls {
                     found.push(Assumption {
                         kind: AssumptionKind::ExternDecl,
-                        name: decl.name.clone(),
+                        // The symbol, not the Yashy name: the assumption is
+                        // that this linker symbol exists and has this
+                        // signature, and `link_name` is exactly the case where
+                        // the two names differ. The span still points at the
+                        // declaration the reader wrote.
+                        name: decl.symbol().to_string(),
                         file: block.file,
                         span: decl.span,
                     });

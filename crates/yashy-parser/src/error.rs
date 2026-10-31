@@ -43,6 +43,14 @@ pub struct ParseError {
     pub span: Span,
     /// What is wrong, in lowercase and without a trailing period.
     pub message: String,
+    /// The catalog code, when the mistake has one.
+    ///
+    /// Most parse failures do not: the grammar has more ways to be wrong than a
+    /// catalog can name usefully, and "expected `;`" is already the whole
+    /// answer. A failure that *does* have a code is one a reader may want to
+    /// look up -- `link_name` in the wrong place is a rule about the language,
+    /// not a token the parser tripped over.
+    pub code: Option<&'static str>,
 }
 
 impl ParseError {
@@ -51,7 +59,14 @@ impl ParseError {
         ParseError {
             span,
             message: message.into(),
+            code: None,
         }
+    }
+
+    /// Attach the catalog code this failure reports under.
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
     }
 
     /// The [`Diagnostic`] this failure becomes in `file`.
@@ -60,7 +75,12 @@ impl ParseError {
     /// understood the source or it did not, and a warning about a source that
     /// did not parse would be a warning about a file nobody will compile.
     pub fn to_diagnostic(&self, file: FileId) -> Diagnostic {
-        Diagnostic::new(Severity::Error, file, self.span, self.message.clone())
+        let diagnostic =
+            Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
+        match self.code {
+            Some(code) => diagnostic.with_code(code),
+            None => diagnostic,
+        }
     }
 }
 
@@ -159,6 +179,38 @@ pub fn extern_block_needs_a_declaration(span: Span) -> ParseError {
         span,
         "an `extern` block must declare at least one function",
     )
+}
+
+/// `link_name` written anywhere but on a declaration inside an `extern` block.
+///
+/// The clause changes which linker symbol a declaration resolves to, so it means
+/// nothing on a Yashy `fn`, whose symbol the compiler already owns. Reported
+/// where the clause was written, with the catalog code that explains the rule.
+pub fn link_name_outside_extern(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "`link_name` is only allowed on a declaration inside an `extern` block",
+    )
+    .with_code(yashy_common::codes::MALFORMED_EXTERN)
+}
+
+/// `link_name` followed by something that is not a string literal.
+///
+/// The symbol is decided when the program is compiled, so it has to be a literal
+/// the parser can read: an interpolation or a name is not known until the
+/// program runs.
+pub fn link_name_needs_a_string(span: Span) -> ParseError {
+    ParseError::new(span, "`link_name` must be a string literal")
+        .with_code(yashy_common::codes::MALFORMED_EXTERN)
+}
+
+/// `link_name ""` -- a clause that names no symbol.
+///
+/// The linker cannot resolve an empty name, and the declaration's own name was
+/// already the default, so the clause is either a typo or a leftover.
+pub fn link_name_must_not_be_empty(span: Span) -> ParseError {
+    ParseError::new(span, "`link_name` must not be empty")
+        .with_code(yashy_common::codes::MALFORMED_EXTERN)
 }
 
 /// A token that cannot begin an item.

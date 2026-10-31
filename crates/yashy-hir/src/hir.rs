@@ -197,12 +197,27 @@ pub struct HirExternBlock {
 /// There is no body and no `unsafe` flag: the parser already required the
 /// marker, so a declaration that reaches the HIR is a declaration the user
 /// accepted the FFI risk for.
+///
+/// The two names are kept apart. [`name`](Self::name) is what the program writes
+/// and what the checker puts in scope; the linker symbol is
+/// [`symbol`](Self::symbol) when `link_name` named one and the name otherwise.
+/// [`HirExternDecl::symbol`] answers the second question so no caller has to
+/// remember the default.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirExternDecl {
     pub name: String,
+    /// The linker symbol, when `link_name "..."` named one.
+    pub symbol: Option<String>,
     pub params: Vec<HirParam>,
     pub ret: Type,
     pub span: Span,
+}
+
+impl HirExternDecl {
+    /// The symbol the linker resolves: `link_name`'s value, or the name.
+    pub fn symbol(&self) -> &str {
+        self.symbol.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// A block of statements: its span includes the braces.

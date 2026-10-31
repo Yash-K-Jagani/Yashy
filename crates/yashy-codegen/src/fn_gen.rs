@@ -67,9 +67,11 @@ pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
 pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
     let params: Vec<String> = d.params.iter().map(|p| repr_type(&p.ty.kind)).collect();
     let ret = fn_return_repr(&d.ret.kind);
+    // The symbol, not the Yashy name: `link_name` is what makes a declaration
+    // resolvable when the two differ.
     module.push(format!(
         "declare {ret} @{}({})",
-        d.name,
+        d.symbol(),
         params.join(", ")
     ));
 }

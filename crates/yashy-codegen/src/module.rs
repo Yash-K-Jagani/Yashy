@@ -6,7 +6,7 @@
 //! "No LLVM build dependency" constraint), so the only structure the
 //! backend needs is "the lines so far, in order".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use yashy_common::Span;
 use yashy_sema::{HirExternDecl, TypeKind};
@@ -107,6 +107,9 @@ pub struct Module {
     /// C declarations by name, so a call can tell an extern callee from a user
     /// function and apply the boundary rules (spec §8.1).
     externs: HashMap<String, HirExternDecl>,
+    /// The linker symbols already declared, so two declarations that name one
+    /// symbol emit one `declare`.
+    extern_symbols: HashSet<String>,
 }
 
 impl Module {
@@ -130,6 +133,7 @@ impl Module {
             captures: Vec::new(),
             atomic_strings: false,
             externs: HashMap::new(),
+            extern_symbols: HashSet::new(),
         }
     }
 
@@ -140,6 +144,15 @@ impl Module {
     /// backend test may lower a call without going through `emit_program`.
     pub fn add_extern_decl(&mut self, decl: HirExternDecl) {
         self.externs.insert(decl.name.clone(), decl);
+    }
+
+    /// Claim a linker symbol, returning whether it is the first claim.
+    ///
+    /// Two `extern` declarations that name one symbol are the same C function
+    /// described twice, so the `declare` is emitted for the first and the second
+    /// only records its Yashy name in [`Module::add_extern_decl`].
+    pub fn mark_extern_symbol(&mut self, symbol: &str) -> bool {
+        self.extern_symbols.insert(symbol.to_string())
     }
 
     /// The C declaration named `name`, when the program declared one.

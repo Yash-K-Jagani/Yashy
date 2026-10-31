@@ -38,6 +38,8 @@ the declaration or import involved when that is not obvious.
 | [E0500](errors/E0500.md) | moved value |
 | [E0600](errors/E0600.md) | non-exhaustive match |
 | [E0700](errors/E0700.md) | wrong argument count |
+| [E0900](errors/E0900.md) | duplicate extern symbol |
+| [E0901](errors/E0901.md) | malformed extern declaration |
 | [E1000](errors/E1000.md) | leaked linear value |
 | [E1100](errors/E1100.md) | undischarged contract |
 | [E1201](errors/E1201.md) | provable integer overflow |
