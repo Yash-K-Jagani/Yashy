@@ -36,7 +36,7 @@
 //! as constants, which is the only thing an IR emitter can do with a position.
 
 use yashy_sema::{BinOp, FaultSite, TypeKind, UnOp};
-
+use yashy_common::Span;
 use crate::expr_gen::{FnCtx, GenValue};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
 
@@ -261,7 +261,20 @@ pub(crate) fn gen_checked_binary(
     l: &GenValue,
     r: &GenValue,
     site: &FaultSite,
+    span: Span,
 ) -> Option<GenValue> {
+    // A shift is checked for every integer width, not just `int`: the count
+    // has to be inside the *storage* type's bits. The verifier's range fact is
+    // the only thing that removes the check.
+    if matches!(op, BinOp::Shl | BinOp::Shr) {
+        return l.ty.bit_width().map(|bits| {
+            if ctx.module.is_shift_proven(span) {
+                gen_shift(ctx, op, l, r, &l.ty)
+            } else {
+                gen_shift_checked(ctx, op, l, r, bits, site)
+            }
+        });
+    }
     if !matches!(l.ty, TypeKind::I64) {
         return None;
     }
@@ -270,6 +283,71 @@ pub(crate) fn gen_checked_binary(
         BinOp::Div | BinOp::Rem => Some(gen_division(ctx, op, l, r, site)),
         _ => None,
     }
+}
+
+/// The shift instruction itself: `shl`, and a right shift that is `ashr` on a
+/// signed type and `lshr` on an unsigned one.
+///
+/// Signedness lives in the type, not the operator, so `-8 >> 1` is `-4` and
+/// `248u8 >> 1` is `124` from the same source operator.
+fn gen_shift(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenValue, ty: &TypeKind) -> GenValue {
+    let mnemonic = match op {
+        BinOp::Shl => "shl",
+        _ => {
+            if ty.is_signed_integer() {
+                "ashr"
+            } else {
+                "lshr"
+            }
+        }
+    };
+    let repr = repr_type(ty);
+    let tmp = ctx.tmp();
+    ctx.push(format!("{tmp} = {mnemonic} {repr} {}, {}", l.value, r.value));
+    GenValue {
+        value: tmp,
+        ty: ty.clone(),
+    }
+}
+
+/// Lower a shift with the range check that makes it total.
+///
+/// LLVM's shift is poison when the count is not smaller than the operand's
+/// width, so `1 << 64` is not "zero", it is undefined behaviour. The check is
+/// one unsigned comparison: a negative count reads as a huge unsigned number,
+/// so `count < bits` covers both ends of the range at once.
+///
+/// The shift is emitted in the continuation block, after the branch: a shift
+/// that is going to fault must not run, and reaching `yashy_panic_shift` is the
+/// whole point.
+fn gen_shift_checked(
+    ctx: &mut FnCtx<'_>,
+    op: BinOp,
+    l: &GenValue,
+    r: &GenValue,
+    bits: u32,
+    site: &FaultSite,
+) -> GenValue {
+    let repr = repr_type(&l.ty);
+    let in_range = ctx.tmp();
+    ctx.push(format!("{in_range} = icmp ult {repr} {}, {bits}", r.value));
+    let fault = fault_label(ctx);
+    let merge = format!("{}_ok", ctx.alloc_label_base());
+    ctx.push(format!(
+        "br i1 {in_range}, label %{merge}, label %{fault}"
+    ));
+    let name = l.ty.to_string();
+    close_fault(ctx, &fault, |ctx| {
+        crate::stmt_gen::run_all_scopes_defers(ctx);
+        let type_name = ctx.module.intern_bytes_ptr(name.as_bytes());
+        let file = ctx.module.intern_bytes_ptr(site.file.as_bytes());
+        format!(
+            "call void @yashy_panic_shift(i8* {type_name}, i64 {}, i64 {bits}, i8* {file}, i64 {}, i64 {})",
+            r.value, site.line, site.column
+        )
+    });
+    ctx.push(format!("{merge}:"));
+    gen_shift(ctx, op, l, r, &l.ty)
 }
 
 /// Lower the negation of an integer, with the check for the one value it cannot

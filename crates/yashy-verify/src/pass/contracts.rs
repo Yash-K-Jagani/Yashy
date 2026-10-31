@@ -658,6 +658,14 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             HirExpr::Binary { op, lhs, rhs, .. } => {
                 let left = self.eval(lhs, env);
                 let right = self.eval(rhs, env);
+                // A shift is checked against the width of the shifted type, not
+                // against the `int` range, so it is a different obligation with
+                // a different rule. Its result is left unknown: the domain does
+                // not model what a shift does to a magnitude.
+                if matches!(op, BinOp::Shl | BinOp::Shr) {
+                    self.check_shift(expr, lhs, right.interval);
+                    return Value::top();
+                }
                 // Only an operation the checker marked as checked integer
                 // arithmetic can fault, and only a fault can overflow. A
                 // comparison, a float operation and a string concatenation all
@@ -1013,6 +1021,28 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             TypeKind::FixedArray(_, length) => i64::try_from(*length).ok(),
             _ => self.length_of(base, env),
         }
+    }
+
+    /// Record whether a shift count is provably inside `0..bits`.
+    ///
+    /// A shift whose count may be out of range keeps its runtime check; there is
+    /// no diagnostic, because a count the domain cannot bound is ordinary code
+    /// and the check is what makes it safe. The established obligation is the
+    /// only thing that lets codegen delete the check.
+    fn check_shift(&mut self, expr: &HirExpr, shifted: &HirExpr, count: Interval) {
+        if self.quiet {
+            return;
+        }
+        let bits = expr_ty(shifted).kind.bit_width();
+        let established = match bits {
+            Some(bits) => count.lo >= 0 && count.hi < i128::from(bits),
+            None => false,
+        };
+        self.obligations.push(ProofObligation {
+            kind: ObligationKind::ShiftInRange,
+            span: expr_span(expr),
+            established,
+        });
     }
 
     /// Record, or reject, one checked integer operation.

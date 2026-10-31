@@ -182,6 +182,11 @@ impl Module {
         self.facts.is_proven(span)
     }
 
+    /// Whether the verifier proved the shift count at `span` inside `0..bits`.
+    pub fn is_shift_proven(&self, span: Span) -> bool {
+        self.facts.is_shift_proven(span)
+    }
+
     pub fn define_named_type(&mut self, name: &str, fields: Vec<String>) {
         if !self.named_types.iter().any(|(n, _)| n == name) {
             self.named_types.push((name.to_string(), fields));

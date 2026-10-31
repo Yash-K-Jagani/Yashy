@@ -152,6 +152,21 @@ impl TypeKind {
     pub fn is_signed_integer(&self) -> bool {
         matches!(self, TypeKind::I64 | TypeKind::CInt(_))
     }
+
+    /// How many bits a shift of this kind may move, or `None` for a type that
+    /// cannot be shifted.
+    ///
+    /// The count is a property of the *storage* type, so `u8` answers 8 and
+    /// `usize` answers 64 -- the machine word Yashy lowers it to. A shift by
+    /// the width itself is already out of range: the largest legal count is
+    /// `bits - 1`.
+    pub fn bit_width(&self) -> Option<u32> {
+        match self {
+            TypeKind::I64 | TypeKind::CSize => Some(64),
+            TypeKind::CInt(width) | TypeKind::CUInt(width) => Some(*width),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for Type {

@@ -680,9 +680,10 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             op,
             lhs,
             rhs,
+            span,
             fault,
             ..
-        } => gen_binary(ctx, *op, lhs, rhs, fault.as_ref()),
+        } => gen_binary(ctx, *op, lhs, rhs, fault.as_ref(), *span),
         HirExpr::Unary {
             op, operand, fault, ..
         } => gen_unary(ctx, *op, operand, fault.as_ref()),
@@ -949,6 +950,7 @@ fn gen_binary(
     lhs: &HirExpr,
     rhs: &HirExpr,
     fault: Option<&FaultSite>,
+    span: Span,
 ) -> GenValue {
     // `&&` and `||` short-circuit: the right operand is evaluated only when
     // the left one does not decide the answer. That is a branch, not an
@@ -965,7 +967,7 @@ fn gen_binary(
         return crate::strings::gen_string_binary(ctx, op, &l, &r);
     }
     if let Some(site) = fault {
-        if let Some(checked) = crate::faults::gen_checked_binary(ctx, op, &l, &r, site) {
+        if let Some(checked) = crate::faults::gen_checked_binary(ctx, op, &l, &r, site, span) {
             return checked;
         }
     }

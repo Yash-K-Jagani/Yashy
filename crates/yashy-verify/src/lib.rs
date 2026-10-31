@@ -53,6 +53,8 @@ pub enum ObligationKind {
     Bounds,
     /// A checked integer operation's result is inside the `int` range.
     Overflow,
+    /// A shift count is inside `0..bits` for the shifted type.
+    ShiftInRange,
 }
 
 /// One fact the verifier tried to prove, and whether it could.
@@ -130,8 +132,12 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     pass::typestate::check(hir, &mut diagnostics);
     let mut facts = ProofFacts::empty();
     for ob in &obligations {
-        if ob.established {
-            facts.insert(ob.span);
+        if !ob.established {
+            continue;
+        }
+        match ob.kind {
+            ObligationKind::ShiftInRange => facts.insert_shift(ob.span),
+            ObligationKind::Bounds | ObligationKind::Overflow => facts.insert(ob.span),
         }
     }
     VerifyReport {
