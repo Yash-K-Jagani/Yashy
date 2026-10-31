@@ -104,6 +104,19 @@ fn a_range_operator_does_not_become_a_float_or_an_extra_dot() {
 }
 
 #[test]
+fn three_dots_are_one_variadic_token_not_a_range_and_a_dot() {
+    // The longest match wins: `...` is the variadic marker, and a `..` rule
+    // that ran first would leave a stray `.` the parser could not use.
+    assert_eq!(
+        tokens("..."),
+        vec![
+            (TokenKind::DotDotDot, Span::new(0, 3)),
+            (TokenKind::Eof, Span::new(3, 3)),
+        ]
+    );
+}
+
+#[test]
 fn a_number_keeps_its_span_even_when_it_does_not_fit_in_an_i64() {
     // The token carries no value: the parser reads the bytes back out of the
     // span. So a literal too big for `int` must still lex cleanly, and must be

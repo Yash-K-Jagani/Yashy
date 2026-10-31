@@ -626,6 +626,12 @@ impl<'src> Parser<'src> {
     fn parse_params_after_open(&mut self) -> Result<(Vec<Param>, Span), ParseError> {
         let mut params = Vec::new();
         while !self.check(TokenKind::RParen) {
+            // `...` is the C variadic marker; a Yashy `fn` has a fixed
+            // signature, so the marker belongs only to an `extern`
+            // declaration, which reads its parameters with its own loop.
+            if self.check(TokenKind::DotDotDot) {
+                return Err(error::variadic_only_on_extern(self.peek_span()));
+            }
             params.push(self.parse_param()?);
             if !self.eat(TokenKind::Comma) {
                 break;
@@ -633,6 +639,36 @@ impl<'src> Parser<'src> {
         }
         let close = self.expect(TokenKind::RParen)?;
         Ok((params, close.span))
+    }
+
+    /// The parameter list of an `extern` declaration, once its `(` has been
+    /// consumed and pushed: like a function's, but `...` may end it.
+    ///
+    /// The marker is accepted only in the last position. Everything before it is
+    /// an ordinary named, annotated parameter, because those are the arguments
+    /// Yashy can check; what follows the marker is C's business.
+    fn parse_extern_params_after_open(&mut self) -> Result<(Vec<Param>, bool, Span), ParseError> {
+        let mut params = Vec::new();
+        let mut variadic = false;
+        while !self.check(TokenKind::RParen) {
+            if self.check(TokenKind::DotDotDot) {
+                let span = self.peek_span();
+                self.advance();
+                variadic = true;
+                // Nothing may follow `...`: an argument after it has no
+                // parameter to be checked against.
+                if !self.check(TokenKind::RParen) {
+                    return Err(error::variadic_must_be_last(span));
+                }
+                break;
+            }
+            params.push(self.parse_param()?);
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        let close = self.expect(TokenKind::RParen)?;
+        Ok((params, variadic, close.span))
     }
 
     /// `extern "C" link "m" { unsafe fn puts(s: *const u8) -> i32; }`
@@ -705,7 +741,7 @@ impl<'src> Parser<'src> {
 
         let open = self.expect(TokenKind::LParen)?;
         let _ = self.push_open(TokenKind::LParen, open.span)?;
-        let (params, _) = self.parse_params_after_open()?;
+        let (params, variadic, _) = self.parse_extern_params_after_open()?;
         self.close_open(TokenKind::RParen);
 
         let ret = if self.eat(TokenKind::Arrow) {
@@ -726,6 +762,7 @@ impl<'src> Parser<'src> {
             name,
             symbol,
             params,
+            variadic,
             ret,
             span: cover(start, semicolon.span),
         })

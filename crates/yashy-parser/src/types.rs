@@ -66,6 +66,10 @@ impl<'src> Parser<'src> {
             TokenKind::Star => self.parse_pointer_type(),
             TokenKind::LBracket => self.parse_bracket_type(),
             TokenKind::Fn => self.parse_fn_type(),
+            // `...` is the C variadic marker, not a type. It is legal only as
+            // the last element of an `extern` declaration's parameter list,
+            // which the extern parser reads before it gets here.
+            TokenKind::DotDotDot => Err(crate::error::variadic_only_on_extern(self.peek_span())),
             _ => Err(self.type_expected_error()),
         }
     }

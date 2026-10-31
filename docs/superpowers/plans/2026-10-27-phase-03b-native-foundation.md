@@ -139,16 +139,16 @@ Carried from the spec and enforced by tests:
 - Modify: `crates/yashy-driver/tests/programs/libc.ya` (a `printf` call), modify `crates/yashy-driver/tests/e2e.rs`
 
 **Interfaces:**
-- Produces: `extern "C" { unsafe fn printf(fmt: *const u8, ...) -> i32; }`, called as `unsafe printf("%d %s\n", 42 as i64, "x")`.
+- Produces: `extern "C" { unsafe fn printf(fmt: *const u8, ...) -> i32; }`, called as `unsafe printf("%d %s\n", 42 as i32, "x")`.
 - Produces: `E0902` when `...` appears on a Yashy `fn`, when it is not the last parameter, or when it appears in a function type (`fn(*const u8, ...) -> i32` is not a Yashy type).
 - Produces: the checker requires at least the fixed parameters and accepts any number beyond; it does **not** type-check the variadic arguments, because C does not either. The call is `unsafe`, so the inventory in phase 2 lists it.
-- Produces: integer variadic arguments must be written with their C width (`42 as i64`, not `42`), because there is no default promotion. The diagnostic for a bare `int` argument names the width.
+- Produces: integer variadic arguments must be written with an explicit C width (`42 as i32`, not `42`). Yashy's `int` is 64 bits, but the language refuses `i64` as a cast spelling ("`i64` is spelled `int`"), so the width a program can write for C's `%d` is `i32`; the checker refuses a bare `int` and the diagnostic names the cast. A 64-bit variadic integer has no spelling yet -- allowing `int` there, or a C-width cast spelling, is a follow-up.
 
-- [ ] **Step 1: Write the failing tests** — `printf("%d\n", 42 as i64)` prints `42`; too few fixed arguments is `E0700` (the existing code); `...` on a Yashy `fn` is `E0902`; `...` not last is `E0902`; a variadic call without `unsafe` is the phase 2 `E1300`-family unsafe diagnostic; the IR declaration contains `...`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lexer adds `DotDotDot` and the longest-match order puts it before `DotDot`; the parser accepts it only inside an `extern` declaration's parameter list and only at the end; the checker's arity check is `args.len() >= fixed` when variadic; codegen appends `, ...` to the declaration.
-- [ ] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(ffi): variadic extern declarations (E0902)"`
+- [x] **Step 1: Write the failing tests** — `printf("%d\n", 42 as i32)` prints `42`; too few fixed arguments is `E0700` (the existing code); `...` on a Yashy `fn` is `E0902`; `...` not last is `E0902`; `...` in a function type is `E0902`; a variadic call without `unsafe` is rejected; the IR declaration contains `...` and the call spells the function type.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lexer adds `DotDotDot` and the longest-match order puts it before `DotDot`; the parser accepts it only inside an `extern` declaration's parameter list and only at the end; the checker's arity check is `args.len() >= fixed` when variadic; codegen appends `, ...` to the declaration and spells `ret (fixed, ...)` at the call.
+- [x] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(ffi): variadic extern declarations (E0902)"`
 
 ---
 

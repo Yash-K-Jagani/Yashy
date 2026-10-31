@@ -209,6 +209,12 @@ pub struct HirExternDecl {
     /// The linker symbol, when `link_name "..."` named one.
     pub symbol: Option<String>,
     pub params: Vec<HirParam>,
+    /// Whether the declaration ends in `...`.
+    ///
+    /// C checks the fixed parameters and leaves the rest to the caller. The
+    /// checker therefore accepts any number of arguments beyond `params`, and
+    /// codegen spells `...` in both the `declare` and the call's function type.
+    pub variadic: bool,
     pub ret: Type,
     pub span: Span,
 }

@@ -2827,7 +2827,7 @@ fn libc_is_reachable_from_yashy() {
         "libc.ya must exit 0; stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(stdout_of(&output), "hello from C\n5\ntrue\n");
+    assert_eq!(stdout_of(&output), "hello from C\n5\ntrue\n42 x\n");
 }
 
 // --- Phase 3b: `link_name` ---------------------------------------------------
@@ -3089,6 +3089,244 @@ fn fmt_round_trips_link_name() {
         fs::read_to_string(&file).expect("the formatted file must be readable"),
         canonical,
         "the canonical text must survive a round trip"
+    );
+}
+
+// --- Phase 3b: variadic extern declarations ----------------------------------
+
+/// A program that calls the C `printf` through a variadic declaration.
+const VARIADIC_PRINTF: &str = concat!(
+    "extern \"C\" {\n",
+    "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+    "}\n",
+    "\n",
+    "fn main() {\n",
+    "    unsafe printf(\"%d\\n\", 42 as i32);\n",
+    "}\n",
+);
+
+/// Write `source` into a fresh directory, run `yashy check`, and return the
+/// stderr of a failing check.
+fn check_fails(name: &str, source: &str) -> String {
+    let dir = work_dir(name);
+    let file = dir.join(format!("{name}.ya"));
+    fs::write(&file, source).expect("write the test program");
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&file)
+        .output()
+        .expect("run the yashy CLI");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the check must fail:\n{}",
+        stderr_of(&output)
+    );
+    stderr_of(&output)
+}
+
+#[test]
+fn a_variadic_printf_prints_its_arguments() {
+    // The whole point of the marker: the fixed format is checked as a C
+    // string, and the argument after it is passed as the `i64` the program
+    // wrote. `printf` reads it by the format string's rules.
+    let output = compile_and_run("variadic-printf", VARIADIC_PRINTF);
+    assert_eq!(stdout_of(&output), "42\n");
+}
+
+#[test]
+fn a_variadic_declaration_and_call_carry_the_marker_in_the_ir() {
+    let ir = ir_of("variadic-ir", VARIADIC_PRINTF);
+    assert!(
+        ir.contains("declare i32 @printf(i8*, ...)"),
+        "the declaration must end in `...`:\n{ir}"
+    );
+    assert!(
+        ir.contains("call i32 (i8*, ...) @printf("),
+        "a vararg call must spell the full function type:\n{ir}"
+    );
+}
+
+#[test]
+fn a_variadic_call_with_too_few_fixed_arguments_is_e0700() {
+    let stderr = check_fails(
+        "variadic-arity",
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    unsafe printf();\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("error[E0700]"),
+        "the arity error needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("expected at least 1 arguments, found 0"),
+        "the message says the fixed parameters are required:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_variadic_call_without_unsafe_is_rejected() {
+    // C reads the extra arguments by the format string, not by a type Yashy
+    // checked, so the call has to say `unsafe` where the risk is taken.
+    let stderr = check_fails(
+        "variadic-unsafe",
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    printf(\"%d\\n\", 42 as i32);\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("requires an `unsafe` call"),
+        "the diagnostic names the missing marker:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("C does not check their types"),
+        "and says why:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_bare_int_variadic_argument_names_the_c_width() {
+    // There is no default promotion, so `42` would be an `int` whose width C
+    // does not know. The fix is a cast, and the message says so.
+    let stderr = check_fails(
+        "variadic-bare-int",
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    unsafe printf(\"%d\\n\", 42);\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("needs an explicit C width"),
+        "the diagnostic says the type needs a C width:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("42 as i32"),
+        "and shows the cast that fixes it:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_variadic_marker_on_a_yashy_fn_is_e0902() {
+    let stderr = check_fails(
+        "variadic-on-fn",
+        concat!(
+            "fn show(...) {\n",
+            "    print(1);\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    show();\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("error[E0902]"),
+        "the misplaced marker needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "only allowed as the last parameter of a declaration inside an `extern` block"
+        ),
+        "the message says where the marker goes:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0902"),
+        "the diagnostic links its page:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_variadic_marker_before_another_parameter_is_e0902() {
+    let stderr = check_fails(
+        "variadic-not-last",
+        concat!(
+            "extern \"C\" {\n",
+            "    unsafe fn f(a: i32, ..., b: i32) -> i32;\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(1);\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("error[E0902]"),
+        "the misplaced marker needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("`...` must be the last parameter"),
+        "the message says nothing may follow it:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_variadic_marker_in_a_function_type_is_e0902() {
+    let stderr = check_fails(
+        "variadic-fn-type",
+        concat!(
+            "fn apply(f: fn(*const u8, ...) -> i32) {\n",
+            "    print(1);\n",
+            "}\n",
+            "\n",
+            "fn main() {\n",
+            "    print(1);\n",
+            "}\n",
+        ),
+    );
+    assert!(
+        stderr.contains("error[E0902]"),
+        "a function type cannot be variadic:\n{stderr}"
+    );
+}
+
+#[test]
+fn fmt_round_trips_a_variadic_marker() {
+    let dir = work_dir("fmt-variadic");
+    let file = dir.join("variadic.ya");
+    let canonical = concat!(
+        "extern \"C\" {\n",
+        "    unsafe fn sum(n: i32, ...) -> i32;\n",
+        "}\n",
+        "\n",
+        "fn main() {\n",
+        "    unsafe sum(1, 2 as i32);\n",
+        "}\n",
+    );
+    fs::write(&file, canonical).expect("write variadic.ya");
+
+    let output = Command::new(yashy())
+        .arg("fmt")
+        .arg("-w")
+        .arg(&file)
+        .output()
+        .expect("run the yashy CLI");
+    assert!(
+        output.status.success(),
+        "fmt -w failed:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(
+        fs::read_to_string(&file).expect("the formatted file must be readable"),
+        canonical,
+        "the marker must survive a round trip"
     );
 }
 

@@ -53,6 +53,8 @@ pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 pub const DUPLICATE_EXTERN_SYMBOL: &str = "E0900";
 /// A `link_name` is misplaced or malformed.
 pub const MALFORMED_EXTERN: &str = "E0901";
+/// `...` is written where a variadic marker cannot appear.
+pub const VARIADIC_MISPLACED: &str = "E0902";
 /// A linear value is never released.
 pub const LEAK: &str = "E1000";
 /// A contract clause is not proved.
@@ -169,6 +171,12 @@ pub const CODES: &[Code] = &[
         title: "malformed extern declaration",
         summary: "A `link_name` is written where it is not allowed, or is not a non-empty string.",
         page: include_str!("../../../docs/errors/E0901.md"),
+    },
+    Code {
+        id: VARIADIC_MISPLACED,
+        title: "misplaced variadic marker",
+        summary: "`...` is written on a Yashy `fn`, in a function type, or somewhere other than the end of an `extern` declaration's parameters.",
+        page: include_str!("../../../docs/errors/E0902.md"),
     },
     Code {
         id: LEAK,

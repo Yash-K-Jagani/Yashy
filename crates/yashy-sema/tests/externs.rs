@@ -134,3 +134,80 @@ fn a_wrong_signature_is_caught_by_yashy_not_c() {
         "i32",
     );
 }
+
+/// A program declaring variadic `printf` and a `main` whose body is `body`.
+fn printf_program(body: &str) -> String {
+    format!(
+        "extern \"C\" {{ unsafe fn printf(fmt: *const u8, ...) -> i32; }}\n\
+         fn main() {{ {body} }}"
+    )
+}
+
+#[test]
+fn a_variadic_declaration_reaches_the_hir() {
+    let hir = check(&printf_program("")).expect("the declaration checks");
+    let decl = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Extern(block) => block.decls.first(),
+            _ => None,
+        })
+        .expect("the declaration reaches the HIR");
+    assert!(decl.variadic, "the marker must survive into the HIR");
+    assert_eq!(decl.params.len(), 1, "the fixed parameter stays checked");
+}
+
+#[test]
+fn a_variadic_call_accepts_arguments_beyond_the_fixed_ones() {
+    check(&printf_program(r#"unsafe printf("%d\n", 42 as i32);"#))
+        .expect("one fixed argument and one variadic argument check");
+    check(&printf_program(
+        r#"unsafe printf("%d %s\n", 42 as i32, "x");"#,
+    ))
+    .expect("two variadic arguments check");
+}
+
+#[test]
+fn a_variadic_call_still_needs_its_fixed_arguments() {
+    assert_rejected(
+        &printf_program("unsafe printf();"),
+        "expected at least 1 arguments",
+    );
+}
+
+#[test]
+fn a_variadic_call_needs_unsafe_for_the_extra_arguments() {
+    // The fixed format argument alone is a safe call; once a value past it is
+    // passed, the callee reads bytes Yashy did not check, so the call says so.
+    assert_rejected(
+        &printf_program(r#"printf("%d\n", 42 as i32);"#),
+        "requires an `unsafe` call",
+    );
+}
+
+#[test]
+fn a_variadic_argument_must_have_a_c_width() {
+    assert_rejected(
+        &printf_program(r#"unsafe printf("%d\n", 42);"#),
+        "needs an explicit C width",
+    );
+}
+
+#[test]
+fn a_variadic_argument_must_be_a_type_c_can_pass() {
+    assert_rejected(
+        &printf_program(r#"unsafe printf("%d\n", true);"#),
+        "cannot have type",
+    );
+}
+
+#[test]
+fn two_declarations_that_disagree_about_the_marker_are_e0900() {
+    let program = r#"extern "C" {
+        unsafe fn printf(fmt: *const u8) -> i32;
+        unsafe fn also_printf(fmt: *const u8, ...) -> i32 link_name "printf";
+    }
+    fn main() { }"#;
+    assert_rejected(program, "`(*u8) -> i32` and `(*u8, ...) -> i32`");
+}

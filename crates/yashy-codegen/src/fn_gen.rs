@@ -65,7 +65,10 @@ pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
 /// — an empty body would silently replace the C function — so this function has
 /// no path that produces a body.
 pub fn gen_extern_decl(module: &mut Module, d: &HirExternDecl) {
-    let params: Vec<String> = d.params.iter().map(|p| repr_type(&p.ty.kind)).collect();
+    let mut params: Vec<String> = d.params.iter().map(|p| repr_type(&p.ty.kind)).collect();
+    if d.variadic {
+        params.push("...".to_string());
+    }
     let ret = fn_return_repr(&d.ret.kind);
     // The symbol, not the Yashy name: `link_name` is what makes a declaration
     // resolvable when the two differ.

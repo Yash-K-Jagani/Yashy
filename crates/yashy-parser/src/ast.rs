@@ -312,6 +312,14 @@ pub struct ExternDecl {
     /// the checker puts in scope, `symbol` is what the linker resolves.
     pub symbol: Option<String>,
     pub params: Vec<Param>,
+    /// Whether the declaration ends in `...`, the variadic marker.
+    ///
+    /// C's `printf` takes a fixed format and then any number of arguments whose
+    /// types the compiler cannot check. The flag records the marker so the
+    /// checker can require at least the fixed arguments and codegen can spell
+    /// the `declare` and the call's function type. Only an `extern` declaration
+    /// may be variadic: a Yashy `fn` has a fixed signature.
+    pub variadic: bool,
     pub ret: Option<TypeExpr>,
     pub span: Span,
 }

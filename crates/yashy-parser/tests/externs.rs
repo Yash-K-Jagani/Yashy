@@ -80,6 +80,48 @@ fn an_extern_declaration_must_be_unsafe() {
 }
 
 #[test]
+fn a_trailing_marker_makes_a_declaration_variadic() {
+    let (_, _, decls) =
+        extern_item(r#"extern "C" { unsafe fn printf(fmt: *const u8, ...) -> i32; }"#);
+    assert_eq!(decls.len(), 1);
+    assert!(decls[0].variadic, "the marker must be recorded");
+    assert_eq!(decls[0].params.len(), 1, "the fixed parameters stay named");
+    assert_eq!(decls[0].params[0].name, "fmt");
+}
+
+#[test]
+fn a_marker_before_another_parameter_is_e0902() {
+    let diagnostics = parse(r#"extern "C" { unsafe fn f(a: i32, ..., b: i32) -> i32; }"#)
+        .expect_err("nothing may follow `...`");
+    assert!(
+        diagnostics.iter().any(|d| d.code == Some("E0902")
+            && d.message.contains("must be the last parameter")),
+        "the marker must be reported as misplaced: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn a_marker_on_a_yashy_fn_is_e0902() {
+    let diagnostics = parse("fn show(...) { }").expect_err("a Yashy `fn` cannot be variadic");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0902") && d.message.contains("`extern` block")),
+        "the marker must be reported as misplaced: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn a_marker_in_a_function_type_is_e0902() {
+    let diagnostics =
+        parse("fn apply(f: fn(*const u8, ...) -> i32) { }").expect_err("a function type is fixed");
+    assert!(
+        diagnostics.iter().any(|d| d.code == Some("E0902")),
+        "the marker must be reported as misplaced: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn an_empty_extern_block_is_a_diagnostic() {
     let diagnostics =
         parse(r#"extern "C" { }"#).expect_err("a block with no declarations must be rejected");

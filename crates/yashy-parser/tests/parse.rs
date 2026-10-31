@@ -159,6 +159,7 @@ fn full_program(spans: &mut Spans) -> Program {
                 ExternDecl {
                     name: "puts".to_string(),
                     symbol: None,
+                    variadic: false,
                     params: vec![Param {
                         name: "s".to_string(),
                         ty: TypeExpr::Name("string".to_string(), spans.take()),
@@ -170,6 +171,7 @@ fn full_program(spans: &mut Spans) -> Program {
                 ExternDecl {
                     name: "now".to_string(),
                     symbol: None,
+                    variadic: false,
                     params: Vec::new(),
                     ret: None,
                     span: spans.take(),
@@ -624,11 +626,20 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             ExternDecl {
                 name: "puts".to_string(),
                 symbol: None,
+                variadic: false,
                 params: Vec::new(),
                 ret: None,
                 span: here(),
             },
-            &["ExternDecl", "name", "symbol", "params", "ret", "span"],
+            &[
+                "ExternDecl",
+                "name",
+                "symbol",
+                "variadic",
+                "params",
+                "ret",
+                "span",
+            ],
             // `unsafe` is forbidden as well as absent: spec 8.1 makes it
             // mandatory on every declaration, so there is nothing to store and
             // M5 must not add a flag that is always true. If someone does add
@@ -816,6 +827,7 @@ fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
             ExternDecl {
                 name: "puts".to_string(),
                 symbol: None,
+                variadic: false,
                 params: vec![Param {
                     name: "s".to_string(),
                     ty: TypeExpr::Name("string".to_string(), ty_span),
@@ -827,6 +839,7 @@ fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
             ExternDecl {
                 name: "now".to_string(),
                 symbol: None,
+                variadic: false,
                 params: Vec::new(),
                 ret: None,
                 span: bare_span,
@@ -908,6 +921,7 @@ fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
         decls.push(ExternDecl {
             name: "extra".to_string(),
             symbol: None,
+            variadic: false,
             params: Vec::new(),
             ret: None,
             span: Span::SYNTHETIC,

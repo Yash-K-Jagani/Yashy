@@ -603,7 +603,16 @@ fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, 
         (b'*', Some(b'=')) => (2, K::StarEq),
         (b'/', Some(b'=')) => (2, K::SlashEq),
         (b'%', Some(b'=')) => (2, K::PercentEq),
-        (b'.', Some(b'.')) => (2, K::DotDot),
+        (b'.', Some(b'.')) => {
+            // `..` or `...`: the variadic marker is three dots, and the
+            // longest match wins so `..` is only reached when no third dot
+            // follows.
+            if third == Some(b'.') {
+                (3, K::DotDotDot)
+            } else {
+                (2, K::DotDot)
+            }
+        }
         (b':', Some(b'=')) => (2, K::ColonEq),
         (b'&', Some(b'&')) => (2, K::AndAnd),
         (b'|', Some(b'|')) => (2, K::OrOr),
@@ -1020,6 +1029,7 @@ mod tests {
             TokenKind::LParen, TokenKind::RParen, TokenKind::LBrace, TokenKind::RBrace,
             TokenKind::LBracket, TokenKind::RBracket, TokenKind::Comma, TokenKind::Semi,
             TokenKind::Colon, TokenKind::ColonEq, TokenKind::Dot, TokenKind::DotDot,
+            TokenKind::DotDotDot,
             TokenKind::Arrow, TokenKind::At, TokenKind::Question, TokenKind::Plus,
             TokenKind::Minus, TokenKind::Star, TokenKind::Slash, TokenKind::Percent,
             TokenKind::Eq, TokenKind::EqEq, TokenKind::Bang, TokenKind::BangEq, TokenKind::Lt,

@@ -213,6 +213,30 @@ pub fn link_name_must_not_be_empty(span: Span) -> ParseError {
         .with_code(yashy_common::codes::MALFORMED_EXTERN)
 }
 
+/// `...` written where a variadic marker cannot appear.
+///
+/// Only the last parameter of an `extern` declaration may be `...`. A Yashy
+/// `fn` has a fixed signature, and a function type describes a call Yashy makes,
+/// so neither can carry the marker. Reported where it was written, with the
+/// catalog code that explains the rule.
+pub fn variadic_only_on_extern(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "`...` is only allowed as the last parameter of a declaration inside an `extern` block",
+    )
+    .with_code(yashy_common::codes::VARIADIC_MISPLACED)
+}
+
+/// `...` followed by another parameter.
+///
+/// A variadic parameter stands for "any number of arguments after the fixed
+/// ones", so nothing can follow it: a parameter written after `...` could never
+/// be checked against an argument.
+pub fn variadic_must_be_last(span: Span) -> ParseError {
+    ParseError::new(span, "`...` must be the last parameter")
+        .with_code(yashy_common::codes::VARIADIC_MISPLACED)
+}
+
 /// A token that cannot begin an item.
 pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(

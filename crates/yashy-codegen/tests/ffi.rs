@@ -115,6 +115,7 @@ fn a_raw_pointer_argument_is_passed_unchanged() {
     let decl = HirExternDecl {
         name: "touch".to_string(),
         symbol: None,
+        variadic: false,
         params: vec![HirParam {
             name: "p".to_string(),
             ty: Type {

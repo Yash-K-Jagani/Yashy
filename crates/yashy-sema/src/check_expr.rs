@@ -106,6 +106,9 @@ struct FnSig {
 struct ExternSymbol {
     name: String,
     sig: FnSig,
+    /// Whether the declaration ended in `...`. Two declarations of one symbol
+    /// that disagree about this describe different calling conventions.
+    variadic: bool,
     span: Span,
     /// The module the declaration was written in, so the collision diagnostic
     /// names that file rather than whichever module was read last.
@@ -441,6 +444,12 @@ pub struct Checker<'src> {    scope: Scope,
     /// Names declared inside an `extern` block. A call to one of these follows
     /// the FFI boundary rules, which user functions do not (spec §8.1).
     externs: HashSet<String>,
+    /// The `extern` names declared with a trailing `...`.
+    ///
+    /// The declaration's type is still `fn(fixed...) -> ret`; the flag is kept
+    /// separately because a call to a variadic function accepts arguments beyond
+    /// the fixed parameters, which no ordinary function type does.
+    variadic_externs: HashSet<String>,
     /// Every error found, with the file it belongs to. A single-file check has
     /// one file and an import graph has several, so the file is recorded at the
     /// moment the error is reported rather than taken from `self.file` at the
@@ -739,6 +748,7 @@ impl<'src> Checker<'src> {
             self_type: None,
             fn_ret: None,
             externs: HashSet::new(),
+            variadic_externs: HashSet::new(),
             errors: Vec::new(),
             file,
             release: options.release,
@@ -782,23 +792,59 @@ impl<'src> Checker<'src> {
                     ExternSymbol {
                         name: decl.name.clone(),
                         sig: sig.clone(),
+                        variadic: decl.variadic,
                         span: decl.span,
                         file: self.file,
                     },
                 );
             }
-            Some(existing) if same_signature(&existing.sig, sig) => {}
+            Some(existing) if same_signature(&existing.sig, sig) && existing.variadic == decl.variadic => {}
             Some(existing) => {
                 let message = format!(
                     "`{}` and `{}` both resolve to symbol `{}`, but their signatures differ: `{}` and `{}`",
                     decl.name,
                     existing.name,
                     symbol,
-                    signature_text(&existing.sig),
-                    signature_text(sig),
+                    signature_text(&existing.sig, existing.variadic),
+                    signature_text(sig, decl.variadic),
                 );
                 self.error_code(decl.span, codes::DUPLICATE_EXTERN_SYMBOL, message);
             }
+        }
+    }
+
+    /// Check one argument past a variadic declaration's fixed parameters.
+    ///
+    /// C passes these bytes with no type information: the callee's format string
+    /// decides how to read them. Yashy therefore does not compare the argument
+    /// with any parameter type, but it does require a type whose machine
+    /// representation C has -- a fixed-width integer, a float, a pointer, or a
+    /// `string` (which codegen converts). A Yashy `int` is refused because its
+    /// width is the compiler's, not C's: the program must write the C width with
+    /// a cast, and there is no default promotion to hide the mistake.
+    fn check_variadic_argument(&mut self, arg: &HirExpr) {
+        let ty = expr_ty(arg);
+        match &ty.kind {
+            TypeKind::CInt(_)
+            | TypeKind::CUInt(_)
+            | TypeKind::CFloat(_)
+            | TypeKind::CSize
+            | TypeKind::CPtr(_)
+            | TypeKind::Str
+            | TypeKind::F64 => {}
+            TypeKind::I64 => self.error(
+                expr_span(arg),
+                "a variadic argument of type `int` needs an explicit C width; write \
+                 `42 as i32` (C `int`) or another fixed-width integer so the call \
+                 site says which bytes C reads",
+            ),
+            _ => self.error(
+                expr_span(arg),
+                format!(
+                    "a variadic argument cannot have type `{ty}`: C has no fixed \
+                     representation for it"
+                ),
+            ),
         }
     }
 
@@ -1745,6 +1791,9 @@ impl<'src> Checker<'src> {
                     }
                     self.fns.insert(decl.name.clone(), sig.clone());
                     self.externs.insert(decl.name.clone());
+                    if decl.variadic {
+                        self.variadic_externs.insert(decl.name.clone());
+                    }
                     self.check_extern_symbol(decl, &sig);
                 }
             }
@@ -2738,6 +2787,7 @@ impl<'src> Checker<'src> {
                     .map(|decl| HirExternDecl {
                         name: decl.name.clone(),
                         symbol: decl.symbol.clone(),
+                        variadic: decl.variadic,
                         params: decl
                             .params
                             .iter()
@@ -6910,7 +6960,25 @@ impl<'src> Checker<'src> {
                 match resolved {
                     Some(ty) => match ty.kind {
                         TypeKind::Func(params, ret) => {
-                            if params.len() != args.len() {
+                            // A variadic `extern` accepts any number of
+                            // arguments beyond its fixed parameters; C checks
+                            // the fixed ones and leaves the rest to the
+                            // caller. Everything else is exact.
+                            let variadic = self.variadic_externs.contains(&name);
+                            if variadic {
+                                if args.len() < params.len() {
+                                    self.error_code(
+                                        *span,
+                                        codes::WRONG_ARGUMENT_COUNT,
+                                        format!(
+                                            "expected at least {} arguments, found {}",
+                                            params.len(),
+                                            args.len()
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            } else if params.len() != args.len() {
                                 self.error_code(
                                     *span,
                                     codes::WRONG_ARGUMENT_COUNT,
@@ -6967,6 +7035,28 @@ impl<'src> Checker<'src> {
                                     }
                                 }
                                 arg_exprs.push(checked);
+                            }
+                            // The arguments past the fixed parameters are the
+                            // variadic tail. C does not check their types, so
+                            // Yashy does not either -- but it does insist the
+                            // program wrote a type C can pass unchanged, and it
+                            // makes the call say `unsafe`, because the callee's
+                            // format string decides how these bytes are read.
+                            if variadic {
+                                for arg in args.iter().skip(params.len()) {
+                                    let checked = self.check_expr(arg)?;
+                                    self.check_variadic_argument(&checked);
+                                    arg_exprs.push(checked);
+                                }
+                                if args.len() > params.len() && !*unsafe_call {
+                                    self.error(
+                                        *span,
+                                        format!(
+                                            "calling `{name}` with variadic arguments requires an \
+                                             `unsafe` call: C does not check their types"
+                                        ),
+                                    );
+                                }
                             }
                             // A raw pointer is an address, so there is nothing
                             // to copy at the boundary: C may keep or free what
@@ -8438,8 +8528,14 @@ fn same_signature(a: &FnSig, b: &FnSig) -> bool {
 }
 
 /// A signature as the `E0900` message writes it: `(int, f64) -> int`.
-fn signature_text(sig: &FnSig) -> String {
-    let params: Vec<String> = sig.params.iter().map(|p| p.to_string()).collect();
+///
+/// The variadic marker is part of the signature: `(i8*, ...) -> i32` and
+/// `(i8*) -> i32` are different calling conventions.
+fn signature_text(sig: &FnSig, variadic: bool) -> String {
+    let mut params: Vec<String> = sig.params.iter().map(|p| p.to_string()).collect();
+    if variadic {
+        params.push("...".to_string());
+    }
     format!("({}) -> {}", params.join(", "), sig.ret)
 }
 

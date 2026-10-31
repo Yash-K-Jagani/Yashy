@@ -1,7 +1,8 @@
 // The C boundary, exercised end to end: a line of output through `puts`, a
 // length through `strlen` (whose `usize` result needs an explicit cast), a
-// heap block through `malloc`/`free` (whose `usize` argument does too), and a
-// hardware square root through `link_name`.
+// heap block through `malloc`/`free` (whose `usize` argument does too), a
+// hardware square root through `link_name`, and a formatted line through the
+// variadic `printf`.
 //
 // `puts` copies the string argument, so the literal's storage is never handed
 // to C. `free` is an `unsafe` call because a pointer crosses unchanged.
@@ -9,12 +10,18 @@
 // `c_sqrt` is the reason `link_name` exists: the Yashy name is `c_sqrt`, the
 // symbol is `sqrt`, and the two are allowed to differ so a declaration can call
 // a C function whose name is already taken by a Yashy one (`math.sqrt`).
+//
+// `printf` is variadic: everything after the format is passed as written, so
+// the integer argument is spelled with its C width (`42 as i32`) rather than
+// as a Yashy `int`, and the call is `unsafe` because C reads those bytes by the
+// format string's rules, not by a type Yashy checked.
 extern "C" link "m" {
     unsafe fn puts(s: *const u8) -> i32;
     unsafe fn strlen(s: *const u8) -> usize;
     unsafe fn malloc(n: usize) -> *mut u8;
     unsafe fn free(p: *mut u8) -> void;
     unsafe fn c_sqrt(x: f64) -> f64 link_name "sqrt";
+    unsafe fn printf(fmt: *const u8, ...) -> i32;
 }
 
 fn main() {
@@ -25,6 +32,8 @@ fn main() {
     // 9 is a perfect square, so the hardware result is exactly 3.
     print(c_sqrt(9.0) == 3.0);
     println("");
+
+    unsafe printf("%d %s\n", 42 as i32, "x");
 
     const buffer = malloc(64 as usize);
     unsafe free(buffer);

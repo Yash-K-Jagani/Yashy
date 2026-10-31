@@ -46,7 +46,7 @@ pub fn gen_ffi_call(
         let is_c_string_parameter = matches!(
             decl.params.get(index).map(|p| &p.ty.kind),
             Some(TypeKind::CPtr(_))
-        );
+        ) || (decl.variadic && index >= decl.params.len());
         if matches!(arg.ty, TypeKind::Str) && is_c_string_parameter {
             let data = ctx.tmp();
             if unsafe_call {
@@ -73,20 +73,27 @@ pub fn gen_ffi_call(
     }
 
     let ret = fn_return_repr(&decl.ret.kind);
+    // LLVM needs the full function type at a vararg call site, because the
+    // arguments after the fixed ones carry no types of their own:
+    // `call i32 (i8*, ...) @printf(i8* %fmt, i64 %n)`. A non-variadic call
+    // names the symbol alone.
+    let callee = if decl.variadic {
+        let fixed: Vec<String> = decl.params.iter().map(|p| repr_type(&p.ty.kind)).collect();
+        let type_params = if fixed.is_empty() {
+            "...".to_string()
+        } else {
+            format!("{}, ...", fixed.join(", "))
+        };
+        format!("{ret} ({type_params}) @{}", decl.symbol())
+    } else {
+        format!("{ret} @{}", decl.symbol())
+    };
     let result = if ret == "void" {
-        ctx.push(format!(
-            "call void @{}({})",
-            decl.symbol(),
-            operands.join(", ")
-        ));
+        ctx.push(format!("call {callee}({})", operands.join(", ")));
         String::new()
     } else {
         let result = ctx.tmp();
-        ctx.push(format!(
-            "{result} = call {ret} @{}({})",
-            decl.symbol(),
-            operands.join(", ")
-        ));
+        ctx.push(format!("{result} = call {callee}({})", operands.join(", ")));
         result
     };
 
