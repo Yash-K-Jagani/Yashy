@@ -91,6 +91,17 @@ struct Printer<'a> {
     /// struct literal is part of the clause's expression, not the body's, and
     /// is printed as usual.
     in_clause: bool,
+    /// Inside a lambda's parameter bars, between the opening and closing `|`.
+    ///
+    /// `|` is both a lambda delimiter and bitwise or, so the printer tracks the
+    /// bars: a `|` while this is set closes a lambda; a `|` while it is clear
+    /// opens one only where an expression may begin (otherwise it is bitwise).
+    in_lambda_bars: bool,
+    /// The previous token was a lambda bar, so the current token takes no space
+    /// after it. Bitwise `|` is not a bar and does want the space.
+    prev_lambda_bar: bool,
+    /// The previous token opened a lambda's bars rather than closing them.
+    prev_lambda_bar_opens: bool,
 }
 
 impl<'a> Printer<'a> {
@@ -103,6 +114,9 @@ impl<'a> Printer<'a> {
             prev: None,
             compact_brace: false,
             in_clause: false,
+            in_lambda_bars: false,
+            prev_lambda_bar: false,
+            prev_lambda_bar_opens: false,
         }
     }
 
@@ -252,6 +266,34 @@ impl<'a> Printer<'a> {
     /// it.
     fn token(&mut self, token: &Token, next: Option<TokenKind>, struct_lit: bool) {
         let text = &self.src[token.span.start as usize..token.span.end as usize];
+        // `|` is two things. Between the bars of a lambda it is the closing
+        // delimiter; anywhere an expression may begin it opens one; and after
+        // an operand it is bitwise or. The token stream alone cannot tell the
+        // last two apart, so "after an operand" is the test.
+        let mut lambda_bar = false;
+        let mut lambda_bar_opens = false;
+        if token.kind == TokenKind::Pipe {
+            if self.in_lambda_bars {
+                self.in_lambda_bars = false;
+                lambda_bar = true;
+            } else if !matches!(
+                self.prev,
+                Some(
+                    TokenKind::Ident
+                        | TokenKind::I64
+                        | TokenKind::F64
+                        | TokenKind::Str
+                        | TokenKind::Char
+                        | TokenKind::RParen
+                        | TokenKind::RBracket
+                        | TokenKind::Question
+                )
+            ) {
+                self.in_lambda_bars = true;
+                lambda_bar = true;
+                lambda_bar_opens = true;
+            }
+        }
         // `{}` stays on one line: it is a container with nothing in it, and
         // splitting it would put the closing brace under the opening one.
         let compact = token.kind == TokenKind::RBrace && self.compact_brace;
@@ -295,7 +337,18 @@ impl<'a> Printer<'a> {
                 // here, not a keyword, so the spacing rule needs the text.
                 let pointer_qualifier =
                     token.kind == TokenKind::Ident && text == "mut" && prev == TokenKind::Star;
-                if !pointer_qualifier && needs_space(prev, token.kind) {
+                // A lambda bar binds to what it delimits: an opening bar keeps
+                // the space before it and drops the one after; a closing bar
+                // drops the one before it and keeps the one after. A bitwise
+                // `|` is an operator and wants air on both sides.
+                let space = if token.kind == TokenKind::Pipe {
+                    !lambda_bar || lambda_bar_opens
+                } else if prev == TokenKind::Pipe {
+                    !(self.prev_lambda_bar && self.prev_lambda_bar_opens)
+                } else {
+                    needs_space(prev, token.kind)
+                };
+                if !pointer_qualifier && space {
                     self.out.push(' ');
                 }
             }
@@ -325,6 +378,8 @@ impl<'a> Printer<'a> {
             }
         }
         self.prev = Some(token.kind);
+        self.prev_lambda_bar = lambda_bar;
+        self.prev_lambda_bar_opens = lambda_bar_opens;
     }
 
     /// Write the owed break: newlines up to the requested count, then the
@@ -385,7 +440,7 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     if matches!(prev, Colon | Comma) {
         return true;
     }
-    if matches!(prev, LParen | LBracket | Dot | DotDot | Bang) {
+    if matches!(prev, LParen | LBracket | Dot | DotDot | Bang | Tilde) {
         return false;
     }
     // A call or a subscript binds to the name before it, but an opening
@@ -399,16 +454,6 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     }
     // `{}` is one token pair, not two lines.
     if matches!((prev, cur), (LBrace, RBrace)) {
-        return false;
-    }
-    // A lambda's bars bind to its parameter list: `|x: i64|`. The bar before
-    // the name takes no space, and the bar that closes the list takes none
-    // either. The arrow after the closing bar still gets one, because it is
-    // not part of the list.
-    if matches!(prev, Pipe) && matches!(cur, Ident) {
-        return false;
-    }
-    if matches!(cur, Pipe) && matches!(prev, Ident | RBracket) {
         return false;
     }
     true

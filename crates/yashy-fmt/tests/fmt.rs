@@ -223,6 +223,15 @@ fn a_trailing_comma_keeps_its_closer_attached() {
 }
 
 #[test]
+fn bitwise_operators_keep_their_parentheses() {
+    // `a & b | c ^ ~d` parses as `((a & b) | (c ^ (~d)))`; the printer keeps
+    // that shape with no parentheses added and none removed.
+    let source = "fn main() {\n    const r = a & b | c ^ ~d;\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), source, "formatting must be idempotent");
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = yashy_fmt::format(source).expect_err("bad input must be reported");

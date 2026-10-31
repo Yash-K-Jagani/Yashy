@@ -801,7 +801,7 @@ fn reports_unexpected_character_instead_of_skipping_it() {
     // A character with no token is a diagnostic. Dropping it would shift every
     // later span by one byte and hide the typo, so the assertion is that the
     // input fails, not merely that it produces something.
-    for src in ["#", "\\", "&", "\u{1f600}", "1 \u{0} 2"] {
+    for src in ["#", "\\", "\u{1f600}", "1 \u{0} 2"] {
         let diags = errors(src);
         assert_eq!(diags.len(), 1, "{src:?}: {:?}", messages(&diags));
         assert!(diags[0].message.contains("unexpected character"), "{src:?}: {:?}", diags[0].message);

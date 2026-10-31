@@ -15,12 +15,16 @@ use yashy_hir::hir::{BinOp, HirExpr, Literal};
 /// tightly than the context it sits in.
 const OR: u8 = 1;
 const AND: u8 = 2;
-const COMPARE: u8 = 3;
-const ADDITIVE: u8 = 4;
-const MULTIPLICATIVE: u8 = 5;
-const UNARY: u8 = 6;
-const POSTFIX: u8 = 7;
-const ATOM: u8 = 8;
+const BIT_OR: u8 = 3;
+const BIT_XOR: u8 = 4;
+const BIT_AND: u8 = 5;
+const COMPARE: u8 = 6;
+const SHIFT: u8 = 7;
+const ADDITIVE: u8 = 8;
+const MULTIPLICATIVE: u8 = 9;
+const UNARY: u8 = 10;
+const POSTFIX: u8 = 11;
+const ATOM: u8 = 12;
 
 /// `expr` as source text.
 pub fn expr(expr: &HirExpr) -> String {
@@ -31,7 +35,11 @@ fn precedence(op: BinOp) -> u8 {
     match op {
         BinOp::Or => OR,
         BinOp::And => AND,
+        BinOp::BitOr => BIT_OR,
+        BinOp::BitXor => BIT_XOR,
+        BinOp::BitAnd => BIT_AND,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => COMPARE,
+        BinOp::Shl | BinOp::Shr => SHIFT,
         BinOp::Add | BinOp::Sub => ADDITIVE,
         BinOp::Mul | BinOp::Div | BinOp::Rem => MULTIPLICATIVE,
     }

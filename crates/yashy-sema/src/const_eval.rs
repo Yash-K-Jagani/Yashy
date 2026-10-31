@@ -384,6 +384,11 @@ fn check_expr(
                     *span,
                     format!("cannot apply `!` to `{}`", inner.kind),
                 )),
+                UnOp::BitNot if inner.kind.is_integer() => Ok(inner),
+                UnOp::BitNot => Err(TypeError::new(
+                    *span,
+                    format!("cannot apply `~` to `{}`", inner.kind),
+                )),
             }
         }
         Expr::Call {
@@ -508,6 +513,37 @@ fn binary_kind(op: BinOp, left: &Type, right: &Type, span: Span) -> Result<Type,
         BinOp::And | BinOp::Or => {
             if left.kind == TypeKind::Bool && right.kind == TypeKind::Bool {
                 return Ok(bool_type());
+            }
+            Err(TypeError::new(
+                span,
+                format!(
+                    "cannot apply `{}` to `{}` and `{}`",
+                    op.symbol(),
+                    left.kind,
+                    right.kind
+                ),
+            ))
+        }
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+            if left.kind == TypeKind::Bool && right.kind == TypeKind::Bool {
+                return Ok(bool_type());
+            }
+            if left.kind.is_integer() && left.kind == right.kind {
+                return Ok(left.clone());
+            }
+            Err(TypeError::new(
+                span,
+                format!(
+                    "cannot apply `{}` to `{}` and `{}`",
+                    op.symbol(),
+                    left.kind,
+                    right.kind
+                ),
+            ))
+        }
+        BinOp::Shl | BinOp::Shr => {
+            if left.kind.is_integer() && left.kind == right.kind {
+                return Ok(left.clone());
             }
             Err(TypeError::new(
                 span,
@@ -712,6 +748,11 @@ pub fn evaluate(
                     *span,
                     format!("cannot apply `!` to `{}`", other.kind()),
                 )),
+                (UnOp::BitNot, ConstValue::I64(value)) => Ok(ConstValue::I64(!value)),
+                (UnOp::BitNot, other) => Err(ConstError::new(
+                    *span,
+                    format!("cannot apply `~` to `{}`", other.kind()),
+                )),
             }
         }
         Expr::Call {
@@ -910,6 +951,32 @@ fn evaluate_binary(
             Ok(ConstValue::Bool(*a && *b))
         }
         (BinOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a || *b)),
+        (BinOp::BitAnd, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a & b)),
+        (BinOp::BitOr, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a | b)),
+        (BinOp::BitXor, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a ^ b)),
+        (BinOp::BitAnd, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+            Ok(ConstValue::Bool(*a && *b))
+        }
+        (BinOp::BitOr, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a || *b)),
+        (BinOp::BitXor, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+            Ok(ConstValue::Bool(*a ^ *b))
+        }
+        (BinOp::Shl, ConstValue::I64(a), ConstValue::I64(b)) => {
+            if *b < 0 || *b >= 64 {
+                return Err(ConstError::new(span, "shift amount out of range".to_string()));
+            }
+            a.checked_shl(*b as u32)
+                .map(ConstValue::I64)
+                .ok_or_else(|| overflow(span))
+        }
+        (BinOp::Shr, ConstValue::I64(a), ConstValue::I64(b)) => {
+            if *b < 0 || *b >= 64 {
+                return Err(ConstError::new(span, "shift amount out of range".to_string()));
+            }
+            a.checked_shr(*b as u32)
+                .map(ConstValue::I64)
+                .ok_or_else(|| overflow(span))
+        }
         _ => Err(ConstError::new(
             span,
             format!(

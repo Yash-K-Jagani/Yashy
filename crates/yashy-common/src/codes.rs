@@ -27,6 +27,10 @@ pub const UNKNOWN_NAME: &str = "E0001";
 pub const UNKNOWN_TYPE: &str = "E0002";
 /// An expression's type does not match its context.
 pub const TYPE_MISMATCH: &str = "E0100";
+/// A bitwise operator is applied to a non-integer (or non-bool for the logical forms).
+pub const BITWISE_NOT_INTEGER: &str = "E0103";
+/// A bitwise operator is applied to two different types.
+pub const BITWISE_MIXED_TYPES: &str = "E0104";
 /// A struct or enum variant has no such field.
 pub const UNKNOWN_FIELD: &str = "E0200";
 /// A struct literal or pattern leaves a field out.
@@ -85,6 +89,18 @@ pub const CODES: &[Code] = &[
         title: "type mismatch",
         summary: "An expression's type does not match its context.",
         page: include_str!("../../../docs/errors/E0100.md"),
+    },
+    Code {
+        id: BITWISE_NOT_INTEGER,
+        title: "bitwise operand is not an integer",
+        summary: "A bitwise operator was applied to a value that is not an integer.",
+        page: include_str!("../../../docs/errors/E0103.md"),
+    },
+    Code {
+        id: BITWISE_MIXED_TYPES,
+        title: "bitwise operands have different types",
+        summary: "A bitwise operator was applied to two integers of different types.",
+        page: include_str!("../../../docs/errors/E0104.md"),
     },
     Code {
         id: UNKNOWN_FIELD,

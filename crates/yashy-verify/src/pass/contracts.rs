@@ -685,7 +685,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 }
                 match op {
                     UnOp::Neg => value.neg(),
-                    UnOp::Not => Value::top(),
+                    UnOp::Not | UnOp::BitNot => Value::top(),
                 }
             }
             HirExpr::Move(inner, ..) => self.eval(inner, env),

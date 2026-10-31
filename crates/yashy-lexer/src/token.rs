@@ -722,11 +722,33 @@ pub enum TokenKind {
     PercentEq,
     AndAnd,
     OrOr,
-    /// `|` on its own: the bar that opens a lambda's parameter list.
+    /// `|` on its own: bitwise or, or the bar that opens a lambda's parameter
+    /// list.
     ///
     /// `||` is still [`TokenKind::OrOr`]; the two-character operator is
     /// matched first, so a lambda's bars and the logical or never collide.
+    /// `|=` is [`TokenKind::PipeEq`].
     Pipe,
+    /// `&` on its own: bitwise and.
+    Amp,
+    /// `^` on its own: bitwise xor.
+    Caret,
+    /// `~` on its own: bitwise not.
+    Tilde,
+    /// `<<`: left shift.
+    Shl,
+    /// `>>`: right shift.
+    Shr,
+    /// `&=`: compound bitwise and.
+    AmpEq,
+    /// `|=`: compound bitwise or.
+    PipeEq,
+    /// `^=`: compound bitwise xor.
+    CaretEq,
+    /// `<<=`: compound left shift.
+    ShlEq,
+    /// `>>=`: compound right shift.
+    ShrEq,
 
     // Everything whose text is its value.
     Ident,
@@ -927,6 +949,16 @@ impl TokenKind {
             TokenKind::AndAnd => Naming::Fixed("&&"),
             TokenKind::OrOr => Naming::Fixed("||"),
             TokenKind::Pipe => Naming::Fixed("|"),
+            TokenKind::Amp => Naming::Fixed("&"),
+            TokenKind::Caret => Naming::Fixed("^"),
+            TokenKind::Tilde => Naming::Fixed("~"),
+            TokenKind::Shl => Naming::Fixed("<<"),
+            TokenKind::Shr => Naming::Fixed(">>"),
+            TokenKind::AmpEq => Naming::Fixed("&="),
+            TokenKind::PipeEq => Naming::Fixed("|="),
+            TokenKind::CaretEq => Naming::Fixed("^="),
+            TokenKind::ShlEq => Naming::Fixed("<<="),
+            TokenKind::ShrEq => Naming::Fixed(">>="),
 
             // The six kinds whose text is their value have no spelling: there
             // is no one way to write `an identifier`, only many.

@@ -573,6 +573,11 @@ impl<'src> Parser<'src> {
             TokenKind::StarEq => Some(BinOp::Mul),
             TokenKind::SlashEq => Some(BinOp::Div),
             TokenKind::PercentEq => Some(BinOp::Rem),
+            TokenKind::AmpEq => Some(BinOp::BitAnd),
+            TokenKind::PipeEq => Some(BinOp::BitOr),
+            TokenKind::CaretEq => Some(BinOp::BitXor),
+            TokenKind::ShlEq => Some(BinOp::Shl),
+            TokenKind::ShrEq => Some(BinOp::Shr),
             _ => None,
         };
         if let Some(op) = compound {

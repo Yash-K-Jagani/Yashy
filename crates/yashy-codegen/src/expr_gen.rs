@@ -979,6 +979,14 @@ fn gen_binary(
         BinOp::Rem => (if is_float { "frem" } else { "srem" }, ty.clone()),
         BinOp::And => ("and", TypeKind::Bool),
         BinOp::Or => ("or", TypeKind::Bool),
+        BinOp::BitAnd => ("and", ty.clone()),
+        BinOp::BitOr => ("or", ty.clone()),
+        BinOp::BitXor => ("xor", ty.clone()),
+        BinOp::Shl => ("shl", ty.clone()),
+        BinOp::Shr => (
+            if ty.is_signed_integer() { "ashr" } else { "lshr" },
+            ty.clone(),
+        ),
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
             let pred = cmp_predicate(op, is_float, matches!(l.ty, TypeKind::Char));
             let cmp_ty = repr_type(&l.ty);
@@ -1075,6 +1083,10 @@ fn gen_unary(
         }
         UnOp::Not => {
             ctx.push(format!("{tmp} = xor i1 {}, true", value.value));
+        }
+        UnOp::BitNot => {
+            let repr = repr_type(&value.ty);
+            ctx.push(format!("{tmp} = xor {repr} {}, -1", value.value));
         }
     }
     GenValue {

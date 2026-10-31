@@ -21,11 +21,41 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_and(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_eq()?;
+        let mut lhs = self.parse_bit_or()?;
         while self.eat(TokenKind::AndAnd) {
-            let rhs = self.parse_eq()?;
+            let rhs = self.parse_bit_or()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
             lhs = Expr::Binary { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_or(&mut self) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_bit_xor()?;
+        while self.eat(TokenKind::Pipe) {
+            let rhs = self.parse_bit_xor()?;
+            let span = cover(expr_span(&lhs), expr_span(&rhs));
+            lhs = Expr::Binary { op: BinOp::BitOr, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_xor(&mut self) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_bit_and()?;
+        while self.eat(TokenKind::Caret) {
+            let rhs = self.parse_bit_and()?;
+            let span = cover(expr_span(&lhs), expr_span(&rhs));
+            lhs = Expr::Binary { op: BinOp::BitXor, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+        Ok(lhs)
+    }
+
+    fn parse_bit_and(&mut self) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_eq()?;
+        while self.eat(TokenKind::Amp) {
+            let rhs = self.parse_eq()?;
+            let span = cover(expr_span(&lhs), expr_span(&rhs));
+            lhs = Expr::Binary { op: BinOp::BitAnd, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
         }
         Ok(lhs)
     }
@@ -49,12 +79,30 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_cmp(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_add()?;
+        let mut lhs = self.parse_shift()?;
         loop {
             let op = if self.eat(TokenKind::Lt) { Some(BinOp::Lt) }
                 else if self.eat(TokenKind::LtEq) { Some(BinOp::Le) }
                 else if self.eat(TokenKind::Gt) { Some(BinOp::Gt) }
                 else if self.eat(TokenKind::GtEq) { Some(BinOp::Ge) }
+                else { None };
+            match op {
+                Some(op) => {
+                    let rhs = self.parse_shift()?;
+                    let span = cover(expr_span(&lhs), expr_span(&rhs));
+                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+                }
+                None => break,
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_add()?;
+        loop {
+            let op = if self.eat(TokenKind::Shl) { Some(BinOp::Shl) }
+                else if self.eat(TokenKind::Shr) { Some(BinOp::Shr) }
                 else { None };
             match op {
                 Some(op) => {
@@ -137,6 +185,11 @@ impl<'src> Parser<'src> {
             let operand = self.parse_unary()?;
             let span = expr_span(&operand);
             return Ok(Expr::Unary { op: UnOp::Not, operand: Box::new(operand), span });
+        }
+        if self.eat(TokenKind::Tilde) {
+            let operand = self.parse_unary()?;
+            let span = expr_span(&operand);
+            return Ok(Expr::Unary { op: UnOp::BitNot, operand: Box::new(operand), span });
         }
         let base = self.parse_cast()?;
         Ok(base)

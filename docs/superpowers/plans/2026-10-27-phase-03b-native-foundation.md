@@ -65,11 +65,11 @@ Carried from the spec and enforced by tests:
 - Produces: `x &= y`, `x |= y`, `x ^= y`, `x <<= y`, `x >>= y` as statements; the compound form requires a `var` binding (`E0400` otherwise, the existing code).
 - Produces: codegen uses `ashr` for a signed right shift and `lshr` for an unsigned one — the signedness is in the type, not in the operator.
 
-- [ ] **Step 1: Write the failing tests** — every operator on every integer type prints the expected value; `~0` on `i64` is `-1` and on `u8` is `255`; a signed `>>` of `-8` by 1 is `-4` (arithmetic) and an unsigned `>>` of `248u8` by 1 is `124` (logical); `1 << 3 | 1` is `9` (precedence); `~x` on a `float` is `E0103`; `1u8 & 1i64` is `E0104`; `x &= 3` on a `const` is `E0400`; the formatter round-trips `a & b | c ^ ~d` with the parentheses the parse implies.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lexer's operator match is longest-first; the parser's Pratt table gains five binary and one prefix entry at the stated binding powers; the checker has one `integer_operands` helper that returns the common type or the diagnostic, and `bool` is admitted for the three logical forms only; codegen picks `shl`/`ashr`/`lshr` from `TypeKind` and the rest are direct.
-- [ ] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: bitwise operators with no implicit widening (E0103, E0104)"`
+- [x] **Step 1: Write the failing tests** — every operator on every integer type prints the expected value; `~0` on `i64` is `-1` and on `u8` is `255`; a signed `>>` of `-8` by 1 is `-4` (arithmetic) and an unsigned `>>` of `248u8` by 1 is `124` (logical); `1 << 3 | 1` is `9` (precedence); `~x` on a `float` is `E0103`; `1u8 & 1i64` is `E0104`; `x &= 3` on a `const` is `E0400`; the formatter round-trips `a & b | c ^ ~d` with the parentheses the parse implies.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lexer's operator match is longest-first; the parser's Pratt table gains five binary and one prefix entry at the stated binding powers; the checker has one `integer_operands` helper that returns the common type or the diagnostic, and `bool` is admitted for the three logical forms only; codegen picks `shl`/`ashr`/`lshr` from `TypeKind` and the rest are direct.
+- [x] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: bitwise operators with no implicit widening (E0103, E0104)"`
 
 ---
 

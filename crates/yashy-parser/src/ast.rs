@@ -878,6 +878,11 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 impl BinOp {
@@ -898,6 +903,11 @@ impl BinOp {
             BinOp::Ge => ">=",
             BinOp::And => "&&",
             BinOp::Or => "||",
+            BinOp::BitAnd => "&",
+            BinOp::BitOr => "|",
+            BinOp::BitXor => "^",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
         }
     }
 }
@@ -908,6 +918,7 @@ impl BinOp {
 pub enum UnOp {
     Neg,
     Not,
+    BitNot,
 }
 
 impl UnOp {
@@ -916,6 +927,7 @@ impl UnOp {
         match self {
             UnOp::Neg => "-",
             UnOp::Not => "!",
+            UnOp::BitNot => "~",
         }
     }
 }

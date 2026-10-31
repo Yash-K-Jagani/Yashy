@@ -322,6 +322,17 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn bitwise_operators_print_their_values() {
+    // Every operator, the arithmetic/logical split on `>>`, and the precedence
+    // that makes `1 << 3 | 1` nine rather than sixteen.
+    let output = build_and_run("bitwise");
+    assert_eq!(
+        stdout_of(&output),
+        "8\n14\n6\n-13\n-1\n9\n-4\n124\n255\nfalse\ntrue\nfalse\n"
+    );
+}
+
+#[test]
 fn arguments_arrive_in_order_and_exclude_the_program_path() {
     let (_dir, exe, compile) = build_program("args");
     assert!(
@@ -748,6 +759,86 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
     assert!(
         stderr.lines().any(|line| line.trim_start().starts_with('^')),
         "expected a caret line underlining the offending expression:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_float_bitwise_operand_is_e0103() {
+    let dir = work_dir("bitwise-float");
+    let source = dir.join("bits.ya");
+    fs::write(
+        &source,
+        "fn main() {\n    const x: float = 1.5;\n    print(~x);\n}\n",
+    )
+    .expect("write bits.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "a float bitwise operand is an error");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0103]"),
+        "the bitwise operand diagnostic needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0103"),
+        "the diagnostic must link its catalog page:\n{stderr}"
+    );
+}
+
+#[test]
+fn mixed_bitwise_operands_are_e0104() {
+    let dir = work_dir("bitwise-mixed");
+    let source = dir.join("bits.ya");
+    fs::write(
+        &source,
+        "fn main() {\n    const a = 1 as u8;\n    const b: int = 1;\n    print(a & b);\n}\n",
+    )
+    .expect("write bits.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "mixed integer widths are an error");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0104]"),
+        "the mixed-operand diagnostic needs its code:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0104"),
+        "the diagnostic must link its catalog page:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_compound_bitwise_assignment_to_a_const_is_e0400() {
+    let dir = work_dir("bitwise-const");
+    let source = dir.join("bits.ya");
+    fs::write(
+        &source,
+        "fn main() {\n    const x: int = 1;\n    x &= 3;\n}\n",
+    )
+    .expect("write bits.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "a const cannot be reassigned");
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("error[E0400]"),
+        "the compound assignment must report the const rule:\n{stderr}"
     );
 }
 

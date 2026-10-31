@@ -537,7 +537,8 @@ impl<'src> Lexer<'src> {
     fn scan_punctuation(&mut self, first: u8) -> Result<Option<TokenKind>, Failed> {
         let bytes = self.src.as_bytes();
         let second = peek_at(bytes, self.pos, 1);
-        let (width, kind) = match operator(first, second) {
+        let third = peek_at(bytes, self.pos, 2);
+        let (width, kind) = match operator(first, second, third) {
             Some(found) => found,
             None => {
                 // The span covers the whole character, not just its first byte:
@@ -586,7 +587,7 @@ impl std::fmt::Debug for Lexer<'_> {
 /// `None` means this byte starts nothing Yashy has, which is what turns a
 /// character like `#` into a diagnostic instead of a silently dropped byte that
 /// shifts every span after it.
-fn operator(first: u8, second: Option<u8>) -> Option<(usize, TokenKind)> {
+fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, TokenKind)> {
     use TokenKind as K;
 
     Some(match (first, second) {
@@ -606,11 +607,31 @@ fn operator(first: u8, second: Option<u8>) -> Option<(usize, TokenKind)> {
         (b':', Some(b'=')) => (2, K::ColonEq),
         (b'&', Some(b'&')) => (2, K::AndAnd),
         (b'|', Some(b'|')) => (2, K::OrOr),
+        (b'&', Some(b'=')) => (2, K::AmpEq),
+        (b'|', Some(b'=')) => (2, K::PipeEq),
+        (b'^', Some(b'=')) => (2, K::CaretEq),
+        (b'<', Some(b'<')) => {
+            // << or <<=
+            if third == Some(b'=') {
+                (3, K::ShlEq)
+            } else {
+                (2, K::Shl)
+            }
+        }
+        (b'>', Some(b'>')) => {
+            if third == Some(b'=') {
+                (3, K::ShrEq)
+            } else {
+                (2, K::Shr)
+            }
+        }
+        (b'&', _) => (1, K::Amp),
+        (b'^', _) => (1, K::Caret),
+        (b'~', _) => (1, K::Tilde),
 
-        // One-character operators. `&` is absent on purpose: Yashy has `&&` and
-        // no bitwise operators, so a lone `&` is a typo to report rather than a
-        // token to invent. `|` is the exception: it opens a lambda's parameter
-        // list, and `||` is matched above, so the two never collide.
+        // One-character operators. `&`, `^` and `~` are the bitwise forms;
+        // `&` is matched with its `&&` sibling above, and `|` with `||`. The
+        // longest match wins, so `&` is only reached when no `&&` or `&=` fits.
         (b'=' , _) => (1, K::Eq),
         (b'!', _) => (1, K::Bang),
         (b'<', _) => (1, K::Lt),
@@ -789,7 +810,7 @@ mod tests {
 
     #[test]
     fn an_unknown_byte_is_a_diagnostic() {
-        for src in ["#", "$", "`", "~", "^", "&", "\\", "\u{1}"] {
+        for src in ["#", "$", "`", "\\", "\u{1}"] {
             let d = first_error(src);
             assert!(d.message.starts_with("unexpected character"), "{src:?}: {}", d.message);
             assert_eq!(d.span.start, 0, "{src:?}");

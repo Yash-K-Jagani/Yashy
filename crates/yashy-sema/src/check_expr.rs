@@ -6464,7 +6464,21 @@ impl<'src> Checker<'src> {
                         })
                     }
                     Err(message) => {
-                        self.error(*span, message);
+                        match op {
+                            BinOp::BitAnd
+                            | BinOp::BitOr
+                            | BinOp::BitXor
+                            | BinOp::Shl
+                            | BinOp::Shr => {
+                                let code = if lhs_ty.kind != rhs_ty.kind {
+                                    codes::BITWISE_MIXED_TYPES
+                                } else {
+                                    codes::BITWISE_NOT_INTEGER
+                                };
+                                self.error_code(*span, code, message);
+                            }
+                            _ => self.error(*span, message),
+                        }
                         None
                     }
                 }
@@ -6477,8 +6491,10 @@ impl<'src> Checker<'src> {
                     UnOp::Not if operand_ty.eq_ignoring_span(&prim(TypeKind::Bool)) => {
                         Ok(prim(TypeKind::Bool))
                     }
+                    UnOp::BitNot if operand_ty.kind.is_integer() => Ok(operand_ty),
                     UnOp::Neg => Err(format!("cannot apply `-` to `{operand_ty}`")),
                     UnOp::Not => Err(format!("cannot apply `!` to `{operand_ty}`")),
+                    UnOp::BitNot => Err(format!("cannot apply `~` to `{operand_ty}`")),
                 };
                 match result {
                     Ok(ty) => {
@@ -6493,7 +6509,11 @@ impl<'src> Checker<'src> {
                         })
                     }
                     Err(message) => {
-                        self.error(*span, message);
+                        let code = match op {
+                            UnOp::BitNot => codes::BITWISE_NOT_INTEGER,
+                            _ => codes::TYPE_MISMATCH,
+                        };
+                        self.error_code(*span, code, message);
                         None
                     }
                 }
@@ -8771,6 +8791,34 @@ fn binary_result_type(op: BinOp, lhs: &Type, rhs: &Type) -> Result<Type, String>
             }
             Ok(prim(TypeKind::Bool))
         }
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+            // bool is allowed for the three logical bitwise forms.
+            if lhs.eq_ignoring_span(&prim(TypeKind::Bool))
+                && rhs.eq_ignoring_span(&prim(TypeKind::Bool))
+            {
+                return Ok(prim(TypeKind::Bool));
+            }
+            if !numeric || !lhs.eq_ignoring_span(rhs) {
+                return Err(format!(
+                    "cannot apply `{}` to `{}` and `{}`",
+                    binop_symbol(op),
+                    lhs,
+                    rhs
+                ));
+            }
+            Ok(lhs.clone())
+        }
+        BinOp::Shl | BinOp::Shr => {
+            if !numeric || !lhs.eq_ignoring_span(rhs) {
+                return Err(format!(
+                    "cannot apply `{}` to `{}` and `{}`",
+                    binop_symbol(op),
+                    lhs,
+                    rhs
+                ));
+            }
+            Ok(lhs.clone())
+        }
     }
 }
 
@@ -8790,6 +8838,11 @@ fn binop_symbol(op: BinOp) -> &'static str {
         BinOp::Ge => ">=",
         BinOp::And => "&&",
         BinOp::Or => "||",
+        BinOp::BitAnd => "&",
+        BinOp::BitOr => "|",
+        BinOp::BitXor => "^",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
     }
 }
 

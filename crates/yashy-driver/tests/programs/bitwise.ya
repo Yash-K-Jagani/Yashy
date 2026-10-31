@@ -1,0 +1,41 @@
+// Bitwise operators: `&`, `|`, `^`, `~`, `<<` and `>>` on integers, plus the
+// logical forms of `&`, `|` and `^` on `bool`. A right shift is arithmetic on a
+// signed type and logical on an unsigned one, so the same bits print
+// differently after `as u8`. `1 << 3 | 1` is `9`, which is the precedence:
+// shift binds tighter than bitwise or.
+
+fn main() {
+    const a: int = 12;
+    const b: int = 10;
+    print(a & b);
+    println("");
+    print(a | b);
+    println("");
+    print(a ^ b);
+    println("");
+    print(~a);
+    println("");
+    print(~0);
+    println("");
+    print(1 << 3 | 1);
+    println("");
+    print(-8 >> 1);
+    println("");
+
+    // A `u8` is an unsigned integer, so `>>` is logical: 248 is 0b1111_1000
+    // and shifting in a zero gives 0b0111_1100, which is 124. The C widths are
+    // named through `as`, the only place ordinary code may spell them.
+    const byte = 248 as u8;
+    print((byte >> (1 as u8)) as int);
+    println("");
+    // `~0` on a `u8` is every bit set, which is 255 rather than -1.
+    print((~0 as u8) as int);
+    println("");
+
+    print(true & false);
+    println("");
+    print(true | false);
+    println("");
+    print(true ^ true);
+    println("");
+}
