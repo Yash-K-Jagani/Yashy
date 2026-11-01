@@ -66,9 +66,9 @@ is one byte; and `void` is the absence of a value.
 
 | Spelling | Width | Literal | Operators | Notes |
 |---|---|---|---|---|
-| `int` | 64-bit signed | `42`, `-7` | `+ - * / %`, comparisons | Checked; a fault stops the program. |
+| `int` | 64-bit signed | `42`, `-7` | `+ - * / %`, comparisons, `& \| ^ ~ << >>` | Checked; a fault stops the program. |
 | `float` | 64-bit | `0.5`, `-2.0` | `+ - * / %`, comparisons | No implicit `int` operand. |
-| `bool` | 1 bit (`i1`; one byte in memory) | `true`, `false` | `&& \|\| !`, `== !=` | Conditions must be `bool`. |
+| `bool` | 1 bit (`i1`; one byte in memory) | `true`, `false` | `&& \|\| !`, `& \| ^`, `== !=` | Conditions must be `bool`. |
 | `char` | one byte, 0-255 | `'A'`, `'\n'` | comparisons only | No arithmetic; convert with `to_int`. |
 | `string` | refcount, length, pointer | `"text"` | `+`, `== !=` | `+` concatenates; no ordering. |
 | `void` | no value | — | — | Return type only. |
@@ -78,6 +78,54 @@ Both operands of an arithmetic or comparison operator must have the same type.
 `int` truncates toward zero: `3.9 as int` is `3`, and `-3.9 as int` is `-3`.
 There is no cast from `string` to a number; `s.parse_i64()` exists for that, and
 it answers `Option[int]`: `None` when the text is not a number.
+
+### Bitwise operators
+
+`&`, `|`, `^`, `~`, `<<` and `>>` work on the integer types and, for the first
+three, on `bool`. There is no implicit widening: `u8 & i64` is an error, and a
+`char` or `float` has no bit pattern the language exposes.
+
+```yashy
+fn main() {
+    const flags = 0b1010;
+    const mask = 0b0110;
+    const negative = 0 - 16;
+    print(flags & mask);
+    print(" ");
+    print(flags | mask);
+    print(" ");
+    print(flags ^ mask);
+    print(" ");
+    print(~flags);
+    print(" ");
+    print(1 << 4);
+    print(" ");
+    print(negative >> 2);
+    println();
+    // => 2 14 12 -11 16 -4
+}
+```
+
+`>>` is arithmetic on a signed integer (`-16 >> 2` is `-4`) and logical on an
+unsigned one. A shift count that is negative or at least the operand's width is
+a fault, not a mask: `1 << 64` stops the program, and a `const` shift out of
+range is reported at compile time as `E0105`. When the verifier can prove the
+count is in range, the check is removed; when it cannot, the check stays.
+
+Precedence, loosest first: `||`, `&&`, `|`, `^`, `&`, equality, comparisons,
+shifts, `+ -`, `* / %`. The bitwise levels sit between `&&` and equality, so
+`1 | 2 ^ 3 & 4` groups as `1 | (2 ^ (3 & 4))`:
+
+```yashy
+fn main() {
+    print(1 | 2 ^ 3 & 4);
+    println();
+    // => 3
+}
+```
+
+On `bool`, `&`, `|` and `^` are the eager forms: both operands are evaluated.
+`&&` and `||` are the short-circuit forms described below.
 
 ### `char`
 
@@ -155,21 +203,19 @@ fn main() {
 A float is a decimal point and more digits, and the separator works there too:
 `1_000.5_0` is `1000.5`.
 
-`&&` and `||` take two `bool`s and produce a `bool`. They are not
-short-circuiting in this build: both operands are evaluated before the operator
-runs. That matters when the right side has a side effect or can fault. Write
-nested `if` statements when the second test is only safe after the first:
+`&&` and `||` take two `bool`s and produce a `bool`. They short-circuit: the
+right operand is evaluated only when the left one does not decide the answer.
+That matters when the right side has a side effect or can fault:
 
 ```text
-if n != 0 {
-    if 10 / n > 1 {
-        println("large");
-    }
+if n != 0 && 10 / n > 1 {
+    println("large");
 }
 ```
 
-The one-liner `if n != 0 && 10 / n > 1` divides by zero when `n` is `0`, even
-though the left side is false.
+The division runs only when `n != 0` is true, so `n = 0` takes the false path
+without dividing. `&`, `|` and `^` on `bool` are the eager forms; use them when
+both sides must run.
 
 ## Faults, not wrapping
 
@@ -204,9 +250,9 @@ division: a wrapped quotient is not the quotient of anything.
 - **Casting instead of converting.** `c as int` reports ``error: use `to_int()` ``
   and `n as char` reports ``error: use `to_char()` ``. These are method calls,
   because `to_char` checks its input at run time.
-- **Relying on `&&` to guard a fault.** As above, the right operand still
-  runs. The program stops with `panic: division by zero: 10 / 0` even when the
-  left operand is false.
+- **Using `&` where `&&` is meant.** On `bool`, `&` evaluates both sides.
+  `n != 0 & 10 / n > 1` divides by zero when `n` is `0`; write `&&` when the
+  second test is only safe after the first.
 - **Declaring a binding without a value.** `let x;` reports
   ``error: expected `=`, found `;` ``. A binding is initialized when it is
   created; there is no uninitialized local.

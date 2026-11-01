@@ -146,4 +146,5 @@ a binary is written.
 
 Continue to [01-hello](01-hello.md). If you installed a release and want the
 project-shaped path first, read [12-first-cli](12-first-cli.md); the language
-chapters assume a working `yashy` and can be read in either order.
+chapters assume a working `yashy` and can be read in either order. The last
+chapter, [13-ffi](13-ffi.md), covers calling C.

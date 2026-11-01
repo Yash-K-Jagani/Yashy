@@ -186,7 +186,7 @@ fn build_and_run_inner(
             "{label} does not compile:\n{}",
             String::from_utf8_lossy(&built.stderr)
         );
-        match spawn(&exe, args) {
+        match spawn(&exe, dir, args) {
             Ok(child) => return wait(child, &exe),
             Err(reason) => last = reason,
         }
@@ -201,10 +201,15 @@ fn build_and_run_inner(
 /// with "os error 4551". A blocked *path* tends to stay blocked, so a retry
 /// here is short: the caller rebuilds under a new name instead. Any failure
 /// that is not that block is a real one and is reported.
-fn spawn(exe: &Path, args: &[&str]) -> Result<std::process::Child, String> {
+///
+/// The child runs in the test's work directory, not the crate directory: a
+/// chapter that writes a file (`08-strings.md` round-trips `bytes.bin`) must
+/// leave the artifact where the test already cleans up, not in the repository.
+fn spawn(exe: &Path, dir: &Path, args: &[&str]) -> Result<std::process::Child, String> {
     common::launch_retrying(exe, |path| {
         Command::new(path)
             .args(args)
+            .current_dir(dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

@@ -441,3 +441,7 @@ module, read a command-line argument, tested the project, and built a release
 binary. That is the R1 loop. Later slices add machine-readable diagnostics,
 package management, and the editor and agent integration that make the loop
 faster. The language itself is the one you have been writing all along.
+
+When a program needs a C library, continue to [13-ffi](13-ffi.md): `extern`
+declarations, `link_name`, variadic calls, and the `repr(C)` layout that lets a
+Yashy struct cross the boundary.

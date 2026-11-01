@@ -125,6 +125,17 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **Errors are values.** `Option[T]` for a possibly missing value and
   `Result[T, E]` for a fallible operation; `?` propagates. There are no
   exceptions.
+- **A builtin never answers with a sentinel.** `read_file` is
+  `Result[string, io.Error]`, `getenv` is `Option[string]`, `parse_i64` is
+  `Option[int]`. `""` and `0` are values a program can produce legitimately, so
+  they cannot also mean "failed".
+- **Bitwise arithmetic is checked and total.** `& | ^ ~ << >>` take integers
+  (and `bool` for the first three) with no implicit widening; a shift count out
+  of range is a fault at run time and `E0105` in a `const`. `>>` is arithmetic
+  on a signed integer.
+- **`repr(C)` is a keyword form, not an attribute system.** It is one clause on
+  a struct, enum or object, and it is the only thing that licenses the C
+  spellings `u8`, `i32` and friends. Do not grow it into `#[...]` syntax.
 - **Every feature ships with tests, docs, diagnostics, and a machine-readable
   form** where the plan requires one.
 - **Format touched files.** `cargo fmt --all --check` has pre-existing drift;

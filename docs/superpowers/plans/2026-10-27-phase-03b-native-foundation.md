@@ -246,10 +246,12 @@ Carried from the spec and enforced by tests:
 
 ### Task 8: Docs, diagnostics and the gate
 
-**Files:** `docs/tutorial/{06-strings,08-io,10-ffi,13-errors}.md` (new or rewritten: bitwise, byte buffers, the C boundary, failure as a value), `docs/errors/{E0900,E0901,E0902,E0103,E0105,E0104,E0106,E0107,E0108}.md` (the nine pages, each with cause/example/fix), `docs/errors.md` (nine rows), `AGENTS.md` (identity: bitwise is checked; `repr(C)` is not an attribute system; a builtin never returns a sentinel), `llms.txt`, `docs/cli.md` (no new flags — say so).
+**Files:** `docs/tutorial/{02-values,06-errors,08-strings,13-ffi}.md` (bitwise in the values chapter, byte buffers in the strings chapter, failure as a value in the errors chapter, the C boundary as a new final chapter), `docs/errors/{E0900,E0901,E0902,E0103,E0105,E0104,E0106,E0107,E0108}.md` (the nine pages, each with cause/example/fix), `docs/errors.md` (nine rows), `AGENTS.md` (identity: bitwise is checked; `repr(C)` is not an attribute system; a builtin never returns a sentinel), `llms.txt`, `docs/cli.md` (no new flags — say so).
 
-- [ ] **Step 1: Write the chapters** with runnable blocks, including the C round-trip program from Task 5 as the worked example and the `read_line` EOF program from Task 7 as the failure-as-a-value example.
-- [ ] **Step 2: Run the gate table on both OSes.**
+**Deviation from the plan as first written:** the chapter numbers are the existing ones. The plan's illustrative `{06-strings,08-io,10-ffi,13-errors}` would have renumbered every chapter; the tutorial's numbering is stable and its chapter 12 ends the project path, so the C boundary is `13-ffi.md` and the other three sections are added where the reader already is.
+
+- [x] **Step 1: Write the chapters** with runnable blocks, including the C round-trip program from Task 5 as the worked example and the `read_line` EOF program from Task 7 as the failure-as-a-value example.
+- [x] **Step 2: Run the gate table on both OSes.** Windows: `cargo test --workspace --no-fail-fast` green — every target `test result: ok`, e2e 151, tutorial 2, examples and leaks green; `cargo check --workspace --all-targets` clean. One `yashy-parser` doctest was blocked by Application Control (`os error 4551`) and passed on rerun. Linux runs in CI on push; this host is Windows-only, so it was not executed here.
 - [ ] **Step 3: Commit and record** — `git commit -m "docs: the native foundation, and close phase 3b"`; update the index status and the ledger.
 
 ---

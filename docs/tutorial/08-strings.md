@@ -51,6 +51,80 @@ Out-of-range `byte_at` returns `'\0'` for the same reason: a bad index has an
 answer, so there is no panic path. `get` is the checked alternative: it returns
 `Option[int]`, with `None` outside `0..len`.
 
+## Byte buffers
+
+A string is immutable, so a program that builds bytes one at a time uses a
+buffer: `alloc_bytes(n)` is `n` bytes, and indexing the returned `*mut char`
+reads or writes one `char` (one byte) at a time. The pointer is linear: exactly
+one owner, and `.free()` returns it.
+
+```yashy
+fn main() {
+    let buf = alloc_bytes(4);
+    buf[0] = 'a';
+    buf[1] = 'b';
+    buf[2] = 'c';
+    buf[3] = 'd';
+    print(buf[0]);
+    print(buf[1]);
+    print(buf[2]);
+    print(buf[3]);
+    println();
+    buf.free();
+    // => abcd
+}
+```
+
+`read_bytes(path)` answers `Result[[]char, io.Error]` and `write_bytes(path,
+body)` answers `Result[void, io.Error]`. A file that is missing is `Err`, not an
+empty slice, so the two cases stay different. The slice is a real `[]char`: its
+`len()` is the byte count, and `free()` releases the backing array.
+
+```yashy
+import io;
+
+fn verify(bytes: []char) {
+    print(bytes.len());
+    println();
+    switch bytes[0] {
+        case Some(first) { print(first) }
+        case None { print('?') }
+    }
+    println();
+    bytes.free();
+}
+
+fn load(path: string) -> Result[[]char, io.Error] {
+    const data = read_bytes(path)?;
+    return Ok(data);
+}
+
+fn main() {
+    let data = []char {};
+    data.push('Y');
+    data.push('a');
+    data.push('s');
+    data.push('h');
+    data.push('y');
+    switch write_bytes("bytes.bin", data) {
+        case Ok(_) { println("saved") }
+        case Err(_) { println("failed") }
+    }
+    data.free();
+    switch load("bytes.bin") {
+        case Ok(bytes) { verify(bytes) }
+        case Err(_) { println("failed") }
+    }
+    // => saved
+    // => 5
+    // => Y
+}
+```
+
+`write_bytes` borrows its slice, so `data.free()` after the call is the release,
+not a use after a move. `read_bytes` returns a fresh slice, and the `?` in
+`load` passes an `io.Error` through unchanged.
+
 ## Strings are copied, not moved
 
 Most owning values in Yashy are linear: a pointer or an array has exactly one

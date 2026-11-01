@@ -399,6 +399,19 @@ place.
 
 Prints the compiler version.
 
+## Flags the native foundation did not add
+
+The `link_name`, variadic, `repr(C)` and byte-buffer work extended the language,
+not the command line: it added no option, no environment variable and no JSON
+key. A build script written against an earlier version still parses, and a
+`--json` consumer sees the same envelope and the same diagnostic shape it
+already knew.
+
+The one behavioural change is a signature change, not a flag: the builtins that
+used to report failure as `""` or `0` now answer `Option` or `Result`, so a
+program that called them must match the value. That is a source change a
+diagnostic points at, not a switch to set.
+
 ## Environment
 
 | Variable | Effect |

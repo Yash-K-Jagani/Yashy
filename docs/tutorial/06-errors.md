@@ -5,12 +5,12 @@
 - How a function reports failure in its return type.
 - What `?` does to an `Ok` and to an `Err`.
 - How to report an error to a user without unwinding the stack.
-- Which part of the `?` rule this build enforces, and which part it does not.
+- Why a builtin's failure is a value, not an empty string or a zero.
 
 A function that can fail returns `Result[T, E]`: `Ok(value)` or `Err(error)`.
 There is no exception stack and no hidden unwinding. `?` propagates an `Err`
-to the caller, and the function's return type is supposed to say so. This build
-enforces only part of that promise; the section below shows exactly where.
+to the caller, and the function's return type says so — the checker enforces
+that promise.
 
 ```yashy
 fn half(n: int) -> Result[int, string] {
@@ -57,14 +57,16 @@ declared, not only where it happens to be thrown.
 |---|---|---|
 | `Ok(v)` | `Result[T, E]` | Success carrying `v`. |
 | `Err(e)` | `Result[T, E]` | Failure carrying `e`. |
-| `f(x)?` | `T` | `v` if `f` returned `Ok(v)`; returns `Err(e)` from the enclosing function otherwise. |
+| `f(x)?` | `T` | `v` if `f` returned `Ok(v)` or `Some(v)`; returns the empty case from the enclosing function otherwise. |
 | `switch r { case Ok(v) ... case Err(e) ... }` | depends on arms | The only way to read both sides. |
 | `f(x)` used as a statement | `Result[T, E]`, then discarded | Allowed today; the value is dropped. |
 
-`?` is only legal on an expression whose type is a `Result`; applying it to an
-`int` reports ``error: `?` can only be used on a `Result`, not `int` ``. On an
-`Option`, the same message names `Option[int]`: there is no `?` for `Option` in
-this build.
+`?` is legal on a `Result` and on an `Option`. Applying it to an `int` reports
+``error: `?` can only be used on a `Result` or an `Option`, not `int` ``. On a
+`Result`, the enclosing function must return a `Result` with the same error
+type; on an `Option`, it must return an `Option`. The payload type is whatever
+the success case holds, so `read_line()?` is a `string` even inside a function
+that returns `Option[int]`.
 
 ## The rule, and what is checked
 
@@ -107,6 +109,75 @@ as a statement: `half(3);` compiles and the `Err` is discarded. The type makes
 the possibility visible, but the compiler does not force you to look at it. If
 the result matters, match it or pass it to a function that takes a `Result`.
 
+## Failure is a value
+
+The builtins use the same two shapes. `parse_i64` answers `Option[int]`:
+`Some(0)` for `"0"` and `None` for `"abc"`, so a parsed zero and unparsable text
+are different answers.
+
+```yashy
+fn main() {
+    const zero_text = "0";
+    const text_text = "abc";
+    const zero = zero_text.parse_i64();
+    const text = text_text.parse_i64();
+    print(switch zero {
+        case Some(v) { v }
+        case None { -1 }
+    });
+    print(" ");
+    print(switch text {
+        case Some(v) { v }
+        case None { -1 }
+    });
+    println();
+    // => 0 -1
+}
+```
+
+`getenv` separates "unset" from "set to empty": it answers `None` for a name
+that is not in the environment and `Some("")` for one that is set to nothing.
+
+```yashy
+fn main() {
+    const name = "YASHY_TUTORIAL_UNSET_9F3C";
+    switch getenv(name) {
+        case Some(value) { print(value) }
+        case None { print("unset") }
+    }
+    println();
+    // => unset
+}
+```
+
+`read_line()` is the case the change exists for: at end of input it answers
+`None`, while an empty line is `Some("")`. A loop therefore ends on `None` and
+still counts an empty line:
+
+```text
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+fn count_lines() -> int {
+    let lines = 0;
+    let line = read_line();
+    while present(line) {
+        lines = lines + 1;
+        line = read_line();
+    }
+    return lines;
+}
+```
+
+`read_file` and `getcwd` answer `Result[string, io.Error]` and `write_file`
+answers `Result[void, io.Error]`, so a missing file is `Err(NotFound)` and an
+empty file is `Ok("")`. There is no `""` sentinel and no `0` status to
+misread.
+
 ## Common mistakes
 
 - **Giving `Err` the wrong payload.** `return Err(1);` in a
@@ -114,10 +185,10 @@ the result matters, match it or pass it to a function that takes a `Result`.
   ``error[E0100]: expected `string`, found `int` ``. Construct the error the signature
   promises.
 - **Applying `?` to a number.** `const x = 3?;` reports
-  ``error: `?` can only be used on a `Result`, not `int` ``.
-- **Using `?` in a function that does not return a `Result`.** It reports
-  ``error: `?` needs a function returning `Result` ``. Change the function's
-  return type to `Result[...]`, or match the result instead.
+  ``error: `?` can only be used on a `Result` or an `Option`, not `int` ``.
+- **Using `?` in a function that does not return a `Result` or an `Option`.**
+  It reports ``error: `?` needs a function returning `Result` or `Option` ``.
+  Change the function's return type, or match the result instead.
 - **Mixing the error types of two `?` calls.** A `?` on `Result[int, bool]`
   inside a `Result[int, string]` function reports
   ``error: error type mismatch: `bool` vs `string` ``. Keep one error type
