@@ -547,12 +547,17 @@ fn index_of_call(
         TypeKind::I64 => "yashy_slice_index_of_i64",
         TypeKind::F64 => "yashy_slice_index_of_f64",
         TypeKind::Bool => "yashy_slice_index_of_bool",
+        TypeKind::Char => "yashy_slice_index_of_char",
         TypeKind::Str => "yashy_slice_index_of_string",
         _ => return None,
     };
     let argument = if matches!(element, TypeKind::Bool) {
         let wide = ctx.tmp();
         ctx.push(format!("{wide} = zext i1 {} to i64", value.value));
+        wide
+    } else if matches!(element, TypeKind::Char) {
+        let wide = ctx.tmp();
+        ctx.push(format!("{wide} = zext i8 {} to i64", value.value));
         wide
     } else {
         value.value.clone()

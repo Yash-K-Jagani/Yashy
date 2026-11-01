@@ -56,7 +56,8 @@
 
 use yashy_common::{codes, Diagnostic, FileId, ProofTrace, Severity, Span};
 use yashy_hir::hir::{
-    expr_ty, is_arena_alloc, HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm,
+    builtin_borrows_argument, expr_ty, is_arena_alloc, HirBlock, HirExpr, HirFn, HirItem,
+    HirProgram, HirStmt, HirSwitchArm,
 };
 use yashy_hir::ty::Type;
 
@@ -410,14 +411,12 @@ impl LeakPass<'_> {
             }
             HirExpr::Unary { operand, .. } => self.walk(operand),
             HirExpr::Call { callee, args, .. } => {
-                // An arena hands out a view into memory it owns. Passing the
-                // handle does not give it up -- the next `arena_alloc` uses the
-                // same handle -- so the first argument of `arena_alloc` is a
-                // borrow, not a hand-off. `arena_free_all` is an ordinary call
-                // and does release the handle.
-                let arena = names_arena_alloc(callee);
+                // A builtin that only borrows an argument does not release it.
+                // `arena_alloc` reuses its handle and `write_bytes` only reads
+                // the bytes it is handed; the fact lives in `yashy-hir` so the
+                // checker's move rule and this pass cannot disagree.
                 for (index, arg) in args.iter().enumerate() {
-                    if !(arena && index == 0) {
+                    if !builtin_borrows_argument(callee, index) {
                         self.hand_off(arg);
                     }
                     self.walk(arg);

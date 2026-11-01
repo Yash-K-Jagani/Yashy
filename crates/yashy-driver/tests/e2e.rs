@@ -3630,15 +3630,34 @@ fn a_misspelled_name_gets_a_did_you_mean_label() {
 
 // --- Phase 3b: `repr(C)` and the layout queries ------------------------------
 
+/// The target triple the Yashy compiler emits for `source`.
+///
+/// The differential test hands this to `clang` so both compilers answer for the
+/// same ABI. Without it, a compiler built for one Windows triple (say
+/// `x86_64-pc-windows-gnu`) would be compared against `clang`'s own default
+/// (often `x86_64-pc-windows-msvc`), and the two disagree about the size of
+/// `long` before they ever disagree about a struct.
+fn yashy_target_triple(name: &str, source: &str) -> String {
+    let ir = ir_of(name, source);
+    ir.lines()
+        .find_map(|line| {
+            line.strip_prefix("target triple = \"")
+                .and_then(|rest| rest.strip_suffix('"'))
+        })
+        .unwrap_or_else(|| panic!("the IR must name its target triple:\n{ir}"))
+        .to_string()
+}
+
 /// Compile a C source with `clang` into `dir` and run it.
 ///
 /// The e2e suite already requires `clang` to build a Yashy program, so this
 /// adds no new dependency. The two programs are never linked together: the test
 /// compares what each compiler computed, which is the only thing that can
 /// disagree.
-fn run_c_program(dir: &Path, source: &Path, name: &str) -> Output {
+fn run_c_program(dir: &Path, source: &Path, name: &str, triple: &str) -> Output {
     let exe = dir.join(format!("{name}-c{}", std::env::consts::EXE_SUFFIX));
     let built = Command::new("clang")
+        .arg(format!("--target={triple}"))
         .arg(source)
         .arg("-o")
         .arg(&exe)
@@ -3666,11 +3685,20 @@ fn repr_c_agrees_with_the_c_compiler_about_the_layout() {
     let yashy_output = run(&exe);
 
     let dir = work_dir("repr-c-differential");
-    let c_output = run_c_program(&dir, &programs_dir().join("repr_c.c"), "repr_c");
+    let source = programs_dir().join("repr_c.ya");
+    let triple = yashy_target_triple(
+        "repr-c-triple",
+        &fs::read_to_string(&source).expect("read repr_c.ya"),
+    );
+    let c_output = run_c_program(&dir, &programs_dir().join("repr_c.c"), "repr_c", &triple);
 
+    // The numbers are the claim, not the line endings: C's stdout is in text
+    // mode on Windows and Yashy's is binary from the entry point, so the same
+    // `\n` is two bytes in one program and one in the other.
+    let normalize = |text: String| text.replace("\r\n", "\n");
     assert_eq!(
-        stdout_of(&yashy_output),
-        stdout_of(&c_output),
+        normalize(stdout_of(&yashy_output)),
+        normalize(stdout_of(&c_output)),
         "Yashy's `sizeof`/`alignof`/`offsetof` must agree with C's"
     );
     assert_eq!(
@@ -3678,6 +3706,120 @@ fn repr_c_agrees_with_the_c_compiler_about_the_layout() {
         "12\n4\n0\n4\n8\n",
         "the numbers this struct's fields produce"
     );
+}
+
+// --- Phase 3b Task 6: byte buffers ------------------------------------------
+
+#[test]
+fn byte_buffers_round_trip_a_megabyte_through_a_file() {
+    // A byte buffer is bytes, not elements: `alloc_bytes(4)` is four bytes, so
+    // `buf[i]` is a `char`. The round trip is the proof that `read_bytes` and
+    // `write_bytes` move every byte unchanged, including the ones that are not
+    // valid UTF-8 and the one whose value is zero.
+    let (dir, exe, built) = build_program("bytes");
+    assert!(
+        built.status.success(),
+        "bytes.ya must build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let path = dir.join("payload.bin");
+    let output = run_with_args(
+        &exe,
+        &[path.to_str().expect("the temp path is UTF-8")],
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "abcd\nsaved\n1048576\n0\nmissing\n",
+        "stderr:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(
+        fs::read(&path).expect("the payload must exist").len(),
+        1048576,
+        "the file holds every byte the program wrote"
+    );
+}
+
+#[test]
+fn a_char_does_not_become_an_int_without_a_conversion() {
+    // The buffer's element type is `char`, so reading one and calling it an
+    // `int` is a type error rather than a silent widening. This is what makes
+    // `[]char` an honest byte type instead of an alias for `[]int`.
+    let dir = work_dir("char-is-not-int");
+    let source = dir.join("silent.ya");
+    fs::write(
+        &source,
+        concat!(
+            "fn main() {\n",
+            "    let buf = alloc_bytes(1);\n",
+            "    let n: int = buf[0];\n",
+            "    buf.free();\n",
+            "    print(n);\n",
+            "}\n",
+        ),
+    )
+    .expect("write silent.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "a `char` is not an `int`");
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("error[E0100]"), "{stderr}");
+    assert!(
+        stderr.contains("expected `int`, found `char`"),
+        "the diagnostic names both types:\n{stderr}"
+    );
+}
+
+#[test]
+fn writing_bytes_to_a_directory_reports_not_a_file() {
+    // A directory is not a file, and the error says so instead of falling
+    // through to `Other`: the runtime maps the platform's answer (Windows
+    // `_stat64` and Unix `stat`) onto the same variant.
+    let dir = work_dir("write-bytes-directory");
+    let source = dir.join("directory.ya");
+    fs::write(
+        &source,
+        concat!(
+            "fn main() {\n",
+            "    let data = []char {};\n",
+            "    let saved = write_bytes(\"/\", data);\n",
+            "    data.free();\n",
+            "    switch saved {\n",
+            "        case Ok(_) { println(\"unexpected\") }\n",
+            "        case Err(e) {\n",
+            "            switch e {\n",
+            "                case NotAFile { println(\"not a file\") }\n",
+            "                default { println(\"wrong error\") }\n",
+            "            }\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .expect("write directory.ya");
+
+    let exe = dir.join(format!("directory{}", std::env::consts::EXE_SUFFIX));
+    let built = Command::new(yashy())
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        built.status.success(),
+        "directory.ya must build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let output = run(&exe);
+    assert_eq!(stdout_of(&output), "not a file\n", "stderr:\n{}", stderr_of(&output));
 }
 
 #[test]

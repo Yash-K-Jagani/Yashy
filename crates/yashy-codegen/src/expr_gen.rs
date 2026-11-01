@@ -56,7 +56,7 @@ use yashy_common::Span;
 use yashy_parser::ast::Literal;
 use yashy_sema::{expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp};
 
-use crate::ir::repr_type;
+use crate::ir::{field_repr, repr_type};
 use crate::module::Module;
 
 /// Run every pending deferred body in every active scope, innermost first, then
@@ -1284,14 +1284,21 @@ fn gen_enum_ctor(
     let TypeKind::Enum(enum_name) = ty else {
         return None;
     };
-    if callee.len() != 2 || &callee[0] != enum_name {
+    // The enum name is every segment but the last: `io.Error.NotFound` names
+    // variant `NotFound` of `io.Error`, and `io.Error.NotFound()` constructs
+    // it (its payload is empty so a `()` call works).
+    let (variant_name, rest) = callee.split_last()?;
+    if rest.join(".") != *enum_name {
         return None;
     }
     let variants = ctx.module.enum_variants(ty)?.to_vec();
-    let tag = u8::try_from(variants.iter().position(|v| v.name == callee[1])?).ok()?;
+    let position = variants
+        .iter()
+        .position(|v| v.name == *variant_name)?;
+    let tag = u8::try_from(position).ok()?;
     let mut field = 1u32;
     for variant in &variants {
-        if variant.name == callee[1] {
+        if variant.name == *variant_name {
             break;
         }
         field += variant.fields.len() as u32;
@@ -1464,6 +1471,9 @@ fn gen_call(
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
+        "alloc_bytes" => crate::memory::gen_alloc_bytes(ctx, args),
+        "read_bytes" => crate::file::gen_read_bytes(ctx, args, ty),
+        "write_bytes" => crate::file::gen_write_bytes(ctx, args),
         "push" => crate::slices::gen_push(ctx, args),
         "pop" => crate::slices::gen_pop(ctx, args, ty),
         "slice_set" => crate::slices::gen_set(ctx, args),
@@ -1689,7 +1699,7 @@ fn gen_call(
             let full = ctx.tmp();
             ctx.push(format!(
                 "{full} = insertvalue {repr} {with_tag}, {} {}, {field}",
-                repr_type(&payload.ty),
+                field_repr(&payload.ty),
                 payload.value
             ));
             GenValue {

@@ -1,0 +1,116 @@
+// Byte buffers: bytes, not elements.
+//
+// `alloc_bytes(4)` is four bytes, so `buf[i]` is a `char` -- one byte -- and a
+// program that wants an `int` has to convert. `read_bytes` and `write_bytes`
+// move bytes through a file and report failure as `io.Error`, so a missing file
+// is a value the program handles rather than an empty result that is also what
+// an empty file reads as.
+//
+// Usage: bytes <path>
+
+/// The number a test pins each `io.Error` variant to.
+fn error_code(e: io.Error) -> int {
+    return switch e {
+        case NotFound { 1 }
+        case PermissionDenied { 2 }
+        case AlreadyExists { 3 }
+        case NotAFile { 4 }
+        case Other { 5 }
+    };
+}
+
+/// Print a labelled failure code.
+fn report(label: string, e: io.Error) {
+    print(label);
+    print(error_code(e));
+    println("");
+}
+
+/// Compare the loaded bytes against the pattern that built them, then release
+/// the slice. The parameter owns the slice, so freeing it here returns the
+/// backing array `read_bytes` allocated.
+fn verify(bytes: []char) {
+    print(bytes.len());
+    println("");
+    let mismatches = 0;
+    let j = 0;
+    while j < bytes.len() {
+        const byte = switch bytes[j] {
+            case Some(value) { value }
+            case None { 0.to_char() }
+        };
+        if byte.to_int() != j % 256 {
+            mismatches = mismatches + 1;
+        }
+        j = j + 1;
+    }
+    print(mismatches);
+    println("");
+    bytes.free();
+}
+
+/// Read a file as bytes, propagating a failure with `?`.
+fn load(path: string) -> Result[[]char, io.Error] {
+    const data = read_bytes(path)?;
+    return Ok(data);
+}
+
+fn main() {
+    // Four bytes through a raw pointer: what was written is what is read.
+    let buf = alloc_bytes(4);
+    buf[0] = 'a';
+    buf[1] = 'b';
+    buf[2] = 'c';
+    buf[3] = 'd';
+    print(buf[0]);
+    print(buf[1]);
+    print(buf[2]);
+    print(buf[3]);
+    println("");
+    buf.free();
+
+    let arguments = args();
+    let path = switch arguments[0] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    // `path` borrows the argument's bytes, so the slice outlives every use of
+    // it; the deferred release returns the backing array and the strings.
+    defer {
+        arguments.free();
+    };
+    if path.len() == 0 {
+        println("usage: bytes <path>");
+        return;
+    }
+
+    // A 1 MiB payload built by hand: every byte value, repeated. Writing it and
+    // reading it back must not change a single byte.
+    let data = []char {};
+    let i = 0;
+    while i < 1048576 {
+        data.push((i % 256).to_char());
+        i = i + 1;
+    }
+    switch write_bytes(path, data) {
+        case Ok(_) { println("saved") }
+        case Err(e) { report("save failed ", e) }
+    }
+    data.free();
+
+    switch load(path) {
+        case Ok(bytes) { verify(bytes) }
+        case Err(e) { report("load failed ", e) }
+    }
+
+    // A missing file is a value, not an empty result.
+    switch load("/no/such/yashy/file") {
+        case Ok(_) { println("unexpected") }
+        case Err(e) {
+            switch e {
+                case NotFound { println("missing") }
+                default { println("wrong error") }
+            }
+        }
+    }
+}

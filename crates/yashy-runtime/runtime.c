@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #if defined(_WIN32)
@@ -71,6 +72,18 @@ static void yashy_stdout_binary(void) {
         (void)_setmode(_fileno(stdout), _O_BINARY);
     }
 #endif
+}
+
+/* Switch the process's standard streams out of text mode before any output.
+ *
+ * `yashy_stdout_binary` runs on the first Yashy `print`, but a program may
+ * write first through a C function it declared itself (`printf`, `fwrite`),
+ * and that write would still get the platform's line-ending translation while
+ * every later `println` would not -- the same program, two conventions. The
+ * entry point calls this once, so the program's stdout is byte-exact from its
+ * first byte whichever way the bytes are written. */
+void yashy_runtime_init(void) {
+    yashy_stdout_binary();
 }
 
 void yashy_print_str(const yashy_str *s) {
@@ -213,6 +226,13 @@ void *yashy_alloc(long long size, long long align) {
     ((void **)aligned)[-1] = raw;
     yashy_count_add(&yashy_live_allocations, 1);
     return (void *)aligned;
+}
+
+/* `yashy_alloc_bytes(size)` is `yashy_alloc(size, 1)`: a byte buffer needs no
+ * element-size alignment, just one byte per element. The result is a `*mut
+ * char`, so `buf[i]` is a `char`. */
+void *yashy_alloc_bytes(long long size) {
+    return yashy_alloc(size, 1);
 }
 
 void yashy_free(void *ptr) {
@@ -1353,6 +1373,114 @@ long long yashy_write_file(const char *path, const char *bytes, long long len) {
     return written == (size_t)len && closed == 0 ? 1 : 0;
 }
 
+/* Whether the path names something that is not a regular file: a directory, a
+ * device, or anything else `stat` can describe but `fopen` would not treat as
+ * a file. On Windows this is `_stat64` + `_S_IFREG`; everywhere else it is
+ * `stat` + `S_ISREG`. Writing to a directory must report `NotAFile` on both
+ * platforms, which is what this helper makes possible. */
+static int yashy_path_is_not_a_file(const char *path) {
+#if defined(_WIN32)
+    struct _stat64 st;
+    if (_stat64(path, &st) != 0) {
+        return 0;
+    }
+    return (st.st_mode & _S_IFMT) != _S_IFREG;
+#else
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return !S_ISREG(st.st_mode);
+#endif
+}
+
+/* Map an errno to an `io.Error` variant index: 0 = NotFound, 1 =
+ * PermissionDenied, 2 = AlreadyExists, 3 = NotAFile, 4 = Other. The index is
+ * the enum's tag, so the callers return `1 + index` and the compiler's
+ * `Result` lowering subtracts one to recover it. */
+static int yashy_errno_to_io_error(int err) {
+    switch (err) {
+        case ENOENT:
+            return 0; /* NotFound */
+        case EACCES:
+        case EPERM:
+            return 1; /* PermissionDenied */
+        case EEXIST:
+            return 2; /* AlreadyExists */
+        case EISDIR:
+        case ENOTDIR:
+            return 3; /* NotAFile */
+        default:
+            return 4; /* Other */
+    }
+}
+
+/* Read a file as bytes. Writes the slice header into `out` and returns `0` on
+ * success or `1 + variant_index` on failure, so `io.Error` is a value the
+ * caller matches on rather than an empty string that is also what an empty
+ * file reads as. */
+long long yashy_read_bytes(const char *path, yashy_slice *out) {
+    if (path == NULL || out == NULL) {
+        return 1 + 4; /* Other */
+    }
+    if (yashy_path_is_not_a_file(path)) {
+        return 1 + 3; /* NotAFile */
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    long size = ftell(file);
+    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    /* The slice owns the backing array: allocate it here and hand the header
+     * back. `[]char` elements are one byte each, so `size` bytes is `size`
+     * elements. */
+    char *data = (char *)yashy_alloc((size_t)size > 0 ? (size_t)size : 1, 1);
+    if (data == NULL) {
+        fclose(file);
+        return 1 + 4; /* Other */
+    }
+    size_t got = size == 0 ? 0 : fread(data, 1, (size_t)size, file);
+    int closed = fclose(file);
+    if (got != (size_t)size || closed != 0) {
+        yashy_free(data);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    out->data = data;
+    out->len = (long long)size;
+    out->cap = (long long)size;
+    return 0;
+}
+
+/* Write exactly `len` bytes to a file and report `0` on success or `1 +
+ * variant_index` on failure. `body` is lent: the function reads the bytes and
+ * keeps no pointer, so the caller still owns the slice and may free it. */
+long long yashy_write_bytes(const char *path, const char *bytes, long long len) {
+    if (path == NULL || len < 0) {
+        return 1 + 4; /* Other */
+    }
+    if (yashy_path_is_not_a_file(path)) {
+        return 1 + 3; /* NotAFile */
+    }
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    size_t written = len == 0 ? 0 : fwrite(bytes, 1, (size_t)len, file);
+    int closed = fclose(file);
+    if (written != (size_t)len || closed != 0) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    return 0;
+}
+
 /* The environment value, or the empty string when the name is unset. An empty
  * variable and an unset one read the same in M6 for the same reason a missing
  * file does: no `Option` in a builtin's signature. */
@@ -1885,6 +2013,20 @@ long long yashy_slice_index_of_bool(yashy_slice *slice, long long value) {
     unsigned char needle = value != 0;
     for (long long index = 0; index < slice->len; index++) {
         if ((elements[index] != 0) == needle) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+long long yashy_slice_index_of_char(yashy_slice *slice, long long value) {
+    if (slice == NULL || slice->data == NULL) {
+        return -1;
+    }
+    const unsigned char *elements = (const unsigned char *)slice->data;
+    unsigned char needle = (unsigned char)(value & 0xff);
+    for (long long index = 0; index < slice->len; index++) {
+        if (elements[index] == needle) {
             return index;
         }
     }

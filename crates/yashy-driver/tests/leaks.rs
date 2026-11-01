@@ -358,6 +358,23 @@ fn a_return_from_a_nested_block_releases_the_enclosing_scope() {
 }
 
 #[test]
+fn byte_buffers_release_the_allocation_and_the_slice() {
+    // `bytes.ya` allocates a four-byte buffer through `alloc_bytes`, frees it,
+    // builds a 1 MiB `[]char`, writes and reads it, and frees the slice. The
+    // runtime's `read_bytes` allocates the slice's backing array, so the report
+    // proves both the explicit buffer and the returned slice came back.
+    let (dir, exe) = build("bytes");
+    let path = dir.join("payload.bin");
+    let output = run_program_with_args(&exe, &[path.to_str().expect("the temp path is UTF-8")]);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "abcd\nsaved\n1048576\n0\nmissing\n",
+        "the program prints its witnesses before exiting"
+    );
+    assert_no_leaks("bytes", &output);
+}
+
+#[test]
 fn a_break_or_continue_from_a_nested_block_releases_the_loop_body() {
     // `loop_exit.ya` builds a string at the top of a loop body, then leaves the
     // body from inside an `if`. The `if` block is not the loop body, so the

@@ -125,7 +125,7 @@ pub struct Module {
 impl Module {
     /// An empty module.
     pub fn new() -> Self {
-        Self {
+        let mut module = Self {
             lines: Vec::new(),
             strings: Vec::new(),
             named_types: Vec::new(),
@@ -144,7 +144,21 @@ impl Module {
             atomic_strings: false,
             externs: HashMap::new(),
             extern_symbols: HashSet::new(),
-        }
+        };
+
+        // `io.Error` is a language builtin, so its layout is emitted in every
+        // module. `define_enum` is idempotent, so this is safe even when no
+        // program uses it; it is what makes `%enum.io.Error` appear eagerly,
+        // matching the checker's builtin enum table.
+        let variants: Vec<VariantRepr> = yashy_sema::ty::IO_ERROR_VARIANTS
+            .iter()
+            .map(|name| VariantRepr {
+                name: (*name).to_string(),
+                fields: Vec::new(),
+            })
+            .collect();
+        module.define_enum("io.Error", variants, false);
+        module
     }
 
     /// Record a C declaration for this module's call sites.
@@ -647,10 +661,21 @@ out.push_str("declare void @yashy_print_line_str(i8*)\n");
         out.push_str("declare i8* @yashy_read_file(i8*)\n");
         out.push_str("declare i64 @yashy_write_file(i8*, i8*, i64)\n");
         out.push_str("declare i8* @yashy_getenv(i8*)\n");
+        // Byte buffers (phase 3b Task 6). `yashy_alloc_bytes` is `yashy_alloc`
+        // with alignment 1 and a byte count; `yashy_read_bytes`/`yashy_write_bytes`
+        // report failure as an `io.Error` variant index plus one, so `0` is the
+        // only success code.
+        out.push_str("declare i8* @yashy_alloc_bytes(i64)\n");
+        out.push_str("declare i64 @yashy_read_bytes(i8*, ptr)\n");
+        out.push_str("declare i64 @yashy_write_bytes(i8*, i8*, i64)\n");
+        out.push_str("declare i64 @yashy_slice_index_of_char(ptr, i64)\n");
         // Program arguments, the working directory, and the clock (R1 slice 2).
         // `args_init` is called once at the entry point; `args_slice` fills a
         // fresh `[]string` of owned strings. Declared up front like the rest,
         // so a program that does not use them still produces the same set.
+        // The entry point's one setup call: stdout leaves text mode before the
+        // program's first statement, so a C write and a Yashy `print` agree.
+        out.push_str("declare void @yashy_runtime_init()\n");
         out.push_str("declare void @yashy_args_init(i32, i8**)\n");
         out.push_str("declare void @yashy_args_slice(ptr)\n");
         out.push_str("declare i8* @yashy_getcwd()\n");

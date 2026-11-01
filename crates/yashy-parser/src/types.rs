@@ -63,6 +63,11 @@ impl<'src> Parser<'src> {
         match self.peek() {
             TokenKind::LParen => self.parse_paren_type(),
             TokenKind::Ident => self.parse_named_type(),
+            // `io` is a modifier keyword, but `io.Error` is the name of the
+            // language's builtin IO error enum. A type name may use a keyword as
+            // a segment for the same reason an import path may: the word is a
+            // name here, not a modifier.
+            TokenKind::Io => self.parse_named_type(),
             TokenKind::Star => self.parse_pointer_type(),
             TokenKind::LBracket => self.parse_bracket_type(),
             TokenKind::Fn => self.parse_fn_type(),
@@ -257,8 +262,26 @@ impl<'src> Parser<'src> {
 
     /// A named type, and the two generic spellings that hang off one.
     fn parse_named_type(&mut self) -> Result<TypeExpr, ParseError> {
-        let (first, start) = self.identifier()?;
+        let (first, start) = self.type_segment()?;
         self.finish_named_type(first, start)
+    }
+
+    /// One segment of a dotted type name.
+    ///
+    /// Accepts a keyword as well as an identifier, because a name such as
+    /// `io.Error` starts with a modifier keyword. What is recorded is the
+    /// segment's own text, so `io` here is the word `io`.
+    fn type_segment(&mut self) -> Result<(String, Span), ParseError> {
+        let kind = self.peek();
+        if kind != TokenKind::Ident && !kind.is_keyword() {
+            return Err(self.type_expected_error());
+        }
+        let token = self.advance();
+        let name = self.text(token.span)?;
+        if name.is_empty() {
+            return Err(crate::error::unreadable_text(token.span));
+        }
+        Ok((name, token.span))
     }
 
     /// The rest of a named type once its first segment has been read.
@@ -275,7 +298,7 @@ impl<'src> Parser<'src> {
         // terminates on anything a lexer can produce.
         while self.check(TokenKind::Dot) {
             self.advance();
-            let (segment, segment_span) = self.identifier()?;
+            let (segment, segment_span) = self.type_segment()?;
             spelled.push('.');
             spelled.push_str(&segment);
             end = segment_span;

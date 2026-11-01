@@ -698,6 +698,31 @@ pub fn is_arena_alloc(name: &str) -> bool {
     name == "arena_alloc"
 }
 
+/// Whether `callee` only *borrows* argument `index`, even though the
+/// parameter's type is linear.
+///
+/// A linear parameter normally consumes its argument, so a call site is a move
+/// and the binding is spent afterwards. Two builtins are different:
+///
+/// - `arena_alloc(arena, n)` reuses the arena handle across many allocations.
+/// - `write_bytes(path, body)` copies the bytes to a file and keeps no pointer
+///   to them, so the caller still owns the array and may free it.
+///
+/// The checker reads this so it does not move the binding, and the verifier's
+/// leak pass reads it so handing the value to the call does not count as a
+/// release. Both halves have to agree, so the fact lives here next to the HIR
+/// they both read.
+pub fn builtin_borrows_argument(callee: &[String], index: usize) -> bool {
+    let [name] = callee else {
+        return false;
+    };
+    match name.as_str() {
+        "arena_alloc" => index == 0,
+        "write_bytes" => index == 1,
+        _ => false,
+    }
+}
+
 /// The span of a typed expression.
 pub fn expr_span(expr: &HirExpr) -> Span {
     match expr {

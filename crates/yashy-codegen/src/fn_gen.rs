@@ -179,6 +179,10 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
         ctx.env = env.map(|name| name.to_string());
         ctx.begin_entry();
         if entry_point {
+            // The process's streams leave text mode before the first statement,
+            // so a C `printf` the program declares and a Yashy `print` write
+            // the same bytes for a `\n`.
+            ctx.push("call void @yashy_runtime_init()");
             // The process's vector is the only portable source of `args()`.
             // Stored once, before any Yashy statement can run; a recursive
             // `main` call passes a null pair and the runtime keeps this one.

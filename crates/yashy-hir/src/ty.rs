@@ -296,3 +296,24 @@ pub fn never(span: Span) -> Type {
         span,
     }
 }
+
+/// The variants of the builtin `io.Error` enum, in declaration order.
+///
+/// `io.Error` is the failure half of the byte-buffer builtins'
+/// `Result[..., io.Error]`. It is declared by the language rather than by a
+/// program, so the checker, the backend and the runtime have to agree about
+/// it: the runtime reports a failure as a small integer (`0` is success and
+/// `n + 1` is variant `n`), the checker registers this list as an enum so a
+/// `switch` over it can be exhaustive, and the backend emits the same tags.
+/// The list lives here, next to the type both of them read, so the three
+/// cannot drift apart.
+pub const IO_ERROR_VARIANTS: [&str; 5] = [
+    "NotFound",
+    "PermissionDenied",
+    "AlreadyExists",
+    "NotAFile",
+    "Other",
+];
+
+/// The number of `io.Error` variants, which is the highest tag plus one.
+pub const IO_ERROR_VARIANT_COUNT: usize = IO_ERROR_VARIANTS.len();

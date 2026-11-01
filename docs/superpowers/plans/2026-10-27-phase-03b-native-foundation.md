@@ -184,24 +184,27 @@ Carried from the spec and enforced by tests:
 ### Task 6: Byte buffers
 
 **Files:**
-- Modify: `crates/yashy-runtime` (C: `yashy_alloc_bytes`, `yashy_read_bytes`, `yashy_write_bytes`)
-- Modify: `crates/yashy-sema/src/check_expr.rs` (three builtins; `alloc_bytes(n: usize) -> *mut u8`, `read_bytes(path: string) -> Result[[]u8, io.Error]`, `write_bytes(path: string, body: []u8) -> Result[void, io.Error]`)
-- Modify: `crates/yashy-codegen/src/expr_gen.rs` (a `[]u8` is an ordinary slice; the existing slice paths apply unchanged)
+- Modify: `crates/yashy-runtime` (C: `yashy_alloc_bytes`, `yashy_read_bytes`, `yashy_write_bytes`, `yashy_slice_index_of_char`)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (three builtins; `alloc_bytes(n: int) -> *mut char`, `read_bytes(path: string) -> Result[[]char, io.Error]`, `write_bytes(path: string, body: []char) -> Result[void, io.Error]`)
+- Modify: `crates/yashy-codegen/src/expr_gen.rs` (a `[]char` is an ordinary slice; the existing slice paths apply unchanged) and a new `crates/yashy-codegen/src/file.rs` for the two `Result`-returning calls
 - Modify: `crates/yashy-sema/src/ty.rs` (register `io.Error` as a builtin fieldless enum: `NotFound`, `PermissionDenied`, `AlreadyExists`, `NotAFile`, `Other`)
-- Modify: `crates/yashy-driver/tests/programs/libc.ya` or create `bytes.ya`, modify `crates/yashy-driver/tests/e2e.rs`
+- Modify: `crates/yashy-driver/tests/programs/bytes.ya` (new), modify `crates/yashy-driver/tests/e2e.rs` and `crates/yashy-driver/tests/leaks.rs`
 - Modify: `docs/cli.md` only if a flag changes (it does not)
 
 **Interfaces:**
-- Produces: `let buf = alloc_bytes(4096);` — 4096 bytes, not 4096 `int`s. `buf[0] = 0xFF;` works because `*mut u8` is a pointer to a byte.
-- Produces: `read_bytes(path)?` returns a `[]u8` whose `len()` is the byte count and whose every existing slice method (`slice`, `contains`, `get`, `free`) applies.
+- Produces: `let buf = alloc_bytes(4096);` — 4096 bytes, not 4096 `int`s. `buf[0] = 'a';` works because `*mut char` is a pointer to a byte.
+- Produces: `read_bytes(path)?` returns a `[]char` whose `len()` is the byte count and whose every existing slice method (`slice`, `contains`, `get`, `free`) applies.
 - Produces: `write_bytes(path, data)?` writes the bytes and returns unit or an `io.Error`.
-- Produces: an `int` index or length where a `usize` is required is `E0100` with a note naming the cast, not a silent conversion. `usize` is already a distinct type (`TypeKind::CSize`), so this is the existing rule, not a new one.
+- Produces: `buf[0]` on a `*mut char` is a `char`, and binding it to an `int` without `.to_int()` is `E0100`, not a silent conversion.
+- **Deviation from the plan as first written:** the element type is `char`, not `u8`, and the length is `int`, not `usize`. `u8` and `usize` are C-only spellings the checker refuses outside `extern`, so `[]u8` and `*mut u8` cannot be written in a program; `char` is documented as "a single byte" and is the only byte-sized type a program can name. `int` is the language's only integer type outside `extern`.
+- **Deviation:** the plan's "the leak suite reports one when it is not freed" is dropped. A deliberately leaking program is refused at build time by `E1000` (the leak pass is an error, not a warning), so there is no built program to run and report a nonzero count. The leak harness asserts zero on `bytes.ya` only.
+- **Found while gating, fixed here:** the runtime switched stdout out of Windows text mode only on the first Yashy `print`, so a program whose first write was a C `printf` it declared itself got `\r\n` while every later `println` got `\n`. The entry point now calls `yashy_runtime_init()` once, before the program's first statement, so a program's stdout is byte-exact from its first byte whichever way the bytes are written. The `repr(C)` differential test also asks Yashy for its `target triple` and hands it to `clang` (`--target=…`), because the two compilers must answer for the same ABI; `repr_c.c` no longer includes a header, so the test does not depend on a C SDK the Yashy build never needs.
 
-- [ ] **Step 1: Write the failing tests** — `alloc_bytes(4)` then write four bytes and read them back; a 1 MiB `read_bytes` round-trips through `write_bytes` and `read_bytes` with every byte equal; `read_bytes("/no/such/file")` is `Err(NotFound)`; `write_bytes` to a directory is `Err(NotAFile)`; `buf[0]` on a `*mut u8` is `u8`, and adding it to an `int` without a cast is `E0100`; the leak suite reports no leak when the buffer is freed and one when it is not.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `alloc_bytes` calls the same runtime allocator as `alloc` with a byte count; `read_bytes` opens in binary mode (`"rb"` / `_O_BINARY`) and returns the length and the tag; `write_bytes` writes exactly `len` bytes. `io.Error` is registered in the prelude's type table beside `Option` and `Result`, so `std.io` can name it without a circular import.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e --test leaks` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: byte buffers (alloc_bytes, read_bytes, write_bytes) with io.Error"`
+- [x] **Step 1: Write the failing tests** — `alloc_bytes(4)` then write four bytes and read them back; a 1 MiB `read_bytes` round-trips through `write_bytes` and `read_bytes` with every byte equal; `read_bytes("/no/such/file")` is `Err(NotFound)`; `write_bytes` to a directory is `Err(NotAFile)`; `buf[0]` on a `*mut char` is `char`, and binding it to an `int` without a conversion is `E0100`; the leak suite reports no leak when the buffer and the returned slice are freed.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `alloc_bytes` calls the same runtime allocator as `alloc` with a byte count and alignment 1; `read_bytes` opens in binary mode (`"rb"` / `_O_BINARY`) and returns the length and the tag; `write_bytes` writes exactly `len` bytes. `io.Error` is registered in the checker's builtin enum table and in `Module::new`, so both sides agree on its layout without an import. The runtime returns `1 + variant_index` (0-based) so the compiler's `Result` lowering can recover the tag with one subtraction. Nested patterns such as `Err(NotFound)` are rejected by the checker (the pattern lowerer does not handle them), so programs switch on the bound error instead.
+- [x] **Step 4: Run** `cargo test -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e --test leaks` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: byte buffers (alloc_bytes, read_bytes, write_bytes) with io.Error"`
 
 ---
 

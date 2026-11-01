@@ -424,7 +424,7 @@ const CALLABLE_EXTRAS: &[&str] = &[
 /// `resolve_type_in` resolves these before it looks at the declared structs and
 /// enums, so a "did you mean" suggestion has to offer them too.
 const BUILTIN_TYPE_NAMES: &[&str] = &[
-    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Self",
+    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Self", "io.Error",
 ];
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
@@ -593,8 +593,29 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 30] = [
+        let builtins: [(&str, Vec<Type>, Type); 33] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
+            // Byte buffers (phase 3b). `alloc_bytes(n)` is `n` *bytes*, not `n`
+            // elements, and the result is a pointer to one byte (`char`), so
+            // `buf[i]` is a `char` and a program that wants an `int` has to
+            // convert. The two file calls report failure as `io.Error` instead
+            // of the empty-string convention `read_file` uses, because an empty
+            // file and a missing one are different answers.
+            (
+                "alloc_bytes",
+                vec![prim(TypeKind::I64)],
+                ptr(prim(TypeKind::Char)),
+            ),
+            (
+                "read_bytes",
+                vec![prim(TypeKind::Str)],
+                result_of(slice_of(prim(TypeKind::Char)), io_error()),
+            ),
+            (
+                "write_bytes",
+                vec![prim(TypeKind::Str), slice_of(prim(TypeKind::Char))],
+                result_of(prim(TypeKind::Unit), io_error()),
+            ),
             // Arenas (M3 Task 4): a bump allocator. `arena_new` hands out an
             // opaque handle; `arena_alloc(arena, n)` hands out room for `n`
             // `int`s; `arena_free_all(arena)` releases every block at once.
@@ -778,7 +799,7 @@ impl<'src> Checker<'src> {
         Self {
             scope,
             structs: HashMap::new(),
-            enums: HashMap::new(),
+            enums: builtin_enums(),
             fns: HashMap::new(),
             generics: HashMap::new(),
             type_subst: HashMap::new(),
@@ -4114,21 +4135,26 @@ impl<'src> Checker<'src> {
     ///
     /// The outer `Option` says "the callee is an enum constructor" and the
     /// inner one is the checked expression, `None` after a reported error. A
-    /// two-segment callee whose head is not an enum falls through to the
-    /// ordinary call path, which reports an unknown function as it always did.
+    /// path whose head is not an enum falls through to the ordinary call path,
+    /// which reports an unknown function as it always did.
+    ///
+    /// The enum name is every segment but the last, so `io.Error.NotFound`
+    /// names the variant `NotFound` of `io.Error`. A two-segment path is the
+    /// ordinary case; a longer one is what a builtin enum such as `io.Error`
+    /// needs.
     fn check_enum_call(
         &mut self,
         callee: &[String],
         args: &[Expr],
         span: Span,
     ) -> Option<Option<HirExpr>> {
-        if callee.len() != 2 {
-            return None;
-        }
-        let sig = self.enums.get(&callee[0])?.clone();
-        let variant = sig.variants.iter().find(|v| v.name == callee[1])?.clone();
-        let enum_name = callee[0].clone();
-        let variant_name = callee[1].clone();
+        let (enum_name, variant_name) = split_enum_path(callee)?;
+        let sig = self.enums.get(&enum_name)?.clone();
+        let variant = sig
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .cloned()?;
         if variant
             .fields
             .iter()
@@ -4202,27 +4228,25 @@ impl<'src> Checker<'src> {
     /// `Enum.Variant` for a variant with no payload.
     ///
     /// A dotted name is otherwise a field chain; an enum has no fields, so a
-    /// two-segment name whose head is an enum can only be construction.
+    /// name whose head is an enum can only be construction.
     fn check_enum_path(&mut self, path: &[String], span: Span) -> Option<Option<HirExpr>> {
-        if path.len() != 2 {
-            return None;
-        }
-        let sig = self.enums.get(&path[0])?.clone();
+        let (enum_name, variant_name) = split_enum_path(path)?;
+        let sig = self.enums.get(&enum_name)?.clone();
         // The enum is an item, so it is private to the module that declares
         // it unless it is `pub`.
-        self.check_visibility(&path[0], span);
-        let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
+        self.check_visibility(&enum_name, span);
+        let variant = sig
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .cloned()?;
         if !variant.fields.is_empty() {
             self.error(
                 span,
                 format!(
-                    "variant `{}` of `{}` takes {} field{}; construct it with `{}.{}(...)`",
-                    path[1],
-                    path[0],
+                    "variant `{variant_name}` of `{enum_name}` takes {} field{}; construct it with `{enum_name}.{variant_name}(...)`",
                     variant.fields.len(),
                     if variant.fields.len() == 1 { "" } else { "s" },
-                    path[0],
-                    path[1]
                 ),
             );
             return Some(None);
@@ -4233,7 +4257,7 @@ impl<'src> Checker<'src> {
             unsafe_call: false,
             span,
             ty: Type {
-                kind: TypeKind::Enum(path[0].clone()),
+                kind: TypeKind::Enum(enum_name),
                 span,
             },
         }))
@@ -4250,16 +4274,16 @@ impl<'src> Checker<'src> {
         fields: &[(String, Expr, Span)],
         span: Span,
     ) -> Option<Option<HirExpr>> {
-        if path.len() != 2 {
-            return None;
-        }
-        let sig = self.enums.get(&path[0])?.clone();
+        let (enum_name, variant_name) = split_enum_path(path)?;
+        let sig = self.enums.get(&enum_name)?.clone();
         // The enum is an item, so it is private to the module that declares
         // it unless it is `pub`.
-        self.check_visibility(&path[0], span);
-        let variant = sig.variants.iter().find(|v| v.name == path[1])?.clone();
-        let enum_name = path[0].clone();
-        let variant_name = path[1].clone();
+        self.check_visibility(&enum_name, span);
+        let variant = sig
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .cloned()?;
         if variant
             .fields
             .iter()
@@ -6676,9 +6700,10 @@ impl<'src> Checker<'src> {
                     return self.check_constructor("None", &[], *span, None)?;
                 }
                 // `Color.Red` is a unit variant's constructor. An enum has no
-                // fields, so a two-segment name whose head names one cannot be
-                // anything else.
-                if path.len() == 2 {
+                // fields, so a dotted name whose head names one cannot be
+                // anything else. The head may itself be qualified, as in
+                // `io.Error.NotFound`.
+                if path.len() >= 2 {
                     if let Some(constructed) = self.check_enum_path(path, *span) {
                         return constructed;
                     }
@@ -6906,7 +6931,7 @@ impl<'src> Checker<'src> {
                 // the ordinary path resolves only the last segment, so `A` in
                 // `Shape.Circle(...)` would otherwise be reported as an unknown
                 // function and `Shape` as an unknown value.
-                if callee.len() == 2 {
+                if callee.len() >= 2 {
                     if let Some(constructed) = self.check_enum_call(callee, args, *span) {
                         return constructed;
                     }
@@ -7140,14 +7165,13 @@ impl<'src> Checker<'src> {
                                 // (a fresh `alloc(...)`, say) owns nothing yet and
                                 // is left alone.
                                 //
-                                // `arena_alloc` is the exception: an arena is
-                                // reusable across many allocations, so its handle
-                                // is not consumed by `alloc`. Only
-                                // `arena_free_all` consumes the handle, which is
-                                // what makes a double free a type error. The
-                                // predicate lives in `yashy-hir` because the
-                                // verifier needs the same fact.
-                                let consumes = !(is_arena_alloc(&name) && i == 0);
+                                // Two builtins are the exception, and the fact
+                                // lives in `yashy-hir` because the verifier's
+                                // leak pass needs the same answer:
+                                // `arena_alloc` reuses its handle across many
+                                // allocations, and `write_bytes` only reads the
+                                // bytes it is handed.
+                                let consumes = !builtin_borrows_argument(callee, i);
                                 if consumes
                                     && matches!(linearity_of(&param.kind), Linearity::Linear)
                                 {
@@ -7285,7 +7309,7 @@ impl<'src> Checker<'src> {
             }
             Expr::StructLit { path, fields, span } => {
                 // `Shape.Rect { w, h }` constructs a variant with named fields.
-                if path.len() == 2 {
+                if path.len() >= 2 {
                     if let Some(constructed) = self.check_enum_struct_lit(path, fields, *span) {
                         return constructed;
                     }
@@ -8961,6 +8985,49 @@ fn prim(kind: TypeKind) -> Type {
     }
 }
 
+/// Split `Enum.Variant` into the enum's name and the variant's.
+///
+/// The split is at the **last** dot, because an enum's own name may be
+/// qualified: `io.Error.NotFound` names the variant `NotFound` of `io.Error`.
+/// A single-segment path cannot name a variant, so it answers `None` and the
+/// caller falls through to the ordinary name lookup.
+fn split_enum_path(path: &[String]) -> Option<(String, String)> {
+    let (variant, head) = path.split_last()?;
+    if head.is_empty() {
+        return None;
+    }
+    Some((head.join("."), variant.clone()))
+}
+
+/// The enums the language declares rather than the program.
+///
+/// `io.Error` is the failure half of the byte-buffer builtins. Registering it
+/// before any item is read means the name resolves in every module and a
+/// `switch` over it can be proved exhaustive. The variant order is the one
+/// [`crate::ty::IO_ERROR_VARIANTS`] fixes for the checker, the backend and the
+/// runtime together.
+fn builtin_enums() -> HashMap<String, EnumSig> {
+    let variants: Vec<VariantDef> = crate::ty::IO_ERROR_VARIANTS
+        .iter()
+        .map(|name| VariantDef {
+            name: (*name).to_string(),
+            fields: Vec::new(),
+            span: Span::new(0, 0),
+        })
+        .collect();
+    let payloads = vec![Vec::new(); variants.len()];
+    let mut enums = HashMap::new();
+    enums.insert(
+        "io.Error".to_string(),
+        EnumSig {
+            variants,
+            payloads,
+            repr_c: false,
+        },
+    );
+    enums
+}
+
 /// A pointer to `pointee`, at a synthetic span. Used for the builtin
 /// signatures, where there is no source type expression to point at.
 fn ptr(pointee: Type) -> Type {
@@ -8987,6 +9054,21 @@ fn option(payload: &Type, span: Span) -> Type {
         kind: TypeKind::Option(Box::new(payload.clone())),
         span,
     }
+}
+
+/// `Result[ok, err]` at a synthetic span, for a builtin's signature.
+fn result_of(ok: Type, err: Type) -> Type {
+    prim(TypeKind::Result(Box::new(ok), Box::new(err)))
+}
+
+/// `[]element` at a synthetic span.
+fn slice_of(element: Type) -> Type {
+    prim(TypeKind::Slice(Box::new(element)))
+}
+
+/// The builtin `io.Error`, the failure half of a byte-buffer call.
+fn io_error() -> Type {
+    prim(TypeKind::Enum("io.Error".to_string()))
 }
 
 /// Whether a slice of `kind` can be pushed to, indexed, popped and iterated in
@@ -9070,6 +9152,7 @@ fn slice_element_is_operable(kind: &TypeKind) -> bool {
         TypeKind::I64
             | TypeKind::F64
             | TypeKind::Bool
+            | TypeKind::Char
             | TypeKind::Str
             | TypeKind::CInt(_)
             | TypeKind::CUInt(_)

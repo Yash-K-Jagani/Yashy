@@ -6,7 +6,8 @@
 //! emitted here has a `declare` in [`crate::module`] and a definition in
 //! `yashy-runtime`, and those three places change together.
 
-use yashy_sema::{linearity_of, HirExpr, Linearity, TypeKind};
+use yashy_common::Span;
+use yashy_sema::{linearity_of, HirExpr, Linearity, Type, TypeKind};
 
 use crate::expr_gen::{gen_expr, FnCtx, GenValue};
 use crate::ir::repr_type;
@@ -66,6 +67,31 @@ pub fn gen_dealloc(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     GenValue {
         value: String::new(),
         ty: TypeKind::Unit,
+    }
+}
+
+/// Lower `alloc_bytes(n) -> *mut char`.
+///
+/// `n` counts *bytes*, not elements, and the runtime's alignment is 1: a byte
+/// buffer has no element-size constraint. The result is `*mut char`, so
+/// `buf[i]` is a `char` and a program that wants an `int` must convert.
+pub fn gen_alloc_bytes(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
+    let count = args
+        .first()
+        .map(|a| gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "0".to_string());
+    let ptr = ctx.tmp();
+    ctx.push(format!(
+        "{ptr} = call i8* @yashy_alloc_bytes(i64 {count})"
+    ));
+    GenValue {
+        value: ptr,
+        ty: TypeKind::Ptr(Box::new(Type {
+            kind: TypeKind::Char,
+            span: Span::new(0, 0),
+        })),
     }
 }
 

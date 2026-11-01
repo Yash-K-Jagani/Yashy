@@ -65,6 +65,14 @@ pub fn check_pattern(
             })
         }
         Pattern::TupleVariant { path, args, span } => {
+            // The backend binds a variant pattern's payload but does not test a
+            // sub-pattern inside it: `Err(NotFound)` would test only the outer
+            // tag and then bind nothing, so the arm would match every error.
+            // Rejecting the nested pattern is the honest answer; a two-level
+            // `switch` says the same thing and is checked.
+            for sub in args {
+                reject_nested_pattern(sub)?;
+            }
             let payloads = tuple_payloads(path, args.len(), scrutinee, variants, resolve, *span)?;
             let mut hir_args = Vec::with_capacity(args.len());
             for (sub, payload_ty) in args.iter().zip(payloads.iter()) {
@@ -97,6 +105,38 @@ pub fn check_pattern(
 /// The final path segment, which is the variant name the user sees.
 fn variant_name(path: &[String]) -> String {
     path.last().cloned().unwrap_or_default()
+}
+
+/// Reject a sub-pattern the backend would silently ignore.
+///
+/// A variant pattern's payload is bound when the sub-pattern is a `Binding`
+/// (`Err(e)`) or discarded when it is `_`. Anything else -- a literal, or a
+/// nested variant -- is checked here but not lowered: `patterns.rs` only
+/// extracts the payload and binds a name, so `Err(NotFound)` would compile to
+/// "matches every error". A two-level `switch` says the same thing and every
+/// level is tested, so the fix is named in the message rather than the
+/// program silently doing the wrong thing.
+fn reject_nested_pattern(pattern: &Pattern) -> Result<(), TypeError> {
+    match pattern {
+        Pattern::Wildcard(_) | Pattern::Binding { .. } => Ok(()),
+        other => Err(TypeError::new(
+            pattern_span(other),
+            "a nested pattern is not supported yet; bind the payload and switch \
+             on it, or write `_`",
+        )),
+    }
+}
+
+/// The span a pattern was written at.
+fn pattern_span(pattern: &Pattern) -> Span {
+    match pattern {
+        Pattern::Wildcard(span)
+        | Pattern::UnitVariant { span, .. }
+        | Pattern::TupleVariant { span, .. }
+        | Pattern::StructVariant { span, .. }
+        | Pattern::Binding { span, .. }
+        | Pattern::Literal(_, span) => *span,
+    }
 }
 
 /// A unit-variant pattern names a payload-less variant of the scrutinee.
@@ -270,6 +310,7 @@ fn check_struct_variant(
     for (fname, sub, fspan) in fields {
         match declared.iter().find(|(n, _)| n == fname) {
             Some((_, fty)) => {
+                reject_nested_pattern(sub)?;
                 let checked = check_pattern(sub, fty, out_bindings, variants, resolve)?;
                 hir_fields.push((fname.clone(), checked, *fspan));
             }

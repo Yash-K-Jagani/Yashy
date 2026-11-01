@@ -23,6 +23,11 @@ typedef struct yashy_str yashy_str;
 
 /* Writes the NUL-terminated string to stdout, byte for byte. Nothing else: no
  * newline, and no line-ending translation (see the note in runtime.c). */
+/* Called once at the entry point, before the program's first statement: puts
+ * stdout in binary mode so `print` and a C `printf` the program declares agree
+ * on what a `\n` is. */
+void yashy_runtime_init(void);
+
 void yashy_print_str(const yashy_str *s);
 void yashy_print_line_str(const yashy_str *s);
 
@@ -293,6 +298,20 @@ void yashy_slice_reserve(yashy_slice *slice, long long cap, long long element_si
 void yashy_slice_push(yashy_slice *slice, const void *element, long long element_size);
 void yashy_slice_free(yashy_slice *slice);
 
+/* ---- Byte buffers ------------------------------------------------------
+ *
+ * `yashy_alloc_bytes(size)` is `yashy_alloc(size, 1)` for a `*mut char`.
+ *
+ * `yashy_read_bytes(path, out)` reads a file into a slice header written to
+ * `out`; `yashy_write_bytes(path, bytes, len)` writes exactly `len` bytes.
+ * Both return `0` on success or `1 + variant_index` of `io.Error` on failure
+ * (the variants are `NotFound`, `PermissionDenied`, `AlreadyExists`,
+ * `NotAFile`, `Other`, in that order), so an empty file and a missing file are
+ * distinguishable. */
+void *yashy_alloc_bytes(long long size);
+long long yashy_read_bytes(const char *path, yashy_slice *out);
+long long yashy_write_bytes(const char *path, const char *bytes, long long len);
+
 /* Frees a `[]string`: each element is an `yashy_str*` the slice owns, so every
  * handle is released before the backing array is. A static string is left
  * alone by `yashy_str_release`, and a null slice is a no-op. The header is
@@ -373,6 +392,7 @@ void yashy_slice_sort_i64(yashy_slice *slice);
 long long yashy_slice_index_of_i64(yashy_slice *slice, long long value);
 long long yashy_slice_index_of_f64(yashy_slice *slice, double value);
 long long yashy_slice_index_of_bool(yashy_slice *slice, long long value);
+long long yashy_slice_index_of_char(yashy_slice *slice, long long value);
 long long yashy_slice_index_of_string(yashy_slice *slice, const yashy_str *value);
 void yashy_slice_extend(yashy_slice *slice, yashy_slice *other,
                         long long element_size);

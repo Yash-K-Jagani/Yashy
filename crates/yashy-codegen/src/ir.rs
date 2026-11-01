@@ -100,12 +100,12 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
 pub fn repr_type(t: &TypeKind) -> String {
     match t {
         TypeKind::Str => "i8*".to_string(),
-        TypeKind::Option(inner) => format!("{{ i8, {} }}", repr_type(&inner.kind)),
+        TypeKind::Option(inner) => format!("{{ i8, {} }}", field_repr(&inner.kind)),
         TypeKind::Result(ok, err) => {
             format!(
                 "{{ i8, {}, {} }}",
-                repr_type(&ok.kind),
-                repr_type(&err.kind)
+                field_repr(&ok.kind),
+                field_repr(&err.kind)
             )
         }
         TypeKind::Struct(name) => format!("%struct.{name}"),
@@ -115,14 +115,14 @@ pub fn repr_type(t: &TypeKind) -> String {
         // live where the value does, so a local of this type is its own
         // storage and there is nothing to free.
         TypeKind::FixedArray(element, length) => {
-            format!("[{} x {}]", length, repr_type(&element.kind))
+            format!("[{} x {}]", length, field_repr(&element.kind))
         }
         // A tuple is an LLVM literal struct: the elements live where the value
         // does, in order, and position is part of the type. LLVM names the
         // struct by its field list, so two elements of the same type in the
         // same order are the same struct -- which is exactly tuple equality.
         TypeKind::Tuple(elements) => {
-            let fields: Vec<String> = elements.iter().map(|e| repr_type(&e.kind)).collect();
+            let fields: Vec<String> = elements.iter().map(|e| field_repr(&e.kind)).collect();
             format!("{{ {} }}", fields.join(", "))
         }
         // A view is a pointer and a length. The pointer names the first element
@@ -131,6 +131,24 @@ pub fn repr_type(t: &TypeKind) -> String {
         TypeKind::Slice(_) => "{ i8*, i64, i64 }".to_string(),
         TypeKind::Map(_, _) => "i8*".to_string(),
         other => llvm_type_string(other),
+    }
+}
+
+/// The representation of a value in an aggregate **field**.
+///
+/// It differs from [`repr_type`] in one place: `void` has no representation,
+/// and a field of that type is spelled `{}` (LLVM's empty struct). A top-level
+/// `void` stays `void`, because that is how a function that returns nothing is
+/// declared and how the backend recognises "no value" -- so the substitution
+/// happens here, in field position, rather than in [`repr_type`] itself.
+///
+/// `Result[void, io.Error]` is the case that needs it: the `Ok` half carries
+/// nothing, but the aggregate still needs a field there.
+pub fn field_repr(t: &TypeKind) -> String {
+    if matches!(t, TypeKind::Unit) {
+        "{}".to_string()
+    } else {
+        repr_type(t)
     }
 }
 

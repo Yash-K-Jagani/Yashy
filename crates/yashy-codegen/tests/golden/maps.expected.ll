@@ -4,6 +4,7 @@ target datalayout = "<host>"
 target triple = "<host>"
 
 %yashy_str = type { i64, i64, i64, i8* }
+%enum.io.Error = type { i8 }
 
 declare void @yashy_print_str(i8*)
 declare void @yashy_print_line_str(i8*)
@@ -97,6 +98,11 @@ declare double @yashy_parse_f64(i8*)
 declare i8* @yashy_read_file(i8*)
 declare i64 @yashy_write_file(i8*, i8*, i64)
 declare i8* @yashy_getenv(i8*)
+declare i8* @yashy_alloc_bytes(i64)
+declare i64 @yashy_read_bytes(i8*, ptr)
+declare i64 @yashy_write_bytes(i8*, i8*, i64)
+declare i64 @yashy_slice_index_of_char(ptr, i64)
+declare void @yashy_runtime_init()
 declare void @yashy_args_init(i32, i8**)
 declare void @yashy_args_slice(ptr)
 declare i8* @yashy_getcwd()
@@ -132,6 +138,7 @@ entry:
 %slot9 = alloca i64
 %slot10 = alloca { i8, i64 }
 %slot11 = alloca i64
+call void @yashy_runtime_init()
 call void @yashy_args_init(i32 %argc, i8** %argv)
 %t0 = call i8* @yashy_map_new(i64 2, i64 8, i64 8)
 store i8* %t0, ptr %slot0
