@@ -252,7 +252,7 @@ Carried from the spec and enforced by tests:
 
 - [x] **Step 1: Write the chapters** with runnable blocks, including the C round-trip program from Task 5 as the worked example and the `read_line` EOF program from Task 7 as the failure-as-a-value example.
 - [x] **Step 2: Run the gate table on both OSes.** Windows: `cargo test --workspace --no-fail-fast` green — every target `test result: ok`, e2e 151, tutorial 2, examples and leaks green; `cargo check --workspace --all-targets` clean. One `yashy-parser` doctest was blocked by Application Control (`os error 4551`) and passed on rerun. Linux runs in CI on push; this host is Windows-only, so it was not executed here.
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: the native foundation, and close phase 3b"`; update the index status and the ledger.
+- [x] **Step 3: Commit and record** — `git commit -m "docs: the native foundation, and close phase 3b"` (`f87202b`); the index status and the ledger are updated.
 
 ---
 
