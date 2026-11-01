@@ -260,9 +260,9 @@ Carried from the spec and enforced by tests:
 | Shifts checked | `cargo test -p yashy-codegen -p yashy-driver --test e2e` | `1 << 64` panics at the operator; `const BAD = 1 << 64` is the same panic at compile time |
 | A proof removes the check | `cargo test -p yashy-verify --test verify` | the guarded shift has no `icmp`; the unguarded one does |
 | `link_name` | `cargo test -p yashy-driver --test e2e` | `sqrt` through `link_name` is bit-identical to the hardware result; `E0900`/`E0901` fire |
-| Variadic | `cargo test -p yashy-driver --test e2e` | `printf("%d\n", 42 as i64)` prints `42`; `E0902` fires on the three misplacements |
+| Variadic | `cargo test -p yashy-driver --test e2e` | `printf("%d\n", 42 as i32)` prints `42`; `E0902` fires on the three misplacements |
 | C layout matches C | `cargo test -p yashy-driver --test e2e` | `sizeof`/`alignof`/`offsetof` equal a C program's, on Windows and Linux |
-| `repr(C)` rules | `cargo test -p yashy-driver --test verify` | generic type `E0106`; payload enum `E0106`; `offsetof` on a plain struct `E0108` |
+| `repr(C)` rules | `cargo test -p yashy-driver --test verify` | a payload enum is `E0106`; `offsetof` on a plain struct is `E0108`; a folded query leaves no obligation |
 | Bytes are bytes | `cargo test -p yashy-driver --test e2e --test leaks` | a 1 MiB round-trip is byte-identical; no leak with `.free()`, one without |
 | Failure is a value | `cargo test --workspace` | no builtin returns `""`/`0` on failure; `read_line` distinguishes EOF from an empty line |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
