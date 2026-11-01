@@ -4,11 +4,10 @@
 // file. This module adds the statement-shaped exit a report wants and documents
 // the environment and directory spellings beside it.
 //
-// `getcwd()` answers the current working directory as a fresh owned string. It
-// is UTF-8 on every target, including Windows. On failure it answers the empty
-// string, matching `read_file` and `getenv` until builtin `Result` lands in R2;
-// a real working directory is never empty, so the two cases are distinguishable
-// in practice even though the signature cannot say so.
+// `getcwd()` answers the current working directory as
+// `Result[string, io.Error]`. It is UTF-8 on every target, including Windows,
+// and a failure is an `io.Error` value rather than the empty string -- matching
+// `read_file` and `getenv`.
 //
-// Ownership: `exit_with` never returns and owns nothing. `getcwd()`'s result is
+// Ownership: `exit_with` never returns and owns nothing. `getcwd()`'s string is
 // owned by the caller and released like any other string.

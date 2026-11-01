@@ -1,13 +1,17 @@
-// `getcwd()` answers the working directory as a UTF-8 string. The driver test
-// starts this from a directory it created, so the second line is a path the
-// test can compare after canonicalizing both sides.
+// `getcwd()` answers the working directory as `Result[string, io.Error]`: a
+// failure is a value, not an empty path that is also what a directory named
+// with zero bytes would be. The driver test starts this from a directory it
+// created, so the second line is a path the test can compare after
+// canonicalizing both sides.
+
+fn show(path: string) {
+    println("cwd ok");
+    println(path);
+}
 
 fn main() {
-    const here = getcwd();
-    if here.len() == 0 {
-        println("cwd empty");
-        return;
+    switch getcwd() {
+        case Ok(here) { show(here) }
+        case Err(_) { println("cwd empty") }
     }
-    println("cwd ok");
-    println(here);
 }

@@ -30,21 +30,27 @@ fn assert_rejected(src: &str, needle: &str) {
 }
 
 #[test]
-fn read_file_yields_an_owned_string() {
-    check("fn main() { let text: string = read_file(\"notes.txt\"); print(text); }")
-        .expect("read_file takes a path and answers with a string");
+fn read_file_yields_a_result_of_an_owned_string() {
+    check(
+        "import io;\nfn main() { let text: Result[string, io.Error] = read_file(\"notes.txt\"); switch text { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
+    )
+    .expect("read_file takes a path and answers Result[string, io.Error]");
 }
 
 #[test]
-fn write_file_yields_a_status_integer() {
-    check("fn main() { let ok: int = write_file(\"notes.txt\", \"body\"); print(ok); }")
-        .expect("write_file takes a path and a body and answers 1 or 0");
+fn write_file_yields_a_result_of_unit() {
+    check(
+        "fn main() { let ok = write_file(\"notes.txt\", \"body\"); switch ok { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
+    )
+    .expect("write_file takes a path and a body and answers Result[void, io.Error]");
 }
 
 #[test]
-fn getenv_yields_a_string() {
-    check("fn main() { let home: string = getenv(\"HOME\"); print(home); }")
-        .expect("getenv takes a name and answers with the value or an empty string");
+fn getenv_yields_an_option() {
+    check(
+        "fn main() { let home = getenv(\"HOME\"); switch home { case Some(_) { print(\"set\"); } case None { print(\"unset\"); } } }",
+    )
+    .expect("getenv takes a name and answers Option[string]: unset is not empty");
 }
 
 #[test]
@@ -58,9 +64,11 @@ fn args_yields_a_slice_of_strings() {
 }
 
 #[test]
-fn getcwd_yields_a_string() {
-    check("fn main() { let here: string = getcwd(); print(here); }")
-        .expect("getcwd takes no arguments and answers with a string");
+fn getcwd_yields_a_result_of_a_string() {
+    check(
+        "import io;\nfn main() { let here: Result[string, io.Error] = getcwd(); switch here { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
+    )
+    .expect("getcwd takes no arguments and answers Result[string, io.Error]");
     assert_rejected(
         "fn main() { let here = getcwd(1); }",
         "expected 0 arguments, found 1",

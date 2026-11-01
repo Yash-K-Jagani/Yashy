@@ -84,7 +84,11 @@ fn run_forwards_user_arguments_after_the_separator() {
 #[test]
 fn run_reports_the_directory_it_started_in() {
     let dir = work_dir("run-cwd");
-    write(&dir, "main.ya", "fn main() { println(getcwd()); }\n");
+    write(
+        &dir,
+        "main.ya",
+        "fn main() { switch getcwd() { case Ok(here) { println(here) } case Err(_) { println(\"\") } } }\n",
+    );
 
     let output = Command::new(yashy())
         .arg("run")

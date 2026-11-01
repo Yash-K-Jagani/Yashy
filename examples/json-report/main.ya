@@ -5,6 +5,9 @@
 // The `JSON.quote` call is the real module doing its job: the note is escaped
 // as a JSON string literal, so the output is valid JSON even if the note later
 // grows a quote or a newline.
+//
+// `read_line` answers `Option[string]`: `None` is end of input and `Some("")` is
+// an empty line, so the loop stops on the first and counts the second.
 
 import JSON;
 
@@ -27,14 +30,30 @@ fn key_of(line: string) -> string {
     return line.slice(0, 0);
 }
 
+/// Whether a line arrived.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The text of a line that arrived.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
+
 fn main() {
     let documents = 0;
     let keys: map[string]int = map_new();
 
     let line = read_line();
-    while line.len() > 0 {
+    while present(line) {
         documents = documents + 1;
-        let key = key_of(line);
+        let key = key_of(text_of(line));
         if key.len() > 0 {
             keys.insert(key, 1);
         }

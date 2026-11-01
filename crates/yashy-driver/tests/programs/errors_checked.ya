@@ -9,9 +9,30 @@ fn divide(n: int) -> int {
     return 0;
 }
 
+/// Whether the parse produced a number. `None` is "the text is not one".
+fn present(value: Option[int]) -> bool {
+    return switch value {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The parsed number. Only read after `present` said there is one.
+fn number(value: Option[int]) -> int {
+    return switch value {
+        case Some(n) { n }
+        case None { 0 }
+    };
+}
+
+/// `parse_i64` says "not a number" as `None`; a `Result`-returning function
+/// turns that into the error value its caller expects.
 fn parse(s: string) -> Result[int, string] {
-    const n = s.parse_i64();
-    return Ok(n);
+    const parsed = s.parse_i64();
+    if present(parsed) {
+        return Ok(number(parsed));
+    }
+    return Err("not a number");
 }
 
 fn unwrap_or(s: string) -> Result[int, string] {

@@ -111,7 +111,10 @@ fn main() {
     let zeros = alloc_zeroed(3);
     println_i64(zeros[0] + zeros[2]);
     zeros.free();
-    println(getenv(\"YASHY_STDLIB_PROBE\"));
+    switch getenv(\"YASHY_STDLIB_PROBE\") {
+        case Some(value) { println(value) }
+        case None { println(\"unset\") }
+    }
 }
 ";
 
@@ -164,16 +167,24 @@ const FILE_ROUND_TRIP: &str = "\
 import io;
 import string;
 
-fn main() {
-    let wrote = write_file(\"out.txt\", \"line one\\nline two\\n\");
-    println_i64(wrote);
-    let text = read_file(\"out.txt\");
+fn show(text: string) {
     println_i64(text.len());
     if text.contains(\"two\") { println(\"two\"); }
     let lines = text.split(\"\\n\");
     println_i64(lines.len());
     for line in lines { println(line); }
     lines.free();
+}
+
+fn main() {
+    switch write_file(\"out.txt\", \"line one\\nline two\\n\") {
+        case Ok(_) { println(\"wrote\") }
+        case Err(_) { println(\"failed\") }
+    }
+    switch read_file(\"out.txt\") {
+        case Ok(text) { show(text) }
+        case Err(_) { println(\"failed\") }
+    }
 }
 ";
 
@@ -198,7 +209,7 @@ fn a_file_round_trips_through_the_io_and_string_helpers() {
     // accident: the parts together are exactly the input.
     assert_eq!(
         stdout_of(&output),
-        "1\n18\ntwo\n3\nline one\nline two\n\n"
+        "wrote\n18\ntwo\n3\nline one\nline two\n\n"
     );
     assert!(
         stderr_of(&output).contains("yashy: leak report: 0 live allocations"),
@@ -250,6 +261,10 @@ import time;
 import rand;
 import JSON;
 
+fn check_cwd(here: string) {
+    if here.len() > 0 { println(\"cwd\"); }
+}
+
 fn main() {
     println(join(\"a\", \"b\"));
     println(join(\"a/\", \"/b\"));
@@ -270,8 +285,10 @@ fn main() {
     let argv = args();
     println_i64(argv.len());
     argv.free();
-    let here = getcwd();
-    if here.len() > 0 { println(\"cwd\"); }
+    switch getcwd() {
+        case Ok(here) { check_cwd(here) }
+        case Err(_) { println(\"cwd error\") }
+    }
     if now() > 0 { println(\"clock\"); }
     sleep(0);
 }

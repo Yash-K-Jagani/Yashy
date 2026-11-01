@@ -3,8 +3,27 @@
 // `read_line` strips the terminator, so the byte count adds one per line for
 // the newline it removed. The word half is `count_words` in `wc_words.ya`,
 // found beside this file.
+//
+// `read_line` answers `Option[string]`: `None` is end of input and `Some("")` is
+// an empty line, so the loop stops on the first and counts the second.
 
 import wc_words;
+
+/// Whether a line arrived.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The text of a line that arrived.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
 
 fn main() {
     let lines = 0;
@@ -12,10 +31,11 @@ fn main() {
     let bytes = 0;
 
     let line = read_line();
-    while line.len() > 0 {
+    while present(line) {
+        const text = text_of(line);
         lines = lines + 1;
-        words = words + count_words(line);
-        bytes = bytes + line.len() + 1;
+        words = words + count_words(text);
+        bytes = bytes + text.len() + 1;
         line = read_line();
     }
 

@@ -223,14 +223,33 @@ fn an_ordinary_function_keeps_its_own_return_type() {
 
 #[test]
 fn input_calls_use_the_runtime_symbols() {
-    // The Yashy names are `read_line`/`parse_i64`, and the runtime's carry the
-    // `yashy_` prefix. Nothing else changes: the argument and result types are
-    // already the IR types, so the call is the whole lowering.
+    // `read_line` answers `Option[string]` and the parsers answer
+    // `Option[int]`/`Option[float]`: each runtime symbol reports presence
+    // through an out slot (and, for `read_line`, a NULL at end of input), so
+    // the lowering branches on the flag instead of comparing a sentinel.
     let ir_text = ir_of(
-        "fn main() {\n\
+        "fn number(text: string) -> int {\n\
+         \x20   return switch text.parse_i64() {\n\
+         \x20       case Some(n) { n }\n\
+         \x20       case None { 0 }\n\
+         \x20   };\n\
+         }\n\
+         fn decimal(text: string) -> float {\n\
+         \x20   return switch text.parse_f64() {\n\
+         \x20       case Some(f) { f }\n\
+         \x20       case None { 0.0 }\n\
+         \x20   };\n\
+         }\n\
+         fn report(text: string) {\n\
+         \x20   print(number(text));\n\
+         \x20   print(decimal(text));\n\
+         }\n\
+         fn main() {\n\
          \x20   const line = read_line();\n\
-         \x20   print(line.parse_i64());\n\
-         \x20   print(line.parse_f64());\n\
+         \x20   switch line {\n\
+         \x20       case Some(text) { report(text) }\n\
+         \x20       case None { print(0) }\n\
+         \x20   }\n\
          }",
     );
     assert!(
@@ -238,11 +257,11 @@ fn input_calls_use_the_runtime_symbols() {
         "a no-argument call to the runtime reader:\n{ir_text}"
     );
     assert!(
-        ir_text.contains("call i64 @yashy_parse_i64(i8* "),
-        "the line is passed through unchanged:\n{ir_text}"
+        ir_text.contains("call i64 @yashy_parse_i64(i8* ") && ir_text.contains(", ptr "),
+        "the text is passed through and the number comes back in an out slot:\n{ir_text}"
     );
     assert!(
-        ir_text.contains("call double @yashy_parse_f64(i8* "),
+        ir_text.contains("call i64 @yashy_parse_f64(i8* ") && ir_text.contains(", ptr "),
         "and the floating-point parser is the same shape:\n{ir_text}"
     );
     assert!(
@@ -296,15 +315,17 @@ fn args_fills_a_slice_through_the_runtime() {
 fn the_process_and_clock_builtins_use_the_runtime_symbols() {
     let ir_text = ir_of(
         "fn main() {\n\
-         \x20   const here = getcwd();\n\
          \x20   const stamp = now();\n\
          \x20   sleep(5);\n\
-         \x20   print(here + str_from_i64(stamp));\n\
+         \x20   switch getcwd() {\n\
+         \x20       case Ok(here) { print(here + str_from_i64(stamp)) }\n\
+         \x20       case Err(_) { print(str_from_i64(stamp)) }\n\
+         \x20   }\n\
          }",
     );
     assert!(
-        ir_text.contains("call i8* @yashy_getcwd()"),
-        "the working directory is a no-argument call:\n{ir_text}"
+        ir_text.contains("call i64 @yashy_getcwd(ptr "),
+        "the working directory is written through an out slot:\n{ir_text}"
     );
     assert!(
         ir_text.contains("call i64 @yashy_now_ms()"),

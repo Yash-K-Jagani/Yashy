@@ -236,11 +236,11 @@ Carried from the spec and enforced by tests:
 - Produces: no deprecation shim and no `_unchecked` variant. A program that ignores the result gets the existing "unused `Result`" treatment once phase 1b's warnings land: `E2000`-family, not a silent discard.
 - Produces: the runtime's `yashy_read_line` distinguishes EOF from an empty line, which is the specific bug the change exists for.
 
-- [ ] **Step 1: Write the failing tests** — a program reading two lines from one line of input prints `Some(...)` then `None`; `read_file` on a missing path is `Err(NotFound)` and on an empty file is `Ok("")` — the two are now different; `parse_i64("abc")` is `None` and `parse_i64("0")` is `Some(0)`; `getenv` of an unset name is `None` and of an empty value is `Some("")`; every existing program that used the sentinel is migrated and still prints its pinned output.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — each runtime function gains an out-parameter or a tagged return; the checker's table entries change in one edit; `gen_try` is unchanged because phase 5 already made it read the subject's tag. The migration is mechanical: `?` where the function already returned the right type, `switch` where it did not.
-- [ ] **Step 4: Run** `cargo test --workspace` and the tutorial, examples and leak harnesses → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat!: builtins report failure as Option/Result, never as \"\" or 0"`
+- [x] **Step 1: Write the failing tests** — a program reading two lines from one line of input prints `Some(...)` then `None`; `read_file` on a missing path is `Err(NotFound)` and on an empty file is `Ok("")` — the two are now different; `parse_i64("abc")` is `None` and `parse_i64("0")` is `Some(0)`; `getenv` of an unset name is `None` and of an empty value is `Some("")`; every existing program that used the sentinel is migrated and still prints its pinned output.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — each runtime function gains an out-parameter or a tagged return; the checker's table entries change in one edit; `gen_try` is unchanged because phase 5 already made it read the subject's tag. The migration is mechanical: `?` where the function already returned the right type, `switch` where it did not.
+- [x] **Step 4: Run** `cargo test --workspace` and the tutorial, examples and leak harnesses → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat!: builtins report failure as Option/Result, never as \"\" or 0"`
 
 ---
 

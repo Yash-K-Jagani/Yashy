@@ -9,15 +9,33 @@
 
 import wc_words;
 
+/// Whether a line arrived. `None` is end of input; `Some("")` is an empty line,
+/// which `wc` counts.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The text of a line that arrived. Only read after `present` said there is one.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
+
 fn main() {
     let lines = 0;
     let words = 0;
     let bytes = 0;
     let line = read_line();
-    while line.len() > 0 {
+    while present(line) {
+        const text = text_of(line);
         lines = lines + 1;
-        words = words + count_words(line);
-        bytes = bytes + line.len() + 1;
+        words = words + count_words(text);
+        bytes = bytes + text.len() + 1;
         line = read_line();
     }
 

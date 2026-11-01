@@ -16,11 +16,27 @@
 
 import json_keys;
 
+/// Whether a line arrived. `None` is end of input; `Some("")` is an empty line.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The text of a line that arrived. Only read after `present` said there is one.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
+
 fn main() {
     let lines = []string {};
     let line = read_line();
-    while line.len() > 0 {
-        lines.push(line);
+    while present(line) {
+        lines.push(text_of(line));
         line = read_line();
     }
 

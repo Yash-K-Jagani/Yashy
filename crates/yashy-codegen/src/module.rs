@@ -650,17 +650,21 @@ out.push_str("declare void @yashy_print_line_str(i8*)\n");
         // The substring builtin (M6 Task 10). Declared with the string set: the
         // stdlib's `trim` and `split` are written on top of it.
         out.push_str("declare i8* @yashy_str_slice(i8*, i64, i64)\n");
-        // Input (ledger L1's input additions). Declared up front for the same
-        // reason as the string set.
+        // Input (ledger L1's input additions, honest signatures in phase 3b).
+        // Declared up front for the same reason as the string set. `read_line`
+        // answers NULL at end of input, and `parse_i64`/`parse_f64` answer 1
+        // and write the number through `out`, or 0 when the text is not one.
         out.push_str("declare i8* @yashy_read_line()\n");
-        out.push_str("declare i64 @yashy_parse_i64(i8*)\n");
-        out.push_str("declare double @yashy_parse_f64(i8*)\n");
-        // Files and the environment (M6 Task 10). Declared up front for the same
-        // reason; `read_file`/`getenv` return an owned string, `write_file`
-        // reports 1/0 and is handed the text's pointer and length separately.
-        out.push_str("declare i8* @yashy_read_file(i8*)\n");
+        out.push_str("declare i64 @yashy_parse_i64(i8*, ptr)\n");
+        out.push_str("declare i64 @yashy_parse_f64(i8*, ptr)\n");
+        // Files and the environment (M6 Task 10). `read_file`/`getenv`/`getcwd`
+        // report failure as an `io.Error` variant index plus one, so `0` is the
+        // only success code; `write_file` uses the same tag and is handed the
+        // text's pointer and length separately because a file body may contain
+        // a NUL.
+        out.push_str("declare i64 @yashy_read_file(i8*, ptr)\n");
         out.push_str("declare i64 @yashy_write_file(i8*, i8*, i64)\n");
-        out.push_str("declare i8* @yashy_getenv(i8*)\n");
+        out.push_str("declare i32 @yashy_getenv(i8*, ptr)\n");
         // Byte buffers (phase 3b Task 6). `yashy_alloc_bytes` is `yashy_alloc`
         // with alignment 1 and a byte count; `yashy_read_bytes`/`yashy_write_bytes`
         // report failure as an `io.Error` variant index plus one, so `0` is the
@@ -678,7 +682,7 @@ out.push_str("declare void @yashy_print_line_str(i8*)\n");
         out.push_str("declare void @yashy_runtime_init()\n");
         out.push_str("declare void @yashy_args_init(i32, i8**)\n");
         out.push_str("declare void @yashy_args_slice(ptr)\n");
-        out.push_str("declare i8* @yashy_getcwd()\n");
+        out.push_str("declare i64 @yashy_getcwd(ptr)\n");
         out.push_str("declare i64 @yashy_now_ms()\n");
         out.push_str("declare void @yashy_sleep_ms(i64)\n");
         // The diagnostic path (M4). Declared up front like the rest, so a

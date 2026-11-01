@@ -1000,7 +1000,22 @@ fn a_literal_shift_emits_no_check_and_an_unproven_one_keeps_it() {
 
     let unproven = ir_of(
         "shift-ir-unproven",
-        "fn main() {\n    const line = read_line();\n    const n = line.parse_i64();\n    print(1 << n);\n}\n",
+        "fn number(text: string) -> int {\n\
+         \x20   return switch text.parse_i64() {\n\
+         \x20       case Some(v) { v }\n\
+         \x20       case None { 0 }\n\
+         \x20   };\n\
+         }\n\
+         fn typed(line: Option[string]) -> int {\n\
+         \x20   return switch line {\n\
+         \x20       case Some(text) { number(text) }\n\
+         \x20       case None { 0 }\n\
+         \x20   };\n\
+         }\n\
+         fn main() {\n\
+         \x20   const n = typed(read_line());\n\
+         \x20   print(1 << n);\n\
+         }\n",
     );
     assert_eq!(
         shift_calls(&unproven),
@@ -1603,7 +1618,8 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
 #[test]
 fn a_program_can_read_its_input() {
     // `read_line` and `parse_i64` through a real pipe: the loop runs until end
-    // of input, and a line that is not an integer contributes zero.
+    // of input (`None`), and a line that is not an integer is `None`, which the
+    // program counts as zero.
     let (_dir, exe, compile) = build_program("adder");
     assert!(
         compile.status.success(),
@@ -1619,11 +1635,64 @@ fn a_program_can_read_its_input() {
     assert_eq!(
         stdout_of(&with_junk),
         "4\n",
-        "a line that is not an integer parses as zero"
+        "a line that is not an integer parses as `None`, which the program counts as zero"
     );
 
     let empty = run_with_input(&exe, "");
-    assert_eq!(stdout_of(&empty), "0\n", "end of input is the empty string");
+    assert_eq!(stdout_of(&empty), "0\n", "end of input is `None`, not an empty line");
+}
+
+#[test]
+fn builtin_failures_are_values_not_sentinels() {
+    // The distinctions the honest signatures exist for: an empty file is not a
+    // missing one, an unset variable is not an empty one, end of input is not an
+    // empty line, and unparseable text is not zero.
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let (dir, exe, compile) = build_program("builtin_failures");
+    assert!(
+        compile.status.success(),
+        "compiling builtin_failures.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+
+    let empty = dir.join("empty.txt");
+    fs::write(&empty, "").expect("the empty file must be writable");
+    let missing = dir.join("missing.txt");
+
+    let output = launch_retrying(&exe, |path| {
+        let mut child = Command::new(path)
+            .arg(&empty)
+            .arg(&missing)
+            .env("YASHY_TEST_EMPTY", "")
+            .env_remove("YASHY_TEST_UNSET")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child
+            .stdin
+            .as_mut()
+            .expect("standard input was piped")
+            .write_all(b"\n")
+            .expect("writing the program's input must succeed");
+        drop(child.stdin.take());
+        child.wait_with_output()
+    })
+    .expect("the built executable must start");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "the program exited with {:?}:\n{}",
+        output.status.code(),
+        stderr_of(&output)
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "empty ok 0\nmissing err 1\nunset none\nset-empty some 0\nline 0\nnext eof\nabc none\nzero some 0\n"
+    );
 }
 
 #[test]
@@ -1651,8 +1720,8 @@ fn a_program_can_build_a_string_with_a_number_in_it() {
     assert_eq!(stdout_of(&output), "name? age? Ada is 36 years old\n");
     assert_eq!(output.status.code(), Some(0));
 
-    // A line that is not an integer contributes zero, which is what
-    // `parse_i64` promises -- and the sentence is still well formed.
+    // A line that is not an integer is `None`, which the program counts as
+    // zero -- and the sentence is still well formed.
     let junk = run_with_input(&exe, "Bo\nnot a number\n");
     assert_eq!(stdout_of(&junk), "name? age? Bo is 0 years old\n");
 }

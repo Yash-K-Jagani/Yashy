@@ -32,7 +32,10 @@ use yashy_sema::{
 };
 
 use crate::expr_gen::retain_struct_fields;
-use crate::expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue, LoopTarget, RefKind};
+use crate::expr_gen::{
+    gen_expr, gen_expr_to_slot, has_string_payload, release_payload, retain_payload, FnCtx,
+    GenValue, LoopTarget, RefKind,
+};
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
 
@@ -301,6 +304,25 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
                 ctx.track_ref_slot_typed(&slot, RefKind::StructFields, Some(ty.clone()));
                 slot
+            } else if has_string_payload(&ty) {
+                // `Option[string]` / `Result[string, E]` owns one reference to
+                // the string in its payload. A fresh value -- `read_line()`,
+                // `Some(...)` -- brings that reference; a copy of another
+                // value's aggregate needs its own, so it is retained.
+                let mut value = gen_expr(ctx, init);
+                let repr = repr_type(&ty);
+                let slot = ctx.alloc_slot();
+                ctx.push_alloca(format!("{slot} = alloca {repr}"));
+                if !value.value.is_empty() {
+                    if ctx.is_owned(&value.value) {
+                        ctx.forget_owned(&value.value);
+                    } else {
+                        value.value = retain_payload(ctx, &value.value, &ty);
+                    }
+                    ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
+                    ctx.track_ref_slot_typed(&slot, RefKind::Payload, Some(ty.clone()));
+                }
+                slot
             } else {
                 gen_expr_to_slot(ctx, init)
             };
@@ -324,6 +346,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
             let repr = repr_type(&ty.kind);
             let is_string = matches!(ty.kind, TypeKind::Str);
+            let is_payload = has_string_payload(&ty.kind);
             // Overwriting a linear binding discards the pointer that was there,
             // so it is released first. `release_previous` is the checker's
             // verdict on whether that pointer was still owned: after
@@ -332,7 +355,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // free. Only the checker knows the difference, which is why the
             // flag is in the HIR rather than recomputed from the slot. A
             // `string` is a copy type with its own rule below, not a linear one.
-            if *release_previous && repr != "void" && !is_string {
+            if *release_previous && repr != "void" && !is_string && !is_payload {
                 if let Some(slot) = &slot {
                     let old = ctx.tmp();
                     ctx.push(format!("{old} = load {repr}, ptr {slot}"));
@@ -395,6 +418,27 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                         ctx.push_str_release(&old);
                     }
                 }
+            }
+            if is_payload && !value.value.is_empty() {
+                // The aggregate owns one reference to its payload string; the
+                // same two steps as a plain `string`, one field deeper.
+                let mut new_value = value.value.clone();
+                if ctx.is_owned(&value.value) {
+                    ctx.forget_owned(&value.value);
+                } else {
+                    new_value = retain_payload(ctx, &value.value, &ty.kind);
+                }
+                if let Some(slot) = &slot {
+                    if ctx.is_tracked_ref_slot(slot) {
+                        let old = ctx.tmp();
+                        ctx.push(format!("{old} = load {repr}, ptr {slot}"));
+                        release_payload(ctx, &old, &ty.kind);
+                    }
+                }
+                if let Some(slot) = &slot {
+                    ctx.push(format!("store {repr} {new_value}, ptr {slot}"));
+                }
+                return Flow::Fallthrough;
             }
             match slot {
                 Some(slot) if repr != "void" => {
@@ -547,9 +591,10 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 TypeKind::Str => Some(RefKind::Str),
                 TypeKind::Func(_, _) => Some(RefKind::Env),
                 TypeKind::Struct(_) => Some(RefKind::StructFields),
+                _ if has_string_payload(&ctx.ret_type) => Some(RefKind::Payload),
                 _ => None,
             };
-            let taken = match (value, returned_kind) {
+            let mut taken = match (value, returned_kind) {
                 (Some(expr), Some(_)) => Some(gen_expr(ctx, expr)),
                 _ => None,
             };
@@ -560,7 +605,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // still sees them. A `return` inside an `if` leaves the enclosing
             // scope too; running only the innermost one leaked its bindings.
             run_all_scopes_defers(ctx);
-            if let (Some(taken), Some(kind)) = (&taken, returned_kind) {
+            if let (Some(taken), Some(kind)) = (&mut taken, returned_kind) {
                 // The returned reference has to survive the release: a local's
                 // value is kept here and given to the caller, while a
                 // temporary's reference is transferred as-is.
@@ -571,6 +616,14 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                         RefKind::StructFields => {
                             let ret_type = ctx.ret_type.clone();
                             retain_struct_fields(ctx, &taken.value, &ret_type);
+                        }
+                        RefKind::Payload => {
+                            // The aggregate is rebuilt with the retained payload
+                            // in it, so the value the caller gets owns its own
+                            // reference and the local's release is separate.
+                            let ret_type = ctx.ret_type.clone();
+                            let rebuilt = retain_payload(ctx, &taken.value, &ret_type);
+                            taken.value = rebuilt;
                         }
                     }
                 }

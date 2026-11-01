@@ -386,32 +386,36 @@ unsafe extern "C" {
     /// Byte equality. Null equals only null.
     pub fn yashy_str_eq(a: *const YashyStr, b: *const YashyStr) -> c_int;
 
-    /// One line of standard input without its terminator, or `""` at end of
-    /// input. The caller owns the result.
+    /// One line of standard input without its terminator, or NULL at end of
+    /// input. The caller owns a non-NULL result.
     pub fn yashy_read_line() -> *mut YashyStr;
 
-    /// The integer `s` denotes, or zero when it denotes none (including a value
-    /// too large for `i64`).
-    pub fn yashy_parse_i64(s: *const YashyStr) -> c_longlong;
+    /// Writes the integer `s` denotes through `out` and answers 1, or answers 0
+    /// when `s` denotes none (including a value too large for `i64`).
+    pub fn yashy_parse_i64(s: *const YashyStr, out: *mut c_longlong) -> c_longlong;
 
-    /// The floating-point number `s` denotes, or zero when it denotes none.
-    pub fn yashy_parse_f64(s: *const YashyStr) -> c_double;
+    /// Writes the floating-point number `s` denotes through `out` and answers 1,
+    /// or answers 0 when `s` denotes none.
+    pub fn yashy_parse_f64(s: *const YashyStr, out: *mut c_double) -> c_longlong;
 
-    /// The whole file at `path` as a fresh owned string, or `""` when it cannot
-    /// be opened or read. `path` is a NUL-terminated C string.
-    pub fn yashy_read_file(path: *const c_char) -> *mut YashyStr;
+    /// Writes the whole file at `path` through `out` as a fresh owned string and
+    /// answers 0, or answers `1 + variant_index` when it cannot be opened or
+    /// read. `path` is a NUL-terminated C string.
+    pub fn yashy_read_file(path: *const c_char, out: *mut *mut YashyStr) -> c_longlong;
 
-    /// Writes exactly `len` bytes from `bytes` to `path`, returning 1 on success
-    /// and 0 on failure. Both `path` and `bytes` are C pointers.
+    /// Writes exactly `len` bytes from `bytes` to `path`, answering 0 on success
+    /// and `1 + variant_index` on failure. Both `path` and `bytes` are C
+    /// pointers.
     pub fn yashy_write_file(
         path: *const c_char,
         bytes: *const c_char,
         len: c_longlong,
     ) -> c_longlong;
 
-    /// The value of the environment variable `name` as a fresh owned string, or
-    /// `""` when it is unset.
-    pub fn yashy_getenv(name: *const c_char) -> *mut YashyStr;
+    /// Writes the value of the environment variable `name` through `out` and
+    /// answers 1 when it is set (an empty variable is set), or answers 0 when it
+    /// is not.
+    pub fn yashy_getenv(name: *const c_char, out: *mut *mut YashyStr) -> c_int;
 
     /// Adds one to `s`'s reference count and returns `s`. A no-op on a static
     /// string (refcount -1).
@@ -435,9 +439,9 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
-    /// The current working directory as a fresh owned string, or `""` on
-    /// failure.
-    pub fn yashy_getcwd() -> *mut YashyStr;
+    /// Writes the current working directory through `out` as a fresh owned
+    /// string and answers 0, or answers `1 + variant_index` on failure.
+    pub fn yashy_getcwd(out: *mut *mut YashyStr) -> c_longlong;
 }
 
 unsafe extern "C" {

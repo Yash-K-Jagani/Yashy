@@ -51,7 +51,8 @@ fn args_excludes_the_program_name_and_owns_every_element() {
 #[test]
 fn getcwd_returns_a_non_empty_owned_path() {
     unsafe {
-        let cwd = yashy_getcwd();
+        let mut cwd: *mut YashyStr = std::ptr::null_mut();
+        assert_eq!(yashy_getcwd(&mut cwd), 0, "the working directory is readable");
         assert!(!cwd.is_null());
         assert!(!text(cwd).is_empty());
         assert!((*cwd).refcount > 0, "the caller owns the result");

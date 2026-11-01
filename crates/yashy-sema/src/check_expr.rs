@@ -636,41 +636,53 @@ impl<'src> Checker<'src> {
                 vec![ptr(prim(TypeKind::I64))],
                 prim(TypeKind::Unit),
             ),
-            // Input. `read_line` yields a `string` (empty at end of input).
-            // `parse_i64` and `parse_f64` are methods now: they lower to the
-            // same runtime entry points, but the public spelling is
-            // `s.parse_i64()` / `s.parse_f64()`. A program that can print but
-            // not read is a report generator; this line is what makes it a
-            // program.
-            ("read_line", vec![], prim(TypeKind::Str)),
-            // Files and the environment (M6 Task 10). `read_file` yields the
-            // whole file as a fresh owned string, or the empty string when it
-            // cannot be read; `write_file` reports 1 for success and 0 for
-            // failure; `getenv` yields the variable's value, or the empty string
-            // when it is unset. The ambiguities are deliberate and documented in
-            // the plan: a builtin's signature cannot spell `Result` yet, and an
-            // empty file (or an empty variable) is a legitimate value.
-            ("read_file", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            // Input. `read_line` yields `Option[string]`: `None` at end of
+            // input and `Some("")` for an empty line, so a loop can tell the
+            // two apart. `parse_i64` and `parse_f64` are methods now: they
+            // lower to the same runtime entry points, but the public spelling
+            // is `s.parse_i64()` / `s.parse_f64()`, and a malformed or
+            // overflowing string is `None` rather than a plausible zero. A
+            // program that can print but not read is a report generator; this
+            // line is what makes it a program.
+            ("read_line", vec![], option_of(prim(TypeKind::Str))),
+            // Files and the environment (M6 Task 10, honest signatures in
+            // phase 3b). A missing file and an empty file are different
+            // answers, so failure is `io.Error` rather than an empty string;
+            // `write_file` reports the same error instead of a 1/0 flag.
+            // `getenv` is `Option` because an unset variable and an empty one
+            // are also different answers.
+            (
+                "read_file",
+                vec![prim(TypeKind::Str)],
+                result_of(prim(TypeKind::Str), io_error()),
+            ),
             (
                 "write_file",
                 vec![prim(TypeKind::Str), prim(TypeKind::Str)],
-                prim(TypeKind::I64),
+                result_of(prim(TypeKind::Unit), io_error()),
             ),
-            ("getenv", vec![prim(TypeKind::Str)], prim(TypeKind::Str)),
+            (
+                "getenv",
+                vec![prim(TypeKind::Str)],
+                option_of(prim(TypeKind::Str)),
+            ),
             // The process and the clock (R1 slice 2). `args()` is a fresh
             // owned `[]string` of the user arguments, excluding the executable
             // path; free it with `.free()`, exactly like `split`/`lines`.
-            // `getcwd()` is an owned string, or the empty string on failure --
-            // the same empty-string convention `read_file`/`getenv` use until
-            // builtin `Result` lands in R2. `now()` is milliseconds since the
-            // Unix epoch; `sleep(ms)` blocks and returns unit, with a
-            // non-positive value a no-op.
+            // `getcwd()` is `Result[string, io.Error]`, the same convention
+            // `read_file` uses. `now()` is milliseconds since the Unix epoch;
+            // `sleep(ms)` blocks and returns unit, with a non-positive value a
+            // no-op.
             (
                 "args",
                 vec![],
                 prim(TypeKind::Slice(Box::new(prim(TypeKind::Str)))),
             ),
-            ("getcwd", vec![], prim(TypeKind::Str)),
+            (
+                "getcwd",
+                vec![],
+                result_of(prim(TypeKind::Str), io_error()),
+            ),
             ("now", vec![], prim(TypeKind::I64)),
             ("sleep", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Out the other way: a number as text, so a program can build a
@@ -955,6 +967,11 @@ impl<'src> Checker<'src> {
                 error = error
                     .with_code(codes::MISSING_QUESTION)
                     .with_note("use `?` to propagate the error, or match the `Result`");
+            }
+            TypeKind::Option(inner) if inner.eq_ignoring_span(expected) => {
+                error = error
+                    .with_code(codes::MISSING_QUESTION)
+                    .with_note("use `?` to propagate `None`, or match the `Option`");
             }
             _ => error = error.with_code(codes::TYPE_MISMATCH),
         }
@@ -4983,7 +5000,7 @@ impl<'src> Checker<'src> {
                     args: vec![receiver_checked],
                     unsafe_call: false,
                     span,
-                    ty: prim(TypeKind::I64),
+                    ty: option(&prim(TypeKind::I64), span),
                 }))
             }
             "parse_f64" => {
@@ -4995,7 +5012,7 @@ impl<'src> Checker<'src> {
                     args: vec![receiver_checked],
                     unsafe_call: false,
                     span,
-                    ty: prim(TypeKind::F64),
+                    ty: option(&prim(TypeKind::F64), span),
                 }))
             }
             "is_empty" => {
@@ -7815,41 +7832,58 @@ impl<'src> Checker<'src> {
             Expr::Try { expr, span } => {
                 let inner = self.check_expr(expr)?;
                 let inner_ty = expr_ty(&inner);
-                let TypeKind::Result(ok, err) = &inner_ty.kind else {
-                    self.error(
-                        *span,
-                        format!("`?` can only be used on a `Result`, not `{inner_ty}`"),
-                    );
-                    return None;
-                };
-                // Propagating an error means returning it, so the function
-                // around the `?` has to be returning a `Result` -- and one
-                // that can carry this error.
-                match self.fn_ret.clone() {
-                    Some(ret) => match &ret.kind {
-                        TypeKind::Result(_, ret_err) => {
-                            if !ret_err.eq_ignoring_span(err) {
-                                self.error(
-                                    *span,
-                                    format!("error type mismatch: `{err}` vs `{ret_err}`"),
-                                );
+                // `?` unwraps whichever of the two failure-carrying types the
+                // subject is. `Result` propagates its error, so the function
+                // around it must return a `Result` that can carry the same
+                // error; `Option` propagates `None`, so the function must
+                // return an `Option`.
+                let ok = match &inner_ty.kind {
+                    TypeKind::Result(ok, err) => {
+                        match self.fn_ret.clone() {
+                            Some(ret) => match &ret.kind {
+                                TypeKind::Result(_, ret_err) => {
+                                    if !ret_err.eq_ignoring_span(err) {
+                                        self.error(
+                                            *span,
+                                            format!("error type mismatch: `{err}` vs `{ret_err}`"),
+                                        );
+                                        return None;
+                                    }
+                                }
+                                _ => {
+                                    self.error(*span, "`?` needs a function returning `Result`");
+                                    return None;
+                                }
+                            },
+                            None => {
+                                self.error(*span, "`?` needs a function returning `Result`");
                                 return None;
                             }
                         }
-                        _ => {
-                            self.error(*span, "`?` needs a function returning `Result`");
-                            return None;
+                        (**ok).clone()
+                    }
+                    TypeKind::Option(ok) => {
+                        match self.fn_ret.clone() {
+                            Some(ret) if matches!(ret.kind, TypeKind::Option(_)) => {}
+                            _ => {
+                                self.error(*span, "`?` needs a function returning `Option`");
+                                return None;
+                            }
                         }
-                    },
-                    None => {
-                        self.error(*span, "`?` needs a function returning `Result`");
+                        (**ok).clone()
+                    }
+                    _ => {
+                        self.error(
+                            *span,
+                            format!("`?` can only be used on a `Result` or an `Option`, not `{inner_ty}`"),
+                        );
                         return None;
                     }
-                }
+                };
                 Some(HirExpr::Try {
                     expr: Box::new(inner),
                     span: *span,
-                    ty: (**ok).clone(),
+                    ty: ok,
                 })
             }
             Expr::SwitchExpr {
@@ -9054,6 +9088,11 @@ fn option(payload: &Type, span: Span) -> Type {
         kind: TypeKind::Option(Box::new(payload.clone())),
         span,
     }
+}
+
+/// `Option[payload]` at a synthetic span, for a builtin's signature.
+fn option_of(payload: Type) -> Type {
+    prim(TypeKind::Option(Box::new(payload)))
 }
 
 /// `Result[ok, err]` at a synthetic span, for a builtin's signature.

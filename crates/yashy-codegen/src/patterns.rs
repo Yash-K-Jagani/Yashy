@@ -35,7 +35,7 @@
 use yashy_parser::ast::Literal;
 use yashy_sema::{HirPattern, HirSwitchArm, TypeKind};
 
-use crate::expr_gen::{gen_expr, gen_literal, FnCtx, GenValue};
+use crate::expr_gen::{gen_expr, gen_literal, has_string_payload, retain_payload, FnCtx, GenValue};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
 
 /// What one arm tests, when it tests anything.
@@ -198,6 +198,12 @@ pub fn gen_match(
     // writes the result into the shared slot. An arm with a guard evaluates it
     // first: true falls into the body, false goes where a failed test would
     // have gone. An unguarded arm has no extra block, so its IR is untouched.
+    //
+    // A `string` result (or an `Option[string]`/`Result[string, E]` result) is a
+    // reference the match owns: a fresh one is taken over from the arm, and a
+    // borrowed one -- a binding, a parameter -- is retained, because the subject
+    // is released after the merge point and the result may point into it.
+    let owns_result = matches!(result_ty, TypeKind::Str) || has_string_payload(result_ty);
     for (index, arm) in arms.iter().enumerate() {
         ctx.push(format!("{}:", arm_labels[index]));
         bind_pattern(ctx, subject, &arm.pattern);
@@ -215,15 +221,32 @@ pub fn gen_match(
         }
         let body_value = gen_expr(ctx, &arm.body);
         if result_repr != "void" && !body_value.value.is_empty() {
-            ctx.push(format!(
-                "store {result_repr} {}, ptr {result_slot}",
-                body_value.value
-            ));
+            let mut stored = body_value.value.clone();
+            if owns_result {
+                if ctx.is_owned(&body_value.value) {
+                    ctx.forget_owned(&body_value.value);
+                } else if matches!(result_ty, TypeKind::Str) {
+                    let retained = ctx.tmp();
+                    ctx.push_str_retain_into(&retained, &body_value.value);
+                    stored = retained;
+                } else {
+                    stored = retain_payload(ctx, &body_value.value, result_ty);
+                }
+            }
+            ctx.push(format!("store {result_repr} {stored}, ptr {result_slot}"));
         }
         ctx.push(format!("br label %{result_done}"));
     }
 
     ctx.push(format!("{result_done}:"));
+    // A subject the program built just for the match (`switch read_line() { … }`)
+    // owns a reference, and nothing else will release it. Every result that
+    // pointed into it took its own reference above, so the subject is released
+    // here, after every arm has run. A subject that is a copy of a binding or a
+    // parameter owns nothing, and is left alone.
+    if ctx.is_owned(&subject.value) {
+        ctx.release_owned(&subject.value);
+    }
     result_slot
 }
 
@@ -252,17 +275,18 @@ pub fn pattern_variant_name(pattern: &HirPattern) -> Option<&str> {
 /// `Binding` (a `default` arm's catch-all) stores the whole subject value;
 /// `TupleVariant` arms extract the payload field(s) per
 /// [`variant_payload_index`].
+///
+/// A binding is a **borrow**: the slot holds the subject's pointer, and the
+/// subject outlives every arm (it is released after the merge point, or not at
+/// all when it belongs to a parameter). Only a value that escapes the arm -- the
+/// match's own result -- takes its own reference, which [`gen_match`] does at
+/// the store. Retaining here would double-count and, worse, release a slot on a
+/// path where a different arm ran and never initialised it.
 pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPattern) {
     match pattern {
         HirPattern::Wildcard(_) => {}
         HirPattern::Binding { name, ty, .. } => {
-            let slot = ctx.alloc_slot();
-            let repr = repr_type(&ty.kind);
-            ctx.push_alloca(format!("{slot} = alloca {repr}"));
-            if !subject.value.is_empty() {
-                ctx.push(format!("store {repr} {}, ptr {slot}", subject.value));
-            }
-            ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+            bind_value(ctx, name, &subject.value, &ty.kind);
         }
         HirPattern::TupleVariant { args, .. } => {
             let start = pattern_variant_name(pattern).and_then(|name| {
@@ -281,11 +305,7 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
                     subject.value
                 ));
                 if let HirPattern::Binding { name, ty, .. } = arg {
-                    let slot = ctx.alloc_slot();
-                    let repr = repr_type(&ty.kind);
-                    ctx.push_alloca(format!("{slot} = alloca {repr}"));
-                    ctx.push(format!("store {repr} {payload}, ptr {slot}"));
-                    ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+                    bind_value(ctx, name, &payload, &ty.kind);
                 }
             }
         }
@@ -331,14 +351,26 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
                     start + offset as u32
                 ));
                 if let HirPattern::Binding { name, ty, .. } = subpattern {
-                    let slot = ctx.alloc_slot();
-                    let repr = repr_type(&ty.kind);
-                    ctx.push_alloca(format!("{slot} = alloca {repr}"));
-                    ctx.push(format!("store {repr} {payload}, ptr {slot}"));
-                    ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+                    bind_value(ctx, name, &payload, &ty.kind);
                 }
             }
         }
         HirPattern::Literal(_, _) => {} // literal arms bind nothing
     }
+}
+
+/// Store `value` in a fresh slot bound to `name`.
+///
+/// The binding borrows: the slot holds the pointer the subject already owns and
+/// the slot is not tracked in any scope, so nothing releases it. The subject is
+/// released after the merge point (when the match owns it), which is after every
+/// use of the binding.
+fn bind_value(ctx: &mut FnCtx<'_>, name: &str, value: &str, ty: &TypeKind) {
+    let repr = repr_type(ty);
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca {repr}"));
+    if !value.is_empty() {
+        ctx.push(format!("store {repr} {value}, ptr {slot}"));
+    }
+    ctx.locals.insert(name.to_string(), (slot, ty.clone()));
 }

@@ -1263,34 +1263,35 @@ yashy_str *yashy_str_debug_char(unsigned char value) {
  *
  * `yashy_read_line` reads one line from standard input and returns it without
  * its line terminator, as a refcounted string (owned by the caller). At end of
- * input it returns the empty string: the language has no way to spell "no line"
- * yet, and an empty line and the end of input reading the same is a limitation,
- * not a choice -- a checked form needs `panic` or an `Option` to be reachable
- * from a runtime call, and M4 is where those arrive.
+ * input it returns NULL: "no line" and "an empty line" are different answers,
+ * and the compiler turns the NULL into `None`.
  *
  * A trailing 0x0D is stripped along with the 0x0A. On Windows the C library
  * folds CRLF to LF before `fgetc` sees it; this is for a CRLF that arrives from
  * somewhere else -- a pipe, or the same program on Linux.
  *
- * The parsers return zero when the text is not an integer (or number), and the
- * check is over the *whole* string: `parse_i64("12x")` is zero, not twelve.
+ * The parsers answer 1 and write the number through `out` when the whole text
+ * is a number, and 0 when it is not: `parse_i64("12x")` is `None`, not twelve.
  * Reading the leading digits and ignoring the rest is what `strtoll` does on its
  * own, and it turns a malformed line into a plausible-looking wrong number --
- * the failure a user is least likely to notice. Overflow folds into the same
- * zero rather than saturating, so the contract is exactly "the integer `s`
- * denotes, or zero", with nothing in between. It is still a real answer and a
- * wrong answer both; M4's checked variant replaces it once `panic` exists. */
+ * the failure a user is least likely to notice. Overflow is `None` too, so the
+ * contract is exactly "the integer `s` denotes, or nothing". */
 
 yashy_str *yashy_read_line(void) {
     size_t capacity = 128;
     size_t length = 0;
     char *buffer = (char *)malloc(capacity);
     if (buffer == NULL) {
-        return yashy_str_new("", 0);
+        return NULL;
     }
 
     int byte;
-    while ((byte = fgetc(stdin)) != EOF && byte != '\n') {
+    int read_any = 0;
+    while ((byte = fgetc(stdin)) != EOF) {
+        read_any = 1;
+        if (byte == '\n') {
+            break;
+        }
         if (length + 1 >= capacity) {
             size_t grown = capacity * 2;
             char *moved = (char *)realloc(buffer, grown);
@@ -1305,6 +1306,10 @@ yashy_str *yashy_read_line(void) {
         buffer[length++] = (char)byte;
     }
 
+    if (!read_any) {
+        free(buffer);
+        return NULL;
+    }
     if (length > 0 && buffer[length - 1] == '\r') {
         length -= 1;
     }
@@ -1315,63 +1320,15 @@ yashy_str *yashy_read_line(void) {
 
 /* ---- Files and the environment ----------------------------------------
  *
- * `read_file` returns the whole file as an owned string, or the empty string
- * when it cannot be opened or read; `write_file` reports 1 for success and 0
- * for failure. A failure is a value rather than a fault because a missing file
- * is an ordinary thing for a program to handle, and the language has no
- * `Result` in a builtin's signature yet. The empty string is also what an empty
- * file reads as, so a caller that must tell them apart checks `write_file`'s
- * sibling contract -- there is no way to distinguish them in M6, and that is
- * recorded as a limitation in the plan.
+ * Every call that can fail reports `io.Error` instead of a sentinel: `0` is
+ * success and `1 + variant_index` is the failure, so a missing file and an
+ * empty file are different answers. The compiler's `Result` lowering subtracts
+ * one to recover the enum's tag. `read_file` writes the owned string through
+ * `out`; `getenv` answers 1/0 because "unset" is not an error.
  *
  * `ftell` returns a C `long`: 32 bits on Windows, 64 elsewhere. A file larger
- * than that reads as the empty string rather than being truncated.
+ * than that reads as `Other` rather than being truncated.
  */
-
-yashy_str *yashy_read_file(const char *path) {
-    if (path == NULL) {
-        return yashy_str_new("", 0);
-    }
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        return yashy_str_new("", 0);
-    }
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return yashy_str_new("", 0);
-    }
-    long size = ftell(file);
-    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {
-        fclose(file);
-        return yashy_str_new("", 0);
-    }
-    yashy_str *contents = yashy_str_new(NULL, (size_t)size);
-    if (contents == NULL) {
-        fclose(file);
-        return yashy_str_new("", 0);
-    }
-    size_t got = size == 0 ? 0 : fread(contents->data, 1, (size_t)size, file);
-    fclose(file);
-    if (got != (size_t)size) {
-        /* A short read would hand back half a file as if it were whole. */
-        yashy_str_release(contents);
-        return yashy_str_new("", 0);
-    }
-    return contents;
-}
-
-long long yashy_write_file(const char *path, const char *bytes, long long len) {
-    if (path == NULL || len < 0) {
-        return 0;
-    }
-    FILE *file = fopen(path, "wb");
-    if (file == NULL) {
-        return 0;
-    }
-    size_t written = len == 0 ? 0 : fwrite(bytes, 1, (size_t)len, file);
-    int closed = fclose(file);
-    return written == (size_t)len && closed == 0 ? 1 : 0;
-}
 
 /* Whether the path names something that is not a regular file: a directory, a
  * device, or anything else `stat` can describe but `fopen` would not treat as
@@ -1413,6 +1370,66 @@ static int yashy_errno_to_io_error(int err) {
         default:
             return 4; /* Other */
     }
+}
+
+/* Read a file as an owned string. `*out` is written only on success, so a
+ * caller never has to release a value it did not receive. */
+long long yashy_read_file(const char *path, yashy_str **out) {
+    if (path == NULL || out == NULL) {
+        return 1 + 4; /* Other */
+    }
+    if (yashy_path_is_not_a_file(path)) {
+        return 1 + 3; /* NotAFile */
+    }
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    long size = ftell(file);
+    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    yashy_str *contents = yashy_str_new(NULL, (size_t)size);
+    if (contents == NULL) {
+        fclose(file);
+        return 1 + 4; /* Other */
+    }
+    size_t got = size == 0 ? 0 : fread(contents->data, 1, (size_t)size, file);
+    int closed = fclose(file);
+    if (got != (size_t)size || closed != 0) {
+        /* A short read would hand back half a file as if it were whole. */
+        yashy_str_release(contents);
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    *out = contents;
+    return 0;
+}
+
+/* Write exactly `len` bytes to a file and report `0` on success or `1 +
+ * variant_index` on failure. `bytes` is lent: the function reads them and
+ * keeps no pointer, so the caller still owns the string. */
+long long yashy_write_file(const char *path, const char *bytes, long long len) {
+    if (path == NULL || len < 0) {
+        return 1 + 4; /* Other */
+    }
+    if (yashy_path_is_not_a_file(path)) {
+        return 1 + 3; /* NotAFile */
+    }
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    size_t written = len == 0 ? 0 : fwrite(bytes, 1, (size_t)len, file);
+    int closed = fclose(file);
+    if (written != (size_t)len || closed != 0) {
+        return 1 + yashy_errno_to_io_error(errno);
+    }
+    return 0;
 }
 
 /* Read a file as bytes. Writes the slice header into `out` and returns `0` on
@@ -1481,18 +1498,23 @@ long long yashy_write_bytes(const char *path, const char *bytes, long long len) 
     return 0;
 }
 
-/* The environment value, or the empty string when the name is unset. An empty
- * variable and an unset one read the same in M6 for the same reason a missing
- * file does: no `Option` in a builtin's signature. */
-yashy_str *yashy_getenv(const char *name) {
-    if (name == NULL) {
-        return yashy_str_new("", 0);
+/* The environment value. Answers 1 and writes an owned string when the name is
+ * set -- an empty variable is set, and reads as `Some("")` -- and 0 when it is
+ * not, which the compiler turns into `None`. */
+int yashy_getenv(const char *name, yashy_str **out) {
+    if (name == NULL || out == NULL) {
+        return 0;
     }
     const char *value = getenv(name);
     if (value == NULL) {
-        return yashy_str_new("", 0);
+        return 0;
     }
-    return yashy_str_new(value, strlen(value));
+    yashy_str *text = yashy_str_new(value, strlen(value));
+    if (text == NULL) {
+        return 0;
+    }
+    *out = text;
+    return 1;
 }
 
 /* ---- Program arguments ----
@@ -1550,28 +1572,38 @@ void yashy_args_slice(yashy_slice *out) {
 
 /* ---- Current directory ---- */
 
-yashy_str *yashy_getcwd(void) {
+/* Answers `0` and writes the current directory as an owned string, or `1 +
+ * variant_index` on failure -- the same tag `read_file` uses, because the
+ * language's signature is `Result[string, io.Error]`. */
+long long yashy_getcwd(yashy_str **out) {
+    if (out == NULL) {
+        return 1 + 4; /* Other */
+    }
 #if defined(_WIN32)
     DWORD cap = 256;
     for (int attempt = 0; attempt < 12; attempt++) {
         wchar_t *wide = (wchar_t *)malloc((size_t)cap * sizeof(wchar_t));
         if (wide == NULL) {
-            return yashy_str_new("", 0);
+            return 1 + 4; /* Other */
         }
         DWORD length = GetCurrentDirectoryW(cap, wide);
         if (length == 0) {
             free(wide);
-            return yashy_str_new("", 0);
+            return 1 + yashy_errno_to_io_error(errno);
         }
         if (length < cap) {
             int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, NULL, 0, NULL, NULL);
-            yashy_str *out = bytes > 0 ? yashy_str_new(NULL, (size_t)bytes) : NULL;
-            if (out != NULL) {
-                (void)WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, out->data, bytes, NULL,
+            yashy_str *text = bytes > 0 ? yashy_str_new(NULL, (size_t)bytes) : NULL;
+            if (text != NULL) {
+                (void)WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, text->data, bytes, NULL,
                                           NULL);
             }
             free(wide);
-            return out == NULL ? yashy_str_new("", 0) : out;
+            if (text == NULL) {
+                return 1 + 4; /* Other */
+            }
+            *out = text;
+            return 0;
         }
         free(wide);
         if (length > (1u << 20)) {
@@ -1579,27 +1611,31 @@ yashy_str *yashy_getcwd(void) {
         }
         cap = length + 1;
     }
-    return yashy_str_new("", 0);
+    return 1 + 4; /* Other */
 #else
     size_t cap = 256;
     for (int attempt = 0; attempt < 12; attempt++) {
         char *buffer = (char *)malloc(cap);
         if (buffer == NULL) {
-            return yashy_str_new("", 0);
+            return 1 + 4; /* Other */
         }
         if (getcwd(buffer, cap) != NULL) {
-            yashy_str *out = yashy_str_new(buffer, strlen(buffer));
+            yashy_str *text = yashy_str_new(buffer, strlen(buffer));
             free(buffer);
-            return out;
+            if (text == NULL) {
+                return 1 + 4; /* Other */
+            }
+            *out = text;
+            return 0;
         }
         int failure = errno;
         free(buffer);
         if (failure != ERANGE || cap >= (1u << 20)) {
-            break;
+            return 1 + yashy_errno_to_io_error(failure);
         }
         cap *= 2;
     }
-    return yashy_str_new("", 0);
+    return 1 + 4; /* Other */
 #endif
 }
 
@@ -1666,7 +1702,10 @@ static int yashy_only_space_remains(const char *s) {
     return 1;
 }
 
-long long yashy_parse_i64(const yashy_str *s) {
+long long yashy_parse_i64(const yashy_str *s, long long *out) {
+    if (s == NULL || out == NULL) {
+        return 0;
+    }
     const char *text = yashy_str_data(s);
     errno = 0;
     char *end = NULL;
@@ -1677,21 +1716,26 @@ long long yashy_parse_i64(const yashy_str *s) {
     if (!yashy_only_space_remains(end)) {
         return 0;
     }
-    return value;
+    *out = value;
+    return 1;
 }
 
-double yashy_parse_f64(const yashy_str *s) {
+long long yashy_parse_f64(const yashy_str *s, double *out) {
+    if (s == NULL || out == NULL) {
+        return 0;
+    }
     const char *text = yashy_str_data(s);
     errno = 0;
     char *end = NULL;
     double value = strtod(text, &end);
     if (end == text || errno == ERANGE) {
-        return 0.0;
+        return 0;
     }
     if (!yashy_only_space_remains(end)) {
-        return 0.0;
+        return 0;
     }
-    return value;
+    *out = value;
+    return 1;
 }
 
 /* ---- Slices ----

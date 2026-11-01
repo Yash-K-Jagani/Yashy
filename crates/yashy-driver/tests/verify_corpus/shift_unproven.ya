@@ -2,9 +2,25 @@
 // the user typed and `parse_i64` does not narrow it. The verifier accepts the
 // program and the runtime check stays in the IR -- "the verifier could not prove
 // it" is not the same as "the program is wrong".
+
+/// The text's number, or zero when it is not one.
+fn number(text: string) -> int {
+    return switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
+/// The typed line's number, or zero at end of input.
+fn typed_number(line: Option[string]) -> int {
+    return switch line {
+        case Some(text) { number(text) }
+        case None { 0 }
+    };
+}
+
 fn main() {
-    const line = read_line();
-    const n = line.parse_i64();
+    const n = typed_number(read_line());
     print(1 << n);
     println("");
 }

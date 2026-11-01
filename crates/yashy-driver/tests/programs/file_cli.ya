@@ -1,7 +1,9 @@
 // A small file tool: read a file, count its lines and words, and write a
 // report beside it. It is deliberately ordinary code -- the kind a user writes
 // on a Tuesday -- because the verifier's worst failure is refusing a correct
-// program. Every owned slice is released on every path out of `main`.
+// program. Every owned slice is released on every path out of `main`, and a
+// failed read or write is an `io.Error` the program reports rather than an
+// empty string or a zero flag it has to guess about.
 //
 // Usage: file_cli <path>
 
@@ -28,6 +30,24 @@ fn count_words(line: string) -> int {
     return words;
 }
 
+/// Count the lines and words of `body` and write the report beside `path`.
+fn report(path: string, body: string) {
+    const lines = body.lines();
+    const line_count = lines.len();
+    let words = 0;
+    for line in lines {
+        words = words + count_words(line);
+    }
+    lines.free();
+
+    const text = "lines=" + str_from_i64(line_count) + " words=" + str_from_i64(words) + "\n";
+    const report_path = path + ".report";
+    switch write_file(report_path, text) {
+        case Ok(_) { print(text) }
+        case Err(_) { println("file_cli: cannot write " + report_path) }
+    }
+}
+
 fn main() {
     let arguments = args();
     // Indexing is checked and yields `Option`, so an empty argument list needs
@@ -43,26 +63,8 @@ fn main() {
         return;
     }
 
-    let text = read_file(path);
-    if text.len() == 0 {
-        println("file_cli: cannot read " + path);
-        return;
+    switch read_file(path) {
+        case Ok(body) { report(path, body) }
+        case Err(_) { println("file_cli: cannot read " + path) }
     }
-
-    let lines = text.lines();
-    let line_count = lines.len();
-    let words = 0;
-    for line in lines {
-        words = words + count_words(line);
-    }
-    lines.free();
-
-    let report = "lines=" + str_from_i64(line_count) + " words=" + str_from_i64(words) + "\n";
-    let report_path = path + ".report";
-    let wrote = write_file(report_path, report);
-    if wrote == 0 {
-        println("file_cli: cannot write " + report_path);
-        return;
-    }
-    print(report);
 }

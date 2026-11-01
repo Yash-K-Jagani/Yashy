@@ -25,15 +25,20 @@ fn emit(src: &str) -> String {
 
 #[test]
 fn read_file_copies_the_path_and_frees_the_copy() {
-    let ir = emit("fn main() { let text = read_file(\"a.txt\"); print(text); }");
+    let ir = emit(
+        "fn main() { switch read_file(\"a.txt\") {\n\
+         \x20   case Ok(text) { print(text) }\n\
+         \x20   case Err(_) { print(\"no\") }\n\
+         \x20} }",
+    );
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
         "the path crosses as one fresh C string:\n{ir}"
     );
     assert!(
-        ir.contains("call i8* @yashy_read_file(i8* "),
-        "the copied pointer is what the callee reads:\n{ir}"
+        ir.contains("call i64 @yashy_read_file(i8* ") && ir.contains(", ptr "),
+        "the copied pointer is what the callee reads, and the text comes back in an out slot:\n{ir}"
     );
     assert_eq!(
         ir.matches("call void @yashy_free").count(),
@@ -44,7 +49,12 @@ fn read_file_copies_the_path_and_frees_the_copy() {
 
 #[test]
 fn write_file_lends_the_body_and_copies_only_the_path() {
-    let ir = emit("fn main() { let ok = write_file(\"a.txt\", \"body\"); print(ok); }");
+    let ir = emit(
+        "fn main() { switch write_file(\"a.txt\", \"body\") {\n\
+         \x20   case Ok(_) { print(\"ok\") }\n\
+         \x20   case Err(_) { print(\"no\") }\n\
+         \x20} }",
+    );
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
@@ -66,15 +76,20 @@ fn write_file_lends_the_body_and_copies_only_the_path() {
 
 #[test]
 fn getenv_copies_the_name() {
-    let ir = emit("fn main() { let home = getenv(\"HOME\"); print(home); }");
+    let ir = emit(
+        "fn main() { switch getenv(\"HOME\") {\n\
+         \x20   case Some(home) { print(home) }\n\
+         \x20   case None { print(\"unset\") }\n\
+         \x20} }",
+    );
     assert_eq!(
         ir.matches("call i8* @yashy_str_cstr").count(),
         1,
         "the name is a string argument at the C boundary:\n{ir}"
     );
     assert!(
-        ir.contains("call i8* @yashy_getenv(i8* "),
-        "the runtime resolves the name:\n{ir}"
+        ir.contains("call i32 @yashy_getenv(i8* ") && ir.contains(", ptr "),
+        "the runtime resolves the name and writes the value through an out slot:\n{ir}"
     );
 }
 

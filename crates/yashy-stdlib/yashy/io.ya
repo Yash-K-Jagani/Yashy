@@ -8,11 +8,11 @@
 // adds is the explicitly typed number forms, for a call site that wants the
 // conversion named.
 //
-// The file half of I/O is built in too: `read_file(path)` answers with the whole
-// file (empty on failure), and `write_file(path, body)` answers 1 or 0. They are
-// documented here because this is the module a reader looks in for them; there is
-// no wrapper, because a wrapper would have to use the same name and the names
-// live in one scope.
+// The file half of I/O is built in too: `read_file(path)` answers
+// `Result[string, io.Error]` and `write_file(path, body)` answers
+// `Result[void, io.Error]`. They are documented here because this is the module a
+// reader looks in for them; there is no wrapper, because a wrapper would have to
+// use the same name and the names live in one scope.
 //
 // Ownership: none of these consume their argument. `println` copies the bytes
 // and keeps no pointer.

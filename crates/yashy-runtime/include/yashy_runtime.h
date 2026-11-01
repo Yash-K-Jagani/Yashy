@@ -224,23 +224,26 @@ char *yashy_str_cstr(const yashy_str *s);
 const char *yashy_str_ptr(const yashy_str *s);
 
 /* Reads one line from standard input without its terminator, as a string the
- * caller *owns* (refcount 1); returns the empty string at end of input. The
- * parsers return zero when their argument is not a number (see the input
- * section of runtime.c for why that is the whole story today). */
+ * caller *owns* (refcount 1). At end of input it returns NULL, which the
+ * compiler turns into `None`; an empty line returns an empty string, so the two
+ * are different answers. The parsers answer 1 and write the number through
+ * `out` when the whole text is a number, and 0 otherwise (a malformed string
+ * and an overflow are both 0). */
 yashy_str *yashy_read_line(void);
-long long yashy_parse_i64(const yashy_str *s);
-double yashy_parse_f64(const yashy_str *s);
+long long yashy_parse_i64(const yashy_str *s, long long *out);
+long long yashy_parse_f64(const yashy_str *s, double *out);
 
 /* ---- Files and the environment ----------------------------------------
  *
- * `yashy_read_file` returns the file's bytes as an owned string, or the empty
- * string on failure (the empty string is also an empty file). `yashy_write_file`
- * writes exactly `len` bytes and returns 1 on success, 0 on failure.
- * `yashy_getenv` returns the value as an owned string, or the empty string when
- * the name is unset. Every `yashy_str*` these return is owned: release it. */
-yashy_str *yashy_read_file(const char *path);
+ * `yashy_read_file` answers 0 and writes the file's bytes as an owned string
+ * through `out`, or `1 + variant_index` on failure. `yashy_write_file` writes
+ * exactly `len` bytes and answers the same tag. `yashy_getenv` answers 1 and
+ * writes the value as an owned string when the name is set (an empty variable
+ * is set), and 0 when it is not. Every `yashy_str*` these hand back is owned:
+ * release it. */
+long long yashy_read_file(const char *path, yashy_str **out);
 long long yashy_write_file(const char *path, const char *bytes, long long len);
-yashy_str *yashy_getenv(const char *name);
+int yashy_getenv(const char *name, yashy_str **out);
 
 /* Reference counting. `yashy_str_retain` adds one to the count and returns its
  * argument; `yashy_str_release` drops one and frees the string when the count
@@ -327,15 +330,16 @@ void yashy_slice_free_strings(yashy_slice *slice);
  * result with `yashy_slice_free_strings`. A failed push releases the piece it
  * could not append, so the result is never a leak.
  *
- * `yashy_getcwd` returns the current directory as an owned string, or the empty
- * string on failure. It is UTF-8 on every target.
+ * `yashy_getcwd` answers 0 and writes the current directory as an owned string
+ * through `out`, or `1 + variant_index` on failure -- the same tag
+ * `yashy_read_file` uses. It is UTF-8 on every target.
  *
  * `yashy_now_ms` is milliseconds since the Unix epoch from the wall clock: it
  * can go backwards if the system clock is adjusted. `yashy_sleep_ms` blocks for
  * at least `ms` milliseconds; a value <= 0 is a no-op. */
 void yashy_args_init(int argc, char **argv);
 void yashy_args_slice(yashy_slice *out);
-yashy_str *yashy_getcwd(void);
+long long yashy_getcwd(yashy_str **out);
 long long yashy_now_ms(void);
 void yashy_sleep_ms(long long ms);
 

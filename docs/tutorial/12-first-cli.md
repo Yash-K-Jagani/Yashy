@@ -171,8 +171,16 @@ fn main() {
         return;
     }
 
-    let text = read_file(path);
+    // `read_file` answers `Result[string, io.Error]`: a file that cannot be
+    // read is an error value, not an empty file.
+    switch read_file(path) {
+        case Ok(text) { report(text) }
+        case Err(_) { println("wordcount: cannot read " + path) }
+    }
+}
 
+/// Lines, words, and bytes of one file's text.
+fn report(text: string) {
     let lines = text.split("\n");
     let count = lines.len();
     if count > 0 {
@@ -247,13 +255,13 @@ and the string bound from it is retained, so the slice can be freed before the
 path is used. An invocation with no arguments is an empty slice, not an error;
 the program prints a usage line instead of reading a file.
 
-`read_file(path)` returns the whole file as an owned string, or the empty string
-when it cannot be read. R1 has no builtin `Result`, so a missing file and an
-empty one read the same; the guide notes that rather than hiding it. The
-program splits the text on `"\n"`. `split` keeps the part after the final
-separator, so a file that ends with a newline has one trailing empty part; the
-program drops that part before counting lines. `text.len()` is the byte count,
-which is exactly the file size.
+`read_file(path)` returns `Result[string, io.Error]`: `Ok(text)` holds the whole
+file as an owned string, and `Err(error)` says why it could not be read, so a
+missing file is not the same value as an empty one. The program switches on the
+result and hands the text to `report`, which splits it on `"\n"`. `split` keeps
+the part after the final separator, so a file that ends with a newline has one
+trailing empty part; the program drops that part before counting lines.
+`text.len()` is the byte count, which is exactly the file size.
 
 The word counter is small enough to read as a standalone program. The core is a
 single pass over the line: a separator ends the current word, and a non-

@@ -15,6 +15,13 @@ fn option_i64(o: Option[int]) -> int {
     };
 }
 
+fn option_f64(o: Option[float]) -> float {
+    return switch o {
+        case Some(v) { v }
+        case None { 0.0 - 1.0 }
+    };
+}
+
 fn main() {
     const n = 10000000;
     let xs = []int {};
@@ -123,11 +130,11 @@ fn main() {
         println("empty string is not empty");
     }
     let number = "42";
-    if number.parse_i64() != 42 {
+    if option_i64(number.parse_i64()) != 42 {
         println("bad parse_i64");
     }
     let decimal = "2.5";
-    if decimal.parse_f64() != 2.5 {
+    if option_f64(decimal.parse_f64()) != 2.5 {
         println("bad parse_f64");
     }
 }

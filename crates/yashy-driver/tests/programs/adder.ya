@@ -1,19 +1,44 @@
 // Reads one integer per line from standard input until the input ends, then
 // prints their sum.
 //
-// This is the smallest program that needs both halves of the input API.
-// `read_line` returns the empty string at end of input, and `parse_i64` turns a
-// line that is not an integer into zero -- which is why the loop can use "no
-// line arrived" as its only stopping condition and still sum the numbers it did
-// read.
+// This is the smallest program that needs both halves of the input API, and
+// both halves report failure as a value rather than a sentinel: `read_line`
+// answers `None` at end of input (an empty line is `Some("")`), and `parse_i64`
+// answers `None` for a line that is not an integer. The loop uses the first as
+// its stopping condition and the second as "contributes zero".
+
+/// Whether a line arrived. `None` is end of input; `Some("")` is an empty line.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+/// The text of a line that arrived. Only read after `present` said there is one.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
+
+/// The text's number, or zero when it is not one.
+fn number(text: string) -> int {
+    return switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
 fn main() {
     let total = 0;
     for ;; {
         const line = read_line();
-        if line == "" {
+        if !present(line) {
             break;
         }
-        total = total + line.parse_i64();
+        total = total + number(text_of(line));
     }
     print(total);
     println("");

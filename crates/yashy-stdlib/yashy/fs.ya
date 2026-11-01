@@ -5,12 +5,13 @@
 // duplicate definition. They are documented here because this is the module a
 // reader looks in for them.
 //
-// `read_file` answers the whole file as a fresh owned string, or the empty
-// string when it cannot be read. `write_file` answers 1 for success and 0 for
-// failure. A missing file and an empty file therefore read the same; the
-// language has no `Result` in a builtin's signature yet.
+// `read_file` answers `Result[string, io.Error]`: the whole file as a fresh
+// owned string, or the error that stopped it. A missing file and an empty file
+// are different answers. `write_file` answers `Result[void, io.Error]` -- `1`/`0`
+// was a boolean pretending to be an error. Match the `Result`, or propagate it
+// with `?` from a function that returns one.
 //
-// The current directory is `getcwd()`; it is documented in `os.ya` beside the
-// process builtins.
+// The current directory is `getcwd()`, which answers the same `Result`; it is
+// documented in `os.ya` beside the process builtins.
 //
 // Ownership: neither consumes its argument; both results are owned.

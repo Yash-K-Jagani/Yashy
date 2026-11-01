@@ -3,11 +3,35 @@
 // This is the pair a program needs to *produce* text rather than just print
 // pieces of it: `read_line` gets the input, and `str_from_i64` puts a number
 // inside a string, so the whole sentence is one value.
+
+/// The text of a line that arrived, or `""` at end of input.
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+}
+
+/// The line's number, or zero when it is not one.
+fn number(line: Option[string]) -> int {
+    return switch line {
+        case Some(text) { parse_number(text) }
+        case None { 0 }
+    };
+}
+
+fn parse_number(text: string) -> int {
+    return switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
 fn main() {
     print("name? ");
     const name = read_line();
     print("age? ");
     const age_text = read_line();
-    const age = age_text.parse_i64();
-    print(name + " is " + str_from_i64(age) + " years old\n");
+    const age = number(age_text);
+    print(text_of(name) + " is " + str_from_i64(age) + " years old\n");
 }

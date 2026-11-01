@@ -76,7 +76,8 @@ is one byte; and `void` is the absence of a value.
 Both operands of an arithmetic or comparison operator must have the same type.
 `total as float` and `value as int` are the two numeric casts. Casting `float` to
 `int` truncates toward zero: `3.9 as int` is `3`, and `-3.9 as int` is `-3`.
-There is no cast from `string` to a number; `s.parse_i64()` exists for that.
+There is no cast from `string` to a number; `s.parse_i64()` exists for that, and
+it answers `Option[int]`: `None` when the text is not a number.
 
 ### `char`
 

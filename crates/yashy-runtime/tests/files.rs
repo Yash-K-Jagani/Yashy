@@ -1,16 +1,17 @@
 //! Files, the environment, and substrings: the M6 Task 10 runtime additions.
 //!
 //! These call the same linked C the generated IR calls. The contract worth
-//! pinning here is the one the language cannot express yet: `read_file` and
-//! `getenv` answer with an owned string (empty on failure or absence), and a
-//! file body is a byte range, so a NUL in the middle survives a round trip.
+//! pinning here is the one the language depends on: a fallible read answers a
+//! tag and writes its payload through `out`, so "missing" is never spelled as an
+//! empty value. A file body is a byte range, so a NUL in the middle survives a
+//! round trip.
 
 use std::ffi::{c_char, CString};
 use std::path::PathBuf;
 
 use yashy_runtime::{
-    yashy_getenv, yashy_read_file, yashy_str_from_i64, yashy_str_len, yashy_str_release,
-    yashy_str_slice, yashy_write_file,
+    yashy_getenv, yashy_read_file, yashy_str_from_i64, yashy_str_release, yashy_str_slice,
+    yashy_write_file, YashyStr,
 };
 
 unsafe fn bytes(text: *mut yashy_runtime::YashyStr) -> Vec<u8> {
@@ -60,9 +61,10 @@ fn a_file_round_trips_every_byte_including_a_nul() {
             body.as_ptr() as *const c_char,
             body.len() as i64,
         );
-        assert_eq!(wrote, 1, "a writable temp directory must accept the file");
+        assert_eq!(wrote, 0, "a writable temp directory must accept the file");
 
-        let read = yashy_read_file(path_c.as_ptr());
+        let mut read: *mut YashyStr = std::ptr::null_mut();
+        assert_eq!(yashy_read_file(path_c.as_ptr(), &mut read), 0);
         assert_eq!(
             bytes(read),
             body,
@@ -74,20 +76,24 @@ fn a_file_round_trips_every_byte_including_a_nul() {
 }
 
 #[test]
-fn a_missing_file_and_a_null_path_read_as_empty() {
+fn a_missing_file_and_a_null_path_read_as_a_failure_tag() {
     unsafe {
         let path = temp_path("no-such-directory").join("file.txt");
         let _ = std::fs::remove_file(&path);
         let path_c = c_path(&path);
-        let read = yashy_read_file(path_c.as_ptr());
-        assert_eq!(yashy_str_len(read), 0);
-        yashy_str_release(read);
+        let mut read: *mut YashyStr = std::ptr::null_mut();
+        assert_ne!(
+            yashy_read_file(path_c.as_ptr(), &mut read),
+            0,
+            "a missing file is an error, not an empty file"
+        );
+        assert!(read.is_null(), "a failed read writes no payload");
 
-        let null = yashy_read_file(std::ptr::null());
-        assert_eq!(yashy_str_len(null), 0);
-        yashy_str_release(null);
+        let mut null_read: *mut YashyStr = std::ptr::null_mut();
+        assert_ne!(yashy_read_file(std::ptr::null(), &mut null_read), 0);
+        assert!(null_read.is_null());
 
-        assert_eq!(
+        assert_ne!(
             yashy_write_file(std::ptr::null(), std::ptr::null(), 0),
             0,
             "a null path cannot be opened"
@@ -96,16 +102,16 @@ fn a_missing_file_and_a_null_path_read_as_empty() {
 }
 
 #[test]
-fn an_unset_variable_reads_as_empty() {
+fn an_unset_variable_answers_none() {
     unsafe {
         let missing = CString::new("YASHY_RUNTIME_TEST_UNSET_3F6C1A").expect("no NUL");
-        let value = yashy_getenv(missing.as_ptr());
-        assert_eq!(yashy_str_len(value), 0);
-        yashy_str_release(value);
+        let mut value: *mut YashyStr = std::ptr::null_mut();
+        assert_eq!(yashy_getenv(missing.as_ptr(), &mut value), 0);
+        assert!(value.is_null(), "an absent variable writes no payload");
 
-        let null = yashy_getenv(std::ptr::null());
-        assert_eq!(yashy_str_len(null), 0);
-        yashy_str_release(null);
+        let mut null_value: *mut YashyStr = std::ptr::null_mut();
+        assert_eq!(yashy_getenv(std::ptr::null(), &mut null_value), 0);
+        assert!(null_value.is_null());
     }
 }
 
@@ -116,7 +122,8 @@ fn a_set_variable_is_owned_text() {
         // still a set variable, so the assertion is that the answer is a usable
         // owned string rather than that it has a particular length.
         let name = CString::new("PATH").expect("no NUL");
-        let value = yashy_getenv(name.as_ptr());
+        let mut value: *mut YashyStr = std::ptr::null_mut();
+        assert_eq!(yashy_getenv(name.as_ptr(), &mut value), 1);
         assert!(!value.is_null(), "an owned string, not a null pointer");
         assert_eq!(
             (*value).refcount,

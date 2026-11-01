@@ -151,8 +151,9 @@ offline.
 
 1. Write `fn parse_positive(text: string) -> Result[int, string]` that uses
    `parse_i64`, then rejects a value less than or equal to zero with `Err`.
-   Call it with `"12"`, `"0"`, and `"abc"`. Hint: `parse_i64` returns `0` for
-   text that is not a number, so `0` needs its own error message.
+   Call it with `"12"`, `"0"`, and `"abc"`. Hint: `parse_i64` answers
+   `Option[int]`, so the `None` arm and the `Some(n) if n <= 0` arm both need
+   their own error message.
 
 2. Rewrite `quarter` so that the two `?` calls are separate `switch`
    statements instead. Keep the same output. Hint: the `Err` arm must return

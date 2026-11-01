@@ -348,16 +348,38 @@ fn main() {
 
 ```yashy
 // A program can read its input. `for ;;` is the unbounded loop; `read_line`
-// returns the empty string at end of input, which the loop's `break` uses as its
-// only stopping condition.
+// answers `Option[string]`: `None` at end of input, `Some(line)` otherwise (an
+// empty line is still `Some("")`), so the loop stops on the first and counts the
+// second. `parse_i64` answers `Option[int]` for the same reason.
+fn present(line: Option[string]) -> bool {
+    return switch line {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+fn text_of(line: Option[string]) -> string {
+    return switch line {
+        case Some(text) { text }
+        case None { "" }
+    };
+}
+
+fn number(text: string) -> int {
+    return switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
 fn main() {
     let total = 0;
     for ;; {
         const line = read_line();
-        if line == "" {
+        if !present(line) {
             break;
         }
-        total = total + line.parse_i64();
+        total = total + number(text_of(line));
     }
     println(total);
 }

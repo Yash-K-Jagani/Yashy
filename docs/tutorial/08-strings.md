@@ -99,7 +99,7 @@ are equal. Ordering is not provided: `<` on strings is a type error.
 | `s.repeat(n)` | `string` | `n` copies; `n <= 0` is empty. |
 | `s.split(separator)` | `[]string` | Fresh array of fresh strings. |
 | `s.lines()` | `[]string` | Splits on `\n`, strips one `\r`, drops the final empty piece. |
-| `s.parse_i64()` / `s.parse_f64()` | `int` / `float` | `0` when the text is not a number. |
+| `s.parse_i64()` / `s.parse_f64()` | `Option[int]` / `Option[float]` | `Some` for a number, `None` for anything else. |
 | `a + b` | `string` | New string; both operands are `string`. |
 | `a == b` | `bool` | Compares bytes, not identity. |
 | `"${expr}"` | `string` | `expr` may be `string`, `int`, `float`, or `bool`. |

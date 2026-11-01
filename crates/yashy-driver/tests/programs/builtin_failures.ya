@@ -1,0 +1,92 @@
+// The builtins that used to answer a sentinel now answer a value.
+//
+// `read_file` on a missing path is `Err(NotFound)`, not the empty string that an
+// existing empty file reads as. An unset environment variable is `None`, not
+// the `Some("")` a variable set to empty reads as. End of input is `None`, not
+// an empty line. Text that is not a number is `None`, not zero.
+//
+// Usage: builtin_failures <empty-file> <missing-file>
+
+/// The number the driver test pins each `io.Error` variant to.
+fn code(e: io.Error) -> int {
+    return switch e {
+        case NotFound { 1 }
+        case PermissionDenied { 2 }
+        case AlreadyExists { 3 }
+        case NotAFile { 4 }
+        case Other { 5 }
+    };
+}
+
+/// A label and a failure code on one line.
+fn report(label: string, e: io.Error) {
+    print(label);
+    println(code(e));
+}
+
+/// A label and the byte count of a string on one line.
+fn measure(label: string, text: string) {
+    print(label);
+    println(text.len());
+}
+
+/// A label and a number on one line.
+fn number(label: string, value: int) {
+    print(label);
+    println(value);
+}
+
+fn main() {
+    let arguments = args();
+    const empty_path = switch arguments[0] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    const missing_path = switch arguments[1] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    arguments.free();
+
+    // An empty file is `Ok("")`; a missing one is `Err(NotFound)`.
+    switch read_file(empty_path) {
+        case Ok(body) { measure("empty ok ", body) }
+        case Err(e) { report("empty err ", e) }
+    }
+    switch read_file(missing_path) {
+        case Ok(body) { measure("missing ok ", body) }
+        case Err(e) { report("missing err ", e) }
+    }
+
+    // Unset is `None`; set but empty is `Some("")`.
+    switch getenv("YASHY_TEST_UNSET") {
+        case Some(value) { measure("unset some ", value) }
+        case None { println("unset none") }
+    }
+    switch getenv("YASHY_TEST_EMPTY") {
+        case Some(value) { measure("set-empty some ", value) }
+        case None { println("set-empty none") }
+    }
+
+    // The first line is empty (`Some("")`); the read after it is end of input.
+    switch read_line() {
+        case Some(line) { measure("line ", line) }
+        case None { println("line eof") }
+    }
+    switch read_line() {
+        case Some(line) { measure("next ", line) }
+        case None { println("next eof") }
+    }
+
+    // Unparseable text is `None`; `"0"` is `Some(0)`.
+    const text = "abc";
+    switch text.parse_i64() {
+        case Some(value) { number("abc some ", value) }
+        case None { println("abc none") }
+    }
+    const zero = "0";
+    switch zero.parse_i64() {
+        case Some(value) { number("zero some ", value) }
+        case None { println("zero none") }
+    }
+}
