@@ -14,8 +14,8 @@
 use yashy_common::{Diagnostic, FileId, SourceMap, Span};
 use yashy_lexer::Lexer;
 use yashy_parser::ast::{
-    BinOp, Expr, FieldDef, InterpFormat, InterpPart, Item, Literal, Pattern, Program, Stmt,
-    TypeExpr, UnOp, VariantField,
+    BinOp, Expr, FieldDef, InterpFormat, InterpPart, Item, Literal, Pattern, Program, ReprKind,
+    Stmt, TypeExpr, UnOp, VariantField,
 };
 use yashy_parser::{Parser, MAX_NESTING_DEPTH};
 
@@ -125,7 +125,12 @@ fn parses_import_struct_enum_and_fn() {
 
     // struct P { x: float, y: float }
     match &program.items[1] {
-        Item::Struct { name, fields, span } => {
+        Item::Struct {
+            name,
+            fields,
+            span,
+            ..
+        } => {
             assert_eq!(name, "P");
             let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
             assert_eq!(names, vec!["x", "y"], "field names, in source order");
@@ -151,6 +156,7 @@ fn parses_import_struct_enum_and_fn() {
             name,
             variants,
             span,
+            ..
         } => {
             assert_eq!(name, "C");
             let names: Vec<&str> = variants.iter().map(|v| v.name.as_str()).collect();
@@ -1842,5 +1848,99 @@ fn a_fixed_array_literal_and_a_range_are_distinct_expressions() {
     assert!(
         matches!(&body.stmts[2], Stmt::Const { init, .. } if matches!(init, Expr::Index { .. })),
         "`a[1]` is an index"
+    );
+}
+
+// -- `repr(C)` -------------------------------------------------------------
+
+#[test]
+fn repr_c_attaches_to_the_three_types_that_have_a_layout() {
+    // The clause is read in one place and attached to the type behind it, so
+    // all three type forms get it without three copies of the grammar.
+    let src = "repr(C) struct P { x: int, y: int }\n\
+               repr(C) enum Kind { A, B }\n\
+               repr(C) object O { v: int }";
+    let program = parse_ok(src);
+
+    let Item::Struct { repr, span, .. } = &program.items[0] else {
+        panic!("expected a struct first, got {:?}", program.items[0]);
+    };
+    assert_eq!(*repr, Some(ReprKind::C), "`repr(C)` was not recorded");
+    assert_eq!(
+        *span,
+        span_of(src, "repr(C) struct P { x: int, y: int }"),
+        "the item's span covers the clause it was written with"
+    );
+
+    let Item::Enum { repr, .. } = &program.items[1] else {
+        panic!("expected an enum second, got {:?}", program.items[1]);
+    };
+    assert_eq!(*repr, Some(ReprKind::C), "`repr(C)` was not recorded on the enum");
+
+    let Item::Object { repr, .. } = &program.items[2] else {
+        panic!("expected an object third, got {:?}", program.items[2]);
+    };
+    assert_eq!(
+        *repr,
+        Some(ReprKind::C),
+        "`repr(C)` was not recorded on the object"
+    );
+}
+
+#[test]
+fn repr_c_is_looked_through_a_pub_modifier() {
+    // `pub` is a modifier, not a field, so the representation belongs to the
+    // type: both spellings reach the same struct.
+    for src in [
+        "pub repr(C) struct P { x: int }",
+        "repr(C) pub struct P { x: int }",
+    ] {
+        let program = parse_ok(src);
+        let Item::Public { item, .. } = &program.items[0] else {
+            panic!("{src:?}: `pub` must wrap the item");
+        };
+        let Item::Struct { repr, .. } = &**item else {
+            panic!("{src:?}: the wrapper must hold a struct");
+        };
+        assert_eq!(
+            *repr,
+            Some(ReprKind::C),
+            "{src:?}: the clause did not reach the type"
+        );
+    }
+}
+
+#[test]
+fn repr_on_an_item_with_no_layout_is_reported() {
+    // A function has no memory for C's rules to describe, and dropping the
+    // clause silently would leave the reader believing they had asked for a
+    // layout.
+    let diagnostics = parse_err("repr(C) fn main() { return; }");
+    assert!(
+        all_messages(&diagnostics).contains("cannot be applied to a function"),
+        "the message names the thing the clause was written on: {:?}",
+        all_messages(&diagnostics)
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0106")),
+        "the diagnostic carries the catalog code: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn an_unknown_representation_is_refused_rather_than_ignored() {
+    let diagnostics = parse_err("repr(Rust) struct P { x: int }");
+    assert!(
+        all_messages(&diagnostics).contains("names no representation"),
+        "the message says only `C` exists: {:?}",
+        all_messages(&diagnostics)
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == Some("E0106")),
+        "an unknown name is the same code as a misplaced clause: {diagnostics:?}"
     );
 }

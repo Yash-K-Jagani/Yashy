@@ -90,6 +90,7 @@ fn full_program(spans: &mut Spans) -> Program {
                 public: false,
                 span: spans.take(),
             }],
+            repr: None,
             span: spans.take(),
         },
         // Item::Enum, with a bare VariantDef, one carrying a positional field
@@ -118,6 +119,7 @@ fn full_program(spans: &mut Spans) -> Program {
                     span: spans.take(),
                 },
             ],
+            repr: None,
             span: spans.take(),
         },
         // Item::Fn, with a Param, a Result type, an Option return type and a
@@ -558,9 +560,10 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             Item::Struct {
                 name: "S".to_string(),
                 fields: Vec::new(),
+                repr: None,
                 span: here(),
             },
-            &["Struct", "name", "fields", "span"],
+            &["Struct", "name", "fields", "repr", "span"],
             &["Import", "Enum", "Fn", "Extern"],
         ),
         case(
@@ -568,9 +571,10 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             Item::Enum {
                 name: "E".to_string(),
                 variants: Vec::new(),
+                repr: None,
                 span: here(),
             },
-            &["Enum", "name", "variants", "span"],
+            &["Enum", "name", "variants", "repr", "span"],
             &["Import", "Struct", "Fn", "Extern"],
         ),
         case(

@@ -237,6 +237,34 @@ pub fn variadic_must_be_last(span: Span) -> ParseError {
         .with_code(yashy_common::codes::VARIADIC_MISPLACED)
 }
 
+/// `repr(C)` in front of something with no layout to fix.
+///
+/// The clause is a promise about memory, and only a `struct`, an `object` or a
+/// fieldless `enum` has memory for it to describe. Reported where the clause was
+/// written, with the catalog code that explains the rule.
+pub fn repr_not_allowed(span: Span, item: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!(
+            "`repr(C)` cannot be applied to {item}: only a `struct`, an `object` or a fieldless `enum` has a layout"
+        ),
+    )
+    .with_code(yashy_common::codes::REPR_NOT_ALLOWED)
+}
+
+/// `repr(X)` where `X` is not a representation the language has.
+///
+/// `C` is the only name: a clause that named something else would be a promise
+/// the compiler cannot keep, and silently ignoring it would leave the reader
+/// believing the layout they asked for.
+pub fn unknown_repr(span: Span, name: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("`repr({name})` names no representation: the only one is `C`"),
+    )
+    .with_code(yashy_common::codes::REPR_NOT_ALLOWED)
+}
+
 /// A token that cannot begin an item.
 pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(

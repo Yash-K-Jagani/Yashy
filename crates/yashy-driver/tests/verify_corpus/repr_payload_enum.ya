@@ -1,0 +1,18 @@
+// `repr(C)` promises C's layout, and a C `enum` is a name for an integer:
+// there is no payload for C to see. The clause is refused rather than silently
+// ignored, so the reader does not believe they asked for a layout.
+//
+// Expected: E0106, reported at the variant that carries the payload.
+repr(C) enum Shape {
+    Empty,
+    Circle(f64),
+}
+
+fn main() {
+    const shape = Shape.Empty;
+    switch shape {
+        case Empty { print(1); }
+        case Circle(r) { print(r); }
+    }
+    println("");
+}

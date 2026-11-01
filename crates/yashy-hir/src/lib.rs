@@ -6,6 +6,7 @@
 
 pub mod exhaustive;
 pub mod hir;
+pub mod layout;
 pub mod ty;
 
 pub use hir::{DeclaredEffect, Effect};

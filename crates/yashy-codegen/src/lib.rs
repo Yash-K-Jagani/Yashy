@@ -164,7 +164,7 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions, fact
                             .collect(),
                     })
                     .collect();
-                module.define_enum(&e.name, variants);
+                module.define_enum(&e.name, variants, e.repr.is_some());
             }
             HirItem::Fn(_) | HirItem::Import(_) | HirItem::Extern(_) => {}
         }

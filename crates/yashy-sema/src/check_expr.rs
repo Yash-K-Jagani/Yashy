@@ -25,6 +25,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
+use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, Contract, Expr, ExternDecl, InterpFormat, InterpPart, Item,
     Literal, Param, Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef,
@@ -53,6 +54,12 @@ struct StructSig {
     /// A field is private to the module that declares it unless it is marked
     /// `pub`, the same rule an item follows.
     field_public: Vec<bool>,
+    /// Whether the declaration asked for C's layout with `repr(C)`.
+    ///
+    /// The checker records it rather than recomputing the layout: `offsetof`
+    /// accepts only a `repr(C)` struct, and that rule is about what the
+    /// declaration promised, not about the bytes.
+    repr_c: bool,
     /// Where the type came from, and whether another module may name it.
     origin: ItemOrigin,
 }
@@ -87,6 +94,41 @@ struct ItemOrigin {
 #[derive(Clone, Debug)]
 struct EnumSig {
     variants: Vec<VariantDef>,
+    /// Each variant's payload types, resolved, in declaration order and in the
+    /// same order as `variants`.
+    ///
+    /// `sizeof` and `offsetof` need the resolved types, and resolving them a
+    /// second time at the query would report the same unknown name twice.
+    payloads: Vec<Vec<TypeKind>>,
+    /// Whether the declaration asked for C's layout with `repr(C)`, which makes
+    /// the tag a C `int` and forbids payloads.
+    repr_c: bool,
+}
+
+/// The checker's declaration tables, seen through [`Decls`].
+///
+/// The layout walk cannot see the program, so the checker hands it the two
+/// tables it already has. A declared type is looked up by name and reduced to
+/// the field types the walk needs; everything else -- spans, visibility,
+/// origins -- is the checker's business and stays out of the layout.
+struct CheckerDecls<'a> {
+    structs: &'a HashMap<String, StructSig>,
+    enums: &'a HashMap<String, EnumSig>,
+}
+
+impl Decls for CheckerDecls<'_> {
+    fn named(&self, name: &str) -> Option<NamedType> {
+        if let Some(sig) = self.structs.get(name) {
+            return Some(NamedType::Struct {
+                fields: sig.fields.iter().map(|(_, ty)| ty.kind.clone()).collect(),
+            });
+        }
+        let sig = self.enums.get(name)?;
+        Some(NamedType::Enum {
+            payloads: sig.payloads.clone(),
+            repr_c: sig.repr_c,
+        })
+    }
 }
 
 /// A function signature collected in pass 1.
@@ -1603,6 +1645,7 @@ impl<'src> Checker<'src> {
                 name,
                 fields,
                 methods,
+                repr,
                 span,
             } => {
                 // An object is a struct and an `impl` block written
@@ -1620,10 +1663,11 @@ impl<'src> Checker<'src> {
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
                 }
+                let allow_c = repr.is_some();
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
                     .map(|f| {
-                        let ty = self.resolve_or_report(&f.ty, f.span);
+                        let ty = self.resolve_or_report_field(&f.ty, f.span, allow_c);
                         (f.name.clone(), ty)
                     })
                     .collect();
@@ -1633,6 +1677,7 @@ impl<'src> Checker<'src> {
                     StructSig {
                         fields: field_tys,
                         field_public,
+                        repr_c: repr.is_some(),
                         origin: self.origin(public),
                     },
                 );
@@ -1682,7 +1727,12 @@ impl<'src> Checker<'src> {
                     }
                 }
             }
-            Item::Struct { name, fields, span } => {
+            Item::Struct {
+                name,
+                fields,
+                repr,
+                span,
+            } => {
                 let binding = Binding {
                     ty: Type {
                         kind: TypeKind::Struct(name.clone()),
@@ -1695,10 +1745,14 @@ impl<'src> Checker<'src> {
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
                 }
+                // `repr(C)` is a promise about memory, so its fields are the
+                // bytes C will read: they may be spelled with C's type names,
+                // and the query functions report the offsets C would.
+                let allow_c = repr.is_some();
                 let field_tys: Vec<(String, Type)> = fields
                     .iter()
                     .map(|f| {
-                        let ty = self.resolve_or_report(&f.ty, f.span);
+                        let ty = self.resolve_or_report_field(&f.ty, f.span, allow_c);
                         // A function value in a struct would be copied into
                         // the aggregate without being counted, and the
                         // aggregate has no way to release it: the copy would
@@ -1718,6 +1772,7 @@ impl<'src> Checker<'src> {
                     StructSig {
                         fields: field_tys,
                         field_public,
+                        repr_c: repr.is_some(),
                         origin: self.origin(public),
                     },
                 );
@@ -1726,6 +1781,7 @@ impl<'src> Checker<'src> {
             Item::Enum {
                 name,
                 variants,
+                repr,
                 span,
             } => {
                 let binding = Binding {
@@ -1740,9 +1796,26 @@ impl<'src> Checker<'src> {
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
                 }
+                let allow_c = repr.is_some();
+                let mut payloads = Vec::with_capacity(variants.len());
                 for variant in variants {
+                    // A C `enum` is a name for an integer, so there is no
+                    // payload for C to see and no offset for `offsetof` to
+                    // report. Refused here rather than in the parser because
+                    // the payload's own types still have to be checked.
+                    if repr.is_some() && !variant.fields.is_empty() {
+                        self.error_code(
+                            variant.span,
+                            codes::REPR_NOT_ALLOWED,
+                            format!(
+                                "`repr(C)` needs a fieldless `enum`: variant `{}` of `{name}` has a payload",
+                                variant.name
+                            ),
+                        );
+                    }
+                    let mut field_tys = Vec::with_capacity(variant.fields.len());
                     for field in &variant.fields {
-                        let ty = self.resolve_or_report(field.ty(), field.span());
+                        let ty = self.resolve_or_report_field(field.ty(), field.span(), allow_c);
                         // The same reason a struct field cannot have one:
                         // an enum value is an aggregate, and an aggregate
                         // does not count the references it holds.
@@ -1752,12 +1825,16 @@ impl<'src> Checker<'src> {
                                 "an enum field cannot have a function type yet",
                             );
                         }
+                        field_tys.push(ty.kind);
                     }
+                    payloads.push(field_tys);
                 }
                 self.enums.insert(
                     name.clone(),
                     EnumSig {
                         variants: variants.clone(),
+                        payloads,
+                        repr_c: repr.is_some(),
                     },
                 );
                 self.record_origin(name, public);
@@ -1893,6 +1970,40 @@ impl<'src> Checker<'src> {
             Ok(resolved) => {
                 // A named type is an item too, so it is private to the module
                 // that declares it unless it is `pub`.
+                if let TypeExpr::Name(name, span) = ty {
+                    self.check_visibility(name, *span);
+                }
+                if self.refuse_void_value(ty, &resolved) {
+                    never(fallback_span)
+                } else {
+                    resolved
+                }
+            }
+            Err(e) => {
+                self.report(e);
+                never(fallback_span)
+            }
+        }
+    }
+
+    /// Resolve a field's type, allowing the C spellings under `repr(C)`.
+    ///
+    /// A `repr(C)` struct is a promise about bytes, so its fields are the bytes
+    /// C reads and may be named with C's words: `a: u8, b: i64`. Everything
+    /// else -- the visibility rule, the refusal of a `void` value -- is the
+    /// same as [`CheckCtx::resolve_or_report`], which is what this delegates to
+    /// when the type is an ordinary Yashy type.
+    fn resolve_or_report_field(
+        &mut self,
+        ty: &TypeExpr,
+        fallback_span: Span,
+        allow_c: bool,
+    ) -> Type {
+        if !allow_c {
+            return self.resolve_or_report(ty, fallback_span);
+        }
+        match self.resolve_type_in(ty, true) {
+            Ok(resolved) => {
                 if let TypeExpr::Name(name, span) = ty {
                     self.check_visibility(name, *span);
                 }
@@ -2706,7 +2817,12 @@ impl<'src> Checker<'src> {
                 )?;
                 Some(vec![HirItem::Fn(checked)])
             }
-            Item::Struct { name, fields, span } => {
+            Item::Struct {
+                name,
+                fields,
+                repr,
+                span,
+            } => {
                 let sig = self.structs.get(name).cloned()?;
                 Some(vec![HirItem::Struct(HirStruct {
                     name: name.clone(),
@@ -2719,56 +2835,51 @@ impl<'src> Checker<'src> {
                             span: f.span,
                         })
                         .collect(),
+                    repr: *repr,
                     span: *span,
                 })])
             }
             Item::Enum {
                 name,
                 variants,
+                repr,
                 span,
-            } => Some(vec![HirItem::Enum(HirEnum {
-                name: name.clone(),
-                variants: variants
-                    .iter()
-                    .map(
-                        |VariantDef {
-                             name: vname,
-                             fields,
-                             span: vspan,
-                         }| HirVariantDef {
-                            name: vname.clone(),
-                            fields: fields
+            } => {
+                // The payload types were resolved in pass 1 and kept in the
+                // signature, so the lowering reads them rather than resolving
+                // a second time: a second pass would report the same unknown
+                // name twice.
+                let sig = self.enums.get(name).cloned()?;
+                Some(vec![HirItem::Enum(HirEnum {
+                    name: name.clone(),
+                    variants: variants
+                        .iter()
+                        .zip(sig.payloads.iter())
+                        .map(|(variant, payload)| HirVariantDef {
+                            name: variant.name.clone(),
+                            fields: variant
+                                .fields
                                 .iter()
-                                .map(|f| {
-                                    let ty = match self.resolve_type(f.ty()) {
-                                        Ok(ty) => {
-                                            if self.refuse_void_value(f.ty(), &ty) {
-                                                never(*vspan)
-                                            } else {
-                                                ty
-                                            }
-                                        }
-                                        Err(e) => {
-                                            self.report(e);
-                                            never(*vspan)
-                                        }
-                                    };
-                                    HirVariantField {
-                                        name: match f {
-                                            VariantField::Named { name, .. } => Some(name.clone()),
-                                            VariantField::Positional { .. } => None,
-                                        },
-                                        ty,
-                                        span: f.span(),
-                                    }
+                                .zip(payload.iter())
+                                .map(|(field, ty)| HirVariantField {
+                                    name: match field {
+                                        VariantField::Named { name, .. } => Some(name.clone()),
+                                        VariantField::Positional { .. } => None,
+                                    },
+                                    ty: Type {
+                                        kind: ty.clone(),
+                                        span: field.span(),
+                                    },
+                                    span: field.span(),
                                 })
                                 .collect(),
-                            span: *vspan,
-                        },
-                    )
-                    .collect(),
-                span: *span,
-            })]),
+                            span: variant.span,
+                        })
+                        .collect(),
+                    repr: *repr,
+                    span: *span,
+                })])
+            }
             Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {
                 path: path.clone(),
                 span: *span,
@@ -2827,6 +2938,7 @@ impl<'src> Checker<'src> {
                 name,
                 fields,
                 methods,
+                repr,
                 span,
             } => {
                 // The type, and then the methods: an object is a struct and
@@ -2843,6 +2955,7 @@ impl<'src> Checker<'src> {
                             span: f.span,
                         })
                         .collect(),
+                    repr: *repr,
                     span: *span,
                 })];
                 if let Some(methods) = self.check_impl_methods(name, methods) {
@@ -6887,6 +7000,17 @@ impl<'src> Checker<'src> {
                     }
                 }
                 let name = callee.last().cloned().unwrap_or_default();
+                // `sizeof`, `alignof` and `offsetof` are compile-time queries
+                // about a type's layout, not calls: the answer is a constant,
+                // so a program may use one in a `const` initializer and the
+                // backend never sees a function that does not exist. Their
+                // argument is a type *name*, which is why they are read here
+                // before the arguments are checked as expressions.
+                if callee.len() == 1
+                    && matches!(name.as_str(), "sizeof" | "alignof" | "offsetof")
+                {
+                    return self.check_layout_query(&name, args, *span);
+                }
                 // A generic function is found by name like an ordinary one, but
                 // its signature has type variables: the substitution comes from
                 // the argument types, and the body is checked at that
@@ -8129,6 +8253,203 @@ impl<'src> Checker<'src> {
                 None
             }
         }
+    }
+
+    /// Fold `sizeof(T)`, `alignof(T)` or `offsetof(T, f)` to a constant.
+    ///
+    /// The argument is a **type name**, not an expression: `sizeof(P)` asks
+    /// about the type `P`, and there is nothing inside the parentheses to
+    /// evaluate. That is why these are read before the arguments are checked
+    /// as expressions -- `P` names a type, and checking it as a value would
+    /// report that no such value exists.
+    ///
+    /// The result is `int`: it is a count of bytes, and `int` is the
+    /// language's number. It is also the type a `print` accepts, which a
+    /// `usize` is not yet.
+    fn check_layout_query(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
+        let ty = match name {
+            "sizeof" | "alignof" => {
+                if args.len() != 1 {
+                    self.error_code(
+                        span,
+                        codes::SIZE_OF_UNKNOWN,
+                        format!("`{name}` takes one type name"),
+                    );
+                    return None;
+                }
+                self.layout_query_type(name, &args[0], span)?
+            }
+            _ => {
+                if args.len() != 2 {
+                    self.error_code(
+                        span,
+                        codes::OFFSET_OF_NOT_REPR_C,
+                        "`offsetof` takes a type name and a field name",
+                    );
+                    return None;
+                }
+                self.layout_query_type(name, &args[0], span)?
+            }
+        };
+        if name == "offsetof" {
+            return self.check_offsetof(&ty, &args[1], span);
+        }
+        let Some(layout) = self.layout_of(&ty) else {
+            self.error_code(
+                span,
+                codes::SIZE_OF_UNKNOWN,
+                format!("`{name}` of `{ty}` has no layout: a field names a type this module cannot see"),
+            );
+            return None;
+        };
+        let value = if name == "sizeof" {
+            layout.size
+        } else {
+            layout.align
+        };
+        Some(HirExpr::Literal(
+            Literal::I64(i64::try_from(value).unwrap_or(i64::MAX)),
+            span,
+            prim(TypeKind::I64),
+        ))
+    }
+
+    /// The type a layout query names, or `None` after reporting `E0107`.
+    ///
+    /// Only a bare name is a type. A dotted path names no type -- there is no
+    /// `module.Type` spelling in the language -- and anything that is not a
+    /// name is a value, which these queries do not take.
+    fn layout_query_type(&mut self, query: &str, arg: &Expr, call_span: Span) -> Option<Type> {
+        let Expr::Ident(path, span) = arg else {
+            self.error_code(
+                call_span,
+                codes::SIZE_OF_UNKNOWN,
+                format!("`{query}` takes the name of a type, not a value"),
+            );
+            return None;
+        };
+        if path.len() != 1 {
+            self.error_code(
+                *span,
+                codes::SIZE_OF_UNKNOWN,
+                format!(
+                    "`{query}` names no known type: `{}` is not a type",
+                    path.join(".")
+                ),
+            );
+            return None;
+        }
+        let type_name = &path[0];
+        self.check_visibility(type_name, *span);
+        match self.resolve_type_in(&TypeExpr::Name(type_name.clone(), *span), true) {
+            Ok(ty) => Some(ty),
+            Err(_) => {
+                // The resolution failure is not reported as its own diagnostic:
+                // `sizeof(Point)` where `Point` is unknown is one mistake, and
+                // the query's code names the question that could not be
+                // answered rather than the type lookup that failed under it.
+                self.error_code(
+                    *span,
+                    codes::SIZE_OF_UNKNOWN,
+                    format!("`{query}` names no known type: `{type_name}` is not declared"),
+                );
+                None
+            }
+        }
+    }
+
+    /// `offsetof(T, f)`: the byte offset of field `f` in a `repr(C)` struct.
+    fn check_offsetof(&mut self, ty: &Type, field: &Expr, span: Span) -> Option<HirExpr> {
+        let TypeKind::Struct(struct_name) = &ty.kind else {
+            self.error_code(
+                span,
+                codes::OFFSET_OF_NOT_REPR_C,
+                format!("`offsetof` needs a `repr(C)` struct: `{ty}` is not a struct"),
+            );
+            return None;
+        };
+        let Some(sig) = self.structs.get(struct_name).cloned() else {
+            self.error_code(
+                span,
+                codes::SIZE_OF_UNKNOWN,
+                format!("`offsetof` names no known type: `{struct_name}` is not declared"),
+            );
+            return None;
+        };
+        if !sig.repr_c {
+            self.errors.push((
+                self.file,
+                TypeError::new(
+                    span,
+                    format!(
+                        "`offsetof` needs a `repr(C)` struct: `{struct_name}` has Yashy's own layout"
+                    ),
+                )
+                .with_code(codes::OFFSET_OF_NOT_REPR_C)
+                .with_note(format!(
+                    "add `repr(C)` in front of `struct {struct_name}` to fix its layout"
+                )),
+            ));
+            return None;
+        }
+        let Expr::Ident(path, field_span) = field else {
+            self.error_code(
+                span,
+                codes::OFFSET_OF_NOT_REPR_C,
+                "`offsetof` takes a field name, not a value",
+            );
+            return None;
+        };
+        let Some(field_name) = path.last() else {
+            self.error_code(
+                *field_span,
+                codes::OFFSET_OF_NOT_REPR_C,
+                "`offsetof` takes a field name",
+            );
+            return None;
+        };
+        let Some(index) = sig.fields.iter().position(|(name, _)| name == field_name) else {
+            let fields: Vec<String> = sig.fields.iter().map(|(name, _)| name.clone()).collect();
+            self.error_code(
+                *field_span,
+                codes::OFFSET_OF_NOT_REPR_C,
+                format!(
+                    "`{struct_name}` has no field `{field_name}`; its fields are: {}",
+                    fields.join(", ")
+                ),
+            );
+            return None;
+        };
+        let Some(layout) = self.layout_of(ty) else {
+            self.error_code(
+                span,
+                codes::SIZE_OF_UNKNOWN,
+                format!("`offsetof` of `{ty}` has no layout: a field names a type this module cannot see"),
+            );
+            return None;
+        };
+        let Some(offset) = layout.offsets.get(index).copied() else {
+            self.error_code(
+                span,
+                codes::SIZE_OF_UNKNOWN,
+                format!("`offsetof` of `{ty}` has no layout"),
+            );
+            return None;
+        };
+        Some(HirExpr::Literal(
+            Literal::I64(i64::try_from(offset).unwrap_or(i64::MAX)),
+            span,
+            prim(TypeKind::I64),
+        ))
+    }
+
+    /// The layout of `ty`, answered from this checker's declaration table.
+    fn layout_of(&self, ty: &Type) -> Option<Layout> {
+        let decls = CheckerDecls {
+            structs: &self.structs,
+            enums: &self.enums,
+        };
+        type_layout::layout(&ty.kind, &decls)
     }
 
     /// The `string` an interpolated expression contributes, converting with the

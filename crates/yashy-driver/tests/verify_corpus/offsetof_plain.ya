@@ -1,0 +1,14 @@
+// `offsetof` asks where a field starts, which is only meaningful when the
+// declaration promised C's layout. A struct without the clause has Yashy's own
+// layout, so there is no offset to promise a C function.
+//
+// Expected: E0108, with a note naming the edit that fixes it.
+struct Plain {
+    a: int,
+    b: int,
+}
+
+fn main() {
+    print(offsetof(Plain, a));
+    println("");
+}

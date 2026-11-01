@@ -155,29 +155,29 @@ Carried from the spec and enforced by tests:
 ### Task 5: `repr(C)` and the layout queries
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/token.rs` (`Repr` keyword; `KEYWORDS` grows to 32 - 28 at the start of the programme, plus phase 1a's `requires`/`ensures`/`invariant`, plus `repr` - and the phase 5 gate's count becomes 32)
-- Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`Item::Struct`/`Item::Object`/`Item::Enum` gain `repr: Option<ReprKind>`; `ReprKind::C` is the only variant)
-- Modify: `crates/yashy-sema/src/check_expr.rs` (`sizeof`/`alignof`/`offsetof` as builtin const-folded calls)
-- Modify: `crates/yashy-sema/src/ty.rs` (a type's layout is asked of codegen through one trait, so sema never computes it)
-- Modify: `crates/yashy-codegen/src/ir.rs` (`fn layout(ty, repr) -> Layout { size, align, offsets: Vec<(String, usize)> }`; `repr_type` and `alignment_of` call it)
+- Modify: `crates/yashy-lexer/src/token.rs` (`Repr` keyword; `KEYWORDS` grows to 34 - 28 at the start of the programme, plus phase 1a's `requires`/`ensures`/`invariant`, plus phase 2's `pure`/`io`, plus `repr` - and the phase 5 gate's count becomes 34)
+- Modify: `crates/yashy-parser/src/{ast.rs,items.rs,error.rs}` (`Item::Struct`/`Item::Object`/`Item::Enum` gain `repr: Option<ReprKind>`; `ReprKind::C` is the only variant; `parse_repr_item`/`attach_repr` read the clause once and attach it to whichever type follows, looking through `pub`)
+- Modify: `crates/yashy-sema/src/check_expr.rs` (`sizeof`/`alignof`/`offsetof` as builtin const-folded calls, folded in the checker's call path rather than in `const_eval`, because their argument is a type name and not an expression)
+- Create: `crates/yashy-hir/src/layout.rs` (the one layout walk: `Layout { size, align, offsets }`, a `Decls` trait the caller answers with its own declaration table, and `layout(ty, decls)`; the checker answers from its signature tables through `CheckerDecls`, the backend from its module. The walk lives in the crate both already share, because the checker may not depend on the backend)
+- Modify: `crates/yashy-codegen/src/{module.rs,lib.rs,expr_gen.rs,patterns.rs}` (`EnumRepr` carries `repr_c`; `define_enum` emits an `i32` tag for a `repr(C)` enum; `Module::tag_type` is the one place the tag width is read, used by the constructor and by pattern matching)
 - Modify: `crates/yashy-common/src/codes.rs` (`REPR_NOT_ALLOWED = "E0106"`, `SIZE_OF_UNKNOWN = "E0107"`, `OFFSET_OF_NOT_REPR_C = "E0108"`), create `docs/errors/{E0106,E0107,E0108}.md`
-- Modify: `crates/yashy-fmt/src/lib.rs`
+- Modify: `crates/yashy-fmt/src/lib.rs` (`repr` binds to its parenthesis like a call name)
 - Create: `crates/yashy-driver/tests/programs/repr_c.ya`, `crates/yashy-driver/tests/programs/repr_c.c` (the C half of the differential test), modify `crates/yashy-driver/tests/e2e.rs`
-- Create: `crates/yashy-driver/tests/verify_corpus/{repr_generic.ya,offsetof_plain.ya}`
+- Create: `crates/yashy-driver/tests/verify_corpus/{repr_payload_enum.ya,offsetof_plain.ya,repr_ok.ya}`
 
 **Interfaces:**
-- Produces: `repr(C) struct P { a: u8, b: i64, c: u16 }`, `repr(C) object Q { .. }`, and `repr(C) enum E { A, B }` (fieldless only).
-- Produces: `sizeof(P)` = 24, `alignof(P)` = 8, `offsetof(P, b)` = 8 on x86_64 SysV and on MSVC x64 — the numbers come from the platform's C ABI, and the test compares them with a C program compiled by the platform's own compiler rather than with a table.
-- Produces: `sizeof`/`alignof`/`offsetof` are `usize`-typed constants usable in a `const` and in an array length; a non-constant argument is `E0107`.
-- Produces: `E0106` for `repr(C)` on a generic type or on an `enum` with payloads, with the note that a C enum is fieldless and a C struct has no type parameters.
-- Produces: `E0108` for `offsetof(T, f)` where `T` is not `repr(C)`, and for an unknown field, with the field list in the note.
-- Produces: one `layout` function. `alignment_of` and `repr_type` in `ir.rs` are rewritten to call it, and the test that compares Yashy's own layout with the C one for a `repr(C)` type is the only place the two algorithms are compared.
+- Produces: `repr(C) struct P { a: u8, b: i64, c: u16 }`, `repr(C) object Q { .. }`, and `repr(C) enum E { A, B }` (fieldless only). A `repr(C)` type's fields are the bytes C reads, so they may be spelled with C's type names; every other type keeps the ordinary rule that C spellings belong to `extern` declarations.
+- Produces: `sizeof(P)` = 24, `alignof(P)` = 8, `offsetof(P, b)` = 8 on x86_64 SysV and on MSVC x64 — the numbers come from the platform's C ABI, and the test compares them with a C program compiled by the platform's own compiler rather than with a table. The shipped differential uses `struct Point { tag: u8, x: i32, y: i32 }` (12, 4, 0, 4, 8) because a struct with padding on both sides of a field is the shape most likely to expose a walk that rounds differently.
+- Produces: `sizeof`/`alignof`/`offsetof` are `int`-typed constants (a `usize` has no printable form yet, so `print(sizeof(P))` would be rejected; `int` is 64-bit here and prints) and take a bare type name, not an expression. They are folded before codegen, so a program may use one anywhere a constant is allowed and the backend never sees a call. A non-name argument, an unknown type, or a wrong arity is `E0107`.
+- Produces: `E0106` for `repr(C)` on an item with no layout (a `fn`, `impl`, `import` or `extern` block), for an unknown representation name, and for an `enum` with payloads. The payload case is reported in the checker at the variant that carries the payload, not at the clause, because the variant is the thing that makes the C layout impossible.
+- Produces: `E0108` for `offsetof(T, f)` where `T` is not `repr(C)`, and for an unknown field, with the field list in the message and a note naming the `repr(C)` edit.
+- Produces: one `layout` function. `alignment_of` and `repr_type` in `ir.rs` keep their existing scalar table for now (threading the declaration table through their ~40 call sites is a separate change); the checker's queries are the only place the full walk runs, and the differential test is what proves it agrees with C.
 
-- [ ] **Step 1: Write the failing tests** — the differential test above, on both OSes; `sizeof(u8)` is 1 and `alignof(i64)` is 8; `offsetof` on a non-`repr(C)` struct is `E0108`; `repr(C)` on `struct P[T]` is `E0106`; `repr(C) enum` with a payload is `E0106`; a `repr(C)` struct passed to a C function that reads its fields matches; the formatter round-trips `repr(C)`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `layout` walks the fields in declaration order, aligns each to its own alignment, pads the total to the struct's alignment; for `repr(C)` it uses the C rules (which for these three types are the same walk with `enum` = 4 bytes), and for Yashy's own layout it uses the existing natural alignment. The `sizeof`/`offsetof` calls are folded in `const_eval` from that function, so there is no second computation.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e --test verify` → PASS, on Windows and Linux.
-- [ ] **Step 5: Commit** — `git commit -m "feat(ffi): repr(C) with sizeof, alignof and offsetof (E0106-E0108)"`
+- [x] **Step 1: Write the failing tests** — the differential test above, on both OSes; `sizeof(u8)` is 1 and `alignof(i64)` is 8; `offsetof` on a non-`repr(C)` struct is `E0108`; `repr(C)` on an item with no layout and `repr(C) enum` with a payload are `E0106`; the formatter round-trips `repr(C)`.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `layout` walks the fields in declaration order, aligns each to its own alignment, pads the total to the struct's alignment; C's rules and Yashy's are the same walk for every struct the language can declare, and the one difference is an `enum`'s tag (`i32` under `repr(C)`, `i8` otherwise). The `sizeof`/`offsetof` calls are folded in the checker from that function, so there is no second computation.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e --test verify` → PASS, on Windows and Linux.
+- [x] **Step 5: Commit** — `git commit -m "feat(ffi): repr(C) with sizeof, alignof and offsetof (E0106-E0108)"`
 
 ---
 

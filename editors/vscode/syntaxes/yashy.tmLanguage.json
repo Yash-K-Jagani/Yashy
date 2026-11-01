@@ -93,7 +93,7 @@
         },
         {
           "name": "keyword.contract.yashy",
-          "match": "\\b(?:requires|ensures|invariant)\\b"
+          "match": "\\b(?:requires|ensures|invariant|repr)\\b"
         },
         {
           "name": "keyword.constant.yashy",

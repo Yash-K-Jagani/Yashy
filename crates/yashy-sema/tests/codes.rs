@@ -182,6 +182,35 @@ fn a_result_used_as_its_payload_is_e0300() {
 }
 
 #[test]
+fn a_repr_c_enum_with_a_payload_is_e0106_at_the_variant() {
+    // The clause is legal in general; it is the variant that makes the C
+    // layout impossible, so the caret belongs on the variant.
+    assert_code(
+        "repr(C) enum Shape {\n    Empty,\n    Circle(f64),\n}\n",
+        codes::REPR_NOT_ALLOWED,
+        "Circle(f64)",
+    );
+}
+
+#[test]
+fn a_sizeof_of_an_unknown_type_is_e0107_at_the_name() {
+    assert_code(
+        "fn main() {\n    print(sizeof(Nope));\n}\n",
+        codes::SIZE_OF_UNKNOWN,
+        "Nope",
+    );
+}
+
+#[test]
+fn an_offset_of_a_plain_struct_is_e0108_at_the_call() {
+    assert_code(
+        "struct P { a: int }\nfn main() {\n    print(offsetof(P, a));\n}\n",
+        codes::OFFSET_OF_NOT_REPR_C,
+        "offsetof(P, a)",
+    );
+}
+
+#[test]
 fn a_diagnostic_without_a_code_is_allowed_and_counted() {
     let (_, diags) = check("fn main() {\n    const x = 1;\n    const x = 2;\n}\n");
     assert!(

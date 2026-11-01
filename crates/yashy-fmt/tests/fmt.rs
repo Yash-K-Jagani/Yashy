@@ -232,6 +232,21 @@ fn bitwise_operators_keep_their_parentheses() {
 }
 
 #[test]
+fn repr_c_binds_to_the_type_name_like_a_call() {
+    // `repr(C)` is one clause: `repr` binds to its parenthesis the way a call
+    // does, so the printed form has no space before `(`. The type behind it
+    // keeps its own space.
+    let source = "repr(C) struct P {\n    x: int\n}\n\nrepr(C) enum Kind {\n    A, B\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), source, "formatting must be idempotent");
+    let spaced = format("repr(C)  struct  P  {\n  x: int\n}\n");
+    assert!(
+        spaced.contains("repr(C) struct P {"),
+        "the clause and its type keep one space between them:\n{spaced}"
+    );
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = yashy_fmt::format(source).expect_err("bad input must be reported");

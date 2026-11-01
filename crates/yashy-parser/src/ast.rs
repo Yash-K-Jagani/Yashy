@@ -62,6 +62,20 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
+/// The representation a type asks for with a `repr(..)` clause.
+///
+/// One variant, because the language has one promise to make: `repr(C)` is a
+/// promise about memory, and a type either makes it or does not. A
+/// representation that only changed the layout (say, packing fields) would be
+/// a different promise, and it is not in the language until it has a rule a
+/// reader can check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReprKind {
+    /// `repr(C)` -- the fields are laid out by C's rules, in declaration order,
+    /// and the fields may be spelled with C's type names.
+    C,
+}
+
 /// A top-level declaration.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
@@ -95,12 +109,18 @@ pub enum Item {
     Struct {
         name: String,
         fields: Vec<FieldDef>,
+        /// The representation asked for by a `repr(..)` clause, when one was
+        /// written.
+        repr: Option<ReprKind>,
         span: Span,
     },
     /// `enum C { Red, Green }`
     Enum {
         name: String,
         variants: Vec<VariantDef>,
+        /// The representation asked for by a `repr(..)` clause, when one was
+        /// written.
+        repr: Option<ReprKind>,
         span: Span,
     },
     /// `impl Point { fn sum(self) -> i64 { ... } }`
@@ -126,6 +146,9 @@ pub enum Item {
         fields: Vec<FieldDef>,
         /// The methods, each an [`Item::Fn`].
         methods: Vec<Item>,
+        /// The representation asked for by a `repr(..)` clause, when one was
+        /// written.
+        repr: Option<ReprKind>,
         span: Span,
     },
     /// `fn d(a: P) -> f64 { ... }`

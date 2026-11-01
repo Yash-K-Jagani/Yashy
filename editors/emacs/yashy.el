@@ -9,7 +9,7 @@
   '("fn" "struct" "enum" "const" "var" "let" "import" "extern" "unsafe" "pure" "io" "defer"
     "return" "break" "continue" "if" "else" "for" "while" "in" "switch"
     "case" "default" "as" "move" "true" "false" "impl" "object" "pub"
-    "requires" "ensures" "invariant")
+    "requires" "ensures" "invariant" "repr")
   "Yashy keywords.")
 
 (defvar yashy-types

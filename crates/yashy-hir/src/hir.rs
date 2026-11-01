@@ -14,6 +14,7 @@ use yashy_common::{FileId, Span};
 use crate::ty::{Mutability, Type};
 
 pub use yashy_common::{DeclaredEffect, Effect};
+pub use yashy_parser::ast::ReprKind;
 
 /// A whole program after type checking.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +44,9 @@ pub enum HirItem {
 pub struct HirStruct {
     pub name: String,
     pub fields: Vec<HirFieldDef>,
+    /// The representation the declaration asked for, when it asked for one.
+    /// `Some(ReprKind::C)` means the fields are laid out by C's rules.
+    pub repr: Option<ReprKind>,
     pub span: Span,
 }
 
@@ -59,6 +63,9 @@ pub struct HirFieldDef {
 pub struct HirEnum {
     pub name: String,
     pub variants: Vec<HirVariantDef>,
+    /// The representation the declaration asked for, when it asked for one.
+    /// `Some(ReprKind::C)` makes the tag a C `int` and forbids payloads.
+    pub repr: Option<ReprKind>,
     pub span: Span,
 }
 

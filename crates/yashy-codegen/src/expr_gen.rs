@@ -1297,8 +1297,11 @@ fn gen_enum_ctor(
         field += variant.fields.len() as u32;
     }
     let repr = repr_type(ty);
+    let tag_type = ctx.module.tag_type(ty);
     let mut acc = ctx.tmp();
-    ctx.push(format!("{acc} = insertvalue {repr} undef, i8 {tag}, 0"));
+    ctx.push(format!(
+        "{acc} = insertvalue {repr} undef, {tag_type} {tag}, 0"
+    ));
     for (offset, arg) in args.iter().enumerate() {
         let value = gen_expr(ctx, arg);
         let next = ctx.tmp();

@@ -31,6 +31,16 @@ pub struct VariantRepr {
     pub fields: Vec<(Option<String>, String)>,
 }
 
+/// A user-declared enum, as the backend needs it.
+#[derive(Clone, Debug)]
+pub struct EnumRepr {
+    /// The variants, in declaration order: the index is the tag.
+    pub variants: Vec<VariantRepr>,
+    /// Whether the declaration asked for `repr(C)`, which makes the tag a C
+    /// `int` instead of one byte.
+    pub repr_c: bool,
+}
+
 /// A module under construction.
 pub struct Module {
     /// The body lines accumulated by `push`, in emission order.
@@ -49,7 +59,7 @@ pub struct Module {
     /// User-declared enums by name, in declaration order. This is the table
     /// the tag and payload lookups need: the pattern side is handed only a
     /// variant's spelling, so the declaration order has to come from here.
-    enums: HashMap<String, Vec<VariantRepr>>,
+    enums: HashMap<String, EnumRepr>,
     /// The `source_filename` the driver wants reported in the header.
     source_filename: String,
     /// Proof facts from the verifier: spans whose checks may be elided.
@@ -213,25 +223,43 @@ impl Module {
     /// but still owns a tag, so the tag is the variant's index while a
     /// payload's first member is found by counting the fields before it.
     /// Defining the name twice is a no-op, matching [`Self::define_named_type`].
-    pub fn define_enum(&mut self, name: &str, variants: Vec<VariantRepr>) {
+    ///
+    /// A `repr(C)` enum's tag is an `i32`, because a C `enum` is an `int`; the
+    /// declaration's variants are all fieldless, so the aggregate is `{ i32 }`.
+    pub fn define_enum(&mut self, name: &str, variants: Vec<VariantRepr>, repr_c: bool) {
         if self.enums.contains_key(name) {
             return;
         }
-        let mut fields = vec!["i8".to_string()];
+        let mut fields = vec![if repr_c { "i32" } else { "i8" }.to_string()];
         for variant in &variants {
             for (_, repr) in &variant.fields {
                 fields.push(repr.clone());
             }
         }
         self.define_named_type(&format!("%enum.{name}"), fields);
-        self.enums.insert(name.to_string(), variants);
+        self.enums.insert(name.to_string(), EnumRepr { variants, repr_c });
     }
 
     /// The variants of the enum `ty` names, or `None` when `ty` is not one.
     pub fn enum_variants(&self, ty: &TypeKind) -> Option<&[VariantRepr]> {
         match ty {
-            TypeKind::Enum(name) => self.enums.get(name).map(Vec::as_slice),
+            TypeKind::Enum(name) => self.enums.get(name).map(|e| e.variants.as_slice()),
             _ => None,
+        }
+    }
+
+    /// The IR type of `ty`'s tag.
+    ///
+    /// `Option` and `Result` are Yashy's own tagged structs, whose tag is one
+    /// byte; a user enum's tag is one byte too, unless the declaration asked
+    /// for C's layout, where it is a C `int`.
+    pub fn tag_type(&self, ty: &TypeKind) -> &'static str {
+        match ty {
+            TypeKind::Enum(name) => match self.enums.get(name) {
+                Some(info) if info.repr_c => "i32",
+                _ => "i8",
+            },
+            _ => "i8",
         }
     }
 

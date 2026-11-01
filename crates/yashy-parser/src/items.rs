@@ -49,9 +49,30 @@
 use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
-use crate::ast::{Contract, ExternDecl, FieldDef, Item, Param, TypeExpr, VariantDef, VariantField};
+use crate::ast::{
+    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TypeExpr, VariantDef, VariantField,
+};
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
+
+/// A noun phrase for the kind of item `item` is, for a diagnostic.
+///
+/// `repr(C)` is refused on anything that is not a type, and "cannot be applied
+/// to `Item::Fn`" would name the AST rather than the thing the reader wrote.
+fn item_kind(item: &Item) -> &'static str {
+    match item {
+        Item::Import { .. } => "an `import`",
+        Item::Fn { .. } => "a function",
+        Item::ConstFn { .. } => "a `const fn`",
+        Item::Impl { .. } => "an `impl` block",
+        Item::Extern { .. } => "an `extern` block",
+        // The wrapper cases are looked through before this is asked, so these
+        // are unreachable in practice; naming the wrapped shape is still more
+        // useful than "an item".
+        Item::Public { item, .. } | Item::Effect { item, .. } => item_kind(item),
+        Item::Struct { .. } | Item::Enum { .. } | Item::Object { .. } => "a type",
+    }
+}
 
 impl<'src> Parser<'src> {
     /// Parses one item, dispatching on its first token.
@@ -81,6 +102,10 @@ impl<'src> Parser<'src> {
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Object => self.parse_object(),
             TokenKind::Extern => self.parse_extern(),
+            // `repr(C)` in front of a type. The clause is read here and the
+            // item behind it is an ordinary item, so the three type forms
+            // share one place where the representation is attached.
+            TokenKind::Repr => self.parse_repr_item(),
             // `pub` is a modifier, not an item: it wraps whatever item
             // follows it, and the item inside keeps its own shape.
             TokenKind::Pub => self.parse_public_item(),
@@ -99,6 +124,78 @@ impl<'src> Parser<'src> {
             _ => Err(error::item_expected(kind, self.peek_span())),
         }
     }
+    /// `repr(C) struct P { .. }` -- a type whose layout is C's.
+    ///
+    /// The clause names a representation and nothing else: the item behind it
+    /// is parsed by the ordinary item parser, which is what lets `repr(C)`
+    /// apply to a `struct`, an `object` and an `enum` without three copies of
+    /// the same grammar. A `repr` in front of anything with no layout is
+    /// reported rather than dropped -- the promise the reader wrote down would
+    /// otherwise be a comment.
+    fn parse_repr_item(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Repr)?;
+        self.expect(TokenKind::LParen)?;
+        let (name, name_span) = self.identifier()?;
+        self.expect(TokenKind::RParen)?;
+        if name != "C" {
+            return Err(error::unknown_repr(name_span, &name));
+        }
+        let item = self.parse_item()?;
+        self.attach_repr(item, keyword.span)
+    }
+
+    /// Attach `repr(C)` to the type `item`, or report that it has no layout.
+    ///
+    /// `pub` is a wrapper rather than a field, so it is looked through: the
+    /// representation belongs to the type, not to the modifier in front of it.
+    fn attach_repr(&mut self, item: Item, repr_span: Span) -> Result<Item, ParseError> {
+        match item {
+            Item::Struct {
+                name,
+                fields,
+                span,
+                ..
+            } => Ok(Item::Struct {
+                name,
+                fields,
+                repr: Some(ReprKind::C),
+                span: cover(repr_span, span),
+            }),
+            Item::Enum {
+                name,
+                variants,
+                span,
+                ..
+            } => Ok(Item::Enum {
+                name,
+                variants,
+                repr: Some(ReprKind::C),
+                span: cover(repr_span, span),
+            }),
+            Item::Object {
+                name,
+                fields,
+                methods,
+                span,
+                ..
+            } => Ok(Item::Object {
+                name,
+                fields,
+                methods,
+                repr: Some(ReprKind::C),
+                span: cover(repr_span, span),
+            }),
+            Item::Public { item, span } => {
+                let inner = self.attach_repr(*item, repr_span)?;
+                Ok(Item::Public {
+                    item: Box::new(inner),
+                    span,
+                })
+            }
+            other => Err(error::repr_not_allowed(repr_span, item_kind(&other))),
+        }
+    }
+
     /// `pub fn f() { ... }` -- an item another module may use.
     ///
     /// The `pub` wraps the item it applies to, so the modifier is one thing
@@ -203,6 +300,7 @@ impl<'src> Parser<'src> {
         Ok(Item::Struct {
             name,
             fields,
+            repr: None,
             span: cover(keyword.span, close.span),
         })
     }
@@ -267,6 +365,7 @@ impl<'src> Parser<'src> {
             name,
             fields,
             methods,
+            repr: None,
             span: cover(keyword.span, close.span),
         })
     }
@@ -316,6 +415,7 @@ impl<'src> Parser<'src> {
         Ok(Item::Enum {
             name,
             variants,
+            repr: None,
             span: cover(keyword.span, close.span),
         })
     }

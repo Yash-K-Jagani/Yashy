@@ -33,6 +33,13 @@ pub const BITWISE_NOT_INTEGER: &str = "E0103";
 pub const BITWISE_MIXED_TYPES: &str = "E0104";
 /// A shift count is outside the valid range for the shifted type.
 pub const SHIFT_OUT_OF_RANGE: &str = "E0105";
+/// `repr(C)` is applied to something that has no C layout, or names a
+/// representation that does not exist.
+pub const REPR_NOT_ALLOWED: &str = "E0106";
+/// `sizeof` or `alignof` names no type this program can see.
+pub const SIZE_OF_UNKNOWN: &str = "E0107";
+/// `offsetof` asks for a field of a type whose layout is not C's.
+pub const OFFSET_OF_NOT_REPR_C: &str = "E0108";
 /// A struct or enum variant has no such field.
 pub const UNKNOWN_FIELD: &str = "E0200";
 /// A struct literal or pattern leaves a field out.
@@ -117,6 +124,24 @@ pub const CODES: &[Code] = &[
         title: "shift count out of range",
         summary: "A shift count is outside `0..bits` for the type being shifted.",
         page: include_str!("../../../docs/errors/E0105.md"),
+    },
+    Code {
+        id: REPR_NOT_ALLOWED,
+        title: "repr(C) is not allowed here",
+        summary: "`repr(C)` was applied to a type that has no C layout, or named a representation that does not exist.",
+        page: include_str!("../../../docs/errors/E0106.md"),
+    },
+    Code {
+        id: SIZE_OF_UNKNOWN,
+        title: "sizeof or alignof names no known type",
+        summary: "`sizeof` and `alignof` take the name of a declared type.",
+        page: include_str!("../../../docs/errors/E0107.md"),
+    },
+    Code {
+        id: OFFSET_OF_NOT_REPR_C,
+        title: "offsetof needs a repr(C) struct",
+        summary: "`offsetof` takes a `repr(C)` struct and one of its fields.",
+        page: include_str!("../../../docs/errors/E0108.md"),
     },
     Code {
         id: UNKNOWN_FIELD,

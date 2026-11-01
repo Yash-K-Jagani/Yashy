@@ -62,7 +62,7 @@ The model is nine rules. Five hold in the code today and are proved to keep hold
 ### Task 1: Trait declarations
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/token.rs` (`trait` keyword; `KEYWORDS` grows from 32 to 33)
+- Modify: `crates/yashy-lexer/src/token.rs` (`trait` keyword; `KEYWORDS` grows from 34 to 35)
 - Modify: `crates/yashy-parser/src/{ast.rs,items.rs}` (`Item::Trait { name, methods: Vec<TraitMethod>, span }`)
 - Modify: `crates/yashy-fmt/src/lib.rs`
 
@@ -199,7 +199,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 ### Task 6: Associated functions and type paths
 
 **Files:**
-- Modify: `crates/yashy-lexer/src/token.rs` (`ColonColon`; `KEYWORDS` stays at 33)
+- Modify: `crates/yashy-lexer/src/token.rs` (`ColonColon`; `KEYWORDS` stays at 35)
 - Modify: `crates/yashy-parser/src/{ast.rs,exprs.rs}` (`Expr::TypePath { type_name, name, span }`)
 - Modify: `crates/yashy-sema/src/check_expr.rs` (resolution through the impl table)
 - Modify: `crates/yashy-codegen/src/{expr_gen.rs,module.rs}` (mangled symbol, no receiver)

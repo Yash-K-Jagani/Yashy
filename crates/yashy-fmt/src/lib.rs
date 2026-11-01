@@ -446,7 +446,7 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     // A call or a subscript binds to the name before it, but an opening
     // bracket after an operator is a parenthesised expression and wants air.
     if matches!(cur, LParen | LBracket) {
-        return !matches!(prev, Ident | RParen | RBracket | Question);
+        return !matches!(prev, Ident | Repr | RParen | RBracket | Question);
     }
     // `[]i64` and `map[K]V` print as written.
     if matches!(prev, RBracket) && matches!(cur, Ident) {

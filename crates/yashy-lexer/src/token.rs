@@ -679,6 +679,14 @@ pub enum TokenKind {
     Ensures,
     /// `invariant` -- a fact that holds at a loop's head on every iteration.
     Invariant,
+    /// `repr` -- the representation a type asks for: `repr(C) struct P { .. }`.
+    ///
+    /// A keyword rather than an identifier because it introduces a declaration
+    /// clause that only has meaning in front of a type: `repr` followed by
+    /// anything but `(` and a representation name is a mistake worth reporting
+    /// as such, and a program that used `repr` as a variable name would make
+    /// the clause unreadable.
+    Repr,
 
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
@@ -781,11 +789,11 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 33] = [
+    pub const KEYWORDS: [&'static str; 34] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
         "default", "as", "move", "true", "false", "impl", "object", "pub", "requires", "ensures",
-        "invariant",
+        "invariant", "repr",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -823,6 +831,7 @@ impl TokenKind {
             "requires" => TokenKind::Requires,
             "ensures" => TokenKind::Ensures,
             "invariant" => TokenKind::Invariant,
+            "repr" => TokenKind::Repr,
             _ => return None,
         })
     }
@@ -864,6 +873,7 @@ impl TokenKind {
                 | TokenKind::Requires
                 | TokenKind::Ensures
                 | TokenKind::Invariant
+                | TokenKind::Repr
         )
     }
 
@@ -915,6 +925,7 @@ impl TokenKind {
             TokenKind::Requires => Naming::Fixed("requires"),
             TokenKind::Ensures => Naming::Fixed("ensures"),
             TokenKind::Invariant => Naming::Fixed("invariant"),
+            TokenKind::Repr => Naming::Fixed("repr"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),
@@ -1017,7 +1028,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 33] = [
+    const KEYWORDS: [(&str, TokenKind); 34] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1051,6 +1062,7 @@ mod tests {
         ("requires", TokenKind::Requires),
         ("ensures", TokenKind::Ensures),
         ("invariant", TokenKind::Invariant),
+        ("repr", TokenKind::Repr),
     ];
 
     #[test]

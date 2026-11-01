@@ -130,6 +130,7 @@ pub fn gen_match(
         let is_match = match test {
             Test::Tag(tag) => {
                 let subject_repr = repr_type(&subject.ty);
+                let tag_type = ctx.module.tag_type(&subject.ty);
                 let tag_field = ctx.tmp();
                 ctx.push(format!(
                     "{tag_field} = extractvalue {subject_repr} {}, 0",
@@ -139,7 +140,9 @@ pub fn gen_match(
                 // The compared operand is a bare integer: modern LLVM has no
                 // typed constants, so `i8 0` here is a parse error ("expected
                 // value token").
-                ctx.push(format!("{is_match} = icmp eq i8 {tag_field}, {tag}"));
+                ctx.push(format!(
+                    "{is_match} = icmp eq {tag_type} {tag_field}, {tag}"
+                ));
                 Some(is_match)
             }
             Test::Literal(literal) => {

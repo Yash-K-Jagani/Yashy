@@ -1,0 +1,26 @@
+// The layout the `repr(C)` promise buys: the numbers C computes for the same
+// struct, asked for by the Yashy program. `repr_c.c` in this directory is the
+// other half of the differential test -- both programs print the same five
+// numbers, and the test compares their output.
+//
+// The field types are C's spellings because the struct is C's: a `u8` then two
+// `i32`s is a promise about bytes, and the clause is what licenses writing it
+// that way.
+repr(C) struct Point {
+    tag: u8,
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    print(sizeof(Point));
+    println("");
+    print(alignof(Point));
+    println("");
+    print(offsetof(Point, tag));
+    println("");
+    print(offsetof(Point, x));
+    println("");
+    print(offsetof(Point, y));
+    println("");
+}

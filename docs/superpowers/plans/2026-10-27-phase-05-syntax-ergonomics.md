@@ -23,7 +23,7 @@ The two items that replace them in this phase are **default field values** and t
 
 See the master index. The ones that bite here:
 
-- **No new keywords in this phase.** `if let`, `while let`, `for i, x`, `arena` and `..` are all spelled with tokens that already exist. `repr(C)` in phase 3b added exactly one keyword, so `KEYWORDS` is 32 entering this phase (28 at the start, plus phase 1a's three contract keywords, plus phase 3b's `repr`) and stays 32.
+- **No new keywords in this phase.** `if let`, `while let`, `for i, x`, `arena` and `..` are all spelled with tokens that already exist. Phase 2's `pure`/`io` and phase 3b's `repr` added three keywords, so `KEYWORDS` is 34 entering this phase (28 at the start, plus phase 1a's three contract keywords, plus phase 2's `pure`/`io`, plus phase 3b's `repr`) and stays 34.
 - **No HIR growth for sugar.** If an item needs a new `HirExpr`/`HirStmt` variant, it is not sugar and does not belong in this phase. The exception is `arena { }`, whose *placement* is a codegen concept, not a new statement kind.
 - **No keyword renames, no unification, no attributes.** `switch` stays `switch`; `let`/`const`/`var` keep their meanings; there is no `@inline`.
 - **One rule, one implementation.** Each desugaring lives in one function in `sema`, called from every place the form can appear.
@@ -344,7 +344,7 @@ fn a_break_out_of_an_arena_still_releases_it() {
 | Gate | Command | Passes when |
 |---|---|---|
 | Sugar adds no concept | `cargo test -p yashy-sema --test desugar` | every form's HIR equals its hand-written expansion |
-| No new keywords | `cargo test -p yashy-lexer` | `KEYWORDS.len() == 32` (28 at the start, plus `requires`/`ensures`/`invariant` from phase 1a, plus `repr` from phase 3b) |
+| No new keywords | `cargo test -p yashy-lexer` | `KEYWORDS.len() == 34` (28 at the start, plus `requires`/`ensures`/`invariant` from phase 1a, plus `pure`/`io` from phase 2, plus `repr` from phase 3b) |
 | `?` is not inverted | `cargo test -p yashy-driver --test e2e` | `option_try.ya`: `None` returns early; `Some` continues with the payload |
 | Middle operand evaluated once | `cargo test -p yashy-driver --test e2e` | `chained_cmp.ya`: the counter in the middle is 1 |
 | Spread moves | `cargo test -p yashy-verify` + corpus | partial move `E1002`; duplicate field `E0202` |

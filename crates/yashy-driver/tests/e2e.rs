@@ -3627,3 +3627,92 @@ fn a_misspelled_name_gets_a_did_you_mean_label() {
         "expected a suggestion under the caret:\n{stderr}"
     );
 }
+
+// --- Phase 3b: `repr(C)` and the layout queries ------------------------------
+
+/// Compile a C source with `clang` into `dir` and run it.
+///
+/// The e2e suite already requires `clang` to build a Yashy program, so this
+/// adds no new dependency. The two programs are never linked together: the test
+/// compares what each compiler computed, which is the only thing that can
+/// disagree.
+fn run_c_program(dir: &Path, source: &Path, name: &str) -> Output {
+    let exe = dir.join(format!("{name}-c{}", std::env::consts::EXE_SUFFIX));
+    let built = Command::new("clang")
+        .arg(source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("clang must be runnable");
+    assert!(
+        built.status.success(),
+        "clang must compile {}:\n{}",
+        source.display(),
+        String::from_utf8_lossy(&built.stderr)
+    );
+    run(&exe)
+}
+
+#[test]
+fn repr_c_agrees_with_the_c_compiler_about_the_layout() {
+    // The clause's whole value is that C and Yashy agree about the bytes, so
+    // the test asks both compilers the same question and compares the answers.
+    let (_dir, exe, built) = build_program("repr_c");
+    assert!(
+        built.status.success(),
+        "repr_c.ya must build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let yashy_output = run(&exe);
+
+    let dir = work_dir("repr-c-differential");
+    let c_output = run_c_program(&dir, &programs_dir().join("repr_c.c"), "repr_c");
+
+    assert_eq!(
+        stdout_of(&yashy_output),
+        stdout_of(&c_output),
+        "Yashy's `sizeof`/`alignof`/`offsetof` must agree with C's"
+    );
+    assert_eq!(
+        stdout_of(&yashy_output),
+        "12\n4\n0\n4\n8\n",
+        "the numbers this struct's fields produce"
+    );
+}
+
+#[test]
+fn offsetof_on_a_non_repr_c_struct_explains_the_fix() {
+    // The clause is what makes the offset meaningful, so the diagnostic says so
+    // and names the edit rather than only refusing the call.
+    let dir = work_dir("offsetof-not-repr-c");
+    let source = dir.join("plain.ya");
+    fs::write(
+        &source,
+        concat!(
+            "struct P { a: int }\n",
+            "\n",
+            "fn main() {\n",
+            "    print(offsetof(P, a));\n",
+            "}\n",
+        ),
+    )
+    .expect("write plain.ya");
+
+    let output = Command::new(yashy())
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("run the yashy CLI");
+
+    assert_eq!(output.status.code(), Some(1), "an offset needs a layout");
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("error[E0108]"), "{stderr}");
+    assert!(
+        stderr.contains("add `repr(C)` in front of `struct P`"),
+        "the note names the edit:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("docs: https://yashy.dev/errors/E0108"),
+        "the diagnostic links its page:\n{stderr}"
+    );
+}
