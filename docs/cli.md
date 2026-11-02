@@ -32,6 +32,7 @@ yashy build main.ya --emit-ir
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
+| `--jobs <n>` | Threads the front end may parse on. `0` (default) uses one per core; `1` is serial. See [`--jobs`](#--jobs-n). |
 
 ## `yashy run <file.ya>`
 
@@ -39,7 +40,7 @@ Compiles and runs in one step. It accepts the same optimization, CPU, release,
 verification and timing options as `build`. Arguments after `--` go to the
 program.
 
-## `yashy check <file.ya> [--json] [--timings]`
+## `yashy check <file.ya> [--json] [--timings] [--jobs <n>]`
 
 Lexes, parses, and type-checks without emitting an executable. Use it for fast
 feedback.
@@ -50,7 +51,7 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
-## `yashy verify <file.ya> [--json] [--timings] [--inventory]`
+## `yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves
 a well-typed program is also *sound*. That means every linear value -- every
@@ -163,7 +164,7 @@ cases, because nothing is wrong with the program:
 `run --no-verify` forwards the flag to `build`. The temporary binary and its
 stamp live in the run directory and are removed with it; `run` keeps no binary.
 
-## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings]`
+## `yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]`
 
 Runs every `.ya` file under `tests/` (or `path`). Each file is an ordinary
 program with a `main`; exit `0` is a pass, a panic or non-zero exit is a
@@ -233,15 +234,39 @@ timing: emit 2 ms
 timing: link 253 ms
 ```
 
-The phases are `load` (reading and parsing the entry point and its imports),
-`check` (names and types), `verify` (soundness), `emit` (LLVM IR) and `link`
-(the single `clang` invocation). A command reports only the phases it runs:
-`check` has no `verify`, `emit` or `link`, and `verify` has no `emit` or `link`.
-A phase that fails still gets a line, because a build that is slow *and* broken
-is when the number is most useful.
+The phases are `load` (reading the entry point and its imports, and parsing
+them), `check` (names and types), `verify` (soundness), `emit` (LLVM IR) and
+`link` (the single `clang` invocation). A command reports only the phases it
+runs: `check` has no `verify`, `emit` or `link`, and `verify` has no `emit` or
+`link`. A phase that fails still gets a line, because a build that is slow *and*
+broken is when the number is most useful.
+
+Two more lines describe the front end rather than a phase:
+
+```text
+query_hits=0 query_misses=1 recomputed=check
+frontend_threads=8
+```
+
+`frontend_threads=N` is how many threads parsed the program's files, which is
+what [`--jobs`](#--jobs-n) sets. `query_hits`/`query_misses` are how many cached
+front-end queries were reused and how many ran; `recomputed` names what ran.
 
 `test --timings` prints one total for the whole suite rather than five lines per
 test, so the report answers where the run's wall time went.
+
+## `--jobs <n>`
+
+The loader discovers the program's files, then parses them on a thread pool.
+`--jobs` sets the pool size: `0` (the default) uses one thread per available
+core, `1` parses serially. The size is capped by the number of files, so a
+one-file program always reports `frontend_threads=1`.
+
+Parallelism does not change the output. Results are collected per file and
+merged in source order, so diagnostics, the `--json` envelope and a built binary
+are identical at any `--jobs` setting; only `frontend_threads` differs. A file
+that fails to parse is reported exactly as the serial loader reported it: the
+first failure in discovery order, with that file's errors in source order.
 
 ## JSON diagnostics (schema v1)
 
@@ -310,7 +335,10 @@ stdout; `--json` implies no color and no prompt.
   ```
 
   `phase` is the stable name from [Timings](#timings) and `ms` is whole
-  milliseconds. `test --json --timings` carries the suite's totals.
+  milliseconds. Two rows describe the front end rather than a phase:
+  `{"phase":"query","hits":0,"misses":1,"recomputed":["check"]}` carries the
+  memo counters and `{"phase":"frontend_threads","threads":8}` the pool size.
+  `test --json --timings` carries the suite's totals.
 
 `test --json` uses the same envelope plus `tests` and a test summary:
 

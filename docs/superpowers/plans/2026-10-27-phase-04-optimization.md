@@ -67,28 +67,28 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-query` → FAIL.
 - [x] **Step 3: Implement** — a `HashMap<QueryKey, Entry>` per query kind, where `QueryKey` is the content hash (FNV-1a, the same function phase 3's cache uses) of the query's arguments. Each execution records the keys it read; a changed key invalidates every entry that read it, transitively. No `unsafe`, no interior mutability tricks beyond `&mut self`, because a single-threaded database is the thing that makes Task 2's parallel front end a scoped-thread problem rather than a lock problem.
 - [x] **Step 4: Run** `cargo test -p yashy-query -p yashy-driver --test e2e` → PASS, and the driver's output is byte-identical to before the change.
-- [ ] **Step 5: Commit** — `git commit -m "feat(query): a memoised pipeline with hash-based invalidation"`
+- [x] **Step 5: Commit** — `git commit -m "feat(query): a memoised pipeline with hash-based invalidation"`
 
 ---
 
 ### Task 2: Parallel front end
 
 **Files:**
-- Modify: `crates/yashy-query/src/db.rs` (a `ParallelDb` that shards per file)
-- Modify: `crates/yashy-driver/src/pipeline.rs` (parse and check files on a thread pool)
-- Modify: `crates/yashy-driver/src/main.rs` (`--timings` row `frontend_threads`)
+- Modify: `crates/yashy-driver/src/modules.rs` (split discovery from parsing)
+- Modify: `crates/yashy-driver/src/pipeline.rs` (parse files on a bounded thread pool)
+- Modify: `crates/yashy-driver/src/main.rs` (`--jobs` and the `--timings` row `frontend_threads`)
 - Create: `crates/yashy-driver/tests/parallel_determinism.rs`
 
 **Interfaces:**
-- Produces: `parse` and `check` of independent files run on `available_parallelism()` threads; a file that imports another waits for it (one dependency edge, no deadlock, because imports are a DAG checked by the resolver).
+- Produces: `parse` of independent files runs on `available_parallelism()` threads, capped by `--jobs`; the loader's depth-first walk still decides which file is discovered first.
 - Produces: diagnostics are collected per file and merged in source order, so `--json` and human output are byte-identical to the serial run.
 - Produces: `--timings` reports `frontend_threads=N` (1 when `--jobs 1`).
 
-- [ ] **Step 1: Write the failing tests** — a 10 k-line synthetic project reports `frontend_threads > 1`; two runs with `--jobs 1` and `--jobs 0` produce byte-identical `--json`; a file with three errors reports them in span order regardless of completion order.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `std::thread::scope`, one job per file, results collected into a `Vec` indexed by `FileId` and merged at the end. Determinism is a property of the merge, not of the scheduler: no output is written from a worker thread.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test parallel_determinism --test diagnostics_json` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "perf(driver): parallel parse and check with deterministic output"`
+- [x] **Step 1: Write the failing tests** — a 10 k-line synthetic project reports `frontend_threads > 1`; two runs with `--jobs 1` and `--jobs 0` produce byte-identical `--json`; a file with three errors reports them in span order regardless of completion order.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `std::thread::scope`, a bounded pool of workers pulling files from a shared index, results collected into a `Vec` indexed by module position and merged at the end. Determinism is a property of the merge, not of the scheduler: no output is written from a worker thread.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test parallel_determinism --test diagnostics_json` → PASS.
+- [x] **Step 5: Commit** - `git commit -m "perf(driver): parallel parse and check with deterministic output"`
 
 ---
 

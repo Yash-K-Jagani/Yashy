@@ -31,7 +31,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
-use yashy_lexer::Lexer;
+use yashy_lexer::{Lexer, Token, TokenKind};
 use yashy_parser::ast::{Item, Program};
 use yashy_parser::Parser;
 
@@ -62,6 +62,54 @@ pub struct Module {
     pub name: Option<String>,
     /// Its parsed items, with spans into this module's own text.
     pub program: Program,
+}
+
+/// A module discovered by the loader but not yet parsed.
+///
+/// Discovery still lexes each file -- the import graph lives in its tokens --
+/// but parsing is deferred so the driver can parse every file in parallel.
+pub struct ModuleSource {
+    /// The path the module was found at, as it will be named in diagnostics.
+    pub path: PathBuf,
+    /// The id its text got in the source map the loader was given.
+    pub file: FileId,
+    /// The last segment of the path the program imported it under. `None` for
+    /// the entry file.
+    pub name: Option<String>,
+    /// Pre-order position in the discovery walk.
+    ///
+    /// When several files have parse errors, the earliest one wins, because
+    /// that is the file the serial loader would have stopped at. Discovery is
+    /// depth-first, so a file is numbered before the modules it imports.
+    pub order: u32,
+    /// The file's tokens, ready to parse.
+    pub tokens: Vec<Token>,
+}
+
+impl ModuleSource {
+    /// Parse this module into a [`Module`].
+    ///
+    /// The parser borrows a private [`SourceMap`] because it slices source text
+    /// (string literals, numeric literals); the returned program's spans are
+    /// self-contained and the map the loader filled is used only for rendering
+    /// diagnostics later. The private map is padded so the file id handed back
+    /// matches the id the caller renders against.
+    pub fn parse(&self, sources: &SourceMap) -> Result<Module, Vec<Diagnostic>> {
+        let text = sources.file(self.file);
+        let mut map = SourceMap::new();
+        for index in 0..self.file.index() {
+            map.add_file(format!("<parse:{index}>"), String::new());
+        }
+        let id = map.add_file(format!("<parse:{}>", self.file.index()), text.to_string());
+        debug_assert_eq!(id.index(), self.file.index());
+        let program = Parser::new(self.tokens.clone(), &map, self.file).parse_program()?;
+        Ok(Module {
+            path: self.path.clone(),
+            file: self.file,
+            name: self.name.clone(),
+            program,
+        })
+    }
 }
 
 /// Every name a loaded module declares at top level, keyed by the name the
@@ -246,53 +294,100 @@ pub fn resolve_import(
     ))
 }
 
-/// Load `entry_path` and everything it imports.
+/// Discover every module in the import graph without parsing it.
+///
+/// The loader walks the import graph depth-first from the entry point,
+/// registering each file in the caller's [`SourceMap`] once and lexing it to
+/// find the `import` statements that name more files. Parsing is deliberately
+/// deferred: after discovery, the driver can parse every file in parallel.
 ///
 /// The returned list has dependencies before dependants and the entry point
 /// last; the entry is still file id zero, because its text is the first one
-/// added to `sources`. That keeps `check_main_exists`'s "no `fn main`" message
-/// pointing at the entry file.
+/// added to `sources`.
 ///
 /// `entry_source` is passed in rather than read here so the CLI can report an
 /// unreadable entry point with the same message it uses for every other input
 /// file. Imported files are read here, because only the loader knows which ones
 /// are wanted.
+pub fn load_sources(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+) -> Result<Vec<ModuleSource>, Vec<Diagnostic>> {
+    let roots = module_roots(entry_path);
+    let mut loader = SourceLoader {
+        sources,
+        roots,
+        seen: HashMap::new(),
+        stack: Vec::new(),
+        next_order: 0,
+        sources_out: Vec::new(),
+    };
+    loader.visit(
+        identity_of(entry_path),
+        entry_path,
+        entry_source,
+        None,
+        None,
+    )?;
+    Ok(loader.sources_out)
+}
+
+/// Load `entry_path` and everything it imports, parsing every module on the
+/// calling thread.
+///
+/// This is the serial form used by callers that need the parsed modules and do
+/// not run a timed pipeline (the language server, the loader's own tests). The
+/// compiler's front end calls [`load_sources`] and parses in parallel instead;
+/// both produce the same modules in the same order.
 pub fn load(
     sources: &mut SourceMap,
     entry_path: &Path,
     entry_source: String,
 ) -> Result<Vec<Module>, Vec<Diagnostic>> {
-    let roots = module_roots(entry_path);
-    let mut loader = Loader {
-        sources,
-        roots,
-        seen: HashMap::new(),
-        stack: Vec::new(),
-        modules: Vec::new(),
-    };
-    loader.visit(identity_of(entry_path), entry_path, entry_source, None, None)?;
-    Ok(loader.modules)
+    let discovered = load_sources(sources, entry_path, entry_source)?;
+    let map: &SourceMap = sources;
+
+    // Parse in discovery order (pre-order), so a file that fails is the first
+    // one the old serial loader would have stopped at -- the entry point when
+    // it is the broken one. The results go back into the loader's order:
+    // dependencies first, the entry point last.
+    let mut order: Vec<usize> = (0..discovered.len()).collect();
+    order.sort_by_key(|index| discovered[*index].order);
+    let mut parsed: Vec<Option<Module>> = (0..discovered.len()).map(|_| None).collect();
+    for index in order {
+        parsed[index] = Some(discovered[index].parse(map)?);
+    }
+    Ok(parsed.into_iter().flatten().collect())
 }
 
-/// Whether a module has been fully loaded or is still on the loader's stack.
+/// Whether a module has been fully discovered or is still on the loader's stack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Seen {
     Loading,
     Loaded,
 }
 
-struct Loader<'a> {
+/// Discovers modules in the import graph without parsing them.
+///
+/// Lexing stays here rather than in the parallel parse phase because the
+/// import graph is read from the tokens: doing it serially keeps file ids in
+/// source order and keeps a syntax error's diagnostic identical to the serial
+/// loader's.
+struct SourceLoader<'a> {
     sources: &'a mut SourceMap,
     roots: Vec<PathBuf>,
-    /// The canonical path of every module seen, and how far its load got.
+    /// The canonical path of every module seen, and how far its discovery got.
     seen: HashMap<PathBuf, Seen>,
-    /// The modules currently being loaded, outermost first: `(identity, path)`.
+    /// The modules currently being discovered, outermost first: `(identity, path)`.
     stack: Vec<(PathBuf, PathBuf)>,
-    /// Finished modules, dependencies first.
-    modules: Vec<Module>,
+    /// The next pre-order number to hand a newly discovered module.
+    next_order: u32,
+    /// Discovered modules, dependencies first.
+    sources_out: Vec<ModuleSource>,
 }
 
-impl Loader<'_> {
+impl SourceLoader<'_> {
     fn visit(
         &mut self,
         identity: PathBuf,
@@ -317,6 +412,9 @@ impl Loader<'_> {
         self.seen.insert(identity.clone(), Seen::Loading);
         self.stack.push((identity.clone(), path.to_path_buf()));
 
+        let order = self.next_order;
+        self.next_order += 1;
+
         let file = self
             .sources
             .add_file(path.to_string_lossy().into_owned(), source);
@@ -326,22 +424,9 @@ impl Loader<'_> {
             Err(diagnostics) => return Err(self.abandon(identity, diagnostics)),
         };
 
-        let program = {
-            let mut parser = Parser::new(tokens, self.sources, file);
-            match parser.parse_program() {
-                Ok(program) => program,
-                Err(diagnostics) => return Err(self.abandon(identity, diagnostics)),
-            }
-        };
-
-        let imports: Vec<(Vec<String>, Span)> = program
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Import { path, span } => Some((path.clone(), *span)),
-                _ => None,
-            })
-            .collect();
+        // The import graph is read from the tokens, not from the raw text, so
+        // a word in a comment or string can never be mistaken for an import.
+        let imports = scan_imports(&tokens, self.sources.file(file));
 
         for (segments, span) in imports {
             let spec = segments.join(".");
@@ -378,11 +463,12 @@ impl Loader<'_> {
 
         self.stack.pop();
         self.seen.insert(identity, Seen::Loaded);
-        self.modules.push(Module {
+        self.sources_out.push(ModuleSource {
             path: path.to_path_buf(),
             file,
             name,
-            program,
+            order,
+            tokens,
         });
         Ok(())
     }
@@ -457,6 +543,68 @@ fn identity_of(path: &Path) -> PathBuf {
                 .unwrap_or_else(|_| path.to_path_buf())
         }
     })
+}
+
+/// Read the import statements out of a module's tokens.
+///
+/// Mirrors `Parser::parse_import`: `import seg (`.` seg)* `;`, where a segment
+/// is an identifier or a keyword (`std.io` names a module, not a modifier). A
+/// stream that does not match that shape is left alone, so the parser reports
+/// the syntax error instead of discovery inventing a module that was never
+/// named.
+fn scan_imports(tokens: &[Token], source: &str) -> Vec<(Vec<String>, Span)> {
+    let mut imports = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index].kind != TokenKind::Import {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        index += 1;
+        let Some(first) = import_segment(tokens, &mut index, source) else {
+            continue;
+        };
+        let mut path = vec![first];
+        let mut complete = true;
+        while tokens
+            .get(index)
+            .map_or(false, |token| token.kind == TokenKind::Dot)
+        {
+            index += 1;
+            match import_segment(tokens, &mut index, source) {
+                Some(segment) => path.push(segment),
+                None => {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        if complete
+            && tokens
+                .get(index)
+                .map_or(false, |token| token.kind == TokenKind::Semi)
+        {
+            let span = Span::new(tokens[start].span.start, tokens[index].span.end);
+            imports.push((path, span));
+            index += 1;
+        }
+    }
+    imports
+}
+
+/// One import-path segment's text, advancing past it.
+fn import_segment(tokens: &[Token], index: &mut usize, source: &str) -> Option<String> {
+    let token = *tokens.get(*index)?;
+    if token.kind != TokenKind::Ident && !token.kind.is_keyword() {
+        return None;
+    }
+    *index += 1;
+    Some(
+        source
+            .get(token.span.start as usize..token.span.end as usize)?
+            .to_string(),
+    )
 }
 
 #[cfg(test)]

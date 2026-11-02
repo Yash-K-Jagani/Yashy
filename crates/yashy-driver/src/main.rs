@@ -53,11 +53,11 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--no-verify] [-- <args>...]
-  yashy check <file.ya> [--json] [--timings] [--deny warnings] [--allow warnings]
-  yashy verify <file.ya> [--json] [--timings] [--inventory]
-  yashy test [path] [--filter <substring>] [--list] [--json] [--timings]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--jobs <n>] [--no-verify]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--jobs <n>] [--no-verify] [-- <args>...]
+  yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
+  yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
+  yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
   yashy explain <code> [--json]
   yashy init [path]
   yashy doctor [--json]
@@ -87,6 +87,8 @@ usage:
                `<output>.unverified` beside the binary
   --timings    print how long each pipeline phase took, to stderr (or in the
                JSON report); stdout is never touched
+  --jobs <n>   how many threads the front end may parse on; 0 (the default)
+               uses one per available core, 1 parses serially
   --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
                the assumptions the proof rests on; never changes the exit code
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
@@ -177,6 +179,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // this is a build a user runs -- stay separable because an explicit `-O`
     // level wins over the release default.
     let mut release = false;
+    // How many threads the front end may parse on. `0` means "one per core".
+    let mut jobs: usize = 0;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -184,6 +188,13 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "--emit-ir" => emit_ir = true,
             "--timings" => timings_flag = true,
             "--no-verify" => no_verify = true,
+            "--jobs" => match args.next() {
+                Some(value) => match value.parse::<usize>() {
+                    Ok(parsed) => jobs = parsed,
+                    Err(_) => return stopped(usage_error("`--jobs` needs a whole number")),
+                },
+                None => return stopped(usage_error("`--jobs` needs a value")),
+            },
             "--deny" => match args.next() {
                 Some(value) if value == "warnings" => deny_warnings = true,
                 _ => return stopped(usage_error("unknown option `--deny` for `build`")),
@@ -216,6 +227,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     match CpuTarget::parse(value) {
                         Some(target) => cpu = target,
                         None => return stopped(usage_error(&unknown_cpu(value))),
+                    }
+                } else if let Some(value) = other.strip_prefix("--jobs=") {
+                    match value.parse::<usize>() {
+                        Ok(parsed) => jobs = parsed,
+                        Err(_) => return stopped(usage_error("`--jobs` needs a whole number")),
                     }
                 } else if let Some(level) = OptLevel::parse(other) {
                     opt = Some(level);
@@ -294,7 +310,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         // The checker still runs: `--no-verify` skips the proof, not the type
         // system. A program that does not type-check has no binary worth
         // stamping.
-        let hir = match load_and_check_timed(&mut sources, &input, source, release, measured) {
+        let hir = match load_and_check_timed(&mut sources, &input, source, release, jobs, measured)
+        {
             Ok(hir) => hir,
             Err(diagnostics) => {
                 return BuildOutcome {
@@ -318,7 +335,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
         (hir, VerifyReport::default())
     } else {
-        match check_and_verify_timed(&mut sources, &input, source, release, &OPTIONS, measured) {
+        match check_and_verify_timed(
+            &mut sources,
+            &input,
+            source,
+            release,
+            &OPTIONS,
+            jobs,
+            measured,
+        ) {
             Ok(checked) => checked,
             Err(diagnostics) => {
                 return BuildOutcome {
@@ -488,14 +513,16 @@ fn run(args: &[String]) -> ExitCode {
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" => {
                 build_args.push(argument.clone())
             }
-            "--cpu" => {
+            "--cpu" | "--jobs" => {
                 let Some(value) = iter.next() else {
-                    return usage_error("`--cpu` needs a value");
+                    return usage_error(&format!("`{argument}` needs a value"));
                 };
                 build_args.push(argument.clone());
                 build_args.push(value.clone());
             }
-            other if other.starts_with("--cpu=") => build_args.push(argument.clone()),
+            other if other.starts_with("--cpu=") || other.starts_with("--jobs=") => {
+                build_args.push(argument.clone())
+            }
             other if OptLevel::parse(other).is_some() => build_args.push(argument.clone()),
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `run`"))
@@ -644,6 +671,8 @@ fn test(args: &[String]) -> ExitCode {
     let mut list = false;
     let mut json = false;
     let mut timings_flag = false;
+    let mut jobs: usize = 0;
+    let mut jobs_given = false;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
@@ -651,11 +680,32 @@ fn test(args: &[String]) -> ExitCode {
             "--list" => list = true,
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--jobs" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--jobs` needs a value");
+                };
+                match value.parse::<usize>() {
+                    Ok(parsed) => {
+                        jobs = parsed;
+                        jobs_given = true;
+                    }
+                    Err(_) => return usage_error("`--jobs` needs a whole number"),
+                }
+            }
             "--filter" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--filter` needs a substring");
                 };
                 filter = Some(value.clone());
+            }
+            other if other.starts_with("--jobs=") => {
+                match other["--jobs=".len()..].parse::<usize>() {
+                    Ok(parsed) => {
+                        jobs = parsed;
+                        jobs_given = true;
+                    }
+                    Err(_) => return usage_error("`--jobs` needs a whole number"),
+                }
             }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `test`"))
@@ -693,7 +743,7 @@ fn test(args: &[String]) -> ExitCode {
     }
 
     if json {
-        return test_json(&root, &tests, timings_flag);
+        return test_json(&root, &tests, timings_flag, jobs);
     }
 
     if list {
@@ -740,6 +790,10 @@ fn test(args: &[String]) -> ExitCode {
         // itself, so the flag travels without `build` printing per test.
         if timings_flag {
             build_args.push("--timings".to_string());
+        }
+        if jobs_given {
+            build_args.push("--jobs".to_string());
+            build_args.push(jobs.to_string());
         }
         let outcome = build_measured(CommandKind::Build, &build_args);
         accumulate(&mut timings, &outcome.timings);
@@ -792,7 +846,7 @@ fn test(args: &[String]) -> ExitCode {
 /// Compile diagnostics are collected through the same checker and code
 /// generator the human path uses, so a fact in the JSON (code, severity, file,
 /// span) is the fact the human renderer prints.
-fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
+fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool, jobs: usize) -> ExitCode {
     let mut global_sources = SourceMap::new();
     let root_file = global_sources.add_file(root.display().to_string(), String::new());
     // The suite's phase totals, so `test --json --timings` answers "where did
@@ -886,38 +940,44 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
         // builds through `build_measured`, which verifies, so a test that leaks
         // is a failure there and has to be one here too. Warnings travel with a
         // passing test, exactly as `build` prints them and still links.
-        let outcome =
-            match check_and_verify_timed(&mut sources, entry, source, false, &OPTIONS, &mut phases)
-            {
-                Ok((hir, report)) => {
-                    if report.error_count() > 0 {
-                        Err(report.diagnostics)
-                    } else {
-                        let facts = report.facts;
-                        let warnings = report.diagnostics;
-                        match compile_hir_timed(
-                            &hir,
-                            &file,
-                            &exe,
-                            &toolchain,
-                            BuildOptions {
-                                opt: OptLevel::None,
-                                ..BuildOptions::default()
-                            },
-                            &facts,
-                            &mut phases,
-                        ) {
-                            Ok(()) => Ok(warnings),
-                            Err(more) => {
-                                let mut diagnostics = warnings;
-                                diagnostics.extend(more);
-                                Err(diagnostics)
-                            }
+        let outcome = match check_and_verify_timed(
+            &mut sources,
+            entry,
+            source,
+            false,
+            &OPTIONS,
+            jobs,
+            &mut phases,
+        ) {
+            Ok((hir, report)) => {
+                if report.error_count() > 0 {
+                    Err(report.diagnostics)
+                } else {
+                    let facts = report.facts;
+                    let warnings = report.diagnostics;
+                    match compile_hir_timed(
+                        &hir,
+                        &file,
+                        &exe,
+                        &toolchain,
+                        BuildOptions {
+                            opt: OptLevel::None,
+                            ..BuildOptions::default()
+                        },
+                        &facts,
+                        &mut phases,
+                    ) {
+                        Ok(()) => Ok(warnings),
+                        Err(more) => {
+                            let mut diagnostics = warnings;
+                            diagnostics.extend(more);
+                            Err(diagnostics)
                         }
                     }
                 }
-                Err(diagnostics) => Err(diagnostics),
-            };
+            }
+            Err(diagnostics) => Err(diagnostics),
+        };
         accumulate(&mut timings, &phases);
 
         match outcome {
@@ -1108,6 +1168,10 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                                 ),
                             );
                         }
+                        TimingRow::FrontendThreads { threads } => {
+                            entry.set("phase", Json::string("frontend_threads"));
+                            entry.set("threads", Json::number(*threads as i64));
+                        }
                     }
                     entry
                 })
@@ -1150,6 +1214,15 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                     None => total.push(TimingRow::Query(merged)),
                 }
             }
+            TimingRow::FrontendThreads { threads } => {
+                match total.iter_mut().find_map(|seen| match seen {
+                    TimingRow::FrontendThreads { threads } => Some(threads),
+                    _ => None,
+                }) {
+                    Some(seen) => *seen = (*seen).max(*threads),
+                    None => total.push(timing.clone()),
+                }
+            }
         }
     }
 }
@@ -1170,6 +1243,7 @@ fn report_timings(timings: &[TimingRow]) {
                 stats.misses,
                 stats.recomputed.join(",")
             ),
+            TimingRow::FrontendThreads { threads } => eprintln!("frontend_threads={threads}"),
         }
     }
 }
@@ -1959,12 +2033,24 @@ fn check(args: &[String]) -> ExitCode {
     let mut timings_flag = false;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
+    let mut jobs: usize = 0;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--jobs" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<usize>() {
+                        Ok(parsed) => jobs = parsed,
+                        Err(_) => return usage_error("`--jobs` needs a whole number"),
+                    }
+                    i += 1;
+                } else {
+                    return usage_error("`--jobs` needs a value");
+                }
+            }
             "--deny" => {
                 if i + 1 < args.len() && args[i + 1] == "warnings" {
                     deny_warnings = true;
@@ -1992,6 +2078,12 @@ fn check(args: &[String]) -> ExitCode {
             "-W none" => allow_warnings = true,
             "--deny warnings" => deny_warnings = true,
             "--allow warnings" => allow_warnings = true,
+            other if other.starts_with("--jobs=") => {
+                match other["--jobs=".len()..].parse::<usize>() {
+                    Ok(parsed) => jobs = parsed,
+                    Err(_) => return usage_error("`--jobs` needs a whole number"),
+                }
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `check`"));
             }
@@ -2022,7 +2114,7 @@ fn check(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome = load_and_check_exports_timed(&mut sources, &input, source, false, measured);
+    let outcome = load_and_check_exports_timed(&mut sources, &input, source, false, jobs, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
         Ok((hir, exports)) => {
@@ -2092,6 +2184,7 @@ fn verify(args: &[String]) -> ExitCode {
     let mut inventory_flag = false;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
+    let mut jobs: usize = 0;
     let mut input: Option<PathBuf> = None;
     let mut i = 0;
     while i < args.len() {
@@ -2099,6 +2192,17 @@ fn verify(args: &[String]) -> ExitCode {
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--inventory" => inventory_flag = true,
+            "--jobs" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<usize>() {
+                        Ok(parsed) => jobs = parsed,
+                        Err(_) => return usage_error("`--jobs` needs a whole number"),
+                    }
+                    i += 1;
+                } else {
+                    return usage_error("`--jobs` needs a value");
+                }
+            }
             "--deny" => {
                 if i + 1 < args.len() && args[i + 1] == "warnings" {
                     deny_warnings = true;
@@ -2126,6 +2230,12 @@ fn verify(args: &[String]) -> ExitCode {
             "-W none" => allow_warnings = true,
             "--deny warnings" => deny_warnings = true,
             "--allow warnings" => allow_warnings = true,
+            other if other.starts_with("--jobs=") => {
+                match other["--jobs=".len()..].parse::<usize>() {
+                    Ok(parsed) => jobs = parsed,
+                    Err(_) => return usage_error("`--jobs` needs a whole number"),
+                }
+            }
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `verify`"));
             }
@@ -2155,7 +2265,15 @@ fn verify(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome = check_and_verify_timed(&mut sources, &input, source, false, &OPTIONS, measured);
+    let outcome = check_and_verify_timed(
+        &mut sources,
+        &input,
+        source,
+        false,
+        &OPTIONS,
+        jobs,
+        measured,
+    );
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
         Ok((hir, mut report)) => {

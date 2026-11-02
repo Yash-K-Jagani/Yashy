@@ -29,6 +29,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::toolchain::Linker;
 use std::process::Command;
@@ -65,6 +66,12 @@ pub enum TimingRow {
     },
     /// The query database's counters after the front end ran.
     Query(yashy_query::QueryStats),
+    /// How many front-end threads were used for parallel parsing.
+    FrontendThreads {
+        /// Number of threads used (1 when `--jobs 1`, `available_parallelism()`
+        /// when `--jobs 0`).
+        threads: usize,
+    },
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
@@ -556,9 +563,17 @@ pub fn load_and_check(
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    jobs: usize,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut timings = Vec::new();
-    load_and_check_timed(sources, entry_path, entry_source, release, &mut timings)
+    load_and_check_timed(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        jobs,
+        &mut timings,
+    )
 }
 
 /// [`load_and_check`], recording how long loading and checking took.
@@ -572,9 +587,10 @@ pub fn load_and_check_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
-    load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)
+    load_and_check_exports_timed(sources, entry_path, entry_source, release, jobs, timings)
         .map(|(hir, _exports)| hir)
 }
 
@@ -583,22 +599,107 @@ pub fn load_and_check_timed(
 ///
 /// Only the warning pass reads it, and only `check` and `verify` run the
 /// warning pass, so a caller that just wants to build asks for the HIR alone.
+///
+/// `jobs` controls how many threads parse modules in parallel: `0` means
+/// `available_parallelism()`, `1` means serial parsing.
 pub fn load_and_check_exports_timed(
     sources: &mut SourceMap,
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
-    let modules = timed(timings, "load", || {
-        modules::load(sources, entry_path, entry_source)
+    let module_sources = timed(timings, "load", || {
+        modules::load_sources(sources, entry_path, entry_source)
     })?;
+
+    // How many threads to parse on. `--jobs 0` means "all available".
+    let requested = if jobs == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    } else {
+        jobs
+    }
+    .max(1);
+
+    // Spawning a worker per file would be one thread per module; a bounded
+    // pool of `requested` threads pulling from a shared index keeps the thread
+    // count at what the user asked for and still hands every file to some
+    // worker. A single file is parsed on the calling thread.
+    let threads = requested.min(module_sources.len()).max(1);
+    timings.push(TimingRow::FrontendThreads { threads });
+
+    // Parsing is read-only: each worker borrows its module's tokens and the
+    // shared source map, and writes nothing. Per-index results come back to
+    // this thread and are merged in module order, so the output is decided by
+    // the merge rather than by which worker finished first.
+    let texts: &SourceMap = sources;
+    let parse_results: Vec<Result<modules::Module, Vec<Diagnostic>>> = if threads <= 1 {
+        module_sources
+            .iter()
+            .map(|source| source.parse(texts))
+            .collect()
+    } else {
+        let next = AtomicUsize::new(0);
+        let mut indexed: Vec<(usize, Result<modules::Module, Vec<Diagnostic>>)> =
+            std::thread::scope(|scope| {
+                let mut handles = Vec::with_capacity(threads);
+                for _ in 0..threads {
+                    let next = &next;
+                    let sources = &module_sources;
+                    handles.push(scope.spawn(move || {
+                        let mut mine = Vec::new();
+                        loop {
+                            let index = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(source) = sources.get(index) else {
+                                break;
+                            };
+                            mine.push((index, source.parse(texts)));
+                        }
+                        mine
+                    }));
+                }
+                let mut merged = Vec::with_capacity(module_sources.len());
+                for handle in handles {
+                    merged.extend(handle.join().unwrap());
+                }
+                merged
+            });
+        indexed.sort_by_key(|(index, _)| *index);
+        indexed.into_iter().map(|(_, result)| result).collect()
+    };
+
+    // When several files fail to parse, report the first one discovery reached:
+    // discovery is depth-first, so that is the file the serial loader stopped
+    // at. Errors inside that file stay in the parser's order -- the order the
+    // serial loader printed them in.
+    let mut modules: Vec<modules::Module> = Vec::with_capacity(module_sources.len());
+    let mut first_failure: Option<(u32, Vec<Diagnostic>)> = None;
+    for (i, result) in parse_results.into_iter().enumerate() {
+        match result {
+            Ok(module) => modules.push(module),
+            Err(errors) => {
+                let order = module_sources[i].order;
+                if first_failure
+                    .as_ref()
+                    .map_or(true, |(seen, _)| order < *seen)
+                {
+                    first_failure = Some((order, errors));
+                }
+            }
+        }
+    }
+    if let Some((_, diagnostics)) = first_failure {
+        return Err(diagnostics);
+    }
+
     let exports = modules::exports(&modules);
     // Every stage after the loader goes through the query database: it owns the
     // checked world, and a second caller in the same process (a test suite, a
     // language server) gets a memo hit instead of a second whole-program check.
-    // The loader already parsed each module, so the database adopts those ASTs
-    // rather than parsing them again.
+    // The parsed modules are adopted by the database rather than re-parsed.
     let (hir, stats) = timed(timings, "check", || {
         // The loader's order is dependency-first with the entry point last;
         // registration is by file id so the database's source map lines up with
@@ -660,6 +761,7 @@ pub fn check_and_verify(
     entry_source: String,
     release: bool,
     options: &VerifyOptions,
+    jobs: usize,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
     let mut timings = Vec::new();
     check_and_verify_timed(
@@ -668,6 +770,7 @@ pub fn check_and_verify(
         entry_source,
         release,
         options,
+        jobs,
         &mut timings,
     )
 }
@@ -679,10 +782,11 @@ pub fn check_and_verify_timed(
     entry_source: String,
     release: bool,
     options: &VerifyOptions,
+    jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
     let (hir, exports) =
-        load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)?;
+        load_and_check_exports_timed(sources, entry_path, entry_source, release, jobs, timings)?;
     // Warnings run after the checker and before the verifier. They are
     // collected into the same diagnostic bag as the verifier's output, so
     // `yashy check` (which never reaches here) does not see them and
@@ -700,10 +804,9 @@ pub fn check_and_verify_timed(
     // describes the same line from the other side. The spans are the
     // declaration's, so they match exactly.
     warnings.retain(|warning| {
-        !report
-            .diagnostics
-            .iter()
-            .any(|error| error.is_error() && error.file == warning.file && error.span == warning.span)
+        !report.diagnostics.iter().any(|error| {
+            error.is_error() && error.file == warning.file && error.span == warning.span
+        })
     });
     // Join the warning diagnostics into the report's bag so they travel
     // with the verifier's output and are rendered by the same code path.
@@ -725,7 +828,15 @@ pub fn compile_hir(
     facts: &yashy_common::ProofFacts,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut timings = Vec::new();
-    compile_hir_timed(hir, entry_name, out, toolchain, options, facts, &mut timings)
+    compile_hir_timed(
+        hir,
+        entry_name,
+        out,
+        toolchain,
+        options,
+        facts,
+        &mut timings,
+    )
 }
 
 /// [`compile_hir`], recording the emit and link phases.
@@ -1067,7 +1178,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-use crate::toolchain::Linker;
+    use crate::toolchain::Linker;
 
     fn fake_toolchain(tool: &Path) -> Toolchain {
         Toolchain {
