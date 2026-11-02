@@ -43,4 +43,18 @@ impl ProofFacts {
     pub fn insert_shift(&mut self, span: Span) {
         self.shift_counts.insert((span.start, span.end));
     }
+
+    /// Every proven bounds/overflow span.
+    pub fn proven_spans(&self) -> impl Iterator<Item = Span> + '_ {
+        self.proven
+            .iter()
+            .map(|&(start, end)| Span::new(start, end))
+    }
+
+    /// Every proven shift-count span.
+    pub fn shift_spans(&self) -> impl Iterator<Item = Span> + '_ {
+        self.shift_counts
+            .iter()
+            .map(|&(start, end)| Span::new(start, end))
+    }
 }

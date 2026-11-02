@@ -1,0 +1,13 @@
+[package]
+name = "yashy-query"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yashy-common = { path = "../yashy-common" }
+yashy-hir = { path = "../yashy-hir" }
+yashy-lexer = { path = "../yashy-lexer" }
+yashy-parser = { path = "../yashy-parser" }
+yashy-sema = { path = "../yashy-sema" }
+yashy-verify = { path = "../yashy-verify" }
+yashy-codegen = { path = "../yashy-codegen" }

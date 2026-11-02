@@ -32,7 +32,7 @@ use yashy_common::{
 use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, load_and_check_exports_timed,
     load_and_check_timed, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
-    PhaseTiming,
+    TimingRow,
 };
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
 
@@ -132,7 +132,7 @@ fn main() -> ExitCode {
 struct BuildOutcome {
     code: ExitCode,
     /// Empty unless `--timings` was passed.
-    timings: Vec<PhaseTiming>,
+    timings: Vec<TimingRow>,
 }
 
 /// `yashy build <file.ya> [-o <out>] [-O0|-1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--no-verify]`.
@@ -279,7 +279,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // to parse the arguments a second time.
     let mut timings = Vec::new();
     let mut scratch = Vec::new();
-    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+    let measured: &mut Vec<TimingRow> = if timings_flag {
         &mut timings
     } else {
         &mut scratch
@@ -721,7 +721,7 @@ fn test(args: &[String]) -> ExitCode {
     let mut compile_errors = 0usize;
     // One report for the suite: five lines per test would be noise, and what a
     // user wants from `test --timings` is where the suite's wall time went.
-    let mut timings: Vec<PhaseTiming> = Vec::new();
+    let mut timings: Vec<TimingRow> = Vec::new();
     for path in &tests {
         let name = display_test_path(path);
         let dir = temp_run_dir();
@@ -797,7 +797,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool) -> ExitCode {
     let root_file = global_sources.add_file(root.display().to_string(), String::new());
     // The suite's phase totals, so `test --json --timings` answers "where did
     // the run spend its time?" without a line per test.
-    let mut timings: Vec<PhaseTiming> = Vec::new();
+    let mut timings: Vec<TimingRow> = Vec::new();
 
     if tests.is_empty() {
         print_test_json(&global_sources, &[], &[], 0, 0, 0, None);
@@ -1041,7 +1041,7 @@ fn print_test_json(
     passed: usize,
     failed: usize,
     compile_errors: usize,
-    timings: Option<&[PhaseTiming]>,
+    timings: Option<&[TimingRow]>,
 ) {
     let mut summary = Json::object();
     summary.set("passed", Json::number(passed as i64));
@@ -1077,7 +1077,7 @@ fn print_test_json(
 /// Omitted rather than empty when it was not: a report that never asked for
 /// timings should stay byte-identical to the one this compiler printed before
 /// the flag existed, and an empty array would be a new field for every caller.
-fn set_timings(report: &mut Json, timings: Option<&[PhaseTiming]>) {
+fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
     let Some(timings) = timings else {
         return;
     };
@@ -1088,8 +1088,27 @@ fn set_timings(report: &mut Json, timings: Option<&[PhaseTiming]>) {
                 .iter()
                 .map(|timing| {
                     let mut entry = Json::object();
-                    entry.set("phase", Json::string(timing.phase));
-                    entry.set("ms", Json::number(timing.ms as i64));
+                    match timing {
+                        TimingRow::Phase { phase, ms } => {
+                            entry.set("phase", Json::string(*phase));
+                            entry.set("ms", Json::number(*ms as i64));
+                        }
+                        TimingRow::Query(stats) => {
+                            entry.set("phase", Json::string("query"));
+                            entry.set("hits", Json::number(stats.hits as i64));
+                            entry.set("misses", Json::number(stats.misses as i64));
+                            entry.set(
+                                "recomputed",
+                                Json::array(
+                                    stats
+                                        .recomputed
+                                        .iter()
+                                        .map(|name| Json::string(name))
+                                        .collect(),
+                                ),
+                            );
+                        }
+                    }
                     entry
                 })
                 .collect(),
@@ -1097,25 +1116,61 @@ fn set_timings(report: &mut Json, timings: Option<&[PhaseTiming]>) {
     );
 }
 
-/// Add one phase's time to a running total, keeping first-seen order.
-fn accumulate(total: &mut Vec<PhaseTiming>, timings: &[PhaseTiming]) {
+/// Add one row's time to a running total, keeping first-seen order.
+///
+/// Phases add their milliseconds; query counters add their hits and misses and
+/// keep the union of the recomputed names, so a suite of ten tests reports the
+/// database's work once rather than ten partial rows.
+fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
     for timing in timings {
-        match total.iter_mut().find(|seen| seen.phase == timing.phase) {
-            Some(seen) => seen.ms = seen.ms.saturating_add(timing.ms),
-            None => total.push(*timing),
+        match timing {
+            TimingRow::Phase { phase, ms } => {
+                match total.iter_mut().find(|seen| {
+                    matches!(seen, TimingRow::Phase { phase: seen_phase, .. } if seen_phase == phase)
+                }) {
+                    Some(TimingRow::Phase { ms: seen_ms, .. }) => {
+                        *seen_ms = seen_ms.saturating_add(*ms)
+                    }
+                    _ => total.push(timing.clone()),
+                }
+            }
+            TimingRow::Query(stats) => {
+                let mut merged = stats.clone();
+                match total.iter_mut().find_map(|seen| match seen {
+                    TimingRow::Query(seen) => Some(seen),
+                    _ => None,
+                }) {
+                    Some(seen) => {
+                        seen.hits = seen.hits.saturating_add(merged.hits);
+                        seen.misses = seen.misses.saturating_add(merged.misses);
+                        seen.recomputed.append(&mut merged.recomputed);
+                        seen.recomputed.sort();
+                        seen.recomputed.dedup();
+                    }
+                    None => total.push(TimingRow::Query(merged)),
+                }
+            }
         }
     }
 }
 
-/// Print one `timing:` line per phase, to stderr.
+/// Print one `timing:` line per phase and one `query_*` line, to stderr.
 ///
 /// stderr is deliberate: stdout belongs to the program under `run` and to the
 /// machine-readable envelope under `--json`, and a timing line in either would
 /// corrupt it. An empty slice prints nothing, which is how a caller says the
 /// flag was not passed.
-fn report_timings(timings: &[PhaseTiming]) {
+fn report_timings(timings: &[TimingRow]) {
     for timing in timings {
-        eprintln!("timing: {} {} ms", timing.phase, timing.ms);
+        match timing {
+            TimingRow::Phase { phase, ms } => eprintln!("timing: {phase} {ms} ms"),
+            TimingRow::Query(stats) => eprintln!(
+                "query_hits={} query_misses={} recomputed={}",
+                stats.hits,
+                stats.misses,
+                stats.recomputed.join(",")
+            ),
+        }
     }
 }
 
@@ -1754,7 +1809,7 @@ fn print_check_json(
     tool: &str,
     sources: &SourceMap,
     diagnostics: &[Diagnostic],
-    timings: Option<&[PhaseTiming]>,
+    timings: Option<&[TimingRow]>,
     assumptions: Option<&[Assumption]>,
 ) {
     let errors = diagnostics
@@ -1962,7 +2017,7 @@ fn check(args: &[String]) -> ExitCode {
     let mut sources = SourceMap::new();
     let mut timings = Vec::new();
     let mut scratch = Vec::new();
-    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+    let measured: &mut Vec<TimingRow> = if timings_flag {
         &mut timings
     } else {
         &mut scratch
@@ -2095,7 +2150,7 @@ fn verify(args: &[String]) -> ExitCode {
     let mut sources = SourceMap::new();
     let mut timings = Vec::new();
     let mut scratch = Vec::new();
-    let measured: &mut Vec<PhaseTiming> = if timings_flag {
+    let measured: &mut Vec<TimingRow> = if timings_flag {
         &mut timings
     } else {
         &mut scratch

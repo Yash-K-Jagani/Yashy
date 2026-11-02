@@ -63,10 +63,10 @@ See the master index. The ones that bite here:
 - Produces: invalidation by input hash, not by timestamp. A query re-runs when any input it *read* changed; the read set is recorded on the first execution (the classic red-green algorithm, hand-written).
 - Produces: `yashy check --timings` prints `query_hits=N query_misses=M recomputed=fn:a,fn:b`.
 
-- [ ] **Step 1: Write the failing tests** — a second `check` on unchanged sources has `misses == 0`; editing one function's body re-runs `check` for that file and `verify_fn`/`emit_fn` for that function only; editing a struct field re-runs every function that mentions the type; `recomputed` is sorted and deterministic.
-- [ ] **Step 2: Run and watch them fail** — `cargo test -p yashy-query` → FAIL.
-- [ ] **Step 3: Implement** — a `HashMap<QueryKey, Entry>` per query kind, where `QueryKey` is the content hash (FNV-1a, the same function phase 3's cache uses) of the query's arguments. Each execution records the keys it read; a changed key invalidates every entry that read it, transitively. No `unsafe`, no interior mutability tricks beyond `&mut self`, because a single-threaded database is the thing that makes Task 2's parallel front end a scoped-thread problem rather than a lock problem.
-- [ ] **Step 4: Run** `cargo test -p yashy-query -p yashy-driver --test e2e` → PASS, and the driver's output is byte-identical to before the change.
+- [x] **Step 1: Write the failing tests** — a second `check` on unchanged sources has `misses == 0`; editing one function's body re-runs `check` for that file and `verify_fn`/`emit_fn` for that function only; editing a struct field re-runs every function that mentions the type; `recomputed` is sorted and deterministic.
+- [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-query` → FAIL.
+- [x] **Step 3: Implement** — a `HashMap<QueryKey, Entry>` per query kind, where `QueryKey` is the content hash (FNV-1a, the same function phase 3's cache uses) of the query's arguments. Each execution records the keys it read; a changed key invalidates every entry that read it, transitively. No `unsafe`, no interior mutability tricks beyond `&mut self`, because a single-threaded database is the thing that makes Task 2's parallel front end a scoped-thread problem rather than a lock problem.
+- [x] **Step 4: Run** `cargo test -p yashy-query -p yashy-driver --test e2e` → PASS, and the driver's output is byte-identical to before the change.
 - [ ] **Step 5: Commit** — `git commit -m "feat(query): a memoised pipeline with hash-based invalidation"`
 
 ---

@@ -58,6 +58,7 @@ dependencies = [
  "yashy-fmt",
  "yashy-lexer",
  "yashy-parser",
+ "yashy-query",
  "yashy-runtime",
  "yashy-sema",
  "yashy-verify",
@@ -104,6 +105,19 @@ version = "0.1.0"
 dependencies = [
  "yashy-common",
  "yashy-lexer",
+]
+
+[[package]]
+name = "yashy-query"
+version = "0.1.0"
+dependencies = [
+ "yashy-codegen",
+ "yashy-common",
+ "yashy-hir",
+ "yashy-lexer",
+ "yashy-parser",
+ "yashy-sema",
+ "yashy-verify",
 ]
 
 [[package]]

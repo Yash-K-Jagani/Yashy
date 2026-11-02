@@ -43,23 +43,28 @@ use yashy_runtime::{
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
     RUNTIME_SOURCE_NAME,
 };
-use yashy_sema::{check_modules_with, check_program_with, CheckOptions, HirItem, HirProgram};
+use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 
 use crate::modules;
 use crate::toolchain::Toolchain;
 
-/// One measured phase of the pipeline, in the order it ran.
+/// One row of a `--timings` report.
 ///
-/// The name is `&'static str` rather than an enum because a phase is a label in
-/// a report, not a thing the program branches on: the compiler's stages are
-/// fixed at compile time, and a caller that prints them should not have to
-/// match every variant to do it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PhaseTiming {
-    /// The phase's name, such as `load` or `link`.
-    pub phase: &'static str,
-    /// How long it took, rounded down to whole milliseconds.
-    pub ms: u64,
+/// A phase row answers "where did the wall time go"; a query row answers "did
+/// the memo pay for itself". They are one enum rather than two vectors because
+/// both are printed by the same report and a caller that prints one should not
+/// have to remember to print the other.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TimingRow {
+    /// A pipeline phase, timed in whole milliseconds.
+    Phase {
+        /// The phase's name, such as `load` or `link`.
+        phase: &'static str,
+        /// How long it took, rounded down to whole milliseconds.
+        ms: u64,
+    },
+    /// The query database's counters after the front end ran.
+    Query(yashy_query::QueryStats),
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
@@ -67,13 +72,13 @@ pub struct PhaseTiming {
 /// A failing phase still gets a row: the time a stage took is exactly what a
 /// user is looking for when a build is slow *and* broken.
 pub fn timed<T>(
-    timings: &mut Vec<PhaseTiming>,
+    timings: &mut Vec<TimingRow>,
     phase: &'static str,
     work: impl FnOnce() -> T,
 ) -> T {
     let started = Instant::now();
     let value = work();
-    timings.push(PhaseTiming {
+    timings.push(TimingRow::Phase {
         phase,
         ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     });
@@ -567,7 +572,7 @@ pub fn load_and_check_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
-    timings: &mut Vec<PhaseTiming>,
+    timings: &mut Vec<TimingRow>,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
     load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)
         .map(|(hir, _exports)| hir)
@@ -583,19 +588,58 @@ pub fn load_and_check_exports_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
-    timings: &mut Vec<PhaseTiming>,
+    timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
     let modules = timed(timings, "load", || {
         modules::load(sources, entry_path, entry_source)
     })?;
-    let programs: Vec<(FileId, &yashy_parser::ast::Program)> = modules
-        .iter()
-        .map(|module| (module.file, &module.program))
-        .collect();
     let exports = modules::exports(&modules);
-    let hir = timed(timings, "check", || {
-        check_modules_with(&programs, sources, CheckOptions { release })
+    // Every stage after the loader goes through the query database: it owns the
+    // checked world, and a second caller in the same process (a test suite, a
+    // language server) gets a memo hit instead of a second whole-program check.
+    // The loader already parsed each module, so the database adopts those ASTs
+    // rather than parsing them again.
+    let (hir, stats) = timed(timings, "check", || {
+        // The loader's order is dependency-first with the entry point last;
+        // registration is by file id so the database's source map lines up with
+        // the caller's.
+        let order: Vec<FileId> = modules.iter().map(|module| module.file).collect();
+        let mut ordered: Vec<modules::Module> = modules.into_iter().collect();
+        ordered.sort_by_key(|module| module.file.index());
+        let entry = ordered
+            .iter()
+            .find(|module| module.name.is_none())
+            .or_else(|| ordered.last())
+            .map(|module| module.file);
+        let mut db = yashy_query::Db::new();
+        for module in ordered {
+            let text = sources.file(module.file).to_string();
+            db.add_parsed(
+                module.file,
+                module.path.to_string_lossy(),
+                module.name,
+                text,
+                module.program,
+            );
+        }
+        db.set_module_order(order);
+        let Some(entry) = entry else {
+            return Err(vec![Diagnostic::new(
+                Severity::Error,
+                FileId::from_index(0),
+                Span::new(0, 0),
+                "the program has no entry module",
+            )]);
+        };
+        db.set_entry(entry);
+        db.set_release(release);
+        let checked = db.check(entry)?;
+        let hir = (*checked.program).clone();
+        Ok((hir, db.stats()))
     })?;
+    if stats.hits + stats.misses > 0 {
+        timings.push(TimingRow::Query(stats));
+    }
     Ok((hir, exports))
 }
 
@@ -635,7 +679,7 @@ pub fn check_and_verify_timed(
     entry_source: String,
     release: bool,
     options: &VerifyOptions,
-    timings: &mut Vec<PhaseTiming>,
+    timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
     let (hir, exports) =
         load_and_check_exports_timed(sources, entry_path, entry_source, release, timings)?;
@@ -695,7 +739,7 @@ pub fn compile_hir_timed(
     toolchain: &Toolchain,
     options: BuildOptions,
     facts: &yashy_common::ProofFacts,
-    timings: &mut Vec<PhaseTiming>,
+    timings: &mut Vec<TimingRow>,
 ) -> Result<(), Vec<Diagnostic>> {
     if let Err(diagnostic) = check_main_exists(&hir.items) {
         return Err(vec![diagnostic]);

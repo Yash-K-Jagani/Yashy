@@ -13,6 +13,7 @@ yashy-codegen = { path = "../yashy-codegen" }
 yashy-fmt = { path = "../yashy-fmt" }
 yashy-lexer = { path = "../yashy-lexer" }
 yashy-parser = { path = "../yashy-parser" }
+yashy-query = { path = "../yashy-query" }
 yashy-sema = { path = "../yashy-sema" }
 yashy-runtime = { path = "../yashy-runtime" }
 yashy-verify = { path = "../yashy-verify" }
