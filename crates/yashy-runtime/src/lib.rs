@@ -91,6 +91,11 @@ unsafe extern "C" {
     pub fn yashy_print_f64(value: c_double);
 }
 
+unsafe extern "C" {
+    /// The number of live blocks the runtime's allocator has handed out.
+    pub fn yashy_live_allocations_now() -> c_longlong;
+}
+
 // The memory half of the contract. The generated IR calls these by name; these
 // declarations are what lets Rust tests exercise the same linked code.
 

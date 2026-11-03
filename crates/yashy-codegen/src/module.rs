@@ -6,7 +6,7 @@
 //! "No LLVM build dependency" constraint), so the only structure the
 //! backend needs is "the lines so far, in order".
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use yashy_common::{FileId, ParamFacts, Span};
 use yashy_sema::{HirExternDecl, TypeKind};
@@ -45,12 +45,13 @@ pub struct EnumRepr {
 pub struct Module {
     /// The body lines accumulated by `push`, in emission order.
     lines: Vec<String>,
-    /// Interned string globals: `(struct name, struct body, data body)`.
-    /// The bodies exclude the `@.str.N = ` prefix so two equal data bodies
-    /// compare equal, which is what deduplicates identical literals. The
-    /// bytes live in a separate global named `@.str.N.data`; the struct
-    /// global holds the refcount, length, capacity, and a pointer to them.
-    strings: Vec<(String, String, String)>,
+    /// Interned string globals, keyed by the literal's bytes. Identical byte
+    /// slices share one name; keying a `BTreeMap` by the content makes lookup
+    /// logarithmic and makes `finish`'s emission order independent of first
+    /// use. The value is the struct global's name. The bytes live in a
+    /// separate global named `@.str.N.data`; the struct global holds the
+    /// refcount, length, capacity, and a pointer to them.
+    strings: BTreeMap<Vec<u8>, String>,
     /// Module-level named type definitions: `(name, field reps)`. These are
     /// hoisted out of any function body and emitted at the top of the module,
     /// because a `%struct.X = type { … }` line inside a `define` block is not
@@ -130,7 +131,7 @@ impl Module {
     pub fn new() -> Self {
         let mut module = Self {
             lines: Vec::new(),
-            strings: Vec::new(),
+            strings: BTreeMap::new(),
             named_types: Vec::new(),
             enums: HashMap::new(),
             source_filename: "main.ya".to_string(),
@@ -383,14 +384,11 @@ impl Module {
     /// literal is never freed. Every byte outside printable ASCII, plus `"`
     /// and `\`, is escaped as `\XX` so the definition is pure ASCII.
     pub fn intern_string(&mut self, bytes: &[u8]) -> String {
-        let data_body = Self::data_body(bytes);
-        if let Some((name, _, _)) = self.strings.iter().find(|(_, _, def)| *def == data_body) {
+        if let Some(name) = self.strings.get(bytes) {
             return name.clone();
         }
         let name = format!("@.str.{}", self.strings.len());
-        let data_name = format!("{name}.data");
-        let body = Self::struct_body(bytes, &data_name);
-        self.strings.push((name.clone(), body, data_body));
+        self.strings.insert(bytes.to_vec(), name.clone());
         name
     }
 
@@ -756,9 +754,13 @@ impl Module {
         // a program that exits early does not rewrite every golden file; an
         // unused `declare` is legal IR.
         out.push_str("declare void @yashy_exit(i64)\n");
-        for (name, body, data) in &self.strings {
-            out.push_str(&format!("{name}.data = {data}\n"));
-            out.push_str(&format!("{name} = {body}\n"));
+        for (bytes, name) in &self.strings {
+            let data_name = format!("{name}.data");
+            out.push_str(&format!("{data_name} = {}\n", Self::data_body(bytes)));
+            out.push_str(&format!(
+                "{name} = {}\n",
+                Self::struct_body(bytes, &data_name)
+            ));
         }
         for line in &self.lines {
             out.push_str(line);

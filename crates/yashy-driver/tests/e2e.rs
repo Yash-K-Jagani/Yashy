@@ -322,6 +322,52 @@ fn hello_world_prints_and_exits_zero() {
 }
 
 #[test]
+fn interning_makes_two_identical_literals_one_global() {
+    // `--emit-ir` does not link, so this inspects the literal pool directly:
+    // the spelling "same bytes" appears twice in the source and must appear
+    // once in the module, as one data global and one struct global.
+    let source = programs_dir().join("interning.ya");
+    let output = Command::new(yashy())
+        .arg("build")
+        .arg(&source)
+        .arg("--emit-ir")
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        output.status.success(),
+        "emitting interning.ya failed:\n{}",
+        stderr_of(&output)
+    );
+    let ir = stdout_of(&output);
+    let interned = ir
+        .lines()
+        .filter(|line| line.starts_with("@.str.") && line.contains("same bytes\\00"))
+        .count();
+    assert_eq!(
+        interned, 1,
+        "two identical literals must share one data global:\n{ir}"
+    );
+    let structs = ir
+        .lines()
+        .filter(|line| line.starts_with("@.str.") && !line.contains(".data ="))
+        .count();
+    let datas = ir
+        .lines()
+        .filter(|line| line.starts_with("@.str.") && line.contains(".data ="))
+        .count();
+    assert_eq!(
+        structs, datas,
+        "every interned literal pairs one struct with one byte array:\n{ir}"
+    );
+}
+
+#[test]
+fn interning_program_runs_and_prints_its_marker() {
+    let output = build_and_run("interning");
+    assert_eq!(stdout_of(&output), "one object\n");
+}
+
+#[test]
 fn bitwise_operators_print_their_values() {
     // Every operator, the arithmetic/logical split on `>>`, and the precedence
     // that makes `1 << 3 | 1` nine rather than sixteen.

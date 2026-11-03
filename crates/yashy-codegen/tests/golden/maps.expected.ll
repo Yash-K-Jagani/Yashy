@@ -118,12 +118,12 @@ declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
+@.str.2.data = private unnamed_addr constant [1 x i8] c"\00"
+@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 0, i64 0, i8* @.str.2.data }
 @.str.0.data = private unnamed_addr constant [2 x i8] c"a\00"
 @.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.0.data }
 @.str.1.data = private unnamed_addr constant [2 x i8] c"b\00"
 @.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 1, i64 1, i8* @.str.1.data }
-@.str.2.data = private unnamed_addr constant [1 x i8] c"\00"
-@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 0, i64 0, i8* @.str.2.data }
 define i32 @main(i32 %argc, i8** %argv) {
 entry:
 %slot0 = alloca i8*

@@ -37,6 +37,11 @@ void yashy_print_i64(long long value);
 /* Writes a double round-trippably (%.17g) to stdout, no newline. */
 void yashy_print_f64(double value);
 
+/* The number of live blocks the runtime's allocator has handed out. Only
+ * whole `yashy_alloc` and string blocks are counted. This is a test surface,
+ * not part of the contract generated code is emitted against. */
+long long yashy_live_allocations_now(void);
+
 /* ---- Heap allocation ----
  *
  *     declare i8* @yashy_alloc(i64, i64)

@@ -1,0 +1,15 @@
+// Identical string literals are interned: one `@.str` object per distinct
+// byte sequence, no matter how many times the spelling appears. `==` compares
+// contents either way, so this program only observes that the two bindings
+// agree; `interning_makes_two_identical_literals_one_global` in `e2e.rs`
+// checks the emitted module for the single global.
+fn main() {
+    let first = "same bytes";
+    let second = "same bytes";
+    assert(first == second);
+
+    // Two literals written at different places with the same content.
+    assert("x" == "x");
+
+    println("one object");
+}

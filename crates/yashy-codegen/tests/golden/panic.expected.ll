@@ -118,14 +118,14 @@ declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
-@.str.0.data = private unnamed_addr constant [9 x i8] c"negative\00"
-@.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 8, i64 8, i8* @.str.0.data }
-@.str.1.data = private unnamed_addr constant [8 x i8] c"main.ya\00"
-@.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 7, i64 7, i8* @.str.1.data }
-@.str.2.data = private unnamed_addr constant [6 x i8] c"empty\00"
-@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 5, i64 5, i8* @.str.2.data }
 @.str.3.data = private unnamed_addr constant [7 x i8] c"always\00"
 @.str.3 = private unnamed_addr constant %yashy_str { i64 -1, i64 6, i64 6, i8* @.str.3.data }
+@.str.2.data = private unnamed_addr constant [6 x i8] c"empty\00"
+@.str.2 = private unnamed_addr constant %yashy_str { i64 -1, i64 5, i64 5, i8* @.str.2.data }
+@.str.1.data = private unnamed_addr constant [8 x i8] c"main.ya\00"
+@.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 7, i64 7, i8* @.str.1.data }
+@.str.0.data = private unnamed_addr constant [9 x i8] c"negative\00"
+@.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 8, i64 8, i8* @.str.0.data }
 define i64 @checked(i64 %arg0) {
 entry:
 %slot0 = alloca i64

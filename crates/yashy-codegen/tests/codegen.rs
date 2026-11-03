@@ -75,6 +75,21 @@ fn intern_string_dedupes_identical_bytes() {
 }
 
 #[test]
+fn interned_literals_are_emitted_in_content_order_not_first_use_order() {
+    let mut module = Module::new();
+    module.intern_string(b"b");
+    module.intern_string(b"a");
+    let ir = module.finish();
+    let a = ir.find("c\"a\\00\"").expect("the `a` global is emitted");
+    let b = ir.find("c\"b\\00\"").expect("the `b` global is emitted");
+    assert!(
+        a < b,
+        "the literal pool is content-keyed, so `a` precedes `b` even though \
+         `b` was interned first:\n{ir}"
+    );
+}
+
+#[test]
 fn string_global_is_nul_terminated_and_escaped() {
     let mut module = Module::new();
     module.intern_string(b"a\"b");

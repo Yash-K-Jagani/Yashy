@@ -91,7 +91,7 @@ void yashy_print_str(const yashy_str *s) {
         return;
     }
     yashy_stdout_binary();
-    fputs(yashy_str_data(s), stdout);
+    fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stdout);
 }
 
 void yashy_print_line_str(const yashy_str *s) {
@@ -99,13 +99,33 @@ void yashy_print_line_str(const yashy_str *s) {
         return;
     }
     yashy_stdout_binary();
-    fputs(yashy_str_data(s), stdout);
+    fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stdout);
     fputc('\n', stdout);
 }
 
+/* Writes the decimal digits straight into a stack buffer and hands them to
+ * stdio. No `sprintf`, no `malloc`: printing a number is a formatting step,
+ * not an allocation, and a loop that prints a million of them should not
+ * touch the allocator a million times.
+ *
+ * `-(unsigned long long)value` is the magnitude without signed overflow, so
+ * `LLONG_MIN` prints as itself instead of trapping or wrapping. */
 void yashy_print_i64(long long value) {
+    char digits[20];
+    unsigned long long magnitude =
+        value < 0 ? 0ULL - (unsigned long long)value : (unsigned long long)value;
+    size_t count = 0;
+    do {
+        digits[count++] = (char)('0' + (int)(magnitude % 10ULL));
+        magnitude /= 10ULL;
+    } while (magnitude != 0);
     yashy_stdout_binary();
-    printf("%lld", value);
+    if (value < 0) {
+        fputc('-', stdout);
+    }
+    while (count > 0) {
+        fputc(digits[--count], stdout);
+    }
 }
 
 void yashy_print_f64(double value) {
@@ -159,6 +179,13 @@ static void yashy_count_add(volatile long long *counter, long long delta) {
 static void yashy_leak_report_at_exit(void) {
     fprintf(stderr, "yashy: leak report: %lld live allocations\n", yashy_live_allocations);
     fflush(stderr);
+}
+
+/* The live-allocation count right now. The leak report only speaks at exit;
+ * a test that asks "did this operation allocate?" needs the number while the
+ * program is still running. Not part of the generated-code contract. */
+long long yashy_live_allocations_now(void) {
+    return yashy_live_allocations;
 }
 
 /* Registers the report the first time anything countable is allocated. Doing it
