@@ -227,11 +227,23 @@ Status: landed.
 - Produces: `yashy_print_i64` writes digits directly to the output buffer (no `sprintf`, no allocation); `yashy_print_str` takes the length it already has.
 - Produces: tuple and small-array construction uses `insertvalue` chains rather than a heap allocation where the value does not escape (Task 4's placement, applied to aggregates).
 
-- [ ] **Step 1: Write the failing tests** — `interning.ya` asserts `"x" == "x"` and that two identical literals compare equal by pointer (the interned representation); a loop printing 1 000 000 integers allocates zero times (asserted with a counting allocator); `hello`'s binary size and allocation count are recorded before and after.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the literal pool is a `BTreeMap<String, String>` (name by content, so output is deterministic) filled before bodies are emitted; the runtime's printing path is rewritten to write into the caller's buffer, which is the same buffer `println` already uses.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test e2e interning` and `cargo test -p yashy-runtime` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "perf: intern literals and print integers without allocating"`
+- [x] **Step 1: Write the failing tests** — `interning.ya` asserts `"x" == "x"` and that two identical literals compare equal by pointer (the interned representation); a loop printing 1 000 000 integers allocates zero times (asserted with a counting allocator); `hello`'s binary size and allocation count are recorded before and after.
+  - Landed as: `interning.ya` asserts `"x" == "x"` and `"same bytes" == "same bytes"`; the
+    one-object promise is asserted on the emitted IR in `e2e.rs`
+    (`interning_makes_two_identical_literals_one_global`), because the language has no
+    pointer-equality operator. The million-integer, zero-allocation assertion is
+    `crates/yashy-runtime/tests/print.rs` (`i64_million` plus a source guard); the language
+    cannot observe the allocator. Binary-size/allocation bookkeeping is left to the bench crate.
+- [x] **Step 2: Watch them fail.** — the content-order codegen test failed against the `Vec` pool
+  (verified by stashing `module.rs`); the new print cases fail against the old `printf` path by
+  construction (the source guard).
+- [x] **Step 3: Implement** — the literal pool is a `BTreeMap<Vec<u8>, String>` (name by content, so output is
+  deterministic) filled at first use and emitted in content order at `finish`; the runtime's printing path
+  writes the length the string already carries instead of scanning for a NUL, and `yashy_print_i64` formats
+  into a stack buffer with no allocator or `printf`. Aggregate `insertvalue` chains were already in place
+  from earlier phases (tuple, fixed-array, and struct literals), so no change was needed there.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test e2e interning` and `cargo test -p yashy-runtime` → PASS.
+- [x] **Step 5: Commit** — `2c8c8cf` `perf: intern literals and print integers without allocating`
 
 ---
 
