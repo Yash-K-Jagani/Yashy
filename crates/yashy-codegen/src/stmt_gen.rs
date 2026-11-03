@@ -160,6 +160,12 @@ fn capture_linear_locals(ctx: &mut FnCtx<'_>) -> Vec<(String, String, TypeKind)>
         let value = ctx.tmp();
         ctx.push(format!("{value} = load {repr}, ptr {}", current.0));
         ctx.push(format!("store {repr} {value}, ptr {snapshot}"));
+        // Promotion is tracked by slot, and the snapshot is a new slot holding
+        // the same pointer. Without the mark, a `defer { p.free(); }` would
+        // hand a frame or arena address to the allocator at scope exit.
+        if ctx.is_promoted(&current.0) {
+            ctx.mark_promoted(&snapshot);
+        }
         captured.push((name, snapshot, current.1));
     }
     captured

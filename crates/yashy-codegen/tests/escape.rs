@@ -229,6 +229,37 @@ fn main() { }
 }
 
 #[test]
+fn a_deferred_free_of_a_promoted_allocation_is_suppressed() {
+    // `defer` snapshots every linear binding into a fresh slot at
+    // registration. That snapshot holds the promoted pointer, so the mark has
+    // to travel with it; otherwise the deferred `free` reaches the allocator
+    // with a frame address.
+    let ir = promoted(
+        "\
+fn f() {
+    let p = alloc(8);
+    p[0] = 1;
+    defer { p.free(); }
+}
+fn main() { }
+",
+    );
+    let f = body(&ir, "f");
+    assert!(
+        f.contains("alloca [8 x i64]"),
+        "the allocation is promoted:\n{f}"
+    );
+    assert!(
+        !f.contains("@yashy_free("),
+        "the deferred free must be suppressed too:\n{f}"
+    );
+    assert!(
+        !f.contains("@yashy_alloc("),
+        "the allocator call must go:\n{f}"
+    );
+}
+
+#[test]
 fn promotion_can_be_turned_off_for_a_bisect() {
     let ir = lower(STACK, false);
     let f = body(&ir, "f");
