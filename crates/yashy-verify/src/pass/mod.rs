@@ -12,5 +12,6 @@ pub mod exhaustive;
 pub mod inventory;
 pub mod leak;
 pub mod overflow;
+pub mod params;
 pub mod typestate;
 pub mod warnings;

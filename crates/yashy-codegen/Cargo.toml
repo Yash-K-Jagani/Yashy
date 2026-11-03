@@ -10,3 +10,4 @@ yashy-sema = { path = "../yashy-sema" }
 
 [dev-dependencies]
 yashy-lexer = { path = "../yashy-lexer" }
+yashy-verify = { path = "../yashy-verify" }

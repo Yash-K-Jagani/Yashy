@@ -140,6 +140,9 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
             ObligationKind::Bounds | ObligationKind::Overflow => facts.insert(ob.span),
         }
     }
+    // Parameter attributes are facts about a body, not proof obligations, but
+    // they travel in the same table: code generation has one place to ask.
+    pass::params::check(hir, &mut facts);
     VerifyReport {
         diagnostics,
         obligations,

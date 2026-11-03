@@ -15,6 +15,7 @@
 //! on every path has already emitted its `ret`, and a body that falls through
 //! emits `ret void` or `ret <zero>` for its return type.
 
+use yashy_common::ParamAttrs;
 use yashy_sema::{HirExternDecl, HirFn, TypeKind};
 
 use crate::ir::repr_type;
@@ -50,12 +51,55 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
 pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
     let ret_repr = fn_return_repr(&f.ret.kind);
     let mut params = vec!["i8* %env".to_string()];
-    for (index, param) in f.params.iter().enumerate() {
-        params.push(format!("{} %arg{index}", repr_type(&param.ty.kind)));
-    }
+    params.extend(parameters(module, f));
     module.push(format!("define {ret_repr} @{}({}) {{", name, params.join(", ")));
 
     gen_body(module, f, false, Some("%env"));
+}
+
+/// The LLVM spelling of one parameter's attributes, including the leading
+/// space, or `""` when the verifier proved nothing.
+///
+/// This is the only place the attribute words are written. A named function and
+/// a lambda both go through [`parameters`], so neither can invent an attribute
+/// the other would not emit.
+fn attribute_text(attrs: Option<&ParamAttrs>) -> String {
+    let Some(attrs) = attrs else {
+        return String::new();
+    };
+    let mut text = String::new();
+    if attrs.noalias {
+        text.push_str(" noalias");
+    }
+    if attrs.nonnull {
+        text.push_str(" nonnull");
+    }
+    if attrs.readonly {
+        text.push_str(" readonly");
+    }
+    if let Some(align) = attrs.align {
+        text.push_str(&format!(" align {align}"));
+    }
+    text
+}
+
+/// The parameter list of `f`, with the attributes the verifier proved.
+///
+/// A parameter whose index the table does not cover gets no attribute: the
+/// conservative reading of a missing fact is "nothing was promised".
+fn parameters(module: &Module, f: &HirFn) -> Vec<String> {
+    let facts = module.param_attrs(f.file, &f.name, f.body.span.start);
+    f.params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            format!(
+                "{}{} %arg{index}",
+                repr_type(&param.ty.kind),
+                attribute_text(facts.and_then(|facts| facts.get(index)))
+            )
+        })
+        .collect()
 }
 
 /// Emit one C function declaration as an LLVM `declare`.
@@ -121,11 +165,7 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
         // calls `yashy_args_init` with these names before lowering the body.
         vec!["i32 %argc".to_string(), "i8** %argv".to_string()]
     } else {
-        f.params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| format!("{} %arg{index}", repr_type(&param.ty.kind)))
-            .collect()
+        parameters(module, f)
     };
     // A function that *receives* a function value keeps the calls it makes
     // through that value indirect.

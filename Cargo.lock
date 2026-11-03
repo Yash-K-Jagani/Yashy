@@ -43,6 +43,7 @@ dependencies = [
  "yashy-lexer",
  "yashy-parser",
  "yashy-sema",
+ "yashy-verify",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use yashy_common::Span;
+use yashy_common::{FileId, ParamFacts, Span};
 use yashy_sema::{HirExternDecl, TypeKind};
 
 use crate::ir::repr_type;
@@ -222,6 +222,18 @@ impl Module {
     /// Whether the verifier proved the shift count at `span` inside `0..bits`.
     pub fn is_shift_proven(&self, span: Span) -> bool {
         self.facts.is_shift_proven(span)
+    }
+
+    /// The parameter attributes the verifier proved for a function.
+    ///
+    /// HIR has no function id, so the identity is the one the verifier itself
+    /// uses: the file, the name and the start of the body. A lambda's name is
+    /// empty, which is why the body start is part of the key.
+    ///
+    /// `None` means no fact was proved, and the caller must emit no attribute.
+    /// This is the single table both named functions and lambdas consult.
+    pub fn param_attrs(&self, file: FileId, name: &str, body_start: u32) -> Option<&ParamFacts> {
+        self.facts.params(file, name, body_start)
     }
 
     pub fn define_named_type(&mut self, name: &str, fields: Vec<String>) {

@@ -17,7 +17,7 @@ pub use diagnostic::{
     EXIT_USAGE,
 };
 pub use json::Json;
-pub use proof_facts::ProofFacts;
+pub use proof_facts::{ParamAttrs, ParamFacts, ProofFacts};
 pub use source::{FileId, Location, SourceMap};
 pub use span::Span;
 pub use suggest::closest;

@@ -1,0 +1,49 @@
+// Parameter attributes are promises the optimizer may use. This program
+// exercises the three shapes the verifier can tell apart, end to end:
+//
+// * `fill` writes through its pointer: `noalias`, but not `readonly`;
+// * `total` only reads through it: `noalias` and `readonly`;
+// * `fill_via` hands the pointer to another function: no `noalias`, because the
+//   escape is what this scope cannot see past.
+//
+// The arena owns the blocks, so none of them is freed here; `arena_free_all`
+// releases all three at once. The printed total is `2 * (0 + ... + 7)`, which is
+// small enough to check by hand.
+
+fn fill(p: *mut int, n: int) {
+    let i = 0;
+    while i < n {
+        p[i] = i * 2;
+        i += 1;
+    }
+}
+
+fn total(p: *mut int, n: int) -> int {
+    let sum = 0;
+    let i = 0;
+    while i < n {
+        sum += p[i];
+        i += 1;
+    }
+    return sum;
+}
+
+fn fill_via(p: *mut int, n: int) {
+    fill(p, n);
+}
+
+fn main() {
+    let arena = arena_new();
+
+    let first = arena_alloc(arena, 8);
+    fill(first, 8);
+
+    let second = arena_alloc(arena, 8);
+    print(total(second, 8));
+    println("");
+
+    let third = arena_alloc(arena, 8);
+    fill_via(third, 8);
+
+    arena_free_all(arena);
+}

@@ -111,11 +111,11 @@ See the master index. The ones that bite here:
   | slice length | `dereferenceable(N)` | slice type + length |
 - Produces: a `FnCtx` method `attrs_for(&self, param: &HirParam) -> Vec<&'static str>` — one table, consulted everywhere, so no call site invents its own attribute.
 
-- [ ] **Step 1: Write the failing tests** — a `fn f(p: *mut i64)` that never copies `p` gets `noalias`; a function that stores `p` into a global does not; a `pure fn` parameter gets `readonly`; a non-optional pointer gets `nonnull`; an `Option[*mut i64]` parameter does not; the emitted IR parses with `llvm-as` (or `clang -x ir -c`) and the module still runs.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the facts are a map `FnId → ParamFacts` produced in phase 3; codegen reads it and emits attributes in the signature. If `facts` is `None` (a caller that has no verifier), no attributes are emitted — the conservative path is the default, so a missing fact can never become a wrong promise.
-- [ ] **Step 4: Run** `cargo test -p yashy-codegen --test attributes` and the ASan/UBSan differential corpus from phase 3 → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "perf(codegen): emit noalias, nonnull, readonly and alignment from proofs"`
+- [x] **Step 1: Write the failing tests** — a `fn f(p: *mut i64)` that never copies `p` gets `noalias`; a function that stores `p` into a global does not; a `pure fn` parameter gets `readonly`; a non-optional pointer gets `nonnull`; an `Option[*mut i64]` parameter does not; the emitted IR parses with `llvm-as` (or `clang -x ir -c`) and the module still runs.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the facts are a map `FnId → ParamFacts` produced in phase 3; codegen reads it and emits attributes in the signature. If `facts` is `None` (a caller that has no verifier), no attributes are emitted — the conservative path is the default, so a missing fact can never become a wrong promise.
+- [x] **Step 4: Run** `cargo test -p yashy-codegen --test attributes` and the ASan/UBSan differential corpus from phase 3 → PASS.
+- [x] **Step 5: Commit** — `git commit -m "perf(codegen): emit noalias, nonnull, readonly and alignment from proofs"`
 
 ---
 
