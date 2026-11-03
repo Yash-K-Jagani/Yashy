@@ -4,7 +4,8 @@
 # proves the benchmark path still works and produces a baseline: build Yashy
 # and C versions of fib, check the answer, and report compile time, binary
 # size, and wall-clock run time. The hello-world and ~1,000-line programs add
-# the fixed build cost and the cost of a program with many items.
+# the fixed build cost and the cost of a program with many items; wordcount and
+# maps add the runtime rows that phase 4's inline paths are measured against.
 #
 # With -Output the gate rows are written as key=value lines; the human report
 # always goes to stdout. The C rows stay in the human report only: clang's
@@ -64,6 +65,8 @@ $fibYashy = Join-Path $build "fib-yashy$exe"
 $fibC = Join-Path $build "fib-c$exe"
 $helloYashy = Join-Path $build "hello-yashy$exe"
 $largeYashy = Join-Path $build "large-yashy$exe"
+$wordcountYashy = Join-Path $build "wordcount-yashy$exe"
+$mapsYashy = Join-Path $build "maps-yashy$exe"
 
 $fibCompile = Measure-Median {
     Invoke-Tool $yashy @('build', "$bench\fib.ya", '-o', $fibYashy, '--release') 'yashy build fib'
@@ -74,6 +77,11 @@ $helloCompile = Measure-Median {
 $largeCompile = Measure-Median {
     Invoke-Tool $yashy @('build', "$bench\large.ya", '-o', $largeYashy, '--release') 'yashy build large'
 } $Runs
+# The two container workloads are the runtime rows. They are built once here,
+# untimed: their compile time is the compiler's cost, not the runtime's, and
+# the plan gates the run row only.
+Invoke-Tool $yashy @('build', "$bench\wordcount.ya", '-o', $wordcountYashy, '--release') 'yashy build wordcount'
+Invoke-Tool $yashy @('build', "$bench\maps.ya", '-o', $mapsYashy, '--release') 'yashy build maps'
 $yashyOut = ''
 $fibRun = Measure-Median {
     $runOut = (& $fibYashy 2>&1 | Out-String).Trim()
@@ -81,6 +89,24 @@ $fibRun = Measure-Median {
         throw "yashy fib failed (exit $LASTEXITCODE):`n$runOut"
     }
     $script:yashyOut = $runOut
+} $Runs
+
+$wordcountOut = ''
+$wordcountRun = Measure-Median {
+    $runOut = (& $wordcountYashy 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "yashy wordcount failed (exit $LASTEXITCODE):`n$runOut"
+    }
+    $script:wordcountOut = $runOut
+} $Runs
+
+$mapsOut = ''
+$mapsRun = Measure-Median {
+    $runOut = (& $mapsYashy 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "yashy maps failed (exit $LASTEXITCODE):`n$runOut"
+    }
+    $script:mapsOut = $runOut
 } $Runs
 
 $cOut = ''
@@ -114,6 +140,12 @@ if ($yashyOut -ne '9227465') {
 if ($cAvailable -and $yashyOut -ne $cOut) {
     throw "fib outputs differ: yashy='$yashyOut' c='$cOut'"
 }
+if (($wordcountOut -replace "`r`n", "`n") -ne "900000`n8") {
+    throw "yashy wordcount printed '$wordcountOut', expected 900000 words and 8 distinct"
+}
+if ($mapsOut -ne '134999550000') {
+    throw "yashy maps printed '$mapsOut', expected 134999550000"
+}
 
 $fibBytes = (Get-Item $fibYashy).Length
 $helloBytes = (Get-Item $helloYashy).Length
@@ -122,12 +154,16 @@ $fibCompileText = Format-Ms $fibCompile
 $helloCompileText = Format-Ms $helloCompile
 $largeCompileText = Format-Ms $largeCompile
 $fibRunText = Format-Ms $fibRun
+$wordcountRunText = Format-Ms $wordcountRun
+$mapsRunText = Format-Ms $mapsRun
 
 Write-Output "fib output: $yashyOut"
 Write-Output ("fib compile ms: {0} (median of {1})" -f $fibCompileText, $Runs)
 Write-Output ("hello compile ms: {0}" -f $helloCompileText)
 Write-Output ("large compile ms: {0}" -f $largeCompileText)
 Write-Output ("fib run ms: {0}" -f $fibRunText)
+Write-Output ("wordcount run ms: {0}" -f $wordcountRunText)
+Write-Output ("maps run ms: {0}" -f $mapsRunText)
 Write-Output "fib binary bytes: $fibBytes"
 Write-Output "hello binary bytes: $helloBytes"
 if ($cAvailable) {
@@ -159,6 +195,8 @@ if ($Output) {
         "hello_compile_ms=$helloCompileText"
         "hello_binary_bytes=$helloBytes"
         "large_compile_ms=$largeCompileText"
+        "wordcount_run_ms=$wordcountRunText"
+        "maps_run_ms=$mapsRunText"
     ) -join "`n"
     [System.IO.File]::WriteAllText($Output, $content + "`n")
     Write-Output "wrote $Output"

@@ -11,6 +11,7 @@ use yashy_parser::Parser;
 use yashy_sema::{check_program, HirProgram};
 
 use yashy_codegen::{emit_program, CodegenOptions};
+use yashy_verify::{verify, VerifyOptions};
 
 fn check_source(src: &str) -> HirProgram {
     let mut sources = SourceMap::new();
@@ -25,6 +26,32 @@ fn check_source(src: &str) -> HirProgram {
 
 fn emit(src: &str) -> String {
     emit_program(&check_source(src), "slices.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
+}
+
+/// Emit with the facts the verifier proved, which is the path a real build
+/// takes.
+///
+/// The plain [`emit`] passes no facts, so it is the conservative caller: every
+/// check the verifier could have deleted is still there.
+fn emit_with_facts(src: &str) -> String {
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("slices.ya", src.to_string());
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
+    let mut parser = Parser::new(tokens, &sources, file);
+    let program = parser
+        .parse_program()
+        .expect("the parser must accept the program");
+    let hir = check_program(&program, &sources, file).expect("the program must check");
+    let report = verify(&hir, &VerifyOptions::default());
+    assert_eq!(
+        report.error_count(),
+        0,
+        "the fixture must verify: {:?}",
+        report.diagnostics
+    );
+    emit_program(&hir, "slices.ya", CodegenOptions::default(), &report.facts)
 }
 
 #[test]
@@ -110,6 +137,44 @@ fn indexing_calls_the_runtime_and_builds_an_option() {
     assert!(
         ir.contains("insertvalue { i8, i64 } undef, i8"),
         "the answer is an `Option[i64]` with its tag:\n{ir}"
+    );
+}
+
+#[test]
+fn a_proven_index_loads_the_element_inline_without_the_runtime_check() {
+    let ir = emit_with_facts(
+        "fn main() { let xs = []int { 7 }; \
+         let o = switch xs[0] { case Some(v) { v } case None { 0 } }; \
+         print(o); xs.free(); }",
+    );
+    assert!(
+        !ir.contains("call i64 @yashy_slice_get"),
+        "the verifier proved `xs[0]` in bounds, so the check is gone:\n{ir}"
+    );
+    assert!(
+        ir.contains("getelementptr i64, ptr") && ir.contains("load i64, ptr"),
+        "the proven path loads the element from the backing array:\n{ir}"
+    );
+    assert!(
+        ir.contains("insertvalue { i8, i64 } undef, i8 1, 0"),
+        "a proven read is always `Some`, so its tag is the constant 1:\n{ir}"
+    );
+}
+
+#[test]
+fn an_unproven_index_keeps_the_runtime_check() {
+    let ir = emit_with_facts(
+        "fn first(xs: []int) -> int { \
+         return switch xs[0] { case Some(v) { v } case None { 0 } }; \
+         } fn main() { }",
+    );
+    assert!(
+        ir.contains("call i64 @yashy_slice_get(ptr"),
+        "nothing proves a parameter's length, so the runtime still decides:\n{ir}"
+    );
+    assert!(
+        !ir.contains("insertvalue { i8, i64 } undef, i8 1, 0"),
+        "the tag comes from the runtime's flag, not a constant:\n{ir}"
     );
 }
 

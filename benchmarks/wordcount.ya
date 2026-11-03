@@ -1,0 +1,37 @@
+// The word-count workload: split one repeated sentence into words and count
+// each distinct word in a map.
+//
+// The corpus is built with `repeat`, so the program has no file to read and the
+// input is the same on every machine. The printed pair is the gate: a wrong
+// result is a failed run rather than a fast one.
+//
+// `the quick brown fox jumps over the lazy dog ` is nine words per copy and
+// eight distinct words; each copy ends with a space, so the split has a final
+// empty piece that the count skips.
+fn main() {
+    const copies = 100000;
+    let sentence = "the quick brown fox jumps over the lazy dog ";
+    let text = sentence.repeat(copies);
+    let words: []string = text.split(" ");
+
+    let counts: map[string]int = map_new();
+    let seen = 0;
+    for word in words {
+        if !word.is_empty() {
+            let next = switch counts.get(word) {
+                case Some(v) { v + 1 }
+                case None { 1 }
+            };
+            counts.insert(word, next);
+            seen = seen + 1;
+        }
+    }
+
+    print(seen);
+    println("");
+    print(counts.len());
+    println("");
+
+    words.free();
+    counts.free();
+}

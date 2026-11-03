@@ -973,12 +973,20 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             }
         }
         HirExpr::Index {
-            base, index, ty, ..
+            base,
+            index,
+            span,
+            ty,
         } => {
             match &expr_ty(base).kind {
-                // `xs[i]` is an `Option`: the runtime bounds test decides.
+                // `xs[i]` is an `Option`: the runtime bounds test decides,
+                // unless the verifier proved this index is in range. The proof
+                // is keyed by the index expression's span, the same fact phase
+                // 3 records, so the backend reuses it rather than re-deriving
+                // one.
                 TypeKind::Slice(_) => {
-                    return crate::slices::gen_index(ctx, base, index, &ty.kind);
+                    let proven = ctx.module.is_proven(*span);
+                    return crate::slices::gen_index(ctx, base, index, &ty.kind, proven);
                 }
                 // A fixed array or a view is checked against a length the
                 // backend already has: a constant in the type, or the word the

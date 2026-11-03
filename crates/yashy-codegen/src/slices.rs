@@ -292,15 +292,52 @@ pub(crate) fn option_from_flag(
     option_ty: &TypeKind,
 ) -> GenValue {
     let element_repr = repr_type(element);
-    let option_repr = repr_type(option_ty);
     let tag = ctx.tmp();
     ctx.push(format!("{tag} = trunc i64 {flag} to i8"));
+    let first = option_tagged(ctx, &tag, option_ty);
+    let payload = ctx.tmp();
+    ctx.push(format!("{payload} = load {element_repr}, ptr {out_slot}"));
+    option_payload(ctx, &first, &payload, element, option_ty)
+}
+
+/// Build an `Option` from an `i8` tag the caller already computed and a payload
+/// it already loaded.
+///
+/// The only difference from [`option_from_flag`] is where the tag and payload
+/// came from: the checked runtime path derives both from the flag and the out
+/// slot, while a proven index knows the tag is `1` and loads the payload
+/// straight from the slice's backing array.
+pub(crate) fn some_from_payload(
+    ctx: &mut FnCtx<'_>,
+    tag: &str,
+    payload: &str,
+    element: &TypeKind,
+    option_ty: &TypeKind,
+) -> GenValue {
+    let first = option_tagged(ctx, tag, option_ty);
+    option_payload(ctx, &first, payload, element, option_ty)
+}
+
+/// The tag half of an `Option` aggregate: `insertvalue undef, i8 tag, 0`.
+fn option_tagged(ctx: &mut FnCtx<'_>, tag: &str, option_ty: &TypeKind) -> String {
+    let option_repr = repr_type(option_ty);
     let first = ctx.tmp();
     ctx.push(format!(
         "{first} = insertvalue {option_repr} undef, i8 {tag}, 0"
     ));
-    let payload = ctx.tmp();
-    ctx.push(format!("{payload} = load {element_repr}, ptr {out_slot}"));
+    first
+}
+
+/// The payload half of an `Option` aggregate: `insertvalue first, elem, 1`.
+fn option_payload(
+    ctx: &mut FnCtx<'_>,
+    first: &str,
+    payload: &str,
+    element: &TypeKind,
+    option_ty: &TypeKind,
+) -> GenValue {
+    let element_repr = repr_type(element);
+    let option_repr = repr_type(option_ty);
     let done = ctx.tmp();
     ctx.push(format!(
         "{done} = insertvalue {option_repr} {first}, {element_repr} {payload}, 1"
@@ -313,28 +350,49 @@ pub(crate) fn option_from_flag(
 
 /// Lower `xs[index] -> Option[T]`.
 ///
-/// The header is copied into a slot because `yashy_slice_get` takes its
-/// address; the copy is a read-only snapshot, so a binding and a temporary take
-/// the same path. The runtime owns the bounds test: negative and out of range
-/// are `None`, never a fault or a wraparound.
+/// When `proven`, the verifier established `0 <= index < len` at this index's
+/// span and the backend emits the body of `yashy_slice_get_unchecked` directly:
+/// the load has no external symbol to call because the runtime shares it as a
+/// `static inline`. Otherwise the header is copied into a slot because
+/// `yashy_slice_get` takes its address, and the runtime owns the bounds test:
+/// negative and out of range are `None`, never a fault or a wraparound.
 pub fn gen_index(
     ctx: &mut FnCtx<'_>,
     base: &HirExpr,
     index: &HirExpr,
     option_ty: &TypeKind,
+    proven: bool,
 ) -> GenValue {
     let TypeKind::Option(element) = option_ty else {
         return unit();
     };
     let header = gen_expr(ctx, base);
     let position = gen_expr(ctx, index);
+    let element_repr = repr_type(&element.kind);
+    if proven {
+        // `getelementptr` with the element's own type is the stride the runtime
+        // uses: `size_of` and the LLVM type agree for every element kind the
+        // checker lets a slice hold.
+        let data = ctx.tmp();
+        ctx.push(format!(
+            "{data} = extractvalue {SLICE_REPR} {}, 0",
+            header.value
+        ));
+        let address = ctx.tmp();
+        ctx.push(format!(
+            "{address} = getelementptr {element_repr}, ptr {data}, i64 {}",
+            position.value
+        ));
+        let payload = ctx.tmp();
+        ctx.push(format!("{payload} = load {element_repr}, ptr {address}"));
+        return some_from_payload(ctx, "1", &payload, &element.kind, option_ty);
+    }
     let header_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{header_slot} = alloca {SLICE_REPR}"));
     ctx.push(format!(
         "store {SLICE_REPR} {}, ptr {header_slot}",
         header.value
     ));
-    let element_repr = repr_type(&element.kind);
     let out_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{out_slot} = alloca {element_repr}"));
     ctx.push(format!(

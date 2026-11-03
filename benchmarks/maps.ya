@@ -1,0 +1,31 @@
+// The map workload: fill an `int`-keyed table and look every key up again.
+//
+// The lookup loop is the part `yashy_map_get_fast` shortens: every call has a
+// live map, a live key and a live out slot, so only the table probe remains.
+// The printed total is fixed, so a wrong table is a failed run rather than a
+// fast one.
+fn main() {
+    const n = 300000;
+    let m: map[int]int = map_new();
+
+    let i = 0;
+    while i < n {
+        m.insert(i, i * 3);
+        i = wrapping_add(i, 1);
+    }
+
+    let total = 0;
+    let j = 0;
+    while j < n {
+        let value = switch m.get(j) {
+            case Some(v) { v }
+            case None { 0 - 1 }
+        };
+        total = wrapping_add(total, value);
+        j = wrapping_add(j, 1);
+    }
+
+    print(total);
+    println("");
+    m.free();
+}

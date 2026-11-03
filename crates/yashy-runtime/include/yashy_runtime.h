@@ -13,6 +13,21 @@
 #ifndef YASHY_RUNTIME_H
 #define YASHY_RUNTIME_H
 
+/* `always_inline` is the promise the fast paths below rely on: a `static
+ * inline` that the compiler declines to inline is a call with a private copy of
+ * the body, which is worse than the out-of-line function it replaced. MSVC
+ * spells the same request `__forceinline`. */
+#if defined(_MSC_VER)
+#define YASHY_ALWAYS_INLINE __forceinline
+#else
+#define YASHY_ALWAYS_INLINE inline __attribute__((always_inline))
+#endif
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -63,6 +78,65 @@ long long yashy_live_allocations_now(void);
 void *yashy_alloc(long long size, long long align);
 void *yashy_realloc(void *ptr, long long used, long long size, long long align);
 void yashy_free(void *ptr);
+
+/* One successful allocation's bookkeeping: arms the leak report the first time
+ * and adds `delta` to the live-block count. Out of line because the arming is
+ * once-per-process state and the count is updated atomically; not part of the
+ * generated-code contract. */
+void yashy_alloc_note(long long delta);
+
+/* The body both allocator entry points share, after normalisation.
+ *
+ * The caller must have reduced `alignment` to a power of two no smaller than
+ * `sizeof(void *)`; `size` may be any signed value and the function substitutes
+ * one byte for a non-positive request, exactly as the public contract says. The
+ * overflow guard is here because the total is what can wrap, and the counter is
+ * updated only after `malloc` succeeded, so a failed call counts nothing. */
+static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
+                                                     size_t alignment) {
+    size_t wanted = size > 0 ? (size_t)size : 1;
+    size_t total = wanted + alignment + sizeof(void *);
+    unsigned char *raw;
+    uintptr_t base;
+    uintptr_t aligned;
+
+    if (total < wanted) {
+        return NULL;
+    }
+    raw = (unsigned char *)malloc(total);
+    if (raw == NULL) {
+        return NULL;
+    }
+    base = (uintptr_t)raw + sizeof(void *);
+    aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
+    ((void **)aligned)[-1] = raw;
+    yashy_alloc_note(1);
+    return (void *)aligned;
+}
+
+/* The fast half of `yashy_alloc`, for calls the runtime makes with an alignment
+ * it controls.
+ *
+ * Licence: the caller knows `align` is a positive power of two no larger than
+ * 64, which is every alignment the runtime's own arrays, strings and slices
+ * ask for. That is a fact about this file's call sites, not something the
+ * verifier proves; generated code declares `@yashy_alloc` and cannot reach this
+ * name. Anything outside the window -- a non-power-of-two, a huge alignment, a
+ * negative one -- goes to `yashy_alloc`, which normalises it exactly as before.
+ * Both entries finish in [`yashy_alloc_aligned`], so there is one copy of the
+ * allocation arithmetic. */
+static YASHY_ALWAYS_INLINE void *yashy_alloc_small(long long size,
+                                                   long long align) {
+    if (align > 0 && (size_t)align <= 64) {
+        size_t requested = (size_t)align;
+        if ((requested & (requested - 1)) == 0) {
+            size_t alignment =
+                requested < sizeof(void *) ? sizeof(void *) : requested;
+            return yashy_alloc_aligned(size, alignment);
+        }
+    }
+    return yashy_alloc(size, align);
+}
 
 /* ---- Arenas ----
  *
@@ -357,6 +431,31 @@ void yashy_str_split(yashy_slice *out, const yashy_str *s,
                      const yashy_str *separator);
 void yashy_str_lines(yashy_slice *out, const yashy_str *s);
 
+/* The unchecked half of `yashy_slice_get`.
+ *
+ * Licence: a bounds proof. The caller must already know that `slice` and
+ * `slice->data` are non-null, that `element_size > 0`, and that
+ * `0 <= index < slice->len`. In generated code that proof is the verifier's
+ * `ObligationKind::Bounds` obligation on the index expression: the verifier
+ * records the obligation, `ProofFacts` keeps the established ones, and
+ * `yashy-codegen` consults `Module::is_proven` for the index's span before it
+ * emits the inline load. Nothing else licenses this entry point, and an index
+ * the verifier did not prove keeps calling `yashy_slice_get`, which answers
+ * `None` instead of reading out of range. The non-null half of the licence
+ * follows from the same proof: a header with `len > 0` always has a data
+ * pointer, because the runtime allocates before it stores a length.
+ *
+ * This is the copy the checked version performs once its guards pass, so the
+ * two entry points cannot disagree about what reading an element means. It is
+ * `static inline` because the runtime is compiled with the generated program:
+ * a C caller gets the body, and an IR caller gets the same load emitted
+ * directly (there is no external symbol to call). */
+static YASHY_ALWAYS_INLINE void yashy_slice_get_unchecked(
+    const yashy_slice *slice, long long index, void *out, long long element_size) {
+    memcpy(out, (const char *)slice->data + (size_t)(index * element_size),
+           (size_t)element_size);
+}
+
 /* `yashy_slice_get` copies the element at `index` into `out` and returns 1, or
  * returns 0 and leaves `out` untouched when `index` is negative or at least
  * `len`. `yashy_slice_pop` is the same for the last element, after decrementing
@@ -454,6 +553,26 @@ yashy_map *yashy_map_new(long long key_kind, long long key_size, long long value
 void yashy_map_free(yashy_map *map);
 void yashy_map_insert(yashy_map *map, const void *key, const void *value);
 long long yashy_map_get(const yashy_map *map, const void *key, void *out);
+/* Internal: the table half of `yashy_map_get`, reached only after the null
+ * guards below. Not part of the generated-code contract. */
+long long yashy_map_get_probe(const yashy_map *map, const void *key, void *out);
+
+/* The fast half of `yashy_map_get`: a call that cannot hit is answered without
+ * entering the table.
+ *
+ * Licence: the null checks, and nothing else. A map lookup has no verifier
+ * proof behind it -- a miss is a value rather than a check, and the table is
+ * opaque to generated code -- so an unchecked probe cannot be licensed the way
+ * `yashy_slice_get_unchecked` is. The probe stays out of line; this removes the
+ * repeated guards from `yashy_map_get`'s callers and from the checked wrapper. */
+static YASHY_ALWAYS_INLINE long long yashy_map_get_fast(
+    const yashy_map *map, const void *key, void *out) {
+    if (map == NULL || key == NULL || out == NULL) {
+        return 0;
+    }
+    return yashy_map_get_probe(map, key, out);
+}
+
 long long yashy_map_remove(yashy_map *map, const void *key, void *out);
 long long yashy_map_len(const yashy_map *map);
 long long yashy_map_contains_key(const yashy_map *map, const void *key);

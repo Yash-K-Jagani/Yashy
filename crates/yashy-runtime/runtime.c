@@ -234,32 +234,21 @@ static size_t yashy_normalise_align(long long align) {
     return result;
 }
 
-void *yashy_alloc(long long size, long long align) {
+void yashy_alloc_note(long long delta) {
     yashy_leak_arm();
-    size_t alignment = yashy_normalise_align(align);
-    size_t wanted = size > 0 ? (size_t)size : 1;
-    size_t total = wanted + alignment + sizeof(void *);
-    /* The addition can wrap; a request that large is a failure, not a small
-     * allocation. */
-    if (total < wanted) {
-        return NULL;
-    }
-    unsigned char *raw = (unsigned char *)malloc(total);
-    if (raw == NULL) {
-        return NULL;
-    }
-    uintptr_t base = (uintptr_t)raw + sizeof(void *);
-    uintptr_t aligned = (base + (alignment - 1)) & ~(uintptr_t)(alignment - 1);
-    ((void **)aligned)[-1] = raw;
-    yashy_count_add(&yashy_live_allocations, 1);
-    return (void *)aligned;
+    yashy_count_add(&yashy_live_allocations, delta);
+}
+
+void *yashy_alloc(long long size, long long align) {
+    return yashy_alloc_aligned(size, yashy_normalise_align(align));
 }
 
 /* `yashy_alloc_bytes(size)` is `yashy_alloc(size, 1)`: a byte buffer needs no
  * element-size alignment, just one byte per element. The result is a `*mut
- * char`, so `buf[i]` is a `char`. */
+ * char`, so `buf[i]` is a `char`. It takes the inline path because one byte is
+ * inside the alignment window `yashy_alloc_small` covers. */
 void *yashy_alloc_bytes(long long size) {
-    return yashy_alloc(size, 1);
+    return yashy_alloc_small(size, 1);
 }
 
 void yashy_free(void *ptr) {
@@ -1882,8 +1871,7 @@ long long yashy_slice_get(yashy_slice *slice, long long index, void *out,
         index >= slice->len || slice->data == NULL) {
         return 0;
     }
-    memcpy(out, (const char *)slice->data + (size_t)(index * element_size),
-           (size_t)element_size);
+    yashy_slice_get_unchecked(slice, index, out, element_size);
     return 1;
 }
 

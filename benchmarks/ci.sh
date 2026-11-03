@@ -3,7 +3,9 @@
 #
 # Builds Yashy and C versions of fib, checks the answer, and reports compile
 # time, binary size, and wall-clock run time. The hello-world and ~1,000-line
-# programs add the fixed build cost and the cost of a program with many items.
+# programs add the fixed build cost and the cost of a program with many items;
+# wordcount and maps add the runtime rows that phase 4's inline paths are
+# measured against.
 #
 # Usage:
 #   sh benchmarks/ci.sh [output.bench]
@@ -102,6 +104,8 @@ fib_yashy="$build/fib-yashy"
 fib_c="$build/fib-c"
 hello_yashy="$build/hello-yashy"
 large_yashy="$build/large-yashy"
+wordcount_yashy="$build/wordcount-yashy"
+maps_yashy="$build/maps-yashy"
 fib_out="$build/fib-yashy.out"
 c_out="$build/fib-c.out"
 
@@ -109,13 +113,33 @@ fib_compile=$(measure_compile 'yashy build fib' "$yashy" build "$bench/fib.ya" -
 hello_compile=$(measure_compile 'yashy build hello' "$yashy" build "$bench/hello.ya" -o "$hello_yashy" --release)
 large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large.ya" -o "$large_yashy" --release)
 
+# The container workloads are the runtime rows. Built once, untimed: their
+# compile cost is the compiler's, not the runtime's.
+"$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release >/dev/null 2>&1 \
+    || { say 'yashy build wordcount failed'; exit 1; }
+"$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release >/dev/null 2>&1 \
+    || { say 'yashy build maps failed'; exit 1; }
+
 fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
+wordcount_out="$build/wordcount-yashy.out"
+maps_out="$build/maps-yashy.out"
+wordcount_run=$(measure_run 'yashy wordcount' "$wordcount_out" "$wordcount_yashy")
+maps_run=$(measure_run 'yashy maps' "$maps_out" "$maps_yashy")
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
 # one. The C row is context and may be unavailable on a machine whose clang
 # cannot find the C headers.
 if [ "$(cat "$fib_out")" != '9227465' ]; then
     say "yashy fib printed '$(cat "$fib_out")', expected 9227465"
+    exit 1
+fi
+if [ "$(cat "$wordcount_out")" != "900000
+8" ]; then
+    say "yashy wordcount printed '$(cat "$wordcount_out")', expected 900000 words and 8 distinct"
+    exit 1
+fi
+if [ "$(cat "$maps_out")" != '134999550000' ]; then
+    say "yashy maps printed '$(cat "$maps_out")', expected 134999550000"
     exit 1
 fi
 
@@ -142,6 +166,8 @@ say "fib compile ms: $fib_compile (median of $runs)"
 say "hello compile ms: $hello_compile"
 say "large compile ms: $large_compile"
 say "fib run ms: $fib_run"
+say "wordcount run ms: $wordcount_run"
+say "maps run ms: $maps_run"
 say "fib binary bytes: $fib_bytes"
 say "hello binary bytes: $hello_bytes"
 
@@ -159,6 +185,8 @@ emit_block() {
     printf 'hello_compile_ms=%s\n' "$hello_compile"
     printf 'hello_binary_bytes=%s\n' "$hello_bytes"
     printf 'large_compile_ms=%s\n' "$large_compile"
+    printf 'wordcount_run_ms=%s\n' "$wordcount_run"
+    printf 'maps_run_ms=%s\n' "$maps_run"
 }
 
 if [ -n "$output" ]; then

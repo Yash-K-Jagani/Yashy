@@ -16,8 +16,9 @@
  * correct after a removal; the table rehashes into a fresh (tombstone-free)
  * array once occupied + tombstoned entries pass 70% of capacity.
  *
- * Every allocation goes through `yashy_alloc`/`yashy_free` so the leak report
- * sees the table's blocks. A failed allocation leaves the table unchanged:
+ * Every allocation goes through the runtime allocator's inline path
+ * (`yashy_alloc_small`) and `yashy_free`, so the leak report sees the table's
+ * blocks. A failed allocation leaves the table unchanged:
  * `insert` has no error channel, and an unchanged table is the only state the
  * caller could observe (the same rule `push` follows for slices).
  */
@@ -58,9 +59,9 @@ static int yashy_map_install_arrays(yashy_map *map, long long cap) {
     if (cap > LLONG_MAX / map->key_size || cap > LLONG_MAX / map->value_size) {
         return 0;
     }
-    states = (unsigned char *)yashy_alloc(cap, 8);
-    keys = (unsigned char *)yashy_alloc(cap * map->key_size, 8);
-    values = (unsigned char *)yashy_alloc(cap * map->value_size, 8);
+    states = (unsigned char *)yashy_alloc_small(cap, 8);
+    keys = (unsigned char *)yashy_alloc_small(cap * map->key_size, 8);
+    values = (unsigned char *)yashy_alloc_small(cap * map->value_size, 8);
     if (states == NULL || keys == NULL || values == NULL) {
         yashy_free(states);
         yashy_free(keys);
@@ -213,7 +214,7 @@ yashy_map *yashy_map_new(long long key_kind, long long key_size, long long value
     if (key_size <= 0 || value_size <= 0) {
         return NULL;
     }
-    map = (yashy_map *)yashy_alloc((long long)sizeof(yashy_map), 8);
+    map = (yashy_map *)yashy_alloc_small((long long)sizeof(yashy_map), 8);
     if (map == NULL) {
         return NULL;
     }
@@ -287,11 +288,11 @@ void yashy_map_insert(yashy_map *map, const void *key, const void *value) {
     map->len++;
 }
 
-long long yashy_map_get(const yashy_map *map, const void *key, void *out) {
+long long yashy_map_get_probe(const yashy_map *map, const void *key, void *out) {
     int found = 0;
     long long slot;
 
-    if (map == NULL || key == NULL || out == NULL || map->cap == 0) {
+    if (map->cap == 0) {
         return 0;
     }
     slot = yashy_map_slot(map, key, &found);
@@ -300,6 +301,10 @@ long long yashy_map_get(const yashy_map *map, const void *key, void *out) {
     }
     memcpy(out, map->values + slot * map->value_size, (size_t)map->value_size);
     return 1;
+}
+
+long long yashy_map_get(const yashy_map *map, const void *key, void *out) {
+    return yashy_map_get_fast(map, key, out);
 }
 
 long long yashy_map_remove(yashy_map *map, const void *key, void *out) {
@@ -371,7 +376,7 @@ void yashy_map_keys(yashy_slice *out, const yashy_map *map) {
     if (count == 0) {
         return;
     }
-    data = (unsigned char *)yashy_alloc(count * map->key_size, 8);
+    data = (unsigned char *)yashy_alloc_small(count * map->key_size, 8);
     if (data == NULL) {
         return;
     }
@@ -423,7 +428,7 @@ void yashy_map_values(yashy_slice *out, const yashy_map *map) {
     if (count == 0) {
         return;
     }
-    data = (unsigned char *)yashy_alloc(count * map->value_size, 8);
+    data = (unsigned char *)yashy_alloc_small(count * map->value_size, 8);
     if (data == NULL) {
         return;
     }
