@@ -282,11 +282,11 @@ Status: landed.
 - Produces: `--no-lto` for bisecting a suspected LTO-only miscompile; the flag exists so the bug can be attributed rather than worked around.
 - Produces: the training corpus is checked in, so a PGO build is reproducible from a clone.
 
-- [ ] **Step 1: Write the failing tests** — a release build reports `lto=thin` in `--timings`; a `--pgo` build on the corpus produces a profile file and a second build uses it; the resulting binary is ≤ 10% larger than the ThinLTO build and ≥ 5% faster on at least two feature rows; both OSes produce and consume their own profile format.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the driver already shells out to `clang`; this is flags plus a two-pass orchestration in one function. Profile data is per-OS by construction (`%p.profraw` on Windows, `default.profraw` elsewhere), so the script does not normalise it — it names it per platform and the cache key includes it.
-- [ ] **Step 4: Run** the bench on both OSes, medians of 5 → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "perf(build): ThinLTO by default, PGO from a checked-in corpus"`
+- [x] **Step 1: Write the failing tests** — a release build reports `lto=thin` in `--timings`; a `--pgo` build on the corpus produces a profile file and a second build uses it; the resulting binary is ≤ 10% larger than the ThinLTO build and ≥ 5% faster on at least two feature rows; both OSes produce and consume their own profile format. (The size/speed percentages are the scripts' report card; the local host cannot run the PGO round, so CI owns that half — ledger Task 7.)
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the driver already shells out to `clang`; this is flags plus a two-pass orchestration in one function. Profile data is per-OS by construction (`%p.profraw` on Windows, `default.profraw` elsewhere), so the script does not normalise it — it names it per platform and the cache key includes it.
+- [x] **Step 4: Run** the bench on both OSes, medians of 5 → Windows measured here; the Linux rows are CI's, recorded in the ledger.
+- [x] **Step 5: Commit** — `0d1ff24` `perf(build): ThinLTO by default, PGO from a checked-in corpus`
 
 ---
 
