@@ -1,0 +1,22 @@
+// The PGO corpus: the string methods.
+//
+// Case mapping, replacement, slicing and length are the string runtime's hot
+// calls. Every iteration builds three fresh strings, so the training run also
+// exercises the string path. The slice is nine bytes long in every iteration,
+// which makes the total fixed.
+
+fn main() {
+    let text = "the quick brown fox ";
+    let total = 0;
+    let i = 0;
+    while i < 100000 {
+        let upper = text.to_upper();
+        let replaced = upper.replace("QUICK", "SLOW");
+        let piece = replaced.slice(0, 9);
+        total = total + piece.len();
+        i = i + 1;
+    }
+
+    print(total);
+    println("");
+}

@@ -1,0 +1,32 @@
+// The PGO corpus: fill an integer-keyed map and read every key back.
+//
+// The two loops are the insert path and the probe path, and they are what the
+// runtime's map entry points spend their time on. The table is small enough
+// to train on and large enough for the probe to matter. The printed total is
+// fixed, so a wrong table is a failed run rather than a fast one.
+
+fn main() {
+    const n = 100000;
+    let m: map[int]int = map_new();
+
+    let i = 0;
+    while i < n {
+        m.insert(i, i * 3);
+        i = wrapping_add(i, 1);
+    }
+
+    let total = 0;
+    let j = 0;
+    while j < n {
+        let value = switch m.get(j) {
+            case Some(v) { v }
+            case None { 0 - 1 }
+        };
+        total = wrapping_add(total, value);
+        j = wrapping_add(j, 1);
+    }
+
+    print(total);
+    println("");
+    m.free();
+}

@@ -1,0 +1,10 @@
+// The PGO corpus: the smallest real program.
+//
+// A profile of a program that does nothing measures the runtime's start-up and
+// teardown, which is the part no optimisation can remove. Keeping it in the
+// corpus is what makes the other rows readable: if this one moves, the machine
+// changed, not the program.
+
+fn main() {
+    println("hello, world");
+}

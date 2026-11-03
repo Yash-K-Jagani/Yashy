@@ -81,6 +81,18 @@ pub enum TimingRow {
         /// Sites that became block-arena allocations.
         arena: usize,
     },
+    /// The link strategy: `thin` for a ThinLTO release link, `off` otherwise.
+    Lto {
+        /// `thin` or `off`.
+        mode: &'static str,
+    },
+    /// A profile-guided build stage: `instrumented`, `trained` or `applied`.
+    ///
+    /// A `--pgo` build prints all three; a build without it prints none.
+    Pgo {
+        /// Which stage just finished.
+        stage: &'static str,
+    },
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
@@ -448,6 +460,18 @@ pub struct BuildOptions {
     /// default, so a flag meaning "optimize harder" would be a no-op; this one
     /// answers a different question -- is this a build a user runs?
     pub release: bool,
+    /// Link the program and the runtime as one ThinLTO unit.
+    ///
+    /// On by default for a release build and disabled by `--no-lto`. ThinLTO is
+    /// what lets the backend inline a runtime helper into the program that
+    /// calls it; a debug build keeps the separate object model so it stays
+    /// cheap to compile.
+    pub lto: bool,
+    /// Build instrumented, run the program once, then rebuild with the profile.
+    ///
+    /// Off unless `--pgo` asks. The profile lives under `.yashy/pgo/` beside
+    /// the output and is never written outside it.
+    pub pgo: bool,
 }
 
 impl Default for BuildOptions {
@@ -458,6 +482,8 @@ impl Default for BuildOptions {
             fast_math: false,
             escape: true,
             release: false,
+            lto: false,
+            pgo: false,
         }
     }
 }
@@ -953,31 +979,118 @@ pub fn compile_hir_timed(
     // flag reaches the compiler only when a cached object is available; on the
     // fallback path, where there is no cache to keep portable, the runtime is
     // compiled by this same invocation and takes the flag with it.
-    let runtime_objects = runtime_cache_dir().and_then(|cache_dir| {
-        let key = runtime_cache_key(&toolchain.llc, target, options.opt);
-        let runtime = cached_runtime_object(
-            &cache_dir,
-            &runtime_source,
-            "runtime",
-            &runtime_dir,
-            key,
-            target,
-            options.opt,
+    // ThinLTO is the release link: one unit means the runtime's hot paths can
+    // be inlined into the program that calls them. It also means the cached
+    // native runtime objects cannot be reused -- ThinLTO wants bitcode from
+    // every translation unit -- so the C sources travel with this invocation.
+    let lto = options.lto;
+    timings.push(TimingRow::Lto {
+        mode: if lto { "thin" } else { "off" },
+    });
+    let runtime_objects = if lto {
+        None
+    } else {
+        runtime_cache_dir().and_then(|cache_dir| {
+            let key = runtime_cache_key(&toolchain.llc, target, options.opt);
+            let runtime = cached_runtime_object(
+                &cache_dir,
+                &runtime_source,
+                "runtime",
+                &runtime_dir,
+                key,
+                target,
+                options.opt,
+                toolchain,
+            )?;
+            let hashmap = cached_runtime_object(
+                &cache_dir,
+                &hashmap_source,
+                "hashmap",
+                &runtime_dir,
+                key,
+                target,
+                options.opt,
+                toolchain,
+            )?;
+            Some((runtime, hashmap))
+        })
+    };
+
+    let link = |extra: &[String],
+                output: &Path,
+                what: &str,
+                timings: &mut Vec<TimingRow>|
+     -> Result<(), Vec<Diagnostic>> {
+        let args = link_arguments(
+            hir,
+            options,
+            &target,
             toolchain,
-        )?;
-        let hashmap = cached_runtime_object(
-            &cache_dir,
-            &hashmap_source,
-            "hashmap",
+            &ir_path,
+            output,
+            &runtime_objects,
             &runtime_dir,
-            key,
-            target,
-            options.opt,
-            toolchain,
-        )?;
-        Some((runtime, hashmap))
+            extra,
+        );
+        timed(timings, "link", || {
+            run_tool(toolchain, &args, entry_name, what)
+        })
+    };
+
+    if !options.pgo {
+        link(&[], out, "compiling the program", timings)?;
+        return Ok(());
+    }
+
+    // Profile-guided builds are three steps in one function: an instrumented
+    // binary, a training run, then the real build with the profile. The
+    // instrumented binary is a build artifact, not the output the user asked
+    // for, so it lives beside the output and is removed when the run is done.
+    let profile_dir = pgo_dir(out);
+    ensure_dir(&profile_dir, entry_name)?;
+    clear_profiles(&profile_dir, entry_name)?;
+    let instrumented = instrumented_output(out);
+    let _ = fs::remove_file(&instrumented);
+    let generate = vec![format!("-fprofile-generate={}", display(&profile_dir))];
+    link(
+        &generate,
+        &instrumented,
+        "compiling an instrumented program",
+        timings,
+    )?;
+    timings.push(TimingRow::Pgo {
+        stage: "instrumented",
     });
 
+    run_training_program(&instrumented, entry_name)?;
+    timings.push(TimingRow::Pgo { stage: "trained" });
+
+    let profile = merge_profiles(&profile_dir, out, toolchain, entry_name)?;
+    let used = vec![format!("-fprofile-use={}", display(&profile))];
+    link(&used, out, "compiling with the profile", timings)?;
+    timings.push(TimingRow::Pgo { stage: "applied" });
+    let _ = fs::remove_file(&instrumented);
+    Ok(())
+}
+
+/// The `clang` command line for one link, without the timing wrapper.
+///
+/// The caller supplies `extra` for a profile flag, which is the only part that
+/// differs between the instrumented and the profiled pass. Keeping the
+/// arguments in one function is what makes those two passes agree about the
+/// target, the runtime sources and the libraries.
+#[allow(clippy::too_many_arguments)]
+fn link_arguments(
+    hir: &HirProgram,
+    options: BuildOptions,
+    target: &str,
+    toolchain: &Toolchain,
+    ir_path: &Path,
+    out: &Path,
+    runtime_objects: &Option<(PathBuf, PathBuf)>,
+    runtime_dir: &Path,
+    extra: &[String],
+) -> Vec<String> {
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
     args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
@@ -990,16 +1103,17 @@ pub fn compile_hir_timed(
             .iter()
             .map(|flag| flag.to_string()),
     );
-    args.push(display(&ir_path));
-    match &runtime_objects {
+    args.extend(extra.iter().cloned());
+    args.push(display(ir_path));
+    match runtime_objects {
         Some((runtime, hashmap)) => {
             args.push(display(runtime));
             args.push(display(hashmap));
         }
         None => {
-            args.push(display(&runtime_source));
-            args.push(display(&hashmap_source));
-            args.push(format!("-I{}", display(&runtime_dir)));
+            args.push(display(&runtime_dir.join(RUNTIME_SOURCE_NAME)));
+            args.push(display(&runtime_dir.join(HASHMAP_SOURCE_NAME)));
+            args.push(format!("-I{}", display(runtime_dir)));
         }
     }
     args.push("-o".to_string());
@@ -1026,11 +1140,166 @@ pub fn compile_hir_timed(
         }
     }
     args.extend(libraries);
-    timed(timings, "link", || {
-        run_tool(toolchain, &args, entry_name, "compiling the program")
-    })?;
+    args
+}
 
+/// Where a `--pgo` build keeps the raw counters and the merged profile.
+///
+/// `.yashy/pgo/` beside the output, which is the same place the runtime sources
+/// already go. Confining it there is what keeps a build reproducible from a
+/// clean checkout and keeps profile data out of a user's source tree.
+fn pgo_dir(out: &Path) -> PathBuf {
+    out.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(".yashy")
+        .join("pgo")
+}
+
+/// The instrumented binary's path: the requested output with a distinct name.
+fn instrumented_output(out: &Path) -> PathBuf {
+    let stem = out
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "out".to_string());
+    out.with_file_name(format!(
+        "{stem}.pgo-instrumented{}",
+        std::env::consts::EXE_SUFFIX
+    ))
+}
+
+/// Remove counters from an earlier training run.
+///
+/// A stale `.profraw` would be merged into this build's profile, so the run
+/// would depend on which programs happened to run before it. The merged
+/// `.profdata` is left alone: it is this build's answer, replaced below.
+fn clear_profiles(dir: &Path, entry_name: &str) -> Result<(), Vec<Diagnostic>> {
+    let entries = fs::read_dir(dir).map_err(|error| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "cannot read the profile directory {}: {error}",
+                dir.display()
+            ),
+        )]
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "profraw")
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
     Ok(())
+}
+
+/// Run the instrumented binary once, which is what fills the counters.
+///
+/// The output is discarded: this is a build step, not the run the user asked
+/// for. A non-zero exit still writes counters, but a profile from a failing
+/// run would optimize paths the program cannot complete, so it is refused.
+fn run_training_program(exe: &Path, entry_name: &str) -> Result<(), Vec<Diagnostic>> {
+    let output = Command::new(exe).output().map_err(|error| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "cannot run the instrumented program {}: {error}",
+                exe.display()
+            ),
+        )]
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(vec![toolchain_diagnostic(
+        entry_name,
+        format!(
+            "the instrumented program {} exited with {}; a --pgo build needs a successful training run",
+            exe.display(),
+            output
+                .status
+                .code()
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "no exit code".to_string())
+        ),
+    )])
+}
+
+/// Merge this run's raw counters into one `.profdata` for the second pass.
+fn merge_profiles(
+    dir: &Path,
+    out: &Path,
+    toolchain: &Toolchain,
+    entry_name: &str,
+) -> Result<PathBuf, Vec<Diagnostic>> {
+    let entries = fs::read_dir(dir).map_err(|error| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "cannot read the profile directory {}: {error}",
+                dir.display()
+            ),
+        )]
+    })?;
+    let mut raw: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "profraw")
+        })
+        .collect();
+    raw.sort();
+    if raw.is_empty() {
+        return Err(vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "the instrumented program wrote no `.profraw` under {}; \
+                 the profile runtime may be missing from this clang installation",
+                dir.display()
+            ),
+        )]);
+    }
+
+    let stem = out
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "out".to_string());
+    let merged = dir.join(format!("{stem}.profdata"));
+    let tool = profdata_tool(toolchain);
+    let mut args = vec!["merge".to_string(), "-o".to_string(), display(&merged)];
+    args.extend(raw.iter().map(|path| display(path)));
+    let output = Command::new(&tool).args(&args).output().map_err(|error| {
+        vec![toolchain_diagnostic(
+            entry_name,
+            format!("cannot run `{}`: {error}", tool.display()),
+        )]
+    })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let summary = first_meaningful_line(&stderr).unwrap_or("no output from the tool");
+        return Err(vec![toolchain_diagnostic(
+            entry_name,
+            format!(
+                "`{}` failed while merging profiles: {summary}",
+                tool.display()
+            ),
+        )]);
+    }
+    Ok(merged)
+}
+
+/// `llvm-profdata` from the same installation as the C compiler, else `PATH`.
+fn profdata_tool(toolchain: &Toolchain) -> PathBuf {
+    let name = format!("llvm-profdata{}", std::env::consts::EXE_SUFFIX);
+    if let Some(dir) = toolchain.llc.parent() {
+        let candidate = dir.join(&name);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    PathBuf::from("llvm-profdata")
 }
 
 /// The clang arguments that enable opaque pointers, or an empty list when the
@@ -1204,7 +1473,8 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, fnv1a, missing_library, opaque_pointers_args_for, parse_clang_major,
+        cached_runtime_object, clear_profiles, fnv1a, instrumented_output, merge_profiles,
+        missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
         platform_library_flags, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
         FNV_OFFSET_BASIS,
     };
@@ -1471,5 +1741,80 @@ mod tests {
             assert!(flags.contains(&"-lpthread"));
             assert!(flags.contains(&"-ldl"));
         }
+    }
+
+    #[test]
+    fn a_profile_lives_beside_the_output_under_a_hidden_directory() {
+        // The plan's promise is that profile data never leaves `.yashy/pgo/`,
+        // and never appears somewhere the user did not name. A sibling of the
+        // output is the only directory the build was told about.
+        let out = Path::new("build").join("wordcount.exe");
+        assert_eq!(pgo_dir(&out), Path::new("build").join(".yashy").join("pgo"));
+        // An output with no directory (the current directory) still resolves to
+        // a path beside it rather than panicking on the empty parent.
+        assert_eq!(
+            pgo_dir(Path::new("wordcount.exe")),
+            Path::new(".yashy").join("pgo")
+        );
+    }
+
+    #[test]
+    fn the_instrumented_binary_is_a_differently_named_sibling() {
+        // The training pass must not overwrite the output the user asked for:
+        // a failed run would then leave an instrumented binary at the real
+        // path. The name is derived from the requested output, so the two
+        // cannot drift apart.
+        let out = Path::new("build").join("wordcount.exe");
+        assert_eq!(
+            instrumented_output(&out),
+            Path::new("build").join(format!(
+                "wordcount.pgo-instrumented{}",
+                std::env::consts::EXE_SUFFIX
+            ))
+        );
+    }
+
+    #[test]
+    fn clearing_profiles_drops_raw_counters_and_keeps_the_merged_profile() {
+        // A stale `.profraw` would be merged into this build's profile, so a
+        // result would depend on which programs ran before it. The `.profdata`
+        // is this build's own answer and is replaced rather than deleted.
+        let dir = std::env::temp_dir().join("yashy-pgo-clear-profiles");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("the test must be able to make a temp directory");
+        let raw = dir.join("default.profraw");
+        let merged = dir.join("main.profdata");
+        fs::write(&raw, b"counters").expect("the raw profile must be writable");
+        fs::write(&merged, b"profile").expect("the merged profile must be writable");
+
+        clear_profiles(&dir, "main.ya").expect("clearing a writable directory succeeds");
+
+        assert!(!raw.exists(), "a stale raw counter must not survive");
+        assert!(
+            merged.exists(),
+            "the merged profile is replaced later, not now"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merging_without_raw_counters_is_an_error_not_an_empty_profile() {
+        // `llvm-profdata merge` with no inputs would be a usage error far from
+        // the cause. A training run that wrote nothing means the profile
+        // runtime is missing, and that is what the message must say.
+        let dir = std::env::temp_dir().join("yashy-pgo-empty");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("the test must be able to make a temp directory");
+        let toolchain = fake_toolchain(&dir.join("clang"));
+
+        let error = merge_profiles(&dir, &dir.join("main.exe"), &toolchain, "main.ya")
+            .expect_err("no raw counters means no profile");
+
+        let message = format!("{error:?}");
+        assert!(
+            message.contains(".profraw") && message.contains("profile runtime"),
+            "the error must name the missing counters and their likely cause: {message}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

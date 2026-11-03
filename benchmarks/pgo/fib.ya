@@ -1,0 +1,17 @@
+// The PGO corpus: recursive Fibonacci, the call-heavy member.
+//
+// `fib(20)` is small enough that a training run finishes before a human could
+// notice, and it still makes about twenty thousand calls, so the profile sees
+// the recursion rather than only the entry block.
+
+fn fib(n: int) -> int {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    print(fib(20));
+    println("");
+}

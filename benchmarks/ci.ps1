@@ -5,7 +5,8 @@
 # and C versions of fib, check the answer, and report compile time, binary
 # size, and wall-clock run time. The hello-world and ~1,000-line programs add
 # the fixed build cost and the cost of a program with many items; wordcount and
-# maps add the runtime rows that phase 4's inline paths are measured against.
+# maps add the runtime rows that phase 4's inline paths are measured against,
+# and large's run row is the release link's (ThinLTO) end-to-end time.
 #
 # With -Output the gate rows are written as key=value lines; the human report
 # always goes to stdout. The C rows stay in the human report only: clang's
@@ -109,6 +110,17 @@ $mapsRun = Measure-Median {
     $script:mapsOut = $runOut
 } $Runs
 
+# The ~1,000-line program is already built for its compile row; its run row is
+# what the release link costs end to end.
+$largeOut = ''
+$largeRun = Measure-Median {
+    $runOut = (& $largeYashy 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "yashy large failed (exit $LASTEXITCODE):`n$runOut"
+    }
+    $script:largeOut = $runOut
+} $Runs
+
 $cOut = ''
 $cCompile = 0.0
 $cRun = 0.0
@@ -146,6 +158,9 @@ if (($wordcountOut -replace "`r`n", "`n") -ne "900000`n8") {
 if ($mapsOut -ne '134999550000') {
     throw "yashy maps printed '$mapsOut', expected 134999550000"
 }
+if ($largeOut -ne '123255') {
+    throw "yashy large printed '$largeOut', expected 123255"
+}
 
 $fibBytes = (Get-Item $fibYashy).Length
 $helloBytes = (Get-Item $helloYashy).Length
@@ -156,6 +171,7 @@ $largeCompileText = Format-Ms $largeCompile
 $fibRunText = Format-Ms $fibRun
 $wordcountRunText = Format-Ms $wordcountRun
 $mapsRunText = Format-Ms $mapsRun
+$largeRunText = Format-Ms $largeRun
 
 Write-Output "fib output: $yashyOut"
 Write-Output ("fib compile ms: {0} (median of {1})" -f $fibCompileText, $Runs)
@@ -164,6 +180,7 @@ Write-Output ("large compile ms: {0}" -f $largeCompileText)
 Write-Output ("fib run ms: {0}" -f $fibRunText)
 Write-Output ("wordcount run ms: {0}" -f $wordcountRunText)
 Write-Output ("maps run ms: {0}" -f $mapsRunText)
+Write-Output ("release run ms: {0}" -f $largeRunText)
 Write-Output "fib binary bytes: $fibBytes"
 Write-Output "hello binary bytes: $helloBytes"
 if ($cAvailable) {
@@ -197,6 +214,7 @@ if ($Output) {
         "large_compile_ms=$largeCompileText"
         "wordcount_run_ms=$wordcountRunText"
         "maps_run_ms=$mapsRunText"
+        "release_run_ms=$largeRunText"
     ) -join "`n"
     [System.IO.File]::WriteAllText($Output, $content + "`n")
     Write-Output "wrote $Output"

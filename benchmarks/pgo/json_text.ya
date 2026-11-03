@@ -1,0 +1,25 @@
+// The PGO corpus: the JSON text helpers.
+//
+// `JSON.quote` is a chain of `replace` calls, so it walks a string five times
+// and builds a fresh string per step. The loop is the workload the profile
+// needs to see; the total length is fixed, so a helper that skips a step is a
+// failed run rather than a faster one.
+
+import JSON;
+
+fn main() {
+    let note = "a \"quoted\" line\n";
+    let total = 0;
+    let i = 0;
+    while i < 10000 {
+        let once = JSON.quote(note);
+        total = total + once.len();
+        i = i + 1;
+    }
+
+    let sample = JSON.quote(note);
+    println(sample);
+
+    print(total);
+    println("");
+}

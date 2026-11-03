@@ -460,6 +460,20 @@ fib_run_ms=50.0
     }
 
     #[test]
+    fn the_release_row_gates_as_a_runtime_row() {
+        let parsed = measurement("release_run_ms=100.0\n");
+        assert_eq!(parsed.gate_rows(), vec!["release_run_ms"]);
+        assert_eq!(
+            Thresholds::default().for_row("release_run_ms"),
+            Some(DEFAULT_RUNTIME_PCT)
+        );
+
+        let current = measurement("release_run_ms=121.0\n");
+        let results = compare(&parsed, &current, &Thresholds::default());
+        assert_eq!(row(&results, "release_run_ms").verdict, Verdict::Fail);
+    }
+
+    #[test]
     fn a_missing_row_is_reported() {
         let results = compare_with("fib_compile_ms=100.0\nfib_binary_bytes=1000\n");
         assert_eq!(row(&results, "fib_run_ms").verdict, Verdict::Missing);

@@ -1,0 +1,34 @@
+// The PGO corpus: the string and map workload, scaled for training.
+//
+// The sentence is repeated, split into words, and counted in a map. The copy
+// count is large enough that the split and the table dominate the run, and
+// small enough that the training run is a fraction of a second. The printed
+// pair is the check: nine words per copy and eight distinct words.
+
+fn main() {
+    const copies = 1000;
+    let sentence = "the quick brown fox jumps over the lazy dog ";
+    let text = sentence.repeat(copies);
+    let words: []string = text.split(" ");
+
+    let counts: map[string]int = map_new();
+    let seen = 0;
+    for word in words {
+        if !word.is_empty() {
+            let next = switch counts.get(word) {
+                case Some(v) { v + 1 }
+                case None { 1 }
+            };
+            counts.insert(word, next);
+            seen = seen + 1;
+        }
+    }
+
+    print(seen);
+    println("");
+    print(counts.len());
+    println("");
+
+    words.free();
+    counts.free();
+}

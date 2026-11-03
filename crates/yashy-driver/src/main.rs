@@ -55,8 +55,8 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
@@ -82,7 +82,11 @@ usage:
   --fast-math  allow fused multiply-add; faster float code, different results
   --release    a release build: `debug_assert` is compiled out and the
                optimization level defaults to -O3 unless an explicit -O
-               level is given
+               level is given; a release build also links with ThinLTO
+  --no-lto     link without ThinLTO; for bisecting a suspected LTO-only
+               miscompile, normally unnecessary because LTO changes no result
+  --pgo        build instrumented, run the program once, then rebuild with the
+               profile; the data lives under `.yashy/pgo/` beside the output
   --emit-ir    print the generated LLVM IR to stdout and stop
   --no-verify  build without proving the program sound; refused when the program
                has a contract or `YASHY_REQUIRE_VERIFY` is set, and stamps
@@ -184,6 +188,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // this is a build a user runs -- stay separable because an explicit `-O`
     // level wins over the release default.
     let mut release = false;
+    // ThinLTO is the release link, and `--no-lto` takes it away so a suspected
+    // LTO-only miscompile can be attributed rather than worked around.
+    let mut no_lto = false;
+    // Profile-guided builds: instrument, train, rebuild with the profile.
+    let mut pgo = false;
     // How many threads the front end may parse on. `0` means "one per core".
     let mut jobs: usize = 0;
     // Promotion changes where bytes live, not what the program means, so it is
@@ -219,6 +228,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "--fast-math" => fast_math = true,
             "--no-opt=escape" => escape = false,
             "--release" => release = true,
+            "--no-lto" => no_lto = true,
+            "--pgo" => pgo = true,
             "--native" => cpu = CpuTarget::Native,
             "--cpu" => match args.next() {
                 Some(value) => match CpuTarget::parse(value) {
@@ -294,6 +305,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     if no_verify && emit_ir {
         return stopped(usage_error(
             "`--no-verify` has no meaning with `--emit-ir`; IR is not a binary",
+        ));
+    }
+    if pgo && emit_ir {
+        return stopped(usage_error(
+            "`--pgo` needs a binary to train; it cannot be combined with `--emit-ir`",
         ));
     }
 
@@ -436,6 +452,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         fast_math,
         escape,
         release,
+        lto: release && !no_lto,
+        pgo,
     };
     let code = match compile_hir_timed(
         &hir,
@@ -541,8 +559,14 @@ fn run(args: &[String]) -> ExitCode {
                     "`run` chooses its own output path; use `build -o` to keep a binary",
                 )
             }
-            "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" => {
+            "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto" => {
                 build_args.push(argument.clone())
+            }
+            "--pgo" => {
+                return usage_error(
+                    "`--pgo` trains a build and would run the program twice; \
+                     use `yashy build --pgo` and run the binary",
+                )
             }
             "--cpu" | "--jobs" => {
                 let Some(value) = iter.next() else {
@@ -1208,6 +1232,14 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("promoted_stack", Json::number(*stack as i64));
                             entry.set("promoted_arena", Json::number(*arena as i64));
                         }
+                        TimingRow::Lto { mode } => {
+                            entry.set("phase", Json::string("lto"));
+                            entry.set("mode", Json::string(*mode));
+                        }
+                        TimingRow::Pgo { stage } => {
+                            entry.set("phase", Json::string("pgo"));
+                            entry.set("stage", Json::string(*stage));
+                        }
                     }
                     entry
                 })
@@ -1271,6 +1303,26 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                     None => total.push(timing.clone()),
                 }
             }
+            TimingRow::Lto { mode } => {
+                if let Some(TimingRow::Lto { mode: seen }) = total
+                    .iter_mut()
+                    .find(|seen| matches!(seen, TimingRow::Lto { .. }))
+                {
+                    *seen = mode;
+                } else {
+                    total.push(timing.clone());
+                }
+            }
+            // Each stage happened once per build; a suite that builds several
+            // programs reports every stage it ran, in first-seen order.
+            TimingRow::Pgo { stage } => {
+                if !total
+                    .iter()
+                    .any(|seen| matches!(seen, TimingRow::Pgo { stage: seen } if seen == stage))
+                {
+                    total.push(timing.clone());
+                }
+            }
         }
     }
 }
@@ -1295,6 +1347,8 @@ fn report_timings(timings: &[TimingRow]) {
             TimingRow::Promotion { stack, arena } => {
                 eprintln!("promoted_stack={stack} promoted_arena={arena}")
             }
+            TimingRow::Lto { mode } => eprintln!("lto={mode}"),
+            TimingRow::Pgo { stage } => eprintln!("pgo={stage}"),
         }
     }
 }

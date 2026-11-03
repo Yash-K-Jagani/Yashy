@@ -5,7 +5,7 @@
 # time, binary size, and wall-clock run time. The hello-world and ~1,000-line
 # programs add the fixed build cost and the cost of a program with many items;
 # wordcount and maps add the runtime rows that phase 4's inline paths are
-# measured against.
+# measured against, and large's run row is the release link's end-to-end time.
 #
 # Usage:
 #   sh benchmarks/ci.sh [output.bench]
@@ -123,8 +123,12 @@ large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large
 fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
 wordcount_out="$build/wordcount-yashy.out"
 maps_out="$build/maps-yashy.out"
+large_out="$build/large-yashy.out"
 wordcount_run=$(measure_run 'yashy wordcount' "$wordcount_out" "$wordcount_yashy")
 maps_run=$(measure_run 'yashy maps' "$maps_out" "$maps_yashy")
+# large is already built for its compile row; its run row is the release
+# link's end-to-end time.
+large_run=$(measure_run 'yashy large' "$large_out" "$large_yashy")
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
 # one. The C row is context and may be unavailable on a machine whose clang
@@ -140,6 +144,10 @@ if [ "$(cat "$wordcount_out")" != "900000
 fi
 if [ "$(cat "$maps_out")" != '134999550000' ]; then
     say "yashy maps printed '$(cat "$maps_out")', expected 134999550000"
+    exit 1
+fi
+if [ "$(cat "$large_out")" != '123255' ]; then
+    say "yashy large printed '$(cat "$large_out")', expected 123255"
     exit 1
 fi
 
@@ -168,6 +176,7 @@ say "large compile ms: $large_compile"
 say "fib run ms: $fib_run"
 say "wordcount run ms: $wordcount_run"
 say "maps run ms: $maps_run"
+say "release run ms: $large_run"
 say "fib binary bytes: $fib_bytes"
 say "hello binary bytes: $hello_bytes"
 
@@ -187,6 +196,7 @@ emit_block() {
     printf 'large_compile_ms=%s\n' "$large_compile"
     printf 'wordcount_run_ms=%s\n' "$wordcount_run"
     printf 'maps_run_ms=%s\n' "$maps_run"
+    printf 'release_run_ms=%s\n' "$large_run"
 }
 
 if [ -n "$output" ]; then

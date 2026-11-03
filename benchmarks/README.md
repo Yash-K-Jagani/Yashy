@@ -21,7 +21,7 @@ pwsh benchmarks/run-features.ps1   # the feature suite
 
 A third, small suite runs in CI: `benchmarks/ci.ps1` on Windows and
 `benchmarks/ci.sh` on Linux. It builds `fib`, `hello` and a ~1,000-line program,
-checks that `fib` prints `9227465`, and writes the six gate rows as `key=value`:
+checks their fixed output, and writes the nine gate rows as `key=value`:
 
 | Row | Measures |
 |---|---|
@@ -31,6 +31,9 @@ checks that `fib` prints `9227465`, and writes the six gate rows as `key=value`:
 | `hello_compile_ms` | build time of a hello-world program |
 | `hello_binary_bytes` | size of the hello-world executable |
 | `large_compile_ms` | build time of a ~1,000-line program |
+| `wordcount_run_ms` | strings-and-map workload: split, count, deduplicate |
+| `maps_run_ms` | integer-map workload: fill, then probe every key |
+| `release_run_ms` | wall-clock run of the ~1,000-line program through the release link |
 
 Each row is the median of 3 runs locally (5 in CI) after one untimed warm-up.
 `crates/yashy-bench` compares a fresh measurement with

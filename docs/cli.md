@@ -26,7 +26,9 @@ yashy build main.ya --emit-ir
 |---|---|
 | `-o <path>` | Output path. Default: the source's stem beside the source. |
 | `-O0` ... `-O3` | Optimization level passed to `clang`. Default `-O2`. |
-| `--release` | Compile out `debug_assert`; default optimization becomes `-O3` unless `-O` is given. |
+| `--release` | Compile out `debug_assert`; default optimization becomes `-O3` unless `-O` is given, and link with ThinLTO. |
+| `--no-lto` | Link without ThinLTO. Only for attributing a suspected LTO-only miscompile; see [ThinLTO and `--pgo`](#thinlto-and---pgo). |
+| `--pgo` | Build instrumented, train by running the program once, then rebuild with the profile. See [ThinLTO and `--pgo`](#thinlto-and---pgo). |
 | `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native`. |
 | `--fast-math` | Allow fused multiply-add; results may differ. |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
@@ -37,8 +39,42 @@ yashy build main.ya --emit-ir
 ## `yashy run <file.ya>`
 
 Compiles and runs in one step. It accepts the same optimization, CPU, release,
-verification and timing options as `build`. Arguments after `--` go to the
-program.
+`--no-lto`, verification and timing options as `build`. Arguments after `--` go
+to the program. It refuses `--pgo`, because that would train on the program and
+then run it a second time; use `build --pgo` and run the resulting binary.
+
+## ThinLTO and `--pgo`
+
+`--release` links the generated IR and the C runtime as one ThinLTO unit
+(`-flto=thin`), so a runtime helper can be inlined into the program that calls
+it. A debug build keeps the separate-object model: it is the edit/run loop, and
+paying for link-time optimization on every build would make it slower without
+changing the answer.
+
+`--no-lto` takes the release link apart again. It exists so a suspected
+LTO-only miscompile can be *attributed* rather than worked around: a program
+that changes behaviour when the flag is added is a bug to fix, not a reason to
+ship without LTO.
+
+`--pgo` is a profile-guided build, in three steps inside one `build`:
+
+1. compile with `-fprofile-generate=<dir>` to an instrumented binary;
+2. run that binary once — the training run — which writes raw counters;
+3. merge the counters with `llvm-profdata` and rebuild with
+   `-fprofile-use=<file>`.
+
+The instrumented binary is a build artifact beside the requested output, and
+the profile lives under `<output-dir>/.yashy/pgo/`. Nothing is written outside
+that directory. A training run that exits non-zero, or one that writes no
+counter file, is an error rather than a profile built from a program that could
+not finish. `--pgo` is refused with `--emit-ir` because there is no binary to
+train.
+
+The training corpus is checked in under [`benchmarks/pgo/`](../benchmarks/pgo);
+[`scripts/pgo.ps1`](../scripts/pgo.ps1) and
+[`scripts/pgo.sh`](../scripts/pgo.sh) build every member twice — once with the
+ThinLTO release link, once with `--pgo` — and report the size and time
+difference. A profile is per program, so each member trains on itself.
 
 ## `yashy check <file.ya> [--json] [--timings] [--jobs <n>]`
 
@@ -231,6 +267,7 @@ timing: load 1 ms
 timing: check 4 ms
 timing: verify 0 ms
 timing: emit 2 ms
+lto=off
 timing: link 253 ms
 ```
 
@@ -240,6 +277,13 @@ them), `check` (names and types), `verify` (soundness), `emit` (LLVM IR) and
 runs: `check` has no `verify`, `emit` or `link`, and `verify` has no `emit` or
 `link`. A phase that fails still gets a line, because a build that is slow *and*
 broken is when the number is most useful.
+
+Two lines describe the link strategy rather than a phase. `lto=thin` is a
+release link (ThinLTO); `lto=off` is anything else, including `--no-lto`. A
+`--pgo` build adds one `pgo=<stage>` line per step: `pgo=instrumented` after the
+instrumented binary is linked, `pgo=trained` after the training run, and
+`pgo=applied` after the rebuild with the profile. A build without `--pgo` prints
+no `pgo` line.
 
 Two more lines describe the front end rather than a phase:
 
@@ -338,7 +382,9 @@ stdout; `--json` implies no color and no prompt.
   milliseconds. Two rows describe the front end rather than a phase:
   `{"phase":"query","hits":0,"misses":1,"recomputed":["check"]}` carries the
   memo counters and `{"phase":"frontend_threads","threads":8}` the pool size.
-  `test --json --timings` carries the suite's totals.
+  The link strategy is `{"phase":"lto","mode":"thin"}`; a profile-guided build
+  adds one `{"phase":"pgo","stage":"instrumented"}` per stage (`trained`,
+  `applied`). `test --json --timings` carries the suite's totals.
 
 `test --json` uses the same envelope plus `tests` and a test summary:
 
