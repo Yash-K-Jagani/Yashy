@@ -210,7 +210,7 @@ Status: landed.
 
 ### Commit
 
-- TBD `perf(codegen): promote non-escaping allocations to stack and arena`
+- `ad6d842` `perf(codegen): promote non-escaping allocations to stack and arena`
 
 ---
 
