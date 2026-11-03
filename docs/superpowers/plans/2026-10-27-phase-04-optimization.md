@@ -260,11 +260,11 @@ Status: landed.
 - Produces: the codegen calls the unchecked form **only** when `ProofFacts` says the index is in bounds — the same fact that already deletes the check in phase 3, reused rather than re-derived.
 - Produces: a comment in the header naming which proof licenses each unchecked entry point, so a reader cannot mistake it for a general API.
 
-- [ ] **Step 1: Write the failing tests** — a slice index proven in bounds emits no `yashy_slice_get` call in the IR (grep the IR in the test); an unproven index still calls the checked version; `wordcount` and `maps` rows improve; the runtime's own tests still pass with the inline paths.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — move the hot half of each function into the header as `static inline`, keep the cold half in the `.c`, and mark the fast path `__attribute__((always_inline))` (guarded for MSVC with `__forceinline`). The C shim is compiled into every program already, so this costs nothing at link time.
-- [ ] **Step 4: Run** `cargo test -p yashy-runtime` and the bench rows on both OSes → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "perf(runtime): inline the hot paths, keep the checks that are unproven"`
+- [x] **Step 1: Write the failing tests** — a slice index proven in bounds emits no `yashy_slice_get` call in the IR (grep the IR in the test); an unproven index still calls the checked version; `wordcount` and `maps` rows improve; the runtime's own tests still pass with the inline paths.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — move the hot half of each function into the header as `static inline`, keep the cold half in the `.c`, and mark the fast path `__attribute__((always_inline))` (guarded for MSVC with `__forceinline`). The C shim is compiled into every program already, so this costs nothing at link time.
+- [x] **Step 4: Run** `cargo test -p yashy-runtime` and the bench rows on both OSes → PASS on Windows; the Linux rows are CI's, recorded in the ledger.
+- [x] **Step 5: Commit** — `cccbe17` `perf(runtime): inline the hot paths, keep the checks that are unproven`
 
 ---
 
