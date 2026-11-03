@@ -50,12 +50,15 @@
 //! missing one lowers to a comment plus a zero rather than aborting the
 //! compile.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use yashy_common::Span;
 use yashy_parser::ast::Literal;
-use yashy_sema::{expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp};
+use yashy_sema::{
+    expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp,
+};
 
+use crate::escape::{AllocSite, ArenaId, Placement};
 use crate::ir::{field_repr, repr_type};
 use crate::module::Module;
 
@@ -87,6 +90,8 @@ pub struct LoopTarget {
     pub scope_base: usize,
     /// Number of defer lists enclosing the body.
     pub defer_base: usize,
+    /// Number of arena scopes enclosing the body.
+    pub arena_base: usize,
 }
 
 /// The state of one function being emitted.
@@ -194,6 +199,27 @@ pub struct FnCtx<'a> {
     /// The environment pointer this function reads its captures from, when it
     /// is a closure. The name is the SSA value the parameter was bound to.
     pub(crate) env: Option<String>,
+    /// Where escape analysis said each allocation site should live.
+    ///
+    /// Empty when promotion is disabled, which is why an absent entry means
+    /// `Heap`: the conservative answer is also the old one.
+    pub(crate) placements: HashMap<AllocSite, Placement>,
+    /// Binding slots that hold a promoted allocation.
+    ///
+    /// Keyed by slot rather than by name so shadowing an outer binding cannot
+    /// make a later `free` skip the wrong allocation.
+    pub(crate) promoted_slots: HashSet<String>,
+    /// The arena handle each block's arena was created into.
+    ///
+    /// One entry per `ArenaId` that a promoted site actually used, so a block
+    /// with no arena allocations creates no arena.
+    pub(crate) arena_handles: HashMap<ArenaId, String>,
+    /// Arena ids created in each currently open lexical block, innermost last.
+    ///
+    /// Pushed and popped by [`crate::stmt_gen::gen_block`], exactly like the
+    /// defer and ref-scope stacks, so a block exit releases only the arenas
+    /// that block owns.
+    pub(crate) arena_scopes: Vec<Vec<ArenaId>>,
 }
 
 impl<'a> FnCtx<'a> {
@@ -218,6 +244,10 @@ impl<'a> FnCtx<'a> {
             captures: Vec::new(),
             capture_offsets: Vec::new(),
             env: None,
+            placements: HashMap::new(),
+            promoted_slots: HashSet::new(),
+            arena_handles: HashMap::new(),
+            arena_scopes: Vec::new(),
             atomic_strings,
         }
     }
@@ -297,9 +327,7 @@ impl<'a> FnCtx<'a> {
                 // The value is a `{ i8* code, i8* env }` pair: the environment
                 // is its second half.
                 let env = self.tmp();
-                self.push(format!(
-                    "{env} = extractvalue {{ i8*, i8* }} {name}, 1"
-                ));
+                self.push(format!("{env} = extractvalue {{ i8*, i8* }} {name}, 1"));
                 self.push(format!("call void @yashy_env_release(i8* {env})"));
             }
             RefKind::StructFields => {
@@ -335,9 +363,7 @@ impl<'a> FnCtx<'a> {
     /// nothing to count, and the runtime's retain leaves a null alone.
     pub(crate) fn retain_env(&mut self, value: &str) {
         let env = self.tmp();
-        self.push(format!(
-            "{env} = extractvalue {{ i8*, i8* }} {value}, 1"
-        ));
+        self.push(format!("{env} = extractvalue {{ i8*, i8* }} {value}, 1"));
         self.push(format!("call i8* @yashy_env_retain(i8* {env})"));
     }
 
@@ -477,6 +503,89 @@ impl<'a> FnCtx<'a> {
         (self.scope_refs.len(), self.defers.len())
     }
 
+    /// Where this allocation site should live, or `Heap` when promotion is off.
+    pub(crate) fn placement(&self, site: AllocSite) -> Placement {
+        self.placements
+            .get(&site)
+            .copied()
+            .unwrap_or(Placement::Heap)
+    }
+
+    /// Record that `slot` holds a promoted allocation.
+    pub(crate) fn mark_promoted(&mut self, slot: &str) {
+        if !slot.is_empty() {
+            self.promoted_slots.insert(slot.to_string());
+        }
+    }
+
+    /// Forget a slot's promotion after it is assigned a heap allocation.
+    pub(crate) fn clear_promoted(&mut self, slot: &str) {
+        self.promoted_slots.remove(slot);
+    }
+
+    /// Whether `slot` currently holds memory the allocator does not own.
+    pub(crate) fn is_promoted(&self, slot: &str) -> bool {
+        self.promoted_slots.contains(slot)
+    }
+
+    /// The handle of the arena belonging to `id`, creating it on first use.
+    ///
+    /// The handle is an ordinary SSA name defined at the first allocation in
+    /// the block. That definition dominates every later use in the same block,
+    /// which is all a promoted site can be: escape analysis only chooses an
+    /// arena when the binding and the allocation share a block.
+    pub(crate) fn arena_handle(&mut self, id: ArenaId) -> String {
+        if let Some(handle) = self.arena_handles.get(&id) {
+            return handle.clone();
+        }
+        let handle = self.tmp();
+        self.push(format!("{handle} = call i8* @yashy_arena_new()"));
+        self.arena_handles.insert(id, handle.clone());
+        if let Some(scope) = self.arena_scopes.last_mut() {
+            scope.push(id);
+        }
+        handle
+    }
+
+    /// Release the arenas owned by the innermost open block.
+    pub(crate) fn release_arena_scope(&mut self) {
+        let Some(ids) = self.arena_scopes.last().cloned() else {
+            return;
+        };
+        self.release_arenas_in(&ids);
+    }
+
+    /// Release every arena created in the scopes at or above `base`.
+    ///
+    /// The scopes themselves are left for their blocks to pop; a released id is
+    /// removed from [`FnCtx::arena_handles`], so the pop cannot free it twice.
+    pub(crate) fn release_arenas_from(&mut self, base: usize) {
+        if base >= self.arena_scopes.len() {
+            return;
+        }
+        let ids: Vec<ArenaId> = self.arena_scopes[base..]
+            .iter()
+            .rev()
+            .flatten()
+            .copied()
+            .collect();
+        self.release_arenas_in(&ids);
+    }
+
+    /// Release every arena still open. Used by `return`, which leaves them all.
+    pub(crate) fn release_all_arenas(&mut self) {
+        let ids: Vec<ArenaId> = self.arena_scopes.iter().rev().flatten().copied().collect();
+        self.release_arenas_in(&ids);
+    }
+
+    fn release_arenas_in(&mut self, ids: &[ArenaId]) {
+        for id in ids {
+            if let Some(handle) = self.arena_handles.remove(id) {
+                self.push(format!("call void @yashy_arena_free_all(i8* {handle})"));
+            }
+        }
+    }
+
     /// Open the function's entry block.
     ///
     /// Emits the `entry:` label and remembers where it landed, so
@@ -607,7 +716,9 @@ pub(crate) fn retain_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKi
             continue;
         }
         let extracted = ctx.tmp();
-        ctx.push(format!("{extracted} = extractvalue {repr} {value}, {index}"));
+        ctx.push(format!(
+            "{extracted} = extractvalue {repr} {value}, {index}"
+        ));
         let retained = ctx.tmp();
         ctx.push_str_retain_into(&retained, &extracted);
     }
@@ -625,7 +736,9 @@ fn release_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
             continue;
         }
         let extracted = ctx.tmp();
-        ctx.push(format!("{extracted} = extractvalue {repr} {value}, {index}"));
+        ctx.push(format!(
+            "{extracted} = extractvalue {repr} {value}, {index}"
+        ));
         ctx.push_str_release(&extracted);
     }
 }
@@ -674,7 +787,9 @@ pub(crate) fn retain_payload(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) ->
     let mut current = value.to_string();
     for field in fields {
         let extracted = ctx.tmp();
-        ctx.push(format!("{extracted} = extractvalue {repr} {current}, {field}"));
+        ctx.push(format!(
+            "{extracted} = extractvalue {repr} {current}, {field}"
+        ));
         let retained = ctx.tmp();
         ctx.push_str_retain_into(&retained, &extracted);
         let next = ctx.tmp();
@@ -695,7 +810,9 @@ pub(crate) fn release_payload(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
     let repr = repr_type(ty);
     for field in fields {
         let extracted = ctx.tmp();
-        ctx.push(format!("{extracted} = extractvalue {repr} {value}, {field}"));
+        ctx.push(format!(
+            "{extracted} = extractvalue {repr} {value}, {field}"
+        ));
         ctx.push_str_release(&extracted);
     }
 }
@@ -723,9 +840,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::Ident(path, _, ty) => {
             let name = path.last().cloned().unwrap_or_default();
             match ctx.locals.get(&name).cloned() {
-                Some((slot, slot_ty))
-                    if !slot.is_empty() && repr_type(&slot_ty) != "void" =>
-                {
+                Some((slot, slot_ty)) if !slot.is_empty() && repr_type(&slot_ty) != "void" => {
                     let tmp = ctx.tmp();
                     let repr = repr_type(&slot_ty);
                     ctx.push(format!("{tmp} = load {repr}, ptr {slot}"));
@@ -781,16 +896,16 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             args,
             unsafe_call,
             ty,
-            ..
-        } => gen_call(ctx, callee, args, &ty.kind, *unsafe_call),
+            span,
+        } => gen_call(ctx, callee, args, &ty.kind, *unsafe_call, *span),
         HirExpr::StructLit {
             path, fields, ty, ..
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
         HirExpr::Lambda { f, ty, .. } => gen_lambda(ctx, f, &ty.kind),
         HirExpr::Capture { index, ty, .. } => gen_capture_read(ctx, *index, &ty.kind),
-        HirExpr::CallCapture { index, args, ty, .. } => {
-            gen_capture_call(ctx, *index, args, &ty.kind)
-        }
+        HirExpr::CallCapture {
+            index, args, ty, ..
+        } => gen_capture_call(ctx, *index, args, &ty.kind),
         HirExpr::HigherOrder {
             op,
             receiver,
@@ -833,7 +948,11 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             }
         }
         HirExpr::View {
-            base, start, end, ty, ..
+            base,
+            start,
+            end,
+            ty,
+            ..
         } => crate::fixed::gen_view(ctx, base, start, end, &ty.kind),
         // A struct value is an aggregate, so reading one field of it is
         // `extractvalue` -- no address, no alloca, no GEP. The index was resolved
@@ -844,13 +963,18 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             let value = gen_expr(ctx, base);
             let repr = repr_type(&value.ty);
             let tmp = ctx.tmp();
-            ctx.push(format!("{tmp} = extractvalue {repr} {}, {index}", value.value));
+            ctx.push(format!(
+                "{tmp} = extractvalue {repr} {}, {index}",
+                value.value
+            ));
             GenValue {
                 value: tmp,
                 ty: ty.kind.clone(),
             }
         }
-        HirExpr::Index { base, index, ty, .. } => {
+        HirExpr::Index {
+            base, index, ty, ..
+        } => {
             match &expr_ty(base).kind {
                 // `xs[i]` is an `Option`: the runtime bounds test decides.
                 TypeKind::Slice(_) => {
@@ -1083,7 +1207,11 @@ fn gen_binary(
         BinOp::BitXor => ("xor", ty.clone()),
         BinOp::Shl => ("shl", ty.clone()),
         BinOp::Shr => (
-            if ty.is_signed_integer() { "ashr" } else { "lshr" },
+            if ty.is_signed_integer() {
+                "ashr"
+            } else {
+                "lshr"
+            },
             ty.clone(),
         ),
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
@@ -1175,10 +1303,7 @@ fn gen_unary(
             } else {
                 ("sub", "0".to_string())
             };
-            ctx.push(format!(
-                "{tmp} = {mnemonic} {repr} {zero}, {}",
-                value.value
-            ));
+            ctx.push(format!("{tmp} = {mnemonic} {repr} {zero}, {}", value.value));
         }
         UnOp::Not => {
             ctx.push(format!("{tmp} = xor i1 {}, true", value.value));
@@ -1217,9 +1342,13 @@ fn gen_lambda(ctx: &mut FnCtx<'_>, f: &HirFn, ty: &TypeKind) -> GenValue {
 
     let repr = "{ i8*, i8* }";
     let with_code = ctx.tmp();
-    ctx.push(format!("{with_code} = insertvalue {repr} undef, i8* @{name}, 0"));
+    ctx.push(format!(
+        "{with_code} = insertvalue {repr} undef, i8* @{name}, 0"
+    ));
     let with_env = ctx.tmp();
-    ctx.push(format!("{with_env} = insertvalue {repr} {with_code}, i8* {env}, 1"));
+    ctx.push(format!(
+        "{with_env} = insertvalue {repr} {with_code}, i8* {env}, 1"
+    ));
     if f.captures.is_empty() {
         GenValue {
             value: with_env,
@@ -1308,18 +1437,12 @@ fn gen_env(ctx: &mut FnCtx<'_>, f: &HirFn) -> String {
         if crate::env::is_string(capture) {
             // The environment owns a reference to the string it captured.
             ctx.push_str_retain(&value);
-            ctx.push(format!(
-                "store i64 {}, ptr {slot}",
-                crate::env::SLOT_STRING
-            ));
+            ctx.push(format!("store i64 {}, ptr {slot}", crate::env::SLOT_STRING));
             let pointer = ctx.tmp();
             ctx.push(format!("{pointer} = getelementptr i8, ptr {slot}, i64 8"));
             ctx.push(format!("store i8* {value}, ptr {pointer}"));
         } else {
-            ctx.push(format!(
-                "store i64 {}, ptr {slot}",
-                crate::env::SLOT_NONE
-            ));
+            ctx.push(format!("store i64 {}, ptr {slot}", crate::env::SLOT_NONE));
         }
     }
     env
@@ -1389,9 +1512,7 @@ fn gen_enum_ctor(
         return None;
     }
     let variants = ctx.module.enum_variants(ty)?.to_vec();
-    let position = variants
-        .iter()
-        .position(|v| v.name == *variant_name)?;
+    let position = variants.iter().position(|v| v.name == *variant_name)?;
     let tag = u8::try_from(position).ok()?;
     let mut field = 1u32;
     for variant in &variants {
@@ -1430,12 +1551,7 @@ fn gen_enum_ctor(
 /// decides, and the right operand's when it does not. The right operand is
 /// evaluated in a block of its own, so the branch around it is what keeps it
 /// from running when it should not.
-fn gen_short_circuit(
-    ctx: &mut FnCtx<'_>,
-    op: BinOp,
-    lhs: &HirExpr,
-    rhs: &HirExpr,
-) -> GenValue {
+fn gen_short_circuit(ctx: &mut FnCtx<'_>, op: BinOp, lhs: &HirExpr, rhs: &HirExpr) -> GenValue {
     let l = gen_expr(ctx, lhs);
     let rhs_label = ctx.alloc_label_base() + "_rhs";
     let short_label = ctx.alloc_label_base() + "_short";
@@ -1548,6 +1664,7 @@ fn gen_call(
     args: &[HirExpr],
     ty: &TypeKind,
     unsafe_call: bool,
+    span: Span,
 ) -> GenValue {
     if let Some(constructed) = gen_enum_ctor(ctx, callee, args, ty) {
         return constructed;
@@ -1569,7 +1686,7 @@ fn gen_call(
         // `alloc` and `dealloc` are calls to the runtime's heap (ledger L1),
         // not C functions with matching names: `alloc(n)` counts elements and
         // the runtime counts bytes, so the shape changes here.
-        "alloc" => crate::memory::gen_alloc(ctx, args, ty),
+        "alloc" => crate::memory::gen_alloc(ctx, args, ty, span),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
         "alloc_bytes" => crate::memory::gen_alloc_bytes(ctx, args),
         "read_bytes" => crate::file::gen_read_bytes(ctx, args, ty),
@@ -1714,9 +1831,8 @@ fn gen_call(
         "str_index_of" => crate::strings::gen_str_index_of(ctx, args, ty),
         "str_split" => crate::strings::gen_str_split(ctx, args, ty),
         "str_lines" => crate::strings::gen_str_lines(ctx, args, ty),
-        "str_contains" | "str_starts_with" | "str_ends_with" | "str_trim"
-        | "str_trim_start" | "str_trim_end" | "str_to_upper" | "str_to_lower"
-        | "str_replace" | "str_repeat" => {
+        "str_contains" | "str_starts_with" | "str_ends_with" | "str_trim" | "str_trim_start"
+        | "str_trim_end" | "str_to_upper" | "str_to_lower" | "str_replace" | "str_repeat" => {
             gen_borrowed_call(ctx, &format!("yashy_{name}"), args, ty)
         }
         // `str_from_bool` is the one conversion whose runtime signature is wider
@@ -1780,7 +1896,9 @@ fn gen_call(
             ctx.push(format!("{acc} = insertvalue {repr} undef, i8 0, 0"));
             for field in string_payload_fields(ty) {
                 let next = ctx.tmp();
-                ctx.push(format!("{next} = insertvalue {repr} {acc}, i8* null, {field}"));
+                ctx.push(format!(
+                    "{next} = insertvalue {repr} {acc}, i8* null, {field}"
+                ));
                 acc = next;
             }
             GenValue {
@@ -1800,7 +1918,9 @@ fn gen_call(
             };
             let repr = repr_type(ty);
             let with_tag = ctx.tmp();
-            ctx.push(format!("{with_tag} = insertvalue {repr} undef, i8 {tag}, 0"));
+            ctx.push(format!(
+                "{with_tag} = insertvalue {repr} undef, i8 {tag}, 0"
+            ));
             // The other variant's `string` payload is absent: write `null` so
             // the aggregate owns exactly one reference and releasing it is safe
             // whichever variant it turned out to be.
@@ -1818,7 +1938,8 @@ fn gen_call(
             // A `string` payload is taken over when the runtime just built it
             // and retained when it belongs to someone else, so the aggregate
             // holds exactly one reference.
-            let payload_value = if matches!(payload.ty, TypeKind::Str) && !payload.value.is_empty() {
+            let payload_value = if matches!(payload.ty, TypeKind::Str) && !payload.value.is_empty()
+            {
                 if ctx.is_owned(&payload.value) {
                     ctx.forget_owned(&payload.value);
                     payload.value.clone()
@@ -2102,11 +2223,7 @@ fn value_as_string(ctx: &mut FnCtx<'_>, value: &GenValue) -> String {
 /// the register that holds one: `panic`'s own lowering, and `assert`'s, where
 /// the checker wrote the text.
 fn panic_call(lowered: &[GenValue], message_at: usize) -> String {
-    let args: Vec<String> = lowered
-        .iter()
-        .skip(message_at)
-        .map(operand_of)
-        .collect();
+    let args: Vec<String> = lowered.iter().skip(message_at).map(operand_of).collect();
     format!("call void @yashy_panic({})", args.join(", "))
 }
 

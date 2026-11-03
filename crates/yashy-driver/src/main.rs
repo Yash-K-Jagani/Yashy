@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
+use yashy_codegen::{
+    check_main_exists, emit_program, host_target_triple, promotion_counts, CodegenOptions,
+};
 use yashy_common::{
     codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
     EXIT_OK, EXIT_USAGE,
@@ -53,8 +55,8 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--jobs <n>] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--jobs <n>] [--no-verify] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
@@ -89,6 +91,9 @@ usage:
                JSON report); stdout is never touched
   --jobs <n>   how many threads the front end may parse on; 0 (the default)
                uses one per available core, 1 parses serially
+  --no-opt=escape  keep every allocation on the heap; for bisecting a suspected
+               promotion bug, normally unnecessary because promotion never
+               changes what a program prints
   --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
                the assumptions the proof rests on; never changes the exit code
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
@@ -181,6 +186,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut release = false;
     // How many threads the front end may parse on. `0` means "one per core".
     let mut jobs: usize = 0;
+    // Promotion changes where bytes live, not what the program means, so it is
+    // on unless a bisect asks otherwise.
+    let mut escape = true;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -209,6 +217,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             },
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
+            "--no-opt=escape" => escape = false,
             "--release" => release = true,
             "--native" => cpu = CpuTarget::Native,
             "--cpu" => match args.next() {
@@ -233,6 +242,10 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                         Ok(parsed) => jobs = parsed,
                         Err(_) => return stopped(usage_error("`--jobs` needs a whole number")),
                     }
+                } else if let Some(pass) = other.strip_prefix("--no-opt=") {
+                    return stopped(usage_error(&format!(
+                        "`{pass}` is not an optimization pass; the only one that can be disabled is `escape`"
+                    )));
                 } else if let Some(level) = OptLevel::parse(other) {
                     opt = Some(level);
                 } else if other.starts_with("-O") {
@@ -358,7 +371,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
 
     // Apply the warning policy: --allow suppresses, --deny upgrades to errors.
     if allow_warnings {
-        report.diagnostics.retain(|d| d.severity != Severity::Warning);
+        report
+            .diagnostics
+            .retain(|d| d.severity != Severity::Warning);
     } else if deny_warnings {
         for d in &mut report.diagnostics {
             if d.severity == Severity::Warning {
@@ -385,8 +400,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             Ok(()) => {
                 let options = CodegenOptions {
                     fp_contract: fast_math,
+                    escape,
                 };
-                let ir = timed(measured, "emit", || emit_program(&hir, &entry, options, &report.facts));
+                let ir = timed(measured, "emit", || {
+                    emit_program(&hir, &entry, options, &report.facts)
+                });
+                if escape {
+                    let (stack, arena) = promotion_counts(&hir, &report.facts);
+                    measured.push(TimingRow::Promotion { stack, arena });
+                }
                 print!("{ir}");
                 exit_code(EXIT_OK)
             }
@@ -412,9 +434,18 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         opt,
         cpu,
         fast_math,
+        escape,
         release,
     };
-    let code = match compile_hir_timed(&hir, &entry, &output, &toolchain, options, &report.facts, measured) {
+    let code = match compile_hir_timed(
+        &hir,
+        &entry,
+        &output,
+        &toolchain,
+        options,
+        &report.facts,
+        measured,
+    ) {
         Ok(()) => {
             let sidecar = unverified_sidecar(&output);
             if no_verify {
@@ -1172,6 +1203,11 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("phase", Json::string("frontend_threads"));
                             entry.set("threads", Json::number(*threads as i64));
                         }
+                        TimingRow::Promotion { stack, arena } => {
+                            entry.set("phase", Json::string("promotion"));
+                            entry.set("promoted_stack", Json::number(*stack as i64));
+                            entry.set("promoted_arena", Json::number(*arena as i64));
+                        }
                     }
                     entry
                 })
@@ -1223,6 +1259,18 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                     None => total.push(timing.clone()),
                 }
             }
+            TimingRow::Promotion { stack, arena } => {
+                match total.iter_mut().find_map(|seen| match seen {
+                    TimingRow::Promotion { stack, arena } => Some((stack, arena)),
+                    _ => None,
+                }) {
+                    Some((seen_stack, seen_arena)) => {
+                        *seen_stack = seen_stack.saturating_add(*stack);
+                        *seen_arena = seen_arena.saturating_add(*arena);
+                    }
+                    None => total.push(timing.clone()),
+                }
+            }
         }
     }
 }
@@ -1244,6 +1292,9 @@ fn report_timings(timings: &[TimingRow]) {
                 stats.recomputed.join(",")
             ),
             TimingRow::FrontendThreads { threads } => eprintln!("frontend_threads={threads}"),
+            TimingRow::Promotion { stack, arena } => {
+                eprintln!("promoted_stack={stack} promoted_arena={arena}")
+            }
         }
     }
 }
@@ -2279,7 +2330,9 @@ fn verify(args: &[String]) -> ExitCode {
         Ok((hir, mut report)) => {
             // Apply the warning policy.
             if allow_warnings {
-                report.diagnostics.retain(|d| d.severity != Severity::Warning);
+                report
+                    .diagnostics
+                    .retain(|d| d.severity != Severity::Warning);
             } else if deny_warnings {
                 for d in &mut report.diagnostics {
                     if d.severity == Severity::Warning {

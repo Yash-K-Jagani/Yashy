@@ -31,6 +31,7 @@ use yashy_sema::{
     expr_ty, linearity_of, BinOp, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind,
 };
 
+use crate::escape::{AllocSite, Placement};
 use crate::expr_gen::retain_struct_fields;
 use crate::expr_gen::{
     gen_expr, gen_expr_to_slot, has_string_payload, release_payload, retain_payload, FnCtx,
@@ -45,7 +46,10 @@ use crate::patterns::gen_match;
 /// struct that owns references needs its own. A literal or a call's result is
 /// a fresh value, and brings the references it already has.
 fn is_copy_of_a_value(expr: &HirExpr) -> bool {
-    matches!(expr, HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. })
+    matches!(
+        expr,
+        HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }
+    )
 }
 
 /// How a statement left its basic block.
@@ -100,6 +104,31 @@ pub struct Deferred {
     pub captured: Vec<(String, String, TypeKind)>,
 }
 
+/// Remember whether the binding now holds a promoted allocation.
+///
+/// Called after the value is stored and the name is bound. A later assignment
+/// of a heap allocation clears the mark, because the same slot then owns memory
+/// the allocator must free.
+fn note_promotion(ctx: &mut FnCtx<'_>, init: &HirExpr, name: &str) {
+    let promoted = match init {
+        HirExpr::Call { callee, span, .. }
+            if callee.last().map(String::as_str) == Some("alloc") =>
+        {
+            !matches!(ctx.placement(AllocSite::of(*span)), Placement::Heap)
+        }
+        _ => false,
+    };
+    let Some((slot, _)) = ctx.locals.get(name) else {
+        return;
+    };
+    let slot = slot.clone();
+    if promoted {
+        ctx.mark_promoted(&slot);
+    } else {
+        ctx.clear_promoted(&slot);
+    }
+}
+
 /// Snapshot every linear binding in scope into a fresh slot.
 ///
 /// The stores are emitted here, at the `defer` statement, so the snapshot is
@@ -144,13 +173,16 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     // defers run (and only that scope's strings are released) at its exit.
     ctx.defers.push(Vec::new());
     ctx.open_ref_scope();
+    ctx.arena_scopes.push(Vec::new());
     for stmt in &block.stmts {
         let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {
             // The terminating statement (return/break/continue) already ran
             // this scope's defers and released its string locals before
             // branching, so both lists are empty; popping keeps the stacks
-            // honest for whatever scope is below.
+            // honest for whatever scope is below. The arenas it owned were
+            // released by the same statement.
+            ctx.arena_scopes.pop();
             ctx.defers.pop();
             ctx.close_ref_scope();
             return flow;
@@ -162,6 +194,10 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     // that for the block it was given, and doing it again from the `if` or loop
     // would move the body to the end of the branch or of one iteration.
     run_defers(ctx);
+    // A block's arena is freed once the block's own deferred bodies have run:
+    // they are part of the scope and may still read what it holds.
+    ctx.release_arena_scope();
+    ctx.arena_scopes.pop();
     ctx.defers.pop();
     ctx.close_ref_scope_released();
     Flow::Fallthrough
@@ -198,7 +234,10 @@ fn insert_field(
         return updated;
     }
     let sub = ctx.tmp();
-    ctx.push(format!("{sub} = extractvalue {repr} {base}, {}", step.index));
+    ctx.push(format!(
+        "{sub} = extractvalue {repr} {base}, {}",
+        step.index
+    ));
     let rebuilt = insert_field(ctx, &sub, &step.ty.kind, &steps[1..], value);
     let updated = ctx.tmp();
     ctx.push(format!(
@@ -282,10 +321,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     } else {
                         ctx.retain_env(&value.value);
                     }
-                    ctx.push(format!(
-                        "store {{ i8*, i8* }} {}, ptr {slot}",
-                        value.value
-                    ));
+                    ctx.push(format!("store {{ i8*, i8* }} {}, ptr {slot}", value.value));
                     ctx.track_ref_slot(&slot, RefKind::Env);
                 }
                 slot
@@ -327,6 +363,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 gen_expr_to_slot(ctx, init)
             };
             ctx.locals.insert(name.clone(), (slot, ty));
+            note_promotion(ctx, init, name);
             Flow::Fallthrough
         }
         HirStmt::Assign {
@@ -347,6 +384,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let repr = repr_type(&ty.kind);
             let is_string = matches!(ty.kind, TypeKind::Str);
             let is_payload = has_string_payload(&ty.kind);
+            // A promoted allocation lives in the frame or a block arena, so it
+            // has no allocator block to release. The slot's *previous* state is
+            // what decides the free, before the new value can change it.
+            let was_promoted = slot
+                .as_deref()
+                .map(|slot| ctx.is_promoted(slot))
+                .unwrap_or(false);
             // Overwriting a linear binding discards the pointer that was there,
             // so it is released first. `release_previous` is the checker's
             // verdict on whether that pointer was still owned: after
@@ -355,7 +399,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // free. Only the checker knows the difference, which is why the
             // flag is in the HIR rather than recomputed from the slot. A
             // `string` is a copy type with its own rule below, not a linear one.
-            if *release_previous && repr != "void" && !is_string && !is_payload {
+            if *release_previous && !was_promoted && repr != "void" && !is_string && !is_payload {
                 if let Some(slot) = &slot {
                     let old = ctx.tmp();
                     ctx.push(format!("{old} = load {repr}, ptr {slot}"));
@@ -399,6 +443,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     }
                 }
             }
+            let value_expr = value;
             let value = gen_expr(ctx, value);
             if is_string && !value.value.is_empty() {
                 // The new reference is secured *before* the old one is dropped,
@@ -449,11 +494,10 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     "; note: no slot for `{name}`, which the checker said was assignable"
                 )),
             }
+            note_promotion(ctx, value_expr, name);
             Flow::Fallthrough
         }
-        HirStmt::Destructure {
-            init, bindings, ..
-        } => {
+        HirStmt::Destructure { init, bindings, .. } => {
             // The tuple value is an aggregate, so each element is one
             // `extractvalue` -- no address, no copy of the whole, and nothing
             // to free: the checker only admits elements that own nothing.
@@ -605,6 +649,9 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             // still sees them. A `return` inside an `if` leaves the enclosing
             // scope too; running only the innermost one leaked its bindings.
             run_all_scopes_defers(ctx);
+            // Every arena the function opened is leaving with it; the deferred
+            // bodies above have already run, so nothing can still read them.
+            ctx.release_all_arenas();
             if let (Some(taken), Some(kind)) = (&mut taken, returned_kind) {
                 // The returned reference has to survive the release: a local's
                 // value is kept here and given to the caller, while a
@@ -648,15 +695,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             then_block,
             else_block,
             ..
-        } => gen_if(
-            ctx,
-            init.as_deref(),
-            cond,
-            then_block,
-            else_block.as_ref(),
-        ),
+        } => gen_if(ctx, init.as_deref(), cond, then_block, else_block.as_ref()),
         HirStmt::ForRange {
-            name, start, end, body, ..
+            name,
+            start,
+            end,
+            body,
+            ..
         } => gen_for_range(ctx, name, start, end, body),
         HirStmt::ForIn {
             name,
@@ -670,13 +715,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             update,
             body,
             ..
-        } => gen_for_c(
-            ctx,
-            init.as_deref(),
-            cond.as_ref(),
-            update.as_ref(),
-            body,
-        ),
+        } => gen_for_c(ctx, init.as_deref(), cond.as_ref(), update.as_ref(), body),
         HirStmt::Switch { subject, arms, .. } => {
             let scrutinee = gen_expr(ctx, subject);
             let _ = gen_match(ctx, &scrutinee, arms, &TypeKind::Unit);
@@ -689,6 +728,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 // branching; the enclosing scopes stay for the code after the
                 // loop.
                 run_defers_from(ctx, target.defer_base);
+                ctx.release_arenas_from(target.arena_base);
                 ctx.release_ref_scopes_from(target.scope_base);
                 ctx.push(format!("br label %{}", target.break_label));
                 Flow::Break
@@ -705,6 +745,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 // The body's scopes are released before the jump to the
                 // increment, so the next iteration starts clean.
                 run_defers_from(ctx, target.defer_base);
+                ctx.release_arenas_from(target.arena_base);
                 ctx.release_ref_scopes_from(target.scope_base);
                 ctx.push(format!("br label %{}", target.continue_label));
                 Flow::Continue
@@ -826,6 +867,7 @@ fn gen_for_range(
         continue_label: inc_label.clone(),
         scope_base,
         defer_base,
+        arena_base: ctx.arena_scopes.len(),
     });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
@@ -960,9 +1002,7 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     ctx.push(format!("{value} = load {element_repr}, ptr {element_ptr}"));
     let element_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{element_slot} = alloca {element_repr}"));
-    ctx.push(format!(
-        "store {element_repr} {value}, ptr {element_slot}"
-    ));
+    ctx.push(format!("store {element_repr} {value}, ptr {element_slot}"));
     let shadowed = ctx
         .locals
         .insert(name.to_string(), (element_slot, element_kind));
@@ -972,6 +1012,7 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
         continue_label: inc_label.clone(),
         scope_base,
         defer_base,
+        arena_base: ctx.arena_scopes.len(),
     });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
@@ -1040,6 +1081,7 @@ fn gen_for_c(
         continue_label: inc_label.clone(),
         scope_base,
         defer_base,
+        arena_base: ctx.arena_scopes.len(),
     });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
@@ -1129,9 +1171,7 @@ fn lower_defers(ctx: &mut FnCtx<'_>, mut pending: Vec<Deferred>) {
         // Install the captured slots for the duration of this body.
         let mut restore: Vec<(String, Option<(String, TypeKind)>)> = Vec::new();
         for (name, slot, ty) in &deferred.captured {
-            let previous = ctx
-                .locals
-                .insert(name.clone(), (slot.clone(), ty.clone()));
+            let previous = ctx.locals.insert(name.clone(), (slot.clone(), ty.clone()));
             restore.push((name.clone(), previous));
         }
 

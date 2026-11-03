@@ -12,6 +12,7 @@
 
 pub mod arena;
 pub mod env;
+pub mod escape;
 pub mod expr_gen;
 pub mod faults;
 pub mod ffi;
@@ -29,6 +30,7 @@ pub mod stmt_gen;
 pub mod strings;
 pub mod threads;
 
+pub use escape::{promotion_counts, AllocSite, ArenaId, Placement};
 pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use ffi::gen_ffi_call;
 pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
@@ -66,6 +68,15 @@ pub struct CodegenOptions {
     /// cares about its exact output must not be given this without being told,
     /// which is why it is a flag and not a default.
     pub fp_contract: bool,
+    /// Promote allocations that provably do not escape their function.
+    ///
+    /// This changes no program's meaning: a promoted allocation is one whose
+    /// pointer can only be read or written through before the frame (or block)
+    /// it lives in goes away. It changes only where the bytes live, so a build
+    /// can turn it off to bisect a suspected miscompile without changing the
+    /// language. Off by default in the library so a caller that asks for the
+    /// plain backend gets exactly the IR it always did; the driver enables it.
+    pub escape: bool,
 }
 
 /// Emit a whole checked program as one LLVM IR module.
@@ -82,10 +93,16 @@ pub struct CodegenOptions {
 /// main` still produces a module — the driver calls [`check_main_exists`]
 /// first and reports the missing entry point as a diagnostic, which is the
 /// only place with a file to point at.
-pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions, facts: &yashy_common::ProofFacts) -> String {
+pub fn emit_program(
+    hir: &HirProgram,
+    entry: &str,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> String {
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
+    module.set_escape(options.escape);
     module.set_facts(facts.clone());
     // One spawn is enough: the checker recorded that the program can share a
     // string with a thread, so every retain/release in the module is atomic.
@@ -138,11 +155,7 @@ pub fn emit_program(hir: &HirProgram, entry: &str, options: CodegenOptions, fact
     for item in &hir.items {
         match item {
             HirItem::Struct(s) => {
-                let fields = s
-                    .fields
-                    .iter()
-                    .map(|f| repr_type(&f.ty.kind))
-                    .collect();
+                let fields = s.fields.iter().map(|f| repr_type(&f.ty.kind)).collect();
                 module.define_named_type(&format!("%struct.{}", s.name), fields);
                 // The field *types*, not just their representation: a `string`
                 // field is a reference the struct owns, and its representation

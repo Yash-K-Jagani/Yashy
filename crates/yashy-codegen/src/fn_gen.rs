@@ -52,7 +52,11 @@ pub fn gen_lambda(module: &mut Module, f: &HirFn, name: &str) {
     let ret_repr = fn_return_repr(&f.ret.kind);
     let mut params = vec!["i8* %env".to_string()];
     params.extend(parameters(module, f));
-    module.push(format!("define {ret_repr} @{}({}) {{", name, params.join(", ")));
+    module.push(format!(
+        "define {ret_repr} @{}({}) {{",
+        name,
+        params.join(", ")
+    ));
 
     gen_body(module, f, false, Some("%env"));
 }
@@ -210,6 +214,13 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
 fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>) {
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
+        if ctx.module.escape_enabled() {
+            // Classification is per function and reads only the HIR and the
+            // verifier's facts; a lambda is its own function and gets its own
+            // answer when its body is emitted.
+            let placements = crate::escape::classify(f, ctx.module.facts());
+            ctx.placements = placements;
+        }
         ctx.entry_point = entry_point;
         if entry_point {
             ctx.unit_terminator = "ret i32 0".to_string();

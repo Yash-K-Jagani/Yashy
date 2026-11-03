@@ -933,6 +933,7 @@ impl Db {
         use yashy_codegen::{emit_program, CodegenOptions};
         let options = CodegenOptions {
             fp_contract: self.fp_contract,
+            escape: true,
         };
         let entry = self.entry_path();
         let report = self.verify_program()?;
@@ -1092,6 +1093,7 @@ impl Db {
         use yashy_codegen::{emit_program, CodegenOptions};
         let options = CodegenOptions {
             fp_contract: self.fp_contract,
+            escape: true,
         };
         let entry = self.entry_path();
         let report = self.verify_program()?;

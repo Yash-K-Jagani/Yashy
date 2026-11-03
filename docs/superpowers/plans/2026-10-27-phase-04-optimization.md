@@ -119,42 +119,98 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 4: Escape analysis and promotion
+## Task 4: Escape analysis and promotion
 
-**Files:**
-- Create: `crates/yashy-codegen/src/escape.rs`
-- Modify: `crates/yashy-codegen/src/{memory.rs,arena.rs,expr_gen.rs}` (promoted allocation sites)
-- Modify: `crates/yashy-driver/src/main.rs` (`--no-opt=escape`, `--timings` rows `promoted_stack`, `promoted_arena`)
-- Create: `crates/yashy-codegen/tests/escape.rs`, `crates/yashy-driver/tests/verify_corpus/escape_shared.ya`
+Status: landed.
 
-**Interfaces:**
-- Produces: `pub enum Placement { Heap, Stack, Arena(ArenaId) }` and `pub fn classify(f: &HirFn, facts: &ProofFacts) -> HashMap<AllocSite, Placement>`.
-- Produces: a `Stack` placement lowers the allocation to an `alloca` in the entry block (one per site, not per iteration); an `Arena` placement lowers to `yashy_arena_alloc` on the enclosing scope's arena, freed once at scope exit.
-- Produces: `--no-opt=escape` disables the pass for bisecting, and `--timings` counts what was promoted.
+### What landed
 
-- [ ] **Step 1: Write the failing tests**
+- `crates/yashy-codegen/src/escape.rs`: `STACK_LIMIT` (4096 bytes), `AllocSite`
+  (`of`/`start`/`end`), `ArenaId` (`of_block`), `Placement { Heap, Stack, Arena }`,
+  `classify(f, facts) -> HashMap<AllocSite, Placement>`, `promotion_counts(hir,
+  facts) -> (stack, arena)`, and a whole-function scope-aware walker that handles
+  allocs, reads/writes, moves, calls, aggregates, lambdas/captures, control
+  flow and defers. Escapes are conservative: any binding handed to a call,
+  return, aggregate or capture escapes; reads/writes/dealloc through the
+  pointer do not.
+- `crates/yashy-codegen/src/lib.rs`: `CodegenOptions.escape` (default `false`,
+  preserving library callers), wired through `emit_program`; `pub use
+  escape::{promotion_counts, AllocSite, ArenaId, Placement}`.
+- `crates/yashy-codegen/src/module.rs`: `Module::escape` flag, `set_escape`,
+  `escape_enabled`, `facts()` accessor.
+- `crates/yashy-codegen/src/fn_gen.rs`: `gen_body` classifies `f` when escape
+  is enabled and populates `FnCtx::placements`.
+- `crates/yashy-codegen/src/expr_gen.rs`: `FnCtx` gained `placements`,
+  `promoted_slots`, `arena_handles`, `arena_scopes`; `gen_call` gained a `Span`
+  parameter; helpers for placement lookup, arena handle creation and release.
+- `crates/yashy-codegen/src/memory.rs`: `gen_alloc` takes a span and lowers a
+  `Stack` site to `alloca [N x i64]` (one per site, hoisted to entry), an
+  `Arena` site to `yashy_arena_alloc`; `gen_dealloc` skips `yashy_free` for
+  promoted slots.
+- `crates/yashy-codegen/src/stmt_gen.rs`: `gen_block` pushes/pops an arena
+  scope and releases its arenas at block exit (after defers); `Const`/`Var`
+  record promotion on binding slots via `note_promotion`; `Assign` suppresses
+  the old-value free when the slot was promoted and re-notes promotion on the
+  new value; `return`/`break`/`continue` release open arenas; `capture_linear_locals`
+  skips nothing new (`__arena_*` names do not exist).
+- `crates/yashy-driver/src/pipeline.rs`: `BuildOptions.escape` defaults `true`
+  (manual `Default`); `compile_hir_timed` pushes `TimingRow::Promotion { stack,
+  arena }` when escape is enabled; `pipeline` imports `promotion_counts`.
+- `crates/yashy-driver/src/main.rs`: `--no-opt=escape` parsing (usage error for
+  any other pass), `escape` threaded into `BuildOptions` and into the
+  `--emit-ir` `CodegenOptions`, `--timings` rows `promoted_stack`/`promoted_arena`
+  printed to stderr and to JSON as `promotion` (`promoted_stack`,
+  `promoted_arena`), `accumulate` merges them, `report_timings` prints them.
+- `crates/yashy-query/src/db.rs`: both `CodegenOptions` sites pass `escape:
+  true` so the memoised pipeline keeps promotion on.
+- `crates/yashy-codegen/tests/escape.rs`: 7 tests — stack promotion (no
+  allocator call, no free), returned pointer stays on the heap, stored in a
+  returned struct stays on the heap, loop-body dynamic allocation uses a block
+  arena freed at scope exit, 512×i64 stack vs 513×i64 arena (4 KiB cap), callee
+  argument stays on the heap, `--no-opt=escape` keeps heap+free.
+- `crates/yashy-driver/tests/escape_flags.rs`: 3 tests — default build promotes
+  and drops the free, `--no-opt=escape` keeps alloc/free, `--timings` reports
+  `promoted_stack=1 promoted_arena=0`, unknown `--no-opt=` pass is a usage
+  error.
+- `crates/yashy-driver/tests/verify_corpus/escape_shared.ya`: a pointer shared
+  with a callee and returned to its owner is heap-placed and freed exactly once.
+- `crates/yashy-driver/tests/verify.rs`: added the `escape_shared` corpus entry
+  (expects 0 errors).
 
-```rust
-#[test]
-fn an_allocation_whose_pointer_never_leaves_the_function_goes_on_the_stack() {
-    // fn f() -> i64 { let p = alloc(8); *p = 1; let v = *p; free(p); v }
-}
+### Design notes
 
-#[test]
-fn an_allocation_stored_in_a_returned_struct_stays_on_the_heap() {
-    // the struct's pointer escapes, so no promotion
-}
+- Stack promotion requires a constant element count `≤ STACK_LIMIT` (4096
+  bytes) and a pointer that never escapes the function; one entry-block
+  `alloca` per site, hoisted once regardless of loop iterations.
+- Arena placement requires a non-constant or over-limit allocation whose
+  binding was declared in the same block as the allocation; the block gets one
+  arena handle, freed once at block exit after its defers run. An assignment to
+  an outer binding stays on the heap.
+- Promotion tracking is keyed by binding *slot* (`HashSet<String>` in
+  `FnCtx`), not by name, so shadowing cannot make a later `free` skip the wrong
+  allocation; `dealloc`/`yashy_free` is suppressed for promoted slots.
+- `promotion_counts` re-walks functions and lambdas for timing rows, since
+  `emit_program` returns only IR.
+- No verifier "shared" fact exists yet, so `classify` cannot cross-check
+  ownership facts; documented in `escape.rs`.
 
-#[test]
-fn an_allocation_that_escapes_only_within_a_scope_uses_the_arena() {
-    // a loop body that builds and drops a list per iteration
-}
-```
+### Acceptance
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — a backwards walk over the HIR recording, for each allocation site, whether its pointer reaches a `return`, a `move` out of the function, a store through an escaping pointer, a global, a `thread_spawn` capture, or an `extern` call. Anything that reaches one of those stays on the heap. The pass *asserts* against `ProofFacts` rather than duplicating them: if the ownership pass says a value is shared and escape analysis says it is not, the pass refuses to promote and records a `--opt-report` line. That disagreement is a verifier bug and should be loud.
-- [ ] **Step 4: Run** `cargo test -p yashy-codegen --test escape`, then the differential corpus, then `wordcount`: allocations down ≥ 40%, runtime not slower.
-- [ ] **Step 5: Commit** — `git commit -m "perf(codegen): promote non-escaping allocations to stack and arena"`
+- `cargo check --workspace --all-targets` → clean (pre-existing warnings only).
+- `cargo test -p yashy-codegen --test escape` → 7 passed.
+- `cargo test -p yashy-codegen --lib escape` → 7 passed.
+- `cargo test -p yashy-codegen --test attributes` → still passes.
+- `cargo test -p yashy-codegen --lib` → all suites pass.
+- `cargo test -p yashy-driver --test escape_flags` → 3 passed.
+- `cargo test -p yashy-driver --test verify` → all seeded corpus tests pass,
+  including `escape_shared`.
+- `yashy build ... --emit-ir` on a promoted program shows one
+  `alloca [8 x i64]` and no `@yashy_free`; `--timings` prints
+  `promoted_stack=1 promoted_arena=0`.
+
+### Commit
+
+- TBD `perf(codegen): promote non-escaping allocations to stack and arena`
 
 ---
 

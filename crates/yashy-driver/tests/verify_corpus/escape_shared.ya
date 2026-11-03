@@ -1,0 +1,18 @@
+// A pointer handed to a callee and handed back is shared across two functions,
+// so escape analysis must leave the allocation on the heap. The ownership rule
+// is satisfied because the callee returns the pointer it was given and `main`
+// frees it exactly once: the point of the program is that "shared" does not mean
+// "leaked", which is what lets the verifier accept it and promotion decline it.
+
+fn fill(p: *mut int) -> *mut int {
+    p[0] = 7;
+    return p;
+}
+
+fn main() {
+    let p = alloc(1);
+    let q = fill(p);
+    print(q[0]);
+    println("");
+    q.free();
+}

@@ -312,6 +312,9 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("repr_payload_enum", 1, &["E0106"]),
     ("offsetof_plain", 1, &["E0108"]),
     ("repr_ok", 0, &[]),
+    // A pointer shared with a callee and returned to its owner. Escape analysis
+    // keeps it on the heap, and the verifier still sees exactly one free.
+    ("escape_shared", 0, &[]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

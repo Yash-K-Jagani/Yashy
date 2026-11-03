@@ -35,16 +35,18 @@ use crate::toolchain::Linker;
 use std::process::Command;
 use std::time::Instant;
 
-use yashy_codegen::{check_main_exists, emit_program, host_target_triple, CodegenOptions};
+use yashy_codegen::{
+    check_main_exists, emit_program, host_target_triple, promotion_counts, CodegenOptions,
+};
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
-use yashy_verify::{verify, VerifyOptions, VerifyReport};
 use yashy_runtime::{
     HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
     RUNTIME_SOURCE_NAME,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
+use yashy_verify::{verify, VerifyOptions, VerifyReport};
 
 use crate::modules;
 use crate::toolchain::Toolchain;
@@ -72,17 +74,20 @@ pub enum TimingRow {
         /// when `--jobs 0`).
         threads: usize,
     },
+    /// Allocation sites escape analysis promoted out of the heap.
+    Promotion {
+        /// Sites that became an `alloca` in the function's entry block.
+        stack: usize,
+        /// Sites that became block-arena allocations.
+        arena: usize,
+    },
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
 ///
 /// A failing phase still gets a row: the time a stage took is exactly what a
 /// user is looking for when a build is slow *and* broken.
-pub fn timed<T>(
-    timings: &mut Vec<TimingRow>,
-    phase: &'static str,
-    work: impl FnOnce() -> T,
-) -> T {
+pub fn timed<T>(timings: &mut Vec<TimingRow>, phase: &'static str, work: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let value = work();
     timings.push(TimingRow::Phase {
@@ -420,7 +425,7 @@ fn cached_runtime_object(
 /// reads better than one passing `OptLevel::default()` and `CpuTarget::default()`
 /// positionally. [`BuildOptions::default`] is a portable, `-O2`,
 /// exact-semantics build.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
     /// The `clang` optimization level for the generated code. See [`OptLevel`].
     pub opt: OptLevel,
@@ -431,6 +436,11 @@ pub struct BuildOptions {
     /// target that has a fused multiply-add, which the portable baseline does
     /// not.
     pub fast_math: bool,
+    /// Promote non-escaping allocations; see [`CodegenOptions::escape`].
+    ///
+    /// On by default for a build: it changes where bytes live and never what a
+    /// program means. `--no-opt=escape` turns it off for bisecting.
+    pub escape: bool,
     /// A release build: `debug_assert` is not lowered. See
     /// [`yashy_sema::CheckOptions::release`].
     ///
@@ -438,6 +448,18 @@ pub struct BuildOptions {
     /// default, so a flag meaning "optimize harder" would be a no-op; this one
     /// answers a different question -- is this a build a user runs?
     pub release: bool,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            opt: OptLevel::default(),
+            cpu: CpuTarget::default(),
+            fast_math: false,
+            escape: true,
+            release: false,
+        }
+    }
 }
 
 /// The libraries this program asks for, as linker flags.
@@ -546,7 +568,14 @@ pub fn compile_to_binary(
         },
     )?;
 
-    compile_hir(&hir, entry_name, out, toolchain, options, &yashy_common::ProofFacts::empty())
+    compile_hir(
+        &hir,
+        entry_name,
+        out,
+        toolchain,
+        options,
+        &yashy_common::ProofFacts::empty(),
+    )
 }
 
 /// Load the entry point and its imports, then type-check the whole graph.
@@ -862,10 +891,15 @@ pub fn compile_hir_timed(
             entry_name,
             CodegenOptions {
                 fp_contract: options.fast_math,
+                escape: options.escape,
             },
             facts,
         )
     });
+    if options.escape {
+        let (stack, arena) = promotion_counts(hir, facts);
+        timings.push(TimingRow::Promotion { stack, arena });
+    }
 
     // The IR next to the output is a debugging aid, not a temporary: when a
     // program misbehaves, "what did we actually hand to LLVM?" is the first
