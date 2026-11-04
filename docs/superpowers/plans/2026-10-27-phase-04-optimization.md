@@ -308,11 +308,11 @@ Status: landed.
 - Produces: `--opt-list` prints the passes in order with the bench row each is held to; `--no-opt=escape` (Task 4) is one instance of the general form.
 - Produces: `yashy-bench --per-pass` prints `pass | row | baseline | current | delta | verdict` and fails if any pass regresses its own row by more than 2%.
 
-- [ ] **Step 1: Write the failing tests** — the pipeline is deterministic (two runs produce equal IR); disabling a pass changes only the IR that pass produces; an unknown `--no-opt` name is a usage error listing the valid names; `--per-pass` output has one row per pass per bench row.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the pass manager is a `Vec<Pass>` and a loop; the cost model is the bench table, not a heuristic inside the compiler. Later phases register their lowering here: phase 5's `arena` block, phase 8's monomorphised trait bodies, phase 10's async state-machine lowering. A construct that emits IR without registering a pass is caught by the test that every `HirExpr` variant has an owner.
-- [ ] **Step 4: Run** `cargo test -p yashy-codegen --test pass_order` and `yashy-bench --per-pass` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(codegen): a pass manager with a per-pass regression gate"`
+- [x] **Step 1: Write the failing tests** — the pipeline is deterministic (two runs produce equal IR); disabling a pass changes only the IR that pass produces; an unknown `--no-opt` name is a usage error listing the valid names; `--per-pass` output has one row per pass per bench row.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the pass manager is a `Vec<Pass>` and a loop; the cost model is the bench table, not a heuristic inside the compiler. Later phases register their lowering here: phase 5's `arena` block, phase 8's monomorphised trait bodies, phase 10's async state-machine lowering. A construct that emits IR without registering a pass is caught by the test that every `HirExpr` variant has an owner.
+- [x] **Step 4: Run** `cargo test -p yashy-codegen --test pass_order` and `yashy-bench --per-pass` → PASS (5 pass-order tests; the per-pass table and both exit codes verified on synthetic measurement files — ledger Task 8).
+- [x] **Step 5: Commit** — `241b910` `feat(codegen): a pass manager with a per-pass regression gate`
 
 ---
 
