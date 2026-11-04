@@ -8,6 +8,7 @@
 //! can call with plain values.
 
 pub mod modules;
+pub mod opt_report;
 pub mod pipeline;
 pub mod toolchain;
 
@@ -16,7 +17,7 @@ pub use modules::{
 };
 pub use pipeline::{
     check_and_verify, check_and_verify_timed, compile_hir, compile_hir_timed, compile_to_binary,
-    CommandKind, load_and_check, load_and_check_exports_timed, load_and_check_timed, resolve_opt,
-    timed, BuildOptions, CpuTarget, OptLevel, TimingRow,
+    load_and_check, load_and_check_exports_timed, load_and_check_timed, resolve_opt, timed,
+    BuildOptions, CommandKind, CpuTarget, OptLevel, TimingRow,
 };
 pub use toolchain::{detect, detect_with, Toolchain};

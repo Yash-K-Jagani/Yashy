@@ -41,6 +41,75 @@ pub struct EnumRepr {
     pub repr_c: bool,
 }
 
+/// The decision class one entry in an optimization report names.
+///
+/// The set is closed because the report is a schema, not a log: an agent that
+/// reads `--opt-report=json` switches on these words. A new kind is a new
+/// schema field, so it is added here with its spelling in one place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptKind {
+    /// A slice, fixed-array or view index kept its bounds check.
+    Bounds,
+    /// An integer operation kept its overflow, division or shift check.
+    Overflow,
+    /// An allocation reached the runtime allocator without a promotion
+    /// decision (promotion disabled, or a builtin that is never promoted).
+    Alloc,
+    /// A `call` to a C function, which has no body in this module.
+    NotInlined,
+    /// Escape analysis placed the allocation in the frame or a block arena.
+    Promoted,
+    /// Escape analysis ran and could not prove the allocation stays put.
+    NotPromoted,
+}
+
+impl OptKind {
+    /// The spelling the report uses.
+    pub fn name(self) -> &'static str {
+        match self {
+            OptKind::Bounds => "bounds",
+            OptKind::Overflow => "overflow",
+            OptKind::Alloc => "alloc",
+            OptKind::NotInlined => "not-inlined",
+            OptKind::Promoted => "promoted",
+            OptKind::NotPromoted => "not-promoted",
+        }
+    }
+}
+
+/// One reason a check or allocation survived into the emitted program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OptNote {
+    /// Which decision the note explains.
+    pub kind: OptKind,
+    /// The expression or allocation's span, in the enclosing function's file.
+    pub span: Span,
+    /// Why the decision went this way.
+    pub reason: String,
+    /// What a programmer could change, or `None` when nothing would help.
+    pub fix: Option<String>,
+}
+
+/// One function's entries in an optimization report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FnOptReport {
+    /// The function's source name; empty for a lambda.
+    pub name: String,
+    /// The file the function was written in.
+    pub file: FileId,
+    /// The function's own span.
+    pub span: Span,
+    /// The decisions, in the order the body was lowered.
+    pub items: Vec<OptNote>,
+}
+
+/// Everything one emission learned, in source order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OptReport {
+    /// Only functions that have something to say appear here.
+    pub functions: Vec<FnOptReport>,
+}
+
 /// A module under construction.
 pub struct Module {
     /// The body lines accumulated by `push`, in emission order.
@@ -134,6 +203,13 @@ pub struct Module {
     /// The linker symbols already declared, so two declarations that name one
     /// symbol emit one `declare`.
     extern_symbols: HashSet<String>,
+    /// Whether decision notes are collected; see [`Module::set_report`].
+    report: bool,
+    /// The functions whose bodies are open, innermost last. A lambda is lowered
+    /// while its enclosing function is still open, so notes need a stack.
+    open_reports: Vec<FnOptReport>,
+    /// Completed reports, in the order their functions closed.
+    reports: Vec<FnOptReport>,
 }
 
 impl Module {
@@ -162,6 +238,9 @@ impl Module {
             atomic_strings: false,
             externs: HashMap::new(),
             extern_symbols: HashSet::new(),
+            report: false,
+            open_reports: Vec::new(),
+            reports: Vec::new(),
         };
 
         // `io.Error` is a language builtin, so its layout is emitted in every
@@ -258,6 +337,75 @@ impl Module {
     /// Whether the verifier proved the shift count at `span` inside `0..bits`.
     pub fn is_shift_proven(&self, span: Span) -> bool {
         self.facts.is_shift_proven(span)
+    }
+
+    /// Turn decision-note collection on or off.
+    ///
+    /// Off for an ordinary build: the notes exist to explain a build, and
+    /// nothing in the emitted IR reads them. `emit_program_with_notes` turns it
+    /// on before the first body is lowered.
+    pub fn set_report(&mut self, enabled: bool) {
+        self.report = enabled;
+    }
+
+    /// Whether the emitter is collecting decision notes.
+    pub fn reporting(&self) -> bool {
+        self.report
+    }
+
+    /// Open a report for the function whose body is about to be lowered.
+    pub fn begin_fn_report(&mut self, name: &str, file: FileId, span: Span) {
+        if self.report {
+            self.open_reports.push(FnOptReport {
+                name: name.to_string(),
+                file,
+                span,
+                items: Vec::new(),
+            });
+        }
+    }
+
+    /// Close the innermost open function's report.
+    pub fn end_fn_report(&mut self) {
+        if let Some(report) = self.open_reports.pop() {
+            self.reports.push(report);
+        }
+    }
+
+    /// Record one decision against the innermost open function.
+    ///
+    /// A note outside a function is dropped: the report is grouped by function,
+    /// and a note with no group would be a schema entry the reader cannot act
+    /// on. Emitting a body is the only caller, so this is a guard, not a case.
+    pub fn note(
+        &mut self,
+        kind: OptKind,
+        span: Span,
+        reason: impl Into<String>,
+        fix: Option<String>,
+    ) {
+        if !self.report {
+            return;
+        }
+        if let Some(report) = self.open_reports.last_mut() {
+            report.items.push(OptNote {
+                kind,
+                span,
+                reason: reason.into(),
+                fix,
+            });
+        }
+    }
+
+    /// Take the finished report, in source order.
+    ///
+    /// Functions close in emission order, which a lambda inverts (a lambda
+    /// closes before the function that contains it). Source order is the
+    /// reading order and is stable across runs, so it is restored here.
+    pub fn take_opt_report(&mut self) -> OptReport {
+        let mut functions = std::mem::take(&mut self.reports);
+        functions.sort_by_key(|f| (f.file.index(), f.span.start));
+        OptReport { functions }
     }
 
     /// The parameter attributes the verifier proved for a function.

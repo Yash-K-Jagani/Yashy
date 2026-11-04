@@ -35,10 +35,10 @@
 //! tree carries them ([`yashy_sema::FaultSite`]); this module prints the numbers
 //! as constants, which is the only thing an IR emitter can do with a position.
 
-use yashy_sema::{BinOp, FaultSite, TypeKind, UnOp};
-use yashy_common::Span;
 use crate::expr_gen::{FnCtx, GenValue};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
+use yashy_common::Span;
+use yashy_sema::{BinOp, FaultSite, TypeKind, UnOp};
 
 /// The smallest `i64`, as LLVM wants it written.
 const I64_MIN: &str = "-9223372036854775808";
@@ -99,10 +99,7 @@ pub(crate) fn gen_arithmetic_builtin(
             // The bare operation, which is what C, Go and Rust-in-release emit
             // for `+`. Nothing else: no flag, no branch, no cold block.
             let tmp = ctx.tmp();
-            ctx.push(format!(
-                "{tmp} = {stem} i64 {}, {}",
-                lhs.value, rhs.value
-            ));
+            ctx.push(format!("{tmp} = {stem} i64 {}, {}", lhs.value, rhs.value));
             GenValue {
                 value: tmp,
                 ty: TypeKind::I64,
@@ -126,7 +123,9 @@ pub(crate) fn gen_arithmetic_builtin(
                 let product = ctx.tmp();
                 ctx.push(format!("{product} = extractvalue {{ i64, i1 }} {pair}, 0"));
                 let overflowed = ctx.tmp();
-                ctx.push(format!("{overflowed} = extractvalue {{ i64, i1 }} {pair}, 1"));
+                ctx.push(format!(
+                    "{overflowed} = extractvalue {{ i64, i1 }} {pair}, 1"
+                ));
                 let lhs_neg = ctx.tmp();
                 ctx.push(format!("{lhs_neg} = icmp slt i64 {}, 0", lhs.value));
                 let rhs_neg = ctx.tmp();
@@ -271,6 +270,12 @@ pub(crate) fn gen_checked_binary(
             if ctx.module.is_shift_proven(span) {
                 gen_shift(ctx, op, l, r, &l.ty)
             } else {
+                ctx.module.note(
+                    crate::module::OptKind::Overflow,
+                    span,
+                    "nothing proves the count is inside the type's width",
+                    Some("mask the count or add a `requires` clause that bounds it".to_string()),
+                );
                 gen_shift_checked(ctx, op, l, r, bits, site)
             }
         });
@@ -279,8 +284,41 @@ pub(crate) fn gen_checked_binary(
         return None;
     }
     match op {
-        BinOp::Add | BinOp::Sub | BinOp::Mul => Some(gen_overflow(ctx, op, l, r, site)),
-        BinOp::Div | BinOp::Rem => Some(gen_division(ctx, op, l, r, site)),
+        BinOp::Add | BinOp::Sub | BinOp::Mul => {
+            // Phase 3 records an `Overflow` obligation for every checked
+            // `+`/`-`/`*` and `-x`. A discharged one means the operand ranges
+            // fit, so the check is dead and the bare operation is exact.
+            if ctx.module.is_proven(span) {
+                return None;
+            }
+            ctx.module.note(
+                crate::module::OptKind::Overflow,
+                span,
+                format!("nothing proves this `{}` fits in `int`", symbol_of(op)),
+                Some(
+                    "add a `requires` clause that bounds the operands, or use a \
+                     `wrapping_*`/`checked_*` builtin when wraparound is intended"
+                        .to_string(),
+                ),
+            );
+            Some(gen_overflow(ctx, op, l, r, site))
+        }
+        BinOp::Div | BinOp::Rem => {
+            // Division is not modelled by the interval domain, so
+            // `is_proven` is true for every `Div`/`Rem` span. The check is
+            // never elided here; the note explains why it survived.
+            ctx.module.note(
+                crate::module::OptKind::Overflow,
+                span,
+                "the divisor may be zero or the quotient may overflow",
+                Some(
+                    "guard the divisor with a `requires` clause (the interval domain does \
+                     not prove division yet)"
+                        .to_string(),
+                ),
+            );
+            Some(gen_division(ctx, op, l, r, site))
+        }
         _ => None,
     }
 }
@@ -290,7 +328,13 @@ pub(crate) fn gen_checked_binary(
 ///
 /// Signedness lives in the type, not the operator, so `-8 >> 1` is `-4` and
 /// `248u8 >> 1` is `124` from the same source operator.
-fn gen_shift(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenValue, ty: &TypeKind) -> GenValue {
+fn gen_shift(
+    ctx: &mut FnCtx<'_>,
+    op: BinOp,
+    l: &GenValue,
+    r: &GenValue,
+    ty: &TypeKind,
+) -> GenValue {
     let mnemonic = match op {
         BinOp::Shl => "shl",
         _ => {
@@ -303,7 +347,10 @@ fn gen_shift(ctx: &mut FnCtx<'_>, op: BinOp, l: &GenValue, r: &GenValue, ty: &Ty
     };
     let repr = repr_type(ty);
     let tmp = ctx.tmp();
-    ctx.push(format!("{tmp} = {mnemonic} {repr} {}, {}", l.value, r.value));
+    ctx.push(format!(
+        "{tmp} = {mnemonic} {repr} {}, {}",
+        l.value, r.value
+    ));
     GenValue {
         value: tmp,
         ty: ty.clone(),
@@ -333,9 +380,7 @@ fn gen_shift_checked(
     ctx.push(format!("{in_range} = icmp ult {repr} {}, {bits}", r.value));
     let fault = fault_label(ctx);
     let merge = format!("{}_ok", ctx.alloc_label_base());
-    ctx.push(format!(
-        "br i1 {in_range}, label %{merge}, label %{fault}"
-    ));
+    ctx.push(format!("br i1 {in_range}, label %{merge}, label %{fault}"));
     let name = l.ty.to_string();
     let signed = l.ty.is_signed_integer();
     close_fault(ctx, &fault, |ctx| {
@@ -375,17 +420,30 @@ pub(crate) fn gen_checked_neg(
     op: UnOp,
     value: &GenValue,
     site: &FaultSite,
+    span: Span,
 ) -> Option<GenValue> {
     if !matches!(op, UnOp::Neg) || !matches!(value.ty, TypeKind::I64) {
         return None;
     }
+    // A discharged `Overflow` obligation for `-x` is the proof that `x` is not
+    // `i64::MIN`, so the subtraction from zero is exact.
+    if ctx.module.is_proven(span) {
+        return None;
+    }
+    ctx.module.note(
+        crate::module::OptKind::Overflow,
+        span,
+        "nothing proves `-x` fits in `int`",
+        Some("add a `requires` clause that bounds the operand".to_string()),
+    );
     let smallest = ctx.tmp();
-    ctx.push(format!("{smallest} = icmp eq i64 {}, {I64_MIN}", value.value));
+    ctx.push(format!(
+        "{smallest} = icmp eq i64 {}, {I64_MIN}",
+        value.value
+    ));
     let fault = fault_label(ctx);
     let merge = format!("{}_ok", ctx.alloc_label_base());
-    ctx.push(format!(
-        "br i1 {smallest}, label %{fault}, label %{merge}"
-    ));
+    ctx.push(format!("br i1 {smallest}, label %{fault}, label %{merge}"));
     close_fault(ctx, &fault, |ctx| {
         // `-x` is a subtraction from zero, and the message says so: the runtime
         // prints `<lhs> <symbol> <rhs>`, so passing zero as the left operand
@@ -470,7 +528,11 @@ fn gen_division(
     r: &GenValue,
     site: &FaultSite,
 ) -> GenValue {
-    let mnemonic = if matches!(op, BinOp::Div) { "sdiv" } else { "srem" };
+    let mnemonic = if matches!(op, BinOp::Div) {
+        "sdiv"
+    } else {
+        "srem"
+    };
     let by_zero = ctx.tmp();
     ctx.push(format!("{by_zero} = icmp eq i64 {}, 0", r.value));
     let smallest = ctx.tmp();
@@ -493,10 +555,7 @@ fn gen_division(
     });
     ctx.push(format!("{merge}:"));
     let value = ctx.tmp();
-    ctx.push(format!(
-        "{value} = {mnemonic} i64 {}, {}",
-        l.value, r.value
-    ));
+    ctx.push(format!("{value} = {mnemonic} i64 {}, {}", l.value, r.value));
     GenValue {
         value,
         ty: TypeKind::I64,
@@ -514,13 +573,7 @@ fn gen_division(
 /// The two numbers are the operands *by SSA name*, which is what makes the
 /// message show the values that were actually being combined rather than
 /// anything reconstructed from the source.
-fn operands(
-    ctx: &mut FnCtx<'_>,
-    symbol: &str,
-    lhs: &str,
-    rhs: &str,
-    site: &FaultSite,
-) -> String {
+fn operands(ctx: &mut FnCtx<'_>, symbol: &str, lhs: &str, rhs: &str, site: &FaultSite) -> String {
     let op = ctx.module.intern_bytes_ptr(symbol.as_bytes());
     let file = ctx.module.intern_bytes_ptr(site.file.as_bytes());
     format!(

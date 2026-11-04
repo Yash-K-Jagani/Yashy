@@ -108,6 +108,19 @@ pub enum Placement {
     Arena(ArenaId),
 }
 
+/// A placement and the reason escape analysis reached it.
+///
+/// The reason is the report's whole content: `--opt-report` prints it beside
+/// the allocation, so a programmer can see which fact was missing rather than
+/// only that the allocation stayed on the heap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Site {
+    /// Where the allocation lives.
+    pub placement: Placement,
+    /// Why, in a sentence.
+    pub reason: String,
+}
+
 /// What one pass over a function learned about its allocation sites.
 #[derive(Default)]
 struct Analysis<'f> {
@@ -141,6 +154,30 @@ struct SiteInfo {
     site_block: Option<u32>,
 }
 
+/// Where an allocation that is too big for the frame, or has no literal
+/// element count, can live, and why.
+///
+/// A block arena can take either kind only when the binding dies with the block
+/// that allocates it: an assignment to an outer binding outlives the arena.
+fn scope_placement(info: &SiteInfo) -> (Placement, &'static str) {
+    match (info.binding_block, info.site_block) {
+        (Some(binding), Some(site_block)) if binding == site_block => (
+            Placement::Arena(ArenaId(binding)),
+            "the pointer does not escape and the binding dies with the block \
+             that allocates it, so the block arena owns it",
+        ),
+        (Some(_), _) => (
+            Placement::Heap,
+            "the binding outlives the block that allocates it, so a block arena \
+             would free it too early",
+        ),
+        _ => (
+            Placement::Heap,
+            "the allocation is not bound to a name, so no scope owns its lifetime",
+        ),
+    }
+}
+
 /// Classify every `alloc` site in `f`.
 ///
 /// The result contains an entry for every site, including the ones that stay on
@@ -148,7 +185,19 @@ struct SiteInfo {
 /// values, and a caller that wants the default does not have to tell a missing
 /// entry from a deliberate one.
 pub fn classify(f: &HirFn, _facts: &ProofFacts) -> HashMap<AllocSite, Placement> {
-    analyse(f).placements()
+    classify_sites(f, _facts)
+        .into_iter()
+        .map(|(site, info)| (site, info.placement))
+        .collect()
+}
+
+/// Classify every `alloc` site and keep the reason, for `--opt-report`.
+///
+/// One walk answers both questions: the placement is the decision and the
+/// reason is why. A report that ran its own analysis could disagree with the
+/// compiler, which is worse than no report.
+pub fn classify_sites(f: &HirFn, _facts: &ProofFacts) -> HashMap<AllocSite, Site> {
+    analyse(f).sites()
 }
 
 /// Count the sites this pass would promote, for `--timings`.
@@ -160,8 +209,8 @@ pub fn classify(f: &HirFn, _facts: &ProofFacts) -> HashMap<AllocSite, Placement>
 pub fn promotion_counts(hir: &HirProgram, facts: &ProofFacts) -> (usize, usize) {
     fn count(f: &HirFn, facts: &ProofFacts, stack: &mut usize, arena: &mut usize) {
         let analysis = analyse(f);
-        for placement in analysis.placements().values() {
-            match placement {
+        for site in analysis.sites().values() {
+            match site.placement {
                 Placement::Stack => *stack += 1,
                 Placement::Arena(_) => *arena += 1,
                 Placement::Heap => {}
@@ -189,26 +238,44 @@ fn analyse<'f>(f: &'f HirFn) -> Analysis<'f> {
 }
 
 impl<'f> Analysis<'f> {
-    fn placements(&self) -> HashMap<AllocSite, Placement> {
+    fn sites(&self) -> HashMap<AllocSite, Site> {
         let mut out = HashMap::new();
         for (site, info) in &self.sites {
-            let placement = if info.escaped {
-                Placement::Heap
+            let (placement, reason) = if info.escaped {
+                (
+                    Placement::Heap,
+                    "the pointer escapes the function: it reaches a return, a \
+                     call, an aggregate, a move, or a capture"
+                        .to_string(),
+                )
             } else {
                 match info.constant_bytes {
-                    Some(bytes) if bytes <= STACK_LIMIT => Placement::Stack,
-                    _ => match (info.binding_block, info.site_block) {
-                        // A dynamic (or large) allocation can use the block's
-                        // arena only when the binding dies with the block. An
-                        // assignment to an outer binding outlives it.
-                        (Some(binding), Some(site_block)) if binding == site_block => {
-                            Placement::Arena(ArenaId(binding))
-                        }
-                        _ => Placement::Heap,
-                    },
+                    Some(bytes) if bytes <= STACK_LIMIT => (
+                        Placement::Stack,
+                        format!(
+                            "a literal count of {bytes} bytes fits in the frame \
+                             and the pointer does not escape"
+                        ),
+                    ),
+                    Some(bytes) => {
+                        // Too large for the frame. The block arena can still
+                        // own it when the binding dies with the block.
+                        let (placement, why) = scope_placement(info);
+                        (
+                            placement,
+                            format!(
+                                "a literal count of {bytes} bytes is larger than the \
+                                 {STACK_LIMIT}-byte frame limit; {why}"
+                            ),
+                        )
+                    }
+                    None => {
+                        let (placement, why) = scope_placement(info);
+                        (placement, why.to_string())
+                    }
                 }
             };
-            out.insert(*site, placement);
+            out.insert(*site, Site { placement, reason });
         }
         out
     }

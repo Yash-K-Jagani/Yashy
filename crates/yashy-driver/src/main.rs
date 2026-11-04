@@ -1,7 +1,7 @@
 //! The `yashy` command line interface.
 //!
 //! ```text
-//! yashy build <file.ya> [-o <out>] [--emit-ir] [--cpu <tier>] [--fast-math] [--release]
+//! yashy build <file.ya> [-o <out>] [--emit-ir] [--opt-report[=json]] [--cpu <tier>] [--fast-math] [--release]
 //! yashy run <file.ya> [build flags] [-- <program args>...]
 //! yashy check <file.ya>
 //! yashy test [path] [--filter <substring>] [--list]
@@ -25,7 +25,8 @@ use std::process::{Command, ExitCode, ExitStatus};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use yashy_codegen::{
-    check_main_exists, emit_program, host_target_triple, promotion_counts, CodegenOptions,
+    check_main_exists, emit_program, emit_program_with_notes, host_target_triple, promotion_counts,
+    CodegenOptions,
 };
 use yashy_common::{
     codes, Diagnostic, FileId, Json, Severity, SourceMap, Span, EXIT_COMPILE_ERROR, EXIT_INTERNAL,
@@ -33,8 +34,8 @@ use yashy_common::{
 };
 use yashy_driver::{
     check_and_verify_timed, compile_hir_timed, detect, load_and_check_exports_timed,
-    load_and_check_timed, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget, OptLevel,
-    TimingRow,
+    load_and_check_timed, opt_report, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget,
+    OptLevel, TimingRow,
 };
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
 
@@ -55,7 +56,7 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
   yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
@@ -88,6 +89,9 @@ usage:
   --pgo        build instrumented, run the program once, then rebuild with the
                profile; the data lives under `.yashy/pgo/` beside the output
   --emit-ir    print the generated LLVM IR to stdout and stop
+  --opt-report print why every check and allocation survived, grouped by
+               function, and stop; `--opt-report=json` prints the schema-v1
+               form for an agent
   --no-verify  build without proving the program sound; refused when the program
                has a contract or `YASHY_REQUIRE_VERIFY` is set, and stamps
                `<output>.unverified` beside the binary
@@ -201,6 +205,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut disabled: Vec<String> = Vec::new();
     // Print the registry and stop; no input is needed.
     let mut opt_list = false;
+    // `--opt-report` prints why decisions survived and stops. `None` is "not
+    // asked for"; the `bool` is whether the JSON form was requested.
+    let mut opt_report_flag: Option<bool> = None;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -230,6 +237,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
             "--opt-list" => opt_list = true,
+            "--opt-report" => opt_report_flag = Some(false),
             "--release" => release = true,
             "--no-lto" => no_lto = true,
             "--pgo" => pgo = true,
@@ -258,6 +266,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     }
                 } else if let Some(pass) = other.strip_prefix("--no-opt=") {
                     disabled.push(pass.to_string());
+                } else if let Some(value) = other.strip_prefix("--opt-report=") {
+                    match value {
+                        "json" => opt_report_flag = Some(true),
+                        _ => {
+                            return stopped(usage_error(
+                                "`--opt-report` takes no value, or `=json`",
+                            ))
+                        }
+                    }
                 } else if let Some(level) = OptLevel::parse(other) {
                     opt = Some(level);
                 } else if other.starts_with("-O") {
@@ -334,6 +351,24 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         return stopped(usage_error(
             "`--pgo` needs a binary to train; it cannot be combined with `--emit-ir`",
         ));
+    }
+    if opt_report_flag.is_some() {
+        if emit_ir {
+            return stopped(usage_error(
+                "`--opt-report` and `--emit-ir` both stop before linking; choose one",
+            ));
+        }
+        if no_verify {
+            return stopped(usage_error(
+                "`--opt-report` explains what the verifier proved; it cannot be combined \
+                 with `--no-verify`",
+            ));
+        }
+        if pgo {
+            return stopped(usage_error(
+                "`--pgo` needs a binary to train; it cannot be combined with `--opt-report`",
+            ));
+        }
     }
 
     let source = match read_source(&input) {
@@ -429,6 +464,33 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         if report.error_count() > 0 {
             return BuildOutcome { code, timings };
         }
+    }
+
+    // `--opt-report` is a front-end operation like `--emit-ir`: it explains the
+    // decisions of one emission and stops, so it needs no linker.
+    if let Some(as_json) = opt_report_flag {
+        let code = match check_main_exists(&hir.items) {
+            Ok(()) => {
+                let options = CodegenOptions {
+                    fp_contract: fast_math,
+                    escape,
+                    facts,
+                    intern,
+                };
+                let (_, notes) = timed(measured, "emit", || {
+                    emit_program_with_notes(&hir, &entry, options, &report.facts)
+                });
+                if as_json {
+                    let document = opt_report::json(&sources, &notes);
+                    println!("{}", document.render());
+                } else {
+                    print!("{}", opt_report::render(&sources, &notes));
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(diagnostic) => render(&sources, &[diagnostic]),
+        };
+        return BuildOutcome { code, timings };
     }
 
     // `--emit-ir` is a pure front-end operation, so it deliberately does not

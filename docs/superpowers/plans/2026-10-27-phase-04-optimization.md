@@ -336,10 +336,10 @@ Status: landed.
 - Produces: `--opt-report=json` with `{"schema_version":1,"tool":"yashy","functions":[{"name","file","span","items":[{"kind","span","reason","fix"}]}]}` — same schema discipline as every other command, so an agent can act on it.
 - Produces: every entry has a `kind` (`bounds`, `overflow`, `alloc`, `not-inlined`, `promoted`, `not-promoted`), a `reason`, and a `fix` that is `null` when no fix exists.
 
-- [ ] **Step 1: Write the failing tests** — a proven-in-bounds index produces no `bounds` entry; an unproven one produces exactly one, with the `requires` fix named; a promoted allocation reports `promoted` with its placement; `--opt-report=json` is stable across runs; the report is empty for a program with nothing to say (and says so in one line, not nothing).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the decision points already exist (phase 3 deletes checks; Task 4 classifies placements); this task adds a `Vec<OptNote>` to the emission context and renders it. No analysis is duplicated to produce a report — a report that runs its own analysis can disagree with the compiler, which is worse than no report.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test opt_report` → PASS.
+- [x] **Step 1: Write the failing tests** — a proven-in-bounds index produces no `bounds` entry; an unproven one produces exactly one, with the `requires` fix named; a promoted allocation reports `promoted` with its placement; `--opt-report=json` is stable across runs; the report is empty for a program with nothing to say (and says so in one line, not nothing).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the decision points already exist (phase 3 deletes checks; Task 4 classifies placements); this task adds a `Vec<OptNote>` to the emission context and renders it. No analysis is duplicated to produce a report — a report that runs its own analysis can disagree with the compiler, which is worse than no report.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test opt_report` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat(driver): --opt-report explains every check and allocation that survived"`
 
 ---

@@ -212,13 +212,16 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
 /// `env` is the environment pointer a closure reads its captures from, when
 /// the function is one. It is the SSA name the parameter was bound to.
 fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>) {
+    // The report is grouped by function, so the group opens before the first
+    // instruction and closes after the terminator. A lambda is its own group.
+    module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
         if ctx.module.escape_enabled() {
             // Classification is per function and reads only the HIR and the
             // verifier's facts; a lambda is its own function and gets its own
             // answer when its body is emitted.
-            let placements = crate::escape::classify(f, ctx.module.facts());
+            let placements = crate::escape::classify_sites(f, ctx.module.facts());
             ctx.placements = placements;
         }
         ctx.entry_point = entry_point;
@@ -263,4 +266,5 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
         // Every alloca the body asked for lands here, directly after `entry:`.
         ctx.finish();
     }
+    module.end_fn_report();
 }

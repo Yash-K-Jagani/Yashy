@@ -12,6 +12,7 @@ use yashy_sema::{linearity_of, HirExpr, Linearity, Literal, Type, TypeKind};
 use crate::escape::{AllocSite, Placement};
 use crate::expr_gen::{gen_expr, FnCtx, GenValue};
 use crate::ir::repr_type;
+use crate::module::OptKind;
 
 /// The size, in bytes, of one `i64` element of an allocation.
 pub const I64_SIZE: i64 = 8;
@@ -31,7 +32,49 @@ pub const I64_ALIGN: i64 = 8;
 /// memory is uninitialised, and the checker has already guaranteed that the one
 /// allocation reaches exactly one `dealloc` or one `move`.
 pub fn gen_alloc(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind, span: Span) -> GenValue {
-    match ctx.placement(AllocSite::of(span)) {
+    let site = AllocSite::of(span);
+    let placement = ctx.placement(site);
+    // The report explains the decision here, where the decision is made. The
+    // reason comes from the same analysis that chose the placement, so the note
+    // cannot drift from the IR.
+    if ctx.module.reporting() {
+        match placement {
+            Placement::Stack => ctx.module.note(
+                OptKind::Promoted,
+                span,
+                format!(
+                    "promoted to the stack: {}",
+                    ctx.placement_reason(site).unwrap_or("no escape")
+                ),
+                None,
+            ),
+            Placement::Arena(_) => ctx.module.note(
+                OptKind::Promoted,
+                span,
+                format!(
+                    "promoted to a block arena: {}",
+                    ctx.placement_reason(site).unwrap_or("no escape")
+                ),
+                None,
+            ),
+            Placement::Heap => match ctx.placement_reason(site) {
+                Some(reason) => {
+                    ctx.module
+                        .note(OptKind::NotPromoted, span, reason.to_string(), None)
+                }
+                None => ctx.module.note(
+                    OptKind::Alloc,
+                    span,
+                    "escape promotion is disabled, so the runtime allocator owns it",
+                    Some(
+                        "build without `--no-opt=escape` to let escape analysis promote it"
+                            .to_string(),
+                    ),
+                ),
+            },
+        }
+    }
+    match placement {
         Placement::Stack => {
             // Escape analysis only chooses the stack for a positive literal
             // count, so the array's length is known here. A site that somehow

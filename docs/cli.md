@@ -33,6 +33,7 @@ yashy build main.ya --emit-ir
 | `--fast-math` | Allow fused multiply-add; results may differ. |
 | `--no-opt=<pass>` | Disable one registered optimization pass for bisecting. See [Optimization passes](#optimization-passes). |
 | `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |
+| `--opt-report[=json]` | Explain every check and allocation that survived, grouped by function, and stop. See [The optimization report](#the-optimization-report). |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
@@ -69,8 +70,8 @@ The instrumented binary is a build artifact beside the requested output, and
 the profile lives under `<output-dir>/.yashy/pgo/`. Nothing is written outside
 that directory. A training run that exits non-zero, or one that writes no
 counter file, is an error rather than a profile built from a program that could
-not finish. `--pgo` is refused with `--emit-ir` because there is no binary to
-train.
+not finish. `--pgo` is refused with `--emit-ir` and `--opt-report` because there
+is no binary to train.
 
 The training corpus is checked in under [`benchmarks/pgo/`](../benchmarks/pgo);
 [`scripts/pgo.ps1`](../scripts/pgo.ps1) and
@@ -107,6 +108,33 @@ that turns an expression into a call or a field into an offset, because there
 would be no program left to measure. `yashy_codegen::pass::owner` names the
 owner of each expression form, and its exhaustive match is the check that every
 construct has an owner — a new form fails to compile until that is decided.
+
+## The optimization report
+
+`--opt-report` prints why each check and allocation survived the passes,
+grouped by function, and stops without linking:
+
+```text
+$ yashy build main.ya --opt-report
+main.ya:5  fn wordcount
+  promoted              alloc(4)          promoted to the stack: a literal count of 32 bytes fits in the frame and the pointer does not escape
+  bounds check kept     xs[0]             the verifier could not prove this index is inside the slice
+                                          fix: add `requires index < xs.len()` or iterate with `for x in xs`
+  overflow check kept   p[0] + bump       nothing proves this `+` fits in `int`
+                                          fix: add a `requires` clause that bounds the operands, or use a `wrapping_*`/`checked_*` builtin when wraparound is intended
+  call not inlined      unsafe labs(t...  `labs` is a C function declared `extern`; this module has its declaration and no body
+```
+
+Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`,
+`promoted`, or `not-promoted` — a reason, and a fix when one exists. The report
+is recorded while the body is lowered, so it cannot disagree with the IR: a
+check that was deleted has no entry, and an allocation that moved to the frame
+says so. `--opt-report=json` prints the same record as schema v1
+(`{"schema_version":1,"tool":"yashy","functions":[…]}`, with `fix: null` where
+nothing would help) for an agent. A program with nothing to explain prints one
+line in the human form and `"functions": []` in JSON. The report needs the
+verifier's facts, so it refuses `--no-verify`, and it stops before linking, so
+it also refuses `--emit-ir` and `--pgo`.
 
 The per-pass gate is `yashy-bench --per-pass`. It compares the all-passes
 measurement with one taken with a single pass disabled and fails when disabling
@@ -241,7 +269,7 @@ A verified build removes a stale stamp. If the stamp cannot be written, the
 binary is removed too and the build fails: an unverified binary must not exist
 without one.
 
-The flag is refused, as a usage error (`2`) rather than a diagnostic, in three
+The flag is refused, as a usage error (`2`) rather than a diagnostic, in four
 cases, because nothing is wrong with the program:
 
 - the program has a `requires`, `ensures` or loop `invariant`; the message names
@@ -250,7 +278,9 @@ cases, because nothing is wrong with the program:
 - `YASHY_REQUIRE_VERIFY` is set (to anything but empty, `0` or `false`), so a CI
   can demand proof without trusting every command line it runs;
 - `--emit-ir` is also given, because IR is not a binary and there is nothing to
-  stamp.
+  stamp;
+- `--opt-report` is also given, because the report explains what the verifier
+  proved and has nothing to say when the proof was skipped.
 
 `run --no-verify` forwards the flag to `build`. The temporary binary and its
 stamp live in the run directory and are removed with it; `run` keeps no binary.

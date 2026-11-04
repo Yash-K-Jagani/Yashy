@@ -58,9 +58,9 @@ use yashy_sema::{
     expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp,
 };
 
-use crate::escape::{AllocSite, ArenaId, Placement};
+use crate::escape::{AllocSite, ArenaId, Placement, Site};
 use crate::ir::{field_repr, repr_type};
-use crate::module::Module;
+use crate::module::{Module, OptKind};
 
 /// Run every pending deferred body in every active scope, innermost first, then
 /// clear them all. Used on the panic/exit path, where no scope exits normally.
@@ -199,11 +199,11 @@ pub struct FnCtx<'a> {
     /// The environment pointer this function reads its captures from, when it
     /// is a closure. The name is the SSA value the parameter was bound to.
     pub(crate) env: Option<String>,
-    /// Where escape analysis said each allocation site should live.
+    /// Where escape analysis said each allocation site should live, and why.
     ///
     /// Empty when promotion is disabled, which is why an absent entry means
     /// `Heap`: the conservative answer is also the old one.
-    pub(crate) placements: HashMap<AllocSite, Placement>,
+    pub(crate) placements: HashMap<AllocSite, Site>,
     /// Binding slots that hold a promoted allocation.
     ///
     /// Keyed by slot rather than by name so shadowing an outer binding cannot
@@ -507,8 +507,13 @@ impl<'a> FnCtx<'a> {
     pub(crate) fn placement(&self, site: AllocSite) -> Placement {
         self.placements
             .get(&site)
-            .copied()
+            .map(|info| info.placement)
             .unwrap_or(Placement::Heap)
+    }
+
+    /// Why escape analysis chose this site's placement, when it ran.
+    pub(crate) fn placement_reason(&self, site: AllocSite) -> Option<&str> {
+        self.placements.get(&site).map(|info| info.reason.as_str())
     }
 
     /// Record that `slot` holds a promoted allocation.
@@ -888,8 +893,12 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             ..
         } => gen_binary(ctx, *op, lhs, rhs, fault.as_ref(), *span),
         HirExpr::Unary {
-            op, operand, fault, ..
-        } => gen_unary(ctx, *op, operand, fault.as_ref()),
+            op,
+            operand,
+            fault,
+            span,
+            ..
+        } => gen_unary(ctx, *op, operand, fault.as_ref(), *span),
         HirExpr::Move(inner, _, ty) => crate::memory::gen_move(ctx, inner, &ty.kind),
         HirExpr::Call {
             callee,
@@ -986,12 +995,31 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                 // one.
                 TypeKind::Slice(_) => {
                     let proven = ctx.module.is_proven(*span);
+                    if !proven {
+                        ctx.module.note(
+                            OptKind::Bounds,
+                            *span,
+                            "the verifier could not prove this index is inside the slice",
+                            Some(
+                                "add `requires index < xs.len()` or iterate with `for x in xs`"
+                                    .to_string(),
+                            ),
+                        );
+                    }
                     return crate::slices::gen_index(ctx, base, index, &ty.kind, proven);
                 }
                 // A fixed array or a view is checked against a length the
                 // backend already has: a constant in the type, or the word the
                 // view carries.
                 TypeKind::FixedArray(_, _) | TypeKind::View(_) => {
+                    if ctx.module.reporting() {
+                        ctx.module.note(
+                            OptKind::Bounds,
+                            *span,
+                            "a fixed-array or view index is checked against its length",
+                            None,
+                        );
+                    }
                     return crate::fixed::gen_index(ctx, base, index, &ty.kind);
                 }
                 _ => {}
@@ -1295,10 +1323,11 @@ fn gen_unary(
     op: UnOp,
     operand: &HirExpr,
     fault: Option<&FaultSite>,
+    span: Span,
 ) -> GenValue {
     let value = gen_expr(ctx, operand);
     if let Some(site) = fault {
-        if let Some(checked) = crate::faults::gen_checked_neg(ctx, op, &value, site) {
+        if let Some(checked) = crate::faults::gen_checked_neg(ctx, op, &value, site, span) {
             return checked;
         }
     }
@@ -1696,7 +1725,17 @@ fn gen_call(
         // the runtime counts bytes, so the shape changes here.
         "alloc" => crate::memory::gen_alloc(ctx, args, ty, span),
         "dealloc" => crate::memory::gen_dealloc(ctx, args),
-        "alloc_bytes" => crate::memory::gen_alloc_bytes(ctx, args),
+        "alloc_bytes" => {
+            if ctx.module.reporting() {
+                ctx.module.note(
+                    OptKind::Alloc,
+                    span,
+                    "byte buffer: `alloc_bytes` always takes fresh heap memory, so it is not promoted",
+                    None,
+                );
+            }
+            crate::memory::gen_alloc_bytes(ctx, args)
+        }
         "read_bytes" => crate::file::gen_read_bytes(ctx, args, ty),
         "write_bytes" => crate::file::gen_write_bytes(ctx, args),
         "push" => crate::slices::gen_push(ctx, args),
@@ -1980,6 +2019,17 @@ fn gen_call(
             // declaration in scope under this name.
             if let Some(decl) = ctx.module.extern_decl(&name).cloned() {
                 let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+                if ctx.module.reporting() {
+                    ctx.module.note(
+                        OptKind::NotInlined,
+                        span,
+                        format!(
+                            "`{name}` is a C function declared `extern`; this module has \
+                             its declaration and no body"
+                        ),
+                        None,
+                    );
+                }
                 let value = crate::ffi::gen_ffi_call(ctx, &decl, &lowered, unsafe_call);
                 return GenValue {
                     value,

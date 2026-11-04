@@ -37,7 +37,7 @@ pub use ffi::gen_ffi_call;
 pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
-pub use module::{Module, VariantRepr};
+pub use module::{FnOptReport, Module, OptKind, OptNote, OptReport, VariantRepr};
 pub use pass::{pipeline, Pass, PassCtx, PassStats};
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_all_scopes_defers, run_defers, Flow};
@@ -129,9 +129,34 @@ pub fn emit_program(
     options: CodegenOptions,
     facts: &yashy_common::ProofFacts,
 ) -> String {
+    emit(hir, entry, options, facts, false).0
+}
+
+/// Emit a whole program and the reasons behind every decision that survived.
+///
+/// The IR is identical to [`emit_program`]'s for the same inputs; the second
+/// value is the note log the driver renders as `--opt-report`. Collecting is
+/// opt-in because the notes are a report about a build, not part of one.
+pub fn emit_program_with_notes(
+    hir: &HirProgram,
+    entry: &str,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+) -> (String, module::OptReport) {
+    emit(hir, entry, options, facts, true)
+}
+
+fn emit(
+    hir: &HirProgram,
+    entry: &str,
+    options: CodegenOptions,
+    facts: &yashy_common::ProofFacts,
+    record: bool,
+) -> (String, module::OptReport) {
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
+    module.set_report(record);
     // The registered passes, in their one order. A pass reads its switch from
     // `options`, so disabling one changes only what that pass contributes.
     {
@@ -246,7 +271,8 @@ pub fn emit_program(
             module.push(line);
         }
     }
-    module.finish()
+    let ir = module.finish();
+    (ir, module.take_opt_report())
 }
 
 /// The `fn main` item, when the program has one.
