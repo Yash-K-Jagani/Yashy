@@ -228,6 +228,21 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// The kind of the token `offset` positions ahead of the next one.
+    ///
+    /// The fixed `peek_second`/`peek_third` pair covers the common case; this
+    /// is for the one question that needs to scan a whole bracketed list --
+    /// telling `const (a, b) = pair` (a destructuring binding) from
+    /// `const (int, string) pair = t` (a tuple type before a name). Both
+    /// start with `(`; only the token after the matching `)` distinguishes
+    /// them.
+    pub fn peek_nth(&self, offset: usize) -> TokenKind {
+        match self.tokens.get(self.pos.saturating_add(offset)) {
+            Some(t) => t.kind,
+            None => TokenKind::Eof,
+        }
+    }
+
     /// True when the next token is `Eof` or the stream has run out.
     pub fn at_eof(&self) -> bool {
         self.peek().is_eof()
@@ -894,10 +909,7 @@ mod tests {
         match parser.parse_block() {
             Ok(_) => panic!("the closing brace was consumed closing the paren"),
             Err(e) => {
-                assert_eq!(
-                    e.message,
-                    "expected an expression"
-                );
+                assert_eq!(e.message, "expected an expression");
                 assert_eq!(e.span, Span::new(4, 5), "at the `(` that was left open");
             }
         }

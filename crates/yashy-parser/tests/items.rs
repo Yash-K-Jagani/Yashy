@@ -763,8 +763,10 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
     }
 
     // A parameter without a type is a diagnostic: annotations are required at
-    // the boundaries (spec 3.2), and the message names the missing `:`.
-    assert!(all_messages(&parse_err("fn f(a) { }")).contains("`:`"));
+    // the boundaries (spec 3.2). The new order reads the first name as a type
+    // and looks for a parameter name after it, so the message states the order
+    // rather than naming a missing `:`.
+    assert!(all_messages(&parse_err("fn f(a) { }")).contains("type name"));
     assert!(all_messages(&parse_err("fn f(a: int { }")).contains("`)`"));
 }
 

@@ -7,7 +7,9 @@
 use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
-use crate::ast::{BinOp, BindingKeyword, Block, Contract, Expr, Literal, Pattern, Stmt, SwitchArm};
+use crate::ast::{
+    BinOp, BindingKeyword, Block, Contract, Expr, Literal, Pattern, Stmt, SwitchArm, TypeExpr,
+};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -51,22 +53,19 @@ impl<'src> Parser<'src> {
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Defer => self.parse_defer(),
-            TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => self.parse_binding_stmt(),
+            TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => {
+                self.parse_binding_stmt()
+            }
             _ => self.parse_expr_stmt(),
         }
     }
 
     fn parse_const(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Const)?;
-        if self.check(TokenKind::LParen) {
+        if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
             return self.parse_destructure(BindingKeyword::Const, kw.span);
         }
-        let (name, _) = self.identifier()?;
-        let ty = if self.eat(TokenKind::Colon) {
-            Some(self.parse_type_expr()?)
-        } else {
-            None
-        };
+        let (name, ty) = self.parse_binding_head()?;
         self.expect(TokenKind::Eq)?;
         let init = self.parse_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
@@ -80,15 +79,10 @@ impl<'src> Parser<'src> {
 
     fn parse_let(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Let)?;
-        if self.check(TokenKind::LParen) {
+        if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
             return self.parse_destructure(BindingKeyword::Let, kw.span);
         }
-        let (name, _) = self.identifier()?;
-        let ty = if self.eat(TokenKind::Colon) {
-            Some(self.parse_type_expr()?)
-        } else {
-            None
-        };
+        let (name, ty) = self.parse_binding_head()?;
         self.expect(TokenKind::Eq)?;
         let init = self.parse_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
@@ -98,6 +92,65 @@ impl<'src> Parser<'src> {
             init,
             span: cover(kw.span, semi.span),
         })
+    }
+
+    /// The binding between `let`/`const` and `=`.
+    ///
+    /// Two orders are accepted while the tree is being migrated. The new one
+    /// writes the type first, `let int x = 5`; the old one writes the name
+    /// first, `let x: int = 5`. They are told apart by two tokens of lookahead:
+    /// an identifier followed by `=` has no written type, and an identifier
+    /// followed by `:` is the old order. Everything else can only start a
+    /// type, so `let []int xs`, `let *mut P p` and `let (int, string) pair`
+    /// take the type-first path without guessing.
+    fn parse_binding_head(&mut self) -> Result<(String, Option<TypeExpr>), ParseError> {
+        if self.check(TokenKind::Ident) {
+            match self.peek_second() {
+                TokenKind::Eq => {
+                    let (name, _) = self.identifier()?;
+                    return Ok((name, None));
+                }
+                TokenKind::Colon => {
+                    let (name, _) = self.identifier()?;
+                    self.expect(TokenKind::Colon)?;
+                    let ty = self.parse_type_expr()?;
+                    return Ok((name, Some(ty)));
+                }
+                _ => {}
+            }
+        }
+        let ty = self.parse_type_expr()?;
+        let (name, _) = self.identifier()?;
+        Ok((name, Some(ty)))
+    }
+
+    /// True when the `(` at the cursor opens a destructuring binding rather
+    /// than the parenthesised type at the head of a typed binding.
+    ///
+    /// `const (a, b) = pair;` closes its list and then writes `=`.
+    /// `const (int, string) pair = t;` closes the *type* and then writes the
+    /// bound name. The token after the matching `)` is the whole difference,
+    /// so it is all this looks at.
+    fn paren_opens_destructure(&self) -> bool {
+        let mut depth = 0usize;
+        let mut offset = 0usize;
+        loop {
+            match self.peek_nth(offset) {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return self.peek_nth(offset + 1) == TokenKind::Eq;
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+            offset += 1;
+            if offset > 4096 {
+                return false;
+            }
+        }
     }
 
     /// The rest of `const (a, b) = pair;` once the keyword is consumed.
@@ -365,7 +418,10 @@ impl<'src> Parser<'src> {
                 None
             };
             let body = self.parse_switch_arm_body()?;
-            let arm_span = cover(crate::exprs::pattern_span(&pattern), crate::exprs::expr_span(&body));
+            let arm_span = cover(
+                crate::exprs::pattern_span(&pattern),
+                crate::exprs::expr_span(&body),
+            );
             // extend to braces? body already includes. fine.
             let _ = arm_start;
             arms.push(SwitchArm {
@@ -461,7 +517,11 @@ impl<'src> Parser<'src> {
                 });
             }
             // Unit variant vs binding: uppercase -> variant
-            let is_variant = name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+            let is_variant = name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false);
             if is_variant {
                 // dotted path support
                 let mut path = vec![name];
@@ -512,8 +572,10 @@ impl<'src> Parser<'src> {
                     "a `case` pattern cannot be a `${ ... }` string: a pattern is matched against a value, not built at run time",
                 ));
             }
-            let lit = yashy_lexer::StringLit::decode(&raw)
-                .unwrap_or(yashy_lexer::StringLit { value: String::new(), bytes: Vec::new() });
+            let lit = yashy_lexer::StringLit::decode(&raw).unwrap_or(yashy_lexer::StringLit {
+                value: String::new(),
+                bytes: Vec::new(),
+            });
             return Ok(Pattern::Literal(Literal::Str(lit), tok.span));
         }
         Err(self.expected_error(TokenKind::Ident))
@@ -615,6 +677,3 @@ impl<'src> Parser<'src> {
     // Shared switch parsing used by both statement and expression forms.
     // Returns (subject, arms, span) for expression? We'll implement separately.
 }
-
-
-

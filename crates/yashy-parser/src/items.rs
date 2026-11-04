@@ -151,10 +151,7 @@ impl<'src> Parser<'src> {
     fn attach_repr(&mut self, item: Item, repr_span: Span) -> Result<Item, ParseError> {
         match item {
             Item::Struct {
-                name,
-                fields,
-                span,
-                ..
+                name, fields, span, ..
             } => Ok(Item::Struct {
                 name,
                 fields,
@@ -212,7 +209,10 @@ impl<'src> Parser<'src> {
     }
 
     /// `pure fn f() { ... }` / `io fn f() { ... }` / `unsafe fn f() { ... }`.
-    fn parse_effect_item(&mut self, effect: yashy_common::DeclaredEffect) -> Result<Item, ParseError> {
+    fn parse_effect_item(
+        &mut self,
+        effect: yashy_common::DeclaredEffect,
+    ) -> Result<Item, ParseError> {
         let keyword = match effect {
             yashy_common::DeclaredEffect::Pure => self.expect(TokenKind::Pure)?,
             yashy_common::DeclaredEffect::Io => self.expect(TokenKind::Io)?,
@@ -677,42 +677,54 @@ impl<'src> Parser<'src> {
         Ok(params)
     }
 
-    /// `a: P` -- one parameter of a function.
+    /// `int a` -- one parameter of a function.
     ///
     /// Always named and always annotated (spec §3.2): the annotation is required
     /// at the boundary, which is exactly where inference has nothing to infer
-    /// from.
+    /// from. The type is written first, `int a`; while the tree is being
+    /// migrated the old `a: int` order is still read, and is told apart by the
+    /// colon after the name.
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
-        let (name, name_span) = self.identifier()?;
-        if name == "self" {
-            // `self` is the receiver, and its type is the type the `impl`
-            // block is for. The name `Self` is what the checker resolves to
-            // that type, so the parameter needs no annotation of its own.
-            //
-            // A receiver *may* carry an annotation when it is written
-            // `self: *mut T`: that is a pointer receiver, which receives the
-            // object's address so it can mutate it. The spelling is parsed
-            // here and judged by the checker, which knows the `impl` block's
-            // type.
-            if self.eat(TokenKind::Colon) {
-                let ty = self.parse_type_expr()?;
-                return Ok(Param {
-                    span: cover(name_span, ty_span(&ty)),
-                    name,
-                    ty,
-                });
-            }
+        // Old order, and the annotated receiver `self: *mut T`. Both put the
+        // name first and are recognised by the colon that follows it.
+        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {
+            let (name, name_span) = self.identifier()?;
+            self.expect(TokenKind::Colon)?;
+            let ty = self.parse_type_expr()?;
             return Ok(Param {
+                span: cover(name_span, ty_span(&ty)),
                 name,
-                ty: TypeExpr::Name("Self".to_string(), name_span),
-                span: name_span,
+                ty,
             });
         }
-        self.expect(TokenKind::Colon)?;
+        // A bare name can only be the receiver: every other parameter has a
+        // type, and a type-first parameter is followed by its own name.
+        if self.check(TokenKind::Ident)
+            && matches!(self.peek_second(), TokenKind::Comma | TokenKind::RParen)
+        {
+            let (name, name_span) = self.identifier()?;
+            if name == "self" {
+                // `self` is the receiver, and its type is the type the `impl`
+                // block is for. The name `Self` is what the checker resolves
+                // to that type, so the parameter needs no annotation of its
+                // own.
+                return Ok(Param {
+                    name,
+                    ty: TypeExpr::Name("Self".to_string(), name_span),
+                    span: name_span,
+                });
+            }
+            return Err(self.error(
+                name_span,
+                "a parameter is written `type name`: the type comes before the name",
+            ));
+        }
+        // Type-first: `int a`, `[]T xs`, `*mut P p`, `fn(int) -> int f`.
         let ty = self.parse_type_expr()?;
+        let (name, name_span) = self.identifier()?;
         Ok(Param {
+            span: cover(ty_span(&ty), name_span),
             name,
-            span: cover(name_span, ty_span(&ty)),
             ty,
         })
     }
@@ -725,7 +737,7 @@ impl<'src> Parser<'src> {
     /// opened it.
     fn parse_params_after_open(&mut self) -> Result<(Vec<Param>, Span), ParseError> {
         let mut params = Vec::new();
-        while !self.check(TokenKind::RParen) {
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
             // `...` is the C variadic marker; a Yashy `fn` has a fixed
             // signature, so the marker belongs only to an `extern`
             // declaration, which reads its parameters with its own loop.
@@ -750,7 +762,7 @@ impl<'src> Parser<'src> {
     fn parse_extern_params_after_open(&mut self) -> Result<(Vec<Param>, bool, Span), ParseError> {
         let mut params = Vec::new();
         let mut variadic = false;
-        while !self.check(TokenKind::RParen) {
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
             if self.check(TokenKind::DotDotDot) {
                 let span = self.peek_span();
                 self.advance();
