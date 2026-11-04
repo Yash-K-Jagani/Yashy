@@ -340,7 +340,7 @@ Status: landed.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — the decision points already exist (phase 3 deletes checks; Task 4 classifies placements); this task adds a `Vec<OptNote>` to the emission context and renders it. No analysis is duplicated to produce a report — a report that runs its own analysis can disagree with the compiler, which is worse than no report.
 - [x] **Step 4: Run** `cargo test -p yashy-driver --test opt_report` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(driver): --opt-report explains every check and allocation that survived"`
+- [x] **Step 5: Commit** — `5184b11` `feat(driver): --opt-report explains every check and allocation that survived`
 
 ---
 
