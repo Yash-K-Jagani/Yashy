@@ -112,6 +112,10 @@ that means the pass costs the row it claims to win. The `-NoOpt` and
 `no_opt=<pass>` in the measurement, so the two files are distinguishable after
 the fact.
 
+To see *why* a given row still carries a check or an allocation, run
+`yashy build <file.ya> --opt-report`; [docs/optimization.md](../docs/optimization.md)
+explains every entry and the contract that removes it.
+
 ## The programs
 
 | Program | Source | Measures |

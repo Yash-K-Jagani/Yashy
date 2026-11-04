@@ -94,6 +94,7 @@ fn quickstart_and_reference_links_resolve() {
         "README.md",
         "docs/quickstart.md",
         "docs/cli.md",
+        "docs/optimization.md",
         "docs/errors.md",
         "docs/release-notes-template.md",
         "docs/tutorial/00-intro.md",

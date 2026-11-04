@@ -86,6 +86,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 | `crates/yashy-lexer` | bytes to tokens |
 | `crates/yashy-parser` | tokens to AST |
 | `crates/yashy-sema` | name resolution, types, exhaustiveness, ownership |
+| `crates/yashy-query` | memoised pipeline: content-hashed query cache and parallel front end |
 | `crates/yashy-codegen` | typed AST to textual LLVM IR |
 | `crates/yashy-runtime` | the C shim linked into every program |
 | `crates/yashy-driver` | CLI, pipeline, toolchain and stdlib discovery |
@@ -111,7 +112,8 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **Optimization is a phase, not a habit.** Do not add a backend trick, an
   attribute or an `inline` keyword to make one benchmark faster. The optimizer
   spends what the verifier proved (phase 4); a pass is registered in the pass
-  manager and held to its own benchmark row.
+  manager and held to its own benchmark row, and `--opt-report` explains every
+  check and allocation that survived.
 - **Tests are ordinary programs.** A file under `tests/` is a Yashy program
   with a `main`; exit 0 is a pass. Do not add `#[test]` attributes or test
   macros.
@@ -149,6 +151,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - [Tutorial](docs/tutorial/00-intro.md)
 - [First CLI](docs/tutorial/12-first-cli.md)
 - [CLI reference](docs/cli.md)
+- [Optimization](docs/optimization.md)
 - [Error catalog](docs/errors.md)
 - [Examples](examples)
 - [llms.txt](llms.txt)

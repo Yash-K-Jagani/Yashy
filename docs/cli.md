@@ -118,11 +118,11 @@ grouped by function, and stops without linking:
 $ yashy build main.ya --opt-report
 main.ya:5  fn wordcount
   promoted              alloc(4)          promoted to the stack: a literal count of 32 bytes fits in the frame and the pointer does not escape
-  bounds check kept     xs[0]             the verifier could not prove this index is inside the slice
+  bounds check kept     xs[i]             the verifier could not prove this index is inside the slice
                                           fix: add `requires index < xs.len()` or iterate with `for x in xs`
-  overflow check kept   p[0] + bump       nothing proves this `+` fits in `int`
+  overflow check kept   n + 1             nothing proves this `+` fits in `int`
                                           fix: add a `requires` clause that bounds the operands, or use a `wrapping_*`/`checked_*` builtin when wraparound is intended
-  call not inlined      unsafe labs(t...  `labs` is a C function declared `extern`; this module has its declaration and no body
+  call not inlined      labs(-3)          `labs` is a C function declared `extern`; this module has its declaration and no body
 ```
 
 Every entry has a kind — `bounds`, `overflow`, `alloc`, `not-inlined`,
@@ -134,7 +134,9 @@ says so. `--opt-report=json` prints the same record as schema v1
 nothing would help) for an agent. A program with nothing to explain prints one
 line in the human form and `"functions": []` in JSON. The report needs the
 verifier's facts, so it refuses `--no-verify`, and it stops before linking, so
-it also refuses `--emit-ir` and `--pgo`.
+it also refuses `--emit-ir` and `--pgo`. The full treatment — what Yashy proves,
+what LLVM decides, the pass list, and a worked example from a kept check to
+nothing to report — lives in [The optimization program](optimization.md).
 
 The per-pass gate is `yashy-bench --per-pass`. It compares the all-passes
 measurement with one taken with a single pass disabled and fails when disabling

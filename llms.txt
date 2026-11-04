@@ -12,6 +12,7 @@
 ## Reference
 
 - [CLI reference](docs/cli.md): every command, option, exit code, the `doctor --json` schema, and diagnostic JSON schema v1.
+- [The optimization program](docs/optimization.md): what the verifier proves, what LLVM decides, the registered passes, and how to read `--opt-report`.
 - [Error catalog](docs/errors.md): stable codes with cause/example/fix pages and the `yashy explain` command.
 - [AGENTS.md](AGENTS.md): repository layout, commands, the diagnostic workflow, and rules for coding agents.
 - [Release notes template](docs/release-notes-template.md): targets, checksums, requirements, and known gaps.
