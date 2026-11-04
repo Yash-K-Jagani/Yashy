@@ -350,7 +350,7 @@ Status: landed.
 
 - [x] **Step 1: Write the doc** with a worked example: a slow function, its `--opt-report`, the contract added, and the report afterwards. The tutorial harness compiles every block. — The worked example was compiled and run by hand: the tutorial harness scans `docs/tutorial/`, not `docs/`. See the Task 10 ledger entry.
 - [x] **Step 2: Run the gate table on both OSes, medians of 5.** — The Windows gates and rows were measured here; the Linux half, the `yashy-bench` five-run medians and the PGO row are CI's (this host is Windows-only, its GNU toolchain has no profile runtime, and Application Control blocks the linker) — Task 10 ledger entry.
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: the optimization program, and close phase 4"`; update the index status and the ledger.
+- [x] **Step 3: Commit and record** — `ad0dc2f` `docs: the optimization program, and close phase 4`; the index status and the ledger are updated.
 
 ---
 
