@@ -87,6 +87,31 @@ measured on a clean local run. Replace either with a runner measurement through
 step 1 if the first CI run lands outside the thresholds for an environmental
 reason rather than a code change.
 
+### The per-pass gate
+
+A whole-suite comparison cannot tell you *which* optimization paid for a row.
+`yashy-bench --per-pass` does: measure the build with every pass on, then once
+per registered pass with `--no-opt=<pass>`, and compare each pass against the
+row it is held to.
+
+```sh
+pwsh benchmarks/ci.ps1 -Output benchmarks/build/all.bench -Runs 5
+pwsh benchmarks/ci.ps1 -Output benchmarks/build/no-escape.bench -NoOpt escape -Runs 5
+cargo run -q -p yashy-bench -- --per-pass \
+  --baseline benchmarks/build/all.bench \
+  --without facts=benchmarks/build/no-facts.bench \
+  --without escape=benchmarks/build/no-escape.bench \
+  --without intern=benchmarks/build/no-intern.bench
+```
+
+The registry is the compiler's (`yashy build --opt-list`), and the gate needs a
+measurement for every registered pass — a missing `--without` is an error, not a
+skip. A pass fails when disabling it makes its own row *better* by more than 2%:
+that means the pass costs the row it claims to win. The `-NoOpt` and
+`BENCH_NO_OPT` inputs append `--no-opt=<pass>` to every build and record
+`no_opt=<pass>` in the measurement, so the two files are distinguishable after
+the fact.
+
 ## The programs
 
 | Program | Source | Measures |

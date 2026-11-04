@@ -11,10 +11,17 @@
 # With -Output the gate rows are written as key=value lines; the human report
 # always goes to stdout. The C rows stay in the human report only: clang's
 # time is context, not a Yashy regression.
+#
+# With -NoOpt <pass> every build carries `--no-opt=<pass>` and the measurement
+# records `no_opt=<pass>`. That is the input half of `yashy-bench --per-pass`:
+# one run with every pass on, one per pass off.
 [CmdletBinding()]
 param(
     [string]$Output = '',
-    [int]$Runs = 3
+    [int]$Runs = 3,
+    # A registered optimization pass to disable in every build. Used with
+    # `yashy-bench --per-pass`: one run with every pass on, one per pass off.
+    [string]$NoOpt = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -23,6 +30,10 @@ $root = Split-Path -Parent $bench
 $build = Join-Path $bench 'build\ci'
 $yashy = Join-Path $root 'target\release\yashy.exe'
 $exe = '.exe'
+$noOptArgs = @()
+if ($NoOpt) {
+    $noOptArgs = @("--no-opt=$NoOpt")
+}
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
@@ -70,19 +81,19 @@ $wordcountYashy = Join-Path $build "wordcount-yashy$exe"
 $mapsYashy = Join-Path $build "maps-yashy$exe"
 
 $fibCompile = Measure-Median {
-    Invoke-Tool $yashy @('build', "$bench\fib.ya", '-o', $fibYashy, '--release') 'yashy build fib'
+    Invoke-Tool $yashy (@('build', "$bench\fib.ya", '-o', $fibYashy, '--release') + $noOptArgs) 'yashy build fib'
 } $Runs
 $helloCompile = Measure-Median {
-    Invoke-Tool $yashy @('build', "$bench\hello.ya", '-o', $helloYashy, '--release') 'yashy build hello'
+    Invoke-Tool $yashy (@('build', "$bench\hello.ya", '-o', $helloYashy, '--release') + $noOptArgs) 'yashy build hello'
 } $Runs
 $largeCompile = Measure-Median {
-    Invoke-Tool $yashy @('build', "$bench\large.ya", '-o', $largeYashy, '--release') 'yashy build large'
+    Invoke-Tool $yashy (@('build', "$bench\large.ya", '-o', $largeYashy, '--release') + $noOptArgs) 'yashy build large'
 } $Runs
 # The two container workloads are the runtime rows. They are built once here,
 # untimed: their compile time is the compiler's cost, not the runtime's, and
 # the plan gates the run row only.
-Invoke-Tool $yashy @('build', "$bench\wordcount.ya", '-o', $wordcountYashy, '--release') 'yashy build wordcount'
-Invoke-Tool $yashy @('build', "$bench\maps.ya", '-o', $mapsYashy, '--release') 'yashy build maps'
+Invoke-Tool $yashy (@('build', "$bench\wordcount.ya", '-o', $wordcountYashy, '--release') + $noOptArgs) 'yashy build wordcount'
+Invoke-Tool $yashy (@('build', "$bench\maps.ya", '-o', $mapsYashy, '--release') + $noOptArgs) 'yashy build maps'
 $yashyOut = ''
 $fibRun = Measure-Median {
     $runOut = (& $fibYashy 2>&1 | Out-String).Trim()
@@ -174,6 +185,9 @@ $mapsRunText = Format-Ms $mapsRun
 $largeRunText = Format-Ms $largeRun
 
 Write-Output "fib output: $yashyOut"
+if ($NoOpt) {
+    Write-Output "disabled pass: $NoOpt"
+}
 Write-Output ("fib compile ms: {0} (median of {1})" -f $fibCompileText, $Runs)
 Write-Output ("hello compile ms: {0}" -f $helloCompileText)
 Write-Output ("large compile ms: {0}" -f $largeCompileText)
@@ -215,7 +229,11 @@ if ($Output) {
         "wordcount_run_ms=$wordcountRunText"
         "maps_run_ms=$mapsRunText"
         "release_run_ms=$largeRunText"
-    ) -join "`n"
+    )
+    if ($NoOpt) {
+        $content += "no_opt=$NoOpt"
+    }
+    $content = $content -join "`n"
     [System.IO.File]::WriteAllText($Output, $content + "`n")
     Write-Output "wrote $Output"
 }

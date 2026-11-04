@@ -324,7 +324,14 @@ fn floating_point_contraction_is_off_until_it_is_asked_for() {
 
 #[test]
 fn floating_point_contraction_marks_the_multiply_and_the_add() {
-    let contracted = ir_of_with(FMA_SOURCE, CodegenOptions { fp_contract: true, escape: false });
+    let contracted = ir_of_with(
+        FMA_SOURCE,
+        CodegenOptions {
+            fp_contract: true,
+            escape: false,
+            ..CodegenOptions::default()
+        },
+    );
     assert!(
         contracted.contains("fmul contract double"),
         "the multiply must carry the flag:\n{contracted}"
@@ -342,7 +349,11 @@ fn contraction_covers_subtraction_and_not_division() {
     // the IR, so it must not appear there.
     let difference = ir_of_with(
         "fn main() -> float { let a = 2.0; let b = 3.0; return a * b - 1.0; }",
-        CodegenOptions { fp_contract: true, escape: false },
+        CodegenOptions {
+            fp_contract: true,
+            escape: false,
+            ..CodegenOptions::default()
+        },
     );
     assert!(
         difference.contains("fsub contract double"),
@@ -351,7 +362,11 @@ fn contraction_covers_subtraction_and_not_division() {
 
     let quotient = ir_of_with(
         "fn main() -> float { let a = 2.0; let b = 3.0; return a / b; }",
-        CodegenOptions { fp_contract: true, escape: false },
+        CodegenOptions {
+            fp_contract: true,
+            escape: false,
+            ..CodegenOptions::default()
+        },
     );
     assert!(
         !quotient.contains("contract"),
@@ -365,7 +380,11 @@ fn contraction_leaves_integer_arithmetic_alone() {
     // be an LLVM parse error, so enabling contraction must not reach them.
     let integers = ir_of_with(
         "fn main() -> int { let a = 2; let b = 3; return a * b + 1; }",
-        CodegenOptions { fp_contract: true, escape: false },
+        CodegenOptions {
+            fp_contract: true,
+            escape: false,
+            ..CodegenOptions::default()
+        },
     );
     assert!(
         !integers.contains("contract"),

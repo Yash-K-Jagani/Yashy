@@ -330,7 +330,6 @@ pub fn format_table(results: &[RowResult]) -> String {
 }
 
 /// Rewrite `baseline` from `current` after a deliberate update.
-///
 /// The current file must parse and must carry at least one gate row; a
 /// half-written measurement is not a baseline.
 pub fn update(current_path: &Path, baseline_path: &Path) -> Result<(), String> {
@@ -350,6 +349,104 @@ pub fn update(current_path: &Path, baseline_path: &Path) -> Result<(), String> {
     }
     std::fs::write(baseline_path, out)
         .map_err(|error| format!("cannot write {}: {error}", baseline_path.display()))
+}
+
+/// The percent by which disabling a pass may *improve* its own row before the
+/// pass fails the gate.
+///
+/// The gate exists so a pass cannot buy one row by selling another. If turning
+/// a pass off makes the row it is held to more than 2% better, the pass is not
+/// paying for itself and the per-pass gate says so.
+pub const PER_PASS_PCT: f64 = 2.0;
+
+/// One pass's comparison: the enabled measurement against the disabled one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PassResult {
+    pub pass: String,
+    pub row: String,
+    pub baseline: Option<f64>,
+    pub current: Option<f64>,
+    /// `(disabled - enabled) / enabled`, in percent. Positive means disabling
+    /// the pass made the row worse, which is the pass earning its place.
+    pub delta_pct: Option<f64>,
+    pub verdict: Verdict,
+}
+
+/// Compare every registered pass's own row with the measurement taken while
+/// that pass was disabled.
+///
+/// `registry` is the compiler's pass table as `(name, row)` pairs. A pass with
+/// no disabled measurement, or a row missing from either file, is `Missing`: an
+/// unmeasured pass is not a pass.
+pub fn per_pass(
+    baseline: &Measurement,
+    without: &[(String, Measurement)],
+    registry: &[(&str, &str)],
+) -> Vec<PassResult> {
+    let mut results = Vec::new();
+    for &(pass, row) in registry {
+        let base = baseline.number(row);
+        let current = without
+            .iter()
+            .find(|(name, _)| name == pass)
+            .and_then(|(_, measurement)| measurement.number(row));
+        let (delta_pct, verdict) = match (base, current) {
+            (Some(base), Some(current)) if base > 0.0 => {
+                let delta = (current - base) / base * 100.0;
+                let verdict = if delta < -PER_PASS_PCT {
+                    Verdict::Fail
+                } else {
+                    Verdict::Pass
+                };
+                (Some(delta), verdict)
+            }
+            _ => (None, Verdict::Missing),
+        };
+        results.push(PassResult {
+            pass: pass.to_string(),
+            row: row.to_string(),
+            baseline: base,
+            current,
+            delta_pct,
+            verdict,
+        });
+    }
+    results
+}
+
+/// Render the per-pass comparison as the plan's table.
+pub fn format_per_pass(results: &[PassResult]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{:<8} | {:<20} | {:>10} | {:>10} | {:>9} | {}",
+        "pass", "row", "baseline", "current", "delta", "verdict"
+    );
+    for result in results {
+        let baseline = result
+            .baseline
+            .map(|value| format!("{value:.1}"))
+            .unwrap_or_else(|| "-".to_string());
+        let current = result
+            .current
+            .map(|value| format!("{value:.1}"))
+            .unwrap_or_else(|| "-".to_string());
+        let delta = result
+            .delta_pct
+            .map(|value| format!("{value:+.1}%"))
+            .unwrap_or_else(|| "n/a".to_string());
+        let _ = writeln!(
+            out,
+            "{:<8} | {:<20} | {:>10} | {:>10} | {:>9} | {}",
+            result.pass,
+            result.row,
+            baseline,
+            current,
+            delta,
+            result.verdict.label()
+        );
+    }
+    out
 }
 
 #[cfg(test)]
@@ -541,6 +638,71 @@ fib_run_ms=50.0
         assert!(table.contains("fib_compile_ms"));
         assert!(table.contains("FAIL"));
         assert!(table.contains("+21.0%"));
+    }
+
+    #[test]
+    fn a_disabled_pass_within_two_percent_passes() {
+        let baseline = measurement("fib_run_ms=100.0\nfib_binary_bytes=1000\n");
+        let without = vec![
+            (
+                "facts".to_string(),
+                measurement("fib_run_ms=103.0\nfib_binary_bytes=1000\n"),
+            ),
+            (
+                "intern".to_string(),
+                measurement("fib_run_ms=100.0\nfib_binary_bytes=1010\n"),
+            ),
+        ];
+        let results = per_pass(
+            &baseline,
+            &without,
+            &[("facts", "fib_run_ms"), ("intern", "fib_binary_bytes")],
+        );
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].verdict, Verdict::Pass);
+        assert_eq!(results[1].verdict, Verdict::Pass);
+        let facts = results[0].delta_pct.expect("has a delta");
+        assert!((facts - 3.0).abs() < 1e-9, "got {facts}");
+    }
+
+    #[test]
+    fn a_disabled_pass_that_improves_its_row_by_more_than_two_percent_fails() {
+        let baseline = measurement("maps_run_ms=100.0\n");
+        let without = vec![("escape".to_string(), measurement("maps_run_ms=90.0\n"))];
+        let results = per_pass(&baseline, &without, &[("escape", "maps_run_ms")]);
+        let row = &results[0];
+        assert_eq!(row.verdict, Verdict::Fail);
+        assert!(row.verdict.is_failure());
+        let delta = row.delta_pct.expect("has a delta");
+        assert!((delta + 10.0).abs() < 1e-9, "got {delta}");
+    }
+
+    #[test]
+    fn a_pass_without_a_disabled_measurement_is_missing() {
+        let baseline = measurement("fib_run_ms=100.0\n");
+        let results = per_pass(&baseline, &[], &[("facts", "fib_run_ms")]);
+        assert_eq!(results[0].verdict, Verdict::Missing);
+        assert!(results[0].verdict.is_failure());
+        assert_eq!(results[0].current, None);
+    }
+
+    #[test]
+    fn the_per_pass_table_has_one_row_per_registered_pass() {
+        let baseline = measurement("fib_run_ms=100.0\nmaps_run_ms=100.0\n");
+        let without = vec![
+            ("facts".to_string(), measurement("fib_run_ms=101.0\n")),
+            ("escape".to_string(), measurement("maps_run_ms=101.0\n")),
+        ];
+        let registry = [("facts", "fib_run_ms"), ("escape", "maps_run_ms")];
+        let results = per_pass(&baseline, &without, &registry);
+        assert_eq!(results.len(), registry.len());
+        let table = format_per_pass(&results);
+        let rows = table
+            .lines()
+            .filter(|line| line.contains("fib_run_ms") || line.contains("maps_run_ms"))
+            .count();
+        assert_eq!(rows, registry.len(), "{table}");
+        assert!(table.starts_with("pass"), "{table}");
     }
 
     fn temp_path(name: &str) -> std::path::PathBuf {

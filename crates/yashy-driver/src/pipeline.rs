@@ -453,6 +453,13 @@ pub struct BuildOptions {
     /// On by default for a build: it changes where bytes live and never what a
     /// program means. `--no-opt=escape` turns it off for bisecting.
     pub escape: bool,
+    /// Rely on the verifier's facts when emitting; see
+    /// [`CodegenOptions::facts`]. On by default for a build and disabled by
+    /// `--no-opt=facts`.
+    pub facts: bool,
+    /// Let identical literals share one global; see [`CodegenOptions::intern`].
+    /// On by default for a build and disabled by `--no-opt=intern`.
+    pub intern: bool,
     /// A release build: `debug_assert` is not lowered. See
     /// [`yashy_sema::CheckOptions::release`].
     ///
@@ -481,6 +488,8 @@ impl Default for BuildOptions {
             cpu: CpuTarget::default(),
             fast_math: false,
             escape: true,
+            facts: true,
+            intern: true,
             release: false,
             lto: false,
             pgo: false,
@@ -918,6 +927,8 @@ pub fn compile_hir_timed(
             CodegenOptions {
                 fp_contract: options.fast_math,
                 escape: options.escape,
+                facts: options.facts,
+                intern: options.intern,
             },
             facts,
         )

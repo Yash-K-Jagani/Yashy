@@ -15,7 +15,9 @@
 # clang's time is context, not a Yashy regression.
 #
 # BENCH_RUNS sets the sample count; the median is reported. One untimed warm-up
-# runs first.
+# runs first. BENCH_NO_OPT=<pass> disables one registered optimization pass in
+# every build and records `no_opt=<pass>` in the measurement; that is the input
+# half of `yashy-bench --per-pass`.
 set -eu
 
 bench=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -24,6 +26,11 @@ build="$bench/build/ci"
 yashy="$root/target/release/yashy"
 runs=${BENCH_RUNS:-3}
 output=${1:-}
+no_opt=${BENCH_NO_OPT:-}
+no_opt_arg=''
+if [ -n "$no_opt" ]; then
+    no_opt_arg="--no-opt=$no_opt"
+fi
 
 mkdir -p "$build"
 
@@ -109,15 +116,15 @@ maps_yashy="$build/maps-yashy"
 fib_out="$build/fib-yashy.out"
 c_out="$build/fib-c.out"
 
-fib_compile=$(measure_compile 'yashy build fib' "$yashy" build "$bench/fib.ya" -o "$fib_yashy" --release)
-hello_compile=$(measure_compile 'yashy build hello' "$yashy" build "$bench/hello.ya" -o "$hello_yashy" --release)
-large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large.ya" -o "$large_yashy" --release)
+fib_compile=$(measure_compile 'yashy build fib' "$yashy" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+hello_compile=$(measure_compile 'yashy build hello' "$yashy" build "$bench/hello.ya" -o "$hello_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
+large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large.ya" -o "$large_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
 
 # The container workloads are the runtime rows. Built once, untimed: their
 # compile cost is the compiler's, not the runtime's.
-"$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release >/dev/null 2>&1 \
+"$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"} >/dev/null 2>&1 \
     || { say 'yashy build wordcount failed'; exit 1; }
-"$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release >/dev/null 2>&1 \
+"$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"} >/dev/null 2>&1 \
     || { say 'yashy build maps failed'; exit 1; }
 
 fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
@@ -170,6 +177,9 @@ if [ -z "$c_compile" ]; then
 fi
 
 say "fib output: $(cat "$fib_out")"
+if [ -n "$no_opt" ]; then
+    say "disabled pass: $no_opt"
+fi
 say "fib compile ms: $fib_compile (median of $runs)"
 say "hello compile ms: $hello_compile"
 say "large compile ms: $large_compile"
@@ -197,6 +207,9 @@ emit_block() {
     printf 'wordcount_run_ms=%s\n' "$wordcount_run"
     printf 'maps_run_ms=%s\n' "$maps_run"
     printf 'release_run_ms=%s\n' "$large_run"
+    if [ -n "$no_opt" ]; then
+        printf 'no_opt=%s\n' "$no_opt"
+    fi
 }
 
 if [ -n "$output" ]; then

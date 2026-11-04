@@ -934,6 +934,7 @@ impl Db {
         let options = CodegenOptions {
             fp_contract: self.fp_contract,
             escape: true,
+            ..CodegenOptions::default()
         };
         let entry = self.entry_path();
         let report = self.verify_program()?;
@@ -1094,6 +1095,7 @@ impl Db {
         let options = CodegenOptions {
             fp_contract: self.fp_contract,
             escape: true,
+            ..CodegenOptions::default()
         };
         let entry = self.entry_path();
         let report = self.verify_program()?;

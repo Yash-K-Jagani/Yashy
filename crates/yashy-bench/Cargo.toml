@@ -8,3 +8,4 @@ name = "yashy-bench"
 path = "src/main.rs"
 
 [dependencies]
+yashy-codegen = { path = "../yashy-codegen" }

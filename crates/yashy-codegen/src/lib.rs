@@ -24,6 +24,7 @@ pub mod ir;
 pub mod maps;
 pub mod memory;
 pub mod module;
+pub mod pass;
 pub mod patterns;
 pub mod slices;
 pub mod stmt_gen;
@@ -37,6 +38,7 @@ pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
 pub use module::host_target_triple;
 pub use module::{Module, VariantRepr};
+pub use pass::{pipeline, Pass, PassCtx, PassStats};
 pub use patterns::{bind_pattern, gen_match, pattern_variant_name};
 pub use stmt_gen::{gen_block, gen_stmt, run_all_scopes_defers, run_defers, Flow};
 
@@ -49,7 +51,7 @@ use yashy_sema::{HirFn, HirItem, HirProgram, TypeKind};
 /// The default is deliberately the semantics-preserving one: the IR does not
 /// depend on which machine the program is built for, and every floating-point
 /// operation rounds exactly as the source spells it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodegenOptions {
     /// Allow floating-point contraction.
     ///
@@ -77,6 +79,34 @@ pub struct CodegenOptions {
     /// language. Off by default in the library so a caller that asks for the
     /// plain backend gets exactly the IR it always did; the driver enables it.
     pub escape: bool,
+    /// Rely on the verifier's facts when emitting.
+    ///
+    /// On by default, because a fact is a proof the verifier already accepted:
+    /// turning it off cannot make the program more correct, only slower and
+    /// noisier. `--no-opt=facts` exists for bisecting an attribute-driven
+    /// miscompile.
+    pub facts: bool,
+    /// Let identical string literals share one global.
+    ///
+    /// On by default and semantics-preserving: interning changes which global a
+    /// literal points at, never the bytes it reads. `--no-opt=intern` emits one
+    /// global per literal for bisecting.
+    pub intern: bool,
+}
+
+impl Default for CodegenOptions {
+    /// The semantics-preserving set: no contraction, no promotion, but the
+    /// facts the caller supplied are honoured and identical literals share one
+    /// global, because both have been the backend's behaviour since they
+    /// landed and neither changes what a program prints.
+    fn default() -> Self {
+        CodegenOptions {
+            fp_contract: false,
+            escape: false,
+            facts: true,
+            intern: true,
+        }
+    }
 }
 
 /// Emit a whole checked program as one LLVM IR module.
@@ -102,8 +132,14 @@ pub fn emit_program(
     let mut module = Module::new();
     module.set_source_filename(entry);
     module.set_fp_contract(options.fp_contract);
-    module.set_escape(options.escape);
-    module.set_facts(facts.clone());
+    // The registered passes, in their one order. A pass reads its switch from
+    // `options`, so disabling one changes only what that pass contributes.
+    {
+        let mut ctx = pass::PassCtx::new(&mut module, options, facts);
+        for pass in pass::pipeline() {
+            (pass.run)(&mut ctx);
+        }
+    }
     // One spawn is enough: the checker recorded that the program can share a
     // string with a thread, so every retain/release in the module is atomic.
     // This has to be set before the first `define` is emitted, because the

@@ -52,6 +52,16 @@ pub struct Module {
     /// separate global named `@.str.N.data`; the struct global holds the
     /// refcount, length, capacity, and a pointer to them.
     strings: BTreeMap<Vec<u8>, String>,
+    /// Literals emitted while interning is disabled, in first-use order. They
+    /// share [`Module::next_string`] with the interned map so the two sets of
+    /// names cannot collide.
+    uninterned: Vec<(Vec<u8>, String)>,
+    /// The next `@.str.N` index. It advances for every emitted global, interned
+    /// or not, so a name is unique whether or not identical bytes share it.
+    next_string: usize,
+    /// Whether identical literals share one global; see
+    /// [`Module::set_intern`].
+    intern: bool,
     /// Module-level named type definitions: `(name, field reps)`. These are
     /// hoisted out of any function body and emitted at the top of the module,
     /// because a `%struct.X = type { … }` line inside a `define` block is not
@@ -132,6 +142,9 @@ impl Module {
         let mut module = Self {
             lines: Vec::new(),
             strings: BTreeMap::new(),
+            uninterned: Vec::new(),
+            next_string: 0,
+            intern: true,
             named_types: Vec::new(),
             enums: HashMap::new(),
             source_filename: "main.ya".to_string(),
@@ -384,12 +397,28 @@ impl Module {
     /// literal is never freed. Every byte outside printable ASCII, plus `"`
     /// and `\`, is escaped as `\XX` so the definition is pure ASCII.
     pub fn intern_string(&mut self, bytes: &[u8]) -> String {
-        if let Some(name) = self.strings.get(bytes) {
-            return name.clone();
+        if self.intern {
+            if let Some(name) = self.strings.get(bytes) {
+                return name.clone();
+            }
+            let name = format!("@.str.{}", self.next_string);
+            self.next_string += 1;
+            self.strings.insert(bytes.to_vec(), name.clone());
+            return name;
         }
-        let name = format!("@.str.{}", self.strings.len());
-        self.strings.insert(bytes.to_vec(), name.clone());
+        let name = format!("@.str.{}", self.next_string);
+        self.next_string += 1;
+        self.uninterned.push((bytes.to_vec(), name.clone()));
         name
+    }
+
+    /// Turn literal interning on or off; see [`crate::pass::apply_intern`].
+    ///
+    /// Off means every call gets its own global, so two identical literals are
+    /// two objects. The bytes are identical either way; only the sharing
+    /// changes.
+    pub fn set_intern(&mut self, intern: bool) {
+        self.intern = intern;
     }
 
     /// The byte-array body of a string global: everything after `@.str.N.data = `.
@@ -754,7 +783,11 @@ impl Module {
         // a program that exits early does not rewrite every golden file; an
         // unused `declare` is legal IR.
         out.push_str("declare void @yashy_exit(i64)\n");
-        for (bytes, name) in &self.strings {
+        for (bytes, name) in self
+            .strings
+            .iter()
+            .chain(self.uninterned.iter().map(|(bytes, name)| (bytes, name)))
+        {
             let data_name = format!("{name}.data");
             out.push_str(&format!("{data_name} = {}\n", Self::data_body(bytes)));
             out.push_str(&format!(

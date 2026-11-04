@@ -31,6 +31,8 @@ yashy build main.ya --emit-ir
 | `--pgo` | Build instrumented, train by running the program once, then rebuild with the profile. See [ThinLTO and `--pgo`](#thinlto-and---pgo). |
 | `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native`. |
 | `--fast-math` | Allow fused multiply-add; results may differ. |
+| `--no-opt=<pass>` | Disable one registered optimization pass for bisecting. See [Optimization passes](#optimization-passes). |
+| `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
@@ -75,6 +77,59 @@ The training corpus is checked in under [`benchmarks/pgo/`](../benchmarks/pgo);
 [`scripts/pgo.sh`](../scripts/pgo.sh) build every member twice — once with the
 ThinLTO release link, once with `--pgo` — and report the size and time
 difference. A profile is per program, so each member trains on itself.
+
+## Optimization passes
+
+Every optimization the backend applies is one entry in a registry, run in one
+order before any IR is written. `--opt-list` prints that order and the bench row
+each pass is held to:
+
+```text
+$ yashy build --opt-list
+pass     row
+facts    fib_run_ms
+escape   maps_run_ms
+intern   hello_binary_bytes
+```
+
+`--no-opt=<pass>` disables exactly one of them. None of them changes what a
+program prints, so the switch is for *attributing* a suspected miscompile: a
+program that behaves differently with one pass off is a bug in that pass.
+
+| Pass | What it decides | Held to |
+|---|---|---|
+| `facts` | Rely on the verifier's facts: delete proved checks, emit `noalias`, `nonnull`, `readonly` and `align`. Off means an empty fact set and attribute-free IR. | `fib_run_ms` |
+| `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. | `maps_run_ms` |
+| `intern` | Identical string literals share one global. Off emits one global per literal. | `hello_binary_bytes` |
+
+Anything not in the table is mandatory lowering, not a pass: there is no switch
+that turns an expression into a call or a field into an offset, because there
+would be no program left to measure. `yashy_codegen::pass::owner` names the
+owner of each expression form, and its exhaustive match is the check that every
+construct has an owner — a new form fails to compile until that is decided.
+
+The per-pass gate is `yashy-bench --per-pass`. It compares the all-passes
+measurement with one taken with a single pass disabled and fails when disabling
+a pass *improves* its own row by more than 2%, because a pass that does not pay
+for its row is not earning its place:
+
+```text
+$ yashy-bench --per-pass --baseline build/all.bench \
+    --without facts=build/no-facts.bench \
+    --without escape=build/no-escape.bench \
+    --without intern=build/no-intern.bench
+pass     | row                |   baseline |    current |     delta | verdict
+facts    | fib_run_ms         |       11.2 |       14.9 |    +33.0% | pass
+escape   | maps_run_ms        |       88.1 |       90.0 |     +2.2% | pass
+intern   | hello_binary_bytes |    64000.0 |    65024.0 |     +1.6% | pass
+```
+
+The script that produced either file is the measurement's business
+([`benchmarks/ci.ps1`](../benchmarks/ci.ps1) takes `-NoOpt <pass>`, its Linux
+counterpart `BENCH_NO_OPT`). A registered pass with no `--without` measurement
+is an error: the gate cannot skip a pass by not measuring it. `--report-only`
+prints the table and exits 0 for a pre-existing regression you are still
+bisecting.
 
 ## `yashy check <file.ya> [--json] [--timings] [--jobs <n>]`
 

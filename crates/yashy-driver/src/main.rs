@@ -55,8 +55,8 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=escape] [--no-verify] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
@@ -95,9 +95,10 @@ usage:
                JSON report); stdout is never touched
   --jobs <n>   how many threads the front end may parse on; 0 (the default)
                uses one per available core, 1 parses serially
-  --no-opt=escape  keep every allocation on the heap; for bisecting a suspected
-               promotion bug, normally unnecessary because promotion never
-               changes what a program prints
+  --no-opt=<pass>  disable one registered optimization pass; `--opt-list` names
+               them and the bench row each is held to. For bisecting only: none
+               of them changes what a program prints
+  --opt-list   list the optimization passes in order with their bench rows
   --inventory  with `verify`: list every `extern` declaration and `unsafe` call,
                the assumptions the proof rests on; never changes the exit code
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
@@ -195,9 +196,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut pgo = false;
     // How many threads the front end may parse on. `0` means "one per core".
     let mut jobs: usize = 0;
-    // Promotion changes where bytes live, not what the program means, so it is
-    // on unless a bisect asks otherwise.
-    let mut escape = true;
+    // Registered optimization passes the user asked to disable. Validated
+    // after parsing, so one message can list every pass that exists.
+    let mut disabled: Vec<String> = Vec::new();
+    // Print the registry and stop; no input is needed.
+    let mut opt_list = false;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -226,7 +229,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             },
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
-            "--no-opt=escape" => escape = false,
+            "--opt-list" => opt_list = true,
             "--release" => release = true,
             "--no-lto" => no_lto = true,
             "--pgo" => pgo = true,
@@ -254,9 +257,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                         Err(_) => return stopped(usage_error("`--jobs` needs a whole number")),
                     }
                 } else if let Some(pass) = other.strip_prefix("--no-opt=") {
-                    return stopped(usage_error(&format!(
-                        "`{pass}` is not an optimization pass; the only one that can be disabled is `escape`"
-                    )));
+                    disabled.push(pass.to_string());
                 } else if let Some(level) = OptLevel::parse(other) {
                     opt = Some(level);
                 } else if other.starts_with("-O") {
@@ -275,6 +276,28 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                 }
             }
         }
+    }
+
+    // A pass name is validated once, here, against the one registry: an
+    // unknown name is a usage error that names every name that works.
+    for pass in &disabled {
+        if yashy_codegen::pass::find(pass).is_none() {
+            return stopped(usage_error(&format!(
+                "`{pass}` is not an optimization pass; valid passes: {} (see --opt-list)",
+                yashy_codegen::pass::names()
+            )));
+        }
+    }
+    let escape = !disabled.iter().any(|pass| pass == "escape");
+    let facts = !disabled.iter().any(|pass| pass == "facts");
+    let intern = !disabled.iter().any(|pass| pass == "intern");
+
+    if opt_list {
+        println!("{:<8} {}", "pass", "row");
+        for pass in yashy_codegen::pass::pipeline() {
+            println!("{:<8} {}", pass.name, pass.row);
+        }
+        return stopped(exit_code(EXIT_OK));
     }
 
     // A feature level is an x86-64 name and nothing else. On any other target it
@@ -417,6 +440,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                 let options = CodegenOptions {
                     fp_contract: fast_math,
                     escape,
+                    facts,
+                    intern,
                 };
                 let ir = timed(measured, "emit", || {
                     emit_program(&hir, &entry, options, &report.facts)
@@ -451,6 +476,8 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         cpu,
         fast_math,
         escape,
+        facts,
+        intern,
         release,
         lto: release && !no_lto,
         pgo,
@@ -578,6 +605,7 @@ fn run(args: &[String]) -> ExitCode {
             other if other.starts_with("--cpu=") || other.starts_with("--jobs=") => {
                 build_args.push(argument.clone())
             }
+            other if other.starts_with("--no-opt=") => build_args.push(argument.clone()),
             other if OptLevel::parse(other).is_some() => build_args.push(argument.clone()),
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `run`"))
