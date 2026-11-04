@@ -354,6 +354,33 @@ Status: landed.
 
 ---
 
+## Dated exceptions
+
+### 2026-11-04 — Phase 4 gate, CI-owned rows and the both-OS test run
+
+Four gate rows cannot be measured on the host that finished Tasks 1–10. The
+host is Windows-only; its local `x86_64-pc-windows-gnu` toolchain has no
+`libclang_rt.profile.a`, the MSVC `link.exe` is absent, and Application Control
+blocks the freshly built `clang.exe`, so neither PGO nor the ASan/UBSan corpus
+can be produced here. The Windows Rust gates that *can* run did run; their
+evidence is in the Task 7, Task 8 and Task 10 ledger entries.
+
+| Gate | State | Reason | Owner | Re-run |
+|---|---|---|---|---|
+| Linux bench medians (`yashy-bench`, five runs) | open | No Linux host here; the table must come from CI | CI (`bench.yml`, `ubuntu-22.04`) | Next `bench.yml` run; paste the medians into this plan and the ledger |
+| `cargo test --workspace` on Windows and Linux | open | Windows suites pass locally; the Linux run has no host here | CI (`ci.yml` matrix) | Next CI run; record both OS results |
+| PGO release size and speed row | open | No profile runtime and no working linker on this host | CI (`bench.yml`) | Next `bench.yml` run; fill the PGO row |
+| ASan/UBSan differential corpus | open | Application Control blocks `clang.exe` | CI (`bench.yml`) | Next `bench.yml` run; record `FALSE POSITIVE` count |
+
+This is a written exception, not a silent slip: the phase's Windows gates and
+all Rust-side acceptance commands are green, and the four rows above are
+delegated to CI under this entry. The index status reads *code complete* until
+the CI rows are filled, and the exception is closed by editing this table rather
+than by deleting it. Phase 5 may start on the strength of this record, exactly
+as the master plan's "Starting a phase" step permits.
+
+---
+
 ## Gate summary
 
 | Gate | Command | Passes when |
