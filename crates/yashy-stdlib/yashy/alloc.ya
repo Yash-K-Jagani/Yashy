@@ -9,7 +9,7 @@
 
 // Ownership: the returned pointer owns `count` zeroed slots and must be
 // released with `.free()`.
-pub fn alloc_zeroed(count: int) -> *mut int {
+pub fn alloc_zeroed(int count) -> *mut int {
     assert(count >= 0);
     let buffer = alloc(count);
     let index = 0;
@@ -22,7 +22,7 @@ pub fn alloc_zeroed(count: int) -> *mut int {
 
 // Ownership: the returned pointer owns one slot holding `value`; release it
 // with `.free()`.
-pub fn alloc_one(value: int) -> *mut int {
+pub fn alloc_one(int value) -> *mut int {
     let buffer = alloc(1);
     buffer[0] = value;
     return buffer;

@@ -11,7 +11,7 @@
 // One `/` between the components. A trailing separator on `left` and a leading
 // one on `right` are removed first, so `join("a/", "/b")` is `a/b` and not
 // `a//b`. An empty side contributes nothing.
-pub fn join(left: string, right: string) -> string {
+pub fn join(string left, string right) -> string {
     let head = strip_trailing(left);
     let tail = strip_leading(right);
     if head.len() == 0 {
@@ -25,7 +25,7 @@ pub fn join(left: string, right: string) -> string {
 
 // The last component of `path`. `basename("/")` is `/` and `basename("")` is
 // the empty string.
-pub fn basename(path: string) -> string {
+pub fn basename(string path) -> string {
     let trimmed = strip_trailing(path);
     if trimmed.len() == 0 {
         if path.len() > 0 {
@@ -42,7 +42,7 @@ pub fn basename(path: string) -> string {
 
 // Everything before the last separator. A bare name has no directory, which is
 // spelled `.`; a path that is only separators has `/`.
-pub fn dirname(path: string) -> string {
+pub fn dirname(string path) -> string {
     if path.len() == 0 {
         return ".";
     }
@@ -63,7 +63,7 @@ pub fn dirname(path: string) -> string {
 // The text after the last `.` in the last component, without the dot. A name
 // with no dot, or a dot that is the first byte (`.gitignore`), has no
 // extension and answers the empty string.
-pub fn extension(path: string) -> string {
+pub fn extension(string path) -> string {
     let name = basename(path);
     let cut = last_dot(name);
     if cut <= 0 {
@@ -72,7 +72,7 @@ pub fn extension(path: string) -> string {
     return name.slice(cut + 1, name.len());
 }
 
-fn strip_trailing(text: string) -> string {
+fn strip_trailing(string text) -> string {
     const SLASH = 47;
     let end = text.len();
     while end > 0 && text.byte_at(end - 1).to_int() == SLASH {
@@ -81,7 +81,7 @@ fn strip_trailing(text: string) -> string {
     return text.slice(0, end);
 }
 
-fn strip_leading(text: string) -> string {
+fn strip_leading(string text) -> string {
     const SLASH = 47;
     let start = 0;
     while start < text.len() && text.byte_at(start).to_int() == SLASH {
@@ -90,7 +90,7 @@ fn strip_leading(text: string) -> string {
     return text.slice(start, text.len());
 }
 
-fn last_separator(text: string) -> int {
+fn last_separator(string text) -> int {
     const SLASH = 47;
     let i = text.len() - 1;
     while i >= 0 {
@@ -102,7 +102,7 @@ fn last_separator(text: string) -> int {
     return 0 - 1;
 }
 
-fn last_dot(text: string) -> int {
+fn last_dot(string text) -> int {
     const DOT = 46;
     let i = text.len() - 1;
     while i >= 0 {

@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn spans_are_half_open_and_never_overlap() {
-        let tokens = lex("fn f(a: i64) -> i64 { return a * 2; }");
+        let tokens = lex("fn f(i64 a) -> i64 { return a * 2; }");
         let mut previous_end = 0;
         for token in &tokens {
             assert!(token.span.start <= token.span.end, "{token:?} is not ordered");

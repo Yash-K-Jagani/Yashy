@@ -83,7 +83,7 @@ fn assert_one_terminator_per_block(ir: &str) {
 
 #[test]
 fn if_else_emits_one_conditional_branch_and_a_merge_label() {
-    let ir_text = ir_of("fn f(x: bool) { if x { print(1); } else { print(2); } }");
+    let ir_text = ir_of("fn f(bool x) { if x { print(1); } else { print(2); } }");
     assert_eq!(
         ir_text.matches("br i1").count(),
         1,
@@ -219,7 +219,7 @@ fn a_function_that_cannot_return_is_refused() {
 
 #[test]
 fn parameters_are_spilled_into_entry_block_slots() {
-    let ir_text = ir_of("fn f(a: int, b: float) -> int { return a; }");
+    let ir_text = ir_of("fn f(int a, float b) -> int { return a; }");
     assert!(
         ir_text.contains("define i64 @f(i64 %arg0, double %arg1)"),
         "the signature carries the parameter types:\n{ir_text}"

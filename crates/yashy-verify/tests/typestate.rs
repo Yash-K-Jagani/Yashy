@@ -41,7 +41,7 @@ fn codes(report: &VerifyReport) -> Vec<&'static str> {
 
 #[test]
 fn closing_a_channel_twice_is_rejected() {
-    let source = "fn main() { let c: Channel[int] = chan_new(4); c.close(); c.close(); }";
+    let source = "fn main() { let Channel[int] c = chan_new(4); c.close(); c.close(); }";
     let report = verify_source(source);
     for d in &report.diagnostics {
         eprintln!("DIAG: code={:?} msg={}", d.code, d.message);
@@ -51,7 +51,7 @@ fn closing_a_channel_twice_is_rejected() {
 
 #[test]
 fn using_a_channel_after_close_is_rejected() {
-    let source = "fn main() { let c: Channel[int] = chan_new(4); c.close(); c.send(1); }";
+    let source = "fn main() { let Channel[int] c = chan_new(4); c.close(); c.send(1); }";
     assert!(codes(&verify_source(source)).contains(&"E1401"));
 }
 

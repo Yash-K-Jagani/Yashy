@@ -5,7 +5,7 @@
 // inside a string, so the whole sentence is one value.
 
 /// The text of a line that arrived, or `""` at end of input.
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(value) { value }
         case None { "" }
@@ -13,14 +13,14 @@ fn text_of(line: Option[string]) -> string {
 }
 
 /// The line's number, or zero when it is not one.
-fn number(line: Option[string]) -> int {
+fn number(Option[string] line) -> int {
     return switch line {
         case Some(text) { parse_number(text) }
         case None { 0 }
     };
 }
 
-fn parse_number(text: string) -> int {
+fn parse_number(string text) -> int {
     return switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 }

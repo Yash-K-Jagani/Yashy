@@ -119,7 +119,7 @@ fn no_verify_is_refused_when_the_program_has_a_contract() {
     write(
         &dir,
         "contract.ya",
-        "fn positive(n: int) requires n > 0 { }\n\nfn main() { }\n",
+        "fn positive(int n) requires n > 0 { }\n\nfn main() { }\n",
     );
     let output = exe(&dir, "out");
 

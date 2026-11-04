@@ -66,7 +66,7 @@ fn body<'a>(ir: &'a str, name: &str) -> &'a str {
 }
 
 const READ_ONLY: &str = "\
-fn read(p: *mut int, n: int) -> int {
+fn read(*mut int p, int n) -> int {
     let sum = 0;
     let i = 0;
     while i < n {

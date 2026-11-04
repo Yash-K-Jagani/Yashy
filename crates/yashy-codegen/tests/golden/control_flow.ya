@@ -1,4 +1,4 @@
-fn control(x: bool, o: Option[int]) -> int {
+fn control(bool x, Option[int] o) -> int {
     if x {
         print(1);
     } else {

@@ -110,7 +110,7 @@ fn an_object_declaration_carries_its_fields_and_its_methods() {
     check_source(
         "object Counter { value: int, \
          fn get(self) -> int { return self.value; }, \
-         fn add(self, n: int) -> Counter { return Counter { value: self.value + n }; } } \
+         fn add(self, int n) -> Counter { return Counter { value: self.value + n }; } } \
          fn main() { const c = Counter { value: 3 }; const n = c.add(4).get(); }",
     )
     .expect("an object with methods should type-check");
@@ -129,7 +129,7 @@ fn an_object_is_constructed_like_a_struct() {
 fn a_static_method_is_called_on_the_type() {
     check_source(
         "object Counter { value: int, \
-         fn new(start: int) -> Counter { return Counter { value: start }; }, \
+         fn new(int start) -> Counter { return Counter { value: start }; }, \
          fn get(self) -> int { return self.value; } } \
          fn main() { const c = Counter.new(3); const n = c.get(); }",
     )
@@ -149,7 +149,7 @@ fn a_method_called_on_the_type_needs_a_receiver() {
 fn a_static_method_with_the_wrong_argument_type_is_reported() {
     assert_error(
         "object Counter { value: int, \
-         fn new(start: int) -> Counter { return Counter { value: start }; } } \
+         fn new(int start) -> Counter { return Counter { value: start }; } } \
          fn main() { const c = Counter.new(\"three\"); }",
         "expected `int`",
     );

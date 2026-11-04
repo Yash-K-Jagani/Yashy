@@ -133,7 +133,7 @@ fn main() { }
 fn a_dynamic_allocation_that_stays_in_its_block_uses_the_block_arena() {
     let ir = promoted(
         "\
-fn f(n: int) -> int {
+fn f(int n) -> int {
     let total = 0;
     let i = 0;
     while i < n {
@@ -210,7 +210,7 @@ fn main() { }
 fn an_allocation_handed_to_a_callee_stays_on_the_heap() {
     let ir = promoted(
         "\
-fn consume(p: *mut int) {
+fn consume(*mut int p) {
     p[0] = 1;
 }
 fn f() {

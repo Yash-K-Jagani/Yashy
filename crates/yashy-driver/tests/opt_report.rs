@@ -44,7 +44,7 @@ fn report(name: &str, source: &str, extra: &[&str]) -> String {
 
 /// An index on a parameter: nothing proves the length, so the runtime decides.
 const UNPROVEN: &str = "\
-fn first(xs: []int) -> int {
+fn first([]int xs) -> int {
     let o = xs[0];
     return switch o { case Some(v) { v } case None { 0 } };
 }

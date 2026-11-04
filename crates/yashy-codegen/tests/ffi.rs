@@ -34,7 +34,7 @@ fn emit(src: &str) -> String {
 }
 
 const STRLEN: &str = r#"extern "C" link "m" {
-    unsafe fn strlen(s: *const u8) -> usize;
+    unsafe fn strlen(*const u8 s) -> usize;
 }
 
 fn main() {
@@ -84,7 +84,7 @@ fn the_temporary_is_released_after_the_call() {
 fn an_unsafe_call_lends_the_string_and_frees_nothing() {
     let ir = emit(
         r#"extern "C" link "m" {
-            unsafe fn strlen(s: *const u8) -> usize;
+            unsafe fn strlen(*const u8 s) -> usize;
         }
 
         fn main() {

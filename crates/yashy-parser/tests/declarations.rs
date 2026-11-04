@@ -209,10 +209,61 @@ fn a_struct_field_keeps_the_colon() {
 }
 
 #[test]
-fn a_non_receiver_parameter_still_needs_a_type() {
-    // `fn f(x)` names a parameter with no type. The old grammar required the
-    // colon; the new one tries to read `x` as the type and finds no name
-    // after it, so it is still an error either way.
+fn a_name_first_binding_is_e0109_at_the_colon() {
+    let diagnostics = parse_err("fn f() { let x: int = 5; }");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.code, Some("E0109"));
+    assert!(
+        diagnostic
+            .message
+            .contains("the type is written before the name"),
+        "{}",
+        diagnostic.message
+    );
+    let text = "fn f() { let x: int = 5; }";
+    let start = diagnostic.span.start as usize;
+    let end = diagnostic.span.end as usize;
+    assert_eq!(
+        &text[start..end],
+        ":",
+        "the caret points at the colon that has to move"
+    );
+}
+
+#[test]
+fn a_name_first_const_is_e0109_too() {
+    let diagnostics = parse_err("fn f() { const x: string = \"a\"; }");
+    assert_eq!(diagnostics[0].code, Some("E0109"));
+}
+
+#[test]
+fn a_name_first_parameter_is_e0109_at_the_colon() {
+    let diagnostics = parse_err("fn f(a: int) { }");
+    assert_eq!(diagnostics[0].code, Some("E0109"));
+    let text = "fn f(a: int) { }";
+    assert_eq!(
+        &text[diagnostics[0].span.start as usize..diagnostics[0].span.end as usize],
+        ":"
+    );
+}
+
+#[test]
+fn a_name_first_lambda_parameter_is_e0109() {
+    let diagnostics = parse_err("fn f() { const g = |x: int| -> int { return x; }; }");
+    assert_eq!(diagnostics[0].code, Some("E0109"));
+}
+
+#[test]
+fn a_parameter_with_no_type_is_a_diagnostic() {
+    // `fn f(x)` names a parameter with no type. The parser reads `x` as the
+    // type and finds no name after it, so the message names the order rather
+    // than a missing colon.
     let diagnostics = parse_err("fn f(x) { }");
     assert!(!diagnostics.is_empty());
+    assert!(
+        diagnostics[0].message.contains("write `int x`"),
+        "{}",
+        diagnostics[0].message
+    );
 }

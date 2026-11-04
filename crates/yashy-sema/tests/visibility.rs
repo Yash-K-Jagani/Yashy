@@ -29,8 +29,10 @@ fn check(modules: &[(&str, &str)]) -> Result<HirProgram, Vec<Diagnostic>> {
             .expect("the parser must accept the program");
         parsed.push((file, program));
     }
-    let modules: Vec<(FileId, &yashy_parser::ast::Program)> =
-        parsed.iter().map(|(file, program)| (*file, program)).collect();
+    let modules: Vec<(FileId, &yashy_parser::ast::Program)> = parsed
+        .iter()
+        .map(|(file, program)| (*file, program))
+        .collect();
     check_modules_with(&modules, &sources, CheckOptions::default())
 }
 
@@ -50,10 +52,7 @@ fn assert_rejected(modules: &[(&str, &str)], needle: &str) {
 #[test]
 fn a_public_function_is_usable_from_another_module() {
     check(&[
-        (
-            "main.ya",
-            "import lib;\nfn main() { print(seven()); }\n",
-        ),
+        ("main.ya", "import lib;\nfn main() { print(seven()); }\n"),
         ("lib.ya", "pub fn seven() -> int { return 7; }\n"),
     ])
     .expect("a `pub fn` is another module's to use");
@@ -63,10 +62,7 @@ fn a_public_function_is_usable_from_another_module() {
 fn a_private_function_is_not_usable_from_another_module() {
     assert_rejected(
         &[
-            (
-                "main.ya",
-                "import lib;\nfn main() { print(seven()); }\n",
-            ),
+            ("main.ya", "import lib;\nfn main() { print(seven()); }\n"),
             ("lib.ya", "fn seven() -> int { return 7; }\n"),
         ],
         "`seven` is private to module `lib`",
@@ -76,10 +72,7 @@ fn a_private_function_is_not_usable_from_another_module() {
 #[test]
 fn a_module_may_use_its_own_private_items() {
     check(&[
-        (
-            "main.ya",
-            "import lib;\nfn main() { print(seven()); }\n",
-        ),
+        ("main.ya", "import lib;\nfn main() { print(seven()); }\n"),
         (
             "lib.ya",
             "pub fn seven() -> int { return helper(); }\nfn helper() -> int { return 7; }\n",
@@ -125,10 +118,7 @@ fn a_public_type_with_a_public_field_is_fully_visible() {
             "main.ya",
             "import lib;\nfn main() { let p = Point { x: 1, y: 2 }; print(p.x); }\n",
         ),
-        (
-            "lib.ya",
-            "pub struct Point { pub x: int, pub y: int }\n",
-        ),
+        ("lib.ya", "pub struct Point { pub x: int, pub y: int }\n"),
     ])
     .expect("a `pub` field is another module's to read and write");
 }
@@ -141,10 +131,7 @@ fn a_private_field_may_not_be_read_from_another_module() {
                 "main.ya",
                 "import lib;\nfn main() { let p = Point { x: 1, y: 2 }; print(p.x); }\n",
             ),
-            (
-                "lib.ya",
-                "pub struct Point { x: int, pub y: int }\n",
-            ),
+            ("lib.ya", "pub struct Point { x: int, pub y: int }\n"),
         ],
         "field `x` of `Point` is private to module `lib`",
     );
@@ -160,7 +147,10 @@ fn a_const_fn_is_private_too() {
                 "main.ya",
                 "import lib;\nfn main() { const n = square(9); print(n); }\n",
             ),
-            ("lib.ya", "const fn square(n: int) -> int { return n * n; }\n"),
+            (
+                "lib.ya",
+                "const fn square(int n) -> int { return n * n; }\n",
+            ),
         ],
         "`square` is private to module `lib`",
     );
@@ -176,10 +166,7 @@ fn a_private_generic_function_is_not_usable_from_another_module() {
                 "main.ya",
                 "import lib;\nfn main() { print(identity(3)); }\n",
             ),
-            (
-                "lib.ya",
-                "fn identity[T](x: T) -> T { return x; }\n",
-            ),
+            ("lib.ya", "fn identity[T](T x) -> T { return x; }\n"),
         ],
         "`identity` is private to module `lib`",
     );
@@ -193,10 +180,7 @@ fn a_private_field_may_not_be_written_from_another_module() {
                 "main.ya",
                 "import lib;\nfn main() { let p = Point { x: 1, y: 2 }; p.x = 3; }\n",
             ),
-            (
-                "lib.ya",
-                "pub struct Point { x: int, pub y: int }\n",
-            ),
+            ("lib.ya", "pub struct Point { x: int, pub y: int }\n"),
         ],
         "field `x` of `Point` is private to module `lib`",
     );
@@ -209,10 +193,7 @@ fn a_public_type_is_usable_from_another_module() {
             "main.ya",
             "import lib;\nfn main() { let p = Point { x: 1, y: 2 }; print(p.y); }\n",
         ),
-        (
-            "lib.ya",
-            "pub struct Point { pub x: int, pub y: int }\n",
-        ),
+        ("lib.ya", "pub struct Point { pub x: int, pub y: int }\n"),
     ])
     .expect("a `pub` type is another module's to name");
 }

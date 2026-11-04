@@ -8,7 +8,7 @@
 // Usage: builtin_failures <empty-file> <missing-file>
 
 /// The number the driver test pins each `io.Error` variant to.
-fn code(e: io.Error) -> int {
+fn code(io.Error e) -> int {
     return switch e {
         case NotFound { 1 }
         case PermissionDenied { 2 }
@@ -19,19 +19,19 @@ fn code(e: io.Error) -> int {
 }
 
 /// A label and a failure code on one line.
-fn report(label: string, e: io.Error) {
+fn report(string label, io.Error e) {
     print(label);
     println(code(e));
 }
 
 /// A label and the byte count of a string on one line.
-fn measure(label: string, text: string) {
+fn measure(string label, string text) {
     print(label);
     println(text.len());
 }
 
 /// A label and a number on one line.
-fn number(label: string, value: int) {
+fn number(string label, int value) {
     print(label);
     println(value);
 }

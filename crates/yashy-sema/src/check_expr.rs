@@ -6117,7 +6117,7 @@ impl<'src> Checker<'src> {
         let Some(expected) = expected else {
             self.error(
                 span,
-                "cannot infer the map's key and value types: write `let m: map[K]V = map_new()`",
+                "cannot infer the map's key and value types: write `let map[K]V m = map_new()`",
             );
             return None;
         };
@@ -6568,7 +6568,7 @@ impl<'src> Checker<'src> {
         let Some(expected) = expected else {
             self.error(
                 span,
-                "cannot infer the channel's element type: write `let c: Channel[i64] = chan_new(4)`",
+                "cannot infer the channel's element type: write `let Channel[i64] c = chan_new(4)`",
             );
             return None;
         };

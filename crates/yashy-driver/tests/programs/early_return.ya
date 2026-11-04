@@ -10,7 +10,7 @@
 //
 // Ownership: every string built here is released, so the leak report is zero.
 
-fn pick(flag: bool, text: string) -> string {
+fn pick(bool flag, string text) -> string {
     let decorated = "[" + text + "]";
     let fallback = "<none>";
     if flag {

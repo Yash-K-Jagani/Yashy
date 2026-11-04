@@ -419,7 +419,7 @@ fn every_token_span_slices_back_to_its_own_source_text() {
     // source that uses every kind of token: for every token but `Eof`, the
     // span is a range this file can be sliced with, and the slice is the text
     // that token stands for.
-    let src = "fn f(a: int) -> int { let b = 3.5; return a + b * 2; } // done\n\"s\" @ ..\n";
+    let src = "fn f(int a) -> int { let b = 3.5; return a + b * 2; } // done\n\"s\" @ ..\n";
     let lexed = tokens(src);
     assert!(lexed.len() > 20, "fixture must cover a lot of tokens, got {}", lexed.len());
 

@@ -294,7 +294,7 @@ fn a_fault_inside_a_deferred_body_does_not_re_enter_the_fault_lowering() {
     // test hanging (or overflowing the compiler's stack) is the failure it
     // guards against.
     let ir_text = gen_body(
-        "fn f(x: int) {\n\
+        "fn f(int x) {\n\
          \x20   defer { print(10 / x); }\n\
          \x20   println(\"ok\");\n\
          }",

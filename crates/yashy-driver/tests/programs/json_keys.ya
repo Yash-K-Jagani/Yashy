@@ -10,7 +10,7 @@
 // The function is `pub` because `json_count.ya` is another module, and a
 // module's items are private to it unless they say otherwise.
 
-pub fn key_of(line: string) -> string {
+pub fn key_of(string line) -> string {
     let open = -1;
     let index = 0;
     let length = line.len();

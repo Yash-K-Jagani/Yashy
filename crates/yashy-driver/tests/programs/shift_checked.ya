@@ -5,7 +5,7 @@
 
 // The count is a run-time value, so the check stays -- except inside the guard,
 // where the interval domain proves `n` is in `0..8` and codegen deletes it.
-fn shift_below_eight(n: int) -> int {
+fn shift_below_eight(int n) -> int {
     if n >= 0 && n < 8 {
         return 1 << n;
     }

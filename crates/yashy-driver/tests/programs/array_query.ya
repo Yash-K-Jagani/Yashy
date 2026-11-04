@@ -4,7 +4,7 @@
 //
 // `show` turns an `Option[int]` into a printable number: -1 means `None`.
 
-fn show(o: Option[int]) -> int {
+fn show(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }

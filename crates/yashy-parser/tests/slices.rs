@@ -33,7 +33,7 @@ fn body_expr(src: &str) -> Expr {
 
 #[test]
 fn a_slice_type_is_empty_brackets_then_the_element_type() {
-    let program = parse("fn f(x: []int) {}");
+    let program = parse("fn f([]int x) {}");
     let Item::Fn { params, .. } = program.items.into_iter().next().unwrap() else {
         panic!("expected a function");
     };

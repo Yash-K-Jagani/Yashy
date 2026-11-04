@@ -40,6 +40,8 @@ pub const REPR_NOT_ALLOWED: &str = "E0106";
 pub const SIZE_OF_UNKNOWN: &str = "E0107";
 /// `offsetof` asks for a field of a type whose layout is not C's.
 pub const OFFSET_OF_NOT_REPR_C: &str = "E0108";
+/// A declaration writes the name before the type: `let x: int`.
+pub const TYPE_AFTER_NAME: &str = "E0109";
 /// A struct or enum variant has no such field.
 pub const UNKNOWN_FIELD: &str = "E0200";
 /// A struct literal or pattern leaves a field out.
@@ -142,6 +144,12 @@ pub const CODES: &[Code] = &[
         title: "offsetof needs a repr(C) struct",
         summary: "`offsetof` takes a `repr(C)` struct and one of its fields.",
         page: include_str!("../../../docs/errors/E0108.md"),
+    },
+    Code {
+        id: TYPE_AFTER_NAME,
+        title: "the type is written before the name",
+        summary: "A binding and a parameter write the type first: `let int x`, not `let x: int`.",
+        page: include_str!("../../../docs/errors/E0109.md"),
     },
     Code {
         id: UNKNOWN_FIELD,

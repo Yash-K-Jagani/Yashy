@@ -10,7 +10,7 @@
 // that slot is not released until the function returns, so a long loop would
 // grow the stack a slot at a time. Declaring the slot once and storing into it
 // is both the cheaper IR and the whole point of the statement.
-fn fib(n: int) -> int {
+fn fib(int n) -> int {
     let a = 0;
     let b = 1;
     let next = 0;

@@ -2,11 +2,11 @@
 // to another function and called through the parameter, and it can be bound
 // to a local and called through that binding.
 
-fn square(x: int) -> int {
+fn square(int x) -> int {
     return x * x;
 }
 
-fn apply(f: fn(int) -> int, x: int) -> int {
+fn apply(fn(int) -> int f, int x) -> int {
     return f(x);
 }
 

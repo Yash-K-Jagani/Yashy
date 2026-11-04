@@ -64,7 +64,7 @@ The report needs the verifier's facts, so it refuses `--no-verify`; it stops bef
 Start with a program whose two functions each carry a check the verifier cannot prove away: an index re-tested on every call and an addition re-tested on every call.
 
 ```yashy
-fn pick(i: int) -> int {
+fn pick(int i) -> int {
     let xs = []int { 10, 20, 30 };
     let o = xs[i];
     let v = switch o { case Some(value) { value } case None { 0 } };
@@ -72,7 +72,7 @@ fn pick(i: int) -> int {
     return v;
 }
 
-fn bump(n: int) -> int {
+fn bump(int n) -> int {
     return n + 1;
 }
 
@@ -96,7 +96,7 @@ main.ya:9  fn bump
 Add the contract clauses:
 
 ```yashy
-fn pick(i: int) -> int requires 0 <= i requires i < 3 {
+fn pick(int i) -> int requires 0 <= i requires i < 3 {
     let xs = []int { 10, 20, 30 };
     let o = xs[i];
     let v = switch o { case Some(value) { value } case None { 0 } };
@@ -104,7 +104,7 @@ fn pick(i: int) -> int requires 0 <= i requires i < 3 {
     return v;
 }
 
-fn bump(n: int) -> int requires n < 9223372036854775807 {
+fn bump(int n) -> int requires n < 9223372036854775807 {
     return n + 1;
 }
 

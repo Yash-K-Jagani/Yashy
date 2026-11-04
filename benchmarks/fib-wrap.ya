@@ -13,7 +13,7 @@
 // The inputs here cannot overflow in the first place -- fib(35) peaks around
 // 15 million -- so both variants return the same number; the difference is
 // entirely in the instructions the compiler emits.
-fn fib(n: int) -> int {
+fn fib(int n) -> int {
     if n < 2 {
         return n;
     }

@@ -9,9 +9,9 @@ fn main() {
     const copies = 1000;
     let sentence = "the quick brown fox jumps over the lazy dog ";
     let text = sentence.repeat(copies);
-    let words: []string = text.split(" ");
+    let []string words = text.split(" ");
 
-    let counts: map[string]int = map_new();
+    let map[string]int counts = map_new();
     let seen = 0;
     for word in words {
         if !word.is_empty() {

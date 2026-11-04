@@ -100,7 +100,7 @@ fn an_index_bounded_by_a_for_loop_is_proved() {
 
 #[test]
 fn a_branch_that_bounds_the_index_proves_it() {
-    let source = "fn f(i: int) { let xs = [1, 2, 3]; if i >= 0 && i < 3 { xs[i]; } } fn main() { }";
+    let source = "fn f(int i) { let xs = [1, 2, 3]; if i >= 0 && i < 3 { xs[i]; } } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     let obligations = bounds(&report);
@@ -124,7 +124,7 @@ fn a_while_loop_index_the_domain_loses_is_recorded_unproved() {
 
 #[test]
 fn an_index_into_a_slice_of_unknown_length_is_recorded_unproved() {
-    let source = "fn f(i: int, xs: []int) { xs[i]; } fn main() { }";
+    let source = "fn f(int i, []int xs) { xs[i]; } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     let obligations = bounds(&report);

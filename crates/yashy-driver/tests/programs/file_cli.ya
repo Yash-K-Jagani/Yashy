@@ -10,7 +10,7 @@
 /// Count words in one line: runs of anything that is not space, tab or
 /// carriage return. Written as a scan rather than `split` so the program
 /// allocates nothing per line.
-fn count_words(line: string) -> int {
+fn count_words(string line) -> int {
     let words = 0;
     let in_word = false;
     let index = 0;
@@ -31,7 +31,7 @@ fn count_words(line: string) -> int {
 }
 
 /// Count the lines and words of `body` and write the report beside `path`.
-fn report(path: string, body: string) {
+fn report(string path, string body) {
     const lines = body.lines();
     const line_count = lines.len();
     let words = 0;

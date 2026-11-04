@@ -195,7 +195,7 @@ fn definition_jumps_to_a_function_in_another_file() {
     let helper = dir.join("helper.ya");
     std::fs::write(
         &helper,
-        "fn double(x: int) -> int {\n    return x * 2;\n}\n",
+        "fn double(int x) -> int {\n    return x * 2;\n}\n",
     )
     .expect("the helper module must be writable");
     let main_path = dir.join("definition_main.ya");
@@ -234,7 +234,7 @@ fn definition_jumps_to_a_function_in_another_file() {
 #[test]
 fn semantic_tokens_cover_keywords_types_and_functions() {
     let uri = test_uri("tokens.ya");
-    let text = "// a comment\nfn add(a: int) -> int {\n    return a + 1;\n}\nfn main() {\n    print(\"hi\");\n}\n";
+    let text = "// a comment\nfn add(int a) -> int {\n    return a + 1;\n}\nfn main() {\n    print(\"hi\");\n}\n";
     let messages = vec![
         request(1, "initialize", object([("capabilities", object([]))])),
         did_open(&uri, text),

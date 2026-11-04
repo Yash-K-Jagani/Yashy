@@ -10,7 +10,7 @@
 import wc_words;
 
 /// Whether a line arrived.
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
@@ -18,7 +18,7 @@ fn present(line: Option[string]) -> bool {
 }
 
 /// The text of a line that arrived.
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(value) { value }
         case None { "" }

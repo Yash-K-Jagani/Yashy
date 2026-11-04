@@ -7,7 +7,7 @@
 // die; if a read dropped what the program still held, the alias line would
 // break. Nothing here inspects memory, so the test needs no allocator detail.
 
-fn bracket(text: string) -> string {
+fn bracket(string text) -> string {
     const wrapped = "[" + text;
     return wrapped + "]";
 }

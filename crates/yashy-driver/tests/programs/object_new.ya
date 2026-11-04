@@ -2,7 +2,7 @@
 
 object Counter {
     value: int,
-    fn new(start: int) -> Counter {
+    fn new(int start) -> Counter {
         return Counter { value: start };
     },
     fn get(self) -> int {

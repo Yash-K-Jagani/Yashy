@@ -8,9 +8,9 @@ uncoded diagnostic still has a span and a message.
 ## Reading a diagnostic
 
 ```text
-main.ya:4:13
+main.ya:4:19
 error[E0100]: expected `int`, found `string`
-    const n: int = "three";
+    const int n = "three";
                   ^^^^^^^
   docs: https://yashy.dev/errors/E0100
 ```
@@ -34,6 +34,7 @@ the declaration or import involved when that is not obvious.
 | [E0106](errors/E0106.md) | repr(C) is not allowed here |
 | [E0107](errors/E0107.md) | sizeof or alignof names no known type |
 | [E0108](errors/E0108.md) | offsetof needs a repr(C) struct |
+| [E0109](errors/E0109.md) | the type is written before the name |
 | [E0200](errors/E0200.md) | unknown field |
 | [E0201](errors/E0201.md) | missing field |
 | [E0300](errors/E0300.md) | missing `?` |

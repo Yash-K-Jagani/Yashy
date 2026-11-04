@@ -4,7 +4,7 @@
 // notice, and it still makes about twenty thousand calls, so the profile sees
 // the recursion rather than only the entry block.
 
-fn fib(n: int) -> int {
+fn fib(int n) -> int {
     if n < 2 {
         return n;
     }

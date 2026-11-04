@@ -4,7 +4,7 @@
 //!
 //! The plan lists `parse_type_expr` under Task 6, next to `parse_expr`. It is
 //! built here because item parsing cannot be written without it: a struct field
-//! is `name : type`, a parameter is `name : type`, and a return type is
+//! is `name: type`, a parameter is `type name`, and a return type is
 //! `-> type`. Leaving them out would mean either refusing to parse a struct at
 //! all until Task 6, or guessing a type and letting a later stage trust it --
 //! which is the one thing the untyped AST exists to prevent (see

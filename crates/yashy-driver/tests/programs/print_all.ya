@@ -14,11 +14,11 @@ fn main() {
     const xs = [1, 2, 3];
     println(xs);
     println(xs[0..2]);
-    const maybe: Option[int] = Some(7);
+    const Option[int] maybe = Some(7);
     println(maybe);
-    const missing: Option[int] = None;
+    const Option[int] missing = None;
     println(missing);
-    const answer: Result[int, string] = Ok(7);
+    const Result[int, string] answer = Ok(7);
     println(answer);
     println("1 + 1 = ${1 + 1}");
     println();

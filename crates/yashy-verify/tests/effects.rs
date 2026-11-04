@@ -61,7 +61,7 @@ fn a_pure_function_calling_an_io_function_is_rejected() {
 
 #[test]
 fn mutual_recursion_terminates_and_propagates() {
-    let source = "fn a(n: int) { if n > 0 { b(n - 1); } } fn b(n: int) { println(\"x\"); a(n); } fn main() { }";
+    let source = "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { println(\"x\"); a(n); } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["a"].io);
@@ -71,7 +71,7 @@ fn mutual_recursion_terminates_and_propagates() {
 
 #[test]
 fn an_unannotated_program_stays_silent() {
-    let source = "fn add(a: int, b: int) -> int { return a + b; } fn main() { let x = add(1, 2); }";
+    let source = "fn add(int a, int b) -> int { return a + b; } fn main() { let x = add(1, 2); }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(!report.effects["add"].io);
@@ -118,7 +118,7 @@ fn io_propagates_through_two_hops() {
 
 #[test]
 fn a_loop_carrying_an_io_call_is_io() {
-    let source = "fn f(n: int) { for i in 0..n { println(\"x\"); } } fn main() { f(3); }";
+    let source = "fn f(int n) { for i in 0..n { println(\"x\"); } } fn main() { f(3); }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["f"].io);

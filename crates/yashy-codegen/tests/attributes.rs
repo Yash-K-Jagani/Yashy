@@ -61,7 +61,7 @@ fn signature<'a>(ir: &'a str, name: &str) -> &'a str {
 }
 
 const READ_ONLY: &str = "\
-fn read(p: *mut int, n: int) -> int {
+fn read(*mut int p, int n) -> int {
     let sum = 0;
     let i = 0;
     while i < n {
@@ -74,7 +74,7 @@ fn main() { }
 ";
 
 const WRITES: &str = "\
-fn fill(p: *mut int, n: int) {
+fn fill(*mut int p, int n) {
     let i = 0;
     while i < n {
         p[i] = i;
@@ -85,7 +85,7 @@ fn main() { }
 ";
 
 const RETURNS: &str = "\
-fn give(p: *mut int) -> *mut int {
+fn give(*mut int p) -> *mut int {
     return p;
 }
 fn main() { }
@@ -95,14 +95,14 @@ const STORES: &str = "\
 struct Holder {
     p: *mut int,
 }
-fn keep(p: *mut int) -> Holder {
+fn keep(*mut int p) -> Holder {
     return Holder { p: p };
 }
 fn main() { }
 ";
 
 const OPTION: &str = "\
-fn maybe(p: Option[*mut int]) -> int {
+fn maybe(Option[*mut int] p) -> int {
     return 0;
 }
 fn main() { }
@@ -164,7 +164,7 @@ fn an_option_carried_pointer_is_not_a_bare_pointer() {
 fn a_lambda_parameter_gets_the_same_attributes_as_a_named_one() {
     let source = "\
 fn main() {
-    let f = |p: *mut int| -> int {
+    let f = |*mut int p| -> int {
         let x = p[0];
         p.free();
         return x;

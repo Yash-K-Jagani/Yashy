@@ -30,7 +30,7 @@ fn first_param(src: &str) -> TypeExpr {
 
 #[test]
 fn a_map_type_is_a_bracketed_key_then_a_value() {
-    match first_param("fn f(m: map[string]int) {}") {
+    match first_param("fn f(map[string]int m) {}") {
         TypeExpr::Map(key, value, _) => {
             assert!(
                 matches!(&*key, TypeExpr::Name(name, _) if name == "string"),
@@ -47,7 +47,7 @@ fn a_map_type_is_a_bracketed_key_then_a_value() {
 
 #[test]
 fn a_map_value_may_be_another_map() {
-    match first_param("fn f(m: map[int]map[bool]float) {}") {
+    match first_param("fn f(map[int]map[bool]float m) {}") {
         TypeExpr::Map(key, value, _) => {
             assert!(matches!(&*key, TypeExpr::Name(name, _) if name == "int"));
             assert!(
@@ -61,7 +61,7 @@ fn a_map_value_may_be_another_map() {
 
 #[test]
 fn a_map_key_may_be_an_option() {
-    match first_param("fn f(m: map[Option[int]]int) {}") {
+    match first_param("fn f(map[Option[int]]int m) {}") {
         TypeExpr::Map(key, _, _) => assert!(
             matches!(&*key, TypeExpr::Option(_, _)),
             "the bracketed type is parsed as a whole type: {key:?}"
@@ -74,7 +74,7 @@ fn a_map_key_may_be_an_option() {
 fn map_without_brackets_is_an_ordinary_type_name() {
     // The parser must not reserve the word: resolution is what says whether a
     // type named `map` exists.
-    match first_param("fn f(m: map) {}") {
+    match first_param("fn f(map m) {}") {
         TypeExpr::Name(name, _) => assert_eq!(name, "map"),
         other => panic!("expected the name `map`, got {other:?}"),
     }

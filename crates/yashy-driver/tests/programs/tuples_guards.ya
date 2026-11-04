@@ -17,19 +17,19 @@ enum Shape {
     Dot,
 }
 
-fn min_max(a: int, b: int) -> (int, int) {
+fn min_max(int a, int b) -> (int, int) {
     if a < b {
         return (a, b);
     }
     return (b, a);
 }
 
-fn sum(pair: (int, int)) -> int {
+fn sum((int, int) pair) -> int {
     const (a, b) = pair;
     return a + b;
 }
 
-fn classify(shape: Shape) -> string {
+fn classify(Shape shape) -> string {
     return switch shape {
         case Circle(r) if r > 10.0 { "big circle" }
         case Circle(r) { "small circle" }
@@ -39,7 +39,7 @@ fn classify(shape: Shape) -> string {
     };
 }
 
-fn bucket(n: int) -> int {
+fn bucket(int n) -> int {
     return switch n {
         case 0 { 100 }
         // A guard on a pattern that matches everything still has a place in

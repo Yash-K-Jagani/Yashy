@@ -10,7 +10,7 @@
 // releases all three at once. The printed total is `2 * (0 + ... + 7)`, which is
 // small enough to check by hand.
 
-fn fill(p: *mut int, n: int) {
+fn fill(*mut int p, int n) {
     let i = 0;
     while i < n {
         p[i] = i * 2;
@@ -18,7 +18,7 @@ fn fill(p: *mut int, n: int) {
     }
 }
 
-fn total(p: *mut int, n: int) -> int {
+fn total(*mut int p, int n) -> int {
     let sum = 0;
     let i = 0;
     while i < n {
@@ -28,7 +28,7 @@ fn total(p: *mut int, n: int) -> int {
     return sum;
 }
 
-fn fill_via(p: *mut int, n: int) {
+fn fill_via(*mut int p, int n) {
     fill(p, n);
 }
 

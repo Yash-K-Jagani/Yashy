@@ -11,7 +11,7 @@ import wc_words;
 
 /// Whether a line arrived. `None` is end of input; `Some("")` is an empty line,
 /// which `wc` counts.
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
@@ -19,7 +19,7 @@ fn present(line: Option[string]) -> bool {
 }
 
 /// The text of a line that arrived. Only read after `present` said there is one.
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(value) { value }
         case None { "" }

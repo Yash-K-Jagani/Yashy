@@ -4,7 +4,7 @@
 // frees it exactly once: the point of the program is that "shared" does not mean
 // "leaked", which is what lets the verifier accept it and promotion decline it.
 
-fn fill(p: *mut int) -> *mut int {
+fn fill(*mut int p) -> *mut int {
     p[0] = 7;
     return p;
 }

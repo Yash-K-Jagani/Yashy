@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn reading_through_a_pointer_is_all_three_facts_and_its_alignment() {
         let source = "\
-fn read(p: *mut int) -> int {
+fn read(*mut int p) -> int {
     return p[0];
 }
 fn main() { }
@@ -415,7 +415,7 @@ fn main() { }
     #[test]
     fn writing_through_a_pointer_keeps_noalias_and_drops_readonly() {
         let source = "\
-fn write(p: *mut int) {
+fn write(*mut int p) {
     p[0] = 1;
 }
 fn main() { }
@@ -431,10 +431,10 @@ fn main() { }
     #[test]
     fn handing_a_pointer_to_a_call_is_an_escape() {
         let source = "\
-fn hand(p: *mut int) {
+fn hand(*mut int p) {
     consume(p);
 }
-fn consume(p: *mut int) { }
+fn consume(*mut int p) { }
 fn main() { }
 ";
         let facts = params_of(source, "hand").expect("hand has facts");
@@ -447,7 +447,7 @@ fn main() { }
     #[test]
     fn an_option_pointer_is_not_a_pointer_parameter() {
         let source = "\
-fn maybe(p: Option[*mut int]) -> int {
+fn maybe(Option[*mut int] p) -> int {
     return 0;
 }
 fn main() { }

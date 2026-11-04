@@ -77,7 +77,7 @@ fn a_ten_thousand_line_project_parses_on_several_threads() {
         let mut text = String::new();
         for function in 0..per_module {
             text.push_str(&format!(
-                "pub fn f{module}_{function}(x: int) -> int {{\n    return x + 1;\n}}\n\n"
+                "pub fn f{module}_{function}(int x) -> int {{\n    return x + 1;\n}}\n\n"
             ));
         }
         write(&dir, &format!("m{module}.ya"), &text);
@@ -130,7 +130,7 @@ fn jobs_one_and_jobs_zero_produce_identical_json() {
     write(
         &dir,
         "good.ya",
-        "pub fn good(x: int) -> int {\n    return x + 1;\n}\n",
+        "pub fn good(int x) -> int {\n    return x + 1;\n}\n",
     );
     // Two files fail to parse. The parallel run parses both; the merge must
     // still print the same envelope as the serial run, which stops at the
@@ -138,12 +138,12 @@ fn jobs_one_and_jobs_zero_produce_identical_json() {
     write(
         &dir,
         "bad.ya",
-        "pub fn bad(x: int) -> int {\n    return 1 + ;\n}\n",
+        "pub fn bad(int x) -> int {\n    return 1 + ;\n}\n",
     );
     write(
         &dir,
         "also_bad.ya",
-        "pub fn also_bad(x: int) -> int {\n    return 1 + ;\n}\n",
+        "pub fn also_bad(int x) -> int {\n    return 1 + ;\n}\n",
     );
     write(
         &dir,
@@ -173,7 +173,7 @@ fn one_files_errors_are_reported_in_span_order() {
     write(
         &dir,
         "main.ya",
-        "fn a() {\n    const x: int = ;\n}\nfn b() {\n    const y: int = ;\n}\nfn c() {\n    const z: int = ;\n}\n",
+        "fn a() {\n    const int x = ;\n}\nfn b() {\n    const int y = ;\n}\nfn c() {\n    const int z = ;\n}\n",
     );
 
     let output = run(&dir, &["check", "--json", "--jobs", "4", "main.ya"]);

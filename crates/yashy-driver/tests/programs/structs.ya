@@ -14,7 +14,7 @@ struct Line {
     to: Point,
 }
 
-fn manhattan(p: Point) -> int {
+fn manhattan(Point p) -> int {
     return p.x + p.y;
 }
 

@@ -37,7 +37,7 @@ fn a_narrowing_cast_truncates_and_a_signed_widening_cast_sign_extends() {
     // return 32 bits and the upper half has to be the sign bit.
     let ir = emit(
         r#"extern "C" {
-               unsafe fn take(x: i32) -> i32;
+               unsafe fn take(i32 x) -> i32;
            }
 
            fn main() {
@@ -63,7 +63,7 @@ fn an_unsigned_source_zero_extends_and_floats_choose_their_instruction() {
     // and a `f64` to `i32` is `fptosi` because the *target* is signed.
     let ir = emit(
         r#"extern "C" {
-               unsafe fn byte_of(x: u8) -> u8;
+               unsafe fn byte_of(u8 x) -> u8;
            }
 
            fn main() {

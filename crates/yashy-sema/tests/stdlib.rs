@@ -32,7 +32,7 @@ fn assert_rejected(src: &str, needle: &str) {
 #[test]
 fn read_file_yields_a_result_of_an_owned_string() {
     check(
-        "import io;\nfn main() { let text: Result[string, io.Error] = read_file(\"notes.txt\"); switch text { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
+        "import io;\nfn main() { let Result[string, io.Error] text = read_file(\"notes.txt\"); switch text { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
     )
     .expect("read_file takes a path and answers Result[string, io.Error]");
 }
@@ -55,7 +55,7 @@ fn getenv_yields_an_option() {
 
 #[test]
 fn args_yields_a_slice_of_strings() {
-    check("fn main() { let xs: []string = args(); print(xs.len()); xs.free(); }")
+    check("fn main() { let []string xs = args(); print(xs.len()); xs.free(); }")
         .expect("args takes no arguments and answers with a fresh []string");
     assert_rejected(
         "fn main() { let xs = args(1); }",
@@ -66,7 +66,7 @@ fn args_yields_a_slice_of_strings() {
 #[test]
 fn getcwd_yields_a_result_of_a_string() {
     check(
-        "import io;\nfn main() { let here: Result[string, io.Error] = getcwd(); switch here { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
+        "import io;\nfn main() { let Result[string, io.Error] here = getcwd(); switch here { case Ok(_) { print(\"ok\"); } case Err(_) { print(\"err\"); } } }",
     )
     .expect("getcwd takes no arguments and answers Result[string, io.Error]");
     assert_rejected(
@@ -77,7 +77,7 @@ fn getcwd_yields_a_result_of_a_string() {
 
 #[test]
 fn now_yields_an_integer() {
-    check("fn main() { let stamp: int = now(); print(stamp); }")
+    check("fn main() { let int stamp = now(); print(stamp); }")
         .expect("now takes no arguments and answers with an int");
     assert_rejected(
         "fn main() { let stamp = now(1); }",
@@ -108,7 +108,7 @@ fn the_process_builtins_cannot_be_redefined() {
 #[test]
 fn slice_takes_two_bounds() {
     check(
-        "fn main() { let hello = \"hello\"; let word: string = hello.slice(1, 3); print(word); }",
+        "fn main() { let hello = \"hello\"; let string word = hello.slice(1, 3); print(word); }",
     )
     .expect("`slice` is (start, end) -> string");
     assert_rejected(

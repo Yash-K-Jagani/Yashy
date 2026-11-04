@@ -5,18 +5,18 @@
 // the body for that type. Nothing is dispatched at run time: `identity(7)` and
 // `identity("seven")` become two ordinary functions.
 
-fn identity[T](x: T) -> T {
+fn identity[T](T x) -> T {
     return x;
 }
 
 // A type parameter can appear inside a function type, and more than once.
 // `f` and `x` both mention `T`, so the first argument's type fixes what the
 // second one has to be.
-fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
+fn apply_twice[T](fn(T) -> T f, T x) -> T {
     return f(f(x));
 }
 
-fn square(x: int) -> int {
+fn square(int x) -> int {
     return x * x;
 }
 

@@ -13,7 +13,7 @@
 //
 // The printed number is the sum of `3 * lo + hi` over every iteration:
 // 3,750,000,000,000,000.
-fn min_max(a: int, b: int) -> (int, int) {
+fn min_max(int a, int b) -> (int, int) {
     if a < b {
         return (a, b);
     }

@@ -181,7 +181,7 @@ fn a_move_in_one_alternative_and_not_the_other_is_rejected() {
 - Modify: `codes.rs` (`UNKNOWN_NAMED_ARGUMENT = "E0701"`, `DUPLICATE_ARGUMENT = "E0702"`), create the two pages
 
 **Interfaces:**
-- Produces: `f(1, name: "x")`, `f(name: "x", 1)` (positional after named is `E0701`), and `fn f(a: int, b: int = 2) -> int`.
+- Produces: `f(1, name: "x")`, `f(name: "x", 1)` (positional after named is `E0701`), and `fn f(int a, int b = 2) -> int`.
 - Produces: the HIR call is **positional**; defaults are inserted at resolution, so no later pass learns about named arguments.
 - Produces: `E0701` unknown name or positional-after-named; `E0702` a parameter given twice; **`E0102`** (the code phase 5 introduced for field defaults) for a default that is not a literal or a `const` name. One rule, one code: `is_const_default` is a single function that both a field declaration and a parameter declaration call, so the two default sites cannot drift apart.
 
@@ -195,7 +195,7 @@ fn named_arguments_resolve_to_parameter_positions() {
 
 #[test]
 fn a_default_fills_a_missing_argument() {
-    // fn f(a: int, b: int = 2); f(1) calls f(1, 2) at the HIR level
+    // fn f(int a, int b = 2); f(1) calls f(1, 2) at the HIR level
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn a_positional_argument_after_a_named_one_is_rejected() {
 
 #[test]
 fn a_default_that_calls_a_function_is_rejected() {
-    // fn f(a: int = g()) is E0102, the same code as a field default that calls one
+    // fn f(int a = g()) is E0102, the same code as a field default that calls one
 }
 ```
 

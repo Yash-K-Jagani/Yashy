@@ -5,7 +5,7 @@
 // Every arm prints a witness, and `get`/`remove` answer in an `Option[]`
 // rather than failing, so a missing key has its own line.
 
-fn report(found: Option[int]) {
+fn report(Option[int] found) {
     switch found {
         case Some(v) { print(v); }
         case None { print("none"); }
@@ -14,7 +14,7 @@ fn report(found: Option[int]) {
 }
 
 fn main() {
-    let counts: map[string]int = map_new();
+    let map[string]int counts = map_new();
     counts.insert("apple", 2);
     counts.insert("pear", 3);
     counts.insert("apple", 5);

@@ -65,7 +65,7 @@ fn lambda(src: &str) -> (Vec<(String, TypeExpr)>, Option<TypeExpr>) {
 
 #[test]
 fn a_lambda_keeps_its_parameters_and_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |x: int, y: string| -> bool { return true; }; }");
+    let (params, ret) = lambda("fn main() { const f = |int x, string y| -> bool { return true; }; }");
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "x");
     assert!(matches!(&params[0].1, TypeExpr::Name(name, _) if name == "int"));
@@ -76,7 +76,7 @@ fn a_lambda_keeps_its_parameters_and_return_type() {
 
 #[test]
 fn a_lambda_without_an_arrow_has_no_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |x: int| { print(x); }; }");
+    let (params, ret) = lambda("fn main() { const f = |int x| { print(x); }; }");
     assert_eq!(params.len(), 1);
     assert!(ret.is_none(), "no arrow means no declared return type");
 }
@@ -91,7 +91,7 @@ fn a_lambda_may_take_no_parameters() {
 #[test]
 fn a_lambda_is_an_expression() {
     // The point of the syntax: a lambda is a value, so it can be an argument.
-    let program = "fn main() { apply(|x: int| -> int { return x; }, 1); }";
+    let program = "fn main() { apply(|int x| -> int { return x; }, 1); }";
     let mut sources = SourceMap::new();
     let file = sources.add_file("test.ya", program.to_string());
     let tokens = Lexer::new(program)

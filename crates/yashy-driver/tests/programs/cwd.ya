@@ -4,7 +4,7 @@
 // created, so the second line is a path the test can compare after
 // canonicalizing both sides.
 
-fn show(path: string) {
+fn show(string path) {
     println("cwd ok");
     println(path);
 }

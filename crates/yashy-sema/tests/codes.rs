@@ -63,7 +63,7 @@ fn an_unknown_value_is_e0001() {
 #[test]
 fn an_unknown_type_is_e0002() {
     assert_code(
-        "fn main() {\n    const x: Nope = 1;\n}\n",
+        "fn main() {\n    const Nope x = 1;\n}\n",
         codes::UNKNOWN_TYPE,
         "Nope",
     );
@@ -72,7 +72,7 @@ fn an_unknown_type_is_e0002() {
 #[test]
 fn a_scalar_mismatch_is_e0100() {
     assert_code(
-        "fn main() {\n    const x: int = \"three\";\n}\n",
+        "fn main() {\n    const int x = \"three\";\n}\n",
         codes::TYPE_MISMATCH,
         "\"three\"",
     );
@@ -120,7 +120,7 @@ fn a_missing_field_is_e0201() {
 #[test]
 fn a_wrong_argument_count_is_e0700() {
     assert_code(
-        "fn add(a: int, b: int) -> int { return a + b; }\n\
+        "fn add(int a, int b) -> int { return a + b; }\n\
          fn main() {\n\
              print(add(1));\n\
          }\n",
@@ -151,7 +151,7 @@ fn assigning_a_const_is_e0400() {
 fn a_missing_switch_case_is_e0600() {
     let (sm, diags) = check(
         "enum Color { Red, Green }\n\
-         fn code(c: Color) -> int {\n\
+         fn code(Color c) -> int {\n\
              return switch c {\n\
                  case Red { 1 }\n\
              };\n\
@@ -174,7 +174,7 @@ fn a_result_used_as_its_payload_is_e0300() {
     assert_code(
         "fn parse() -> Result[int, string] { return Ok(7); }\n\
          fn main() {\n\
-             const n: int = parse();\n\
+             const int n = parse();\n\
          }\n",
         codes::MISSING_QUESTION,
         "parse()",

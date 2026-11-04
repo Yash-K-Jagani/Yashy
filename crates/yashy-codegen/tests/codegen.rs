@@ -151,7 +151,7 @@ fn main_may_not_take_parameters() {
     // The C runtime calls the entry point with its own argument convention, and
     // the symbol this backend emits takes none. Accepting a parameter would
     // produce a `main` the loader cannot call.
-    let with_param = check_source("fn main(argc: int) { print(argc); }");
+    let with_param = check_source("fn main(int argc) { print(argc); }");
     let err = check_main_exists(&with_param.items)
         .expect_err("a `main` with a parameter is not callable");
     assert!(
@@ -243,19 +243,19 @@ fn input_calls_use_the_runtime_symbols() {
     // through an out slot (and, for `read_line`, a NULL at end of input), so
     // the lowering branches on the flag instead of comparing a sentinel.
     let ir_text = ir_of(
-        "fn number(text: string) -> int {\n\
+        "fn number(string text) -> int {\n\
          \x20   return switch text.parse_i64() {\n\
          \x20       case Some(n) { n }\n\
          \x20       case None { 0 }\n\
          \x20   };\n\
          }\n\
-         fn decimal(text: string) -> float {\n\
+         fn decimal(string text) -> float {\n\
          \x20   return switch text.parse_f64() {\n\
          \x20       case Some(f) { f }\n\
          \x20       case None { 0.0 }\n\
          \x20   };\n\
          }\n\
-         fn report(text: string) {\n\
+         fn report(string text) {\n\
          \x20   print(number(text));\n\
          \x20   print(decimal(text));\n\
          }\n\
@@ -613,7 +613,7 @@ fn a_switch_whose_every_arm_diverges_is_lowered_with_no_result_slot() {
     // arms still have to be well formed, which is what the fresh block after each
     // panic is for.
     let ir_text = ir_of(
-        "fn f(o: Option[int]) -> int {\n\
+        "fn f(Option[int] o) -> int {\n\
          \x20   return switch o {\n\
          \x20       case None { panic(\"none\") }\n\
          \x20       case Some(v) { panic(\"some\") }\n\

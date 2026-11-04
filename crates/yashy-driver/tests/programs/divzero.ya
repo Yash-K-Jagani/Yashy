@@ -7,7 +7,7 @@
 //
 // The first division is there so the output proves the program got that far; a
 // crash before it would print nothing.
-fn divide(a: int, b: int) -> int {
+fn divide(int a, int b) -> int {
     return a / b;
 }
 

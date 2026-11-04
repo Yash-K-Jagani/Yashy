@@ -18,7 +18,7 @@
 // the first call for most seeds.
 //
 // Ownership: pure; the result is a number.
-pub fn next(state: int) -> int {
+pub fn next(int state) -> int {
     let mixed = wrapping_mul(state, 6364136223846793005);
     let stepped = wrapping_add(mixed, 1442695040888963407);
     let positive = stepped % 2147483647;

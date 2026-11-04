@@ -167,7 +167,7 @@ const FILE_ROUND_TRIP: &str = "\
 import io;
 import string;
 
-fn show(text: string) {
+fn show(string text) {
     println_i64(text.len());
     if text.contains(\"two\") { println(\"two\"); }
     let lines = text.split(\"\\n\");
@@ -261,7 +261,7 @@ import time;
 import rand;
 import JSON;
 
-fn check_cwd(here: string) {
+fn check_cwd(string here) {
     if here.len() > 0 { println(\"cwd\"); }
 }
 

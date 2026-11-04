@@ -4,7 +4,7 @@
 //
 // `show` turns an `Option[int]` into a printable number: -1 means `None`.
 
-fn show(o: Option[int]) -> int {
+fn show(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -12,7 +12,7 @@ fn show(o: Option[int]) -> int {
 }
 
 /// The word the parse test expects for a parsed float.
-fn float_word(value: float) -> string {
+fn float_word(float value) -> string {
     if value == 2.5 {
         return "float parse ok";
     }

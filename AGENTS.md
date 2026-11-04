@@ -122,6 +122,12 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   compiler binary.
 - **A malformed program must produce a diagnostic, not a Rust panic.** The
   `never_panics` suite enforces this.
+- **A declaration writes the type first.** `let int x = 5;`,
+  `const string name = "x";`, `fn add(int a, int b) -> int`, `|int x| -> int`.
+  The name-first spelling `let x: int = 5;` is `E0109`, not a second form. An
+  untyped `let x = 5;` still infers from its initialiser. A field list and a
+  function *type* keep the colon: `struct Point { x: int }`, `fn(int) -> int`,
+  and the receiver stays `self: *mut T`.
 - **Ownership is explicit.** `move` transfers; `defer` releases at scope exit;
   arrays, maps, channels, mutexes, and built strings use `.free()`.
 - **Errors are values.** `Option[T]` for a possibly missing value and

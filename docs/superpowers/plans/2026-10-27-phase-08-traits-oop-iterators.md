@@ -137,7 +137,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 - Modify: `codes.rs` (`UNSATISFIED_BOUND = "E1503"`), create `docs/errors/E1503.md`
 
 **Interfaces:**
-- Produces: `fn show_all[T: Show](xs: []T) -> string`; inside the body, `x.show()` resolves through the bound, not through a concrete type.
+- Produces: `fn show_all[T: Show]([]T xs) -> string`; inside the body, `x.show()` resolves through the bound, not through a concrete type.
 - Produces: `E1503` at the call site when the argument type has no impl for a bound, naming the type, the trait and the file that would need the impl.
 
 - [ ] **Step 1: Write the failing tests** — a bound is enforced at the call site; a generic body may call only bound methods; an unbounded `T` cannot be printed; two instantiations produce two symbols; a bound on an unknown trait is `E1500`.
@@ -208,7 +208,7 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
 - Create: `crates/yashy-driver/tests/programs/associated_fns.ya`
 
 **Interfaces:**
-- Produces: `impl Point { fn origin() -> Point { .. } fn new(x: i64, y: i64) -> Point { .. } }`, called as `Point::origin()` and `Point::new(1, 2)`. A function in an `impl` or `object` block whose first parameter is not `self` is an **associated function**, not a method.
+- Produces: `impl Point { fn origin() -> Point { .. } fn new(i64 x, i64 y) -> Point { .. } }`, called as `Point::origin()` and `Point::new(1, 2)`. A function in an `impl` or `object` block whose first parameter is not `self` is an **associated function**, not a method.
 - Produces: the symbol is mangled from `(type, name)` — `Point::new` and a free `fn new` coexist, and so do `Point::new` and `Circle::new`.
 - Produces: `E1506` for `Point::get()` where `get` takes a receiver ("`get` is a method; call it on a value: `p.get()`"), `E1507` for `p.origin()` where `origin` has no receiver ("`origin` is an associated function; call it as `Point::origin()`"), `E1508` for a name the type does not declare, with the nearest names suggested.
 - Produces: `self` inside an associated function is an ordinary unresolved name (`E0001`), because there is no receiver to bind — not a panic and not a special diagnostic.

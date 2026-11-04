@@ -234,7 +234,7 @@ fn a_coded_human_diagnostic_links_to_the_catalog_page() {
     write(
         &dir,
         "bad.ya",
-        "fn main() {\n    const count: int = \"three\";\n}\n",
+        "fn main() {\n    const int count = \"three\";\n}\n",
     );
 
     let output = run(&dir, &["check", "bad.ya"]);

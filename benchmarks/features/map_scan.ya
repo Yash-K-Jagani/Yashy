@@ -12,7 +12,7 @@
 fn main() {
     const n = 1000000;
     const rounds = 10;
-    let m: map[int]int = map_new();
+    let map[int]int m = map_new();
     let i = 0;
     while i < n {
         m.insert(i, i * 3);
@@ -22,8 +22,8 @@ fn main() {
     let total = 0;
     let round = 0;
     while round < rounds {
-        let keys: []int = m.keys();
-        let values: []int = m.values();
+        let []int keys = m.keys();
+        let []int values = m.values();
         for k in keys {
             total = wrapping_add(total, k);
         }

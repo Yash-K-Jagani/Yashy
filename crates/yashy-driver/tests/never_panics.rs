@@ -214,7 +214,7 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ),
         (
             "panic in a switch arm whose other arm is a value",
-            "fn f(o: Option[int]) -> int { return switch o { case None { panic(\"n\") } case Some(v) { v } }; }"
+            "fn f(Option[int] o) -> int { return switch o { case None { panic(\"n\") } case Some(v) { v } }; }"
                 .to_string(),
         ),
         (
@@ -401,18 +401,18 @@ print_str print_i64 print_f64 Option Result int float bool string \
 /// grammar rather than beside it.
 const TEMPLATES: &[&str] = &[
     "fn main() { print(\"hi\"); }\n",
-    "fn f(n: int) -> int { if n < 2 { return n; } return f(n - 1) + f(n - 2); }\n",
-    "fn f(o: Option[int]) -> int { return switch o { case None { 0 } case Some(v) { v } }; }\n",
-    "fn f(r: Result[int, string]) -> int { const v = r?; return v; }\n",
-    "enum E { A, B(int) } fn f(e: E) -> int { return switch e { case A { 0 } case B(v) { v } }; }\n",
+    "fn f(int n) -> int { if n < 2 { return n; } return f(n - 1) + f(n - 2); }\n",
+    "fn f(Option[int] o) -> int { return switch o { case None { 0 } case Some(v) { v } }; }\n",
+    "fn f(Result[int, string] r) -> int { const v = r?; return v; }\n",
+    "enum E { A, B(int) } fn f(E e) -> int { return switch e { case A { 0 } case B(v) { v } }; }\n",
     "struct S { x: int, y: float } fn f() { const s = S { x: 1, y: 2.0 }; }\n",
     "fn f() { defer { print(1); } for i in 0..3 { print(i); } }\n",
     "fn f() { let sum = 0; for i in 0..3 { sum = sum + i; } }\n",
-    "fn f(x: bool) { if x { break; } }\n",
+    "fn f(bool x) { if x { break; } }\n",
     "fn f() -> Result[int, string] { return Err(\"no\"); }\n",
-    "import std.io;\nextern \"C\" { fn puts(s: string) -> int; }\n",
-    "fn f(g: fn(int) -> int, x: int) -> int { return g(x); }\n",
-    "fn f() { const g = |x: int| -> int { return x + 1; }; print(g(1)); }\n",
+    "import std.io;\nextern \"C\" { fn puts(string s) -> int; }\n",
+    "fn f(fn(int) -> int g, int x) -> int { return g(x); }\n",
+    "fn f() { const g = |int x| -> int { return x + 1; }; print(g(1)); }\n",
 ];
 
 #[test]

@@ -4,7 +4,7 @@
 // reassociate or vectorise without a fast-math flag. Every language here uses
 // IEEE-754 doubles and computes bit-identical results, so any difference is
 // scheduling and function-call overhead, not semantics.
-fn work(n: int) -> float {
+fn work(int n) -> float {
     let x = 1.0;
     for i in 0..n {
         x = x * 1.0000001 + 0.0000001;

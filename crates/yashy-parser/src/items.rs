@@ -681,14 +681,16 @@ impl<'src> Parser<'src> {
     ///
     /// Always named and always annotated (spec §3.2): the annotation is required
     /// at the boundary, which is exactly where inference has nothing to infer
-    /// from. The type is written first, `int a`; while the tree is being
-    /// migrated the old `a: int` order is still read, and is told apart by the
-    /// colon after the name.
+    /// from. The type is written first, `int a`; the removed order `a: int` is
+    /// told apart by the colon after the name and reported as `E0109`.
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
-        // Old order, and the annotated receiver `self: *mut T`. Both put the
-        // name first and are recognised by the colon that follows it.
+        // The annotated receiver `self: *mut T` and the removed name-first order
+        // both put the name first and are recognised by the colon after it.
         if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {
             let (name, name_span) = self.identifier()?;
+            if name != "self" {
+                return Err(error::type_after_name(self.peek_span()));
+            }
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type_expr()?;
             return Ok(Param {
@@ -716,7 +718,7 @@ impl<'src> Parser<'src> {
             }
             return Err(self.error(
                 name_span,
-                "a parameter is written `type name`: the type comes before the name",
+                "a parameter needs a type before its name: write `int x`",
             ));
         }
         // Type-first: `int a`, `[]T xs`, `*mut P p`, `fn(int) -> int f`.

@@ -14,7 +14,7 @@ file ends in `.ya`: `yashy build main.ya -o main` compiles it, and the binary is
 then run directly.
 
 ```yashy
-fn greeting(name: string) -> string {
+fn greeting(string name) -> string {
     return "Hello, " + name + "!";
 }
 
@@ -66,7 +66,7 @@ does not become the function's result by being last.
 
 | Form | Meaning | Notes |
 |---|---|---|
-| `fn f(a: int) -> int { ... }` | A function taking one `int` and returning one. | Every path should return a value. |
+| `fn f(int a) -> int { ... }` | A function taking one `int` and returning one. | Every path should return a value. |
 | `fn f() { ... }` | A function returning `void`. | `return;` and falling off the end are both allowed. |
 | `return expr;` | Returns `expr` to the caller. | `expr` must match the return type. |
 | `f(1, 2)` | A call. | Argument count and types are checked at the call. |
@@ -118,11 +118,11 @@ pass that makes declaration order irrelevant.
 
 ## Try it
 
-1. Write `fn square(n: int) -> int` and `fn cube(n: int) -> int`, where `cube`
+1. Write `fn square(int n) -> int` and `fn cube(int n) -> int`, where `cube`
    calls `square`. Print `cube(3)`. Hint: `cube` needs only one expression, but
    the `return` keyword is still required.
 
-2. Write `fn banner(label: string)` that prints the label between two lines of
+2. Write `fn banner(string label)` that prints the label between two lines of
    `=`. Call it from `main`, then try calling it with no argument. Read the
    diagnostic before you fix it. Hint: the error names the expected count, not
    the missing value.

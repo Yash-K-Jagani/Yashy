@@ -7,7 +7,7 @@ fn main() {
     let xs = []int { 1, 2, 3 };
 
     // `map` builds a new array: the source keeps its own elements.
-    let doubled = xs.map(|x: int| -> int { return x * 2; });
+    let doubled = xs.map(|int x| -> int { return x * 2; });
     for x in doubled {
         print(x);
         println("");
@@ -15,7 +15,7 @@ fn main() {
     doubled.free();
 
     // `filter` keeps the elements that pass.
-    let big = xs.filter(|x: int| -> bool { return x > 2; });
+    let big = xs.filter(|int x| -> bool { return x > 2; });
     for x in big {
         print(x);
         println("");
@@ -23,11 +23,11 @@ fn main() {
     big.free();
 
     // `fold` carries one value through the whole array.
-    print(xs.fold(0, |acc: int, x: int| -> int { return acc + x; }));
+    print(xs.fold(0, |int acc, int x| -> int { return acc + x; }));
     println("");
 
     // The element type may change: `[]int` maps to `[]string`.
-    let texts = xs.map(|x: int| -> string { return str_from_i64(x); });
+    let texts = xs.map(|int x| -> string { return str_from_i64(x); });
     for text in texts {
         print(text);
         println("");

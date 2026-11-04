@@ -46,8 +46,8 @@
 //! exists.
 //!
 //! **`parse_type_expr` is complete here rather than stubbed**, even though the
-//! plan lists it under Task 6. A struct field is `name : type` and a parameter
-//! is `name : type`: without types, Task 4 cannot parse a struct or a function
+//! plan lists it under Task 6. A struct field is `name: type` and a parameter
+//! is `type name`: without types, Task 4 cannot parse a struct or a function
 //! at all, and the alternative -- inventing a type and letting a later stage
 //! trust it -- is the one thing the untyped AST exists to prevent. Task 6
 //! inherits this implementation; it does not write a second one.

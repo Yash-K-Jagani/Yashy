@@ -178,7 +178,7 @@ form and no diagnostic beyond the type rule.
 **2. The C boundary is describable.** Three additions to the existing `extern`
 block:
 
-- **`link_name`.** `extern "C" link "m" { fn sqrt_raw(x: f64) -> f64 link_name "sqrt"; }`
+- **`link_name`.** `extern "C" link "m" { fn sqrt_raw(f64 x) -> f64 link_name "sqrt"; }`
   lets a declaration be called by one name and resolve to another symbol. Today
   the declaration's name *is* the symbol, which is why `stdlib/math.ya` computes
   `sqrt` with Newton's method instead of calling the hardware instruction — a

@@ -83,7 +83,7 @@ empty slice, so the two cases stay different. The slice is a real `[]char`: its
 ```yashy
 import io;
 
-fn verify(bytes: []char) {
+fn verify([]char bytes) {
     print(bytes.len());
     println();
     switch bytes[0] {
@@ -94,7 +94,7 @@ fn verify(bytes: []char) {
     bytes.free();
 }
 
-fn load(path: string) -> Result[[]char, io.Error] {
+fn load(string path) -> Result[[]char, io.Error] {
     const data = read_bytes(path)?;
     return Ok(data);
 }
@@ -133,7 +133,7 @@ It is a small handle to a reference-counted buffer, and the language declares
 it *copyable*:
 
 ```text
-fn take(s: string) { print(s); }
+fn take(string s) { print(s); }
 
 fn main() {
     const s = "shared";
@@ -189,7 +189,7 @@ The string is the receiver, so the subject comes first and the method name is
 the operation:
 
 ```yashy
-fn show(o: Option[int]) -> int {
+fn show(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -382,7 +382,7 @@ structs, enums, tuples and arrays have a debug form
    `slice`. Hint: count bytes, and expect non-ASCII input to be longer than it
    looks.
 
-2. Write `fn shout(s: string)` that prints the string followed by `"!"`, then
+2. Write `fn shout(string s)` that prints the string followed by `"!"`, then
    call it twice with the same binding, once with `move` and once without.
    Hint: both calls compile and both see the text, because strings are
    copyable.

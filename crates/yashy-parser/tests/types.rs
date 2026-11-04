@@ -12,7 +12,7 @@ use yashy_parser::Parser;
 
 /// Parse `fn f(x: <spelling>) {}` and return the parameter's type.
 fn param_type(spelling: &str) -> TypeExpr {
-    let src = format!("fn f(x: {spelling}) {{ }}");
+    let src = format!("fn f({spelling} x) {{ }}");
     let mut sources = SourceMap::new();
     let file = sources.add_file("test.ya", src.clone());
     let tokens = Lexer::new(&src)

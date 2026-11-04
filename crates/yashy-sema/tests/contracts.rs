@@ -68,7 +68,7 @@ fn names(expr: &HirExpr, needle: &str) -> bool {
 
 #[test]
 fn a_precondition_and_a_postcondition_reach_the_hir() {
-    let hir = check_ok("fn f(n: int) -> int requires n > 0 ensures result > 0 { return n; }");
+    let hir = check_ok("fn f(int n) -> int requires n > 0 ensures result > 0 { return n; }");
     let f = function(&hir, "f");
     assert_eq!(f.requires.len(), 1);
     assert_eq!(f.ensures.len(), 1);
@@ -76,7 +76,7 @@ fn a_precondition_and_a_postcondition_reach_the_hir() {
 
 #[test]
 fn a_postcondition_sees_result_and_a_precondition_does_not() {
-    let hir = check_ok("fn f(n: int) -> int requires n > 0 ensures result > 0 { return n; }");
+    let hir = check_ok("fn f(int n) -> int requires n > 0 ensures result > 0 { return n; }");
     let f = function(&hir, "f");
     // `ensures result > 0` is a comparison whose left side is `result`.
     let HirExpr::Binary { lhs, .. } = &f.ensures[0].expr else {
@@ -94,7 +94,7 @@ fn a_postcondition_sees_result_and_a_precondition_does_not() {
 fn a_loop_invariant_reaches_the_hir_as_the_first_statement() {
     // A parameter is immutable, so the loop needs its own counter; the loop is
     // then the second statement of the body, after the binding.
-    let hir = check_ok("fn f(n: int) { let i = n; while i > 0 invariant i >= 0 { i = i - 1; } }");
+    let hir = check_ok("fn f(int n) { let i = n; while i > 0 invariant i >= 0 { i = i - 1; } }");
     let f = function(&hir, "f");
     let HirStmt::ForC { body, .. } = &f.body.stmts[1] else {
         panic!("expected a while loop, got {:?}", f.body.stmts[1]);
@@ -110,19 +110,19 @@ fn a_loop_invariant_reaches_the_hir_as_the_first_statement() {
 
 #[test]
 fn a_non_bool_precondition_is_a_type_mismatch() {
-    let diags = diagnostics("fn f(n: int) requires 1 { }");
+    let diags = diagnostics("fn f(int n) requires 1 { }");
     assert_eq!(codes_of(&diags), vec![codes::TYPE_MISMATCH]);
 }
 
 #[test]
 fn a_non_bool_postcondition_is_a_type_mismatch() {
-    let diags = diagnostics("fn f(n: int) -> int ensures result { return n; }");
+    let diags = diagnostics("fn f(int n) -> int ensures result { return n; }");
     assert_eq!(codes_of(&diags), vec![codes::TYPE_MISMATCH]);
 }
 
 #[test]
 fn a_non_bool_loop_invariant_is_a_type_mismatch() {
-    let diags = diagnostics("fn f(n: int) { while n > 0 invariant 1 { } }");
+    let diags = diagnostics("fn f(int n) { while n > 0 invariant 1 { } }");
     assert_eq!(codes_of(&diags), vec![codes::TYPE_MISMATCH]);
 }
 
@@ -130,7 +130,7 @@ fn a_non_bool_loop_invariant_is_a_type_mismatch() {
 
 #[test]
 fn result_is_not_visible_in_the_body() {
-    let diags = diagnostics("fn f(n: int) -> int ensures result > 0 { return result; }");
+    let diags = diagnostics("fn f(int n) -> int ensures result > 0 { return result; }");
     assert!(
         codes_of(&diags).contains(&codes::UNKNOWN_NAME),
         "the body must not see `result`: {diags:?}"
@@ -139,7 +139,7 @@ fn result_is_not_visible_in_the_body() {
 
 #[test]
 fn result_is_not_visible_in_a_precondition() {
-    let diags = diagnostics("fn f(n: int) -> int requires result > 0 { return n; }");
+    let diags = diagnostics("fn f(int n) -> int requires result > 0 { return n; }");
     assert!(
         codes_of(&diags).contains(&codes::UNKNOWN_NAME),
         "`requires` must not see `result`: {diags:?}"
@@ -177,7 +177,7 @@ fn a_method_cannot_declare_a_contract() {
 #[test]
 fn a_generic_contract_is_checked_at_its_instantiation() {
     let hir = check_ok(
-        "fn id[T](x: T) -> T requires true { return x; }
+        "fn id[T](T x) -> T requires true { return x; }
          fn main() { let a = id(1); }",
     );
     let instance = hir

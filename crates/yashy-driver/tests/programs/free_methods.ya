@@ -12,7 +12,7 @@ fn main() {
     xs.free();
     println("slice freed");
 
-    let m: map[int]int = map_new();
+    let map[int]int m = map_new();
     m.insert(1, 2);
     m.free();
     println("map freed");

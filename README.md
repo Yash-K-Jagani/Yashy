@@ -22,7 +22,7 @@ and immutable). Arrays and strings have a method surface: `xs.push(1)`,
 method table.
 A function name is a value: `fn(int) -> int` is a type, a top-level function
 can be handed to another function and called through the parameter, and a
-binding can hold one and call it. A lambda -- `|x: int| -> int { return x + 1; }`
+binding can hold one and call it. A lambda -- `|int x| -> int { return x + 1; }`
 -- is a function written where a value is expected, and a *closure* is a
 lambda that carries the values of the scope it was written in, so it keeps
 working after that scope is gone. Three array methods take a function:
@@ -33,7 +33,7 @@ methods together, and a method with no `self` is called on the type:
 `Counter.new(3)`. A method that takes `self: *mut T` receives the object's
 address rather than a copy, so `self[0].value = ...` writes the caller's
 object, and the receiver at the call site has to be a mutable binding. A
-function can be generic: `fn identity[T](x: T) -> T` is written once, checked
+function can be generic: `fn identity[T](T x) -> T` is written once, checked
 once for each type the program calls it with, and emitted as an ordinary
 function for each, so nothing is dispatched at run time. An array whose length
 is part of its type is a fixed array: `[int; 3]` stores its elements in the
@@ -203,7 +203,7 @@ each chapter is a complete program you can build and run.
 ```yashy
 // `let` bindings are mutable, `const` bindings are not. `for i in 0..n`
 // is a range loop whose end is exclusive.
-fn fib(n: int) -> int {
+fn fib(int n) -> int {
     let a = 0;
     let b = 1;
     let next = 0;
@@ -223,7 +223,7 @@ fn main() {
 ```yashy
 // Sum types are switched over, and the checker requires the arms to be
 // exhaustive. A `switch` used as an expression yields a value.
-fn describe(o: Option[int]) -> int {
+fn describe(Option[int] o) -> int {
     return switch o {
         case Some(x) { x }
         case None { 0 }
@@ -241,7 +241,7 @@ struct Point {
     y: int,
 }
 
-fn manhattan(p: Point) -> int {
+fn manhattan(Point p) -> int {
     return p.x + p.y;
 }
 
@@ -325,7 +325,7 @@ correct code. The manual buffer and the string builder above both report zero.
 // compare contents rather than addresses. `str_from_i64` puts a number inside
 // one, so a whole line is a single string. The string methods return new
 // strings, so `trim` and `to_upper` leave `greeting` unchanged.
-fn label(name: string) -> string {
+fn label(string name) -> string {
     return "[" + name + "]";
 }
 
@@ -351,21 +351,21 @@ fn main() {
 // answers `Option[string]`: `None` at end of input, `Some(line)` otherwise (an
 // empty line is still `Some("")`), so the loop stops on the first and counts the
 // second. `parse_i64` answers `Option[int]` for the same reason.
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
     };
 }
 
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(text) { text }
         case None { "" }
     };
 }
 
-fn number(text: string) -> int {
+fn number(string text) -> int {
     return switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 }
@@ -459,7 +459,7 @@ checking while writing the program and worth nothing in front of a user.
 // A lookup answers in an `Option`, so a missing key is a `None` to handle,
 // not a crash.
 fn main() {
-    let counts: map[string]int = map_new();
+    let map[string]int counts = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
     counts.insert("yashy", 3);
@@ -488,12 +488,12 @@ order, which is a hash table's order and not the order the keys went in.
 
 ```yashy
 fn main() {
-    let counts: map[string]int = map_new();
+    let map[string]int counts = map_new();
     counts.insert("yashy", 2);
     counts.insert("river", 1);
 
-    let keys: []string = counts.keys();
-    let values: []int = counts.values();
+    let []string keys = counts.keys();
+    let []int values = counts.values();
 
     println(keys.len());
     println(values.len());
@@ -545,7 +545,7 @@ float, pub y: float }`. A method is as visible as the type it belongs to, so
 // blocks when the channel is full and `recv` blocks when it is empty. The
 // worker receives, doubles, and answers; the main thread joins it and frees
 // each channel exactly once.
-fn worker(inbox: Channel[int], outbox: Channel[int]) {
+fn worker(Channel[int] inbox, Channel[int] outbox) {
     switch inbox.recv() {
         case Some(n) { outbox.send(n * 2); }
         case None { outbox.send(-1); }
@@ -553,8 +553,8 @@ fn worker(inbox: Channel[int], outbox: Channel[int]) {
 }
 
 fn main() {
-    let inbox: Channel[int] = chan_new(1);
-    let outbox: Channel[int] = chan_new(1);
+    let Channel[int] inbox = chan_new(1);
+    let Channel[int] outbox = chan_new(1);
     let t = thread_spawn(worker, inbox, outbox);
     inbox.send(21);
     switch outbox.recv() {

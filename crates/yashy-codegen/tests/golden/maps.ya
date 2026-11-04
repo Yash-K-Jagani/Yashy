@@ -1,5 +1,5 @@
 fn main() {
-    let counts: map[string]int = map_new();
+    let map[string]int counts = map_new();
     counts.insert("a", 1);
     counts.insert("b", 2);
     let found = counts.get("a");

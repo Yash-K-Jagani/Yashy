@@ -1,7 +1,7 @@
 // Unsatisfied contract / unprovable precondition.
 // The caller does not establish the precondition, so E1100 rejects the build.
 // Expected: compile error (exit 1, E1100).
-fn positive(n: int) -> int requires n > 0 {
+fn positive(int n) -> int requires n > 0 {
     return n;
 }
 

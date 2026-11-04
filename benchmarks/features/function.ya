@@ -10,11 +10,11 @@
 // The `function_direct` files are the same program calling the function
 // directly. The difference between the two rows is the price of the function
 // value.
-fn scale(x: int, k: int) -> int {
+fn scale(int x, int k) -> int {
     return x * k + x % 3;
 }
 
-fn apply(f: fn(int, int) -> int, x: int, k: int) -> int {
+fn apply(fn(int, int) -> int f, int x, int k) -> int {
     return f(x, k);
 }
 

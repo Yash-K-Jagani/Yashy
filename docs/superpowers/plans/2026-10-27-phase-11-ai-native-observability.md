@@ -43,7 +43,7 @@ See the master index. The ones that bite here:
 - Produces: a symbol record:
   ```json
   {"name":"fetch","kind":"fn","file":"src/net.ya","span":{"start":120,"end":240},
-   "signature":"fn fetch(url: string) -> Result[string, Error]",
+   "signature":"fn fetch(string url) -> Result[string, Error]",
    "effects":{"io":true,"unsafe":false,"async":true},
    "contracts":[{"kind":"requires","text":"url.len() > 0","span":{…}}],
    "typestate":null,"visibility":"pub","docs":"Fetches a URL."}
@@ -66,7 +66,7 @@ See the master index. The ones that bite here:
 - Create: `crates/yashy-driver/tests/outline.rs`
 
 **Interfaces:**
-- Produces: `yashy outline <file>` — the file's symbols in source order, one line each (`fn fetch(url: string) -> Result[string, Error]  [io, async]`).
+- Produces: `yashy outline <file>` — the file's symbols in source order, one line each (`fn fetch(string url) -> Result[string, Error]  [io, async]`).
 - Produces: `yashy graph [--json|--dot]` — the module graph plus the call graph; `--dot` is Graphviz, `--json` is `{"nodes":[…],"edges":[{"from","to","kind":"import"|"call"}]}`.
 - Produces: `yashy search <query>` — substring and identifier-boundary matching over symbols and doc comments, ranked by (exact name, prefix, doc match), deterministic ties broken by file then span.
 

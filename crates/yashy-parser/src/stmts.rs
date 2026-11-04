@@ -10,6 +10,7 @@ use yashy_lexer::TokenKind;
 use crate::ast::{
     BinOp, BindingKeyword, Block, Contract, Expr, Literal, Pattern, Stmt, SwitchArm, TypeExpr,
 };
+use crate::error;
 use crate::error::ParseError;
 use crate::parser::{cover, Parser};
 
@@ -96,13 +97,12 @@ impl<'src> Parser<'src> {
 
     /// The binding between `let`/`const` and `=`.
     ///
-    /// Two orders are accepted while the tree is being migrated. The new one
-    /// writes the type first, `let int x = 5`; the old one writes the name
-    /// first, `let x: int = 5`. They are told apart by two tokens of lookahead:
-    /// an identifier followed by `=` has no written type, and an identifier
-    /// followed by `:` is the old order. Everything else can only start a
-    /// type, so `let []int xs`, `let *mut P p` and `let (int, string) pair`
-    /// take the type-first path without guessing.
+    /// The type comes first, `let int x = 5`, and is told apart from an untyped
+    /// binding by two tokens of lookahead: an identifier followed by `=` has no
+    /// written type, and an identifier followed by `:` is the removed
+    /// name-first order. Everything else can only start a type, so `let
+    /// []int xs`, `let *mut P p` and `let (int, string) pair` take the
+    /// type-first path without guessing.
     fn parse_binding_head(&mut self) -> Result<(String, Option<TypeExpr>), ParseError> {
         if self.check(TokenKind::Ident) {
             match self.peek_second() {
@@ -111,10 +111,11 @@ impl<'src> Parser<'src> {
                     return Ok((name, None));
                 }
                 TokenKind::Colon => {
-                    let (name, _) = self.identifier()?;
-                    self.expect(TokenKind::Colon)?;
-                    let ty = self.parse_type_expr()?;
-                    return Ok((name, Some(ty)));
+                    // The name came first. That order is not a second
+                    // spelling: the type goes in front of the name, so the
+                    // colon is the character that has to move.
+                    let _ = self.identifier()?;
+                    return Err(error::type_after_name(self.peek_span()));
                 }
                 _ => {}
             }

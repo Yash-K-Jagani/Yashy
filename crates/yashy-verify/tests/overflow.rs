@@ -69,7 +69,7 @@ fn codes(report: &VerifyReport) -> Vec<&'static str> {
 
 #[test]
 fn adding_one_to_the_largest_int_is_rejected() {
-    let source = "fn main() { let x: int = 9223372036854775807; let y = x + 1; }";
+    let source = "fn main() { let int x = 9223372036854775807; let y = x + 1; }";
     let report = verify_source(source);
     assert_eq!(codes(&report), vec!["E1201"]);
     let obligation = overflows(&report);
@@ -79,27 +79,27 @@ fn adding_one_to_the_largest_int_is_rejected() {
 
 #[test]
 fn adding_two_to_the_largest_int_is_rejected() {
-    let source = "fn main() { let x: int = 9223372036854775807; let y = x + 2; }";
+    let source = "fn main() { let int x = 9223372036854775807; let y = x + 2; }";
     assert_eq!(codes(&verify_source(source)), vec!["E1201"]);
 }
 
 #[test]
 fn subtracting_past_the_smallest_int_is_rejected() {
     // `-9223372036854775807 - 1` is `i64::MIN`, and one less has no value.
-    let source = "fn main() { let x: int = -9223372036854775807 - 1; let y = x - 1; }";
+    let source = "fn main() { let int x = -9223372036854775807 - 1; let y = x - 1; }";
     assert_eq!(codes(&verify_source(source)), vec!["E1201"]);
 }
 
 #[test]
 fn multiplying_the_largest_int_is_rejected() {
-    let source = "fn main() { let x: int = 9223372036854775807; let y = x * 2; }";
+    let source = "fn main() { let int x = 9223372036854775807; let y = x * 2; }";
     assert_eq!(codes(&verify_source(source)), vec!["E1201"]);
 }
 
 #[test]
 fn negating_the_smallest_int_is_rejected() {
     // `-i64::MIN` is `i64::MAX + 1`, which no `int` holds.
-    let source = "fn main() { let x: int = -9223372036854775807 - 1; let y = -x; }";
+    let source = "fn main() { let int x = -9223372036854775807 - 1; let y = -x; }";
     assert_eq!(codes(&verify_source(source)), vec!["E1201"]);
 }
 
@@ -129,7 +129,7 @@ fn a_loop_index_plus_one_fits() {
 
 #[test]
 fn arithmetic_on_parameters_is_recorded_not_rejected() {
-    let source = "fn f(a: int, b: int) { a + b; } fn main() { }";
+    let source = "fn f(int a, int b) { a + b; } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     let obligation = overflows(&report);
@@ -144,7 +144,7 @@ fn arithmetic_on_parameters_is_recorded_not_rejected() {
 fn a_sum_that_straddles_the_boundary_is_recorded_not_rejected() {
     // `x` is `i64::MAX`, so `x + y` with unknown `y` may or may not fit.
     let source =
-        "fn f(y: int) -> int { let x: int = 9223372036854775807; return x + y; } fn main() { }";
+        "fn f(int y) -> int { let int x = 9223372036854775807; return x + y; } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     assert!(!overflows(&report)[0].established);
@@ -181,7 +181,7 @@ fn a_comparison_is_not_an_overflow_obligation() {
 fn arithmetic_after_a_return_is_not_recorded() {
     // A fault that never runs is not worth rejecting, and phase 3 must not
     // elide a check in code that cannot execute.
-    let source = "fn main() { return; let x: int = 9223372036854775807; let y = x + 1; }";
+    let source = "fn main() { return; let int x = 9223372036854775807; let y = x + 1; }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
     assert!(overflows(&report).is_empty());

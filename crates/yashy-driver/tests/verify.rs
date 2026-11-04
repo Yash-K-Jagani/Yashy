@@ -390,7 +390,7 @@ fn every_seeded_bug_produces_exactly_its_expected_codes() {
 
 /// A program whose `requires` the caller cannot establish.
 const UNPROVED_CONTRACT: &str = "\
-fn positive(n: int) requires n > 0 {
+fn positive(int n) requires n > 0 {
     let unused = n;
 }
 
@@ -445,8 +445,8 @@ fn run_refuses_a_program_whose_contract_is_not_proved() {
 /// declarations, then the call that crosses a raw pointer.
 const TRUSTS_C: &str = "\
 extern \"C\" link \"m\" {
-    unsafe fn malloc(n: usize) -> *mut u8;
-    unsafe fn free(p: *mut u8) -> void;
+    unsafe fn malloc(usize n) -> *mut u8;
+    unsafe fn free(*mut u8 p) -> void;
 }
 
 fn main() {

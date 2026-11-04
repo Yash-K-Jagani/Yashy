@@ -129,7 +129,7 @@ promises; the explanations are there to make the promises make sense.
    Hint: the source file's directory, not the shell's directory, is the one
    that matters.
 
-2. Break the program on purpose: declare `const n: int = "three";` and run
+2. Break the program on purpose: declare `const int n = "three";` and run
    `yashy check first.ya`. Read the four lines of the diagnostic, from the
    `path:line:column` header to the caret under the expression. Hint: the
    caret points at the value that does not fit the declared type, not at the

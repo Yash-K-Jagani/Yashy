@@ -1,5 +1,5 @@
 extern "C" link "m" {
-    unsafe fn puts(s: *const u8) -> i32;
+    unsafe fn puts(*const u8 s) -> i32;
 }
 
 fn main() {

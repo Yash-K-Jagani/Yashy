@@ -9,7 +9,7 @@
 // Usage: bytes <path>
 
 /// The number a test pins each `io.Error` variant to.
-fn error_code(e: io.Error) -> int {
+fn error_code(io.Error e) -> int {
     return switch e {
         case NotFound { 1 }
         case PermissionDenied { 2 }
@@ -20,7 +20,7 @@ fn error_code(e: io.Error) -> int {
 }
 
 /// Print a labelled failure code.
-fn report(label: string, e: io.Error) {
+fn report(string label, io.Error e) {
     print(label);
     print(error_code(e));
     println("");
@@ -29,7 +29,7 @@ fn report(label: string, e: io.Error) {
 /// Compare the loaded bytes against the pattern that built them, then release
 /// the slice. The parameter owns the slice, so freeing it here returns the
 /// backing array `read_bytes` allocated.
-fn verify(bytes: []char) {
+fn verify([]char bytes) {
     print(bytes.len());
     println("");
     let mismatches = 0;
@@ -50,7 +50,7 @@ fn verify(bytes: []char) {
 }
 
 /// Read a file as bytes, propagating a failure with `?`.
-fn load(path: string) -> Result[[]char, io.Error] {
+fn load(string path) -> Result[[]char, io.Error] {
     const data = read_bytes(path)?;
     return Ok(data);
 }

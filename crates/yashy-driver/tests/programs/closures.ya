@@ -1,11 +1,11 @@
 // A closure captures the values of the scope it is written in, and carries
 // them with it: the closure outlives the function that made it.
 
-fn adder(n: int) -> fn(int) -> int {
-    return |x: int| -> int { return x + n; };
+fn adder(int n) -> fn(int) -> int {
+    return |int x| -> int { return x + n; };
 }
 
-fn greeter(greeting: string) -> fn() -> string {
+fn greeter(string greeting) -> fn() -> string {
     return || -> string { return greeting; };
 }
 
@@ -22,5 +22,5 @@ fn main() {
 
     // A closure that is made and thrown away: its environment is released
     // with it, so it does not leak.
-    |x: int| -> int { return x; };
+    |int x| -> int { return x; };
 }

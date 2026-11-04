@@ -180,7 +180,7 @@ fn main() {
 }
 
 /// Lines, words, and bytes of one file's text.
-fn report(text: string) {
+fn report(string text) {
     let lines = text.split("\n");
     let count = lines.len();
     if count > 0 {
@@ -218,7 +218,7 @@ Put this in `wc_words.ya`, beside `main.ya`:
 // The newline is already gone, so those three separators are the ones that can
 // survive on a line.
 
-pub fn count_words(line: string) -> int {
+pub fn count_words(string line) -> int {
     let words = 0;
     let inside = false;
     let index = 0;
@@ -268,7 +268,7 @@ single pass over the line: a separator ends the current word, and a non-
 separator after a separator starts a new one.
 
 ```yashy
-fn count_words(line: string) -> int {
+fn count_words(string line) -> int {
     let words = 0;
     let inside = false;
     let index = 0;

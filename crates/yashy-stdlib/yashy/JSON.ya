@@ -13,7 +13,7 @@
 
 // `escape(text)` is `text` with `\`, `"`, newline, carriage return and tab
 // written as their JSON escapes.
-pub fn escape(text: string) -> string {
+pub fn escape(string text) -> string {
     let slashes = text.replace("\\", "\\\\");
     let quotes = slashes.replace("\"", "\\\"");
     let newlines = quotes.replace("\n", "\\n");
@@ -23,7 +23,7 @@ pub fn escape(text: string) -> string {
 }
 
 // `quote(text)` is `escape(text)` inside double quotes: a JSON string literal.
-pub fn quote(text: string) -> string {
+pub fn quote(string text) -> string {
     let escaped = escape(text);
     return "\"" + escaped + "\"";
 }

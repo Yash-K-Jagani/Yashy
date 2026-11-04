@@ -5,7 +5,7 @@ object Counter {
     fn get(self) -> int {
         return self.value;
     },
-    fn add(self, n: int) -> Counter {
+    fn add(self, int n) -> Counter {
         return Counter { value: self.value + n };
     },
 }

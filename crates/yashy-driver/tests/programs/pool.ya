@@ -19,7 +19,7 @@
 // The switch arms are single expressions -- the grammar has no block arms yet
 // -- so collecting a payload is a `push` into a slice, and the sum is taken
 // once the loop is done.
-fn worker(jobs: Channel[int], results: Channel[int]) {
+fn worker(Channel[int] jobs, Channel[int] results) {
     let taken = 0;
     while taken < 1250 {
         switch jobs.recv() {
@@ -37,8 +37,8 @@ fn worker(jobs: Channel[int], results: Channel[int]) {
 }
 
 fn main() {
-    let jobs: Channel[int] = chan_new(64);
-    let results: Channel[int] = chan_new(10000);
+    let Channel[int] jobs = chan_new(64);
+    let Channel[int] results = chan_new(10000);
 
     let handles = []int { };
     let w = 0;

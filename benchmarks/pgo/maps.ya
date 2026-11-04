@@ -7,7 +7,7 @@
 
 fn main() {
     const n = 100000;
-    let m: map[int]int = map_new();
+    let map[int]int m = map_new();
 
     let i = 0;
     while i < n {

@@ -13,19 +13,19 @@ to the caller, and the function's return type says so — the checker enforces
 that promise.
 
 ```yashy
-fn half(n: int) -> Result[int, string] {
+fn half(int n) -> Result[int, string] {
     if n % 2 != 0 {
         return Err("odd");
     }
     return Ok(n / 2);
 }
 
-fn quarter(n: int) -> Result[int, string] {
+fn quarter(int n) -> Result[int, string] {
     const h = half(n)?;
     return Ok(half(h)?);
 }
 
-fn report(result: Result[int, string]) {
+fn report(Result[int, string] result) {
     const message = switch result {
         case Ok(v) { "ok " + str_from_i64(v) }
         case Err(e) { "error " + e }
@@ -80,13 +80,13 @@ reported, and a `?` whose error type does not match the function's is
 reported:
 
 ```text
-fn bad(n: int) -> int {
+fn bad(int n) -> int {
     return half(n)?;   // error: `?` needs a function returning `Result`
 }
 ```
 
 ```text
-fn bad(n: int) -> Result[int, string] {
+fn bad(int n) -> Result[int, string] {
     return half(n)?;   // error: error type mismatch: `bool` vs `string`
 }
 ```
@@ -99,7 +99,7 @@ A function that returns a value also has to return one on every path. A
 function whose last statement is an `if` without an `else` is reported:
 
 ```text
-fn half(n: int) -> int {
+fn half(int n) -> int {
     if n > 0 { return n; }   // error: missing return
 }
 ```
@@ -155,7 +155,7 @@ fn main() {
 still counts an empty line:
 
 ```text
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
@@ -220,7 +220,7 @@ offline.
 
 ## Try it
 
-1. Write `fn parse_positive(text: string) -> Result[int, string]` that uses
+1. Write `fn parse_positive(string text) -> Result[int, string]` that uses
    `parse_i64`, then rejects a value less than or equal to zero with `Err`.
    Call it with `"12"`, `"0"`, and `"abc"`. Hint: `parse_i64` answers
    `Option[int]`, so the `None` arm and the `Some(n) if n <= 0` arm both need

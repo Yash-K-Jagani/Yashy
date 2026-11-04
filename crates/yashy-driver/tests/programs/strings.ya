@@ -8,7 +8,7 @@
 // process exit code. The test asserting this program exits zero is therefore
 // also the regression test for that.
 
-fn bracket(text: string) -> string {
+fn bracket(string text) -> string {
     return "[" + text + "]";
 }
 

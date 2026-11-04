@@ -37,8 +37,8 @@ fn an_extern_block_parses_its_abi_library_and_declarations() {
     let (abi, link, decls) = extern_item(
         r#"
         extern "C" link "m" {
-            unsafe fn puts(s: *const u8) -> i32;
-            unsafe fn strlen(s: *const u8) -> usize;
+            unsafe fn puts(*const u8 s) -> i32;
+            unsafe fn strlen(*const u8 s) -> usize;
         }
         "#,
     );
@@ -62,7 +62,7 @@ fn an_extern_block_parses_its_abi_library_and_declarations() {
 
 #[test]
 fn a_single_declaration_needs_no_braces() {
-    let (abi, link, decls) = extern_item(r#"extern "C" unsafe fn abs(x: i32) -> i32;"#);
+    let (abi, link, decls) = extern_item(r#"extern "C" unsafe fn abs(i32 x) -> i32;"#);
     assert_eq!(abi.as_deref(), Some("C"));
     assert_eq!(link, None);
     assert_eq!(decls.len(), 1);
@@ -71,7 +71,7 @@ fn a_single_declaration_needs_no_braces() {
 
 #[test]
 fn an_extern_declaration_must_be_unsafe() {
-    let diagnostics = parse(r#"extern "C" { fn puts(s: *const u8) -> i32; }"#)
+    let diagnostics = parse(r#"extern "C" { fn puts(*const u8 s) -> i32; }"#)
         .expect_err("a declaration without `unsafe` must be rejected");
     assert!(
         diagnostics.iter().any(|d| d.message.contains("unsafe")),
@@ -82,7 +82,7 @@ fn an_extern_declaration_must_be_unsafe() {
 #[test]
 fn a_trailing_marker_makes_a_declaration_variadic() {
     let (_, _, decls) =
-        extern_item(r#"extern "C" { unsafe fn printf(fmt: *const u8, ...) -> i32; }"#);
+        extern_item(r#"extern "C" { unsafe fn printf(*const u8 fmt, ...) -> i32; }"#);
     assert_eq!(decls.len(), 1);
     assert!(decls[0].variadic, "the marker must be recorded");
     assert_eq!(decls[0].params.len(), 1, "the fixed parameters stay named");
@@ -91,7 +91,7 @@ fn a_trailing_marker_makes_a_declaration_variadic() {
 
 #[test]
 fn a_marker_before_another_parameter_is_e0902() {
-    let diagnostics = parse(r#"extern "C" { unsafe fn f(a: i32, ..., b: i32) -> i32; }"#)
+    let diagnostics = parse(r#"extern "C" { unsafe fn f(i32 a, ..., i32 b) -> i32; }"#)
         .expect_err("nothing may follow `...`");
     assert!(
         diagnostics.iter().any(|d| d.code == Some("E0902")
@@ -114,7 +114,7 @@ fn a_marker_on_a_yashy_fn_is_e0902() {
 #[test]
 fn a_marker_in_a_function_type_is_e0902() {
     let diagnostics =
-        parse("fn apply(f: fn(*const u8, ...) -> i32) { }").expect_err("a function type is fixed");
+        parse("fn apply(fn(*const u8, ...) -> i32 f) { }").expect_err("a function type is fixed");
     assert!(
         diagnostics.iter().any(|d| d.code == Some("E0902")),
         "the marker must be reported as misplaced: {diagnostics:?}"

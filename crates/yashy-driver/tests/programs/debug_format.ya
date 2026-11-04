@@ -39,7 +39,7 @@ fn main() {
     const maybe = Some(7);
     println("${maybe:?}");
 
-    const nothing: Option[int] = None;
+    const Option[int] nothing = None;
     println("${nothing:?}");
 
     print("${"a\nb\"c":?}\n");

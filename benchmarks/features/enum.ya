@@ -10,7 +10,7 @@ enum Msg {
     Nothing,
 }
 
-fn make(i: int) -> Msg {
+fn make(int i) -> Msg {
     const r = i % 3;
     if r == 0 {
         return Msg.Num(i);
@@ -21,7 +21,7 @@ fn make(i: int) -> Msg {
     return Msg.Nothing;
 }
 
-fn score(m: Msg) -> int {
+fn score(Msg m) -> int {
     return switch m {
         case Num(n) { n }
         case Twice(n) { wrapping_add(n, n) }

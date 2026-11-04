@@ -8,14 +8,14 @@
 // methods exercises their runtime entry points. Those calls are outside the
 // measured loop, so the growth comparison is unchanged, but the benchmark stops
 // compiling if method resolution or a new runtime entry point regresses.
-fn option_i64(o: Option[int]) -> int {
+fn option_i64(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
     };
 }
 
-fn option_f64(o: Option[float]) -> float {
+fn option_f64(Option[float] o) -> float {
     return switch o {
         case Some(v) { v }
         case None { 0.0 - 1.0 }

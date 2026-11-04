@@ -8,7 +8,7 @@
 // `%` stays checked here (there is no `wrapping_rem`): the divisor is the
 // constant 2, so the check is free, and the same is true of the loop's bounds.
 // See fib-wrap.ya for why this variant exists at all.
-fn work(n: int) -> int {
+fn work(int n) -> int {
     let acc = 0;
     for i in 0..n {
         if i % 2 == 0 {

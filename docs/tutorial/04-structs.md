@@ -23,7 +23,7 @@ struct Line {
     to: Point,
 }
 
-fn manhattan(p: Point) -> int {
+fn manhattan(Point p) -> int {
     return p.x + p.y;
 }
 
@@ -133,7 +133,7 @@ object Counter {
     fn get(self) -> int {
         return self.value;
     },
-    fn add(self, n: int) -> Counter {
+    fn add(self, int n) -> Counter {
         return Counter { value: self.value + n };
     },
 }
@@ -162,7 +162,7 @@ it is called on the type.
 ```yashy
 object Counter {
     value: int,
-    fn new(start: int) -> Counter {
+    fn new(int start) -> Counter {
         return Counter { value: start };
     },
     fn get(self) -> int {
@@ -301,15 +301,15 @@ struct that holds an array points at an array somebody else owns.
 ## Try it
 
 1. Declare `struct Rectangle { width: int, height: int }` and write
-   `fn area(r: Rectangle) -> int`. Construct one with the fields in the
+   `fn area(Rectangle r) -> int`. Construct one with the fields in the
    opposite order from the declaration, and confirm the area is the same.
    Hint: only the names matter at the literal.
 
-2. Extend the chapter's `Line` with `fn midpoint(line: Line) -> Point`. Build a
+2. Extend the chapter's `Line` with `fn midpoint(Line line) -> Point`. Build a
    point from the two `from` and `to` coordinates. Hint: read `line.from.x` and
    `line.to.x`; there is no operator to average a whole struct for you.
 
-3. Add `fn set_x(self: *mut Point, x: int)` and `fn shifted(self, dx: int) ->
+3. Add `fn set_x(self: *mut Point, int x)` and `fn shifted(self, int dx) ->
    Point` to `Point`. Confirm that `set_x` changes the caller's point and that
    `shifted` does not. Hint: the first needs a `let` at the call site; the
    second needs nothing.

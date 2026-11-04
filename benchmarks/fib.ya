@@ -5,7 +5,7 @@
 //
 // The same algorithm, in the same shape, appears as fib.c, fib.rs, fib.go,
 // fib.mjs and fib.py next to this file.
-fn fib(n: int) -> int {
+fn fib(int n) -> int {
     if n < 2 {
         return n;
     }

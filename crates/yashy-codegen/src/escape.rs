@@ -727,7 +727,7 @@ mod tests {
     #[test]
     fn a_dynamic_allocation_bound_in_a_block_uses_its_arena() {
         let f = function(
-            "fn f(n: int) { let p = alloc(n); p[0] = 1; p.free(); }",
+            "fn f(int n) { let p = alloc(n); p[0] = 1; p.free(); }",
             "f",
         );
         let facts = ProofFacts::empty();
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn a_dynamic_assignment_to_an_outer_binding_stays_on_the_heap() {
         let f = function(
-            "fn f(n: int) { let p = alloc(1); if n > 0 { p = alloc(n); } p.free(); }",
+            "fn f(int n) { let p = alloc(1); if n > 0 { p = alloc(n); } p.free(); }",
             "f",
         );
         let facts = ProofFacts::empty();
@@ -767,7 +767,7 @@ mod tests {
     #[test]
     fn an_allocation_handed_to_a_function_stays_on_the_heap() {
         let f = function(
-            "fn consume(p: *mut int) { p[0] = 1; }\n\
+            "fn consume(*mut int p) { p[0] = 1; }\n\
              fn f() { let p = alloc(8); consume(p); }",
             "f",
         );

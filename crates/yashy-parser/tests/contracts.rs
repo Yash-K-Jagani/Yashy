@@ -79,7 +79,7 @@ fn op_of(contract: &Contract) -> BinOp {
 
 #[test]
 fn a_function_can_declare_a_precondition_and_a_postcondition() {
-    let program = parse_ok("fn f(n: int) -> int requires n > 0 ensures result > 0 { return n; }");
+    let program = parse_ok("fn f(int n) -> int requires n > 0 ensures result > 0 { return n; }");
     let (requires, ensures) = only_fn(&program);
     assert_eq!(requires.len(), 1);
     assert_eq!(ensures.len(), 1);
@@ -89,7 +89,7 @@ fn a_function_can_declare_a_precondition_and_a_postcondition() {
 
 #[test]
 fn a_clause_keeps_the_span_of_its_expression() {
-    let src = "fn f(n: int) requires n > 0 { }";
+    let src = "fn f(int n) requires n > 0 { }";
     let program = parse_ok(src);
     let (requires, _) = only_fn(&program);
     let start = src.find("n > 0").expect("the fixture contains the clause");
@@ -103,7 +103,7 @@ fn a_clause_keeps_the_span_of_its_expression() {
 #[test]
 fn clauses_repeat_and_either_order_is_kept() {
     let program = parse_ok(
-        "fn f(a: bool, b: bool, c: bool, d: bool) ensures a requires b ensures c requires d { }",
+        "fn f(bool a, bool b, bool c, bool d) ensures a requires b ensures c requires d { }",
     );
     let (requires, ensures) = only_fn(&program);
     assert_eq!(requires.len(), 2, "both `requires` clauses survive");
@@ -112,7 +112,7 @@ fn clauses_repeat_and_either_order_is_kept() {
 
 #[test]
 fn a_function_without_clauses_has_none() {
-    let program = parse_ok("fn f(n: int) -> int { return n; }");
+    let program = parse_ok("fn f(int n) -> int { return n; }");
     let (requires, ensures) = only_fn(&program);
     assert!(requires.is_empty());
     assert!(ensures.is_empty());
@@ -120,7 +120,7 @@ fn a_function_without_clauses_has_none() {
 
 #[test]
 fn a_public_function_carries_its_clauses() {
-    let program = parse_ok("pub fn f(n: int) requires n > 0 { }");
+    let program = parse_ok("pub fn f(int n) requires n > 0 { }");
     let (requires, _) = only_fn(&program);
     assert_eq!(requires.len(), 1);
 }
@@ -129,14 +129,14 @@ fn a_public_function_carries_its_clauses() {
 fn a_clause_may_call_a_function() {
     // Nothing in this slice restricts what a clause may contain; the purity
     // rule arrives with effects in phase 2.
-    let program = parse_ok("fn f(n: int) requires is_positive(n) { }");
+    let program = parse_ok("fn f(int n) requires is_positive(n) { }");
     let (requires, _) = only_fn(&program);
     assert_eq!(requires.len(), 1);
 }
 
 #[test]
 fn a_const_fn_cannot_declare_a_contract() {
-    let diags = parse_err("const fn f(n: int) requires n > 0 { return n; }");
+    let diags = parse_err("const fn f(int n) requires n > 0 { return n; }");
     assert!(
         all_messages(&diags).contains("const fn"),
         "the diagnostic must name the const fn: {diags:?}"
@@ -147,7 +147,7 @@ fn a_const_fn_cannot_declare_a_contract() {
 
 #[test]
 fn a_loop_can_declare_an_invariant() {
-    let program = parse_ok("fn f(n: int) { while n > 0 invariant n >= 0 { n = n - 1; } }");
+    let program = parse_ok("fn f(int n) { while n > 0 invariant n >= 0 { n = n - 1; } }");
     let body = match &program.items[0] {
         Item::Fn { body, .. } => body,
         other => panic!("expected a function, got {other:?}"),
@@ -164,7 +164,7 @@ fn a_loop_can_declare_an_invariant() {
 #[test]
 fn several_invariants_keep_the_order_they_were_written_in() {
     let program =
-        parse_ok("fn f(n: int) { while n > 0 invariant n >= 0 invariant n < 100 { n = n - 1; } }");
+        parse_ok("fn f(int n) { while n > 0 invariant n >= 0 invariant n < 100 { n = n - 1; } }");
     let body = match &program.items[0] {
         Item::Fn { body, .. } => body,
         other => panic!("expected a function, got {other:?}"),
@@ -180,7 +180,7 @@ fn several_invariants_keep_the_order_they_were_written_in() {
 #[test]
 fn every_loop_form_takes_an_invariant() {
     let program = parse_ok(
-        "fn f(n: int, xs: []int) {
+        "fn f(int n, []int xs) {
             for i in 0..n invariant i >= 0 { }
             for x in xs invariant x > 0 { }
             for ; n > 0; n - 1 invariant n >= 0 { }
@@ -207,6 +207,6 @@ fn every_loop_form_takes_an_invariant() {
 fn an_invariant_is_not_a_statement_of_an_ordinary_block() {
     // The clause belongs to the header. Writing it in the body is a parse
     // error, not a statement the checker has to reject later.
-    let diags = parse_err("fn f(n: int) { invariant n > 0; }");
+    let diags = parse_err("fn f(int n) { invariant n > 0; }");
     assert!(!diags.is_empty());
 }

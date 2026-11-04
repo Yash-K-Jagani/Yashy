@@ -7,14 +7,14 @@
 // followed. That last block is dead -- the process ends inside the runtime call
 // -- but it has to exist, or the module would have two terminators in one block
 // and `clang` would reject it.
-fn checked(n: int) -> int {
+fn checked(int n) -> int {
     if n < 0 {
         panic("negative");
     }
     return n;
 }
 
-fn pick(o: Option[int]) -> int {
+fn pick(Option[int] o) -> int {
     return switch o {
         case None { panic("empty") }
         case Some(v) { v }

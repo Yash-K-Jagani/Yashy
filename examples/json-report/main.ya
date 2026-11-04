@@ -11,7 +11,7 @@
 
 import JSON;
 
-fn key_of(line: string) -> string {
+fn key_of(string line) -> string {
     let open = -1;
     let index = 0;
     let length = line.len();
@@ -31,7 +31,7 @@ fn key_of(line: string) -> string {
 }
 
 /// Whether a line arrived.
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
@@ -39,7 +39,7 @@ fn present(line: Option[string]) -> bool {
 }
 
 /// The text of a line that arrived.
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(value) { value }
         case None { "" }
@@ -48,7 +48,7 @@ fn text_of(line: Option[string]) -> string {
 
 fn main() {
     let documents = 0;
-    let keys: map[string]int = map_new();
+    let map[string]int keys = map_new();
 
     let line = read_line();
     while present(line) {

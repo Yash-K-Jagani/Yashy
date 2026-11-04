@@ -4,7 +4,7 @@
 // it" is not the same as "the program is wrong".
 
 /// The text's number, or zero when it is not one.
-fn number(text: string) -> int {
+fn number(string text) -> int {
     return switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 }
@@ -12,7 +12,7 @@ fn number(text: string) -> int {
 }
 
 /// The typed line's number, or zero at end of input.
-fn typed_number(line: Option[string]) -> int {
+fn typed_number(Option[string] line) -> int {
     return switch line {
         case Some(text) { number(text) }
         case None { 0 }

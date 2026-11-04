@@ -15,11 +15,11 @@ type, so it can be passed to another function, stored in a binding, and called
 later.
 
 ```yashy
-fn square(x: int) -> int {
+fn square(int x) -> int {
     return x * x;
 }
 
-fn apply(f: fn(int) -> int, x: int) -> int {
+fn apply(fn(int) -> int f, int x) -> int {
     return f(x);
 }
 
@@ -42,11 +42,11 @@ binding's type is the function's type, so the checker knows what the call
 returns.
 
 ```yashy
-fn square(x: int) -> int {
+fn square(int x) -> int {
     return x * x;
 }
 
-fn double(x: int) -> int {
+fn double(int x) -> int {
     return x + x;
 }
 
@@ -74,16 +74,16 @@ A lambda is a function written where a value is expected. It has no name; it
 has parameters, an optional return type, and a body.
 
 ```yashy
-fn apply(f: fn(int) -> int, x: int) -> int {
+fn apply(fn(int) -> int f, int x) -> int {
     return f(x);
 }
 
 fn main() {
-    print(apply(|x: int| -> int { return x + 1; }, 41));
+    print(apply(|int x| -> int { return x + 1; }, 41));
     println();
     // => 42
 
-    const double = |x: int| -> int { return x * 2; };
+    const double = |int x| -> int { return x * 2; };
     print(double(20));
     println();
     // => 40
@@ -103,7 +103,7 @@ use a variable of the function it is written in:
 ```text
 fn main() {
     const n = 1;
-    const f = |x: int| -> int { return x + n; };
+    const f = |int x| -> int { return x + n; };
 }
 ```
 
@@ -122,8 +122,8 @@ A closure is a function that carries the values of the scope it was written
 in. It is a lambda that captures something.
 
 ```yashy
-fn adder(n: int) -> fn(int) -> int {
-    return |x: int| -> int { return x + n; };
+fn adder(int n) -> fn(int) -> int {
+    return |int x| -> int { return x + n; };
 }
 
 fn main() {
@@ -143,7 +143,7 @@ reference the closure owns: the closure holds it alive, and releases it when
 the closure itself is gone.
 
 ```yashy
-fn greeter(greeting: string) -> fn() -> string {
+fn greeter(string greeting) -> fn() -> string {
     return || -> string { return greeting; };
 }
 
@@ -164,7 +164,7 @@ Yashy has no way to say which of the two owners releases it:
 ```text
 fn main() {
     const buf = alloc(16);
-    const f = |x: int| -> int { return x; };
+    const f = |int x| -> int { return x; };
 }
 ```
 
@@ -187,17 +187,17 @@ each call says what it is.
 
 ```yashy
 // One body, for any type.
-fn identity[T](x: T) -> T {
+fn identity[T](T x) -> T {
     return x;
 }
 
 // `T` can appear inside another type, and more than once. Here the function
 // value and the value it is given must agree about `T`.
-fn apply_twice[T](f: fn(T) -> T, x: T) -> T {
+fn apply_twice[T](fn(T) -> T f, T x) -> T {
     return f(f(x));
 }
 
-fn square(x: int) -> int {
+fn square(int x) -> int {
     return x * x;
 }
 
@@ -270,7 +270,7 @@ copy would need another, so there is no finite program to emit.
 - A generic function's name is not a value. `apply_twice(identity, 3)` cannot
   be written, because the callee's type would have to pick which `identity`
   was meant; call it with a value instead.
-- A type parameter may not share a name with a type: `fn f[T](x: T)` next to
+- A type parameter may not share a name with a type: `fn f[T](T x)` next to
   `struct T` reports ``type parameter `T` shadows a type of the same name``,
   because inside the body the parameter would silently replace the struct.
 
@@ -284,7 +284,7 @@ says to keep, and `fold` carries one value through the whole array.
 fn main() {
     let xs = []int { 1, 2, 3 };
 
-    let doubled = xs.map(|x: int| -> int { return x * 2; });
+    let doubled = xs.map(|int x| -> int { return x * 2; });
     for x in doubled {
         print(x);
         println();
@@ -294,7 +294,7 @@ fn main() {
     // => 6
     doubled.free();
 
-    let big = xs.filter(|x: int| -> bool { return x > 2; });
+    let big = xs.filter(|int x| -> bool { return x > 2; });
     for x in big {
         print(x);
         println();
@@ -302,7 +302,7 @@ fn main() {
     // => 3
     big.free();
 
-    print(xs.fold(0, |acc: int, x: int| -> int { return acc + x; }));
+    print(xs.fold(0, |int acc, int x| -> int { return acc + x; }));
     println();
     // => 6
 
@@ -312,7 +312,7 @@ fn main() {
 
 `map` and `filter` build a *new* array; the source keeps its own elements, so
 the new array is freed on its own. The element type may change: `map` through
-`|x: int| -> string { return str_from_i64(x); }` gives a `[]string`.
+`|int x| -> string { return str_from_i64(x); }` gives a `[]string`.
 
 `fold` starts from the value in front of the callback and ends with one value:
 the callback takes the accumulator and the element, and returns the next
@@ -326,7 +326,7 @@ existence: a call to one is replaced by the value the compiler computed, so
 the program carries the number rather than the call that produced it.
 
 ```yashy
-const fn square(n: int) -> int {
+const fn square(int n) -> int {
     return n * n;
 }
 
@@ -341,21 +341,21 @@ fn main() {
 A `const fn` may call itself, and it may call another `const fn`:
 
 ```yashy
-const fn fib(n: int) -> int {
+const fn fib(int n) -> int {
     if n < 2 {
         return n;
     }
     return fib(n - 1) + fib(n - 2);
 }
 
-const fn max_of(a: int, b: int) -> int {
+const fn max_of(int a, int b) -> int {
     if a > b {
         return a;
     }
     return b;
 }
 
-const fn square(n: int) -> int {
+const fn square(int n) -> int {
     return n * n;
 }
 
@@ -419,7 +419,7 @@ value can go. A `const fn` is not a runtime function, so there is no symbol to
 call:
 
 ```text
-const fn square(n: int) -> int {
+const fn square(int n) -> int {
     return n * n;
 }
 
@@ -500,14 +500,14 @@ that call is an ordinary optimization of an ordinary program.
 
 ## Try it
 
-1. Write a function `twice(f: fn(int) -> int, x: int) -> int` that calls `f`
+1. Write a function `twice(fn(int) -> int f, int x) -> int` that calls `f`
    twice, and use it with `square` to compute `square(square(4))`.
 
 2. Write three functions of the same type — `negate`, `double` and
-   `identity` — and a function `pick(which: fn(int) -> int, x: int) -> int`
+   `identity` — and a function `pick(fn(int) -> int which, int x) -> int`
    that calls the one it is given. Call `pick` with each of the three.
 
-3. Write `fn first_of[T](x: T, y: T) -> T` that returns `x`, and call it once
+3. Write `fn first_of[T](T x, T y) -> T` that returns `x`, and call it once
    with two `int`s and once with two `string`s. Then change the second call so
    the two arguments have different types and read the error.
 

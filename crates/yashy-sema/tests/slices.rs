@@ -38,8 +38,8 @@ fn a_slice_literal_checks_every_element_against_its_written_type() {
 #[test]
 fn len_reads_a_slice_and_a_string() {
     check(
-        "fn main() { let xs = []int { 1, 2 }; let n: int = xs.len(); \
-         let s = \"ab\"; let m: int = s.len(); }",
+        "fn main() { let xs = []int { 1, 2 }; let int n = xs.len(); \
+         let s = \"ab\"; let int m = s.len(); }",
     )
     .expect("`len` is the same spelling for both inputs");
 }
@@ -55,8 +55,8 @@ fn len_rejects_a_number() {
 #[test]
 fn indexing_a_slice_yields_an_option() {
     check(
-        "fn main() { let xs = []int { 1 }; let first: Option[int] = xs[0]; \
-         let missing: Option[int] = xs[9]; }",
+        "fn main() { let xs = []int { 1 }; let Option[int] first = xs[0]; \
+         let Option[int] missing = xs[9]; }",
     )
     .expect("an index is always an Option, in and out of range");
 }
@@ -71,7 +71,7 @@ fn a_slice_element_cannot_be_assigned() {
 
 #[test]
 fn pop_yields_the_element_in_an_option() {
-    check("fn main() { let xs = []int { 1 }; let last: Option[int] = xs.pop(); }")
+    check("fn main() { let xs = []int { 1 }; let Option[int] last = xs.pop(); }")
         .expect("`pop` hands the last element out or `None`");
 }
 
@@ -85,7 +85,7 @@ fn pop_needs_an_array() {
 
 #[test]
 fn for_in_binds_the_element_type() {
-    check("fn main() { let xs = []int { 1 }; for x in xs { let y: int = x; } }")
+    check("fn main() { let xs = []int { 1 }; for x in xs { let int y = x; } }")
         .expect("the loop variable has the element type");
 }
 
@@ -121,7 +121,7 @@ fn a_slice_of_strings_can_be_built_and_iterated() {
 
 #[test]
 fn indexing_a_string_slice_yields_an_option_of_string() {
-    check("fn main() { let xs = []string { \"a\" }; let first: Option[string] = xs[0]; }")
+    check("fn main() { let xs = []string { \"a\" }; let Option[string] first = xs[0]; }")
         .expect("an index borrows the element and a miss is `None`");
 }
 

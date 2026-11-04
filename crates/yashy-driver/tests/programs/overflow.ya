@@ -15,6 +15,6 @@ fn main() {
 // The value goes through `same` so the verifier cannot see its range: an
 // overflow it can prove is rejected at compile time (E1201), and this program
 // is about the runtime check, which is what handles a value it does not know.
-fn same(n: int) -> int {
+fn same(int n) -> int {
     return n;
 }

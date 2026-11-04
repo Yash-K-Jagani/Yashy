@@ -164,7 +164,7 @@ fn a_proven_index_loads_the_element_inline_without_the_runtime_check() {
 #[test]
 fn an_unproven_index_keeps_the_runtime_check() {
     let ir = emit_with_facts(
-        "fn first(xs: []int) -> int { \
+        "fn first([]int xs) -> int { \
          return switch xs[0] { case Some(v) { v } case None { 0 } }; \
          } fn main() { }",
     );

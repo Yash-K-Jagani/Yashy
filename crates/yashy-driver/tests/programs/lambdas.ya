@@ -3,15 +3,15 @@
 // The first lambda is handed straight to `apply`, which calls it through its
 // parameter. The second is bound first and called through the binding.
 
-fn apply(f: fn(int) -> int, x: int) -> int {
+fn apply(fn(int) -> int f, int x) -> int {
     return f(x);
 }
 
 fn main() {
-    print(apply(|x: int| -> int { return x + 1; }, 41));
+    print(apply(|int x| -> int { return x + 1; }, 41));
     println("");
 
-    const double = |x: int| -> int { return x * 2; };
+    const double = |int x| -> int { return x * 2; };
     print(double(20));
     println("");
 }

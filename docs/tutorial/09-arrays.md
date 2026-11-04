@@ -110,7 +110,7 @@ An array is linear: it has one owner and cannot be copied. **Passing it to a
 function moves it**, because a parameter takes ownership:
 
 ```yashy
-fn total(xs: []int) -> int {
+fn total([]int xs) -> int {
     let sum = 0;
     for x in xs {
         sum += x;
@@ -195,7 +195,7 @@ nothing to free: `[int; 3]` and `[int; 4]` are two different types, and a
 function that returns the first cannot hand back the second.
 
 ```yashy
-fn show(o: Option[int]) -> int {
+fn show(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }
@@ -203,7 +203,7 @@ fn show(o: Option[int]) -> int {
 }
 
 fn main() {
-    const grid: [int; 3] = [1, 2, 3];
+    const [int; 3] grid = [1, 2, 3];
 
     print(grid.len());
     println();
@@ -259,7 +259,7 @@ fn main() {
 ```
 
 Views cannot be named: bind the range with `let` and use it in place.
-`fn f(x: [int])` and `fn f() -> [int]` are both rejected, because Yashy has no
+`fn f([int] x)` and `fn f() -> [int]` are both rejected, because Yashy has no
 lifetime syntax to say which array a borrowed view came from, and a view that
 outlived its array would read freed storage. A view is inferred at the range and
 lives in the function that made it; pass the array itself, or copy the elements
@@ -271,7 +271,7 @@ the function returns, so an owned array that has been viewed is never released:
 a leak, not a corruption. This is the honest cost of views without lifetimes:
 
 ```yashy
-fn middle_sum(xs: []int) -> int {
+fn middle_sum([]int xs) -> int {
     const mid = xs[1..3];
     let sum = 0;
     for value in mid {
@@ -336,7 +336,7 @@ that owns a reference.
   reports ``error: cannot change `xs` while a view of it is alive``. Any write
   -- `push`, `pop`, `set`, `insert`, `remove`, `clear`, `reverse`, `sort`,
   `extend`, `free`, or an assignment -- is refused until the function returns.
-- **Naming a view.** `fn total(xs: [int]) -> int` reports
+- **Naming a view.** `fn total([int] xs) -> int` reports
   ``error: a view cannot be named: bind it with `let` and use it in place``.
   Yashy cannot say which array a borrowed parameter would point at, so views
   stay in the function that made them; take `[]int` and free it, or copy the

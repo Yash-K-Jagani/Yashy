@@ -103,7 +103,7 @@ fn all_messages(diags: &[Diagnostic]) -> String {
 // -- the brief's five tests -------------------------------------------------
 
 /// One of every item kind the parser builds, from one source.
-const FOUR_ITEMS: &str = "import std.io;\nstruct P { x: float, y: float }\nenum C { Red, Green }\nfn d(a: P, b: P) -> float { return 0.0; }\n";
+const FOUR_ITEMS: &str = "import std.io;\nstruct P { x: float, y: float }\nenum C { Red, Green }\nfn d(P a, P b) -> float { return 0.0; }\n";
 
 #[test]
 fn parses_import_struct_enum_and_fn() {
@@ -126,10 +126,7 @@ fn parses_import_struct_enum_and_fn() {
     // struct P { x: float, y: float }
     match &program.items[1] {
         Item::Struct {
-            name,
-            fields,
-            span,
-            ..
+            name, fields, span, ..
         } => {
             assert_eq!(name, "P");
             let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
@@ -145,7 +142,10 @@ fn parses_import_struct_enum_and_fn() {
             // A field's span covers `x: float`, not the whole struct.
             assert_eq!(fields[0].span, span_of(FOUR_ITEMS, "x: float"));
             assert_eq!(fields[1].span, span_of(FOUR_ITEMS, "y: float"));
-            assert_eq!(*span, span_of(FOUR_ITEMS, "struct P { x: float, y: float }"));
+            assert_eq!(
+                *span,
+                span_of(FOUR_ITEMS, "struct P { x: float, y: float }")
+            );
         }
         other => panic!("expected a struct second, got {other:?}"),
     }
@@ -194,7 +194,7 @@ fn parses_import_struct_enum_and_fn() {
                     }
                 }
             }
-            assert_eq!(params[1].span, span_of(FOUR_ITEMS, "b: P"));
+            assert_eq!(params[1].span, span_of(FOUR_ITEMS, "P b"));
             match ret {
                 Some(TypeExpr::Name(type_name, _)) => {
                     assert_eq!(type_name, "float", "the return type the source wrote")
@@ -206,7 +206,7 @@ fn parses_import_struct_enum_and_fn() {
             assert_eq!(body.span, span_of(FOUR_ITEMS, "{ return 0.0; }"));
             assert_eq!(
                 *span,
-                span_of(FOUR_ITEMS, "fn d(a: P, b: P) -> float { return 0.0; }")
+                span_of(FOUR_ITEMS, "fn d(P a, P b) -> float { return 0.0; }")
             );
         }
         other => panic!("expected a function fourth, got {other:?}"),
@@ -255,7 +255,10 @@ fn an_import_path_segment_may_be_a_keyword() {
     ] {
         match &parse_ok(source).items[0] {
             Item::Import { path, .. } => {
-                assert_eq!(path, &expected.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+                assert_eq!(
+                    path,
+                    &expected.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                );
             }
             other => panic!("expected an import, got {other:?}"),
         }
@@ -374,9 +377,9 @@ fn extern_blocks_are_parsed_in_both_their_spellings() {
     // A block with an ABI and a library, and the single-declaration form. The
     // AST has one shape for both: a list of declarations.
     for src in [
-        r#"extern "C" { unsafe fn puts(s: string) -> int; }"#,
-        r#"extern "C" link "m" { unsafe fn puts(s: string) -> int; }"#,
-        r#"extern "C" unsafe fn puts(s: string) -> int;"#,
+        r#"extern "C" { unsafe fn puts(string s) -> int; }"#,
+        r#"extern "C" link "m" { unsafe fn puts(string s) -> int; }"#,
+        r#"extern "C" unsafe fn puts(string s) -> int;"#,
     ] {
         let program = parse_ok(src);
         match program.items.first() {
@@ -678,7 +681,10 @@ fn enum_variants_may_be_unit_tuple_or_struct() {
         "a unit variant has no fields"
     );
     assert_eq!(variants[0].span, span_of(src, "Circle(float)"));
-    assert_eq!(variants[1].span, span_of(src, "Rect { w: float, h: float }"));
+    assert_eq!(
+        variants[1].span,
+        span_of(src, "Rect { w: float, h: float }")
+    );
     assert_eq!(variants[2].span, span_of(src, "Empty"));
 }
 
@@ -763,11 +769,11 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
     }
 
     // A parameter without a type is a diagnostic: annotations are required at
-    // the boundaries (spec 3.2). The new order reads the first name as a type
-    // and looks for a parameter name after it, so the message states the order
-    // rather than naming a missing `:`.
-    assert!(all_messages(&parse_err("fn f(a) { }")).contains("type name"));
-    assert!(all_messages(&parse_err("fn f(a: int { }")).contains("`)`"));
+    // the boundaries (spec 3.2). The type-first grammar reads the first name as
+    // a type and looks for a parameter name after it, so the message states the
+    // order rather than naming a missing `:`.
+    assert!(all_messages(&parse_err("fn f(a) { }")).contains("write `int x`"));
+    assert!(all_messages(&parse_err("fn f(int a { }")).contains("`)`"));
 }
 
 /// A comma in a parameter list is either the separator or a trailing mark, and
@@ -775,7 +781,7 @@ fn a_function_may_omit_its_return_type_and_its_parameters() {
 #[test]
 fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
     // The baseline: two parameters, one comma between them.
-    match &parse_ok("fn f(a: int, b: int) { }").items[0] {
+    match &parse_ok("fn f(int a, int b) { }").items[0] {
         Item::Fn { params, .. } => {
             let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
             assert_eq!(names, vec!["a", "b"]);
@@ -785,7 +791,7 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
 
     // A trailing comma is accepted, and it does not invent a parameter: the
     // comma before `)` ends the list rather than introducing an empty one.
-    match &parse_ok("fn f(a: int,) { }").items[0] {
+    match &parse_ok("fn f(int a,) { }").items[0] {
         Item::Fn { params, .. } => assert_eq!(
             params.len(),
             1,
@@ -806,12 +812,12 @@ fn a_stray_or_trailing_comma_in_a_parameter_list_is_handled_deliberately() {
     // their parameter-list equivalents are here, and they are the same comma
     // loop over the same delimiter, so what is pinned is the same rule.
     for src in [
-        "fn f(a: int,, b: int) { }", // f(1,,2)
-        "fn f(,) { }",               // f(,)
-        "fn f(, a: int) { }",        // f(,1)
-        "fn f(a: int b: int) { }",
+        "fn f(int a,, int b) { }", // f(1,,2)
+        "fn f(,) { }",             // f(,)
+        "fn f(, int a) { }",       // f(,1)
+        "fn f(int b: int a) { }",
         "fn f(a:) { }",
-        "fn f(a: int,,, ) { }",
+        "fn f(int a,,, ) { }",
     ] {
         let diags = parse_err(src);
         assert_eq!(
@@ -917,7 +923,9 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
         // The same message shape as an empty struct body: `X` must have at
         // least one `Y`.
         let struct_message = parse_err("struct S { }")[0].message.clone();
-        let variant_message = first.message.replace(&format!("variant `{variant}` of enum `E`"), "struct `S`");
+        let variant_message = first
+            .message
+            .replace(&format!("variant `{variant}` of enum `E`"), "struct `S`");
         assert_eq!(
             variant_message, struct_message,
             "{src:?}: a variant's emptiness is reported like a struct's"
@@ -928,7 +936,12 @@ fn an_empty_declaration_body_is_rejected_deliberately() {
     // rejection is about emptiness and not about parentheses or braces.
     assert_eq!(parse_ok("enum E { A(int) }").items.len(), 1);
     assert_eq!(parse_ok("enum E { A { w: float } }").items.len(), 1);
-    assert_eq!(parse_ok("enum E { A, B(float), C { w: float } }").items.len(), 1);
+    assert_eq!(
+        parse_ok("enum E { A, B(float), C { w: float } }")
+            .items
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -1073,12 +1086,12 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "fn f",
         "fn f(",
         "fn f(,)",
-        "fn f(, a: int)",
-        "fn f(a: int,)",
-        "fn f(a: int,)",
-        "fn f(a: int,, b: int)",
-        "fn f(a: int,,, )",
-        "fn f(a: int b: int)",
+        "fn f(, int a)",
+        "fn f(int a,)",
+        "fn f(int a,)",
+        "fn f(int a,, int b)",
+        "fn f(int a,,, )",
+        "fn f(int b: int a)",
         "fn f()",
         "fn f() -",
         "fn f() ->",
@@ -1091,7 +1104,7 @@ fn hostile_input_is_reported_rather_than_panicking() {
         "fn f() { [ }",
         "extern",
         "extern \"C\" { }",
-        "extern \"C\" link \"m\" { unsafe fn puts(s: string) -> int; }",
+        "extern \"C\" link \"m\" { unsafe fn puts(string s) -> int; }",
         "\u{0}",
         "@",
         "@@@",
@@ -1203,20 +1216,34 @@ fn field_and_variant_order_is_source_order() {
 fn move_expr_parses_to_move_variant() {
     let src = "fn f() { const c = move x; }";
     let prog = parse_ok(src);
-    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
-    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
-    assert!(matches!(init, Expr::Move(bx, _) if matches!(bx.as_ref(), Expr::Ident(path, _) if path == &vec!["x".to_string()])));
+    let Item::Fn { body, .. } = &prog.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Const { init, .. } = &body.stmts[0] else {
+        panic!("expected const")
+    };
+    assert!(
+        matches!(init, Expr::Move(bx, _) if matches!(bx.as_ref(), Expr::Ident(path, _) if path == &vec!["x".to_string()]))
+    );
 }
 
 #[test]
 fn move_binds_looser_than_postfix_tighter_than_binary() {
     let src = "fn f() { const c = move a.b; const d = -move x; }";
     let prog = parse_ok(src);
-    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
-    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
+    let Item::Fn { body, .. } = &prog.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Const { init, .. } = &body.stmts[0] else {
+        panic!("expected const")
+    };
     assert!(matches!(init, Expr::Move(bx, _) if matches!(bx.as_ref(), Expr::FieldAccess { .. })));
-    let Stmt::Const { init, .. } = &body.stmts[1] else { panic!("expected const") };
-    assert!(matches!(init, Expr::Unary { op: UnOp::Neg, operand, .. } if matches!(operand.as_ref(), Expr::Move(_, _))));
+    let Stmt::Const { init, .. } = &body.stmts[1] else {
+        panic!("expected const")
+    };
+    assert!(
+        matches!(init, Expr::Unary { op: UnOp::Neg, operand, .. } if matches!(operand.as_ref(), Expr::Move(_, _)))
+    );
 }
 
 #[test]
@@ -1226,9 +1253,9 @@ fn an_empty_body_after_a_bare_name_is_a_block_not_a_struct_literal() {
     // This shape used to be read as `name {}`, after which the loop or `if` had
     // no body and the error pointed at the end of the enclosing function.
     for (src, expected) in [
-        ("fn f(flag: bool) { if flag { } }", "if flag { }"),
-        ("fn g(flag: bool) { while flag { } }", "while flag { }"),
-        ("fn h(n: int) { for i in 0..n { } }", "for i in 0..n { }"),
+        ("fn f(bool flag) { if flag { } }", "if flag { }"),
+        ("fn g(bool flag) { while flag { } }", "while flag { }"),
+        ("fn h(int n) { for i in 0..n { } }", "for i in 0..n { }"),
     ] {
         let prog = parse_ok(src);
         let Item::Fn { body, .. } = &prog.items[0] else {
@@ -1250,7 +1277,7 @@ fn while_is_the_condition_only_for_loop() {
     // and the backend never learn that `while` exists. There is one loop node,
     // which is why the keyword cannot lower differently from `for ; cond; { }`
     // by accident.
-    let src = "fn f(flag: bool) { while flag { } }";
+    let src = "fn f(bool flag) { while flag { } }";
     let prog = parse_ok(src);
     let Item::Fn { body, .. } = &prog.items[0] else {
         panic!("expected fn")
@@ -1268,8 +1295,9 @@ fn while_is_the_condition_only_for_loop() {
     assert!(init.is_none(), "a `while` has no initialiser");
     assert!(update.is_none(), "and nothing to run after each turn");
     assert!(
-        cond.as_ref()
-            .is_some_and(|c| matches!(c, Expr::Ident(path, _) if path == &vec!["flag".to_string()])),
+        cond.as_ref().is_some_and(
+            |c| matches!(c, Expr::Ident(path, _) if path == &vec!["flag".to_string()])
+        ),
         "the condition is the expression written, got {cond:?}"
     );
     assert!(loop_body.stmts.is_empty());
@@ -1304,7 +1332,9 @@ fn switch_expression_retains_subject() {
         Item::Fn { body, .. } => match &body.stmts[0] {
             Stmt::Const { init, .. } => match init {
                 Expr::SwitchExpr { subject, .. } => match subject.as_ref() {
-                    Expr::Ident(path, _) => assert_eq!(path, &vec!["a".to_string(), "b".to_string()]),
+                    Expr::Ident(path, _) => {
+                        assert_eq!(path, &vec!["a".to_string(), "b".to_string()])
+                    }
                     other => panic!("expected ident subject, got {other:?}"),
                 },
                 other => panic!("expected switch expr, got {other:?}"),
@@ -1372,15 +1402,12 @@ fn struct_variant_pattern_still_parses_after_the_lookahead_fix() {
 
 #[test]
 fn a_let_binding_keeps_its_name_and_annotation() {
-    let src = "fn main() { let x: int = 1; }";
+    let src = "fn main() { let int x = 1; }";
     let program = parse_ok(src);
     let Item::Fn { body, .. } = &program.items[0] else {
         panic!("expected fn")
     };
-    let Stmt::Let {
-        name, ty, init, ..
-    } = &body.stmts[0]
-    else {
+    let Stmt::Let { name, ty, init, .. } = &body.stmts[0] else {
         panic!("expected a let binding, got {:?}", body.stmts[0]);
     };
     assert_eq!(name, "x");
@@ -1578,7 +1605,11 @@ fn a_debug_suffix_marks_one_interpolation_part() {
     let InterpPart::Expr(inner, format) = &parts[0] else {
         panic!("expected the expression part, got {:?}", parts[0]);
     };
-    assert_eq!(*format, InterpFormat::Debug, "the `:?` suffix asks for debug");
+    assert_eq!(
+        *format,
+        InterpFormat::Debug,
+        "the `:?` suffix asks for debug"
+    );
     assert_eq!(
         span_of(src, "value"),
         yashy_parser::exprs::expr_span(inner),
@@ -1633,7 +1664,9 @@ fn adjacent_interpolations_have_no_text_between_them() {
     };
     assert_eq!(parts.len(), 2, "two expressions, no text: {parts:?}");
     assert!(
-        parts.iter().all(|p| matches!(p, InterpPart::Expr(_, InterpFormat::Display))),
+        parts
+            .iter()
+            .all(|p| matches!(p, InterpPart::Expr(_, InterpFormat::Display))),
         "no text piece, got {parts:?}"
     );
 }
@@ -1714,7 +1747,7 @@ fn an_interpolated_string_cannot_be_a_pattern() {
     // A `case` pattern is matched against a value; it is not built at run time,
     // so `${ ... }` in one is a mistake with a name rather than a silent literal
     // that would never match.
-    let diags = parse_err("fn f(s: string) { switch s { case \"${s}\" { 0 } } }");
+    let diags = parse_err("fn f(string s) { switch s { case \"${s}\" { 0 } } }");
     assert!(
         all_messages(&diags).contains("pattern"),
         "the message must say a pattern cannot interpolate: {}",
@@ -1768,8 +1801,12 @@ fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
     // negate into range -- so `-5` is still a negation of `5`.
     let src = "fn f() { const big = -9223372036854775808; const small = -5; }";
     let prog = parse_ok(src);
-    let Item::Fn { body, .. } = &prog.items[0] else { panic!("expected fn") };
-    let Stmt::Const { init, .. } = &body.stmts[0] else { panic!("expected const") };
+    let Item::Fn { body, .. } = &prog.items[0] else {
+        panic!("expected fn")
+    };
+    let Stmt::Const { init, .. } = &body.stmts[0] else {
+        panic!("expected const")
+    };
     match init {
         Expr::Literal(Literal::I64(value), span) => {
             assert_eq!(*value, i64::MIN);
@@ -1781,7 +1818,9 @@ fn i64_min_is_spelled_by_folding_the_minus_into_the_literal() {
         }
         other => panic!("expected a folded int::MIN literal, got {other:?}"),
     }
-    let Stmt::Const { init, .. } = &body.stmts[1] else { panic!("expected const") };
+    let Stmt::Const { init, .. } = &body.stmts[1] else {
+        panic!("expected const")
+    };
     assert!(
         matches!(init, Expr::Unary { op: UnOp::Neg, .. }),
         "`-5` stays a negation: {init:?}"
@@ -1877,7 +1916,11 @@ fn repr_c_attaches_to_the_three_types_that_have_a_layout() {
     let Item::Enum { repr, .. } = &program.items[1] else {
         panic!("expected an enum second, got {:?}", program.items[1]);
     };
-    assert_eq!(*repr, Some(ReprKind::C), "`repr(C)` was not recorded on the enum");
+    assert_eq!(
+        *repr,
+        Some(ReprKind::C),
+        "`repr(C)` was not recorded on the enum"
+    );
 
     let Item::Object { repr, .. } = &program.items[2] else {
         panic!("expected an object third, got {:?}", program.items[2]);
@@ -1924,9 +1967,7 @@ fn repr_on_an_item_with_no_layout_is_reported() {
         all_messages(&diagnostics)
     );
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.code == Some("E0106")),
+        diagnostics.iter().any(|d| d.code == Some("E0106")),
         "the diagnostic carries the catalog code: {diagnostics:?}"
     );
 }
@@ -1940,9 +1981,7 @@ fn an_unknown_representation_is_refused_rather_than_ignored() {
         all_messages(&diagnostics)
     );
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.code == Some("E0106")),
+        diagnostics.iter().any(|d| d.code == Some("E0106")),
         "an unknown name is the same code as a misplaced clause: {diagnostics:?}"
     );
 }

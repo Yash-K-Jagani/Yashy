@@ -814,7 +814,7 @@ fn a_float_bitwise_operand_is_e0103() {
     let source = dir.join("bits.ya");
     fs::write(
         &source,
-        "fn main() {\n    const x: float = 1.5;\n    print(~x);\n}\n",
+        "fn main() {\n    const float x = 1.5;\n    print(~x);\n}\n",
     )
     .expect("write bits.ya");
 
@@ -842,7 +842,7 @@ fn mixed_bitwise_operands_are_e0104() {
     let source = dir.join("bits.ya");
     fs::write(
         &source,
-        "fn main() {\n    const a = 1 as u8;\n    const b: int = 1;\n    print(a & b);\n}\n",
+        "fn main() {\n    const a = 1 as u8;\n    const int b = 1;\n    print(a & b);\n}\n",
     )
     .expect("write bits.ya");
 
@@ -870,7 +870,7 @@ fn a_compound_bitwise_assignment_to_a_const_is_e0400() {
     let source = dir.join("bits.ya");
     fs::write(
         &source,
-        "fn main() {\n    const x: int = 1;\n    x &= 3;\n}\n",
+        "fn main() {\n    const int x = 1;\n    x &= 3;\n}\n",
     )
     .expect("write bits.ya");
 
@@ -905,7 +905,7 @@ fn a_shift_count_out_of_range_panics_with_the_type_and_range() {
     let output = compile_and_run(
         "shift-oob",
         concat!(
-            "fn same(n: int) -> int { return n; }\n",
+            "fn same(int n) -> int { return n; }\n",
             "fn main() {\n",
             "    print(\"before\\n\");\n",
             "    const n = same(64);\n",
@@ -938,7 +938,7 @@ fn a_shift_on_a_narrow_type_names_its_own_range() {
     let output = compile_and_run(
         "shift-u8",
         concat!(
-            "fn same(n: int) -> int { return n; }\n",
+            "fn same(int n) -> int { return n; }\n",
             "fn main() {\n",
             "    const a = 1 as u8;\n",
             "    const n = same(8) as u8;\n",
@@ -961,7 +961,7 @@ fn a_negative_shift_count_is_out_of_range() {
     let output = compile_and_run(
         "shift-negative",
         concat!(
-            "fn same(n: int) -> int { return n; }\n",
+            "fn same(int n) -> int { return n; }\n",
             "fn main() {\n",
             "    const n = same(0 - 1);\n",
             "    print(1 << n);\n",
@@ -984,7 +984,7 @@ fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
     let source = dir.join("shift.ya");
     fs::write(
         &source,
-        "fn main() {\n    const BAD: int = 1 << 64;\n}\n",
+        "fn main() {\n    const int BAD = 1 << 64;\n}\n",
     )
     .expect("write shift.ya");
 
@@ -1046,13 +1046,13 @@ fn a_literal_shift_emits_no_check_and_an_unproven_one_keeps_it() {
 
     let unproven = ir_of(
         "shift-ir-unproven",
-        "fn number(text: string) -> int {\n\
+        "fn number(string text) -> int {\n\
          \x20   return switch text.parse_i64() {\n\
          \x20       case Some(v) { v }\n\
          \x20       case None { 0 }\n\
          \x20   };\n\
          }\n\
-         fn typed(line: Option[string]) -> int {\n\
+         fn typed(Option[string] line) -> int {\n\
          \x20   return switch line {\n\
          \x20       case Some(text) { number(text) }\n\
          \x20       case None { 0 }\n\
@@ -1076,7 +1076,7 @@ fn a_guard_bounds_the_count_and_the_check_disappears() {
     // fact is what lets codegen delete the branch.
     let ir = ir_of(
         "shift-ir-guard",
-        "fn shift(n: int) -> int {\n\
+        "fn shift(int n) -> int {\n\
              if n >= 0 && n < 8 {\n\
                  return 1 << n;\n\
              }\n\
@@ -2179,7 +2179,7 @@ fn os_exit_can_be_reached_through_a_helper() {
     let output = compile_and_run(
         "exit-helper",
         concat!(
-            "fn quit(code: int) {\n",
+            "fn quit(int code) {\n",
             "    print(\"leaving\\n\");\n",
             "    os.exit(code);\n",
             "    print(\"never\\n\");\n",
@@ -2257,7 +2257,7 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // handles a value the verifier does not know.
     let output = compile_and_run(
         "overflow-add",
-        "fn main() {\n    print(\"before\\n\");\n    let big = same(9223372036854775807);\n    print(big + 1);\n    print(\"after\\n\");\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
+        "fn main() {\n    print(\"before\\n\");\n    let big = same(9223372036854775807);\n    print(big + 1);\n    print(\"after\\n\");\n}\n\nfn same(int n) -> int {\n    return n;\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -2289,7 +2289,7 @@ fn an_overflowing_multiplication_is_a_fault_too() {
     // operand opaque so this tests the runtime check, not E1201.
     let output = compile_and_run(
         "overflow-mul",
-        "fn main() {\n    let big = same(4000000000000000000);\n    print(big * 3);\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
+        "fn main() {\n    let big = same(4000000000000000000);\n    print(big * 3);\n}\n\nfn same(int n) -> int {\n    return n;\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -2355,7 +2355,7 @@ fn negating_the_smallest_i64_is_an_overflow() {
     // runtime check runs instead of E1201 firing at compile time.
     let output = compile_and_run(
         "overflow-neg",
-        "fn main() {\n    let m = same(-9223372036854775808);\n    print(-m);\n}\n\nfn same(n: int) -> int {\n    return n;\n}\n",
+        "fn main() {\n    let m = same(-9223372036854775808);\n    print(-m);\n}\n\nfn same(int n) -> int {\n    return n;\n}\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
@@ -2528,7 +2528,7 @@ fn the_arithmetic_opt_outs_do_what_their_names_say() {
     let output = compile_and_run(
         "arithmetic-opt-outs",
         concat!(
-            "fn show(o: Option[int]) -> int {\n",
+            "fn show(Option[int] o) -> int {\n",
             "    return switch o {\n",
             "        case None { 999 }\n",
             "        case Some(v) { v }\n",
@@ -2950,7 +2950,7 @@ fn libc_is_reachable_from_yashy() {
 /// A program that calls `sqrt` through a declaration named `c_sqrt`.
 const LINKED_SQRT: &str = concat!(
     "extern \"C\" link \"m\" {\n",
-    "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+    "    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n",
     "}\n",
     "\n",
     "fn main() {\n",
@@ -2983,8 +2983,8 @@ fn two_declarations_of_one_symbol_emit_one_declare() {
         "link-name-dedupe",
         concat!(
             "extern \"C\" link \"m\" {\n",
-            "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
-            "    unsafe fn also_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+            "    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n",
+            "    unsafe fn also_sqrt(f64 x) -> f64 link_name \"sqrt\";\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3063,10 +3063,10 @@ fn a_symbol_the_program_defines_is_e0900() {
         &source,
         concat!(
             "extern \"C\" link \"m\" {\n",
-            "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+            "    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n",
             "}\n",
             "\n",
-            "fn sqrt(x: float) -> float {\n",
+            "fn sqrt(float x) -> float {\n",
             "    return unsafe c_sqrt(x);\n",
             "}\n",
             "\n",
@@ -3107,7 +3107,7 @@ fn link_name_on_a_yashy_fn_is_e0901() {
     fs::write(
         &source,
         concat!(
-            "fn twice(n: int) -> int link_name \"twice\" {\n",
+            "fn twice(int n) -> int link_name \"twice\" {\n",
             "    return n * 2;\n",
             "}\n",
             "\n",
@@ -3145,7 +3145,7 @@ fn an_empty_link_name_is_e0901() {
         &source,
         concat!(
             "extern \"C\" {\n",
-            "    unsafe fn puts(s: *const u8) -> i32 link_name \"\";\n",
+            "    unsafe fn puts(*const u8 s) -> i32 link_name \"\";\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3179,7 +3179,7 @@ fn fmt_round_trips_link_name() {
     let file = dir.join("link.ya");
     let canonical = concat!(
         "extern \"C\" link \"m\" {\n",
-        "    unsafe fn c_sqrt(x: f64) -> f64 link_name \"sqrt\";\n",
+        "    unsafe fn c_sqrt(f64 x) -> f64 link_name \"sqrt\";\n",
         "}\n",
         "\n",
         "fn main() {\n",
@@ -3212,7 +3212,7 @@ fn fmt_round_trips_link_name() {
 /// A program that calls the C `printf` through a variadic declaration.
 const VARIADIC_PRINTF: &str = concat!(
     "extern \"C\" {\n",
-    "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+    "    unsafe fn printf(*const u8 fmt, ...) -> i32;\n",
     "}\n",
     "\n",
     "fn main() {\n",
@@ -3268,7 +3268,7 @@ fn a_variadic_call_with_too_few_fixed_arguments_is_e0700() {
         "variadic-arity",
         concat!(
             "extern \"C\" {\n",
-            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "    unsafe fn printf(*const u8 fmt, ...) -> i32;\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3294,7 +3294,7 @@ fn a_variadic_call_without_unsafe_is_rejected() {
         "variadic-unsafe",
         concat!(
             "extern \"C\" {\n",
-            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "    unsafe fn printf(*const u8 fmt, ...) -> i32;\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3320,7 +3320,7 @@ fn a_bare_int_variadic_argument_names_the_c_width() {
         "variadic-bare-int",
         concat!(
             "extern \"C\" {\n",
-            "    unsafe fn printf(fmt: *const u8, ...) -> i32;\n",
+            "    unsafe fn printf(*const u8 fmt, ...) -> i32;\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3374,7 +3374,7 @@ fn a_variadic_marker_before_another_parameter_is_e0902() {
         "variadic-not-last",
         concat!(
             "extern \"C\" {\n",
-            "    unsafe fn f(a: i32, ..., b: i32) -> i32;\n",
+            "    unsafe fn f(i32 a, ..., i32 b) -> i32;\n",
             "}\n",
             "\n",
             "fn main() {\n",
@@ -3397,7 +3397,7 @@ fn a_variadic_marker_in_a_function_type_is_e0902() {
     let stderr = check_fails(
         "variadic-fn-type",
         concat!(
-            "fn apply(f: fn(*const u8, ...) -> i32) {\n",
+            "fn apply(fn(*const u8, ...) -> i32 f) {\n",
             "    print(1);\n",
             "}\n",
             "\n",
@@ -3418,7 +3418,7 @@ fn fmt_round_trips_a_variadic_marker() {
     let file = dir.join("variadic.ya");
     let canonical = concat!(
         "extern \"C\" {\n",
-        "    unsafe fn sum(n: i32, ...) -> i32;\n",
+        "    unsafe fn sum(i32 n, ...) -> i32;\n",
         "}\n",
         "\n",
         "fn main() {\n",
@@ -3710,7 +3710,7 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
 fn an_i64_annotation_is_reported_with_a_caret() {
     let dir = work_dir("old-int-spelling");
     let source = dir.join("old.ya");
-    fs::write(&source, "fn main() { const n: i64 = 1; }\n").expect("write the program");
+    fs::write(&source, "fn main() { const i64 n = 1; }\n").expect("write the program");
     let output = Command::new(yashy())
         .arg("check")
         .arg(&source)
@@ -3868,7 +3868,7 @@ fn a_char_does_not_become_an_int_without_a_conversion() {
         concat!(
             "fn main() {\n",
             "    let buf = alloc_bytes(1);\n",
-            "    let n: int = buf[0];\n",
+            "    let int n = buf[0];\n",
             "    buf.free();\n",
             "    print(n);\n",
             "}\n",

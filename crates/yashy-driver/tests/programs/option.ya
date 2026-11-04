@@ -3,7 +3,7 @@
 // The `switch` is in *expression* position (`return switch ...`), which is what
 // makes the arm bodies produce a value. A bare `switch` statement evaluates its
 // arms for effect and discards them.
-fn unwrap_or_zero(o: Option[int]) -> int {
+fn unwrap_or_zero(Option[int] o) -> int {
     return switch o {
         case None { 0 }
         case Some(v) { v }

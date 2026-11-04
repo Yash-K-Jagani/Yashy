@@ -30,7 +30,7 @@ enum Item {
     Number(int),
 }
 
-fn area(s: Shape) -> float {
+fn area(Shape s) -> float {
     return switch s {
         case Circle(r) { 3.0 * r * r }
         case Rect { w: w, h: h } { w * h }
@@ -38,7 +38,7 @@ fn area(s: Shape) -> float {
     };
 }
 
-fn label(m: Message) -> string {
+fn label(Message m) -> string {
     return switch m {
         case Text(t) { t }
         case Count(n) { "count" }
@@ -46,7 +46,7 @@ fn label(m: Message) -> string {
     };
 }
 
-fn total(item: Item) -> int {
+fn total(Item item) -> int {
     return switch item {
         case Two(p) { p.left + p.right }
         case Number(n) { n }

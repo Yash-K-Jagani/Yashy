@@ -21,6 +21,10 @@ Both are block-scoped: leaving the block makes the name unavailable, and there
 is no `undefined` value to read before the declaration. This keeps every binding
 initialized and every owned string releasable.
 
+A binding may name its type between the keyword and the name, as in
+`let int total = 0;`; the type goes first here for the same reason it goes
+first in a parameter. With no written type, the initialiser decides it.
+
 ```yashy
 fn main() {
     const count = 3;
@@ -169,7 +173,7 @@ fn main() {
 
 `void` is the type of "no value". `fn f()` and `fn f() -> void` mean the same
 thing, and both allow `return;` or falling off the end. `void` may be written
-only as a return type: `let x: void`, `[]void`, and `Option[void]` are errors,
+only as a return type: `let void x`, `[]void`, and `Option[void]` are errors,
 because no value of that type can exist. `()` is no longer a spelling; write
 `void`, and `-> ()` reports ``error: `()` is spelled `void` in Yashy``.
 

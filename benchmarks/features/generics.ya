@@ -5,7 +5,7 @@
 // there is no dispatch to measure. The workload is `function_direct.ya`'s, so
 // the two numbers are comparable: the difference is what a type parameter
 // costs, which should be nothing.
-fn scale[T](x: T, k: T) -> T {
+fn scale[T](T x, T k) -> T {
     return x * k + x % 3;
 }
 

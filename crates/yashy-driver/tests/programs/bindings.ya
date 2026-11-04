@@ -4,7 +4,7 @@
 // outer `total`, not the inner `let`.
 
 fn main() {
-    let x: int = 1;
+    let int x = 1;
     x = x + 1;
     print(x);
     println("");

@@ -18,14 +18,14 @@ expression, so it can be returned; every shape must be covered.
 The two shapes every program meets are `Option[T]` and `Result[T, E]`:
 
 ```yashy
-fn describe(value: Option[int]) -> string {
+fn describe(Option[int] value) -> string {
     return switch value {
         case Some(n) { "some " + str_from_i64(n) }
         case None { "none" }
     };
 }
 
-fn divide(a: int, b: int) -> Result[int, string] {
+fn divide(int a, int b) -> Result[int, string] {
     if b == 0 {
         return Err("division by zero");
     }
@@ -65,7 +65,7 @@ A `switch` may also compare literals. The subject has infinitely many values in
 that case, so a `default` arm is required to make the match exhaustive:
 
 ```yashy
-fn classify(n: int) -> string {
+fn classify(int n) -> string {
     return switch n {
         case 0 { "zero" }
         case 1 { "one" }
@@ -96,7 +96,7 @@ enum Shape {
     Point,
 }
 
-fn area(shape: Shape) -> float {
+fn area(Shape shape) -> float {
     return switch shape {
         case Circle(r) { 3.0 * r * r }
         case Rect { w: w, h: h } { w * h }
@@ -146,7 +146,7 @@ enum Shape {
     Rect { w: float, h: float },
 }
 
-fn describe(shape: Shape) -> string {
+fn describe(Shape shape) -> string {
     return switch shape {
         case Circle(r) if r > 10.0 { "big circle" }
         case Circle(r) { "small circle" }
@@ -176,7 +176,7 @@ A guard may follow a pattern that matches everything, and then it still has a
 place in the search order:
 
 ```yashy
-fn bucket(n: int) -> int {
+fn bucket(int n) -> int {
     return switch n {
         case 0 { 100 }
         case _ if n < 0 { 200 }
@@ -215,7 +215,7 @@ types, and a tuple is not a struct -- its elements have no names. A function
 returns both of its answers as one tuple:
 
 ```yashy
-fn min_max(a: int, b: int) -> (int, int) {
+fn min_max(int a, int b) -> (int, int) {
     if a < b {
         return (a, b);
     }
@@ -327,12 +327,12 @@ first name. Writing both halves shows which field binds to which local name.
 1. Add `Square(float)` to `Shape` and update `area`, then call it with each
    variant and print the four results. Hint: the compiler names the missing arm.
 
-2. Write `fn describe_result(r: Result[int, string]) -> string` that returns a
+2. Write `fn describe_result(Result[int, string] r) -> string` that returns a
    sentence for both `Ok` and `Err`. Call it with a successful division and
    with a division by zero. Hint: both arms must be `string`; use
    `str_from_i64` on the success value.
 
-3. Write `fn min_max(a: int, b: int) -> (int, int)` and a `switch` over the
+3. Write `fn min_max(int a, int b) -> (int, int)` and a `switch` over the
    smaller answer: `case 0` prints "tie", `case n if n < 10` prints "close",
    `default` prints "far". Call it with `(4, 4)`, `(3, 9)`, and `(1, 40)`.
    Hint: destructure the tuple first, then switch on one element.

@@ -99,7 +99,7 @@ fn a_substring_is_owned_not_retained() {
     // slice itself. Binding a literal instead would add the literal's own
     // retain and hide whether the slice result was retained again.
     let ir = emit(
-        "fn take(hello: string) { let word = hello.slice(1, 3); print(word); } \
+        "fn take(string hello) { let word = hello.slice(1, 3); print(word); } \
          fn main() { take(\"hello\"); }",
     );
     assert!(
@@ -118,7 +118,7 @@ fn a_temporary_argument_to_a_user_function_is_released_after_the_call() {
     // the one reference after the call returns, and never before, because the
     // callee reads it during the call.
     let ir = emit(
-        "fn show(text: string) { print(text); }\n\
+        "fn show(string text) { print(text); }\n\
          fn main() { show(\"a\" + \"b\"); }",
     );
     let call_at = ir

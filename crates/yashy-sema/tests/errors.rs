@@ -64,22 +64,20 @@ fn question_in_a_result_function_is_fine() {
 #[test]
 fn a_value_returning_function_has_to_return() {
     assert_error(
-        "fn f(n: int) -> int { if n > 0 { return 1; } }",
+        "fn f(int n) -> int { if n > 0 { return 1; } }",
         "missing return",
     );
 }
 
 #[test]
 fn a_function_that_returns_on_every_path_is_fine() {
-    check_source(
-        "fn f(n: int) -> int { if n > 0 { return 1; } else { return 0; } }",
-    )
-    .expect("a function with an else that returns should type-check");
+    check_source("fn f(int n) -> int { if n > 0 { return 1; } else { return 0; } }")
+        .expect("a function with an else that returns should type-check");
 }
 
 #[test]
 fn a_unit_function_needs_no_return() {
-    check_source("fn f(n: int) { if n > 0 { print(1); } }")
+    check_source("fn f(int n) { if n > 0 { print(1); } }")
         .expect("a function that returns nothing needs no return");
 }
 
@@ -116,7 +114,7 @@ fn a_generic_call_has_to_infer_every_type_parameter() {
 #[test]
 fn a_generic_function_cannot_shadow_a_type() {
     assert_error(
-        "struct T { x: int } fn f[T](x: int) -> int { return x; }",
+        "struct T { x: int } fn f[T](int x) -> int { return x; }",
         "type parameter `T` shadows a type of the same name",
     );
 }
@@ -126,7 +124,7 @@ fn polymorphic_recursion_is_rejected() {
     // The instantiation for `(int, string)` asks for `(string, int)`, which
     // would ask for the first again: there is no finite family to emit.
     assert_error(
-        "fn swap[T, U](x: T, y: U) -> int { return swap(y, x); } \
+        "fn swap[T, U](T x, U y) -> int { return swap(y, x); } \
          fn main() { print(swap(1, \"x\")); }",
         "polymorphic recursion has no finite instantiation",
     );
@@ -137,7 +135,7 @@ fn a_view_borrows_its_source_until_the_function_ends() {
     // Moving the array would hand its storage to a new owner while `view`
     // still points into it. Rebinding is refused for the same reason.
     assert_error(
-        "fn take(xs: []int) -> int { return xs.len(); } \
+        "fn take([]int xs) -> int { return xs.len(); } \
          fn main() { let xs = []int { 1, 2, 3 }; const view = xs[0..2]; \
          print(take(move xs)); }",
         "cannot move `xs` while a view of it is alive",
@@ -169,7 +167,7 @@ fn a_view_parameter_cannot_be_named() {
     // syntax, so letting a return type or a field name `[T]` would let the
     // view outlive the array; the type is inferred at the range instead.
     assert_error(
-        "fn f(x: [int]) -> int { return 0; } fn main() { }",
+        "fn f([int] x) -> int { return 0; } fn main() { }",
         "a view cannot be named",
     );
 }
@@ -187,7 +185,7 @@ fn a_fixed_array_cannot_hold_a_reference() {
 #[test]
 fn a_fixed_array_needs_a_length() {
     assert_error(
-        "fn main() { const xs: [int; 0] = [1]; }",
+        "fn main() { const [int; 0] xs = [1]; }",
         "a fixed array needs at least one element",
     );
 }

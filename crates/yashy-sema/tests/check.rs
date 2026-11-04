@@ -127,28 +127,34 @@ fn a_char_has_its_own_type() {
 fn chars_compare_with_each_other_only() {
     let (ok, _, _) = check_source("fn f() { if 'A' < 'B' { } if 'A' == 'A' { } }");
     assert!(ok.is_ok(), "chars compare with chars: {ok:?}");
-    assert_error("fn f() { if 'A' == 65 { } }", "cannot compare `char` with `int`");
+    assert_error(
+        "fn f() { if 'A' == 65 { } }",
+        "cannot compare `char` with `int`",
+    );
     assert_error("fn f() { const n = 'A' + 1; }", "no arithmetic on `char`");
 }
 
 #[test]
 fn scalar_conversions_have_one_spelling() {
-    let (ok, _, _) = check_source("fn f(c: char, n: int) { const a = c.to_int(); const b = n.to_char(); const s = c.to_string(); }");
+    let (ok, _, _) = check_source("fn f(char c, int n) { const a = c.to_int(); const b = n.to_char(); const s = c.to_string(); }");
     assert!(ok.is_ok(), "conversions: {ok:?}");
-    assert_error("fn f(c: char) { const n = c as int; }", "use `to_int()`");
-    assert_error("fn f(n: int) { const c = n as char; }", "use `to_char()`");
-    assert_error("fn f(c: char) { const s = c + 1; }", "no arithmetic on `char`");
+    assert_error("fn f(char c) { const n = c as int; }", "use `to_int()`");
+    assert_error("fn f(int n) { const c = n as char; }", "use `to_char()`");
+    assert_error(
+        "fn f(char c) { const s = c + 1; }",
+        "no arithmetic on `char`",
+    );
 }
 
 #[test]
 fn a_char_interpolates_as_itself() {
-    let (result, _, _) = check_source("fn f(c: char) { const s = \"${c}\"; }");
+    let (result, _, _) = check_source("fn f(char c) { const s = \"${c}\"; }");
     assert!(result.is_ok(), "{result:?}");
 }
 
 #[test]
 fn function_parameters_and_returns_are_checked() {
-    let (result, _, _) = check_source("fn f(a: int) -> int { return a; }");
+    let (result, _, _) = check_source("fn f(int a) -> int { return a; }");
     result.expect("fn with matching signature should type-check");
 }
 
@@ -188,14 +194,14 @@ fn two_functions_named_main_is_an_error() {
 #[test]
 fn no_implicit_narrowing_conversion() {
     assert_error(
-        "fn f(a: int) -> float { return a; }",
+        "fn f(int a) -> float { return a; }",
         "expected `float`, found `int`",
     );
 }
 
 #[test]
 fn explicit_as_cast_permits_an_intentional_conversion() {
-    let (result, _, _) = check_source("fn f(a: int) -> float { return a as float; }");
+    let (result, _, _) = check_source("fn f(int a) -> float { return a as float; }");
     result.expect("int as float is a permitted cast");
 }
 
@@ -210,7 +216,7 @@ fn as_cast_to_an_unrelated_type_is_an_error() {
 #[test]
 fn as_cast_rejects_conversion_to_struct() {
     assert_error(
-        "struct P { x: int } fn f(p: P) -> P { return p as P; }",
+        "struct P { x: int } fn f(P p) -> P { return p as P; }",
         "cannot cast",
     );
 }
@@ -254,7 +260,7 @@ fn field_access_has_the_fields_declared_type() {
     // `p` is a parameter, so the field access is the first statement and
     // `assert_type` can read it.
     assert_type(
-        "struct P { x: int, y: float } fn f(p: P) { const a = p.y; }",
+        "struct P { x: int, y: float } fn f(P p) { const a = p.y; }",
         "f",
         TypeKind::F64,
     );
@@ -265,12 +271,14 @@ fn field_access_carries_the_declaration_order_index() {
     // The index is what the backend extracts with, so it has to be the position
     // in the declaration -- not the position in any literal.
     let expr = expr_of_statement(
-        "struct P { x: int, y: float } fn f(p: P) { const a = p.y; }",
+        "struct P { x: int, y: float } fn f(P p) { const a = p.y; }",
         "f",
         0,
     );
     match expr {
-        HirExpr::FieldAccess { field, index, ty, .. } => {
+        HirExpr::FieldAccess {
+            field, index, ty, ..
+        } => {
             assert_eq!(field, "y");
             assert_eq!(index, 1, "`y` is the second declared field");
             assert_eq!(ty.kind, TypeKind::F64);
@@ -284,13 +292,22 @@ fn a_dotted_name_reads_fields_of_nested_structs() {
     let expr = expr_of_statement(
         "struct P { x: int, y: int }\n\
          struct L { from: P, to: P }\n\
-         fn f(l: L) { const a = l.from.y; }",
+         fn f(L l) { const a = l.from.y; }",
         "f",
         0,
     );
     let outer = match expr {
-        HirExpr::FieldAccess { field, index, ty, base, .. } => {
-            assert_eq!(field, "y", "the tail of the chain is the last field written");
+        HirExpr::FieldAccess {
+            field,
+            index,
+            ty,
+            base,
+            ..
+        } => {
+            assert_eq!(
+                field, "y",
+                "the tail of the chain is the last field written"
+            );
             assert_eq!(index, 1);
             assert_eq!(ty.kind, TypeKind::I64);
             base
@@ -298,7 +315,9 @@ fn a_dotted_name_reads_fields_of_nested_structs() {
         other => panic!("expected a field access chain, got {:?}", other),
     };
     match *outer {
-        HirExpr::FieldAccess { ref field, index, .. } => {
+        HirExpr::FieldAccess {
+            ref field, index, ..
+        } => {
             assert_eq!(field, "from");
             assert_eq!(index, 0, "`from` is the first declared field of `L`");
         }
@@ -309,7 +328,7 @@ fn a_dotted_name_reads_fields_of_nested_structs() {
 #[test]
 fn a_field_that_the_struct_does_not_declare_is_an_error() {
     assert_error(
-        "struct P { x: int } fn f(p: P) { const a = p.z; }",
+        "struct P { x: int } fn f(P p) { const a = p.z; }",
         "struct `P` has no field `z`",
     );
 }
@@ -317,7 +336,7 @@ fn a_field_that_the_struct_does_not_declare_is_an_error() {
 #[test]
 fn a_field_access_on_a_non_struct_is_an_error() {
     assert_error(
-        "fn f(n: int) { const a = n.x; }",
+        "fn f(int n) { const a = n.x; }",
         "cannot access a field on `int`",
     );
 }
@@ -334,7 +353,11 @@ fn a_struct_literal_is_laid_out_in_declaration_order() {
     match expr {
         HirExpr::StructLit { fields, .. } => {
             let names: Vec<&str> = fields.iter().map(|(n, _, _)| n.as_str()).collect();
-            assert_eq!(names, vec!["x", "y"], "declaration order, not written order");
+            assert_eq!(
+                names,
+                vec!["x", "y"],
+                "declaration order, not written order"
+            );
         }
         other => panic!("expected a struct literal, got {:?}", other),
     }
@@ -345,9 +368,12 @@ fn a_while_condition_must_be_bool() {
     // `while` parses to the condition-only `ForC`, so it gets the loop's
     // condition rule for free: the checker requires `bool` exactly as it does
     // for `if`.
-    let (result, _, _) = check_source("fn f(flag: bool) { while flag { } }");
+    let (result, _, _) = check_source("fn f(bool flag) { while flag { } }");
     result.expect("a bool condition should type-check");
-    assert_error("fn f(n: int) { while n { } }", "expected `bool`, found `int`");
+    assert_error(
+        "fn f(int n) { while n { } }",
+        "expected `bool`, found `int`",
+    );
 }
 
 #[test]
@@ -355,9 +381,9 @@ fn an_empty_body_after_a_bare_name_still_type_checks() {
     // The parser change that made `while flag { }` a loop with an empty body
     // (rather than `flag {}` plus a missing body) is only useful if the checker
     // then accepts it. A busy-wait is `while running { }` and nothing else.
-    let (result, _, _) = check_source("fn f(flag: bool) { if flag { } while flag { } }");
+    let (result, _, _) = check_source("fn f(bool flag) { if flag { } while flag { } }");
     result.expect("empty bodies should type-check");
-    let (range, _, _) = check_source("fn f(n: int) { for i in 0..n { } }");
+    let (range, _, _) = check_source("fn f(int n) { for i in 0..n { } }");
     range.expect("an empty range loop should type-check");
 }
 
@@ -366,7 +392,8 @@ fn compound_assignment_is_an_assignment_of_the_expanded_value() {
     // The parser desugars, so the checker sees `n = n + 1` and applies its
     // existing rules -- including the rule about *what* can be assigned to,
     // which is why an immutable binding is rejected exactly as it would be.
-    let (result, _, _) = check_source("fn f() { let n = 0; n += 1; n -= 1; n *= 2; n /= 2; n %= 2; }");
+    let (result, _, _) =
+        check_source("fn f() { let n = 0; n += 1; n -= 1; n *= 2; n /= 2; n %= 2; }");
     result.expect("every compound operator should type-check on a `let`");
     assert_error(
         "fn f() { const n = 0; n += 1; }",
@@ -393,7 +420,7 @@ fn builtin_calls_resolve() {
 
 /// The three conversions a program uses to put a value inside a string.
 fn assert_conversion(param: &str, builtin: &str, arg: &str, expected: TypeKind) {
-    let src = format!("fn f(x: {param}) {{ const s = {builtin}(x); }}");
+    let src = format!("fn f({param} x) {{ const s = {builtin}(x); }}");
     assert_type(&src, "f", expected.clone());
     let wrong = format!("fn f() {{ const s = {builtin}({arg}); }}");
     assert_error(&wrong, "found");
@@ -415,9 +442,7 @@ fn a_conversion_no_longer_leaves_the_runtime_unreachable() {
     // `yashy_str_from_i64` and friends have existed since the M3 string work
     // and nothing could call them; `print_i64` was the only way to show a
     // number. This is the pin that they are reachable from the language.
-    let (result, _, _) = check_source(
-        "fn f(n: int) { const line = \"n = \" + str_from_i64(n); }",
-    );
+    let (result, _, _) = check_source("fn f(int n) { const line = \"n = \" + str_from_i64(n); }");
     result.expect("a built line should type-check");
 }
 
@@ -426,7 +451,7 @@ fn matches_some_and_binds_the_payload() {
     // Switch-expression arm bodies are bare expressions: `case None { 0 }`,
     // not `case None { 0; }`. The `;` belongs to the enclosing `return`.
     let (result, _, _) = check_source(
-        "fn f(o: Option[int]) -> int { return switch o { case None { 0 } case Some(x) { x } }; }",
+        "fn f(Option[int] o) -> int { return switch o { case None { 0 } case Some(x) { x } }; }",
     );
     result.expect("Some(x) should bind the int payload");
 }
@@ -434,7 +459,7 @@ fn matches_some_and_binds_the_payload() {
 #[test]
 fn matching_none_against_some_payload_is_an_error() {
     assert_error(
-        "fn f(o: Option[int]) -> int { return switch o { case Some(x) { x + true } default { 0 } }; }",
+        "fn f(Option[int] o) -> int { return switch o { case Some(x) { x + true } default { 0 } }; }",
         "cannot apply",
     );
 }
@@ -445,7 +470,7 @@ fn none_is_typed_by_the_annotation_on_its_binding() {
     // only be typed from context. An annotated binding is such a context, and
     // the annotation has to be resolved *before* the initializer is checked for
     // that to work.
-    let (result, _, _) = check_source("fn f() { const empty: Option[int] = None; }");
+    let (result, _, _) = check_source("fn f() { const Option[int] empty = None; }");
     result.expect("the annotation should type `None`");
 }
 
@@ -456,7 +481,7 @@ fn none_is_typed_by_the_parameter_it_is_passed_to() {
     // comparing afterwards works for every other expression but cannot type a
     // constructor that has nothing of its own to infer from.
     let (result, _, _) = check_source(
-        "fn unwrap_or(o: Option[int]) -> int { return switch o { case Some(x) { x } case None { 0 } }; } \
+        "fn unwrap_or(Option[int] o) -> int { return switch o { case Some(x) { x } case None { 0 } }; } \
          fn f() -> int { return unwrap_or(None); }",
     );
     result.expect("the parameter type should type `None`");
@@ -479,13 +504,16 @@ fn a_bare_none_is_a_constructor_not_a_variable() {
     // With the wrong expected type the complaint is a type error naming the
     // expected type, which is only possible if `None` was resolved as the
     // constructor it is.
-    assert_error("fn f() { const x: int = None; }", "expected `int`, found `Option[?]`");
+    assert_error(
+        "fn f() { const int x = None; }",
+        "expected `int`, found `Option[?]`",
+    );
 }
 
 #[test]
 fn result_ok_and_err_bind_different_payload_types() {
     let (result, _, _) = check_source(
-        "fn f(r: Result[int, string]) -> int { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
+        "fn f(Result[int, string] r) -> int { return switch r { case Ok(v) { v } case Err(e) { 0 } }; }",
     );
     result.expect("Ok(v) binds int and Err(e) binds string");
 }
@@ -509,7 +537,7 @@ fn try_on_a_non_result_is_an_error() {
 #[test]
 fn non_exhaustive_switch_on_enum_is_an_error_listing_missing_cases() {
     assert_error(
-        "enum C { Red, Green, Blue } fn f(c: C) -> int { return switch c { case Red { 0 } }; }",
+        "enum C { Red, Green, Blue } fn f(C c) -> int { return switch c { case Red { 0 } }; }",
         "not exhaustive",
     );
 }
@@ -517,7 +545,7 @@ fn non_exhaustive_switch_on_enum_is_an_error_listing_missing_cases() {
 #[test]
 fn all_arms_must_yield_the_same_type() {
     assert_error(
-        "enum C { Red, Green } fn f(c: C) -> int { return switch c { case Red { 0 } case Green { 1.0 } }; }",
+        "enum C { Red, Green } fn f(C c) -> int { return switch c { case Red { 0 } case Green { 1.0 } }; }",
         "expected `int`, found `float`",
     );
 }
@@ -525,7 +553,7 @@ fn all_arms_must_yield_the_same_type() {
 #[test]
 fn switch_on_a_non_enum_without_default_is_an_error() {
     assert_error(
-        "fn f(x: int) -> int { return switch x { case 1 { 0 } }; }",
+        "fn f(int x) -> int { return switch x { case 1 { 0 } }; }",
         "add a `default` arm",
     );
 }
@@ -535,14 +563,14 @@ fn return_inside_an_if_yields_the_function_return_type() {
     // Regression: nested blocks used to be checked against `void`, so any
     // `return <value>` inside an `if` or a loop body was rejected with a
     // nonsensical "expected `void`, found `int`".
-    check_source("fn f(x: bool) -> int { if x { return 1; } return 0; }")
+    check_source("fn f(bool x) -> int { if x { return 1; } return 0; }")
         .0
         .expect("a `return` inside an `if` yields the function's return type");
 }
 
 #[test]
 fn return_inside_an_else_yields_the_function_return_type() {
-    check_source("fn f(x: bool) -> int { if x { return 1; } else { return 2; } }")
+    check_source("fn f(bool x) -> int { if x { return 1; } else { return 2; } }")
         .0
         .expect("a `return` inside an `else` yields the function's return type");
 }
@@ -560,7 +588,7 @@ fn return_inside_a_loop_body_yields_the_function_return_type() {
 #[test]
 fn a_nested_return_still_has_to_match_the_return_type() {
     assert_error(
-        "fn f(x: bool) -> int { if x { return \"s\"; } return 0; }",
+        "fn f(bool x) -> int { if x { return \"s\"; } return 0; }",
         "expected `int`, found `string`",
     );
 }
@@ -571,7 +599,7 @@ fn an_unknown_type_name_in_a_signature_is_an_error() {
     // `unwrap_or_else(|_| Never)`, so `double` (not a type in Yashy) silently
     // became a `void` parameter instead of a diagnostic.
     assert_error(
-        "fn f(b: double) -> int { return 0; }",
+        "fn f(double b) -> int { return 0; }",
         "cannot find type `double`",
     );
     assert_error(
@@ -707,7 +735,10 @@ fn assigning_a_const_is_an_error() {
 #[test]
 fn assigning_an_undeclared_name_is_an_error() {
     // Same wording as reading an undeclared name: one situation, one message.
-    assert_error("fn main() { x = 2; }", "cannot find value `x` in this scope");
+    assert_error(
+        "fn main() { x = 2; }",
+        "cannot find value `x` in this scope",
+    );
 }
 
 #[test]
@@ -722,7 +753,10 @@ fn the_assigned_value_must_match_the_binding_type() {
 fn only_a_let_binding_can_be_assigned() {
     // The parser builds the target as an expression and lets the checker decide
     // what is assignable, so this is where the decision is made.
-    assert_error("fn main() { 1 = 2; }", "only a `let` binding can be assigned");
+    assert_error(
+        "fn main() { 1 = 2; }",
+        "only a `let` binding can be assigned",
+    );
 }
 
 #[test]
@@ -731,11 +765,9 @@ fn assignment_resolves_the_innermost_binding() {
     // checker resolved the wrong one, one of these two assignments would be
     // judged against the other's type: the inner `x` is an `float` and the outer
     // one an `int`, so a mixed-up lookup cannot pass both.
-    check_source(
-        "fn main() { let x = 1; if true { let x = 2.0; x = 3.0; } x = 4; }",
-    )
-    .0
-    .expect("each assignment must be judged against the binding it names");
+    check_source("fn main() { let x = 1; if true { let x = 2.0; x = 3.0; } x = 4; }")
+        .0
+        .expect("each assignment must be judged against the binding it names");
 }
 
 #[test]
@@ -773,7 +805,7 @@ fn binding_type_in_fn(src: &str, needle: &str) -> String {
 
 #[test]
 fn a_pointer_type_prints_as_a_mutable_pointer() {
-    let (result, _, _) = check_source("fn f(p: *mut int) -> *mut int { return p; }");
+    let (result, _, _) = check_source("fn f(*mut int p) -> *mut int { return p; }");
     let hir = result.expect("a pointer parameter and return type should check");
     let item = hir
         .items
@@ -799,14 +831,17 @@ fn alloc_returns_a_pointer_to_i64() {
 fn a_pointer_annotation_and_alloc_agree() {
     // `*mut int` is a real type, not a spelling: an annotated binding accepts
     // `alloc`'s result, which it would not if the two disagreed.
-    let (result, _, _) = check_source("fn f() { const p: *mut int = alloc(16); }");
-    assert!(result.is_ok(), "expected `*mut int` to accept alloc: {result:?}");
+    let (result, _, _) = check_source("fn f() { const *mut int p = alloc(16); }");
+    assert!(
+        result.is_ok(),
+        "expected `*mut int` to accept alloc: {result:?}"
+    );
 }
 
 #[test]
 fn a_pointer_cannot_be_initialised_from_an_integer() {
     assert_error(
-        "fn f() { const p: *mut int = 0; }",
+        "fn f() { const *mut int p = 0; }",
         "expected `*mut int`, found `int`",
     );
 }
@@ -821,9 +856,8 @@ fn assigning_a_linear_binding_without_move_is_an_error() {
 
 #[test]
 fn moving_a_linear_binding_is_legal_and_releases_it() {
-    let (result, _, _) = check_source(
-        "fn f() { let buf = alloc(16); let other = move buf; other.free(); }",
-    );
+    let (result, _, _) =
+        check_source("fn f() { let buf = alloc(16); let other = move buf; other.free(); }");
     assert!(result.is_ok(), "move should transfer ownership: {result:?}");
 }
 
@@ -845,10 +879,12 @@ fn a_second_free_of_the_same_pointer_is_an_error() {
 
 #[test]
 fn rebinding_a_let_releases_the_previous_linear_value() {
-    let (result, _, _) = check_source(
-        "fn f() { let buf = alloc(16); buf = alloc(32); buf.free(); }",
+    let (result, _, _) =
+        check_source("fn f() { let buf = alloc(16); buf = alloc(32); buf.free(); }");
+    assert!(
+        result.is_ok(),
+        "a rebind installs a fresh owner: {result:?}"
     );
-    assert!(result.is_ok(), "a rebind installs a fresh owner: {result:?}");
 }
 
 #[test]
@@ -867,7 +903,7 @@ fn a_pointer_frees_with_the_dot() {
 
 #[test]
 fn a_string_has_nothing_to_free() {
-    assert_error("fn f(s: string) { s.free(); }", "a `string` releases itself");
+    assert_error("fn f(string s) { s.free(); }", "a `string` releases itself");
 }
 
 #[test]
@@ -879,11 +915,7 @@ fn dealloc_names_the_method() {
 
 #[test]
 fn an_interpolation_checks_as_a_string() {
-    assert_type(
-        "fn f() { const line = \"n = ${1}\"; }",
-        "f",
-        TypeKind::Str,
-    );
+    assert_type("fn f() { const line = \"n = ${1}\"; }", "f", TypeKind::Str);
     assert_type("fn f() { const line = \"${1} text\"; }", "f", TypeKind::Str);
 }
 
@@ -894,7 +926,7 @@ fn an_interpolation_lowers_to_the_matching_conversion_and_a_concatenation() {
     // with `+`. That is the pin that interpolation is *sugar*: code generation
     // sees only a call and a string concatenation, the two things it already
     // knew how to lower.
-    let src = "fn f(n: int) { const line = \"n = ${n}\"; }";
+    let src = "fn f(int n) { const line = \"n = ${n}\"; }";
     let expr = expr_of_statement(src, "f", 0);
     let HirExpr::Binary { op, lhs, rhs, .. } = &expr else {
         panic!("expected a concatenation, got {expr:?}");
@@ -923,12 +955,16 @@ fn each_interpolated_type_gets_its_own_conversion() {
         ("float", "str_from_f64"),
         ("bool", "str_from_bool"),
     ] {
-        let src = format!("fn f(x: {param}) {{ const line = \"${{x}}\"; }}");
+        let src = format!("fn f({param} x) {{ const line = \"${{x}}\"; }}");
         let expr = expr_of_statement(&src, "f", 0);
         let HirExpr::Call { callee: got, .. } = &expr else {
             panic!("`{param}` must lower to a conversion call, got {expr:?}");
         };
-        assert_eq!(got, &vec![callee.to_string()], "`{param}` converts with {callee}");
+        assert_eq!(
+            got,
+            &vec![callee.to_string()],
+            "`{param}` converts with {callee}"
+        );
     }
 }
 
@@ -936,7 +972,7 @@ fn each_interpolated_type_gets_its_own_conversion() {
 fn a_string_piece_is_used_as_it_is_without_a_conversion() {
     // A `string` already *is* text: wrapping it in anything would be a second
     // allocation and a place for the two to disagree.
-    let src = "fn f(s: string) { const line = \"${s}\"; }";
+    let src = "fn f(string s) { const line = \"${s}\"; }";
     let expr = expr_of_statement(src, "f", 0);
     assert!(
         matches!(&expr, HirExpr::Ident(path, _, _) if path == &vec!["s".to_string()]),
@@ -946,7 +982,7 @@ fn a_string_piece_is_used_as_it_is_without_a_conversion() {
 
 #[test]
 fn a_struct_interpolates_with_its_debug_shape() {
-    let (result, _, _) = check_source("struct P { x: int } fn f(p: P) { const line = \"${p}\"; }");
+    let (result, _, _) = check_source("struct P { x: int } fn f(P p) { const line = \"${p}\"; }");
     assert!(result.is_ok(), "{result:?}");
 }
 
@@ -972,7 +1008,7 @@ fn a_debug_form_needs_a_type_that_has_one() {
     // A map has one either -- its keys and its values -- but not yet, so it is
     // reported rather than half-printed.
     assert_error(
-        "fn f() { let m: map[int]int = map_new(); const line = \"${m:?}\"; }",
+        "fn f() { let map[int]int m = map_new(); const line = \"${m:?}\"; }",
         "cannot format a `map",
     );
 }
@@ -982,7 +1018,7 @@ fn a_debug_form_builds_a_printer_for_the_type_it_names() {
     // The printer is an ordinary function the checker appends to the program:
     // one per type, shared by every use of that type.
     let (result, _, _) = check_source(
-        "struct P { x: int } fn f(p: P) { const line = \"${p:?}\"; const other = \"${p:?}\"; }",
+        "struct P { x: int } fn f(P p) { const line = \"${p:?}\"; const other = \"${p:?}\"; }",
     );
     let hir = result.expect("a struct has a debug form");
     let printers = hir
@@ -1001,7 +1037,7 @@ fn a_debug_form_of_a_string_is_a_call_to_the_quoting_runtime_entry() {
     // The string's debug form is not a printer function: it is the runtime's
     // quoting and escaping, which is a byte operation rather than something
     // the checker could spell in the language.
-    let (result, _, _) = check_source("fn f(s: string) { const line = \"${s:?}\"; }");
+    let (result, _, _) = check_source("fn f(string s) { const line = \"${s:?}\"; }");
     let hir = result.expect("a string has a debug form");
     let item = hir
         .items
@@ -1020,7 +1056,10 @@ fn a_debug_form_of_a_string_is_a_call_to_the_quoting_runtime_entry() {
 
 #[test]
 fn free_wants_a_pointer_not_an_integer() {
-    assert_error("fn f() { let x = 1; x.free(); }", "no method `free` on `int`");
+    assert_error(
+        "fn f() { let x = 1; x.free(); }",
+        "no method `free` on `int`",
+    );
 }
 
 // -- const fn -----------------------------------------------------------------
@@ -1030,7 +1069,7 @@ fn a_const_fn_call_is_folded_into_the_value_it_computed() {
     // The call is gone: what the tree holds is the number the compiler
     // computed, so the program carries `81` and not a call to `square`.
     let (result, _, _) = check_source(
-        "const fn square(n: int) -> int { return n * n; }\n\
+        "const fn square(int n) -> int { return n * n; }\n\
          fn f() { const t = square(9); }",
     );
     let hir = result.expect("a const fn call should fold");
@@ -1058,13 +1097,12 @@ fn a_const_fn_is_not_emitted_as_a_function() {
     // It has no run-time existence: there is no symbol for it to be called
     // through, so the program does not carry one.
     let (result, _, _) = check_source(
-        "const fn square(n: int) -> int { return n * n; }\n\
+        "const fn square(int n) -> int { return n * n; }\n\
          fn f() { const t = square(9); }",
     );
     let hir = result.expect("the program should check");
     assert!(
-        !hir
-            .items
+        !hir.items
             .iter()
             .any(|item| matches!(item, HirItem::Fn(f) if f.name == "square")),
         "a const fn is not a runtime function"
@@ -1082,7 +1120,7 @@ fn a_const_fn_body_may_only_use_what_the_compiler_can_compute() {
     );
     // A loop is not a value the compiler can compute either.
     assert_error(
-        "const fn f(n: int) -> int { let i = 0; while i < n { i = i + 1; } return i; }\n\
+        "const fn f(int n) -> int { let i = 0; while i < n { i = i + 1; } return i; }\n\
          fn g() { const t = f(3); }",
         "is not allowed in a const fn",
     );
@@ -1093,7 +1131,7 @@ fn a_const_fn_cannot_be_called_at_run_time() {
     // There is no function to call, so the call is refused where it is
     // written rather than left to fail at the link.
     assert_error(
-        "const fn square(n: int) -> int { return n * n; }\n\
+        "const fn square(int n) -> int { return n * n; }\n\
          fn f() { let t = square(9); }",
         "is a `const fn`",
     );
@@ -1104,7 +1142,7 @@ fn a_const_fn_call_needs_constant_arguments() {
     // The value has to be known before the program runs, so a run-time
     // binding is not an argument the compiler can supply.
     assert_error(
-        "const fn square(n: int) -> int { return n * n; }\n\
+        "const fn square(int n) -> int { return n * n; }\n\
          fn f() { let n = 9; const t = square(n); }",
         "is a run-time value",
     );
@@ -1114,8 +1152,8 @@ fn a_const_fn_call_needs_constant_arguments() {
 fn a_const_fn_may_call_another_const_fn() {
     // The call is computed at compile time, so a const fn can use one.
     let (result, _, _) = check_source(
-        "const fn square(n: int) -> int { return n * n; }\n\
-         const fn fourth(n: int) -> int { return square(square(n)); }\n\
+        "const fn square(int n) -> int { return n * n; }\n\
+         const fn fourth(int n) -> int { return square(square(n)); }\n\
          fn f() { const t = fourth(3); }",
     );
     let hir = result.expect("a const fn may call another const fn");
@@ -1128,7 +1166,10 @@ fn a_const_fn_may_call_another_const_fn() {
         })
         .expect("the function should exist");
     let text = format!("{:?}", item.body);
-    assert!(text.contains("I64(81)"), "the folded value is in the tree: {text}");
+    assert!(
+        text.contains("I64(81)"),
+        "the folded value is in the tree: {text}"
+    );
 }
 
 #[test]
@@ -1136,7 +1177,7 @@ fn a_const_fn_that_recurses_forever_is_reported() {
     // The compiler runs the body, so a call that never ends would never end
     // here either. The depth limit is what turns that into a diagnostic.
     assert_error(
-        "const fn loop(n: int) -> int { return loop(n + 1); }\n\
+        "const fn loop(int n) -> int { return loop(n + 1); }\n\
          fn f() { const t = loop(0); }",
         "did not terminate",
     );
@@ -1148,7 +1189,7 @@ fn freeing_in_both_branches_of_an_if_is_legal() {
     // `else`, so a `then`-branch move does not poison the `else` branch. Freeing
     // in both branches is the shape of "free exactly once" without a `defer`.
     let (result, _, _) = check_source(
-        "fn f(c: bool) { let buf = alloc(16); if c { buf.free(); } else { buf.free(); } }",
+        "fn f(bool c) { let buf = alloc(16); if c { buf.free(); } else { buf.free(); } }",
     );
     assert!(result.is_ok(), "both branches free: {result:?}");
 }
@@ -1159,7 +1200,7 @@ fn a_move_in_only_one_branch_is_conservatively_moved() {
     // later `buf.free()` is rejected rather than risked: `buf` may have been
     // freed. Conservative by design -- see `ownership.rs`.
     assert_error(
-        "fn f(c: bool) { let buf = alloc(16); if c { buf.free(); } buf.free(); }",
+        "fn f(bool c) { let buf = alloc(16); if c { buf.free(); } buf.free(); }",
         "value `buf` has already been moved",
     );
 }
@@ -1169,7 +1210,10 @@ fn moving_a_copy_value_is_a_no_op() {
     // `int` is not linear, so `move` asks for nothing: the value stays live and
     // readable. Being explicit about intent is not an error.
     let (result, _, _) = check_source("fn f() { let x = 1; let y = move x; print(x + y); }");
-    assert!(result.is_ok(), "move of a copy value is a no-op: {result:?}");
+    assert!(
+        result.is_ok(),
+        "move of a copy value is a no-op: {result:?}"
+    );
 }
 
 #[test]
@@ -1178,7 +1222,7 @@ fn a_linear_argument_to_a_user_function_is_moved_out() {
     // without a `move` keyword, and a later read is an error -- the same rule
     // the free method follows, applied to user functions.
     assert_error(
-        "fn consume(p: *mut int) { p.free(); } \
+        "fn consume(*mut int p) { p.free(); } \
          fn f() { let buf = alloc(16); consume(buf); buf.free(); }",
         "value `buf` has already been moved",
     );
@@ -1188,10 +1232,12 @@ fn a_linear_argument_to_a_user_function_is_moved_out() {
 fn a_linear_argument_does_not_have_to_be_a_name() {
     // A fresh `alloc(...)` owns nothing yet, so passing it straight through a
     // call leaves no moved binding behind.
-    let (result, _, _) = check_source(
-        "fn consume(p: *mut int) { p.free(); } fn f() { consume(alloc(16)); }",
+    let (result, _, _) =
+        check_source("fn consume(*mut int p) { p.free(); } fn f() { consume(alloc(16)); }");
+    assert!(
+        result.is_ok(),
+        "a temporary argument should check: {result:?}"
     );
-    assert!(result.is_ok(), "a temporary argument should check: {result:?}");
 }
 
 // -- panic --------------------------------------------------------------------
@@ -1233,8 +1279,13 @@ fn panic_carries_the_position_it_was_written_at() {
     // the backend is handed IR text and a path, not a source map. So the checker
     // resolves the position and hands it down as ordinary literal arguments --
     // the message the program wrote, then the file, line and column.
-    let HirStmt::Expr(HirExpr::Call { callee, args, ty, .. }, _, _) =
-        statement_of("fn f() {\n    panic(\"boom\");\n}\n", "f", 0)
+    let HirStmt::Expr(
+        HirExpr::Call {
+            callee, args, ty, ..
+        },
+        _,
+        _,
+    ) = statement_of("fn f() {\n    panic(\"boom\");\n}\n", "f", 0)
     else {
         panic!("expected the lowered panic call");
     };
@@ -1344,10 +1395,7 @@ fn assert_quotes_a_condition_across_lines_as_one_line() {
 
 #[test]
 fn assert_takes_exactly_one_bool() {
-    assert_error(
-        "fn f() { assert(1); }",
-        "expected `bool`, found `int`",
-    );
+    assert_error("fn f() { assert(1); }", "expected `bool`, found `int`");
     assert_error("fn f() { assert(); }", "expected 1 arguments, found 0");
     assert_error(
         "fn f() { assert(true, false); }",
@@ -1361,8 +1409,7 @@ fn assert_eq_carries_both_operands_and_the_message_around_them() {
     // evaluate each once and use the result twice -- the comparison and the
     // value the message prints.
     let src = "fn f() {\n    const n = 3;\n    assert_eq(n, 0);\n}\n";
-    let HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty) = statement_of(src, "f", 1)
-    else {
+    let HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty) = statement_of(src, "f", 1) else {
         panic!("expected the lowered assert_eq call");
     };
     assert_eq!(ty.kind, TypeKind::Unit);
@@ -1415,9 +1462,10 @@ fn assert_eq_compares_every_type_that_has_an_equality() {
         let HirStmt::Expr(HirExpr::Call { args, .. }, _, _) = statement_of(src, "f", 0) else {
             panic!("expected the lowered assert_eq call for {src}");
         };
-        let left = args.first().map(|a| expr_ty(a)).unwrap_or_else(|| {
-            panic!("expected a left operand for {src}")
-        });
+        let left = args
+            .first()
+            .map(|a| expr_ty(a))
+            .unwrap_or_else(|| panic!("expected a left operand for {src}"));
         assert_eq!(
             left.kind, operand,
             "the left operand of {src} should be {operand:?}"
@@ -1463,8 +1511,8 @@ fn every_aggregate_prints() {
            const p = P { x: 1 }; println(p); \
            println(E.A); println((1, true)); \
            const xs = [1, 2, 3]; println(xs); println(xs[0..1]); \
-           const o: Option[int] = Some(1); println(o); \
-           const r: Result[int, string] = Ok(1); println(r); \
+           const Option[int] o = Some(1); println(o); \
+           const Result[int, string] r = Ok(1); println(r); \
          }",
     );
     assert!(result.is_ok(), "{result:?}");
@@ -1473,14 +1521,17 @@ fn every_aggregate_prints() {
 #[test]
 fn a_map_has_no_text_form() {
     assert_error(
-        "fn main() { const m: map[string]int = map_new(); println(m); }",
+        "fn main() { const map[string]int m = map_new(); println(m); }",
         "cannot print a `map[string]int`",
     );
 }
 
 #[test]
 fn print_str_names_its_replacement() {
-    assert_error("fn main() { print_str(\"x\"); }", "`print_str` was replaced: use `println` (or `print`)");
+    assert_error(
+        "fn main() { print_str(\"x\"); }",
+        "`print_str` was replaced: use `println` (or `print`)",
+    );
     assert_error("fn main() { print_i64(1); }", "`print_i64` was replaced");
     assert_error("fn main() { print_f64(1.0); }", "`print_f64` was replaced");
 }
@@ -1495,10 +1546,7 @@ fn assert_eq_reports_a_mismatched_pair() {
         "fn f() { assert_eq(true, 1); }",
         "expected `bool`, found `int`",
     );
-    assert_error(
-        "fn f() { assert_eq(1); }",
-        "expected 2 arguments, found 1",
-    );
+    assert_error("fn f() { assert_eq(1); }", "expected 2 arguments, found 1");
     assert_error(
         "fn f() { assert_ne(1, 2, 3); }",
         "expected 2 arguments, found 3",
@@ -1510,11 +1558,11 @@ fn a_program_cannot_redeclare_an_assertion() {
     // The table is what reserves the names: a program that could define
     // `assert_eq` itself would have a function that never runs.
     assert_error(
-        "fn assert(cond: bool) {}",
+        "fn assert(bool cond) {}",
         "duplicate definition of `assert`",
     );
     assert_error(
-        "fn assert_eq(a: int, b: int) {}",
+        "fn assert_eq(int a, int b) {}",
         "duplicate definition of `assert_eq`",
     );
 }
@@ -1561,8 +1609,7 @@ fn a_release_build_drops_a_debug_assert_entirely() {
             _ => None,
         })
         .expect("function should exist");
-    let Some(HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty)) = f.body.stmts.get(1)
-    else {
+    let Some(HirStmt::Expr(HirExpr::Call { callee, args, .. }, _, ty)) = f.body.stmts.get(1) else {
         panic!("expected the call the release build leaves behind");
     };
     assert_eq!(callee, &vec!["debug_assert".to_string()]);
@@ -1630,7 +1677,10 @@ fn exit_is_a_never_returning_builtin() {
 fn exit_takes_exactly_one_i64() {
     assert_error("fn f() { os.exit(); }", "expected 1 arguments, found 0");
     assert_error("fn f() { os.exit(1, 2); }", "expected 1 arguments, found 2");
-    assert_error("fn f() { os.exit(\"x\"); }", "expected `int`, found `string`");
+    assert_error(
+        "fn f() { os.exit(\"x\"); }",
+        "expected `int`, found `string`",
+    );
     assert_error("fn f() { os.exit(true); }", "expected `int`, found `bool`");
 }
 
@@ -1639,26 +1689,30 @@ fn exit_fits_where_a_value_is_wanted() {
     // `!` is the same fact as `panic`: a call that produces no value can stand
     // in for one of any type, because the block that would have used it is
     // unreachable.
-    assert_type("fn f() -> int { const x = os.exit(1); return x; }", "f", TypeKind::Never);
+    assert_type(
+        "fn f() -> int { const x = os.exit(1); return x; }",
+        "f",
+        TypeKind::Never,
+    );
 }
 
 #[test]
 fn exit_cannot_be_redeclared() {
-    assert_error(
-        "fn exit(code: int) {}",
-        "duplicate definition of `exit`",
-    );
+    assert_error("fn exit(int code) {}", "duplicate definition of `exit`");
 }
 
 // -- pointer indexing -----------------------------------------------------------
 
 #[test]
 fn indexing_reads_an_element_of_a_pointer() {
-    let src = "fn f(p: *mut int) { const x = p[0]; }";
+    let src = "fn f(*mut int p) { const x = p[0]; }";
     let HirStmt::Const { init, .. } = statement_of(src, "f", 0) else {
         panic!("expected a const binding");
     };
-    let HirExpr::Index { base, index, ty, .. } = init else {
+    let HirExpr::Index {
+        base, index, ty, ..
+    } = init
+    else {
         panic!("expected an index expression");
     };
     let expected = TypeKind::Ptr(Box::new(Type {
@@ -1672,8 +1726,11 @@ fn indexing_reads_an_element_of_a_pointer() {
 
 #[test]
 fn indexing_assigns_through_a_pointer() {
-    let src = "fn f(p: *mut int, i: int, v: int) { p[i] = v; }";
-    let HirStmt::IndexAssign { base, index, value, .. } = statement_of(src, "f", 0) else {
+    let src = "fn f(*mut int p, int i, int v) { p[i] = v; }";
+    let HirStmt::IndexAssign {
+        base, index, value, ..
+    } = statement_of(src, "f", 0)
+    else {
         panic!("expected an index assignment");
     };
     let expected = TypeKind::Ptr(Box::new(Type {
@@ -1688,11 +1745,11 @@ fn indexing_assigns_through_a_pointer() {
 #[test]
 fn indexing_requires_an_i64_index() {
     assert_error(
-        "fn f(p: *mut int, i: bool) { const x = p[i]; }",
+        "fn f(*mut int p, bool i) { const x = p[i]; }",
         "index must be `int`",
     );
     assert_error(
-        "fn f(p: *mut int, i: float) { const x = p[i]; }",
+        "fn f(*mut int p, float i) { const x = p[i]; }",
         "index must be `int`",
     );
 }
@@ -1700,17 +1757,14 @@ fn indexing_requires_an_i64_index() {
 #[test]
 fn indexing_requires_an_i64_value_for_assignment() {
     assert_error(
-        "fn f(p: *mut int, i: int, v: string) { p[i] = v; }",
+        "fn f(*mut int p, int i, string v) { p[i] = v; }",
         "expected `int`, found `string`",
     );
 }
 
 #[test]
 fn indexing_a_non_pointer_is_an_error() {
-    assert_error(
-        "fn f(x: int) { const y = x[0]; }",
-        "cannot index `int`",
-    );
+    assert_error("fn f(int x) { const y = x[0]; }", "cannot index `int`");
 }
 
 #[test]
@@ -1720,7 +1774,7 @@ fn indexing_a_pointer_to_nothing_is_an_error() {
     // address to hand back, so the annotation is refused before it can be
     // indexed at all.
     assert_error(
-        "fn f(p: *mut void) { const x = p[0]; }",
+        "fn f(*mut void p) { const x = p[0]; }",
         "only allowed as a function's return type",
     );
 }
@@ -1730,8 +1784,11 @@ fn indexing_a_const_pointer_binding_is_an_error_for_assignment() {
     // A `const` pointer binding can be read through but not assigned through.
     // The checker does not currently reject this (it is the same slot), but
     // reading is fine.
-    let (result, _, _) = check_source("fn f(p: *mut int) { const x = p[0]; }");
-    assert!(result.is_ok(), "reading through a pointer should type-check");
+    let (result, _, _) = check_source("fn f(*mut int p) { const x = p[0]; }");
+    assert!(
+        result.is_ok(),
+        "reading through a pointer should type-check"
+    );
 }
 
 // -- field assignment ---------------------------------------------------------
@@ -1742,12 +1799,9 @@ const SHAPES: &str = "struct Point { x: int, y: int }\nstruct Line { from: Point
 
 #[test]
 fn a_field_assignment_carries_the_root_and_the_chain() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x = 3; }}");
+    let src = format!("{SHAPES}fn f(Point p) {{ let q = p; q.x = 3; }}");
     let HirStmt::FieldAssign {
-        root,
-        steps,
-        value,
-        ..
+        root, steps, value, ..
     } = statement_of(&src, "f", 1)
     else {
         panic!("expected a field assignment");
@@ -1761,7 +1815,7 @@ fn a_field_assignment_carries_the_root_and_the_chain() {
 
 #[test]
 fn a_nested_field_assignment_carries_one_step_per_field() {
-    let src = format!("{SHAPES}fn f(l: Line) {{ let m = l; m.from.x = 1; }}");
+    let src = format!("{SHAPES}fn f(Line l) {{ let m = l; m.from.x = 1; }}");
     let HirStmt::FieldAssign { steps, .. } = statement_of(&src, "f", 1) else {
         panic!("expected a field assignment");
     };
@@ -1776,7 +1830,7 @@ fn a_compound_field_assignment_is_the_assignment_of_the_expanded_value() {
     // `p.x += 1` is `p.x = p.x + 1`, so what reaches the backend is a field
     // assignment whose value is the addition -- the checker never learns that
     // `+=` exists.
-    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x += 1; }}");
+    let src = format!("{SHAPES}fn f(Point p) {{ let q = p; q.x += 1; }}");
     let HirStmt::FieldAssign { value, .. } = statement_of(&src, "f", 1) else {
         panic!("expected a field assignment");
     };
@@ -1788,26 +1842,26 @@ fn a_compound_field_assignment_is_the_assignment_of_the_expanded_value() {
 
 #[test]
 fn assigning_a_field_of_a_const_is_an_error() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ const q = p; q.x = 3; }}");
+    let src = format!("{SHAPES}fn f(Point p) {{ const q = p; q.x = 3; }}");
     assert_error(&src, "cannot assign to a field of `q`, which is immutable");
 }
 
 #[test]
 fn assigning_a_field_to_the_wrong_type_is_an_error() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.x = \"one\"; }}");
+    let src = format!("{SHAPES}fn f(Point p) {{ let q = p; q.x = \"one\"; }}");
     assert_error(&src, "expected `int`, found `string`");
 }
 
 #[test]
 fn assigning_a_field_that_does_not_exist_is_an_error() {
-    let src = format!("{SHAPES}fn f(p: Point) {{ let q = p; q.z = 1; }}");
+    let src = format!("{SHAPES}fn f(Point p) {{ let q = p; q.z = 1; }}");
     assert_error(&src, "struct `Point` has no field `z`");
 }
 
 #[test]
 fn assigning_a_field_of_a_non_struct_is_an_error() {
     assert_error(
-        "fn f(n: int) { let m = n; m.x = 1; }",
+        "fn f(int n) { let m = n; m.x = 1; }",
         "cannot access a field on `int`",
     );
 }
@@ -1816,7 +1870,9 @@ fn assigning_a_field_of_a_non_struct_is_an_error() {
 fn assigning_through_a_call_result_is_an_error() {
     // A field target has to bottom out in a binding: there is no address to
     // write through in a temporary.
-    let src = format!("{SHAPES}fn g() -> Point {{ return Point {{ x: 1, y: 2 }}; }}\nfn f() {{ g().x = 3; }}");
+    let src = format!(
+        "{SHAPES}fn g() -> Point {{ return Point {{ x: 1, y: 2 }}; }}\nfn f() {{ g().x = 3; }}"
+    );
     assert_error(
         &src,
         "only a `let` binding or one of its fields can be assigned",
@@ -1850,10 +1906,12 @@ fn integer_arithmetic_is_checkable_and_carries_its_position() {
         ("divide", "a / b"),
         ("remainder", "a % b"),
     ] {
-        let src = format!("fn f(a: int, b: int) {{\n    const x = {source_expr};\n}}\n");
+        let src = format!("fn f(int a, int b) {{\n    const x = {source_expr};\n}}\n");
         let checked = expr_of_statement(&src, "f", 0);
         let site = match &checked {
-            HirExpr::Binary { fault: Some(site), .. } => site.clone(),
+            HirExpr::Binary {
+                fault: Some(site), ..
+            } => site.clone(),
             other => panic!("`{symbol}` should be checkable, got {other:?}"),
         };
         let at = src
@@ -1863,8 +1921,7 @@ fn integer_arithmetic_is_checkable_and_carries_its_position() {
         let line = u32::try_from(before.matches('\n').count() + 1)
             .expect("the fixture is a few lines long");
         let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-        let column =
-            u32::try_from(at - line_start + 1).expect("the fixture is a few columns wide");
+        let column = u32::try_from(at - line_start + 1).expect("the fixture is a few columns wide");
         assert_eq!(site.file, "test.ya", "the file the compiler was given");
         assert_eq!(site.line, line, "the line of `{source_expr}`");
         assert_eq!(site.column, column, "its column");
@@ -1886,7 +1943,7 @@ fn comparisons_and_boolean_logic_are_not_checkable() {
         "(a < b) && (b < a)",
         "(a < b) || (b < a)",
     ] {
-        let src = format!("fn f(a: int, b: int) {{\n    const x = {source_expr};\n}}\n");
+        let src = format!("fn f(int a, int b) {{\n    const x = {source_expr};\n}}\n");
         let checked = expr_of_statement(&src, "f", 0);
         assert!(
             !is_checked(&checked),
@@ -1904,27 +1961,27 @@ fn float_and_string_arithmetic_are_not_checkable() {
     for (what, src) in [
         (
             "float add",
-            "fn f(x: float, y: float) {\n    const s = x + y;\n}\n",
+            "fn f(float x, float y) {\n    const s = x + y;\n}\n",
         ),
         (
             "float subtract",
-            "fn f(x: float, y: float) {\n    const s = x - y;\n}\n",
+            "fn f(float x, float y) {\n    const s = x - y;\n}\n",
         ),
         (
             "float multiply",
-            "fn f(x: float, y: float) {\n    const s = x * y;\n}\n",
+            "fn f(float x, float y) {\n    const s = x * y;\n}\n",
         ),
         (
             "float divide",
-            "fn f(x: float, y: float) {\n    const s = x / y;\n}\n",
+            "fn f(float x, float y) {\n    const s = x / y;\n}\n",
         ),
         (
             "float remainder",
-            "fn f(x: float, y: float) {\n    const s = x % y;\n}\n",
+            "fn f(float x, float y) {\n    const s = x % y;\n}\n",
         ),
         (
             "string concatenation",
-            "fn f(s: string, t: string) {\n    const u = s + t;\n}\n",
+            "fn f(string s, string t) {\n    const u = s + t;\n}\n",
         ),
     ] {
         let checked = expr_of_statement(src, "f", 0);
@@ -1940,7 +1997,7 @@ fn negating_an_integer_is_checkable_and_everything_else_is_not() {
     // `-int::MIN` wraps to itself, so a silent wraparound turns a mistake into a
     // plausible number. Negating any `float`, infinity included, is exact, and `!`
     // is not arithmetic at all.
-    let checked = expr_of_statement("fn f(a: int) {\n    const x = -a;\n}\n", "f", 0);
+    let checked = expr_of_statement("fn f(int a) {\n    const x = -a;\n}\n", "f", 0);
     match &checked {
         HirExpr::Unary {
             fault: Some(site), ..
@@ -1953,8 +2010,8 @@ fn negating_an_integer_is_checkable_and_everything_else_is_not() {
     }
 
     for (what, src) in [
-        ("float negation", "fn f(x: float) {\n    const y = -x;\n}\n"),
-        ("boolean not", "fn f(b: bool) {\n    const c = !b;\n}\n"),
+        ("float negation", "fn f(float x) {\n    const y = -x;\n}\n"),
+        ("boolean not", "fn f(bool b) {\n    const c = !b;\n}\n"),
     ] {
         let checked = expr_of_statement(src, "f", 0);
         assert!(
@@ -1980,14 +2037,14 @@ fn the_arithmetic_builtins_have_the_types_they_claim() {
         "saturating_sub",
         "saturating_mul",
     ] {
-        let src = format!("fn f(a: int, b: int) {{ const x = {name}(a, b); }}");
+        let src = format!("fn f(int a, int b) {{ const x = {name}(a, b); }}");
         assert_type(&src, "f", TypeKind::I64);
     }
     // The payload comes out through a match, which the checker could only do if
     // the result really were an `Option[int]`: the `switch` has to cover both
     // variants, and its own type is the payload's.
     assert_type(
-        "fn f(a: int, b: int) -> int {\n\
+        "fn f(int a, int b) -> int {\n\
          const n = switch checked_add(a, b) {\n\
          case Some(v) { v }\n\
          case None { 0 }\n\
@@ -2006,7 +2063,7 @@ fn a_checked_result_cannot_be_used_without_opening_it() {
     // wrapped answer -- `checked_add(a, b) + 1` has to be spelled as a match,
     // which is where the program decides what a missing answer means.
     assert_error(
-        "fn f(a: int, b: int) { const x = checked_add(a, b) + 1; }",
+        "fn f(int a, int b) { const x = checked_add(a, b) + 1; }",
         "cannot apply `+` to `Option[int]` and `int`",
     );
 }
@@ -2017,11 +2074,11 @@ fn the_arithmetic_builtins_take_exactly_two_arguments() {
     // the diagnostic every other call gets. A `wrapping_add` that quietly took
     // one argument would be a different operation with the same name.
     assert_error(
-        "fn f(a: int) { const x = wrapping_add(a); }",
+        "fn f(int a) { const x = wrapping_add(a); }",
         "expected 2 arguments, found 1",
     );
     assert_error(
-        "fn f(a: int) { const x = saturating_mul(a, 2, 3); }",
+        "fn f(int a) { const x = saturating_mul(a, 2, 3); }",
         "expected 2 arguments, found 3",
     );
 }
@@ -2037,7 +2094,7 @@ fn a_diverging_arm_does_not_decide_the_switch_type() {
         "case None { panic(\"none\") } case Some(v) { v }",
         "case Some(v) { v } case None { panic(\"none\") }",
     ] {
-        let src = format!("fn f(o: Option[int]) -> int {{ return switch o {{ {arms} }}; }}");
+        let src = format!("fn f(Option[int] o) -> int {{ return switch o {{ {arms} }}; }}");
         let HirStmt::Return(Some(expr), _) = statement_of(&src, "f", 0) else {
             panic!("expected a return statement");
         };
@@ -2062,10 +2119,12 @@ fn a_function_whose_only_statement_panics_checks() {
     // The body falls off the end, which Yashy already allows -- code generation
     // returns a zero there. The panic makes that path unreachable, so the program
     // is honest even though nothing ever produces a value.
-    let (result, _, _) = check_source(
-        "fn f() -> int { panic(\"always\"); } fn main() { print(f()); }",
+    let (result, _, _) =
+        check_source("fn f() -> int { panic(\"always\"); } fn main() { print(f()); }");
+    assert!(
+        result.is_ok(),
+        "a panicking function must check: {result:?}"
     );
-    assert!(result.is_ok(), "a panicking function must check: {result:?}");
 }
 
 #[test]
@@ -2083,15 +2142,15 @@ fn old_builtin_names_point_at_their_methods() {
             "`free_slice` has moved to method syntax: write `xs.free()`",
         ),
         (
-            "fn main() { let m: map[int]int = map_new(); map_get(m, 1); }",
+            "fn main() { let map[int]int m = map_new(); map_get(m, 1); }",
             "`map_get` has moved to method syntax: write `m.get(1)`",
         ),
         (
-            "fn main() { let c: Channel[int] = chan_new(1); chan_recv(c); }",
+            "fn main() { let Channel[int] c = chan_new(1); chan_recv(c); }",
             "`chan_recv` has moved to method syntax: write `c.recv()`",
         ),
         (
-            "fn main() { let m: Mutex = mutex_new(); mutex_lock(m); }",
+            "fn main() { let Mutex m = mutex_new(); mutex_lock(m); }",
             "`mutex_lock` has moved to method syntax: write `m.lock()`",
         ),
         (
@@ -2143,7 +2202,7 @@ fn a_generic_function_is_emitted_once_per_substitution() {
     // Monomorphization is visible in the HIR: there is one concrete function
     // per type the program called it with, and no generic function at all.
     let (result, _, _) = check_source(
-        "fn identity[T](x: T) -> T { return x; } \
+        "fn identity[T](T x) -> T { return x; } \
          fn main() { const a = identity(7); const b = identity(\"s\"); }",
     );
     let hir = result.expect("a generic call should type-check");
@@ -2159,16 +2218,12 @@ fn a_generic_function_is_emitted_once_per_substitution() {
     assert_eq!(names, vec!["identity_i64", "identity_string", "main"]);
 }
 
-
 #[test]
 fn a_fixed_array_index_is_an_option() {
     // `grid[1]` never faults: in range is `Some`, anything else is `None`.
     // The length of a fixed array is its type, so `[int; 3]` prints that way.
     assert_eq!(
-        binding_type_in_fn(
-            "fn main() { const grid: [int; 3] = [1, 2, 3]; }",
-            "main"
-        ),
+        binding_type_in_fn("fn main() { const [int; 3] grid = [1, 2, 3]; }", "main"),
         "[int; 3]"
     );
     assert_eq!(
@@ -2178,11 +2233,13 @@ fn a_fixed_array_index_is_an_option() {
         ),
         "[int; 3]"
     );
-    let (result, _, _) = check_source(
-        "fn main() { const grid = [1, 2, 3]; const at = grid[1]; }",
-    );
+    let (result, _, _) = check_source("fn main() { const grid = [1, 2, 3]; const at = grid[1]; }");
     let hir = result.expect("indexing a fixed array should check");
-    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+    let Some(HirItem::Fn(f)) = hir
+        .items
+        .iter()
+        .find(|item| matches!(item, HirItem::Fn(f) if f.name == "main"))
+    else {
         panic!("main should exist");
     };
     let Some(HirStmt::Const { init, .. }) = f.body.stmts.get(1) else {
@@ -2194,11 +2251,14 @@ fn a_fixed_array_index_is_an_option() {
 #[test]
 fn a_range_binding_has_a_view_type() {
     // The view's type is inferred, and it carries its element type: `[int]`.
-    let (result, _, _) = check_source(
-        "fn main() { const grid = [1, 2, 3]; const head = grid[0..2]; }",
-    );
+    let (result, _, _) =
+        check_source("fn main() { const grid = [1, 2, 3]; const head = grid[0..2]; }");
     let hir = result.expect("a range over a fixed array should check");
-    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+    let Some(HirItem::Fn(f)) = hir
+        .items
+        .iter()
+        .find(|item| matches!(item, HirItem::Fn(f) if f.name == "main"))
+    else {
         panic!("main should exist");
     };
     let Some(HirStmt::Const { init, .. }) = f.body.stmts.get(1) else {
@@ -2211,16 +2271,14 @@ fn a_range_binding_has_a_view_type() {
 #[test]
 fn a_view_cannot_be_named() {
     assert_error(
-        "fn f(xs: []int) { const v: [int] = xs[0..1]; }",
+        "fn f([]int xs) { const [int] v = xs[0..1]; }",
         "a view cannot be named",
     );
 }
 
 #[test]
 fn a_range_is_still_inferred() {
-    let (result, _, _) = check_source(
-        "fn f(xs: []int) { let v = xs[0..1]; println(v.len()); }",
-    );
+    let (result, _, _) = check_source("fn f([]int xs) { let v = xs[0..1]; println(v.len()); }");
     assert!(result.is_ok(), "{result:?}");
 }
 
@@ -2247,15 +2305,21 @@ fn a_tuple_is_the_product_of_its_element_types() {
 
 #[test]
 fn destructuring_binds_each_element_with_its_own_type() {
-    let (result, _, _) = check_source(
-        "fn main() { const pair = (7, true); const (n, flag) = pair; }",
-    );
+    let (result, _, _) =
+        check_source("fn main() { const pair = (7, true); const (n, flag) = pair; }");
     let hir = result.expect("destructuring a tuple should check");
-    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+    let Some(HirItem::Fn(f)) = hir
+        .items
+        .iter()
+        .find(|item| matches!(item, HirItem::Fn(f) if f.name == "main"))
+    else {
         panic!("main should exist");
     };
     let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
-        panic!("the destructuring statement should be second: {:?}", f.body.stmts);
+        panic!(
+            "the destructuring statement should be second: {:?}",
+            f.body.stmts
+        );
     };
     assert_eq!(bindings.len(), 2, "one entry per element");
     match &bindings[0] {
@@ -2274,11 +2338,14 @@ fn destructuring_binds_each_element_with_its_own_type() {
     }
 
     // `_` is a hole in the binding list, not a name: the element is dropped.
-    let (result, _, _) = check_source(
-        "fn main() { const pair = (7, true); const (_, flag) = pair; }",
-    );
+    let (result, _, _) =
+        check_source("fn main() { const pair = (7, true); const (_, flag) = pair; }");
     let hir = result.expect("`_` should skip an element");
-    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "main")) else {
+    let Some(HirItem::Fn(f)) = hir
+        .items
+        .iter()
+        .find(|item| matches!(item, HirItem::Fn(f) if f.name == "main"))
+    else {
         panic!("main should exist");
     };
     let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
@@ -2352,7 +2419,7 @@ fn a_const_destructured_binding_is_immutable_and_a_let_one_is_not() {
 #[test]
 fn a_guard_must_be_a_bool_and_sees_the_patterns_names() {
     assert_error(
-        "fn f(n: int) -> int { return switch n { case 1 if n { 1 } default { 0 } }; }",
+        "fn f(int n) -> int { return switch n { case 1 if n { 1 } default { 0 } }; }",
         "a guard must be a `bool`, found `int`",
     );
 
@@ -2360,7 +2427,7 @@ fn a_guard_must_be_a_bool_and_sees_the_patterns_names() {
     // guard is checked after the pattern has bound its names.
     let (result, _, _) = check_source(
         "enum E { A(int), B } \
-         fn f(e: E) -> int { return switch e { case A(v) if v > 0 { v } case A(v) { 0 } case B { 1 } }; }",
+         fn f(E e) -> int { return switch e { case A(v) if v > 0 { v } case A(v) { 0 } case B { 1 } }; }",
     );
     if let Err(diags) = result {
         panic!("a guard should see the pattern's names: {diags:?}");
@@ -2373,24 +2440,27 @@ fn a_guard_does_not_count_towards_exhaustiveness() {
     // with no arm to take: the guard does not cover the case where it is false.
     assert_error(
         "enum E { A, B } \
-         fn f(e: E) -> int { return switch e { case A if true { 1 } case B { 2 } }; }",
+         fn f(E e) -> int { return switch e { case A if true { 1 } case B { 2 } }; }",
         "switch is not exhaustive: missing case `A`",
     );
 
     // The same rule for the `default` of a switch over a scalar.
     assert_error(
-        "fn f(n: int) -> int { return switch n { default if n > 0 { 1 } }; }",
+        "fn f(int n) -> int { return switch n { default if n > 0 { 1 } }; }",
         "switch over a non-enum type is not exhaustive",
     );
 }
 
 #[test]
 fn tuples_are_ordinary_parameters_and_return_values() {
-    let (result, _, _) = check_source(
-        "fn swap(p: (int, bool)) -> (bool, int) { const (n, b) = p; return (b, n); }",
-    );
+    let (result, _, _) =
+        check_source("fn swap((int, bool) p) -> (bool, int) { const (n, b) = p; return (b, n); }");
     let hir = result.expect("a tuple parameter and return type should check");
-    let Some(HirItem::Fn(f)) = hir.items.iter().find(|item| matches!(item, HirItem::Fn(f) if f.name == "swap")) else {
+    let Some(HirItem::Fn(f)) = hir
+        .items
+        .iter()
+        .find(|item| matches!(item, HirItem::Fn(f) if f.name == "swap"))
+    else {
         panic!("swap should exist");
     };
     assert_eq!(f.params[0].ty.to_string(), "(int, bool)");
@@ -2402,7 +2472,7 @@ fn a_generic_function_can_be_called_with_a_tuple() {
     // A tuple is a type like any other to the unifier: `T` becomes
     // `(int, bool)` and the instance is mangled from the element types.
     let (result, _, _) = check_source(
-        "fn identity[T](x: T) -> T { return x; } \
+        "fn identity[T](T x) -> T { return x; } \
          fn main() { const t = identity((1, true)); }",
     );
     let hir = result.expect("a generic call with a tuple argument should check");
@@ -2421,23 +2491,29 @@ fn a_generic_function_can_be_called_with_a_tuple() {
 }
 #[test]
 fn int_and_float_are_the_wide_spellings() {
-    let (result, _, _) = check_source("fn f(a: int) -> float { return 1.5; }");
+    let (result, _, _) = check_source("fn f(int a) -> float { return 1.5; }");
     assert!(result.is_ok(), "int and float must resolve: {result:?}");
 }
 
 #[test]
 fn i64_names_its_replacement() {
-    assert_error("fn f(a: i64) { }", "`i64` is spelled `int` in Yashy");
+    assert_error("fn f(i64 a) { }", "`i64` is spelled `int` in Yashy");
 }
 
 #[test]
 fn f64_names_its_replacement() {
-    assert_error("fn f() -> f64 { return 1.0; }", "`f64` is spelled `float` in Yashy");
+    assert_error(
+        "fn f() -> f64 { return 1.0; }",
+        "`f64` is spelled `float` in Yashy",
+    );
 }
 
 #[test]
 fn a_cast_cannot_spell_the_old_names_either() {
-    assert_error("fn f(x: int) { const y = x as i64; }", "`i64` is spelled `int` in Yashy");
+    assert_error(
+        "fn f(int x) { const y = x as i64; }",
+        "`i64` is spelled `int` in Yashy",
+    );
 }
 #[test]
 fn void_is_the_return_spelling() {
@@ -2452,12 +2528,15 @@ fn a_written_unit_type_names_void() {
 
 #[test]
 fn void_outside_a_return_position_is_refused() {
-    assert_error("fn f(x: void) { }", "only allowed as a function's return type");
     assert_error(
-        "fn g() { } fn f() { const x: void = g(); }",
+        "fn f(void x) { }",
         "only allowed as a function's return type",
     );
-    assert_error("fn f(xs: []void) { }", "cannot hold `void`");
+    assert_error(
+        "fn g() { } fn f() { const void x = g(); }",
+        "only allowed as a function's return type",
+    );
+    assert_error("fn f([]void xs) { }", "cannot hold `void`");
 }
 
 /// The label on the diagnostic whose message contains `needle`, if any.
@@ -2504,14 +2583,15 @@ fn an_unrelated_name_gets_no_suggestion() {
 
 #[test]
 fn a_name_in_an_outer_scope_is_found_not_suggested() {
-    let (result, _, _) = check_source("fn main() { let count = 1; if true { let inner = count; } }");
+    let (result, _, _) =
+        check_source("fn main() { let count = 1; if true { let inner = count; } }");
     assert!(result.is_ok(), "the outer binding is visible: {result:?}");
 }
 
 #[test]
 fn a_misspelled_type_suggests_the_declared_type() {
     let src = "struct Point { x: int, y: int }\n\
-               fn main() { let p: Piont = Point { x: 1, y: 2 }; }";
+               fn main() { let Piont p = Point { x: 1, y: 2 }; }";
     let (result, _, _) = check_source(src);
     let diags = result.expect_err("the program should fail to check");
     assert_eq!(
@@ -2522,7 +2602,7 @@ fn a_misspelled_type_suggests_the_declared_type() {
 
 #[test]
 fn a_misspelled_builtin_type_suggests_the_builtin() {
-    let (result, _, _) = check_source("fn main() { let s: strng = \"a\"; }");
+    let (result, _, _) = check_source("fn main() { let strng s = \"a\"; }");
     let diags = result.expect_err("the program should fail to check");
     assert_eq!(
         label_for(&diags, "cannot find type `strng`").as_deref(),
@@ -2579,7 +2659,7 @@ fn a_misspelled_struct_literal_field_suggests_the_field() {
 #[test]
 fn a_misspelled_variant_field_suggests_the_field() {
     let src = "enum Shape { Rect { w: float, h: float } }\n\
-               fn f(s: Shape) -> float {\n\
+               fn f(Shape s) -> float {\n\
                    return switch s { case Rect { w: w, hh: h } { w } };\n\
                }";
     let (result, _, _) = check_source(src);

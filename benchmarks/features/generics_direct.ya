@@ -1,6 +1,6 @@
 // The same loop with a concrete `scale`: what `generics.ya` compiles to, and
 // the baseline the generic row is compared with.
-fn scale(x: int, k: int) -> int {
+fn scale(int x, int k) -> int {
     return x * k + x % 3;
 }
 

@@ -2,7 +2,7 @@
 // where it can be, a value-returning function returns on every path, and `&&`
 // does not evaluate its right operand when the left one decides.
 
-fn divide(n: int) -> int {
+fn divide(int n) -> int {
     if n != 0 && 10 / n > 1 {
         return 10 / n;
     }
@@ -10,7 +10,7 @@ fn divide(n: int) -> int {
 }
 
 /// Whether the parse produced a number. `None` is "the text is not one".
-fn present(value: Option[int]) -> bool {
+fn present(Option[int] value) -> bool {
     return switch value {
         case Some(_) { true }
         case None { false }
@@ -18,7 +18,7 @@ fn present(value: Option[int]) -> bool {
 }
 
 /// The parsed number. Only read after `present` said there is one.
-fn number(value: Option[int]) -> int {
+fn number(Option[int] value) -> int {
     return switch value {
         case Some(n) { n }
         case None { 0 }
@@ -27,7 +27,7 @@ fn number(value: Option[int]) -> int {
 
 /// `parse_i64` says "not a number" as `None`; a `Result`-returning function
 /// turns that into the error value its caller expects.
-fn parse(s: string) -> Result[int, string] {
+fn parse(string s) -> Result[int, string] {
     const parsed = s.parse_i64();
     if present(parsed) {
         return Ok(number(parsed));
@@ -35,7 +35,7 @@ fn parse(s: string) -> Result[int, string] {
     return Err("not a number");
 }
 
-fn unwrap_or(s: string) -> Result[int, string] {
+fn unwrap_or(string s) -> Result[int, string] {
     const n = parse(s)?;
     return Ok(n);
 }

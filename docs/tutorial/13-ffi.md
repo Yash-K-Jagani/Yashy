@@ -15,7 +15,7 @@ declaration is a promise about a function the Yashy compiler did not see.
 
 ```yashy
 extern "C" link "m" {
-    unsafe fn c_sqrt(x: f64) -> f64 link_name "sqrt";
+    unsafe fn c_sqrt(f64 x) -> f64 link_name "sqrt";
 }
 
 fn main() {
@@ -53,7 +53,7 @@ default promotion:
 
 ```yashy
 extern "C" {
-    unsafe fn printf(fmt: *const u8, ...) -> i32;
+    unsafe fn printf(*const u8 fmt, ...) -> i32;
 }
 
 fn main() {

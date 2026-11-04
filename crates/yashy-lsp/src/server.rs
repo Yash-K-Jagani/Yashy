@@ -516,12 +516,12 @@ fn builtin_signature(name: &str) -> Option<&'static str> {
     Some(match name {
         "print" => "fn print(value)",
         "println" => "fn println(value)",
-        "alloc" => "fn alloc(count: int) -> *mut int",
+        "alloc" => "fn alloc(int count) -> *mut int",
         "len" => "fn len(value) -> int",
-        "str_from_i64" => "fn str_from_i64(value: int) -> string",
+        "str_from_i64" => "fn str_from_i64(int value) -> string",
         "read_line" => "fn read_line() -> string",
-        "assert" => "fn assert(condition: bool)",
-        "exit" => "fn exit(code: int)",
+        "assert" => "fn assert(bool condition)",
+        "exit" => "fn exit(int code)",
         _ => return None,
     })
 }

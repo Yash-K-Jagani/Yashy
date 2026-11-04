@@ -7,7 +7,7 @@
 // value that must *not* match, which is the half that used to be wrong, and the
 // strings check the runtime comparison on both a prefix ("yashy") and a longer
 // string ("yashy!").
-fn classify(n: int) -> string {
+fn classify(int n) -> string {
     return switch n {
         case 0 { "zero" }
         case 1 { "one" }
@@ -15,7 +15,7 @@ fn classify(n: int) -> string {
     };
 }
 
-fn name(text: string) -> string {
+fn name(string text) -> string {
     return switch text {
         case "yashy" { "animal" }
         case "yashy!" { "shout" }
@@ -23,14 +23,14 @@ fn name(text: string) -> string {
     };
 }
 
-fn half(value: float) -> string {
+fn half(float value) -> string {
     return switch value {
         case 1.5 { "one and a half" }
         default { "other" }
     };
 }
 
-fn flag(value: bool) -> string {
+fn flag(bool value) -> string {
     return switch value {
         case true { "yes" }
         default { "no" }

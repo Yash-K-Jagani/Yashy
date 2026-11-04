@@ -148,7 +148,7 @@ The second half is a contract: a function can state what it needs and what it
 promises, and the verifier checks the statement at every call and every return.
 
 ```yashy
-fn positive(n: int) -> int requires n > 0 ensures result > 0 {
+fn positive(int n) -> int requires n > 0 ensures result > 0 {
     return n;
 }
 

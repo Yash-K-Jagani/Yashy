@@ -116,7 +116,7 @@ struct Point {
     y: int,
 }
 
-fn uses(p: Point) -> int {
+fn uses(Point p) -> int {
     return p.x;
 }
 
@@ -135,7 +135,7 @@ struct Point {
     y: float,
 }
 
-fn uses(p: Point) -> int {
+fn uses(Point p) -> int {
     return p.x;
 }
 

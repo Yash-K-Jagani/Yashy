@@ -36,7 +36,7 @@ fn assert_rejected(src: &str, needle: &str) {
 }
 
 const STRLEN: &str =
-    r#"extern "C" { unsafe fn strlen(s: *const u8) -> usize; } fn main() { }"#;
+    r#"extern "C" { unsafe fn strlen(*const u8 s) -> usize; } fn main() { }"#;
 
 #[test]
 fn an_extern_declaration_reaches_the_hir() {
@@ -59,7 +59,7 @@ fn an_extern_function_is_callable() {
     // The literal is a `string`; the parameter is a `*const u8`. Accepting it
     // is the FFI boundary's one deliberate coercion (spec §8.1).
     check(
-        r#"extern "C" { unsafe fn strlen(s: *const u8) -> usize; }
+        r#"extern "C" { unsafe fn strlen(*const u8 s) -> usize; }
            fn main() { strlen("hi"); }"#,
     )
     .expect("a string may stand where a C string pointer is wanted");
@@ -68,7 +68,7 @@ fn an_extern_function_is_callable() {
 #[test]
 fn extern_parameters_are_checked() {
     assert_rejected(
-        r#"extern "C" { unsafe fn strlen(s: *const u8) -> usize; }
+        r#"extern "C" { unsafe fn strlen(*const u8 s) -> usize; }
            fn main() { strlen(1); }"#,
         "expected",
     );
@@ -93,7 +93,7 @@ fn void_is_allowed_only_as_a_return_type() {
     check(r#"extern "C" { unsafe fn f() -> void; } fn main() { }"#)
         .expect("`void` is a legal return type");
     assert_rejected(
-        r#"extern "C" { unsafe fn f(x: void) -> i32; } fn main() { }"#,
+        r#"extern "C" { unsafe fn f(void x) -> i32; } fn main() { }"#,
         "return type",
     );
 }
@@ -101,7 +101,7 @@ fn void_is_allowed_only_as_a_return_type() {
 #[test]
 fn a_duplicate_extern_name_is_a_duplicate_definition() {
     assert_rejected(
-        r#"extern "C" { unsafe fn puts(s: *const u8) -> i32; }
+        r#"extern "C" { unsafe fn puts(*const u8 s) -> i32; }
            fn puts() { } fn main() { }"#,
         "duplicate definition",
     );
@@ -115,7 +115,7 @@ fn a_raw_pointer_argument_requires_an_unsafe_call() {
         format!(
             r#"extern "C" {{
                    unsafe fn malloc() -> *mut u8;
-                   unsafe fn touch(p: *mut u8) -> void;
+                   unsafe fn touch(*mut u8 p) -> void;
                }}
                fn main() {{ const p = malloc(); {call} }}"#
         )
@@ -129,7 +129,7 @@ fn a_wrong_signature_is_caught_by_yashy_not_c() {
     // C would hand `i32` to a variadic printf and print garbage; Yashy's
     // checker refuses the mismatch at the call site, before anything is linked.
     assert_rejected(
-        r#"extern "C" { unsafe fn strlen(s: *const u8) -> i32; }
+        r#"extern "C" { unsafe fn strlen(*const u8 s) -> i32; }
            fn main() { print(strlen("hi")); }"#,
         "i32",
     );
@@ -138,7 +138,7 @@ fn a_wrong_signature_is_caught_by_yashy_not_c() {
 /// A program declaring variadic `printf` and a `main` whose body is `body`.
 fn printf_program(body: &str) -> String {
     format!(
-        "extern \"C\" {{ unsafe fn printf(fmt: *const u8, ...) -> i32; }}\n\
+        "extern \"C\" {{ unsafe fn printf(*const u8 fmt, ...) -> i32; }}\n\
          fn main() {{ {body} }}"
     )
 }
@@ -205,8 +205,8 @@ fn a_variadic_argument_must_be_a_type_c_can_pass() {
 #[test]
 fn two_declarations_that_disagree_about_the_marker_are_e0900() {
     let program = r#"extern "C" {
-        unsafe fn printf(fmt: *const u8) -> i32;
-        unsafe fn also_printf(fmt: *const u8, ...) -> i32 link_name "printf";
+        unsafe fn printf(*const u8 fmt) -> i32;
+        unsafe fn also_printf(*const u8 fmt, ...) -> i32 link_name "printf";
     }
     fn main() { }"#;
     assert_rejected(program, "`(*u8) -> i32` and `(*u8, ...) -> i32`");

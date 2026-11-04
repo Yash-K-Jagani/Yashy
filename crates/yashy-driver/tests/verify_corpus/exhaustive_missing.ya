@@ -8,7 +8,7 @@ enum Color {
     Blue,
 }
 
-fn show(c: Color) -> int {
+fn show(Color c) -> int {
     return switch c {
         case Color.Red { 1 }
         // Missing: Green and Blue

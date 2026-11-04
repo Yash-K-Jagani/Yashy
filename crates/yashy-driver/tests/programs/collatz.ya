@@ -6,7 +6,7 @@
 // parser turns each into `n = n / 2` and `steps = steps + 1`, so the two
 // spellings are the same program.
 
-fn collatz_steps(start: int) -> int {
+fn collatz_steps(int start) -> int {
     let n = start;
     let steps = 0;
     while n != 1 {

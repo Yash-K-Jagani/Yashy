@@ -76,17 +76,17 @@ fn only_the_ffi_only_spellings_are_marked_as_such() {
 
 #[test]
 fn c_types_are_rejected_outside_an_extern_block() {
-    assert_rejected("fn f(x: i32) {}", "extern");
+    assert_rejected("fn f(i32 x) {}", "extern");
     assert_rejected("fn f() -> u8 { }", "extern");
-    assert_rejected("fn f(x: *const u8) {}", "extern");
-    assert_rejected("fn f(x: usize) {}", "extern");
+    assert_rejected("fn f(*const u8 x) {}", "extern");
+    assert_rejected("fn f(usize x) {}", "extern");
 }
 
 #[test]
 fn an_yashy_pointer_is_still_an_yashy_pointer() {
     // `*mut T` predates the FFI edge and must keep its old meaning in ordinary
     // code: an owning, linear pointer. Only `*const`/bare pointers are new.
-    check("fn f(x: *mut int) {}").expect("an owning pointer is ordinary Yashy code");
+    check("fn f(*mut int x) {}").expect("an owning pointer is ordinary Yashy code");
 }
 
 #[test]

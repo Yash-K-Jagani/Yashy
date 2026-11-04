@@ -2,7 +2,7 @@
 // The newline is already gone, so those three separators are the ones that can
 // survive on a line.
 
-pub fn count_words(line: string) -> int {
+pub fn count_words(string line) -> int {
     let words = 0;
     let inside = false;
     let index = 0;

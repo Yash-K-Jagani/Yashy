@@ -5,7 +5,7 @@
 //
 // `show` answers -1 for `None`: `switch` arms are single expressions in this
 // milestone, so the two cases have to agree on one result type.
-fn show(o: Option[int]) -> int {
+fn show(Option[int] o) -> int {
     return switch o {
         case Some(v) { v }
         case None { 0 - 1 }

@@ -7,7 +7,7 @@
 // static and is never freed either way.
 
 fn main() {
-    let m: map[string]int = map_new();
+    let map[string]int m = map_new();
     let i = 0;
     while i < 200 {
         let key = str_from_i64(i);

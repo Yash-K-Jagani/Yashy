@@ -18,11 +18,11 @@
 // and keeps no pointer.
 
 // Ownership: none; a number owns nothing.
-pub fn println_i64(value: int) {
+pub fn println_i64(int value) {
     println(value);
 }
 
 // Ownership: none; a number owns nothing.
-pub fn println_f64(value: float) {
+pub fn println_f64(float value) {
     println(value);
 }

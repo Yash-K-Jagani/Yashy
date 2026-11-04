@@ -46,7 +46,7 @@ fn emit(src: &str) -> String {
 fn a_string_never_shared_across_threads_uses_the_plain_retain() {
     // Binding a literal retains it (a no-op for the static string, but the
     // call is the shape under test), and the scope exit releases it.
-    let ir = emit("fn main() { let s: string = \"a\"; print(s); }");
+    let ir = emit("fn main() { let string s = \"a\"; print(s); }");
     assert!(ir.contains("call i8* @yashy_str_retain(i8*"), "{ir}");
     assert!(!ir.contains("call i8* @yashy_str_retain_atomic("), "{ir}");
     assert!(ir.contains("call void @yashy_str_release(i8*"), "{ir}");
@@ -58,10 +58,10 @@ fn a_string_passed_to_spawn_uses_the_atomic_retain() {
     // The caller retains the thread's argument; that pair crosses threads, so
     // both halves are atomic even though the binding itself never leaks out.
     let ir = emit(
-        "fn work(s: string) { print(s); } \
+        "fn work(string s) { print(s); } \
          fn main() { \
-           let s: string = \"a\"; \
-           let h: int = thread_spawn(work, s); \
+           let string s = \"a\"; \
+           let int h = thread_spawn(work, s); \
            thread_join(h); \
          }",
     );
@@ -75,10 +75,10 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
     // separate helper both use the atomic pair.
     let ir = emit(
         "fn helper() -> string { return \"b\"; } \
-         fn work() { let t: string = helper(); print(t); } \
+         fn work() { let string t = helper(); print(t); } \
          fn main() { \
-           let s: string = \"a\"; \
-           let h: int = thread_spawn(work); \
+           let string s = \"a\"; \
+           let int h = thread_spawn(work); \
            thread_join(h); \
            print(s); \
          }",
@@ -92,8 +92,8 @@ fn a_program_with_a_spawn_uses_atomic_refcounts_everywhere() {
 #[test]
 fn the_thread_entry_releases_its_argument_atomically() {
     let ir = emit(
-        "fn work(s: string) { print(s); } \
-         fn main() { let s: string = \"a\"; let h: int = thread_spawn(work, s); thread_join(h); }",
+        "fn work(string s) { print(s); } \
+         fn main() { let string s = \"a\"; let int h = thread_spawn(work, s); thread_join(h); }",
     );
     // The synthesized entry drops the thread's own reference after the body.
     assert!(ir.contains("call void @yashy_str_release_atomic(i8* %arg0_v)"), "{ir}");

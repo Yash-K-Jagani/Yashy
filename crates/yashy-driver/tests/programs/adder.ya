@@ -8,7 +8,7 @@
 // its stopping condition and the second as "contributes zero".
 
 /// Whether a line arrived. `None` is end of input; `Some("")` is an empty line.
-fn present(line: Option[string]) -> bool {
+fn present(Option[string] line) -> bool {
     return switch line {
         case Some(_) { true }
         case None { false }
@@ -16,7 +16,7 @@ fn present(line: Option[string]) -> bool {
 }
 
 /// The text of a line that arrived. Only read after `present` said there is one.
-fn text_of(line: Option[string]) -> string {
+fn text_of(Option[string] line) -> string {
     return switch line {
         case Some(value) { value }
         case None { "" }
@@ -24,7 +24,7 @@ fn text_of(line: Option[string]) -> string {
 }
 
 /// The text's number, or zero when it is not one.
-fn number(text: string) -> int {
+fn number(string text) -> int {
     return switch text.parse_i64() {
         case Some(value) { value }
         case None { 0 }

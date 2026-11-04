@@ -16,12 +16,12 @@
 // as a Yashy `int`, and the call is `unsafe` because C reads those bytes by the
 // format string's rules, not by a type Yashy checked.
 extern "C" link "m" {
-    unsafe fn puts(s: *const u8) -> i32;
-    unsafe fn strlen(s: *const u8) -> usize;
-    unsafe fn malloc(n: usize) -> *mut u8;
-    unsafe fn free(p: *mut u8) -> void;
-    unsafe fn c_sqrt(x: f64) -> f64 link_name "sqrt";
-    unsafe fn printf(fmt: *const u8, ...) -> i32;
+    unsafe fn puts(*const u8 s) -> i32;
+    unsafe fn strlen(*const u8 s) -> usize;
+    unsafe fn malloc(usize n) -> *mut u8;
+    unsafe fn free(*mut u8 p) -> void;
+    unsafe fn c_sqrt(f64 x) -> f64 link_name "sqrt";
+    unsafe fn printf(*const u8 fmt, ...) -> i32;
 }
 
 fn main() {

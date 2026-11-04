@@ -66,13 +66,15 @@ See the master index. The ones that bite here:
 **Files:**
 - Modify: `crates/yashy-parser/src/stmts.rs` (`parse_const`, `parse_let`)
 - Modify: `crates/yashy-parser/src/items.rs` (`parse_param`, extern declarations, `impl` methods)
-- Modify: `crates/yashy-parser/src/exprs.rs` (`parse_lambda` parameter list)
+- Modify: `crates/yashy-parser/src/parser.rs` (`peek_nth`)
+- Modify: `crates/yashy-parser/src/exprs.rs` (a lambda's parameter list reuses `parse_param`, so only its doc contract changes)
 - Modify: `crates/yashy-common/src/codes.rs` (`TYPE_AFTER_NAME = "E0109"`)
 - Create: `docs/errors/E0109.md`; modify `docs/errors.md`
-- Create: `crates/yashy-driver/src/migrate.rs` and a temporary `fmt --migrate-declarations` entry in `crates/yashy-driver/src/main.rs`; **delete both in the cutover commit**
+- Create: `crates/yashy-parser/src/bin/migrate.rs` (the one-off migrator; it lives
+  beside the token stream it needs, and is **deleted in the cutover commit**)
 - Create: `crates/yashy-parser/tests/declarations.rs` (the new grammar and `E0109`)
 - Modify: `crates/yashy-driver/tests/e2e.rs` (one test that builds and runs a type-first program), `crates/yashy-fmt/tests/format.rs` (round-trip)
-- Migrate: every tracked `.ya` file and every fenced `yashy` block under `docs/`, `examples/`, `benchmarks/` and `dist/`
+- Migrate: every tracked `.ya` file, every fenced `yashy` block under `docs/`, `examples/` and `benchmarks/`, and the Yashy fixtures inside Rust string literals
 
 **Interfaces:**
 - Produces the grammar:
@@ -83,14 +85,13 @@ See the master index. The ones that bite here:
   ```
   The untyped binding is still legal: after `let`/`const`, an identifier followed immediately by `=` means "no written type". A written type is any shape `parse_type_expr` accepts: `int`, `Point`, `io.Error`, `[]T`, `[T; N]`, `[T]`, `*mut T`, `*const T`, tuples, `Option[T]`, `Result[T, E]`, and `fn(T) -> U`. The AST does not change: `Stmt::Let/Const` keep `{ name, ty: Option<TypeExpr>, init, span }`, and `Param` keeps `{ name, ty, span }`.
 - Produces `E0109` at the colon for `let x: int`, `const x: int`, `fn f(a: int)`, and `|x: int|`, with the message "the type is written before the name: write `int x`, not `x: int`" and a `docs:` line. A parsed `self: *mut T` receiver is untouched: `self` is the receiver, not a named parameter.
-- Produces a span-based migration command: it lexes the source, finds each `name : type` binding or parameter, and replaces that source range with `type name`, applying edits from the end of the file backwards so comments and layout outside the edit survive. It refuses a file with an ambiguous shape and prints the file and line. It runs **before** the parser switches, so the old tree is still available to compare.
-- Produces a `--markdown` mode that applies the same edits to fenced ` ```yashy ` blocks and leaves every other byte alone.
+- Produces a token-based migration command that lexes a region and rewrites each `name : type` binding or parameter into `type name`, applying the edits backwards so comments and layout outside the edit survive. It reads three kinds of file: a `.ya` file whole; a `.md` file's fenced ` ```yashy ` blocks, leaving every other byte alone; and the body of every Rust string literal in a `.rs` file, since the compiler's tests hold their fixtures there. In the `.rs` mode each escape sequence is replaced by spaces of the same byte length, so a token offset is a byte offset in the file and no edit can land inside an escape; Rust comments and char literals are skipped. A region that does not lex is left exactly as it is. A struct field or a struct literal's `field: value` is never preceded by `let`, `const`, `fn name(` or a lambda's `|`, so neither is touched.
 - Does **not** flip struct/object fields (`struct Point { x: int }` stays), enum payloads, or function type syntax (`fn(int) -> int` stays). Does **not** reintroduce `var`.
 
-- [ ] **Step 1: Write the failing tests** — `let int x = 5;`, `const string name = "x";`, `let *mut int p = x;`, `let []int xs = ys;`, `let Option[int] o = none;`, `let (int, string) pair = p;`, `let fn(int) -> int f = g;`, and an untyped `let x = 5;` all parse; `fn add(int a, int b) -> int` parses; `|int x| -> int` parses; `self: *mut T` still parses; `let x: int = 5;`, `fn f(a: int)`, and `|x: int|` each produce `E0109` at the colon; the formatter round-trips the new spellings; the migration command's unit tests cover comments, nested types, `self`, and a struct literal's `field: value` (which it must not touch).
-- [ ] **Step 2: Run and watch them fail** — `cargo test -p yashy-parser --test declarations` → FAIL.
-- [ ] **Step 3: Implement the dual-accept grammar and the migration command** — the parser accepts both orders for this commit only; the migration command is the span editor described above. Commit this separately: `feat(parser): accept type-first declarations and add the one-off migrator`.
-- [ ] **Step 4: Migrate the tree** — run the command over every tracked `.ya` file and `--markdown` over `docs/**/*.md`, `examples/**/*.md`, `benchmarks/**/*.md` and `dist/**/*.md`; run `yashy fmt -w` on the migrated `.ya` files; inspect the diff for anything outside a declaration.
+- [x] **Step 1: Write the failing tests** — `let int x = 5;`, `const string name = "x";`, `let *mut int p = x;`, `let []int xs = ys;`, `let Option[int] o = none;`, `let (int, string) pair = p;`, `let fn(int) -> int f = g;`, and an untyped `let x = 5;` all parse; `fn add(int a, int b) -> int` parses; `|int x| -> int` parses; `self: *mut T` still parses; `let x: int = 5;`, `fn f(a: int)`, and `|x: int|` each produce `E0109` at the colon. The migrator is a throwaway verified on one sample of each file kind (a `.ya` binding, a `.md` fence, a `.rs` fixture string) rather than a unit-tested component: it is deleted at the cutover, so a test for it would outlive the code it tests. The `crates/yashy-fmt` round-trip is covered by the migrated tree compiling and formatting unchanged.
+- [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-parser --test declarations` → FAIL.
+- [x] **Step 3: Implement the dual-accept grammar and the migration command** — the parser accepts both orders for this commit only; the migration command is the span editor described above. Commit this separately: `feat(parser): accept type-first declarations and add the one-off migrator`. Landed as `f10831e`.
+- [ ] **Step 4: Migrate the tree** — run the command over every tracked `.ya` file and over `docs/**/*.md`, `examples/**/*.md`, `benchmarks/**/*.md` and the Yashy fixtures in `crates/**/*.rs`; inspect the diff for anything outside a declaration. 1466 edits in 199 files; `cargo check --workspace --all-targets` clean.
 - [ ] **Step 5: Cut over** — delete the old-order branches, emit `E0109`, delete `migrate.rs` and the `fmt --migrate-declarations` flag, add `docs/errors/E0109.md` and its catalog row. Run `cargo test --workspace`, the tutorial harness and the examples harness. Commit: `feat!: type-first declarations and parameters (E0109)`.
 - [ ] **Step 6: Fix the prose** — the master spec's `fn printf(*const u8 fmt, ...)` example, `AGENTS.md`'s declaration rule, and any inline snippet the Markdown migrator could not reach. `cargo test -p yashy-driver --test docs` and `--test agents` must pass.
 

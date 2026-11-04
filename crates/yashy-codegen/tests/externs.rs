@@ -32,8 +32,8 @@ fn emit(src: &str) -> String {
 }
 
 const PROGRAM: &str = r#"extern "C" link "m" {
-    unsafe fn puts(s: *const u8) -> i32;
-    unsafe fn strlen(s: *const u8) -> usize;
+    unsafe fn puts(*const u8 s) -> i32;
+    unsafe fn strlen(*const u8 s) -> usize;
 }
 
 fn main() {

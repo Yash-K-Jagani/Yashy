@@ -237,6 +237,21 @@ pub fn variadic_must_be_last(span: Span) -> ParseError {
         .with_code(yashy_common::codes::VARIADIC_MISPLACED)
 }
 
+/// A declaration writes its name before its type: `let x: int`, `fn f(a: int)`.
+///
+/// The type goes first in the two places a new name is introduced -- a binding
+/// and a parameter -- because that is the order every other declaration uses:
+/// a `struct` field is `name: type` only because a field list reads as a list,
+/// and a function *type* is `fn(int) -> int` for the same reason. Reported at
+/// the colon, which is the character that has to move away.
+pub fn type_after_name(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "the type is written before the name: write `int x`, not `x: int`",
+    )
+    .with_code(yashy_common::codes::TYPE_AFTER_NAME)
+}
+
 /// `repr(C)` in front of something with no layout to fix.
 ///
 /// The clause is a promise about memory, and only a `struct`, an `object` or a

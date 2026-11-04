@@ -33,19 +33,19 @@ fn assert_rejected(src: &str, needle: &str) {
 fn a_map_round_trips_keys_of_every_primitive_key_type() {
     check(
         "fn main() { \
-           let a: map[int]int = map_new(); \
+           let map[int]int a = map_new(); \
            a.insert(1, 10); \
-           let x: Option[int] = a.get(1); \
-           let y: Option[int] = a.remove(1); \
-           let n: int = a.len(); \
+           let Option[int] x = a.get(1); \
+           let Option[int] y = a.remove(1); \
+           let int n = a.len(); \
            a.free(); \
-           let b: map[bool]int = map_new(); \
+           let map[bool]int b = map_new(); \
            b.insert(true, 1); \
-           let p: Option[int] = b.get(true); \
+           let Option[int] p = b.get(true); \
            b.free(); \
-           let c: map[string]int = map_new(); \
+           let map[string]int c = map_new(); \
            c.insert(\"k\", 2); \
-           let q: Option[int] = c.get(\"k\"); \
+           let Option[int] q = c.get(\"k\"); \
            c.free(); \
          }",
     )
@@ -55,8 +55,8 @@ fn a_map_round_trips_keys_of_every_primitive_key_type() {
 #[test]
 fn map_new_is_typed_by_a_parameter_or_a_binding_annotation() {
     check(
-        "fn fill(m: map[bool]float) { m.insert(true, 1.5); } \
-         fn main() { fill(map_new()); let c: map[int]int = map_new(); c.free(); }",
+        "fn fill(map[bool]float m) { m.insert(true, 1.5); } \
+         fn main() { fill(map_new()); let map[int]int c = map_new(); c.free(); }",
     )
     .expect("a parameter and a binding annotation both supply the expected type");
 }
@@ -72,7 +72,7 @@ fn map_new_needs_an_annotation_to_infer_from() {
 #[test]
 fn a_map_key_must_be_hashable() {
     assert_rejected(
-        "fn main() { let m: map[float]int = map_new(); m.free(); }",
+        "fn main() { let map[float]int m = map_new(); m.free(); }",
         "a map key must be `int`, `bool`, or `string`",
     );
 }
@@ -80,7 +80,7 @@ fn a_map_key_must_be_hashable() {
 #[test]
 fn a_map_value_must_be_copyable() {
     assert_rejected(
-        "fn main() { let m: map[int]string = map_new(); m.free(); }",
+        "fn main() { let map[int]string m = map_new(); m.free(); }",
         "a map value must be a number or `bool`",
     );
 }
@@ -88,7 +88,7 @@ fn a_map_value_must_be_copyable() {
 #[test]
 fn map_free_moves_the_binding() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); m.free(); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); m.free(); m.free(); }",
         "moved",
     );
 }
@@ -96,7 +96,7 @@ fn map_free_moves_the_binding() {
 #[test]
 fn a_map_is_linear() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); let n = m; }",
+        "fn main() { let map[int]int m = map_new(); let n = m; }",
         "move",
     );
 }
@@ -104,9 +104,9 @@ fn a_map_is_linear() {
 #[test]
 fn map_get_and_remove_yield_options() {
     check(
-        "fn main() { let m: map[int]int = map_new(); \
-         let a: Option[int] = m.get(1); \
-         let b: Option[int] = m.remove(1); \
+        "fn main() { let map[int]int m = map_new(); \
+         let Option[int] a = m.get(1); \
+         let Option[int] b = m.remove(1); \
          m.free(); }",
     )
     .expect("missing keys are values, not errors");
@@ -115,7 +115,7 @@ fn map_get_and_remove_yield_options() {
 #[test]
 fn a_key_of_the_wrong_type_is_reported() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); m.insert(\"k\", 1); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); m.insert(\"k\", 1); m.free(); }",
         "expected `int`, found `string`",
     );
 }
@@ -123,7 +123,7 @@ fn a_key_of_the_wrong_type_is_reported() {
 #[test]
 fn a_value_of_the_wrong_type_is_reported() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); m.insert(1, true); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); m.insert(1, true); m.free(); }",
         "expected `int`, found `bool`",
     );
 }
@@ -145,7 +145,7 @@ fn a_method_on_a_temporary_is_rejected() {
 fn a_field_map_cannot_be_used_where_a_binding_is_needed() {
     assert_rejected(
         "struct S { m: map[int]int } \
-         fn inspect(s: S) { let v = s.m.get(1); } \
+         fn inspect(S s) { let v = s.m.get(1); } \
          fn main() { }",
         "field access is not a binding",
     );
@@ -154,7 +154,7 @@ fn a_field_map_cannot_be_used_where_a_binding_is_needed() {
 #[test]
 fn len_measures_a_map() {
     check(
-        "fn main() { let m: map[int]int = map_new(); let n: int = m.len(); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); let int n = m.len(); m.free(); }",
     )
     .expect("a map has the same `len` method as an array and a string");
 }
@@ -162,11 +162,11 @@ fn len_measures_a_map() {
 #[test]
 fn the_map_methods_answer_with_the_types_the_table_holds() {
     check(
-        "fn main() { let m: map[int]int = map_new(); \
+        "fn main() { let map[int]int m = map_new(); \
          m.insert(1, 10); \
-         let keys: []int = m.keys(); \
-         let values: []int = m.values(); \
-         let has: bool = m.contains_key(1); \
+         let []int keys = m.keys(); \
+         let []int values = m.values(); \
+         let bool has = m.contains_key(1); \
          keys.free(); values.free(); m.free(); }",
     )
     .expect("the keys and values are arrays of the table's own types");
@@ -175,10 +175,10 @@ fn the_map_methods_answer_with_the_types_the_table_holds() {
 #[test]
 fn a_string_key_map_answers_with_a_string_array() {
     check(
-        "fn main() { let m: map[string]int = map_new(); \
+        "fn main() { let map[string]int m = map_new(); \
          m.insert(\"k\", 10); \
-         let keys: []string = m.keys(); \
-         let values: []int = m.values(); \
+         let []string keys = m.keys(); \
+         let []int values = m.values(); \
          keys.free(); values.free(); m.free(); }",
     )
     .expect("a string key map answers with a string array");
@@ -187,7 +187,7 @@ fn a_string_key_map_answers_with_a_string_array() {
 #[test]
 fn a_key_of_the_wrong_type_is_reported_by_contains_key() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); let has: bool = m.contains_key(\"k\"); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); let bool has = m.contains_key(\"k\"); m.free(); }",
         "expected `int`, found `string`",
     );
 }
@@ -195,7 +195,7 @@ fn a_key_of_the_wrong_type_is_reported_by_contains_key() {
 #[test]
 fn contains_key_needs_a_key() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); let has: bool = m.contains_key(); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); let bool has = m.contains_key(); m.free(); }",
         "takes 2 arguments",
     );
 }
@@ -203,7 +203,7 @@ fn contains_key_needs_a_key() {
 #[test]
 fn keys_and_values_take_no_arguments() {
     assert_rejected(
-        "fn main() { let m: map[int]int = map_new(); let keys: []int = m.keys(1); m.free(); }",
+        "fn main() { let map[int]int m = map_new(); let []int keys = m.keys(1); m.free(); }",
         "takes 1 argument",
     );
 }
@@ -211,7 +211,7 @@ fn keys_and_values_take_no_arguments() {
 #[test]
 fn the_map_methods_are_not_available_on_other_types() {
     assert_rejected(
-        "fn main() { let xs = []int { 1 }; let keys: []int = xs.keys(); }",
+        "fn main() { let xs = []int { 1 }; let []int keys = xs.keys(); }",
         "no method `keys` on `[]int`",
     );
 }

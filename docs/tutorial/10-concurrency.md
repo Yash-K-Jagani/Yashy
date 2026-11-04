@@ -12,7 +12,7 @@ handle; `thread_join(handle)` waits for it. A worker returns nothing: the
 result comes back through a channel or shared state, not through the thread.
 
 ```yashy
-fn worker(out: Channel[int]) {
+fn worker(Channel[int] out) {
     let i = 1;
     while i <= 3 {
         out.send(i * i);
@@ -21,7 +21,7 @@ fn worker(out: Channel[int]) {
 }
 
 fn main() {
-    let results: Channel[int] = chan_new(1);
+    let Channel[int] results = chan_new(1);
     let handle = thread_spawn(worker, results);
 
     let total = 0;
@@ -49,7 +49,7 @@ send waits for the matching receive, and the loop drains the channel as the
 producer fills it. `14` is `1 + 4 + 9`.
 
 The type annotation on the binding is required:
-`let results: Channel[int] = chan_new(1);`. `chan_new` takes only a capacity, so
+`let Channel[int] results = chan_new(1);`. `chan_new` takes only a capacity, so
 there is no element type to infer from the call; the annotation is what says
 what the channel carries.
 
@@ -94,7 +94,7 @@ into the thread, so the rules differ by type:
 A mutex serialises a section. `lock` and `unlock` borrow, and `free` consumes:
 
 ```yashy
-fn worker(gate: Mutex) {
+fn worker(Mutex gate) {
     gate.lock();
     println("worker");
     gate.unlock();
@@ -141,7 +141,7 @@ avoid one.
 
 - **Letting `chan_new` infer its element type.** `let c = chan_new(1);`
   reports ``error: cannot infer the channel's element type: write
-  `let c: Channel[int] = chan_new(4)` ``. Add the annotation.
+  `let Channel[int] c = chan_new(4)` ``. Add the annotation.
 - **Putting strings in a channel.** `Channel[string]` reports ``error: a
   channel cannot carry `string` yet: a slot copy would share one refcount
   between the sender and the receiver``. Send an index or a number instead.

@@ -31,7 +31,7 @@ fn stderr(output: &Output) -> String {
 #[test]
 fn check_json_reports_a_coded_diagnostic() {
     let dir = work_dir("json-check-error");
-    let source_text = "fn main() {\n    const count: int = \"three\";\n}\n";
+    let source_text = "fn main() {\n    const int count = \"three\";\n}\n";
     let source = dir.join("bad.ya");
     write(&dir, "bad.ya", source_text);
 
@@ -109,7 +109,7 @@ fn check_json_reports_success_with_no_diagnostics() {
 #[test]
 fn human_and_json_agree_on_the_diagnostic_facts() {
     let dir = work_dir("json-human-agreement");
-    let source_text = "fn main() {\n    const count: int = \"three\";\n}\n";
+    let source_text = "fn main() {\n    const int count = \"three\";\n}\n";
     let source = dir.join("bad.ya");
     write(&dir, "bad.ya", source_text);
 
