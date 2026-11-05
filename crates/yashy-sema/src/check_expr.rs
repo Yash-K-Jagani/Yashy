@@ -7334,6 +7334,113 @@ impl<'src> Checker<'src> {
                     }
                 }
             }
+            Expr::CompareChain {
+                operands,
+                ops,
+                span,
+            } => {
+                // `a < b <= c` is `a < b && b <= c` with each operand
+                // evaluated once: nested binding switches bind every operand,
+                // then the adjacent comparisons are joined with `&&`.
+                for op in ops {
+                    if matches!(op, BinOp::Eq | BinOp::Ne) {
+                        self.error_code(
+                            *span,
+                            codes::CHAINED_EQUALITY,
+                            format!(
+                                "`{}` cannot appear in a comparison chain: write the two \
+                                 comparisons separately with `&&`",
+                                op.symbol()
+                            ),
+                        );
+                        return None;
+                    }
+                }
+                let mut checked: Vec<HirExpr> = Vec::with_capacity(operands.len());
+                let mut types: Vec<Type> = Vec::with_capacity(operands.len());
+                for operand in operands {
+                    let value = self.check_expr(operand)?;
+                    types.push(expr_ty(&value));
+                    checked.push(value);
+                }
+                for (index, op) in ops.iter().enumerate() {
+                    let operand_ty = &types[index];
+                    if !matches!(
+                        operand_ty.kind,
+                        TypeKind::I64 | TypeKind::F64 | TypeKind::Char
+                    ) {
+                        self.error_code(
+                            *span,
+                            codes::TYPE_MISMATCH,
+                            format!(
+                                "cannot compare `{operand_ty}` in a chain: the operands must \
+                                 all be `int`, `float` or `char`"
+                            ),
+                        );
+                        return None;
+                    }
+                    if let Err(message) =
+                        binary_result_type(*op, &types[index], &types[index + 1])
+                    {
+                        self.error_code(*span, codes::TYPE_MISMATCH, message);
+                        return None;
+                    }
+                }
+                let bool_ty = prim(TypeKind::Bool);
+                // The innermost body: adjacent comparisons over the bindings.
+                let mut body: Option<HirExpr> = None;
+                for (index, op) in ops.iter().enumerate() {
+                    let comparison = HirExpr::Binary {
+                        op: *op,
+                        lhs: Box::new(HirExpr::Ident(
+                            vec![format!("__c{index}")],
+                            *span,
+                            types[index].clone(),
+                        )),
+                        rhs: Box::new(HirExpr::Ident(
+                            vec![format!("__c{}", index + 1)],
+                            *span,
+                            types[index + 1].clone(),
+                        )),
+                        span: *span,
+                        ty: bool_ty.clone(),
+                        fault: None,
+                    };
+                    body = Some(match body {
+                        None => comparison,
+                        Some(previous) => HirExpr::Binary {
+                            op: BinOp::And,
+                            lhs: Box::new(previous),
+                            rhs: Box::new(comparison),
+                            span: *span,
+                            ty: bool_ty.clone(),
+                            fault: None,
+                        },
+                    });
+                }
+                let mut result = body.expect("a chain has at least two operands");
+                for index in (0..checked.len()).rev() {
+                    let subject = checked.pop().expect("operand count matches ops");
+                    result = HirExpr::SwitchExpr {
+                        subject: Box::new(subject),
+                        arms: vec![HirSwitchArm {
+                            pattern: HirPattern::Binding {
+                                name: format!("__c{index}"),
+                                ty: types[index].clone(),
+                                mutability: Mutability::Const,
+                                span: *span,
+                            },
+                            guard: None,
+                            body: result,
+                            is_default: true,
+                            span: *span,
+                        }],
+                        span: *span,
+                        ty: bool_ty.clone(),
+                    };
+                }
+                Some(result)
+            }
             Expr::Unary { op, operand, span } => {
                 let operand = self.check_expr(operand)?;
                 let operand_ty = expr_ty(&operand);

@@ -64,41 +64,50 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_eq(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_cmp()?;
+        // Equality and ordering share one collector, so a chain of any mix is
+        // one node: `a < b <= c` is a `CompareChain`, and a single comparison
+        // stays a plain `Binary` exactly as before.
+        let first = self.parse_shift()?;
+        let mut operands = vec![first];
+        let mut ops = Vec::new();
         loop {
             let op = if self.eat(TokenKind::EqEq) { Some(BinOp::Eq) }
                 else if self.eat(TokenKind::BangEq) { Some(BinOp::Ne) }
-                else { None };
-            match op {
-                Some(op) => {
-                    let rhs = self.parse_cmp()?;
-                    let span = cover(expr_span(&lhs), expr_span(&rhs));
-                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
-                }
-                None => break,
-            }
-        }
-        Ok(lhs)
-    }
-
-    fn parse_cmp(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_shift()?;
-        loop {
-            let op = if self.eat(TokenKind::Lt) { Some(BinOp::Lt) }
+                else if self.eat(TokenKind::Lt) { Some(BinOp::Lt) }
                 else if self.eat(TokenKind::LtEq) { Some(BinOp::Le) }
                 else if self.eat(TokenKind::Gt) { Some(BinOp::Gt) }
                 else if self.eat(TokenKind::GtEq) { Some(BinOp::Ge) }
                 else { None };
             match op {
                 Some(op) => {
-                    let rhs = self.parse_shift()?;
-                    let span = cover(expr_span(&lhs), expr_span(&rhs));
-                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+                    ops.push(op);
+                    operands.push(self.parse_shift()?);
                 }
                 None => break,
             }
         }
-        Ok(lhs)
+        match ops.len() {
+            0 => Ok(operands.into_iter().next().expect("one operand with no operator")),
+            1 => {
+                let op = ops.into_iter().next().expect("one operator");
+                let rhs = operands.pop().expect("two operands");
+                let lhs = operands.pop().expect("two operands");
+                let span = cover(expr_span(&lhs), expr_span(&rhs));
+                Ok(Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span })
+            }
+            _ => {
+                let span = cover(
+                    expr_span(operands.first().expect("chain operands")),
+                    expr_span(operands.last().expect("chain operands")),
+                );
+                Ok(Expr::CompareChain { operands, ops, span })
+            }
+        }
+    }
+
+    fn parse_cmp(&mut self) -> Result<Expr, ParseError> {
+        // Kept as the operand level of a comparison: shifts and tighter.
+        self.parse_shift()
     }
 
     fn parse_shift(&mut self) -> Result<Expr, ParseError> {
@@ -978,6 +987,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Literal(_, s) => *s,
         Expr::Ident(_, s) => *s,
         Expr::Binary { span, .. } => *span,
+        Expr::CompareChain { span, .. } => *span,
         Expr::Unary { span, .. } => *span,
         Expr::Move(_, span) => *span,
         Expr::Call { span, .. } => *span,

@@ -1,0 +1,43 @@
+// Chained comparisons: `0 <= x < 10` means `0 <= x && x < 10`, with every
+// operand evaluated exactly once, in source order.
+//
+// `next` is the middle operand of the first chain and bumps a counter every
+// time it runs, so the printed `1` proves the middle operand was evaluated
+// once, not twice. The next lines are the boundaries: `0` is inside,
+// `10` is not, and `-1` is not. The last chain mixes operators.
+
+struct Counter {
+    value: int,
+}
+
+impl Counter {
+    fn next(self: *mut Counter) -> int {
+        self[0].value = self[0].value + 1;
+        return self[0].value + 4;
+    }
+}
+
+fn main() {
+    let c = Counter { value: 0 };
+    const bool inside = 0 <= c.next() < 10;
+    print(c.value);
+    println("");
+    print(inside);
+    println("");
+
+    const bool low = 0 <= 0 < 10;
+    print(low);
+    println("");
+
+    const bool high = 0 <= 10 < 10;
+    print(high);
+    println("");
+
+    const bool below = 0 <= 0 - 1 < 10;
+    print(below);
+    println("");
+
+    const bool zigzag = 1 < 3 > 2;
+    print(zigzag);
+    println("");
+}

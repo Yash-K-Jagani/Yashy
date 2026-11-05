@@ -638,6 +638,7 @@ fn expression_kind(expr: &Expr) -> &'static str {
         Expr::Literal(_, _) => "a literal",
         Expr::Ident(_, _) => "a name",
         Expr::Binary { .. } => "an arithmetic expression",
+        Expr::CompareChain { .. } => "a comparison chain",
         Expr::Unary { .. } => "a unary expression",
         Expr::Move(_, _) => "a `move`",
         Expr::Call { .. } => "a call",
@@ -663,6 +664,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Literal(_, span)
         | Expr::Ident(_, span)
         | Expr::Binary { span, .. }
+        | Expr::CompareChain { span, .. }
         | Expr::Unary { span, .. }
         | Expr::Move(_, span)
         | Expr::Call { span, .. }
@@ -691,6 +693,9 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::Literal(_, _) | Expr::Ident(_, _) => false,
         Expr::Binary { lhs, rhs, .. } => {
             mentions_const_fn(lhs, consts) || mentions_const_fn(rhs, consts)
+        }
+        Expr::CompareChain { operands, .. } => {
+            operands.iter().any(|operand| mentions_const_fn(operand, consts))
         }
         Expr::Unary { operand, .. } => mentions_const_fn(operand, consts),
         Expr::Move(inner, _) => mentions_const_fn(inner, consts),

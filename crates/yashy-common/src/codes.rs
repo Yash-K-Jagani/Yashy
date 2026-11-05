@@ -27,6 +27,8 @@ pub const UNKNOWN_NAME: &str = "E0001";
 pub const UNKNOWN_TYPE: &str = "E0002";
 /// An expression's type does not match its context.
 pub const TYPE_MISMATCH: &str = "E0100";
+/// `==` or `!=` inside a comparison chain.
+pub const CHAINED_EQUALITY: &str = "E0101";
 /// A bitwise operator is applied to a non-integer (or non-bool for the logical forms).
 pub const BITWISE_NOT_INTEGER: &str = "E0103";
 /// A bitwise operator is applied to two different types.
@@ -116,6 +118,12 @@ pub const CODES: &[Code] = &[
         title: "type mismatch",
         summary: "An expression's type does not match its context.",
         page: include_str!("../../../docs/errors/E0100.md"),
+    },
+    Code {
+        id: CHAINED_EQUALITY,
+        title: "equality in a comparison chain",
+        summary: "`==` and `!=` cannot appear in a chained comparison; write the two comparisons separately with `&&`.",
+        page: include_str!("../../../docs/errors/E0101.md"),
     },
     Code {
         id: BITWISE_NOT_INTEGER,

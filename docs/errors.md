@@ -28,6 +28,7 @@ the declaration or import involved when that is not obvious.
 | [E0001](errors/E0001.md) | unknown name |
 | [E0002](errors/E0002.md) | unknown type |
 | [E0100](errors/E0100.md) | type mismatch |
+| [E0101](errors/E0101.md) | equality in a comparison chain |
 | [E0103](errors/E0103.md) | bitwise operand is not an integer |
 | [E0104](errors/E0104.md) | bitwise operands have different types |
 | [E0105](errors/E0105.md) | shift count out of range |

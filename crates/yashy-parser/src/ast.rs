@@ -768,6 +768,14 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
+    /// `a < b <= c`: a chain of comparisons. `operands.len() == ops.len() + 1`;
+    /// the checker evaluates each operand once and joins the adjacent
+    /// comparisons with `&&`.
+    CompareChain {
+        operands: Vec<Expr>,
+        ops: Vec<BinOp>,
+        span: Span,
+    },
     Unary {
         op: UnOp,
         operand: Box<Expr>,

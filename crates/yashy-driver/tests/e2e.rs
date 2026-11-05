@@ -368,6 +368,14 @@ fn interning_program_runs_and_prints_its_marker() {
 }
 
 #[test]
+fn chained_comparisons_evaluate_each_operand_once() {
+    // `next()` is the middle operand and bumps the counter each time it
+    // runs, so the first `1` proves one evaluation. Then the boundaries: `0` is in,
+    // `10` and `-1` are out, and the mixed chain reads left to right.
+    let output = build_and_run("chained_cmp");
+    assert_eq!(stdout_of(&output), "1\ntrue\ntrue\nfalse\nfalse\ntrue\n");
+}
+
 fn bitwise_operators_print_their_values() {
     // Every operator, the arithmetic/logical split on `>>`, and the precedence
     // that makes `1 << 3 | 1` nine rather than sixteen.
