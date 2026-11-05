@@ -7759,34 +7759,54 @@ impl<'src> Checker<'src> {
                             });
                         }
                         "println" => {
-                            if args.is_empty() {
-                                return Some(HirExpr::Call {
-                                    callee: vec!["print_line_str".to_string()],
-                                    args: vec![HirExpr::Literal(
-                                        Literal::Str(str_lit(String::new())),
-                                        *span,
-                                        prim(TypeKind::Str),
-                                    )],
-                                    unsafe_call: false,
-                                    span: *span,
-                                    ty: prim(TypeKind::Unit),
+                            // `println` takes any number of values: they are
+                            // converted to text and joined with one space, then
+                            // a newline is written. Zero values print an empty
+                            // line. `print` stays as the no-newline form.
+                            let mut parts: Vec<HirExpr> = Vec::with_capacity(args.len());
+                            for arg in args {
+                                let checked = match self.check_expr(arg) {
+                                    Some(c) => c,
+                                    None => return None,
+                                };
+                                parts.push(self.as_string(checked, *span)?);
+                            }
+                            let mut joined: Option<HirExpr> = None;
+                            for part in parts {
+                                joined = Some(match joined {
+                                    None => part,
+                                    Some(previous) => {
+                                        let separator = HirExpr::Literal(
+                                            Literal::Str(str_lit(" ".to_string())),
+                                            *span,
+                                            prim(TypeKind::Str),
+                                        );
+                                        HirExpr::Binary {
+                                            op: BinOp::Add,
+                                            lhs: Box::new(previous),
+                                            rhs: Box::new(HirExpr::Binary {
+                                                op: BinOp::Add,
+                                                lhs: Box::new(separator),
+                                                rhs: Box::new(part),
+                                                span: *span,
+                                                ty: prim(TypeKind::Str),
+                                                fault: None,
+                                            }),
+                                            span: *span,
+                                            ty: prim(TypeKind::Str),
+                                            fault: None,
+                                        }
+                                    }
                                 });
                             }
-                            if args.len() != 1 {
-                                self.error(*span, "`println` takes one value".to_string());
-                                return None;
-                            }
-                            let Some(arg) = args.first() else {
-                                return None;
-                            };
-                            let checked = match self.check_expr(arg) {
-                                Some(c) => c,
-                                None => return None,
-                            };
-                            let string = self.as_string(checked, *span)?;
+                            let joined = joined.unwrap_or(HirExpr::Literal(
+                                Literal::Str(str_lit(String::new())),
+                                *span,
+                                prim(TypeKind::Str),
+                            ));
                             return Some(HirExpr::Call {
                                 callee: vec!["print_line_str".to_string()],
-                                args: vec![string],
+                                args: vec![joined],
                                 unsafe_call: false,
                                 span: *span,
                                 ty: prim(TypeKind::Unit),

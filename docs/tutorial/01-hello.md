@@ -32,10 +32,13 @@ interpolation (chapter 2) is sugar over them. The rule is not fussiness. A
 silent conversion would make `"n = " + n` compile, and then it would be unclear
 whether the program meant the number or its decimal spelling.
 
-`print(x)` writes `x` with no newline; `println(x)` writes `x` and then a
-newline, and `println()` writes only the newline. The family takes one argument
-of any printable type -- `print(1)`, `print('A')` and `print("text")` all work
-without a format string. A string may interpolate an expression:
+`println` is the main, preferred way to write output. `println(x)` writes `x`
+and then a newline, `println()` writes only the newline, and `println(a, b, c)`
+takes any number of arguments, converting each to text and joining them with
+one space. `print(x)` takes one argument of any printable type and writes it
+with no newline -- for the cases where the next characters belong on the
+same line. All of `print(1)`, `print('A')` and `print("text")` work without a
+format string. A string may interpolate an expression:
 `"Hello, ${name}!"` is the same program as `"Hello, " + name + "!"`.
 
 A function that returns nothing writes no `->`:

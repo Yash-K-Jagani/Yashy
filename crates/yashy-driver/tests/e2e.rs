@@ -1790,6 +1790,14 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
+fn println_accepts_many_values_joined_by_spaces() {
+    // `println` is the main, preferred output: many values, one space
+    // between each, one newline at the end. `print` still writes the next
+    // characters on the same line.
+    let output = build_and_run("println_many");
+    assert_eq!(stdout_of(&output), "sum 3 true\ntail\n");
+}
+
 fn default_fields_fill_omitted_slots() {
     // The default fills the omitted `retries` (3), an explicit value wins
     // (5), a spread's field wins over the default (9), and a string default

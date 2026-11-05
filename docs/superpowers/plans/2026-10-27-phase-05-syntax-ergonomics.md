@@ -385,6 +385,20 @@ See the master index. The ones that bite here:
 
 ---
 
+### Task 12: `println` is the main, preferred output
+
+**Files:**
+- Modify: `crates/yashy-sema/src/check_expr.rs` (variadic `println`), create `crates/yashy-sema/tests/println.rs`
+- Modify: `docs/tutorial/01-hello.md`
+
+**Interfaces:**
+- Produces: `println(a, b, c)` converts each argument to text and joins them with one space, then writes a newline. `println()` prints an empty line. `print` stays as the single-argument, no-newline form for text that must continue on the same line; `println` is the preferred way to write output.
+
+- [x] **Step 1: Tests + implement** — variadic `println` in the checker (join with `BinOp::Add` over `" "` separators into `print_line_str`); sema tests for many types, empty, single, and unprintable refusal; docs updated.
+- [x] **Step 2: Commit** — `git commit -m "feat: println is the main, variadic output"` (see below).
+
+---
+
 ### Task 11: The sugar proof, docs and gate
 
 **Files:**
