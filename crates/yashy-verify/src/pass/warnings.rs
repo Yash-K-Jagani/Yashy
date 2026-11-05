@@ -158,6 +158,18 @@ fn collect_reads_in_stmt(stmt: &HirStmt, reads: &mut HashSet<String>) {
                 collect_reads_in_expr(&arm.body, reads);
             }
         }
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_reads_in_expr(subject, reads);
+            collect_reads_in_block(then_block, reads);
+            if let Some(else_block) = else_block {
+                collect_reads_in_block(else_block, reads);
+            }
+        }
         HirStmt::Defer { body, .. } => collect_reads_in_block(body, reads),
         HirStmt::LoopInvariant(contract) => collect_reads_in_expr(&contract.expr, reads),
         _ => {}
@@ -327,6 +339,7 @@ fn stmt_span(stmt: &HirStmt) -> Span {
         HirStmt::FieldPtrAssign { span, .. } => *span,
         HirStmt::Return(_, span) => *span,
         HirStmt::If { span, .. } => *span,
+        HirStmt::IfLet { span, .. } => *span,
         HirStmt::ForRange { span, .. } => *span,
         HirStmt::ForIn { span, .. } => *span,
         HirStmt::ForC { span, .. } => *span,

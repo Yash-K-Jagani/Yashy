@@ -195,6 +195,17 @@ impl TypestatePass<'_> {
                 self.walk(subject);
                 self.switch_arms(arms)
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                // A pattern binds a fresh value; a resource it carries is
+                // tracked from where it is used, as a `switch` arm's is.
+                self.walk(subject);
+                self.branch(then_block, else_block.as_ref())
+            }
             HirStmt::Break(_) => false,
             HirStmt::Continue(_) => false,
             HirStmt::Defer { body, .. } => {

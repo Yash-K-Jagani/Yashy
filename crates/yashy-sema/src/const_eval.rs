@@ -619,6 +619,8 @@ fn statement_kind(statement: &Stmt) -> &'static str {
         Stmt::Assign { .. } => "an assignment",
         Stmt::Return(_, _) => "a `return`",
         Stmt::If { .. } => "an `if`",
+        Stmt::IfLet { .. } => "an `if let`",
+        Stmt::WhileLet { .. } => "a `while let`",
         Stmt::ForRange { .. } => "a `for` loop",
         Stmt::ForIn { .. } => "a `for ... in` loop",
         Stmt::ForC { .. } => "a `for` loop",

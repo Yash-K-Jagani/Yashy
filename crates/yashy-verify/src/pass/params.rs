@@ -259,6 +259,20 @@ impl<'f> Scan<'f> {
                     self.arm(arm);
                 }
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                // A pattern binding is a new value, not the parameter it may
+                // shadow, and it cannot be written through.
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
             HirStmt::Defer { body, .. } => self.block(body),
             HirStmt::LoopInvariant(contract) => self.expr(&contract.expr),
             HirStmt::Break(_) | HirStmt::Continue(_) => {}

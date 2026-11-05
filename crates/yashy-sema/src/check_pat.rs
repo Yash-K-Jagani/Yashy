@@ -335,3 +335,99 @@ fn check_struct_variant(
         span,
     })
 }
+
+/// The span a checked pattern was written at.
+pub fn hir_pattern_span(pattern: &HirPattern) -> Span {
+    match pattern {
+        HirPattern::Wildcard(span)
+        | HirPattern::UnitVariant { span, .. }
+        | HirPattern::TupleVariant { span, .. }
+        | HirPattern::StructVariant { span, .. }
+        | HirPattern::Binding { span, .. }
+        | HirPattern::Literal(_, span) => *span,
+    }
+}
+
+/// Whether `pattern` matches every value of `subject`'s type.
+///
+/// This is the question `if let` and `while let` ask before they are built: a
+/// pattern that cannot fail makes the `else` branch dead and the loop endless,
+/// which is E0603. It is a property of the *form*, so it is answered here next
+/// to the pattern checker rather than inferred from the arms later.
+///
+/// A wildcard and a binding are irrefutable for every type. A literal never is.
+/// A variant pattern is irrefutable only when its enum has exactly one variant
+/// and every payload pattern is irrefutable; `Option` and `Result` are two
+/// variants, so `Some(x)`, `None`, `Ok(v)` and `Err(e)` all fail the test.
+///
+/// A nested pattern the checker admits but cannot type -- one whose payload
+/// type does not resolve -- answers `false`. That is the safe direction: the
+/// worst case is a form the checker does not reject, never a program it
+/// wrongly accepts as irrefutable.
+pub fn is_irrefutable(
+    pattern: &HirPattern,
+    subject: &Type,
+    variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
+    resolve: &dyn Fn(&TypeExpr) -> Result<Type, TypeError>,
+) -> bool {
+    match pattern {
+        HirPattern::Wildcard(_) | HirPattern::Binding { .. } => true,
+        HirPattern::Literal(..) => false,
+        HirPattern::UnitVariant { path, .. }
+        | HirPattern::TupleVariant { path, .. }
+        | HirPattern::StructVariant { path, .. } => {
+            let TypeKind::Enum(enum_name) = &subject.kind else {
+                return false;
+            };
+            let Some(defs) = variants(enum_name) else {
+                return false;
+            };
+            // More than one variant means some value reaches an arm this
+            // pattern does not name.
+            if defs.len() != 1 {
+                return false;
+            }
+            let def = &defs[0];
+            if def.name != variant_name(path) {
+                return false;
+            }
+            let irrefutable_payload = |ty: &TypeExpr, sub: &HirPattern| match resolve(ty) {
+                Ok(ty) => is_irrefutable(sub, &ty, variants, resolve),
+                Err(_) => false,
+            };
+            match pattern {
+                HirPattern::UnitVariant { .. } => def.fields.is_empty(),
+                HirPattern::TupleVariant { args, .. } => {
+                    if args.len() != def.fields.len() {
+                        return false;
+                    }
+                    args.iter().zip(def.fields.iter()).all(|(sub, field)| {
+                        let VariantField::Positional { ty, .. } = field else {
+                            return false;
+                        };
+                        irrefutable_payload(ty, sub)
+                    })
+                }
+                HirPattern::StructVariant { fields, .. } => {
+                    // `check_struct_variant` already required every declared
+                    // field, so a field that does not resolve here is a
+                    // declaration the checker could not type; treat it as
+                    // refutable rather than guess.
+                    fields.iter().all(|(name, sub, _)| {
+                        def.fields
+                            .iter()
+                            .find_map(|field| match field {
+                                VariantField::Named {
+                                    name: declared, ty, ..
+                                } if declared == name => Some(ty),
+                                _ => None,
+                            })
+                            .map(|ty| irrefutable_payload(ty, sub))
+                            .unwrap_or(false)
+                    })
+                }
+                _ => false,
+            }
+        }
+    }
+}

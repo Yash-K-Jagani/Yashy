@@ -202,6 +202,18 @@ impl Walker<'_> {
                 self.expr(subject);
                 self.arms(arms);
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
             HirStmt::Break(_) | HirStmt::Continue(_) => {}
             HirStmt::Defer { body, .. } => self.block(body),
             HirStmt::LoopInvariant(clause) => self.expr(&clause.expr),

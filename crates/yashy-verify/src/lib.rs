@@ -237,6 +237,18 @@ fn collect_in_stmt(stmt: &HirStmt, memo: &mut BTreeMap<(String, u32), ()>) {
                 collect_in_expr(&arm.body, memo);
             }
         }
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_in_expr(subject, memo);
+            collect_in_block(then_block, memo);
+            if let Some(else_block) = else_block {
+                collect_in_block(else_block, memo);
+            }
+        }
         HirStmt::Defer { body, .. } => collect_in_block(body, memo),
         HirStmt::LoopInvariant(contract) => collect_in_expr(&contract.expr, memo),
         HirStmt::Return(None, _)
@@ -405,6 +417,16 @@ fn stmt_has_contract(stmt: &HirStmt) -> bool {
                     arm.guard.as_ref().is_some_and(expr_has_contract)
                         || expr_has_contract(&arm.body)
                 })
+        }
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            expr_has_contract(subject)
+                || block_has_contract(then_block)
+                || else_block.as_ref().is_some_and(block_has_contract)
         }
         HirStmt::Defer { body, .. } => block_has_contract(body),
     }

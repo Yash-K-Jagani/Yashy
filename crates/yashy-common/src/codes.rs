@@ -54,6 +54,8 @@ pub const CONST_REASSIGNMENT: &str = "E0400";
 pub const MOVED_VALUE: &str = "E0500";
 /// A `switch` does not cover every case.
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
+/// An `if let` or `while let` pattern matches every value of its type.
+pub const IRREFUTABLE_IF_LET: &str = "E0603";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 /// Two things claim the same linker symbol: two `extern` declarations that
@@ -186,6 +188,12 @@ pub const CODES: &[Code] = &[
         title: "non-exhaustive match",
         summary: "A `switch` does not cover every case.",
         page: include_str!("../../../docs/errors/E0600.md"),
+    },
+    Code {
+        id: IRREFUTABLE_IF_LET,
+        title: "`if let` pattern always matches",
+        summary: "An `if let` or `while let` pattern matches every value of its type, so the branch or loop exit can never run.",
+        page: include_str!("../../../docs/errors/E0603.md"),
     },
     Code {
         id: WRONG_ARGUMENT_COUNT,

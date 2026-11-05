@@ -32,7 +32,7 @@ use yashy_parser::ast::{
     VariantField,
 };
 
-use crate::check_pat::check_pattern;
+use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
 use crate::const_eval::{self, ConstFn, ConstFns, Missing};
 use crate::error::TypeError;
 use crate::exhaustive::missing_cases;
@@ -3647,6 +3647,19 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
+            Stmt::IfLet {
+                pattern,
+                value,
+                then_block,
+                else_block,
+                span,
+            } => self.check_if_let(pattern, value, then_block, else_block.as_ref(), *span, ret),
+            Stmt::WhileLet {
+                pattern,
+                value,
+                body,
+                span,
+            } => self.check_while_let(pattern, value, body, *span, ret),
             Stmt::ForRange {
                 name,
                 start,
@@ -3826,6 +3839,154 @@ impl<'src> Checker<'src> {
             arms: hir_arms,
             span,
         })
+    }
+
+    /// Check `if let <pattern> = <value> { .. } else { .. }`.
+    ///
+    /// The pattern's names are declared in a scope that stays open for the then
+    /// block and is popped before the `else` block is read: the else branch has
+    /// no payload to name, so a use of the binding there is an unknown name.
+    /// Ownership merges across the two branches exactly as it does for
+    /// [`Stmt::If`]: a binding moved in either branch is moved after the
+    /// statement, because which branch ran is a run-time question.
+    fn check_if_let(
+        &mut self,
+        pattern: &Pattern,
+        value: &Expr,
+        then_block: &Block,
+        else_block: Option<&Block>,
+        span: Span,
+        ret: &Type,
+    ) -> Option<HirStmt> {
+        let (pattern, subject) = self.check_let_head(pattern, value, "if let")?;
+        let entry_moved = self.scope.moved_bindings();
+        let then_block = match self.check_block_with_ret(then_block, ret) {
+            Some(block) => block,
+            None => {
+                self.scope.pop();
+                return None;
+            }
+        };
+        let after_then = self.scope.moved_bindings();
+        // Close the pattern's scope before the else branch: its bindings
+        // belong to a value the else branch did not match.
+        self.scope.pop();
+        self.scope.apply_moved(&entry_moved);
+        let else_block = match else_block {
+            Some(block) => match self.check_block_with_ret(block, ret) {
+                Some(checked) => Some(checked),
+                None => return None,
+            },
+            None => None,
+        };
+        let after_else = if else_block.is_some() {
+            self.scope.moved_bindings()
+        } else {
+            entry_moved.clone()
+        };
+        let merged: BTreeSet<(usize, String)> = after_then.union(&after_else).cloned().collect();
+        self.scope.apply_moved(&merged);
+        Some(HirStmt::IfLet {
+            pattern,
+            subject,
+            then_block,
+            else_block,
+            span,
+        })
+    }
+
+    /// Check `while let <pattern> = <value> { .. }`.
+    ///
+    /// Lowered to an endless [`HirStmt::ForC`] whose body is one
+    /// [`HirStmt::IfLet`]: the value is re-evaluated every iteration, the
+    /// pattern's names are in scope for the body, and a pattern that misses
+    /// leaves the loop through the synthesized `else { break; }`. The backend
+    /// already pushes a loop target for a `for`, so `break` and `continue` in
+    /// the body keep working with no new statement.
+    fn check_while_let(
+        &mut self,
+        pattern: &Pattern,
+        value: &Expr,
+        body: &Block,
+        span: Span,
+        ret: &Type,
+    ) -> Option<HirStmt> {
+        let (pattern, subject) = self.check_let_head(pattern, value, "while let")?;
+        let body_block = match self.check_block_with_ret(body, ret) {
+            Some(block) => block,
+            None => {
+                self.scope.pop();
+                return None;
+            }
+        };
+        self.scope.pop();
+        let hit = HirStmt::IfLet {
+            pattern,
+            subject,
+            then_block: body_block,
+            else_block: Some(HirBlock {
+                stmts: vec![HirStmt::Break(span)],
+                span,
+            }),
+            span,
+        };
+        Some(HirStmt::ForC {
+            init: None,
+            cond: None,
+            update: None,
+            body: HirBlock {
+                stmts: vec![hit],
+                span,
+            },
+            span,
+        })
+    }
+
+    /// The `pattern = value` head shared by `if let` and `while let`.
+    ///
+    /// On success the scope the bindings live in is still pushed and the
+    /// caller owns popping it; on failure the scope is already popped and the
+    /// error has been reported. The irrefutability check runs here because it
+    /// is about the form, before any HIR is built.
+    fn check_let_head(
+        &mut self,
+        pattern: &Pattern,
+        value: &Expr,
+        form: &str,
+    ) -> Option<(HirPattern, HirExpr)> {
+        let subject = self.check_expr(value)?;
+        let subject_ty = expr_ty(&subject);
+        self.scope.push();
+        let checked = match self.check_arm_pattern(pattern, &subject_ty) {
+            Ok(checked) => checked,
+            Err(error) => {
+                self.report(error);
+                self.scope.pop();
+                return None;
+            }
+        };
+        let irrefutable = {
+            let this = &*self;
+            let variants = |name: &str| this.enums.get(name).map(|sig| sig.variants.clone());
+            is_irrefutable(&checked, &subject_ty, &variants, &|ty| {
+                this.resolve_type(ty)
+            })
+        };
+        if irrefutable {
+            let subject_text = subject_ty.to_string();
+            let message = if form == "if let" {
+                format!(
+                    "this pattern matches every `{subject_text}`: `if let` needs a pattern that can fail"
+                )
+            } else {
+                format!("this pattern matches every `{subject_text}`: `while let` would never end")
+            };
+            self.report(
+                TypeError::new(hir_pattern_span(&checked), message)
+                    .with_code(codes::IRREFUTABLE_IF_LET),
+            );
+        }
+        Some((checked, subject))
     }
 
     /// Check one arm against the subject type: pattern bindings are declared

@@ -460,6 +460,8 @@ impl Stmt {
             | Stmt::Assign { span, .. }
             | Stmt::Return(_, span)
             | Stmt::If { span, .. }
+            | Stmt::IfLet { span, .. }
+            | Stmt::WhileLet { span, .. }
             | Stmt::ForRange { span, .. }
             | Stmt::ForIn { span, .. }
             | Stmt::ForC { span, .. }
@@ -570,6 +572,31 @@ pub enum Stmt {
         cond: Expr,
         then_block: Block,
         else_block: Option<Block>,
+        span: Span,
+    },
+    /// `if let Some(x) = opt { .. } else { .. }` -- an `if` whose condition is
+    /// a pattern matching a value.
+    ///
+    /// The pattern and the value are kept apart rather than desugared here:
+    /// the pattern runs through the same [`Pattern`] grammar as a `switch`
+    /// arm, and the checker is what proves it can fail (a pattern that always
+    /// matches is E0603, because the `else` branch would be dead).
+    IfLet {
+        pattern: Pattern,
+        value: Expr,
+        then_block: Block,
+        else_block: Option<Block>,
+        span: Span,
+    },
+    /// `while let Some(x) = it.next() { .. }` -- repeat while the pattern
+    /// matches.
+    ///
+    /// The value is evaluated once per iteration. A binding the pattern makes
+    /// is scoped to the body, exactly as in [`Stmt::IfLet`].
+    WhileLet {
+        pattern: Pattern,
+        value: Expr,
+        body: Block,
         span: Span,
     },
     /// `for i in 0..10 { .. }`

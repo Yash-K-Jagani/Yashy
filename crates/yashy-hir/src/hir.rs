@@ -365,6 +365,20 @@ pub enum HirStmt {
         else_block: Option<HirBlock>,
         span: Span,
     },
+    /// `if let <pattern> = <subject> { .. } else { .. }`.
+    ///
+    /// Kept as its own statement rather than lowered to a [`HirStmt::Switch`]
+    /// because both of its arms are blocks. A `switch` arm's body is one
+    /// expression, so it cannot `return`, `break` or `continue`; an `if let`
+    /// body can do all three, and those are exactly the flows the backend
+    /// tracks while it lowers a block.
+    IfLet {
+        pattern: HirPattern,
+        subject: HirExpr,
+        then_block: HirBlock,
+        else_block: Option<HirBlock>,
+        span: Span,
+    },
     ForRange {
         name: String,
         start: HirExpr,

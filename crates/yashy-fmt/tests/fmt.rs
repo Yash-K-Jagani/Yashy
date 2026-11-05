@@ -247,6 +247,16 @@ fn repr_c_binds_to_the_type_name_like_a_call() {
 }
 
 #[test]
+fn if_let_and_while_let_keep_their_keyword_spacing() {
+    // `if let` and `while let` are two keywords, not a name: one space between
+    // them, one around the `=`, and the block opens on the next line like any
+    // other statement block.
+    let source = "fn main() {\n    if let Some(x) = opt {\n        print(x);\n    } else {\n        print(0);\n    }\n    while let Some(x) = next() {\n        print(x);\n    }\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), source, "formatting must be idempotent");
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = yashy_fmt::format(source).expect_err("bad input must be reported");

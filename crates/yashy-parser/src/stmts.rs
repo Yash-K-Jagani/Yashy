@@ -236,6 +236,9 @@ impl<'src> Parser<'src> {
 
     fn parse_if(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::If)?;
+        if self.check(TokenKind::Let) {
+            return self.parse_if_let(kw.span);
+        }
         let init = if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::ColonEq {
             Some(Box::new(self.parse_binding_stmt()?))
         } else {
@@ -258,6 +261,35 @@ impl<'src> Parser<'src> {
             then_block,
             else_block,
             span: cover(kw.span, end_span),
+        })
+    }
+
+    /// `if let <pattern> = <value> { .. } else { .. }`.
+    ///
+    /// `let` is a keyword and cannot start a condition expression, so the
+    /// token after `if` decides between this form and an ordinary `if`
+    /// without lookahead. The pattern is the same node a `switch` arm uses.
+    fn parse_if_let(&mut self, kw: Span) -> Result<Stmt, ParseError> {
+        let _ = self.expect(TokenKind::Let)?;
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenKind::Eq)?;
+        let value = self.parse_expr()?;
+        let then_block = self.parse_block()?;
+        let else_block = if self.eat(TokenKind::Else) {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        let end_span = match &else_block {
+            Some(b) => b.span,
+            None => then_block.span,
+        };
+        Ok(Stmt::IfLet {
+            pattern,
+            value,
+            then_block,
+            else_block,
+            span: cover(kw, end_span),
         })
     }
 
@@ -369,6 +401,9 @@ impl<'src> Parser<'src> {
     /// and the C form already carry every loop the backend knows how to lower.
     fn parse_while(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::While)?;
+        if self.check(TokenKind::Let) {
+            return self.parse_while_let(kw.span);
+        }
         let cond = self.parse_expr()?;
         let body = self.parse_loop_body()?;
         let body_span = body.span;
@@ -378,6 +413,27 @@ impl<'src> Parser<'src> {
             update: None,
             body,
             span: cover(kw.span, body_span),
+        })
+    }
+
+    /// `while let <pattern> = <value> { .. }`.
+    ///
+    /// The value is evaluated every iteration, so a call such as
+    /// `it.next()` advances the loop. The body is parsed by
+    /// [`Self::parse_loop_body`], so `invariant` clauses keep working: the
+    /// pattern's bindings are in scope by the time the checker reads them.
+    fn parse_while_let(&mut self, kw: Span) -> Result<Stmt, ParseError> {
+        let _ = self.expect(TokenKind::Let)?;
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenKind::Eq)?;
+        let value = self.parse_expr()?;
+        let body = self.parse_loop_body()?;
+        let body_span = body.span;
+        Ok(Stmt::WhileLet {
+            pattern,
+            value,
+            body,
+            span: cover(kw, body_span),
         })
     }
 

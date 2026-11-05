@@ -211,6 +211,24 @@ fn an_offset_of_a_plain_struct_is_e0108_at_the_call() {
 }
 
 #[test]
+fn an_if_let_that_always_matches_is_e0603_at_the_pattern() {
+    assert_code(
+        "fn main() {\n    if let x = 1 {\n        print(x);\n    }\n}\n",
+        codes::IRREFUTABLE_IF_LET,
+        "x",
+    );
+}
+
+#[test]
+fn a_while_let_that_always_matches_is_e0603_at_the_pattern() {
+    assert_code(
+        "fn main() {\n    while let y = 1 { print(y); }\n}\n",
+        codes::IRREFUTABLE_IF_LET,
+        "y",
+    );
+}
+
+#[test]
 fn a_diagnostic_without_a_code_is_allowed_and_counted() {
     let (_, diags) = check("fn main() {\n    const x = 1;\n    const x = 2;\n}\n");
     assert!(

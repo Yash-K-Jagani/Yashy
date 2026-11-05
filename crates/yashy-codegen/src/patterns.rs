@@ -33,10 +33,11 @@
 //! so codegen can never panic.
 
 use yashy_parser::ast::Literal;
-use yashy_sema::{HirPattern, HirSwitchArm, TypeKind};
+use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, TypeKind};
 
 use crate::expr_gen::{gen_expr, gen_literal, has_string_payload, retain_payload, FnCtx, GenValue};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
+use crate::stmt_gen::Flow;
 
 /// What one arm tests, when it tests anything.
 ///
@@ -62,17 +63,79 @@ fn test_for(ctx: &FnCtx<'_>, arm: &HirSwitchArm, subject: &TypeKind) -> Option<T
     if arm.is_default {
         return arm.guard.as_ref().map(|_| Test::Always);
     }
-    if let HirPattern::Literal(literal, _) = &arm.pattern {
-        return Some(Test::Literal(literal.clone()));
-    }
-    let user = ctx.module.enum_variants(subject);
-    match pattern_variant_name(&arm.pattern).and_then(|name| variant_tag(subject, name, user)) {
-        Some(tag) => Some(Test::Tag(tag)),
+    match test_for_pattern(ctx, &arm.pattern, subject) {
+        Some(test) => Some(test),
         // A wildcard or a binding matches everything, so normally it is the
         // fall-through. A guard changes that: the arm can decline the value,
         // and the arms after it still have to be tried.
         None if arm.guard.is_some() => Some(Test::Always),
         None => None,
+    }
+}
+
+/// The test one pattern performs against a subject, ignoring guards.
+///
+/// Shared by `switch` arms and `if let`: a pattern is tested the same way
+/// wherever it appears, and the only difference between the two forms is what
+/// happens on a match.
+fn test_for_pattern(ctx: &FnCtx<'_>, pattern: &HirPattern, subject: &TypeKind) -> Option<Test> {
+    if let HirPattern::Literal(literal, _) = pattern {
+        return Some(Test::Literal(literal.clone()));
+    }
+    let user = ctx.module.enum_variants(subject);
+    pattern_variant_name(pattern)
+        .and_then(|name| variant_tag(subject, name, user))
+        .map(Test::Tag)
+}
+
+/// Emit the instructions for one test, returning the computed `i1` value.
+///
+/// Each branch allocates its temps in the order the pinned goldens record: the
+/// tag extraction first, then the comparison. `Always` allocates nothing --
+/// there is no question to ask -- and answers `None`.
+fn emit_test(ctx: &mut FnCtx<'_>, subject: &GenValue, test: &Test) -> Option<String> {
+    match test {
+        Test::Tag(tag) => {
+            let subject_repr = repr_type(&subject.ty);
+            let tag_type = ctx.module.tag_type(&subject.ty);
+            let tag_field = ctx.tmp();
+            ctx.push(format!(
+                "{tag_field} = extractvalue {subject_repr} {}, 0",
+                subject.value
+            ));
+            let is_match = ctx.tmp();
+            // The compared operand is a bare integer: modern LLVM has no
+            // typed constants, so `i8 0` here is a parse error ("expected
+            // value token").
+            ctx.push(format!(
+                "{is_match} = icmp eq {tag_type} {tag_field}, {tag}"
+            ));
+            Some(is_match)
+        }
+        Test::Literal(literal) => {
+            let value = gen_literal(ctx, literal, &subject.ty);
+            let is_match = ctx.tmp();
+            if matches!(subject.ty, TypeKind::Str) {
+                ctx.push(format!(
+                    "{is_match} = call i1 @yashy_str_eq(i8* {}, i8* {})",
+                    subject.value, value.value
+                ));
+            } else if matches!(subject.ty, TypeKind::F64) {
+                ctx.push(format!(
+                    "{is_match} = fcmp oeq double {}, {}",
+                    subject.value, value.value
+                ));
+            } else {
+                ctx.push(format!(
+                    "{is_match} = icmp eq {} {}, {}",
+                    repr_type(&subject.ty),
+                    subject.value,
+                    value.value
+                ));
+            }
+            Some(is_match)
+        }
+        Test::Always => None,
     }
 }
 
@@ -127,49 +190,7 @@ pub fn gen_match(
         // Each branch allocates its temps in the order the pinned goldens
         // record: the tag extraction first, then the comparison. `Always`
         // allocates nothing -- there is no question to ask.
-        let is_match = match test {
-            Test::Tag(tag) => {
-                let subject_repr = repr_type(&subject.ty);
-                let tag_type = ctx.module.tag_type(&subject.ty);
-                let tag_field = ctx.tmp();
-                ctx.push(format!(
-                    "{tag_field} = extractvalue {subject_repr} {}, 0",
-                    subject.value
-                ));
-                let is_match = ctx.tmp();
-                // The compared operand is a bare integer: modern LLVM has no
-                // typed constants, so `i8 0` here is a parse error ("expected
-                // value token").
-                ctx.push(format!(
-                    "{is_match} = icmp eq {tag_type} {tag_field}, {tag}"
-                ));
-                Some(is_match)
-            }
-            Test::Literal(literal) => {
-                let value = gen_literal(ctx, literal, &subject.ty);
-                let is_match = ctx.tmp();
-                if matches!(subject.ty, TypeKind::Str) {
-                    ctx.push(format!(
-                        "{is_match} = call i1 @yashy_str_eq(i8* {}, i8* {})",
-                        subject.value, value.value
-                    ));
-                } else if matches!(subject.ty, TypeKind::F64) {
-                    ctx.push(format!(
-                        "{is_match} = fcmp oeq double {}, {}",
-                        subject.value, value.value
-                    ));
-                } else {
-                    ctx.push(format!(
-                        "{is_match} = icmp eq {} {}, {}",
-                        repr_type(&subject.ty),
-                        subject.value,
-                        value.value
-                    ));
-                }
-                Some(is_match)
-            }
-            Test::Always => None,
-        };
+        let is_match = emit_test(ctx, subject, test);
 
         let next = next_test(&tests, index)
             .map(|next| test_labels[next].clone())
@@ -268,6 +289,111 @@ pub fn pattern_variant_name(pattern: &HirPattern) -> Option<&str> {
         HirPattern::StructVariant { path, .. } => path.last().map(String::as_str),
         _ => None,
     }
+}
+
+/// Collect the names `pattern` binds, in the order it binds them.
+fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
+    match pattern {
+        HirPattern::Binding { name, .. } => out.push(name.clone()),
+        HirPattern::TupleVariant { args, .. } => {
+            for arg in args {
+                pattern_names(arg, out);
+            }
+        }
+        HirPattern::StructVariant { fields, .. } => {
+            for (_, sub, _) in fields {
+                pattern_names(sub, out);
+            }
+        }
+        HirPattern::Wildcard(_) | HirPattern::UnitVariant { .. } | HirPattern::Literal(..) => {}
+    }
+}
+
+/// Lower `if let <pattern> = <subject> { then } else { else }`.
+///
+/// The subject is evaluated once and tested the way a `switch` arm tests its
+/// pattern: a match binds the pattern's names and enters `then`, a miss enters
+/// `else`. Both arms are blocks, so `return`, `break` and `continue` inside one
+/// terminate the current block and skip the merge label, exactly as they do in
+/// an `if`.
+///
+/// A subject the program built just for the test (`if let Some(x) = next()`)
+/// owns a reference and is released after the merge point, where every branch
+/// has already run. A subject that is a copy of a binding or a parameter owns
+/// nothing and is left alone.
+pub fn gen_if_let(
+    ctx: &mut FnCtx<'_>,
+    pattern: &HirPattern,
+    subject_expr: &HirExpr,
+    then_block: &HirBlock,
+    else_block: Option<&HirBlock>,
+) -> Flow {
+    let subject = gen_expr(ctx, subject_expr);
+    let then_label = ctx.alloc_label_base() + "_then";
+    let else_label = ctx.alloc_label_base() + "_else";
+    let merge_label = ctx.alloc_label_base() + "_merge";
+
+    match test_for_pattern(ctx, pattern, &subject.ty) {
+        Some(test) => match emit_test(ctx, &subject, &test) {
+            Some(is_match) => ctx.push(format!(
+                "br i1 {is_match}, label %{then_label}, label %{else_label}"
+            )),
+            // `Always` is what a guarded `switch` arm asks for; an `if let`
+            // pattern has no guard, so this is unreachable and the branch is
+            // written as an unconditional one.
+            None => ctx.push(format!("br label %{then_label}")),
+        },
+        // A wildcard or a binding matches everything. The checker rejects the
+        // form as E0603, so no valid program reaches here; taking the `then`
+        // branch keeps the module well formed if one somehow does.
+        None => ctx.push(format!("br label %{then_label}")),
+    }
+
+    // The bindings are scoped to the `if let`, so whatever they shadowed comes
+    // back when the statement ends. The statement's own names cannot be read
+    // after it -- the checker popped their scope -- but an outer binding of the
+    // same name can.
+    let mut names = Vec::new();
+    pattern_names(pattern, &mut names);
+    let shadowed: Vec<(String, Option<(String, TypeKind)>)> = names
+        .into_iter()
+        .map(|name| {
+            let previous = ctx.locals.get(&name).cloned();
+            (name, previous)
+        })
+        .collect();
+
+    ctx.push(format!("{then_label}:"));
+    bind_pattern(ctx, &subject, pattern);
+    if crate::stmt_gen::gen_block(ctx, then_block) == Flow::Fallthrough {
+        ctx.push(format!("br label %{merge_label}"));
+    }
+
+    ctx.push(format!("{else_label}:"));
+    match else_block {
+        Some(block) => {
+            if crate::stmt_gen::gen_block(ctx, block) == Flow::Fallthrough {
+                ctx.push(format!("br label %{merge_label}"));
+            }
+        }
+        None => ctx.push(format!("br label %{merge_label}")),
+    }
+
+    ctx.push(format!("{merge_label}:"));
+    for (name, previous) in shadowed {
+        match previous {
+            Some(binding) => {
+                ctx.locals.insert(name, binding);
+            }
+            None => {
+                ctx.locals.remove(&name);
+            }
+        }
+    }
+    if ctx.is_owned(&subject.value) {
+        ctx.release_owned(&subject.value);
+    }
+    Flow::Fallthrough
 }
 
 /// Bind every pattern variable into `ctx.locals` before an arm's body runs.

@@ -3484,6 +3484,19 @@ fn slice_operations_answer_in_options_and_iterate_in_order() {
 }
 
 #[test]
+fn if_let_and_while_let_bind_what_the_pattern_matched() {
+    // `if_let.ya` covers both forms. `doubled` returns `14` from inside an
+    // `if let` and `-1` from the fall-through that follows it, so a then block
+    // that terminated did not stop the statement from working. `no value` is
+    // the else branch of an `if let` whose subject is `None`. The two loops
+    // drain and short-circuit: the first sums all four pops to `10`, the second
+    // prints the single value it popped (`30`) and leaves two elements behind.
+    let output = build_and_run("if_let");
+    assert_eq!(stdout_of(&output), "14\n-1\nno value\n10\n30\n2\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn maps_insert_overwrite_remove_and_measure() {
     // `maps.ya` inserts "apple" twice (the second value wins), removes "pear",
     // then asks for "pear" again: a removed key is indistinguishable from one

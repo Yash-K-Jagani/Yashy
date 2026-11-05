@@ -486,6 +486,24 @@ impl<'f> Analysis<'f> {
                     self.pop_frame();
                 }
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                // A pattern binding names a value the subject already holds,
+                // not a new allocation, so it declares no site. Its own frame
+                // keeps the name from marking an outer binding as escaped when
+                // it shadows one.
+                self.value(subject, Mode::Escape);
+                self.push_scope();
+                self.block(then_block);
+                self.pop_frame();
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
             HirStmt::Defer { body, .. } => self.block(body),
             HirStmt::LoopInvariant(contract) => self.value(&contract.expr, Mode::Escape),
             HirStmt::Break(_) | HirStmt::Continue(_) => {}

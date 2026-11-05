@@ -727,6 +727,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let _ = gen_match(ctx, &scrutinee, arms, &TypeKind::Unit);
             Flow::Fallthrough
         }
+        HirStmt::IfLet {
+            pattern,
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => crate::patterns::gen_if_let(ctx, pattern, subject, then_block, else_block.as_ref()),
         HirStmt::Break(_) => match ctx.loops.last().cloned() {
             Some(target) => {
                 // A `break` nested in a block leaves the block *and* the loop

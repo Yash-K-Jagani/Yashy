@@ -323,6 +323,37 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 }
                 Flow::normal(env)
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                // The pattern's bindings are unknown to this pass, so the then
+                // environment keeps whatever the subject's type says and the
+                // merge is the same join an `if` performs.
+                self.eval(subject, &mut env);
+                let then_flow = self.walk_block(then_block, env.clone(), ctx);
+                let else_flow = match else_block {
+                    Some(block) => self.walk_block(block, env, ctx),
+                    None => Flow::normal(env),
+                };
+
+                let fall = match (then_flow.fall, else_flow.fall) {
+                    (Some(a), Some(b)) => Some(a.join(&b)),
+                    (Some(a), None) => Some(a),
+                    (None, Some(b)) => Some(b),
+                    (None, None) => None,
+                };
+                let mut flow = Flow {
+                    fall,
+                    breaks: then_flow.breaks,
+                    continues: then_flow.continues,
+                };
+                flow.breaks.extend(else_flow.breaks);
+                flow.continues.extend(else_flow.continues);
+                flow
+            }
             HirStmt::ForRange {
                 name,
                 start,

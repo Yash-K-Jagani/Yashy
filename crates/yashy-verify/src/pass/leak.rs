@@ -305,6 +305,17 @@ impl LeakPass<'_> {
                 self.walk(subject);
                 self.switch_arms(arms)
             }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.walk(subject);
+                // A pattern binding is a borrow of the subject for this pass:
+                // nothing new is owned, so it declares no binding to release.
+                self.branch(then_block, else_block.as_ref())
+            }
             HirStmt::Break(_) => Flow::Breaks,
             HirStmt::Continue(_) => Flow::Continues,
             // The checker reads a defer body where the `defer` is written and

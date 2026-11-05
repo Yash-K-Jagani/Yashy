@@ -1,0 +1,54 @@
+// `if let` and `while let`: the two forms that test one pattern and give the
+// body the names it bound.
+//
+// Every printed line is a claim about where control went. The first two are an
+// early `return` out of the then block and the plain fall-through of the else
+// path. The third proves the else branch is reachable at all. The fourth drains
+// a slice with `pop`, so the loop ends when the subject stops matching. The
+// fifth and sixth stop the same loop early with `break`: the popped value is
+// printed and the slice is left with two elements.
+
+fn doubled(Option[int] o) -> int {
+    if let Some(x) = o {
+        return x * 2;
+    }
+    return 0 - 1;
+}
+
+fn main() {
+    const Option[int] seven = Some(7);
+    print(doubled(seven));
+    println("");
+
+    const Option[int] nothing = None;
+    print(doubled(nothing));
+    println("");
+
+    if let Some(x) = nothing {
+        print(x);
+    } else {
+        print("no value\n");
+    }
+
+    let xs = []int { 1, 2, 3, 4 };
+    let sum = 0;
+    while let Some(x) = xs.pop() {
+        sum = sum + x;
+    }
+    print(sum);
+    println("");
+
+    let ys = []int { 10, 20, 30 };
+    let first = 0;
+    while let Some(x) = ys.pop() {
+        first = x;
+        break;
+    }
+    print(first);
+    println("");
+    print(ys.len());
+    println("");
+
+    xs.free();
+    ys.free();
+}

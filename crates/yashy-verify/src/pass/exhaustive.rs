@@ -124,6 +124,20 @@ fn check_stmt(program: &HirProgram, stmt: &HirStmt, file: FileId, out: &mut Vec<
             check_arms(program, arms, file, out);
         }
         HirStmt::Defer { body, .. } => check_block(program, body, file, out),
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            // The pattern is deliberately allowed to be partial -- that is what
+            // `if let` is for -- so only the bodies are walked.
+            check_expr(program, subject, file, out);
+            check_block(program, then_block, file, out);
+            if let Some(else_block) = else_block {
+                check_block(program, else_block, file, out);
+            }
+        }
         HirStmt::LoopInvariant(contract) => check_expr(program, &contract.expr, file, out),
         HirStmt::Break(_) | HirStmt::Continue(_) => {}
     }

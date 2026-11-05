@@ -232,6 +232,31 @@ fn full_block(spans: &mut Spans) -> Block {
             else_block: Some(empty_block(spans.take())),
             span: spans.take(),
         },
+        // Stmt::IfLet, with a payload binding and an else branch
+        Stmt::IfLet {
+            pattern: Pattern::TupleVariant {
+                path: vec!["Some".to_string()],
+                args: vec![Pattern::Binding {
+                    name: "bound".to_string(),
+                    span: spans.take(),
+                }],
+                span: spans.take(),
+            },
+            value: Expr::Ident(vec!["maybe".to_string()], spans.take()),
+            then_block: empty_block(spans.take()),
+            else_block: Some(empty_block(spans.take())),
+            span: spans.take(),
+        },
+        // Stmt::WhileLet
+        Stmt::WhileLet {
+            pattern: Pattern::UnitVariant {
+                path: vec!["None".to_string()],
+                span: spans.take(),
+            },
+            value: Expr::Ident(vec!["next".to_string()], spans.take()),
+            body: empty_block(spans.take()),
+            span: spans.take(),
+        },
         // Stmt::ForRange
         Stmt::ForRange {
             name: "i".to_string(),
@@ -515,8 +540,8 @@ fn ast_nodes_round_trip_through_debug() {
     }
     // One of every Stmt variant.
     for name in [
-        "Expr", "Const", "Let", "Return", "If", "ForRange", "ForC", "Switch", "Break",
-        "Continue", "Defer",
+        "Expr", "Const", "Let", "Return", "If", "IfLet", "WhileLet", "ForRange", "ForC",
+        "Switch", "Break", "Continue", "Defer",
     ] {
         assert!(
             debug.contains(name),
@@ -1268,6 +1293,29 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 "Const", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
                 "Defer", "Assign", "Binary", "Call",
             ],
+        ),
+        case(
+            "Stmt::IfLet",
+            Stmt::IfLet {
+                pattern: Pattern::Wildcard(here()),
+                value: int(0, here()),
+                then_block: empty_block(here()),
+                else_block: None,
+                span: here(),
+            },
+            &["IfLet", "pattern", "value", "then_block", "else_block", "span"],
+            &["WhileLet", "ForRange", "Switch", "Defer"],
+        ),
+        case(
+            "Stmt::WhileLet",
+            Stmt::WhileLet {
+                pattern: Pattern::Wildcard(here()),
+                value: int(0, here()),
+                body: empty_block(here()),
+                span: here(),
+            },
+            &["WhileLet", "pattern", "value", "body", "span"],
+            &["IfLet", "ForRange", "Switch", "Defer"],
         ),
         case(
             "Stmt::ForRange",
