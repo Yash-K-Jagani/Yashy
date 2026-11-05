@@ -220,11 +220,11 @@ See the master index. The ones that bite here:
 - Produces: `E0101` when `==` or `!=` appears anywhere in a chain (`a == b == c`), with the fix "write the two comparisons separately with `&&`". A single `a == b` is not a chain and stays legal.
 - Produces: operands must all have the same type and it must be `i64`, `f64` or `char`; anything else is the existing `E0100`.
 
-- [ ] **Step 1: Write the failing tests** — `0 <= x < 10` is true only in range; `f()` in the middle is called exactly once (asserted with a counter); `a < b > c` parses as `a < b && b > c`; `a == b == c` is `E0101`; `1 < "x"` is `E0100`; the formatter prints the chain unparenthesised and round-trips; the HIR-equality test compares the sugar to the written nested `switch`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `parse_cmp` collects consecutive comparison operands (a comparison operator followed by another comparison operator continues the chain rather than nesting); `parse_eq` folds into the same collector so `==` is seen in the chain. The checker binds each operand through a `SwitchExpr` arm, then builds `HirExpr::Binary { op: And, .. }` over adjacent comparisons. Because HIR already short-circuits `&&`, the chain inherits it for free and a chain inside a false short-circuit is never evaluated.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: chained comparisons with one evaluation of each operand (E0101)"`
+- [x] **Step 1: Write the failing tests** — `0 <= x < 10` is true only in range; `f()` in the middle is called exactly once (asserted with a counter); `a < b > c` parses as `a < b && b > c`; `a == b == c` is `E0101`; `1 < "x"` is `E0100`; the formatter prints the chain unparenthesised and round-trips; the HIR-equality test compares the sugar to the written nested `switch` (Task 11). Parser tests in `crates/yashy-parser/tests/chained.rs` (3), sema tests in `crates/yashy-sema/tests/chained.rs` (4), fmt round-trip, `chained_cmp.ya` + e2e (counter object proves one evaluation; boundaries pinned).
+- [x] **Step 2: Watch them fail.** The parser tests failed to compile against the missing `CompareChain` node; the e2e initially failed in the verifier (`E0600` on a non-default binding arm), which the lowering fixed with `is_default: true`.
+- [x] **Step 3: Implement** — `parse_cmp` collects consecutive comparison operands (a comparison operator followed by another comparison operator continues the chain rather than nesting); `parse_eq` folds into the same collector so `==` is seen in the chain. The checker binds each operand through a `SwitchExpr` arm, then builds `HirExpr::Binary { op: And, .. }` over adjacent comparisons. Because HIR already short-circuits `&&`, the chain inherits it for free and a chain inside a false short-circuit is never evaluated.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS (e2e via padded launcher: the host blocks the fresh test binary).
+- [x] **Step 5: Commit** — `git commit -m "feat: chained comparisons with one evaluation of each operand (E0101)"`. Landed as `a859606`.
 
 ---
 
