@@ -243,11 +243,11 @@ See the master index. The ones that bite here:
 - Produces: the element read is the existing bounds-checked getter; the verifier proves `i < len` from the range, so phase 4's bounds elision removes the check — the two phases meet here, and a test asserts the check is gone from the IR.
 - Produces: `E0100` for an iterable that is not an array or a view, with the note "indexed iteration over an iterator arrives with the iterator protocol".
 
-- [ ] **Step 1: Write the failing tests** — indices and values match for a non-empty slice, an empty slice, and a view; a `push` inside the body does not extend the loop (length read once) and the tutorial says so; `for i, x in "abc"` is `E0100`; the IR for a `for i, x` over a slice contains no bounds-check call; the formatter round-trips.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the parser accepts `for name, name in` by looking for the comma after the first name; the checker lowers in one function next to `ForIn`, so both loops share the "iterable must be a binding" rule. The element read reuses `slices.rs`'s getter rather than adding a second way to read an element.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: for i, x over arrays and views"`
+- [x] **Step 1: Write the failing tests** — indices and values match for a non-empty slice, an empty slice, and a view; a `push` inside the body does not extend the loop (length read once) and the tutorial says so (Task 11); `for i, x in "abc"` is `E0100`; the IR for a `for i, x` over a slice contains no bounds-check call; the formatter round-trips. Sema tests in `crates/yashy-sema/tests/indexed_for.rs` (4), codegen IR test in `slices.rs`, fmt round-trip, `indexed_for.ya` + e2e (157/157).
+- [x] **Step 2: Watch them fail.** The sema tests failed against the old parser (no `for i, x` form) and the IR test failed until the range proof and direct-read codegen landed.
+- [x] **Step 3: Implement** — the parser accepts `for name, name in` by looking for the comma after the first name; the checker lowers in one function next to `ForIn`, so both loops share the "iterable must be a binding" rule. The element read reuses `slices.rs`'s getter rather than adding a second way to read an element.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: for i, x over arrays and views"`. Landed as `52e8063`.
 
 ---
 
