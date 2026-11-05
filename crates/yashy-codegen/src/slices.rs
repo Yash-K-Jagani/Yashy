@@ -6,7 +6,7 @@
 //! holds the header. `push` takes the *address* of the header (the binding's
 //! alloca) because a grow must update length and capacity in place.
 
-use yashy_sema::{HirExpr, TypeKind};
+use yashy_sema::{HirExpr, Type, TypeKind};
 
 use crate::expr_gen::{gen_expr, FnCtx, GenValue};
 use crate::ir::{repr_type, size_of};
@@ -558,6 +558,33 @@ pub fn gen_index(
         size_of(&element.kind)
     ));
     option_from_flag(ctx, &flag, &out_slot, &element.kind, option_ty)
+}
+
+/// Lower a direct element read (`for i, x in xs`): the `Option` wrapper is
+/// unwrapped because the range already proved the index is in range. When
+/// not proven, the runtime getter still decides and its payload is taken.
+pub fn gen_index_direct(
+    ctx: &mut FnCtx<'_>,
+    base: &HirExpr,
+    index: &HirExpr,
+    elem_ty: &TypeKind,
+    proven: bool,
+) -> GenValue {
+    let option_ty = TypeKind::Option(Box::new(Type {
+        kind: elem_ty.clone(),
+        span: yashy_common::Span::new(0, 0),
+    }));
+    let option = gen_index(ctx, base, index, &option_ty, proven);
+    let option_repr = repr_type(&option_ty);
+    let payload = ctx.tmp();
+    ctx.push(format!(
+        "{payload} = extractvalue {option_repr} {}, 1",
+        option.value
+    ));
+    GenValue {
+        value: payload,
+        ty: elem_ty.clone(),
+    }
 }
 
 /// Lower `pop(xs) -> Option[T]`.

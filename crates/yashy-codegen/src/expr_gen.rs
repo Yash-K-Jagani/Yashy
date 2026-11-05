@@ -55,7 +55,7 @@ use std::collections::{HashMap, HashSet};
 use yashy_common::Span;
 use yashy_parser::ast::Literal;
 use yashy_sema::{
-    expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, TypeKind, UnOp,
+    expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, Type, TypeKind, UnOp,
 };
 
 use crate::escape::{AllocSite, ArenaId, Placement, Site};
@@ -995,6 +995,18 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                 // one.
                 TypeKind::Slice(_) => {
                     let proven = ctx.module.is_proven(*span);
+                    if !matches!(ty.kind, TypeKind::Option(_)) {
+                        // A direct element read (`for i, x in xs`): the index
+                        // is in range by construction, so the payload is the
+                        // answer.
+                        return crate::slices::gen_index_direct(
+                            ctx,
+                            base,
+                            index,
+                            &ty.kind,
+                            proven,
+                        );
+                    }
                     if !proven {
                         ctx.module.note(
                             OptKind::Bounds,
@@ -1019,6 +1031,23 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                             "a fixed-array or view index is checked against its length",
                             None,
                         );
+                    }
+                    if !matches!(ty.kind, TypeKind::Option(_)) {
+                        let option_ty = TypeKind::Option(Box::new(Type {
+                            kind: ty.kind.clone(),
+                            span: yashy_common::Span::new(0, 0),
+                        }));
+                        let option = crate::fixed::gen_index(ctx, base, index, &option_ty);
+                        let option_repr = crate::ir::repr_type(&option_ty);
+                        let payload = ctx.tmp();
+                        ctx.push(format!(
+                            "{payload} = extractvalue {option_repr} {}, 1",
+                            option.value
+                        ));
+                        return GenValue {
+                            value: payload,
+                            ty: ty.kind.clone(),
+                        };
                     }
                     return crate::fixed::gen_index(ctx, base, index, &ty.kind);
                 }

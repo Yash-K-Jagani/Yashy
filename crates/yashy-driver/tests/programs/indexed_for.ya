@@ -1,0 +1,56 @@
+// `for i, x in xs`: the index and the value, in order. The length is read
+// once at loop entry — unlike `for x in xs`, a `push` inside the body does
+// not extend the loop. Every printed line is a claim: indices match values,
+// the empty slice prints nothing, a view reads its window, and the push
+// stops at the length the loop started with.
+
+fn show(Option[int] o) -> int {
+    if let Some(v) = o {
+        return v;
+    }
+    return 0 - 1;
+}
+
+fn show_view() {
+    const grid = [10, 20, 30];
+    const window = grid[0..2];
+    for i, x in window {
+        print(i);
+        print(":");
+        print(x);
+        print(" ");
+    }
+    println("");
+}
+
+fn main() {
+    let xs = []int { 7, 8, 9 };
+    for i, x in xs {
+        print(i);
+        print(":");
+        print(x);
+        print(" ");
+    }
+    println("");
+    xs.free();
+
+    let empty = []int {};
+    for i, x in empty {
+        print(i);
+        print(x);
+    }
+    println("empty");
+    empty.free();
+
+    show_view();
+
+    let zs = []int { 1, 2, 3 };
+    for i, x in zs {
+        print(x);
+        zs.push(99);
+    }
+    println("");
+    print(zs.len());
+    println("");
+    zs.free();
+}

@@ -3785,6 +3785,7 @@ impl<'src> Checker<'src> {
             }
             Stmt::ForIn {
                 name,
+                index,
                 iterable,
                 body,
                 span,
@@ -3805,12 +3806,22 @@ impl<'src> Checker<'src> {
                     | TypeKind::FixedArray(element, _)
                     | TypeKind::View(element) => (**element).clone(),
                     _ => {
-                        self.error(
-                            *span,
-                            format!(
-                                "`for` over a value must iterate an array, found `{iterable_ty}`"
-                            ),
-                        );
+                        if index.is_some() {
+                            self.error_code(
+                                *span,
+                                codes::TYPE_MISMATCH,
+                                format!(
+                                    "`for` over a value must iterate an array, found `{iterable_ty}`"
+                                ),
+                            );
+                        } else {
+                            self.error(
+                                *span,
+                                format!(
+                                    "`for` over a value must iterate an array, found `{iterable_ty}`"
+                                ),
+                            );
+                        }
                         return None;
                     }
                 };
@@ -3824,6 +3835,88 @@ impl<'src> Checker<'src> {
                 if !slice_element_is_operable(&element.kind) {
                     self.error(*span, unsupported_element_message(&element));
                     return None;
+                }
+                // `for i, x in xs` lowers to a range loop over `xs.len()`
+                // whose body first reads element `i` into `x`.
+                if let Some(index) = index {
+                    self.scope.push();
+                    let _ = self.scope.declare(
+                        index.clone(),
+                        Binding {
+                            ty: prim(TypeKind::I64),
+                            mutability: Mutability::Const,
+                            span: *span,
+                            ownership: Ownership::Live,
+                        },
+                    );
+                    let _ = self.scope.declare(
+                        name.clone(),
+                        Binding {
+                            ty: element.clone(),
+                            mutability: Mutability::Const,
+                            span: *span,
+                            ownership: Ownership::Live,
+                        },
+                    );
+                    self.iteration_borrows.push(binding);
+                    let body = self.check_block_with_ret(body, ret);
+                    self.iteration_borrows.pop();
+                    self.scope.pop();
+                    let body = body?;
+                    let read = HirStmt::Const {
+                        name: name.clone(),
+                        ty: Some(element.clone()),
+                        init: HirExpr::Index {
+                            base: Box::new(iterable_expr.clone()),
+                            index: Box::new(HirExpr::Ident(
+                                vec![index.clone()],
+                                *span,
+                                prim(TypeKind::I64),
+                            )),
+                            span: *span,
+                            ty: element.clone(),
+                        },
+                        mutability: Mutability::Const,
+                        span: *span,
+                    };
+                    let mut stmts = vec![read];
+                    stmts.extend(body.stmts);
+                    return Some(HirStmt::ForRange {
+                        name: index.clone(),
+                        start: HirExpr::Literal(
+                            yashy_hir::hir::Literal::I64(0),
+                            *span,
+                            prim(TypeKind::I64),
+                        ),
+                        end: match &iterable_ty.kind {
+                            TypeKind::FixedArray(_, length) => HirExpr::Literal(
+                                yashy_hir::hir::Literal::I64(
+                                    i64::try_from(*length).unwrap_or(i64::MAX),
+                                ),
+                                *span,
+                                prim(TypeKind::I64),
+                            ),
+                            TypeKind::View(_) => HirExpr::Call {
+                                callee: vec!["view_len".to_string()],
+                                args: vec![iterable_expr.clone()],
+                                unsafe_call: false,
+                                span: *span,
+                                ty: prim(TypeKind::I64),
+                            },
+                            _ => HirExpr::Call {
+                                callee: vec!["len".to_string()],
+                                args: vec![iterable_expr.clone()],
+                                unsafe_call: false,
+                                span: *span,
+                                ty: prim(TypeKind::I64),
+                            },
+                        },
+                        body: HirBlock {
+                            stmts,
+                            span: body.span,
+                        },
+                        span: *span,
+                    });
                 }
                 self.scope.push();
                 let _ = self.scope.declare(

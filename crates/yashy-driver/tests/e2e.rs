@@ -3487,6 +3487,19 @@ fn a_deferred_body_runs_at_its_own_scope_exit() {
 }
 
 #[test]
+fn indexed_loops_print_indices_and_values() {
+    // Indices and values match on a slice, an empty slice prints nothing, a
+    // view reads its window, and the push inside the last body does not
+    // extend the loop (the length was read once) but still lands, so the
+    // final length is six.
+    let output = build_and_run("indexed_for");
+    assert_eq!(
+        stdout_of(&output),
+        "0:7 1:8 2:9 \nempty\n0:10 1:20 \n123\n6\n"
+    );
+}
+
+#[test]
 fn slice_operations_answer_in_options_and_iterate_in_order() {
     // `slices_ops.ya` prints, in order: the length, the first and last
     // elements, `None` for both ends of the range, the sum of every element, the

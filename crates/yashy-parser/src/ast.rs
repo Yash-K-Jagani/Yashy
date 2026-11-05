@@ -640,6 +640,8 @@ pub enum Stmt {
     /// rejects moving the slice while the loop can still read it.
     ForIn {
         name: String,
+        /// When `for i, x in xs` is written, the index binding.
+        index: Option<String>,
         iterable: Expr,
         body: Block,
         span: Span,

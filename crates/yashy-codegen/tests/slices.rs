@@ -141,6 +141,21 @@ fn indexing_calls_the_runtime_and_builds_an_option() {
 }
 
 #[test]
+fn an_indexed_loop_reads_elements_without_the_runtime_check() {
+    let ir = emit_with_facts(
+        "fn main() { let xs = []int { 7, 8 }; for i, x in xs { x; } xs.free(); }",
+    );
+    assert!(
+        !ir.contains("call i64 @yashy_slice_get"),
+        "the range proves the index in bounds, so the check is gone:\n{ir}"
+    );
+    assert!(
+        ir.contains("getelementptr i64, ptr") && ir.contains("load i64, ptr"),
+        "the loop loads each element from the backing array:\n{ir}"
+    );
+}
+
+#[test]
 fn a_proven_index_loads_the_element_inline_without_the_runtime_check() {
     let ir = emit_with_facts(
         "fn main() { let xs = []int { 7 }; \

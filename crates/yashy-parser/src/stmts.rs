@@ -340,6 +340,27 @@ impl<'src> Parser<'src> {
         // Range form: for <ident> in <expr> .. <expr> { }
         // Slice form: for <ident> in <expr> { } -- the head is the same up to
         // the token after the first expression.
+        // Indexed form: for <ident>, <ident> in <expr> { }
+        let indexed = self.check(TokenKind::Ident)
+            && self.peek_second() == TokenKind::Comma
+            && self.peek_third() == TokenKind::Ident
+            && self.peek_nth(3) == TokenKind::In;
+        if indexed {
+            let (index, _) = self.identifier()?;
+            self.expect(TokenKind::Comma)?;
+            let (name, _) = self.identifier()?;
+            self.expect(TokenKind::In)?;
+            let iterable = self.without_block_arg(|p| p.parse_expr())?;
+            let body = self.parse_loop_body()?;
+            let body_span = body.span;
+            return Ok(Stmt::ForIn {
+                name,
+                index: Some(index),
+                iterable,
+                body,
+                span: cover(kw.span, body_span),
+            });
+        }
         if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::In {
             let (name, _) = self.identifier()?;
             self.expect(TokenKind::In)?;
@@ -349,6 +370,7 @@ impl<'src> Parser<'src> {
                 let body_span = body.span;
                 return Ok(Stmt::ForIn {
                     name,
+                    index: None,
                     iterable: first,
                     body,
                     span: cover(kw.span, body_span),
