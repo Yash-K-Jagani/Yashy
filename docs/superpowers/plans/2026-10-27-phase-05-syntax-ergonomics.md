@@ -272,7 +272,7 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Watch them fail.** The sema tests failed to compile against the missing `FieldDef.default` / `StructSig.defaults` shapes, then failed on semantics until the default leg landed.
 - [x] **Step 3: Implement** — Task 4 created `fill_struct_fields`; this task adds its default leg, so precedence has exactly one implementation. The default expression is checked against the field type when the struct is declared; the literal insertion clones the *checked* HIR expression, so a default cannot be type-checked differently at two call sites.
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [x] **Step 5: Commit** — `git commit -m "feat: default struct field values (E0102)"`
+- [x] **Step 5: Commit** — `git commit -m "feat: default struct field values (E0102)"`. Landed as `2cf2fb2`.
 
 ---
 
