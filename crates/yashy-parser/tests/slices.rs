@@ -56,7 +56,7 @@ fn a_slice_literal_names_its_element_type_and_keeps_source_order() {
             elem, elements, ..
         } => {
             assert!(
-                matches!(&*elem, TypeExpr::Name(name, _) if name == "int"),
+                matches!(elem.as_deref(), Some(TypeExpr::Name(name, _)) if name == "int"),
                 "the literal names its element type: {elem:?}"
             );
             assert_eq!(elements.len(), 3, "all three elements are kept");
@@ -73,7 +73,7 @@ fn an_empty_slice_literal_is_still_typed() {
             elem, elements, ..
         } => {
             assert!(
-                matches!(&*elem, TypeExpr::Name(name, _) if name == "string"),
+                matches!(elem.as_deref(), Some(TypeExpr::Name(name, _)) if name == "string"),
                 "the empty literal names its element type: {elem:?}"
             );
             assert!(elements.is_empty());

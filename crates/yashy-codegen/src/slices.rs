@@ -45,6 +45,159 @@ pub fn gen_literal(
     let elem_size = size_of(elem_ty);
     let count = elements.len();
     let is_string = matches!(elem_ty, TypeKind::Str);
+    let is_spread = |element: &HirExpr| {
+        matches!(element, HirExpr::Call { callee, .. } if callee.as_slice() == ["__spread"])
+    };
+    let has_spread = elements.iter().any(is_spread);
+    if !has_spread {
+        return gen_plain_literal(ctx, elem_ty, elements, slice_ty);
+    }
+
+    // Spread form: the total length is a runtime value, so allocation,
+    // element stores and the header all work through a position slot.
+    let mut spread_sources: Vec<Option<(String, String)>> = Vec::with_capacity(count);
+    let static_count = elements.iter().filter(|element| !is_spread(element)).count();
+    let mut total = format!("{static_count}");
+    for element in elements {
+        if is_spread(element) {
+            let HirExpr::Call { args, .. } = element else {
+                unreachable!("spread marker checked above")
+            };
+            let source = gen_expr(ctx, &args[0]);
+            let data = ctx.tmp();
+            ctx.push(format!(
+                "{data} = extractvalue {SLICE_REPR} {}, 0",
+                source.value
+            ));
+            let len = ctx.tmp();
+            ctx.push(format!(
+                "{len} = extractvalue {SLICE_REPR} {}, 1",
+                source.value
+            ));
+            let next_total = ctx.tmp();
+            ctx.push(format!("{next_total} = add i64 {total}, {len}"));
+            total = next_total;
+            spread_sources.push(Some((data, len)));
+        } else {
+            spread_sources.push(None);
+        }
+    }
+
+    let data = if elem_size == 0 {
+        "null".to_string()
+    } else {
+        let bytes = ctx.tmp();
+        ctx.push(format!("{bytes} = mul i64 {total}, {elem_size}"));
+        let data = ctx.tmp();
+        ctx.push(format!(
+            "{data} = call i8* @yashy_alloc(i64 {bytes}, i64 {SLICE_ALIGN})"
+        ));
+        data
+    };
+
+    let pos_slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{pos_slot} = alloca i64"));
+    ctx.push(format!("store i64 0, ptr {pos_slot}"));
+
+    for (index, element) in elements.iter().enumerate() {
+        if let Some((source_data, source_len)) = &spread_sources[index] {
+            let idx_slot = ctx.alloc_slot();
+            ctx.push_alloca(format!("{idx_slot} = alloca i64"));
+            ctx.push(format!("store i64 0, ptr {idx_slot}"));
+            let base = ctx.alloc_label_base();
+            let cond = format!("{base}_cond");
+            let body = format!("{base}_body");
+            let done = format!("{base}_done");
+            ctx.push(format!("br label %{cond}"));
+            ctx.push(format!("{cond}:"));
+            let current = ctx.tmp();
+            ctx.push(format!("{current} = load i64, ptr {idx_slot}"));
+            let in_range = ctx.tmp();
+            ctx.push(format!("{in_range} = icmp slt i64 {current}, {source_len}"));
+            ctx.push(format!("br i1 {in_range}, label %{body}, label %{done}"));
+            ctx.push(format!("{body}:"));
+            let element_ptr = ctx.tmp();
+            ctx.push(format!(
+                "{element_ptr} = getelementptr {elem_repr}, ptr {source_data}, i64 {current}"
+            ));
+            let element_value = ctx.tmp();
+            ctx.push(format!(
+                "{element_value} = load {elem_repr}, ptr {element_ptr}"
+            ));
+            let pos = ctx.tmp();
+            ctx.push(format!("{pos} = load i64, ptr {pos_slot}"));
+            let address = ctx.tmp();
+            ctx.push(format!(
+                "{address} = getelementptr {elem_repr}, ptr {data}, i64 {pos}"
+            ));
+            ctx.push(format!(
+                "store {elem_repr} {element_value}, ptr {address}"
+            ));
+            let next_pos = ctx.tmp();
+            ctx.push(format!("{next_pos} = add i64 {pos}, 1"));
+            ctx.push(format!("store i64 {next_pos}, ptr {pos_slot}"));
+            let next_idx = ctx.tmp();
+            ctx.push(format!("{next_idx} = add i64 {current}, 1"));
+            ctx.push(format!("store i64 {next_idx}, ptr {idx_slot}"));
+            ctx.push(format!("br label %{cond}"));
+            ctx.push(format!("{done}:"));
+        } else {
+            let mut value = gen_expr(ctx, element);
+            if is_string {
+                if ctx.is_owned(&value.value) {
+                    ctx.forget_owned(&value.value);
+                } else if !value.value.is_empty() {
+                    let retained = ctx.tmp();
+                    ctx.push_str_retain_into(&retained, &value.value);
+                    value.value = retained;
+                }
+            }
+            let pos = ctx.tmp();
+            ctx.push(format!("{pos} = load i64, ptr {pos_slot}"));
+            let address = ctx.tmp();
+            ctx.push(format!(
+                "{address} = getelementptr {elem_repr}, ptr {data}, i64 {pos}"
+            ));
+            ctx.push(format!(
+                "store {elem_repr} {}, ptr {address}",
+                value.value
+            ));
+            let next_pos = ctx.tmp();
+            ctx.push(format!("{next_pos} = add i64 {pos}, 1"));
+            ctx.push(format!("store i64 {next_pos}, ptr {pos_slot}"));
+        }
+    }
+
+    let aggregate = ctx.tmp();
+    ctx.push(format!(
+        "{aggregate} = insertvalue {SLICE_REPR} undef, i8* {data}, 0"
+    ));
+    let with_len = ctx.tmp();
+    ctx.push(format!(
+        "{with_len} = insertvalue {SLICE_REPR} {aggregate}, i64 {total}, 1"
+    ));
+    let with_cap = ctx.tmp();
+    ctx.push(format!(
+        "{with_cap} = insertvalue {SLICE_REPR} {with_len}, i64 {total}, 2"
+    ));
+
+    GenValue {
+        value: with_cap,
+        ty: slice_ty.clone(),
+    }
+}
+
+/// Lower a slice literal with no spread: the old straight-line builder.
+fn gen_plain_literal(
+    ctx: &mut FnCtx<'_>,
+    elem_ty: &TypeKind,
+    elements: &[HirExpr],
+    slice_ty: &TypeKind,
+) -> GenValue {
+    let elem_repr = repr_type(elem_ty);
+    let elem_size = size_of(elem_ty);
+    let count = elements.len();
+    let is_string = matches!(elem_ty, TypeKind::Str);
 
     let data = if count == 0 || elem_size == 0 {
         "null".to_string()

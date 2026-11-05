@@ -2,7 +2,8 @@ use yashy_common::Span;
 use yashy_lexer::{Lexer, StringPiece, Token, TokenKind};
 
 use crate::ast::{
-    BinOp, Expr, InterpFormat, InterpPart, LambdaParam, Literal, StringLit, TypeExpr, UnOp,
+    BinOp, Expr, InterpFormat, InterpPart, LambdaParam, Literal, SliceElement, StringLit,
+    TypeExpr, UnOp,
 };
 use crate::error::ParseError;
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
@@ -421,7 +422,7 @@ impl<'src> Parser<'src> {
                     let _ = self.push_open(TokenKind::LBrace, brace.span)?;
                     let mut elements = Vec::new();
                     while !self.check(TokenKind::RBrace) && !self.at_eof() {
-                        elements.push(self.parse_expr()?);
+                        elements.push(self.parse_slice_element()?);
                         if !self.eat(TokenKind::Comma) {
                             break;
                         }
@@ -429,22 +430,43 @@ impl<'src> Parser<'src> {
                     let close = self.expect(TokenKind::RBrace)?;
                     self.close_open(TokenKind::RBrace);
                     return Ok(Expr::SliceLit {
-                        elem: Box::new(elem),
+                        elem: Some(Box::new(elem)),
                         elements,
                         span: cover(open.span, close.span),
                     });
                 }
                 let mut elements = Vec::new();
+                let mut has_spread = false;
                 while !self.check(TokenKind::RBracket) && !self.at_eof() {
-                    elements.push(self.parse_expr()?);
+                    let element = self.parse_slice_element()?;
+                    if matches!(element, SliceElement::Spread(_)) {
+                        has_spread = true;
+                    }
+                    elements.push(element);
                     if !self.eat(TokenKind::Comma) {
                         break;
                     }
                 }
                 let close = self.expect(TokenKind::RBracket)?;
                 self.close_open(TokenKind::RBracket);
+                if has_spread {
+                    // A spread makes the length a runtime fact, so the literal
+                    // is a slice whose element type is inferred.
+                    return Ok(Expr::SliceLit {
+                        elem: None,
+                        elements,
+                        span: cover(open.span, close.span),
+                    });
+                }
+                let mut values = Vec::new();
+                for element in elements {
+                    match element {
+                        SliceElement::Value(value) => values.push(value),
+                        SliceElement::Spread(_) => unreachable!("no spread in a fixed array"),
+                    }
+                }
                 Ok(Expr::FixedArrayLit {
-                    elements,
+                    elements: values,
                     span: cover(open.span, close.span),
                 })
             }
@@ -519,13 +541,25 @@ impl<'src> Parser<'src> {
                 // of the enclosing function: the same bug for `if flag { }` and
                 // `for i in 0..n { }`, and for an empty `switch` arm body.
                 let looks_like_struct_lit = self.check(TokenKind::LBrace)
-                    && self.peek_second() == TokenKind::Ident
-                    && self.peek_third() == TokenKind::Colon;
+                    && ((self.peek_second() == TokenKind::Ident
+                        && self.peek_third() == TokenKind::Colon)
+                        || self.peek_second() == TokenKind::DotDot);
                 if looks_like_struct_lit {
                     let open = self.expect(TokenKind::LBrace)?;
                     let _ = self.push_open(TokenKind::LBrace, open.span)?;
                     let mut fields = Vec::new();
+                    let mut spread = None;
                     while !self.check(TokenKind::RBrace) && !self.at_eof() {
+                        if self.eat(TokenKind::DotDot) {
+                            spread = Some(Box::new(self.parse_expr()?));
+                            if self.check(TokenKind::Comma) {
+                                return Err(self.error(
+                                    self.peek_span(),
+                                    "the spread is written last".to_string(),
+                                ));
+                            }
+                            break;
+                        }
                         let (fname, fspan) = self.identifier()?;
                         self.expect(TokenKind::Colon)?;
                         let val = self.parse_expr()?;
@@ -535,7 +569,7 @@ impl<'src> Parser<'src> {
                     let close = self.expect(TokenKind::RBrace)?;
                     self.close_open(TokenKind::RBrace);
                     let span = cover(first_span, close.span);
-                    return Ok(Expr::StructLit { path, fields, span });
+                    return Ok(Expr::StructLit { path, fields, spread, span });
                 }
                 // `f { |x| ... }` / `xs.map { |x| ... }` with no parentheses:
                 // the block is the only argument. The head flag keeps
@@ -582,6 +616,14 @@ impl<'src> Parser<'src> {
                 Ok(Expr::Call { callee, args, unsafe_call: true, span })
             }
             _ => Err(self.error(self.peek_span(), "expected an expression".to_string())),
+        }
+    }
+
+    fn parse_slice_element(&mut self) -> Result<SliceElement, ParseError> {
+        if self.eat(TokenKind::DotDot) {
+            Ok(SliceElement::Spread(Box::new(self.parse_expr()?)))
+        } else {
+            Ok(SliceElement::Value(self.parse_expr()?))
         }
     }
 

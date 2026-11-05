@@ -190,11 +190,11 @@ See the master index. The ones that bite here:
 - Produces: `E0202` when a field is given twice (`P { x: 1, x: 2 }`), naming both spans.
 - Produces: `E1002` when the spread operand is used after the literal, and when a linear field would be copied rather than moved. Version 1 treats the operand as moved as a whole; `scope.rs` records a `MoveReason::Spread` so the later-use diagnostic is `E1002` rather than the generic `E0500`.
 
-- [ ] **Step 1: Write the failing tests** — struct spread fills the unlisted fields; an explicit field overrides the spread; a field given twice is `E0202`; using `base` after `P { ..base }` is `E1002`; a spread of the wrong type is `E0100`; `[0, ..xs, 4]` produces the concatenation in order; `[..xs]` alone is legal; spreading a slice of a linear type moves it (`E1002` if used after); the formatter round-trips `..`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the checker builds the field list through `fill_struct_fields` and lowers to the same `HirExpr::StructLit` it already produces. Array spread lowers to a sequence of element stores into a freshly allocated slice; the length is known at check time for fixed arrays and computed once for slices, so there is no growth loop. The move rule is in `scope.rs` beside the existing `move_out`, because that is the one place a binding becomes moved.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: struct and array spread, with partial-move rules (E0202, E1002)"`
+- [x] **Step 1: Write the failing tests** — struct spread fills the unlisted fields; an explicit field overrides the spread; a field given twice is `E0202`; using `base` after `P { ..base }` is `E1002`; a spread of the wrong type is `E0100`; `[0, ..xs, 4]` produces the concatenation in order; `[..xs]` alone is legal; spreading a slice of a linear type moves it (`E1002` if used after); the formatter round-trips `..`. Parser tests in `crates/yashy-parser/tests/spread.rs` (5), sema tests in `crates/yashy-sema/tests/spread.rs` (8), fmt round-trip, and `spread.ya` + e2e.
+- [x] **Step 2: Watch them fail.** The parser tests failed to compile against the old AST (`spread` field, `SliceElement`); the sema tests failed until the checker arms landed.
+- [x] **Step 3: Implement** — `StructLit.spread: Option<Box<Expr>>` (must be last, else "the spread is written last"); `SliceLit { elem: Option, elements: Vec<SliceElement> }`, with `[0, ..xs, 4]` (no written element type) parsing as a slice whose element type is inferred. `fill_struct_fields` builds declaration-order fields (explicit, then spread); the spread operand is moved as a whole via `Scope::move_out_spread`, whose later-use diagnostic is `E1002` (`scope.rs` keeps a `spread_moved` set beside `move_out`). Array spread lowers to a `__spread` marker call inside `HirExpr::SliceLit`, which `slices::gen_literal` copies element-by-element into a runtime-sized allocation. `E0202` on a duplicated field; `E0100` on a wrong-type spread.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: struct and array spread, with partial-move rules (E0202, E1002)"`
 
 ---
 

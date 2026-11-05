@@ -227,6 +227,17 @@ fn a_trailing_block_argument_formats_as_a_block() {
 }
 
 #[test]
+fn a_spread_round_trips() {
+    let source = "fn main() {\n    const p = Point { x: 1, ..base };\n    const xs = []int { 0, ..rest, 4 };\n}\n";
+    let formatted = format(source);
+    assert_eq!(
+        formatted,
+        "fn main() {\n    const p = Point {\n        x: 1, ..base\n    };\n    const xs = []int {\n        0, ..rest, 4\n    };\n}\n"
+    );
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+}
+
+#[test]
 fn a_trailing_comma_keeps_its_closer_attached() {
     // `(5,)` is the one-element tuple and `[1,]` is an array with a trailing
     // separator; in both cases the comma is followed by the closer rather

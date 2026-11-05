@@ -46,6 +46,8 @@ pub const TYPE_AFTER_NAME: &str = "E0109";
 pub const UNKNOWN_FIELD: &str = "E0200";
 /// A struct literal or pattern leaves a field out.
 pub const MISSING_FIELD: &str = "E0201";
+/// A struct literal writes one field twice.
+pub const DUPLICATE_FIELD: &str = "E0202";
 /// A `Result` is used where its success value is expected.
 pub const MISSING_QUESTION: &str = "E0300";
 /// `?` propagates a failure kind the enclosing function cannot return.
@@ -70,6 +72,8 @@ pub const MALFORMED_EXTERN: &str = "E0901";
 pub const VARIADIC_MISPLACED: &str = "E0902";
 /// A linear value is never released.
 pub const LEAK: &str = "E1000";
+/// A value spread into a literal is used again afterwards.
+pub const PARTIAL_MOVE: &str = "E1002";
 /// A contract clause is not proved.
 pub const CONTRACT: &str = "E1100";
 /// Checked integer arithmetic is provably out of range.
@@ -168,6 +172,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E0201.md"),
     },
     Code {
+        id: DUPLICATE_FIELD,
+        title: "duplicate field",
+        summary: "A struct literal writes one field twice.",
+        page: include_str!("../../../docs/errors/E0202.md"),
+    },
+    Code {
         id: MISSING_QUESTION,
         title: "missing `?`",
         summary: "A `Result` is used where its success value is expected.",
@@ -232,6 +242,12 @@ pub const CODES: &[Code] = &[
         title: "leaked linear value",
         summary: "A linear value is never released.",
         page: include_str!("../../../docs/errors/E1000.md"),
+    },
+    Code {
+        id: PARTIAL_MOVE,
+        title: "spread operand used after the literal",
+        summary: "A value spread into a struct or array literal has been moved as a whole and cannot be used again.",
+        page: include_str!("../../../docs/errors/E1002.md"),
     },
     Code {
         id: CONTRACT,

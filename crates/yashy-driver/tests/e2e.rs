@@ -1782,6 +1782,15 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
+fn spread_fills_fields_and_concatenates_arrays() {
+    // `p` takes `y` from `base` and keeps its own `x`; `q` copies `origin`
+    // whole. The slice prints its length, then prefix, spread and suffix in
+    // order, and the spread-alone slice reads back its second element.
+    let output = build_and_run("spread");
+    assert_eq!(stdout_of(&output), "9\n2\n0\n0\n4\n0\n7\n8\n4\n2\n8\n");
+}
+
+#[test]
 fn a_struct_field_can_be_written_and_the_other_fields_survive() {
     // A struct value is an aggregate, not an address, so each write rebuilds the
     // whole value: `p.x = 10` must leave `p.y`, and `line.from.x = 100` must

@@ -28,8 +28,8 @@ use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, Contract, Expr, ExternDecl, InterpFormat, InterpPart, Item,
-    LambdaParam, Literal, Param, Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr,
-    VariantDef, VariantField,
+    LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit, SwitchArm,
+    TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
@@ -1232,6 +1232,17 @@ impl<'src> Checker<'src> {
             ));
         }
         self.scope.move_out(name, span)
+    }
+
+    /// Spread-move `name`: like [`Self::move_out`], but a later use is `E1002`.
+    fn move_out_spread(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
+        if self.iteration_borrows.iter().any(|borrowed| borrowed == name) {
+            return Err(TypeError::new(
+                span,
+                format!("cannot move `{name}` while it is being iterated"),
+            ));
+        }
+        self.scope.move_out_spread(name, span)
     }
 
     /// A linear value may leave its binding only through `move`. Handing a live
@@ -5796,6 +5807,51 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// Build a struct literal's fields in declaration order.
+    ///
+    /// Precedence has exactly one implementation: an explicit field wins,
+    /// then the spread, then (Task 7) a default, then `E0201`. A field
+    /// written twice is `E0202`.
+    fn fill_struct_fields(
+        &mut self,
+        name: &str,
+        sig: &StructSig,
+        written: &[(String, HirExpr, Span)],
+        spread: Option<&HirExpr>,
+        span: Span,
+    ) -> Vec<(String, HirExpr, Span)> {
+        let mut seen: Vec<&str> = Vec::new();
+        for (fname, _, fspan) in written {
+            if seen.contains(&fname.as_str()) {
+                self.error_code(
+                    *fspan,
+                    codes::DUPLICATE_FIELD,
+                    format!("duplicate field `{fname}` in struct `{name}`"),
+                );
+            }
+            seen.push(fname.as_str());
+        }
+        let mut hir_fields = Vec::new();
+        for (index, (fname, fty)) in sig.fields.iter().enumerate() {
+            if let Some((_, value, value_span)) = written.iter().find(|(n, _, _)| n == fname) {
+                hir_fields.push((fname.clone(), value.clone(), *value_span));
+            } else if let Some(spread) = spread {
+                hir_fields.push((
+                    fname.clone(),
+                    HirExpr::FieldAccess {
+                        base: Box::new(spread.clone()),
+                        field: fname.clone(),
+                        index,
+                        span: expr_span(spread),
+                        ty: fty.clone(),
+                    },
+                    span,
+                ));
+            }
+        }
+        hir_fields
+    }
+
     /// Check a lambda, against an expected signature when one is known.
     ///
     /// A parameter that wrote its type is resolved as written and must agree
@@ -7756,9 +7812,21 @@ impl<'src> Checker<'src> {
                     }
                 }
             }
-            Expr::StructLit { path, fields, span } => {
+            Expr::StructLit {
+                path,
+                fields,
+                spread,
+                span,
+            } => {
                 // `Shape.Rect { w, h }` constructs a variant with named fields.
                 if path.len() >= 2 {
+                    if spread.is_some() {
+                        self.mismatch_message(
+                            *span,
+                            "a spread is only allowed in a struct literal".to_string(),
+                        );
+                        return None;
+                    }
                     if let Some(constructed) = self.check_enum_struct_lit(path, fields, *span) {
                         return constructed;
                     }
@@ -7775,15 +7843,43 @@ impl<'src> Checker<'src> {
                         // or not its field name belongs to the struct; the
                         // diagnostics below need the written order to report what
                         // is missing and what is unknown.
-                        let mut written: Vec<(String, HirExpr)> = Vec::new();
-                        for (fname, value, _) in fields {
+                        let mut written: Vec<(String, HirExpr, Span)> = Vec::new();
+                        for (fname, value, fspan) in fields {
                             let value = self.check_expr(value)?;
-                            written.push((fname.clone(), value));
+                            written.push((fname.clone(), value, *fspan));
                         }
+                        let spread_checked = match spread {
+                            Some(operand) => {
+                                let checked = self.check_expr(operand)?;
+                                let expected = Type {
+                                    kind: TypeKind::Struct(name.clone()),
+                                    span: *span,
+                                };
+                                if !expr_ty(&checked).eq_ignoring_span(&expected) {
+                                    self.mismatch(
+                                        expr_span(&checked),
+                                        &expected,
+                                        &expr_ty(&checked),
+                                    );
+                                }
+                                if let Expr::Ident(spread_path, spread_span) = operand.as_ref() {
+                                    if spread_path.len() == 1 {
+                                        if let Err(error) = self.move_out_spread(
+                                            &spread_path[0],
+                                            *spread_span,
+                                        ) {
+                                            self.report(error);
+                                        }
+                                    }
+                                }
+                                Some(checked)
+                            }
+                            None => None,
+                        };
                         let provided: Vec<&str> =
-                            written.iter().map(|(n, _)| n.as_str()).collect();
+                            written.iter().map(|(n, _, _)| n.as_str()).collect();
                         for (fname, _) in &sig.fields {
-                            if !provided.contains(&fname.as_str()) {
+                            if !provided.contains(&fname.as_str()) && spread_checked.is_none() {
                                 self.error_code(
                                     *span,
                                     codes::MISSING_FIELD,
@@ -7792,7 +7888,9 @@ impl<'src> Checker<'src> {
                             }
                         }
                         for (fname, fty) in &sig.fields {
-                            if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
+                            if let Some((_, value, _)) =
+                                written.iter().find(|(n, _, _)| n == fname)
+                            {
                                 let value_ty = expr_ty(value);
                                 if !fty.eq_ignoring_span(&value_ty) {
                                     self.mismatch_message(
@@ -7802,7 +7900,7 @@ impl<'src> Checker<'src> {
                                 }
                             }
                         }
-                        for (fname, _) in &written {
+                        for (fname, _, _) in &written {
                             if !sig.fields.iter().any(|(n, _)| n == fname) {
                                 let mut error = TypeError::new(
                                     *span,
@@ -7834,16 +7932,13 @@ impl<'src> Checker<'src> {
                         // different IR layouts for the same named type, and a
                         // field's index would depend on which literal happened to
                         // be lowered first.
-                        let mut hir_fields = Vec::new();
-                        for (fname, _) in &sig.fields {
-                            if let Some((_, value)) = written.iter().find(|(n, _)| n == fname) {
-                                hir_fields.push((
-                                    fname.clone(),
-                                    value.clone(),
-                                    Span::new(0, 0),
-                                ));
-                            }
-                        }
+                        let hir_fields = self.fill_struct_fields(
+                            &name,
+                            &sig,
+                            &written,
+                            spread_checked.as_ref(),
+                            *span,
+                        );
                         Some(HirExpr::StructLit {
                             path: path.clone(),
                             fields: hir_fields,
@@ -7870,45 +7965,116 @@ impl<'src> Checker<'src> {
                 elements,
                 span,
             } => {
-                let elem_ty = match self.resolve_type_in(elem, false) {
-                    Ok(ty) => ty,
-                    Err(error) => {
-                        self.report(error);
+                // The element type is written (`[]T {}`) or inferred from the
+                // first value or spread (`[0, ..xs, 4]`).
+                let written_elem = match elem {
+                    Some(ty) => match self.resolve_type_in(ty, false) {
+                        Ok(ty) => Some(ty),
+                        Err(error) => {
+                            self.report(error);
+                            return None;
+                        }
+                    },
+                    None => None,
+                };
+                if let Some(elem_ty) = &written_elem {
+                    if matches!(
+                        elem_ty.kind,
+                        TypeKind::Unit | TypeKind::Never | TypeKind::CVoid
+                    ) {
+                        self.error(
+                            *span,
+                            format!(
+                                "an array cannot hold `{elem_ty}`: its elements would have no size"
+                            ),
+                        );
                         return None;
                     }
-                };
-                if matches!(
-                    elem_ty.kind,
-                    TypeKind::Unit | TypeKind::Never | TypeKind::CVoid
-                ) {
-                    self.error(
-                        *span,
-                        format!(
-                            "an array cannot hold `{elem_ty}`: its elements would have no size"
-                        ),
-                    );
-                    return None;
-                }
-                if matches!(elem_ty.kind, TypeKind::Func(_, _)) {
-                    // The same reason a struct cannot hold one: the array would
-                    // hold a copy the environment does not know about.
-                    self.error(
-                        *span,
-                        "an array cannot hold a function value yet",
-                    );
-                    return None;
-                }
-                let mut checked = Vec::with_capacity(elements.len());
-                for element in elements {
-                    let value = self.check_expr_with_expected(element, &elem_ty)?;
-                    if !fits(&elem_ty, &expr_ty(&value)) {
+                    if matches!(elem_ty.kind, TypeKind::Func(_, _)) {
+                        // The same reason a struct cannot hold one: the array would
+                        // hold a copy the environment does not know about.
                         self.error(
-                            expr_span(&value),
-                            format!("expected `{elem_ty}`, found `{}`", expr_ty(&value)),
+                            *span,
+                            "an array cannot hold a function value yet",
                         );
+                        return None;
                     }
-                    checked.push(value);
                 }
+                // First pass: check spreads (their slice fixes the element
+                // type when nothing else does) and values in order.
+                let mut checked: Vec<HirExpr> = Vec::with_capacity(elements.len());
+                let mut elem_ty = written_elem;
+                for element in elements {
+                    match element {
+                        SliceElement::Value(value_expr) => {
+                            let value = match &elem_ty {
+                                Some(known) => self.check_expr_with_expected(value_expr, known)?,
+                                None => self.check_expr(value_expr)?,
+                            };
+                            let found = expr_ty(&value);
+                            match &elem_ty {
+                                None => elem_ty = Some(found),
+                                Some(known) if !fits(known, &found) => {
+                                    self.error(
+                                        expr_span(&value),
+                                        format!("expected `{known}`, found `{found}`"),
+                                    );
+                                }
+                                _ => {}
+                            }
+                            checked.push(value);
+                        }
+                        SliceElement::Spread(operand) => {
+                            let source = self.check_expr(operand)?;
+                            let source_span = expr_span(&source);
+                            let source_ty = expr_ty(&source);
+                            let TypeKind::Slice(source_elem) = &source_ty.kind else {
+                                self.error(
+                                    source_span,
+                                    format!("cannot spread `{source_ty}`: expected an array"),
+                                );
+                                return None;
+                            };
+                            let source_elem = (**source_elem).clone();
+                            match &elem_ty {
+                                None => elem_ty = Some(source_elem.clone()),
+                                Some(known) if !known.eq_ignoring_span(&source_elem) => {
+                                    self.mismatch(source_span, known, &source_elem);
+                                }
+                                _ => {}
+                            }
+                            if let Expr::Ident(spread_path, spread_span) = operand.as_ref() {
+                                if spread_path.len() == 1 {
+                                    if let Err(error) =
+                                        self.move_out_spread(&spread_path[0], *spread_span)
+                                    {
+                                        self.report(error);
+                                    }
+                                }
+                            }
+                            // The marker the backend's literal builder
+                            // recognises as a spread copy.
+                            let marker_ty = Type {
+                                kind: TypeKind::Slice(Box::new(source_elem)),
+                                span: source_span,
+                            };
+                            checked.push(HirExpr::Call {
+                                callee: vec!["__spread".to_string()],
+                                args: vec![source],
+                                unsafe_call: false,
+                                span: source_span,
+                                ty: marker_ty,
+                            });
+                        }
+                    }
+                }
+                let Some(elem_ty) = elem_ty else {
+                    self.error(
+                        *span,
+                        "cannot infer the element type of an empty array literal: write `[]T {}`",
+                    );
+                    return None;
+                };
                 let slice_ty = Type {
                     kind: TypeKind::Slice(Box::new(elem_ty.clone())),
                     span: *span,

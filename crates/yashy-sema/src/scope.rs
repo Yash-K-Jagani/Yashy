@@ -34,12 +34,16 @@ struct Frame {
 /// visible everywhere.
 pub struct Scope {
     frames: Vec<Frame>,
+    /// Bindings (by depth and name) moved by a spread. Their later-use
+    /// diagnostic is `E1002`, not the generic moved-value code.
+    spread_moved: BTreeSet<(usize, String)>,
 }
 
 impl Scope {
     pub fn new() -> Self {
         Self {
             frames: vec![Frame::default()],
+            spread_moved: BTreeSet::new(),
         }
     }
 
@@ -99,6 +103,8 @@ impl Scope {
     pub fn pop(&mut self) {
         self.frames.pop().expect("scope stack is never empty");
         assert!(!self.frames.is_empty(), "popped the root scope");
+        let depth = self.frames.len();
+        self.spread_moved.retain(|(d, _)| *d < depth);
     }
 
     /// The number of bindings in the current scope -- used by tests that
@@ -148,6 +154,7 @@ impl Scope {
     /// function only finds the binding, reports an unbound name with its
     /// suggestion, and turns the verifier's answer into a [`TypeError`].
     pub fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
+        let spread = self.is_spread_moved(name);
         let Some(binding) = self.resolve_mut(name) else {
             let mut error =
                 TypeError::new(span, format!("cannot find value `{name}` in this scope"))
@@ -158,7 +165,30 @@ impl Scope {
             return Err(error);
         };
         yashy_verify::move_out(&mut binding.ownership, name)
-            .map_err(|moved| already_moved(span, &moved))
+            .map_err(|moved| {
+                if spread {
+                    spread_moved(span, &moved)
+                } else {
+                    already_moved(span, &moved)
+                }
+            })
+    }
+
+    /// Move `name` out by spreading it into a literal. The binding is spent
+    /// as a whole, and a later use is `E1002`.
+    pub fn move_out_spread(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
+        let depth = self.resolve_depth(name);
+        self.move_out(name, span)?;
+        if let Some(depth) = depth {
+            self.spread_moved.insert((depth, name.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Whether `name` was moved by a spread.
+    fn is_spread_moved(&self, name: &str) -> bool {
+        self.resolve_depth(name)
+            .is_some_and(|depth| self.spread_moved.contains(&(depth, name.to_string())))
     }
 
     /// Error on a read of a binding that has been moved out. A name that is not
@@ -167,7 +197,7 @@ impl Scope {
     pub fn check_live(&self, name: &str, span: Span) -> Result<(), TypeError> {
         match self.resolve(name) {
             Some(binding) => yashy_verify::check_live(binding.ownership, name)
-                .map_err(|moved| already_moved(span, &moved)),
+                .map_err(|moved| self.already_moved(span, &moved, name)),
             None => Ok(()),
         }
     }
@@ -177,6 +207,9 @@ impl Scope {
     pub fn rebind(&mut self, name: &str) {
         if let Some(binding) = self.resolve_mut(name) {
             binding.ownership = Ownership::Live;
+        }
+        if let Some(depth) = self.resolve_depth(name) {
+            self.spread_moved.remove(&(depth, name.to_string()));
         }
     }
 
@@ -207,6 +240,19 @@ impl Scope {
             }
         }
     }
+
+    fn already_moved(
+        &self,
+        span: Span,
+        moved: &yashy_verify::AlreadyMoved,
+        name: &str,
+    ) -> TypeError {
+        if self.is_spread_moved(name) {
+            spread_moved(span, moved)
+        } else {
+            already_moved(span, moved)
+        }
+    }
 }
 
 impl Default for Scope {
@@ -226,4 +272,13 @@ fn already_moved(span: Span, moved: &yashy_verify::AlreadyMoved) -> TypeError {
         format!("value `{}` has already been moved", moved.name),
     )
     .with_code(codes::MOVED_VALUE)
+}
+
+/// The spread version of that diagnostic: the value was moved by `..`.
+fn spread_moved(span: Span, moved: &yashy_verify::AlreadyMoved) -> TypeError {
+    TypeError::new(
+        span,
+        format!("value `{}` has already been moved by a spread", moved.name),
+    )
+    .with_code(codes::PARTIAL_MOVE)
 }

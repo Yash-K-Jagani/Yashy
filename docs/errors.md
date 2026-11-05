@@ -37,6 +37,7 @@ the declaration or import involved when that is not obvious.
 | [E0109](errors/E0109.md) | the type is written before the name |
 | [E0200](errors/E0200.md) | unknown field |
 | [E0201](errors/E0201.md) | missing field |
+| [E0202](errors/E0202.md) | duplicate field |
 | [E0300](errors/E0300.md) | missing `?` |
 | [E0301](errors/E0301.md) | mixed `?` |
 | [E0400](errors/E0400.md) | const reassignment |
@@ -48,6 +49,7 @@ the declaration or import involved when that is not obvious.
 | [E0901](errors/E0901.md) | malformed extern declaration |
 | [E0902](errors/E0902.md) | misplaced variadic marker |
 | [E1000](errors/E1000.md) | leaked linear value |
+| [E1002](errors/E1002.md) | spread operand used after the literal |
 | [E1100](errors/E1100.md) | undischarged contract |
 | [E1201](errors/E1201.md) | provable integer overflow |
 | [E1300](errors/E1300.md) | effect exceeded |

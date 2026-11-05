@@ -434,6 +434,10 @@ fn top_level_or_line(indent: usize) -> Break {
 /// would be the separator rule leaking into a place where nothing separates.
 fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     use TokenKind::*;
+    // A spread after a comma is a separator, not a range: `, ..xs`.
+    if cur == DotDot && prev == Comma {
+        return true;
+    }
     if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon) {
         return false;
     }

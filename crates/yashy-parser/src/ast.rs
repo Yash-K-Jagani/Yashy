@@ -750,6 +750,13 @@ pub enum Literal {
 }
 
 /// An expression: the things that can appear where a value is expected.
+/// One element of a slice literal: a value, or a `..xs` spread.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SliceElement {
+    Value(Expr),
+    Spread(Box<Expr>),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Literal(Literal, Span),
@@ -794,10 +801,11 @@ pub enum Expr {
         span: Span,
     },
     /// `P { x: 1.0, y: 2.0 }` -- one triple per field of name, value and the
-    /// span of the name.
+    /// span of the name. `spread` is the `..base` rest, which must be last.
     StructLit {
         path: Vec<String>,
         fields: Vec<(String, Expr, Span)>,
+        spread: Option<Box<Expr>>,
         span: Span,
     },
     /// `p.x`
@@ -808,10 +816,11 @@ pub enum Expr {
     },
     /// `[]T { a, b }` — a slice literal. The element type is explicit, so the
     /// literal is checked without inference and an empty `[]T {}` still has a
-    /// type.
+    /// type. The `[0, ..xs, 4]` spelling leaves `elem` as `None` and the
+    /// checker takes the element type from the values or the spread.
     SliceLit {
-        elem: Box<TypeExpr>,
-        elements: Vec<Expr>,
+        elem: Option<Box<TypeExpr>>,
+        elements: Vec<SliceElement>,
         span: Span,
     },
     /// `p[i]` -- reading (or, in an assignment target, writing) an element of

@@ -427,6 +427,7 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
             Expr::Literal(Literal::F64(1.5), spans.take()),
             spans.take(),
         )],
+        spread: None,
         span: spans.take(),
     });
     ops.push(Expr::FieldAccess {
@@ -1632,9 +1633,10 @@ fn debug_names_every_expr_variant_and_its_fields() {
             Expr::StructLit {
                 path: vec!["P".to_string()],
                 fields: Vec::new(),
+                spread: None,
                 span: here(),
             },
-            &["StructLit", "path", "fields", "span"],
+            &["StructLit", "path", "fields", "spread", "span"],
             &[
                 "Ident",
                 "Binary",
@@ -1792,13 +1794,14 @@ fn struct_literal_field_names_are_reachable_and_checked() {
             Expr::Literal(Literal::F64(1.5), value_span),
             field_span,
         )],
+        spread: None,
         span: literal_span,
     };
 
     assert_eq!(
         format!("{expr:?}"),
         format!(
-            "StructLit {{ path: [\"P\"], fields: [(\"x\", Literal(F64(1.5), {value_span:?}), {field_span:?})], span: {literal_span:?} }}"
+            "StructLit {{ path: [\"P\"], fields: [(\"x\", Literal(F64(1.5), {value_span:?}), {field_span:?})], spread: None, span: {literal_span:?} }}"
         )
     );
 }

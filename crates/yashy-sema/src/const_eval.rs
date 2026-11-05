@@ -698,13 +698,21 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
             matches!(callee.as_slice(), [name] if consts.contains_key(name))
                 || args.iter().any(|arg| mentions_const_fn(arg, consts))
         }
-        Expr::StructLit { fields, .. } => fields
-            .iter()
-            .any(|(_, value, _)| mentions_const_fn(value, consts)),
-        Expr::FieldAccess { base, .. } => mentions_const_fn(base, consts),
-        Expr::SliceLit { elements, .. } => {
-            elements.iter().any(|element| mentions_const_fn(element, consts))
+        Expr::StructLit { fields, spread, .. } => {
+            fields
+                .iter()
+                .any(|(_, value, _)| mentions_const_fn(value, consts))
+                || spread
+                    .as_deref()
+                    .is_some_and(|operand| mentions_const_fn(operand, consts))
         }
+        Expr::FieldAccess { base, .. } => mentions_const_fn(base, consts),
+        Expr::SliceLit { elements, .. } => elements.iter().any(|element| match element {
+            yashy_parser::ast::SliceElement::Value(value) => mentions_const_fn(value, consts),
+            yashy_parser::ast::SliceElement::Spread(operand) => {
+                mentions_const_fn(operand, consts)
+            }
+        }),
         Expr::Index { base, index, .. } => {
             mentions_const_fn(base, consts) || mentions_const_fn(index, consts)
         }
