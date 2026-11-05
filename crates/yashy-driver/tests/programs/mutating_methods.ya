@@ -29,6 +29,5 @@ fn main() {
     c.bump();
     c.bump();
     print(c.get());
-    println("");
     // => 2
 }

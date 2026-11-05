@@ -25,9 +25,9 @@ fn main() {
     }
 
     print(seen);
-    println("");
+    print("");
     print(counts.len());
-    println("");
+    print("");
 
     words.free();
     counts.free();

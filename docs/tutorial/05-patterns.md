@@ -34,14 +34,14 @@ fn divide(int a, int b) -> Result[int, string] {
 
 fn main() {
     print(describe(Some(5)));
-    println();
+    print();
     print(describe(None));
-    println();
+    print();
     print(switch divide(10, 2) {
         case Ok(v) { str_from_i64(v) }
         case Err(e) { "error: " + e }
     });
-    println();
+    print();
     // => some 5
     // => none
     // => 5
@@ -109,11 +109,11 @@ fn main() {
     const rect = Shape.Rect { w: 3.0, h: 4.0 };
     const point = Shape.Point;
     print(area(circle));
-    println();
+    print();
     print(area(rect));
-    println();
+    print();
     print(area(point));
-    println();
+    print();
     // => 12
     // => 12
     // => 0
@@ -186,11 +186,11 @@ fn bucket(int n) -> int {
 
 fn main() {
     print(bucket(0));
-    println();
+    print();
     print(bucket(0 - 5));
-    println();
+    print();
     print(bucket(5));
-    println();
+    print();
     // => 100
     // => 200
     // => 300
@@ -226,14 +226,14 @@ fn main() {
     const pair = min_max(9, 4);
     const (low, high) = pair;
     print(low);
-    println();
+    print();
     print(high);
-    println();
+    print();
 
     let (first, _) = min_max(2, 7);
     first = first + 1;
     print(first);
-    println();
+    print();
     // => 4
     // => 9
     // => 3
@@ -252,7 +252,7 @@ fn main() {
     const (x, rest) = pair;
     const (y, z) = rest;
     print(x + y + z);
-    println();
+    print();
     // => 6
 }
 ```
@@ -273,7 +273,7 @@ fn main() {
     const pair = (1, 2);
     const (a, _) = pair;
     print(a);
-    println();
+    print();
     // => 1
 }
 ```

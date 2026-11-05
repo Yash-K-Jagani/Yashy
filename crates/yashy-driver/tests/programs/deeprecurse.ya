@@ -14,5 +14,5 @@ fn descend(int n) -> int {
 
 fn main() {
     print(descend(5000));
-    println("this line must never be printed");
+    print("this line must never be printed");
 }

@@ -27,11 +27,9 @@ extern "C" link "m" {
 fn main() {
     puts("hello from C");
     print(strlen("hello") as int);
-    println("");
 
     // 9 is a perfect square, so the hardware result is exactly 3.
     print(c_sqrt(9.0) == 3.0);
-    println("");
 
     unsafe printf("%d %s\n", 42 as i32, "x");
 

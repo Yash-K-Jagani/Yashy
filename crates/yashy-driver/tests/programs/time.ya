@@ -8,14 +8,14 @@ fn main() {
     const after = now();
 
     if before > 0 {
-        println("clock ok");
+        print("clock ok");
     } else {
-        println("clock bad");
+        print("clock bad");
     }
 
     if after - before >= 20 {
-        println("slept");
+        print("slept");
     } else {
-        println("too fast");
+        print("too fast");
     }
 }

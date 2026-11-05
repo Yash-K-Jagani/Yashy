@@ -238,6 +238,9 @@ impl HirExternDecl {
 pub struct HirBlock {
     pub stmts: Vec<HirStmt>,
     pub span: Span,
+    /// Whether this block is an `arena { }` block: every allocation made
+    /// inside it is placed in this block's arena, released at block exit.
+    pub arena: bool,
 }
 
 /// One `.field` of a [`HirStmt::FieldAssign`] path: where the field sits in the

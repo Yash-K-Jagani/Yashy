@@ -84,5 +84,4 @@ fn main() {
     jobs.free();
 
     print(total);
-    println("");
 }

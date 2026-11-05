@@ -7,25 +7,25 @@
 // part of unwinding that is implemented today: the generated fault block runs
 // the *panicking function's* open scopes' defers before calling the runtime.
 //
-// A deferred `println` is the observable proof. Nothing here allocates, so
+// A deferred `print` is the observable proof. Nothing here allocates, so
 // there is no ownership question -- this program is about ordering only, and
 // the expected stdout is its whole assertion.
 fn main() {
     defer {
-        println("outer");
+        print("outer");
     }
 
     if true {
         defer {
-            println("middle 1");
+            print("middle 1");
         }
 
         if true {
             defer {
-                println("middle 2");
+                print("middle 2");
             }
             defer {
-                println("inner");
+                print("inner");
             }
             panic("cleanup");
         }

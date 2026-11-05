@@ -18,8 +18,8 @@ fn main() {
     }
 
     let sample = JSON.quote(note);
-    println(sample);
+    print(sample);
 
     print(total);
-    println("");
+    print("");
 }

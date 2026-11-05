@@ -14,43 +14,38 @@ fn show(Option[int] o) -> int {
 fn show_view() {
     const grid = [10, 20, 30];
     const window = grid[0..2];
+    let row = "";
     for i, x in window {
-        print(i);
-        print(":");
-        print(x);
-        print(" ");
+        row = row + str_from_i64(i) + ":" + str_from_i64(x) + " ";
     }
-    println("");
+    print(row);
 }
 
 fn main() {
     let xs = []int { 7, 8, 9 };
+    let row = "";
     for i, x in xs {
-        print(i);
-        print(":");
-        print(x);
-        print(" ");
+        row = row + str_from_i64(i) + ":" + str_from_i64(x) + " ";
     }
-    println("");
+    print(row);
     xs.free();
 
     let empty = []int {};
     for i, x in empty {
-        print(i);
-        print(x);
+        print(i, x);
     }
-    println("empty");
+    print("empty");
     empty.free();
 
     show_view();
 
     let zs = []int { 1, 2, 3 };
+    let digits = "";
     for i, x in zs {
-        print(x);
+        digits = digits + str_from_i64(x);
         zs.push(99);
     }
-    println("");
+    print(digits);
     print(zs.len());
-    println("");
     zs.free();
 }

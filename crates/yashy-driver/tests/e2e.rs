@@ -376,6 +376,7 @@ fn chained_comparisons_evaluate_each_operand_once() {
     assert_eq!(stdout_of(&output), "1\ntrue\ntrue\nfalse\nfalse\ntrue\n");
 }
 
+#[test]
 fn bitwise_operators_print_their_values() {
     // Every operator, the arithmetic/logical split on `>>`, and the precedence
     // that makes `1 << 3 | 1` nine rather than sixteen.
@@ -490,7 +491,7 @@ fn chars_convert_and_print() {
 }
 
 #[test]
-fn print_and_println_cover_every_printable_type() {
+fn print_covers_every_printable_type() {
     let output = build_and_run("print_all");
     // The `Circle(2.5)` segment is `debug.rs`'s enum form; if the formatter
     // renders a variant differently, change this string to match it -- the
@@ -498,7 +499,7 @@ fn print_and_println_cover_every_printable_type() {
     assert_eq!(
         stdout_of(&output),
         "text\nA\n42\n2.5\ntrue\nPoint { x: 3, y: 4 }\nCircle(2.5)\n(1, true)\n\
-         [1, 2, 3]\n[1, 2]\nSome(7)\nNone\nOk(7)\n1 + 1 = 2\n\n"
+         [1, 2, 3]\n[1, 2]\nSome(7)\nNone\nOk(7)\n1 + 1 = 2\n"
     );
 }
 
@@ -917,10 +918,10 @@ fn a_shift_count_out_of_range_panics_with_the_type_and_range() {
         concat!(
             "fn same(int n) -> int { return n; }\n",
             "fn main() {\n",
-            "    print(\"before\\n\");\n",
+            "    print(\"before\");\n",
             "    const n = same(64);\n",
             "    print(1 << n);\n",
-            "    print(\"after\\n\");\n",
+            "    print(\"after\");\n",
             "}\n",
         ),
     );
@@ -1642,7 +1643,7 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
     let source = dir.join("entry_exit_status.ya");
     fs::write(
         &source,
-        "fn main() {\n    if \"a\" == \"a\" {\n        print(\"equal\\n\");\n    }\n}\n",
+        "fn main() {\n    if \"a\" == \"a\" {\n        print(\"equal\");\n    }\n}\n",
     )
     .expect("write entry_exit_status.ya");
     let exe = dir.join(format!(
@@ -1773,13 +1774,13 @@ fn a_program_can_build_a_string_with_a_number_in_it() {
     );
 
     let output = run_with_input(&exe, "Ada\n36\n");
-    assert_eq!(stdout_of(&output), "name? age? Ada is 36 years old\n");
+    assert_eq!(stdout_of(&output), "name?\nage?\nAda is 36 years old\n");
     assert_eq!(output.status.code(), Some(0));
 
     // A line that is not an integer is `None`, which the program counts as
     // zero -- and the sentence is still well formed.
     let junk = run_with_input(&exe, "Bo\nnot a number\n");
-    assert_eq!(stdout_of(&junk), "name? age? Bo is 0 years old\n");
+    assert_eq!(stdout_of(&junk), "name?\nage?\nBo is 0 years old\n");
 }
 
 #[test]
@@ -1790,20 +1791,20 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
-fn println_accepts_many_values_joined_by_spaces() {
-    // `println` is the main, preferred output: many values, one space
-    // between each, one newline at the end. `print` still writes the next
-    // characters on the same line.
-    let output = build_and_run("println_many");
+fn print_accepts_many_values_joined_by_spaces() {
+    // `print` is the main, preferred output: many values, one space
+    // between each, one newline at the end.
+    let output = build_and_run("print_many");
     assert_eq!(stdout_of(&output), "sum 3 true\ntail\n");
 }
 
+#[test]
 fn default_fields_fill_omitted_slots() {
     // The default fills the omitted `retries` (3), an explicit value wins
     // (5), a spread's field wins over the default (9), and a string default
     // prints beside its explicit neighbour.
     let output = build_and_run("field_defaults");
-    assert_eq!(stdout_of(&output), "3\n5\n9\nlocalhost:9090\n");
+    assert_eq!(stdout_of(&output), "3\n5\n9\nlocalhost 9090\n");
 }
 
 #[test]
@@ -1852,7 +1853,7 @@ fn a_deferred_free_after_a_rebind_does_not_double_free() {
          \x20   }\n\
          \x20   buf = alloc(32);\n\
          \x20   buf.free();\n\
-         \x20   print(\"survived\\n\");\n\
+         \x20   print(\"survived\");\n\
          }\n",
     )
     .expect("write deferred_free_rebind.ya");
@@ -1909,7 +1910,7 @@ fn an_arena_hands_out_blocks_that_all_survive_until_the_release() {
     // and the runtime tests prove the allocator, but only a link-and-run proves
     // the two agree on the ABI.
     let output = build_and_run("arena");
-    assert_eq!(stdout_of(&output), "47\n");
+    assert_eq!(stdout_of(&output), "47\n6\n");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -1978,7 +1979,7 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
         "a `pub fn` is another module's to use:\n{}",
         stderr_of(&compile)
     );
-    assert_eq!(stdout_of(&run(&exe)), "7");
+    assert_eq!(stdout_of(&run(&exe)), "7\n");
 
     let private = dir.join("private.ya");
     fs::write(
@@ -2113,7 +2114,7 @@ fn the_smallest_i64_can_be_written_and_printed() {
     let source = dir.join("i64_min.ya");
     fs::write(
         &source,
-        "fn main() {\n    print(-9223372036854775808);\n    print(\"\\n\");\n}\n",
+        "fn main() {\n    print(-9223372036854775808);\n}\n",
     )
     .expect("write i64_min.ya");
     let exe = dir.join(format!("i64_min{}", std::env::consts::EXE_SUFFIX));
@@ -2172,9 +2173,9 @@ fn os_exit_ends_the_process_with_the_status_it_names() {
         "exit-status",
         concat!(
             "fn main() {\n",
-            "    print(\"before\\n\");\n",
+            "    print(\"before\");\n",
             "    os.exit(7);\n",
-            "    print(\"after\\n\");\n",
+            "    print(\"after\");\n",
             "}\n"
         ),
     );
@@ -2216,15 +2217,15 @@ fn os_exit_can_be_reached_through_a_helper() {
         "exit-helper",
         concat!(
             "fn quit(int code) {\n",
-            "    print(\"leaving\\n\");\n",
+            "    print(\"leaving\");\n",
             "    os.exit(code);\n",
-            "    print(\"never\\n\");\n",
+            "    print(\"never\");\n",
             "}\n",
             "\n",
             "fn main() {\n",
-            "    print(\"start\\n\");\n",
+            "    print(\"start\");\n",
             "    quit(7);\n",
-            "    print(\"after\\n\");\n",
+            "    print(\"after\");\n",
             "}\n"
         ),
     );
@@ -2245,7 +2246,6 @@ fn a_switch_arm_may_end_with_a_semicolon() {
             "        case Some(v) { print(v); }\n",
             "        case None { print(\"none\"); }\n",
             "    }\n",
-            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -2293,7 +2293,7 @@ fn an_overflowing_addition_reports_the_operands_and_ends_the_program() {
     // handles a value the verifier does not know.
     let output = compile_and_run(
         "overflow-add",
-        "fn main() {\n    print(\"before\\n\");\n    let big = same(9223372036854775807);\n    print(big + 1);\n    print(\"after\\n\");\n}\n\nfn same(int n) -> int {\n    return n;\n}\n",
+        "fn main() {\n    print(\"before\");\n    let big = same(9223372036854775807);\n    print(big + 1);\n    print(\"after\");\n}\n\nfn same(int n) -> int {\n    return n;\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -2463,7 +2463,7 @@ fn integer_overflow_does_not_wrap() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
     assert!(
-        stderr.contains("overflow.ya:11:11: panic: integer overflow: 9223372036854775807 + 1"),
+        stderr.contains("overflow.ya:10:11: panic: integer overflow: 9223372036854775807 + 1"),
         "the message must name the operands and the position:\n{stderr}"
     );
     assert!(
@@ -2540,10 +2540,8 @@ fn byte_at_reads_a_byte_and_answers_zero_out_of_range() {
         "fn main() {\n\
          \x20   const abc = \"abc\";\n\
          \x20   print(abc.byte_at(1));\n\
-         \x20   print(\"\\n\");\n\
          \x20   let missing = abc.byte_at(99);\n\
          \x20   print(missing.to_int());\n\
-         \x20   print(\"\\n\");\n\
          }",
     );
     assert_eq!(stdout_of(&output), "b\n0\n");
@@ -2575,29 +2573,17 @@ fn the_arithmetic_opt_outs_do_what_their_names_say() {
             "    let big = 9223372036854775807;\n",
             "    let small = -9223372036854775808;\n",
             "    print(wrapping_add(big, 1));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_add(big, 1));\n",
-            "    print(\"\\n\");\n",
             "    print(wrapping_sub(small, 1));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_sub(small, 1));\n",
-            "    print(\"\\n\");\n",
             "    print(wrapping_mul(big, 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(big, 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(small, 0 - 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(3, 4));\n",
-            "    print(\"\\n\");\n",
             "    print(show(checked_add(big, 1)));\n",
-            "    print(\"\\n\");\n",
             "    print(show(checked_add(1, 2)));\n",
-            "    print(\"\\n\");\n",
             "    print(show(checked_sub(small, 1)));\n",
-            "    print(\"\\n\");\n",
             "    print(show(checked_mul(big, 2)));\n",
-            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -2639,19 +2625,12 @@ fn the_saturating_multiply_clamps_at_both_ends_and_is_exact_inside() {
             "    let big = 9223372036854775807;\n",
             "    let small = -9223372036854775808;\n",
             "    print(saturating_mul(big, -1));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(big, 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(small, 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(small, -1));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(4611686018427387903, 2));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(-3, 4));\n",
-            "    print(\"\\n\");\n",
             "    print(saturating_mul(6, 7));\n",
-            "    print(\"\\n\");\n",
             "}\n"
         ),
     );
@@ -2677,7 +2656,7 @@ fn arithmetic_that_fits_runs_to_completion() {
     // the check on `sum + i` is inside it.
     let output = compile_and_run(
         "arithmetic-ok",
-        "fn main() {\n    let sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print(sum);\n    print(\"\\n\");\n    print(7 / 2);\n    print(\"\\n\");\n    print(-7 % 2);\n    print(\"\\n\");\n    print(-sum);\n    print(\"\\n\");\n}\n",
+        "fn main() {\n    let sum = 0;\n    for i in 0..10 {\n        sum = sum + i;\n    }\n    print(sum);\n    print(7 / 2);\n    print(-7 % 2);\n    print(-sum);\n}\n",
     );
     assert_eq!(
         output.status.code(),
@@ -2708,7 +2687,7 @@ fn assertions_that_hold_do_nothing_at_all() {
             "    assert_eq(true, true);\n",
             "    assert_eq(\"yashy\", \"yashy\");\n",
             "    assert_ne(\"yashy\", \"other\");\n",
-            "    print(\"done\\n\");\n",
+            "    print(\"done\");\n",
             "}\n"
         ),
     );
@@ -2736,9 +2715,9 @@ fn a_failed_assertion_quotes_the_condition_it_was_given() {
         concat!(
             "fn main() {\n",
             "    let n = 0;\n",
-            "    print(\"before\\n\");\n",
+            "    print(\"before\");\n",
             "    assert(n > 0);\n",
-            "    print(\"after\\n\");\n",
+            "    print(\"after\");\n",
             "}\n"
         ),
     );
@@ -2844,7 +2823,7 @@ fn an_asserted_operand_runs_exactly_once() {
     // path, could print a number that is not the one that failed.
     let source = concat!(
         "fn tick() -> int {\n",
-        "    print(\"tick\\n\");\n",
+        "    print(\"tick\");\n",
         "    return 1;\n",
         "}\n",
         "\n",
@@ -2874,12 +2853,12 @@ fn a_release_build_compiles_debug_asserts_away_and_keeps_asserts() {
     // nothing in front of a user; `assert` is a claim the program depends on.
     let source = concat!(
         "fn main() {\n",
-        "    print(\"start\\n\");\n",
+        "    print(\"start\");\n",
         "    let n = 0;\n",
         "    debug_assert(n > 0);\n",   // false, and dropped by --release
-        "    print(\"checked\\n\");\n",
+        "    print(\"checked\");\n",
         "    assert(n == 0);\n",         // true, and kept by both
-        "    print(\"done\\n\");\n",
+        "    print(\"done\");\n",
         "}\n"
     );
     let release = compile_and_run_with("debug-release", source, &["--release"]);
@@ -2991,7 +2970,6 @@ const LINKED_SQRT: &str = concat!(
     "\n",
     "fn main() {\n",
     "    print(c_sqrt(2.0) == 1.4142135623730951);\n",
-    "    println(\"\");\n",
     "}\n",
 );
 
@@ -3025,7 +3003,6 @@ fn two_declarations_of_one_symbol_emit_one_declare() {
             "\n",
             "fn main() {\n",
             "    print(c_sqrt(9.0) + also_sqrt(16.0));\n",
-            "    println(\"\");\n",
             "}\n",
         ),
     );
@@ -3050,7 +3027,6 @@ fn a_symbol_declared_with_two_signatures_is_e0900() {
             "\n",
             "fn main() {\n",
             "    print(1);\n",
-            "    println(\"\");\n",
             "}\n",
         ),
     )
@@ -3108,7 +3084,6 @@ fn a_symbol_the_program_defines_is_e0900() {
             "\n",
             "fn main() {\n",
             "    print(sqrt(9.0));\n",
-            "    println(\"\");\n",
             "}\n",
         ),
     )
@@ -3149,7 +3124,6 @@ fn link_name_on_a_yashy_fn_is_e0901() {
             "\n",
             "fn main() {\n",
             "    print(twice(21));\n",
-            "    println(\"\");\n",
             "}\n",
         ),
     )
@@ -3220,7 +3194,6 @@ fn fmt_round_trips_link_name() {
         "\n",
         "fn main() {\n",
         "    print(c_sqrt(9.0));\n",
-        "    println(\"\");\n",
         "}\n",
     );
     fs::write(&file, canonical).expect("write link.ya");
@@ -3983,11 +3956,11 @@ fn writing_bytes_to_a_directory_reports_not_a_file() {
             "    let saved = write_bytes(\"/\", data);\n",
             "    data.free();\n",
             "    switch saved {\n",
-            "        case Ok(_) { println(\"unexpected\") }\n",
+            "        case Ok(_) { print(\"unexpected\") }\n",
             "        case Err(e) {\n",
             "            switch e {\n",
-            "                case NotAFile { println(\"not a file\") }\n",
-            "                default { println(\"wrong error\") }\n",
+            "                case NotAFile { print(\"not a file\") }\n",
+            "                default { print(\"wrong error\") }\n",
             "            }\n",
             "        }\n",
             "    }\n",

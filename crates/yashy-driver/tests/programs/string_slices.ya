@@ -8,7 +8,6 @@ fn main() {
     words.push(str_from_i64(42));
     for word in words {
         print(word);
-        println("");
     }
     words.free();
 }

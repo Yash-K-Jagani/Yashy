@@ -450,6 +450,12 @@ impl<'src> Parser<'src> {
         Ok((name, token.span))
     }
 
+    /// Whether the current token is the identifier `name`.
+    pub(crate) fn identifier_is(&self, name: &str) -> bool {
+        self.check(TokenKind::Ident)
+            && self.text(self.peek_span()).is_ok_and(|text| text == name)
+    }
+
     // -- the unclosed-delimiter stack ---------------------------------------
 
     /// Records that a delimiter has been opened, and returns its index.

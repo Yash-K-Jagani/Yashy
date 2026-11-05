@@ -40,7 +40,6 @@ fn main() {
 
     let second = arena_alloc(arena, 8);
     print(total(second, 8));
-    println("");
 
     let third = arena_alloc(arena, 8);
     fill_via(third, 8);

@@ -14,5 +14,5 @@ fn work(int n) -> float {
 
 fn main() {
     print(work(100000000));
-    println("");
+    print("");
 }

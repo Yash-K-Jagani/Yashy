@@ -1,4 +1,4 @@
-﻿# Yashy R1 Tooling Foundation â€” Implementation Plan
+# Yashy R1 Tooling Foundation â€” Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
@@ -265,7 +265,7 @@ fn stdlib_is_found_without_yashy_path() {
     write(
         &dir,
         "main.ya",
-        "import io;\nfn main() { println(\"ok\"); }\n",
+        "import io;\nfn main() { print(\"ok\"); }\n",
     );
     let output = Command::new(yashy())
         .arg("build")
@@ -442,7 +442,7 @@ fn run_compiles_and_prints_program_output() {
     write(
         &dir,
         "main.ya",
-        "fn main() { println(\"hello from run\"); }\n",
+        "fn main() { print(\"hello from run\"); }\n",
     );
 
     let output = Command::new(yashy())
@@ -1194,7 +1194,7 @@ fn init(args: &[String]) -> ExitCode {
         ("yashy.toml", format!("[package]\nname = \"{}\"\nversion = \"0.1.0\"\n", escape_toml(&name))),
         (
             "main.ya",
-            "fn main() {\n    println(\"Hello, Yashy!\");\n}\n".to_string(),
+            "fn main() {\n    print(\"Hello, Yashy!\");\n}\n".to_string(),
         ),
         (
             "tests/smoke.ya",

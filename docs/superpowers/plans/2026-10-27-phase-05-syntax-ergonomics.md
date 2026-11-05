@@ -160,7 +160,7 @@ See the master index. The ones that bite here:
 - Modify: `crates/yashy-driver/tests/programs/closures.ya` (add a trailing-block call beside the existing closures), `crates/yashy-driver/tests/e2e.rs` (the existing `closures` test now covers the block form too)
 
 **Interfaces:**
-- Produces: `xs.each { |x| println("${x}") }` and `with_file(path) { |f| read(f) }` — the block is the last argument, and `|x|` takes its type from the callee's parameter type. `LambdaParam.ty` is `None` for an inferred parameter; function and extern parameters still require a type.
+- Produces: `xs.each { |x| print("${x}") }` and `with_file(path) { |f| read(f) }` — the block is the last argument, and `|x|` takes its type from the callee's parameter type. `LambdaParam.ty` is `None` for an inferred parameter; function and extern parameters still require a type.
 - Produces: the parser refuses a trailing block in a condition position (`if f(x) { }` keeps meaning "if the call, then this block"), with a `no_block_arg` flag set while parsing `if`, `while`, `for` and `switch` heads. The current struct-literal decision is a local `looks_like_struct_lit` boolean in `exprs.rs:487`; the trailing-block decision reuses the same "not in a head" flag, so the two ambiguities have one cause.
 - Produces: `E0100` naming both signatures when inference fails (a callee that takes `fn(i64) -> i64` called with `|x| "text"` reports the expected and the found return type).
 
@@ -300,7 +300,7 @@ See the master index. The ones that bite here:
   ```rust
   #[test]
   fn a_string_built_in_an_arena_is_freed_by_the_block() {
-      // arena { let s = "a" + "b"; println(s); } leaks nothing (the leak suite)
+      // arena { let s = "a" + "b"; print(s); } leaks nothing (the leak suite)
   }
 
   #[test]
@@ -392,10 +392,21 @@ See the master index. The ones that bite here:
 - Modify: `docs/tutorial/01-hello.md`
 
 **Interfaces:**
-- Produces: `println(a, b, c)` converts each argument to text and joins them with one space, then writes a newline. `println()` prints an empty line. `print` stays as the single-argument, no-newline form for text that must continue on the same line; `println` is the preferred way to write output.
+- Produces: `print(a, b, c)` converts each argument to text and joins them with one space, then writes a newline. `print()` prints an empty line. `print` stays as the single-argument, no-newline form for text that must continue on the same line; `println` is the preferred way to write output.
 
 - [x] **Step 1: Tests + implement** — variadic `println` in the checker (join with `BinOp::Add` over `" "` separators into `print_line_str`); sema tests for many types, empty, single, and unprintable refusal; docs updated.
 - [x] **Step 2: Commit** — `git commit -m "feat: println is the main, variadic output"` (see below).
+
+### Task 13: `print` is the only output, Python-style
+
+**Files:**
+- Modify: `crates/yashy-sema/src/check_expr.rs` (`print` variadic, newline-terminated; `println` removed with a migration error), all tracked `.ya` programs, `docs/`, and Rust test fixtures.
+
+**Interfaces:**
+- Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
+
+- [ ] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates.
+- [ ] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`.
 
 ---
 

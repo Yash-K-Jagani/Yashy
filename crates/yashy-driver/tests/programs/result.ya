@@ -16,5 +16,4 @@ fn main() {
         case Ok(v) { print(v) }
         case Err(e) { print(0) }
     }
-    println("");
 }

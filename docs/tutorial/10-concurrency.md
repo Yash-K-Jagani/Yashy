@@ -37,7 +37,7 @@ fn main() {
     thread_join(handle);
     results.free();
     print(total);
-    println();
+    print();
     // => 14
 }
 ```
@@ -96,7 +96,7 @@ A mutex serialises a section. `lock` and `unlock` borrow, and `free` consumes:
 ```yashy
 fn worker(Mutex gate) {
     gate.lock();
-    println("worker");
+    print("worker");
     gate.unlock();
 }
 
@@ -105,7 +105,7 @@ fn main() {
     gate.lock();
     let handle = thread_spawn(worker, gate);
 
-    println("main");
+    print("main");
     gate.unlock();
 
     thread_join(handle);

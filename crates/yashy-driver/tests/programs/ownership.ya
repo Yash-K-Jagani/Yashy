@@ -19,12 +19,12 @@ fn main() {
     let alias = original;
     let name = original;
     name = name + "!";
-    print(alias + "\n");
-    print(name + "\n");
+    print(alias);
+    print(name);
 
     // A function that builds its result from a local returns a string that
     // outlives the local.
-    print(bracket("x") + "\n");
+    print(bracket("x"));
 
     // Accumulating in a loop drops each intermediate: the old value is released
     // right after the replacement has been built from it.
@@ -34,17 +34,17 @@ fn main() {
         acc = acc + "z";
         i = i + 1;
     }
-    print(acc + "\n");
+    print(acc);
 
     // A deferred body reads a string local, so the release has to happen *after*
     // the defers, not before them.
     if true {
         const inner = "in";
-        defer { print("deferred " + inner + "\n"); }
-        print(inner + "\n");
+        defer { print("deferred " + inner); }
+        print(inner);
     }
 
     // A conversion's result can be bound, and is released with the scope.
     const text = "n = " + str_from_i64(42);
-    print(text + "\n");
+    print(text);
 }

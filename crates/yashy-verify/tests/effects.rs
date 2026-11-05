@@ -43,25 +43,25 @@ fn codes(report: &VerifyReport) -> Vec<&'static str> {
 
 #[test]
 fn a_pure_function_that_prints_is_rejected() {
-    let source = "pure fn f() { println(\"x\"); } fn main() { }";
+    let source = "pure fn f() { print(\"x\"); } fn main() { }";
     assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
 }
 
 #[test]
 fn an_unannotated_caller_of_an_io_function_is_inferred_io() {
-    let source = "io fn g() { println(\"x\"); } fn h() { g(); } fn main() { h(); }";
+    let source = "io fn g() { print(\"x\"); } fn h() { g(); } fn main() { h(); }";
     assert!(verify_source(source).diagnostics.is_empty());
 }
 
 #[test]
 fn a_pure_function_calling_an_io_function_is_rejected() {
-    let source = "io fn g() { println(\"x\"); } pure fn h() { g(); } fn main() { }";
+    let source = "io fn g() { print(\"x\"); } pure fn h() { g(); } fn main() { }";
     assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
 }
 
 #[test]
 fn mutual_recursion_terminates_and_propagates() {
-    let source = "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { println(\"x\"); a(n); } fn main() { }";
+    let source = "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { print(\"x\"); a(n); } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["a"].io);
@@ -109,7 +109,7 @@ fn an_unsafe_fn_may_call_an_extern_function() {
 
 #[test]
 fn io_propagates_through_two_hops() {
-    let source = "fn a() { b(); } fn b() { println(\"x\"); } fn main() { a(); }";
+    let source = "fn a() { b(); } fn b() { print(\"x\"); } fn main() { a(); }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["a"].io);
@@ -118,7 +118,7 @@ fn io_propagates_through_two_hops() {
 
 #[test]
 fn a_loop_carrying_an_io_call_is_io() {
-    let source = "fn f(int n) { for i in 0..n { println(\"x\"); } } fn main() { f(3); }";
+    let source = "fn f(int n) { for i in 0..n { print(\"x\"); } } fn main() { f(3); }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["f"].io);

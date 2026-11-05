@@ -36,34 +36,34 @@ fn main() {
         sum = wrapping_add(sum, x);
     }
     print(sum);
-    println("");
+    print("");
 
     if xs.is_empty() {
-        println("unexpected empty");
+        print("unexpected empty");
     }
     if option_i64(xs.first()) != 0 {
-        println("bad first");
+        print("bad first");
     }
     if option_i64(xs.last()) != 9999999 {
-        println("bad last");
+        print("bad last");
     }
     if !xs.set(0, 0) {
-        println("set failed");
+        print("set failed");
     }
     if option_i64(xs.get(0)) != 0 {
-        println("bad get");
+        print("bad get");
     }
     if !xs.contains(0) {
-        println("missing contains");
+        print("missing contains");
     }
     if option_i64(xs.index_of(9999999)) != 9999999 {
-        println("bad index_of");
+        print("bad index_of");
     }
     let extra = []int { 1, 2 };
     xs.extend(extra);
     let copy = xs.slice(0, 3);
     if copy.len() != 3 {
-        println("bad array");
+        print("bad array");
     }
     copy.free();
     xs.free();
@@ -74,67 +74,67 @@ fn main() {
     let text = "  Yashy,yashy  ";
     let trimmed = text.trim();
     if trimmed.len() != 11 {
-        println("bad trim");
+        print("bad trim");
     }
     let upper = text.to_upper();
     if upper.len() != 15 {
-        println("bad to_upper");
+        print("bad to_upper");
     }
     let lower = text.to_lower();
     if lower.len() != 15 {
-        println("bad to_lower");
+        print("bad to_lower");
     }
     let replaced = text.replace("yashy", "seal");
     if replaced.len() != 14 {
-        println("bad replace");
+        print("bad replace");
     }
     let piece = text.slice(2, 7);
     if piece.len() != 5 {
-        println("bad string slice");
+        print("bad string slice");
     }
     let dash = "-";
     let repeated = dash.repeat(3);
     if repeated.len() != 3 {
-        println("bad repeat");
+        print("bad repeat");
     }
     let parts = text.split(",");
     if parts.len() != 2 {
-        println("bad split");
+        print("bad split");
     }
     parts.free();
     let lines = text.lines();
     if lines.len() != 1 {
-        println("bad lines");
+        print("bad lines");
     }
     lines.free();
     if !text.contains("yashy") {
-        println("missing contains");
+        print("missing contains");
     }
     if !text.starts_with("  ") {
-        println("bad starts_with");
+        print("bad starts_with");
     }
     if !text.ends_with("  ") {
-        println("bad ends_with");
+        print("bad ends_with");
     }
     if text.byte_at(2).to_int() != 89 {
-        println("bad byte_at");
+        print("bad byte_at");
     }
     if option_i64(text.get(2)) != 89 {
-        println("bad string get");
+        print("bad string get");
     }
     if option_i64(text.index_of("yashy")) != 8 {
-        println("bad string index_of");
+        print("bad string index_of");
     }
     let empty = "";
     if !empty.is_empty() {
-        println("empty string is not empty");
+        print("empty string is not empty");
     }
     let number = "42";
     if option_i64(number.parse_i64()) != 42 {
-        println("bad parse_i64");
+        print("bad parse_i64");
     }
     let decimal = "2.5";
     if option_f64(decimal.parse_f64()) != 2.5 {
-        println("bad parse_f64");
+        print("bad parse_f64");
     }
 }

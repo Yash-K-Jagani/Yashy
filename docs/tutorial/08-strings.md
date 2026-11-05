@@ -15,14 +15,14 @@ Bounds are clamped, so a wrong index gives an empty string rather than a fault.
 fn main() {
     const greeting = "Hello, " + "Yashy!";
     print(greeting.len());
-    println();
+    print();
     // => 13
 
     print(greeting.slice(0, 5));
-    println();
+    print();
     // => Hello
 
-    println("${greeting} again");
+    print("${greeting} again");
     // => Hello, Yashy! again
 }
 ```
@@ -69,7 +69,7 @@ fn main() {
     print(buf[1]);
     print(buf[2]);
     print(buf[3]);
-    println();
+    print();
     buf.free();
     // => abcd
 }
@@ -85,12 +85,12 @@ import io;
 
 fn verify([]char bytes) {
     print(bytes.len());
-    println();
+    print();
     switch bytes[0] {
         case Some(first) { print(first) }
         case None { print('?') }
     }
-    println();
+    print();
     bytes.free();
 }
 
@@ -107,13 +107,13 @@ fn main() {
     data.push('h');
     data.push('y');
     switch write_bytes("bytes.bin", data) {
-        case Ok(_) { println("saved") }
-        case Err(_) { println("failed") }
+        case Ok(_) { print("saved") }
+        case Err(_) { print("failed") }
     }
     data.free();
     switch load("bytes.bin") {
         case Ok(bytes) { verify(bytes) }
-        case Err(_) { println("failed") }
+        case Err(_) { print("failed") }
     }
     // => saved
     // => 5
@@ -200,78 +200,78 @@ fn main() {
     let s = "  Yashy,yashy  ";
 
     print(s.trim());
-    println();
+    print();
     // => Yashy,yashy
 
     print(s.len());
-    println();
+    print();
     // => 15
 
     if s.is_empty() {
-        println("empty");
+        print("empty");
     } else {
-        println("not empty");
+        print("not empty");
     }
     // => not empty
 
     print(s.byte_at(2));
-    println();
+    print();
     // => Y
 
     print(show(s.get(2)));
-    println();
+    print();
     // => 89
 
     print(show(s.get(99)));
-    println();
+    print();
     // => -1
 
     print(s.slice(2, 7));
-    println();
+    print();
     // => Yashy
 
     if s.contains("yashy") {
-        println("found yashy");
+        print("found yashy");
     }
     // => found yashy
 
     if s.starts_with("  Ya") {
-        println("starts with spaces");
+        print("starts with spaces");
     }
     // => starts with spaces
 
     if s.ends_with("  ") {
-        println("ends with spaces");
+        print("ends with spaces");
     }
     // => ends with spaces
 
     print(show(s.index_of("yashy")));
-    println();
+    print();
     // => 8
 
     let upper = s.to_upper();
     print(upper.trim());
-    println();
+    print();
     // => YASHY,YASHY
 
     let replaced = s.replace("yashy", "seal");
     print(replaced.trim());
-    println();
+    print();
     // => Yashy,seal
 
     let dash = "-";
     print(dash.repeat(3));
-    println();
+    print();
     // => ---
 
     let csv = "a,b,c";
     let parts = csv.split(",");
     print(parts.len());
-    println();
+    print();
     // => 3
     for part in parts {
         print(part);
-        println();
+        print();
         // => a
         // => b
         // => c
@@ -281,11 +281,11 @@ fn main() {
     let text = "one\r\ntwo\n";
     let lines = text.lines();
     print(lines.len());
-    println();
+    print();
     // => 2
     for line in lines {
         print(line);
-        println();
+        print();
         // => one
         // => two
     }
@@ -328,10 +328,10 @@ struct Point {
 
 fn main() {
     const point = Point { x: 3, y: 4 };
-    println("${point:?}");
+    print("${point:?}");
     // => Point { x: 3, y: 4 }
 
-    println("${[1, 2, 3]:?}");
+    print("${[1, 2, 3]:?}");
     // => [1, 2, 3]
 
     print("${"a\nb":?}\n");

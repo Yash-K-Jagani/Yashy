@@ -172,7 +172,7 @@ fn main() {
     let buf = alloc(1);
     buf[0] = 7;
     print(f(buf));
-    println(\"\");
+    print(\"\");
 }
 ";
     let (ir, _) = lower(source);

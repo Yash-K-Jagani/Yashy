@@ -21,23 +21,17 @@ fn main() {
     let c = Counter { value: 0 };
     const bool inside = 0 <= c.next() < 10;
     print(c.value);
-    println("");
     print(inside);
-    println("");
 
     const bool low = 0 <= 0 < 10;
     print(low);
-    println("");
 
     const bool high = 0 <= 10 < 10;
     print(high);
-    println("");
 
     const bool below = 0 <= 0 - 1 < 10;
     print(below);
-    println("");
 
     const bool zigzag = 1 < 3 > 2;
     print(zigzag);
-    println("");
 }

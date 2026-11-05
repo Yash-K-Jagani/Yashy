@@ -29,17 +29,13 @@ fn main() {
     // take: the value has to be known before the program runs.
     const table = square(9);
     print(table);
-    println("");
 
     const bigger = max_of(square(3), 10);
     print(bigger);
-    println("");
 
     const tenth = fib(10);
     print(tenth);
-    println("");
 
     const ok = square(4);
     print(ok);
-    println("");
 }

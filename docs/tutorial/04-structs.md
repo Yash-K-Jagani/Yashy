@@ -32,16 +32,16 @@ fn main() {
     print(p.x);
     print(" ");
     print(p.y);
-    println();
+    print();
     // => 3 4
 
     const line = Line { from: Point { x: 1, y: 2 }, to: p };
     print(line.from.x + line.to.y);
-    println();
+    print();
     // => 5
 
     print(manhattan(line.from));
-    println();
+    print();
     // => 3
 }
 ```
@@ -81,7 +81,7 @@ impl Point {
 fn main() {
     const p = Point { x: 2, y: 3 };
     print(p.sum());
-    println();
+    print();
     // => 5
 }
 ```
@@ -114,7 +114,7 @@ impl Shape {
 fn main() {
     const circle = Shape.Circle(4);
     print(circle.area());
-    println();
+    print();
     // => 48
 }
 ```
@@ -141,11 +141,11 @@ object Counter {
 fn main() {
     const counter = Counter { value: 3 };
     print(counter.get());
-    println();
+    print();
     // => 3
 
     print(counter.add(4).get());
-    println();
+    print();
     // => 7
 }
 ```
@@ -172,7 +172,7 @@ object Counter {
 
 fn main() {
     print(Counter.new(3).get());
-    println();
+    print();
     // => 3
 }
 ```
@@ -206,7 +206,7 @@ fn main() {
     c.bump();
     c.bump();
     print(c.get());
-    println();
+    print();
     // => 2
 }
 ```
@@ -266,7 +266,7 @@ struct Named {
 fn main() {
     const named = Named { name: "yas" + "hy", count: 2 };
     print(named.name);
-    println();
+    print();
     // => yashy
 }
 ```

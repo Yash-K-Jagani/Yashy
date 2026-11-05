@@ -31,7 +31,7 @@ fn report(Result[int, string] result) {
         case Err(e) { "error " + e }
     };
     print(message);
-    println();
+    print();
 }
 
 fn main() {
@@ -130,7 +130,7 @@ fn main() {
         case Some(v) { v }
         case None { -1 }
     });
-    println();
+    print();
     // => 0 -1
 }
 ```
@@ -145,7 +145,7 @@ fn main() {
         case Some(value) { print(value) }
         case None { print("unset") }
     }
-    println();
+    print();
     // => unset
 }
 ```

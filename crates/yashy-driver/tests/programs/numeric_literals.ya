@@ -16,23 +16,14 @@ fn main() {
     const binary = 0b1010;
     const octal = 0o777;
 
-    print(million);
-    print(" ");
-    print(hex);
-    print(" ");
-    print(binary);
-    print(" ");
-    print(octal);
-    println("");
+    print(million, hex, binary, octal);
 
     // The separators work in a float too, and the value is the number rather
     // than the text: `1_000.5_0` is 1000.5.
     const fraction = 1_000.5_0;
     print(fraction);
-    println("");
 
     // A radix prefix is a whole number, so `0x10 + 1` is seventeen.
     const added = 0x10 + 1;
     print(added);
-    println("");
 }

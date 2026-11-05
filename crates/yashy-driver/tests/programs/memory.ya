@@ -23,5 +23,5 @@ fn main() {
     let big = alloc(1000000);
     big.free();
 
-    println("memory ok");
+    print("memory ok");
 }

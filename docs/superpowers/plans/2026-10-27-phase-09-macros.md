@@ -29,7 +29,7 @@ See the master index. The ones that bite here:
 
 ## Review Focus
 
-1. **Expansion must not be able to hide an effect.** A macro that expands to `println(..)` inside a `pure fn` is `E1300` at the invocation's span, with the macro name in the note. If the verifier ran before expansion, this would be free; because it runs after, the span mapping is the safety property.
+1. **Expansion must not be able to hide an effect.** A macro that expands to `print(..)` inside a `pure fn` is `E1300` at the invocation's span, with the macro name in the note. If the verifier ran before expansion, this would be free; because it runs after, the span mapping is the safety property.
 2. **Hygiene is not optional and not approximate.** A template's `let tmp = ..` must not capture a caller's `tmp`, and a caller's `x` passed as `$x` must keep resolving to the caller's `x`. Both directions get a test, and the second is the one implementations forget.
 3. **Expansion is deterministic byte for byte.** The same source expands to the same token stream, in the same order, on both operating systems. A `HashMap` iteration in the expander is a defect even if the output happens to be stable today.
 4. **A failed match names what it saw.** `E1600` prints the invocation's tokens and the arms' patterns; "no rule matched" with no tokens is a support ticket, not a diagnostic.

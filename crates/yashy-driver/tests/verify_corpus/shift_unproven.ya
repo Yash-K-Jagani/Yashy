@@ -22,5 +22,5 @@ fn typed_number(Option[string] line) -> int {
 fn main() {
     const n = typed_number(read_line());
     print(1 << n);
-    println("");
+    print("");
 }

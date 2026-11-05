@@ -12,9 +12,7 @@ fn apply(fn(int) -> int f, int x) -> int {
 
 fn main() {
     print(apply(square, 7));
-    println("");
 
     const f = square;
     print(f(4));
-    println("");
 }

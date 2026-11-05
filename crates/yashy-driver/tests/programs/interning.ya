@@ -11,5 +11,5 @@ fn main() {
     // Two literals written at different places with the same content.
     assert("x" == "x");
 
-    println("one object");
+    print("one object");
 }

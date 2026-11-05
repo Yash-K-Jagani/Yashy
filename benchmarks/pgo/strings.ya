@@ -18,5 +18,5 @@ fn main() {
     }
 
     print(total);
-    println("");
+    print("");
 }

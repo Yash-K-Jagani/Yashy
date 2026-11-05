@@ -15,44 +15,37 @@ fn show(Option[int] o) -> int {
 fn main() {
     let xs = []int { 10, 20, 30 };
     if xs.contains(20) {
-        println("contains 20");
+        print("contains 20");
     }
     if xs.contains(99) {
-        println("unexpected: contains 99");
+        print("unexpected: contains 99");
     } else {
-        println("missing 99");
+        print("missing 99");
     }
     print(show(xs.index_of(30)));
-    println("");
     print(show(xs.index_of(99)));
-    println("");
 
     xs.extend([]int { 40, 50 });
     print(xs.len());
-    println("");
     for x in xs {
         print(x);
-        println("");
     }
 
     let part = xs.slice(1, 4);
     for x in part {
         print(x);
-        println("");
     }
     part.free();
 
     let clamped = xs.slice(0 - 5, 2);
     for x in clamped {
         print(x);
-        println("");
     }
     clamped.free();
 
     let tail = xs.slice(2, 99);
     for x in tail {
         print(x);
-        println("");
     }
     tail.free();
 
@@ -61,17 +54,14 @@ fn main() {
     let names = []string { "a", "b" };
     names.extend([]string { "c", "d" });
     if names.contains("c") {
-        println("contains c");
+        print("contains c");
     }
     print(show(names.index_of("b")));
-    println("");
     print(names.len());
-    println("");
 
     let middle = names.slice(1, 3);
     for name in middle {
         print(name);
-        println("");
     }
     middle.free();
     names.free();

@@ -28,10 +28,10 @@ fn parse_number(string text) -> int {
 }
 
 fn main() {
-    print("name? ");
+    print("name?");
     const name = read_line();
-    print("age? ");
+    print("age?");
     const age_text = read_line();
     const age = number(age_text);
-    print(text_of(name) + " is " + str_from_i64(age) + " years old\n");
+    print(text_of(name) + " is " + str_from_i64(age) + " years old");
 }

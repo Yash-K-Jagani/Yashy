@@ -40,30 +40,23 @@ fn main() {
 
     // A fixed array's length is a constant in its type.
     print(grid.len());
-    println("");
 
     // Indexing is checked, in range and out.
     print(show(grid[1]));
-    println("");
     print(show(grid[3]));
-    println("");
     print(show(grid.first()));
-    println("");
     print(show(grid.last()));
-    println("");
 
     // A view over the middle of the array. Bounds are clamped, so `0..99` is
     // the whole array rather than an error.
     const head = grid[0..2];
     print(head.len());
-    println("");
 
     let total = 0;
     for value in head {
         total = total + value;
     }
     print(total);
-    println("");
 
     // Iterating the array itself visits every element.
     let all = 0;
@@ -71,25 +64,20 @@ fn main() {
         all = all + value;
     }
     print(all);
-    println("");
 
     const wide = grid[0..99];
     print(wide.len());
-    println("");
 
     // A backwards range is empty, not negative.
     const none = grid[2..1];
     print(none.len());
-    println("");
 
     // Fixed arrays can be named in a type too.
     const [int; 2] typed = [7, 8];
     print(show(typed[1]));
-    println("");
 
     // A view over a growable array: 20 + 30.
     print(middle_sum([]int { 10, 20, 30, 40 }));
-    println("");
     // => 3
     //    2
     //    -1

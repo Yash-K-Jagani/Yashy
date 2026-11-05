@@ -14,5 +14,5 @@ fn main() {
         case Empty { print(1); }
         case Circle(r) { print(r); }
     }
-    println("");
+    print("");
 }

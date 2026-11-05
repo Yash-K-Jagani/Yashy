@@ -5,20 +5,19 @@
 // earlier and more than once.
 fn main() {
     defer {
-        println("deferred");
+        print("deferred");
     }
     if 1 == 1 {
-        println("if");
+        print("if");
     }
     let xs = []int { 7, 8 };
+    let row = "";
     for value in xs {
-        print(value);
-        print(" ");
+        row = row + str_from_i64(value) + " ";
     }
     for i in 0..2 {
-        print(i);
-        print(" ");
+        row = row + str_from_i64(i) + " ";
     }
-    println("after");
+    print(row + "after");
     xs.free();
 }

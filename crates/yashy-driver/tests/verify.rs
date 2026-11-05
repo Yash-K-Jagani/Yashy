@@ -146,7 +146,7 @@ fn timings_go_to_stderr_and_the_json_report_and_never_to_stdout() {
     write(
         &dir,
         "hello.ya",
-        "fn main() {\n    println(\"hello\");\n}\n",
+        "fn main() {\n    print(\"hello\");\n}\n",
     );
 
     let plain = run(&dir, &["run", "hello.ya"]);

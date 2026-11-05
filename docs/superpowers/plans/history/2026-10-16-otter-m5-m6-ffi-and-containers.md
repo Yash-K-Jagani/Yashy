@@ -862,7 +862,7 @@ git commit -m "feat: module resolution, OTTER_PATH, and cycle detection"
 
 **Interfaces:**
 - Consumes: everything above
-- Produces: `io.println(string)`, `io.print`, `io.read_line() -> Result[string, string]`, `io.write_file(string, string) -> Result[i64, string]`, `io.read_file(string) -> Result[string, string]`; `string.concat`, `string.split`, `string.trim`, `string.contains`, `string.starts_with`; `math.sqrt/abs/min/max/pow`; `os.args() -> []string`, `os.exit`, `os.getenv`; `alloc` helpers
+- Produces: `io.print(string)`, `io.print`, `io.read_line() -> Result[string, string]`, `io.write_file(string, string) -> Result[i64, string]`, `io.read_file(string) -> Result[string, string]`; `string.concat`, `string.split`, `string.trim`, `string.contains`, `string.starts_with`; `math.sqrt/abs/min/max/pow`; `os.args() -> []string`, `os.exit`, `os.getenv`; `alloc` helpers
 
 **Every exported stdlib function documents its ownership in a comment directly above it** — which function releases which allocation. Users copy this code.
 
@@ -914,7 +914,7 @@ git commit -m "feat(stdlib): io, string, math, os and alloc modules"
 
 - **One flat namespace, so no dotted names.** Task 9 put every module's items in
   one root scope. `io.println` is therefore a name the checker cannot spell: the
-  call is `println(text)`, and the module a file imports does not qualify it. The
+  call is `print(text)`, and the module a file imports does not qualify it. The
   library keeps the plan's *functions*, not the plan's *paths*:
   `io.ot` exports `print`, `println`, `println_i64`, `println_f64`; `string.ot`
   exports `concat`, `contains`, `starts_with`, `trim`, `split`; `math.ot`
@@ -939,7 +939,7 @@ git commit -m "feat(stdlib): io, string, math, os and alloc modules"
 - **A call now has ownership rules for borrowed arguments.** Writing the library
   exposed a general gap: a `string` temporary passed to a function the program
   wrote was never released, and a `string` a user function returned was not
-  marked owned, so `println(trim(x))` leaked the trimmed text.
+  marked owned, so `print(trim(x))` leaked the trimmed text.
   `gen_borrowed_call` lowers the arguments once, releases any owned temporary
   after the call (the callee borrows it), and marks a `string` result owned (the
   callee's `return` already retains a local on the way out). The reading builtins

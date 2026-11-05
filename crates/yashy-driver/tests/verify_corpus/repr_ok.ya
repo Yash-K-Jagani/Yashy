@@ -14,5 +14,5 @@ fn main() {
     print(alignof(Pair));
     print(" ");
     print(offsetof(Pair, b));
-    println("");
+    print("");
 }

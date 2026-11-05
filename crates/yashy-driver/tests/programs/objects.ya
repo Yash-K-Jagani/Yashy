@@ -13,9 +13,7 @@ object Counter {
 fn main() {
     const counter = Counter { value: 3 };
     print(counter.get());
-    println("");
 
     // A method called on the result of another one.
     print(counter.add(4).get());
-    println("");
 }

@@ -16,9 +16,9 @@ fn main() {
     let i = 1;
     while i <= 5 {
         if i % 2 == 0 {
-            println("even");
+            print("even");
         } else {
-            println("odd");
+            print("odd");
         }
         i += 1;
     }
@@ -36,7 +36,7 @@ fn main() {
         sum += n;
     }
     print(sum);
-    println();
+    print();
     // => 7
 
     let count = 0;
@@ -47,7 +47,7 @@ fn main() {
         }
     }
     print(count);
-    println();
+    print();
     // => 3
 }
 ```
@@ -90,7 +90,7 @@ needs several statements calls a function. The switch must cover every shape --
 or end in `default` -- in either position.
 
 The one-expression rule keeps the grammar small. `case Some(n) { print(n); }`
-works because a call is an expression. Adding `println();` after it makes
+works because a call is an expression. Adding `print();` after it makes
 the arm a block with two statements, and the parser stops at the second one:
 
 ```text

@@ -52,6 +52,8 @@ the declaration or import involved when that is not obvious.
 | [E0902](errors/E0902.md) | misplaced variadic marker |
 | [E1000](errors/E1000.md) | leaked linear value |
 | [E1002](errors/E1002.md) | spread operand used after the literal |
+| [E1003](errors/E1003.md) | arena value escapes its block |
+| [E1004](errors/E1004.md) | arena value freed individually |
 | [E1100](errors/E1100.md) | undischarged contract |
 | [E1201](errors/E1201.md) | provable integer overflow |
 | [E1300](errors/E1300.md) | effect exceeded |

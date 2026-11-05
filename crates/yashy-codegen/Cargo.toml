@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 yashy-common = { path = "../yashy-common" }
+yashy-hir = { path = "../yashy-hir" }
 yashy-parser = { path = "../yashy-parser" }
 yashy-sema = { path = "../yashy-sema" }
 

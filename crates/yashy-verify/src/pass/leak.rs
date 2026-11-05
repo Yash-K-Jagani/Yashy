@@ -54,6 +54,15 @@
 //! and keeps `build` working; an error would refuse a documented idiom, and
 //! silence would be a verifier that claims to catch leaks and does not.
 
+//! # The arena block
+//!
+//! `arena { }` owns every allocation written inside it and frees it on every
+//! exit, so a binding declared in the block holds a borrowed value, not a
+//! linear one. The block ends the ownership, so the leak pass neither tracks
+//! the binding nor reports it. When the value crosses the boundary the arena
+//! pass reports `E1003` instead; reporting a leak too would make every escape
+//! two diagnostics.
+
 use yashy_common::{codes, Diagnostic, FileId, ProofTrace, Severity, Span};
 use yashy_hir::hir::{
     builtin_borrows_argument, expr_ty, is_arena_alloc, HirBlock, HirExpr, HirFn, HirItem,
@@ -69,6 +78,7 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
         out,
         file: FileId::from_index(0),
         frames: Vec::new(),
+        arena_depths: Vec::new(),
     };
     for item in &program.items {
         if let HirItem::Fn(function) = item {
@@ -124,6 +134,8 @@ struct LeakPass<'a> {
     /// The file the function being walked was written in.
     file: FileId,
     frames: State,
+    /// Whether each open block is an `arena { }` block, innermost last.
+    arena_depths: Vec<bool>,
 }
 
 impl LeakPass<'_> {
@@ -144,6 +156,7 @@ impl LeakPass<'_> {
     /// when it ends.
     fn block(&mut self, block: &HirBlock) -> Flow {
         self.frames.push(Vec::new());
+        self.arena_depths.push(block.arena);
         let mut flow = Flow::Falls;
         for stmt in &block.stmts {
             flow = self.stmt(stmt);
@@ -157,8 +170,14 @@ impl LeakPass<'_> {
         if flow == Flow::Falls {
             self.report_scope_leaks();
         }
+        self.arena_depths.pop();
         self.frames.pop();
         flow
+    }
+
+    /// Whether any enclosing block is an `arena { }` block.
+    fn inside_arena(&self) -> bool {
+        self.arena_depths.iter().any(|arena| *arena)
     }
 
     fn stmt(&mut self, stmt: &HirStmt) -> Flow {
@@ -186,8 +205,10 @@ impl LeakPass<'_> {
                 // A block from `arena_alloc` is owned by the arena, not by the
                 // binding: the arena is the value that has to be released, and
                 // tracking the block would demand a release the language has no
-                // way to write.
-                if !is_arena_view(init) {
+                // way to write. The same is true of any value allocated inside
+                // an `arena { }` block: the block frees it, so the binding is
+                // borrowed, not owned.
+                if !is_arena_view(init) && !self.inside_arena() {
                     self.declare(name, &ty, *span);
                 }
                 Flow::Falls
@@ -199,8 +220,10 @@ impl LeakPass<'_> {
                 ..
             } => {
                 self.walk(init);
-                for binding in bindings.iter().flatten() {
-                    self.declare(&binding.0, &binding.1, *span);
+                if !self.inside_arena() {
+                    for binding in bindings.iter().flatten() {
+                        self.declare(&binding.0, &binding.1, *span);
+                    }
                 }
                 Flow::Falls
             }
@@ -558,9 +581,27 @@ impl LeakPass<'_> {
     }
 
     /// Give a binding a new, live value.
+    ///
+    /// When the value comes from inside an `arena { }` block the binding is
+    /// arena-owned, not linear: the block will free it. Stop tracking it
+    /// rather than report a leak for the block's own release.
     fn rebind(&mut self, name: &str) {
+        if self.inside_arena() {
+            self.stop_tracking(name);
+            return;
+        }
         if let Some(binding) = self.find(name) {
             binding.released = false;
+        }
+    }
+
+    /// Stop tracking `name` in the innermost frame that declares it.
+    fn stop_tracking(&mut self, name: &str) {
+        for frame in self.frames.iter_mut().rev() {
+            if let Some(index) = frame.iter().rposition(|binding| binding.name == name) {
+                frame.remove(index);
+                return;
+            }
         }
     }
 

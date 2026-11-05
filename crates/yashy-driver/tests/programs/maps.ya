@@ -10,7 +10,6 @@ fn report(Option[int] found) {
         case Some(v) { print(v); }
         case None { print("none"); }
     }
-    println("");
 }
 
 fn main() {
@@ -22,6 +21,5 @@ fn main() {
     report(counts.remove("pear"));
     report(counts.get("pear"));
     print(counts.len());
-    println("");
     counts.free();
 }

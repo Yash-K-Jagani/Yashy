@@ -62,6 +62,9 @@ impl<'src> Parser<'src> {
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Defer => self.parse_defer(),
+            TokenKind::Ident if self.identifier_is("arena") && self.peek_second() == TokenKind::LBrace => {
+                self.parse_arena()
+            }
             TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => {
                 self.parse_binding_stmt()
             }
@@ -690,6 +693,17 @@ impl<'src> Parser<'src> {
         Ok(Stmt::Defer {
             body,
             span: cover(kw.span, body_span),
+        })
+    }
+
+    fn parse_arena(&mut self) -> Result<Stmt, ParseError> {
+        let (name, name_span) = self.identifier()?;
+        debug_assert_eq!(name, "arena");
+        let body = self.parse_block()?;
+        let body_span = body.span;
+        Ok(Stmt::Arena {
+            body,
+            span: cover(name_span, body_span),
         })
     }
 

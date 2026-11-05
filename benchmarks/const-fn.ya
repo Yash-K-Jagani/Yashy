@@ -27,7 +27,7 @@ fn main() {
     const squares = sum_squares(100);
     const tenth = fib(10);
     print(squares);
-    println("");
+    print("");
     print(tenth);
-    println("");
+    print("");
 }

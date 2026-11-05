@@ -12,5 +12,4 @@ fn count(int d) -> int {
 
 fn main() {
     print(count(3));
-    println("");
 }

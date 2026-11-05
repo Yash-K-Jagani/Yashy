@@ -273,3 +273,129 @@ fn promotion_can_be_turned_off_for_a_bisect() {
         "nothing may be promoted:\n{f}"
     );
 }
+
+#[test]
+fn an_explicit_arena_block_owns_every_allocation_inside_it() {
+    let ir = promoted(
+        "\
+fn f() -> int {
+    let total = 0;
+    arena {
+        let buf = alloc(16);
+        buf[0] = 7;
+        total = total + buf[0];
+        let more = alloc(8);
+        more[0] = 1;
+        total = total + more[0];
+    }
+    return total;
+}
+fn main() { }
+",
+    );
+    let f = body(&ir, "f");
+    assert!(
+        f.contains("@yashy_arena_alloc("),
+        "the arena must allocate:\n{f}"
+    );
+    assert!(
+        f.contains("@yashy_arena_new()"),
+        "the block must open one arena:\n{f}"
+    );
+    assert!(
+        f.contains("@yashy_arena_free_all("),
+        "the block must release it at exit:\n{f}"
+    );
+    assert!(
+        !f.contains("@yashy_alloc("),
+        "the heap allocator must not be used:\n{f}"
+    );
+    assert!(
+        !f.contains("alloca [16 x i64]"),
+        "a block allocation may not land on the stack:\n{f}"
+    );
+}
+
+#[test]
+fn an_arena_allocation_written_in_a_nested_block_keeps_the_outer_arena() {
+    let ir = promoted(
+        "\
+fn f() -> int {
+    let total = 0;
+    arena {
+        let buf = alloc(16);
+        if total == 0 {
+            let extra = alloc(8);
+            extra[0] = 2;
+            total = total + extra[0];
+        }
+        total = total + buf[0];
+    }
+    return total;
+}
+fn main() { }
+",
+    );
+    let f = body(&ir, "f");
+    assert!(
+        f.contains("@yashy_arena_alloc("),
+        "the arena must allocate:\n{f}"
+    );
+    assert!(
+        !f.contains("@yashy_alloc("),
+        "the nested allocation must not fall back to the heap:\n{f}"
+    );
+    assert_eq!(
+        f.matches("@yashy_arena_new()").count(),
+        1,
+        "one `arena` block opens one arena:\n{f}"
+    );
+    assert_eq!(
+        f.matches("@yashy_arena_free_all(").count(),
+        1,
+        "the nested block exit must not free the arena early:\n{f}"
+    );
+}
+
+#[test]
+fn an_inner_arena_block_gets_its_own_arena() {
+    let ir = promoted(
+        "\
+fn f() -> int {
+    let total = 0;
+    arena {
+        let buf = alloc(16);
+        buf[0] = 1;
+        total = total + buf[0];
+        arena {
+            let inner = alloc(8);
+            inner[0] = 2;
+            total = total + inner[0];
+        }
+        total = total + buf[0];
+    }
+    return total;
+}
+fn main() { }
+",
+    );
+    let f = body(&ir, "f");
+    assert!(
+        f.contains("@yashy_arena_alloc("),
+        "the arenas must allocate:\n{f}"
+    );
+    assert!(
+        !f.contains("@yashy_alloc("),
+        "neither arena may fall back to the heap:\n{f}"
+    );
+    assert_eq!(
+        f.matches("@yashy_arena_new()").count(),
+        2,
+        "two nested blocks open two arenas:\n{f}"
+    );
+    assert_eq!(
+        f.matches("@yashy_arena_free_all(").count(),
+        2,
+        "each block releases its own arena:\n{f}"
+    );
+}

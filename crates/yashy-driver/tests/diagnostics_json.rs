@@ -277,7 +277,7 @@ fn test_json_carries_a_verifier_warning_without_failing() {
     write(
         &dir,
         "tests/viewed.ya",
-        "fn main() {\n    let xs = []int { 1, 2, 3 };\n    const view = xs[0..2];\n    print(view.len());\n    println(\"\");\n}\n",
+        "fn main() {\n    let xs = []int { 1, 2, 3 };\n    const view = xs[0..2];\n    print(view.len());\n    print(\"\");\n}\n",
     );
 
     let output = run(&dir, &["test", "--json"]);

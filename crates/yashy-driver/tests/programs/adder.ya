@@ -41,5 +41,4 @@ fn main() {
         total = total + number(text_of(line));
     }
     print(total);
-    println("");
 }

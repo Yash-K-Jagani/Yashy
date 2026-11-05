@@ -412,7 +412,11 @@ impl Checker<'_> {
         }
         out = concat(out, text(")", span), span);
         stmts.push(HirStmt::Return(Some(out), span));
-        Some(HirBlock { stmts, span })
+        Some(HirBlock {
+            stmts,
+            span,
+            arena: false,
+        })
     }
 
     /// `[a, b, c]` for a fixed array, a slice or a view.
@@ -483,7 +487,11 @@ impl Checker<'_> {
         });
         let tail = concat(ident(out_name, &prim(TypeKind::Str), span), text("]", span), span);
         stmts.push(HirStmt::Return(Some(tail), span));
-        Some(HirBlock { stmts, span })
+        Some(HirBlock {
+            stmts,
+            span,
+            arena: false,
+        })
     }
 }
 
@@ -527,7 +535,11 @@ fn returns(value: HirExpr, span: Span) -> HirBlock {
 }
 
 fn block(stmts: Vec<HirStmt>, span: Span) -> HirBlock {
-    HirBlock { stmts, span }
+    HirBlock {
+        stmts,
+        span,
+        arena: false,
+    }
 }
 
 /// `name = value;` for a `let` of type `ty`.

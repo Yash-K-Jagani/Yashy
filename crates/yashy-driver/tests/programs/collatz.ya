@@ -23,7 +23,7 @@ fn collatz_steps(int start) -> int {
 fn main() {
     let i = 1;
     while i <= 5 {
-        print(str_from_i64(i) + ": " + str_from_i64(collatz_steps(i)) + "\n");
+        print(str_from_i64(i) + ": " + str_from_i64(collatz_steps(i)));
         i += 1;
     }
 }

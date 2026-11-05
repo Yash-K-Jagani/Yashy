@@ -1,4 +1,4 @@
-//! Variadic `println`.
+//! Variadic `print` (Python-style: space-joined, newline-terminated).
 
 use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
@@ -17,16 +17,16 @@ fn check(src: &str) -> Result<HirProgram, Vec<Diagnostic>> {
 }
 
 #[test]
-fn println_accepts_many_values_of_many_types() {
-    check(r#"fn main() { println("sum", 1 + 2, 'a', true); }"#)
-        .expect("`println` accepts any number of printable values");
-    check("fn main() { println(); }").expect("`println` with no values prints an empty line");
-    check("fn main() { println(42); }").expect("a single value still works");
+fn print_accepts_many_values_of_many_types() {
+    check(r#"fn main() { print("sum", 1 + 2, 'a', true); }"#)
+        .expect("`print` accepts any number of printable values");
+    check("fn main() { print(); }").expect("`print` with no values prints an empty line");
+    check("fn main() { print(42); }").expect("a single value still works");
 }
 
 #[test]
-fn println_still_refuses_unprintable_values() {
-    match check("fn f(fn() -> int g) { println(g); } fn main() { }") {
+fn print_still_refuses_unprintable_values() {
+    match check("fn f(fn() -> int g) { print(g); } fn main() { }") {
         Ok(_) => panic!("expected an error"),
         Err(diagnostics) => assert!(
             diagnostics

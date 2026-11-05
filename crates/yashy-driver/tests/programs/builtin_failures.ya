@@ -20,20 +20,17 @@ fn code(io.Error e) -> int {
 
 /// A label and a failure code on one line.
 fn report(string label, io.Error e) {
-    print(label);
-    println(code(e));
+    print(label, code(e));
 }
 
 /// A label and the byte count of a string on one line.
 fn measure(string label, string text) {
-    print(label);
-    println(text.len());
+    print(label, text.len());
 }
 
 /// A label and a number on one line.
 fn number(string label, int value) {
-    print(label);
-    println(value);
+    print(label, value);
 }
 
 fn main() {
@@ -50,43 +47,43 @@ fn main() {
 
     // An empty file is `Ok("")`; a missing one is `Err(NotFound)`.
     switch read_file(empty_path) {
-        case Ok(body) { measure("empty ok ", body) }
-        case Err(e) { report("empty err ", e) }
+        case Ok(body) { measure("empty ok", body) }
+        case Err(e) { report("empty err", e) }
     }
     switch read_file(missing_path) {
-        case Ok(body) { measure("missing ok ", body) }
-        case Err(e) { report("missing err ", e) }
+        case Ok(body) { measure("missing ok", body) }
+        case Err(e) { report("missing err", e) }
     }
 
     // Unset is `None`; set but empty is `Some("")`.
     switch getenv("YASHY_TEST_UNSET") {
-        case Some(value) { measure("unset some ", value) }
-        case None { println("unset none") }
+        case Some(value) { measure("unset some", value) }
+        case None { print("unset none") }
     }
     switch getenv("YASHY_TEST_EMPTY") {
-        case Some(value) { measure("set-empty some ", value) }
-        case None { println("set-empty none") }
+        case Some(value) { measure("set-empty some", value) }
+        case None { print("set-empty none") }
     }
 
     // The first line is empty (`Some("")`); the read after it is end of input.
     switch read_line() {
-        case Some(line) { measure("line ", line) }
-        case None { println("line eof") }
+        case Some(line) { measure("line", line) }
+        case None { print("line eof") }
     }
     switch read_line() {
-        case Some(line) { measure("next ", line) }
-        case None { println("next eof") }
+        case Some(line) { measure("next", line) }
+        case None { print("next eof") }
     }
 
     // Unparseable text is `None`; `"0"` is `Some(0)`.
     const text = "abc";
     switch text.parse_i64() {
-        case Some(value) { number("abc some ", value) }
-        case None { println("abc none") }
+        case Some(value) { number("abc some", value) }
+        case None { print("abc none") }
     }
     const zero = "0";
     switch zero.parse_i64() {
-        case Some(value) { number("zero some ", value) }
-        case None { println("zero none") }
+        case Some(value) { number("zero some", value) }
+        case None { print("zero none") }
     }
 }

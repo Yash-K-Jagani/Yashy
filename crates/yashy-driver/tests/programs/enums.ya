@@ -59,23 +59,14 @@ fn main() {
     const r = Shape.Rect { h: 3.0, w: 4.0 };
     const p = Shape.Point;
     print(area(c));
-    println("");
     print(area(r));
-    println("");
     print(area(p));
-    println("");
 
     print(label(Message.Text("hi")));
-    println("");
     print(label(Message.Count(7)));
-    println("");
     print(label(Message.Nothing));
-    println("");
 
     print(total(Item.Two(Pair { right: 3, left: 4 })));
-    println("");
     print(total(Item.Number(5)));
-    println("");
     print(total(Item.Nothing));
-    println("");
 }

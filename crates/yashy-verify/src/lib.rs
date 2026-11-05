@@ -126,6 +126,7 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     let mut memo: BTreeMap<(String, u32), ()> = BTreeMap::new();
     let analyses = collect_functions(hir, &mut memo);
     pass::leak::check(hir, &mut diagnostics);
+    pass::arena::check(hir, &mut diagnostics);
     pass::exhaustive::check(hir, &mut diagnostics);
     let effects = pass::effects::check(hir, &mut diagnostics);
     pass::contracts::check(hir, options.contracts, &effects, &mut obligations, &mut diagnostics);

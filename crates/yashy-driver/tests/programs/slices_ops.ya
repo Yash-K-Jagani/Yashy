@@ -16,23 +16,17 @@ fn main() {
     let xs = []int { 10, 20, 30 };
     xs.push(40);
     print(xs.len());
-    println("");
 
     print(show(xs[0]));
-    println("");
     print(show(xs[3]));
-    println("");
     print(show(xs[4]));
-    println("");
     print(show(xs[0 - 1]));
-    println("");
 
     let sum = 0;
     for value in xs {
         sum = sum + value;
     }
     print(sum);
-    println("");
 
     let before = 0;
     for value in xs {
@@ -42,7 +36,6 @@ fn main() {
         before = before + 1;
     }
     print(before);
-    println("");
 
     let empty = []int {};
     let count = 0;
@@ -50,7 +43,6 @@ fn main() {
         count = count + 1;
     }
     print(count);
-    println("");
 
     // The loop must see a `push` that happens while it runs. A cached length or
     // data pointer would stop after the first iteration (or read freed memory).
@@ -64,14 +56,10 @@ fn main() {
         pushed = pushed + 1;
     }
     print(growing.len());
-    println("");
 
     print(show(xs.pop()));
-    println("");
     print(show(xs.pop()));
-    println("");
     print(xs.len());
-    println("");
 
     empty.free();
     growing.free();

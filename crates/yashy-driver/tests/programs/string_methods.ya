@@ -22,117 +22,93 @@ fn float_word(float value) -> string {
 fn main() {
     let s = "  Hello, Yashy  ";
     print(s.len());
-    println("");
     if s.is_empty() {
-        println("unexpected empty");
+        print("unexpected empty");
     } else {
-        println("not empty");
+        print("not empty");
     }
 
     print(s.byte_at(2));
-    println("");
     print(show(s.get(2)));
-    println("");
     print(show(s.get(99)));
-    println("");
 
     print(s.slice(2, 7));
-    println("");
 
     if s.contains("Yashy") {
-        println("contains Yashy");
+        print("contains Yashy");
     }
     if s.contains("cat") {
-        println("unexpected: contains cat");
+        print("unexpected: contains cat");
     } else {
-        println("missing cat");
+        print("missing cat");
     }
     if s.starts_with("  He") {
-        println("starts He");
+        print("starts He");
     }
     if s.ends_with("  ") {
-        println("ends spaces");
+        print("ends spaces");
     }
 
     print(show(s.index_of("Yashy")));
-    println("");
     print(show(s.index_of("cat")));
-    println("");
 
     print(s.trim());
-    println("");
     let trimmed_start = s.trim_start();
     print(trimmed_start.len());
-    println("");
     let trimmed_end = s.trim_end();
     print(trimmed_end.len());
-    println("");
     let upper = s.to_upper();
     print(upper.len());
-    println("");
     print(upper.trim());
-    println("");
     let lower = s.to_lower();
     print(lower.trim());
-    println("");
     let replaced = s.replace("Yashy", "world");
     print(replaced.trim());
-    println("");
 
     let ab = "ab";
     print(ab.repeat(3));
-    println("");
     let nothing = ab.repeat(0);
     print(nothing.len());
-    println("");
 
     let csv = "a, b, c";
     let parts = csv.split(", ");
     print(parts.len());
-    println("");
     for part in parts {
         print(part);
-        println("");
     }
     parts.free();
 
     let one = "abc";
     let whole = one.split("");
     print(whole.len());
-    println("");
     whole.free();
 
     let trailing = "a,";
     let trailing_parts = trailing.split(",");
     print(trailing_parts.len());
-    println("");
     trailing_parts.free();
 
     let text = "one\r\ntwo\nthree\n";
     let lines = text.lines();
     print(lines.len());
-    println("");
     for line in lines {
         print(line);
-        println("");
     }
     lines.free();
 
     let empty = "";
     if empty.is_empty() {
-        println("empty is empty");
+        print("empty is empty");
     }
     let no_lines = empty.lines();
     print(no_lines.len());
-    println("");
     no_lines.free();
 
     let number = "42";
     print(show(number.parse_i64()));
-    println("");
     let decimal = "2.5";
     switch decimal.parse_f64() {
-        case Some(value) { println(float_word(value)) }
-        case None { println("float parse wrong") }
+        case Some(value) { print(float_word(value)) }
+        case None { print("float parse wrong") }
     }
 }

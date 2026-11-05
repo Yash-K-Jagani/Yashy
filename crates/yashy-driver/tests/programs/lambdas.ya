@@ -9,9 +9,7 @@ fn apply(fn(int) -> int f, int x) -> int {
 
 fn main() {
     print(apply(|int x| -> int { return x + 1; }, 41));
-    println("");
 
     const double = |int x| -> int { return x * 2; };
     print(double(20));
-    println("");
 }

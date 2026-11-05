@@ -6,14 +6,14 @@
 fn main() {
     let p = alloc(4);
     p.free();
-    println("pointer freed");
+    print("pointer freed");
 
     let xs = []int { 1, 2, 3 };
     xs.free();
-    println("slice freed");
+    print("slice freed");
 
     let map[int]int m = map_new();
     m.insert(1, 2);
     m.free();
-    println("map freed");
+    print("map freed");
 }

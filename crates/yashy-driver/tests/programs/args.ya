@@ -5,9 +5,8 @@
 fn main() {
     const arguments = args();
     print(arguments.len());
-    println("");
     for value in arguments {
-        println(value);
+        print(value);
     }
     arguments.free();
 }

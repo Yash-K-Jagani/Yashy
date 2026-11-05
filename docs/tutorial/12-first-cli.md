@@ -167,7 +167,7 @@ fn main() {
     arguments.free();
 
     if path.len() == 0 {
-        println("usage: wordcount <file>");
+        print("usage: wordcount <file>");
         return;
     }
 
@@ -175,7 +175,7 @@ fn main() {
     // read is an error value, not an empty file.
     switch read_file(path) {
         case Ok(text) { report(text) }
-        case Err(_) { println("wordcount: cannot read " + path) }
+        case Err(_) { print("wordcount: cannot read " + path) }
     }
 }
 
@@ -203,7 +203,7 @@ fn report(string text) {
     print(words);
     print(" ");
     print(text.len());
-    println("");
+    print("");
 
     lines.free();
 }
@@ -291,7 +291,7 @@ fn count_words(string line) -> int {
 
 fn main() {
     print(count_words("hello world"));
-    println();
+    print();
     // => 2
 }
 ```

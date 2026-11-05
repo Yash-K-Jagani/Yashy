@@ -484,7 +484,8 @@ impl Stmt {
             | Stmt::Switch { span, .. }
             | Stmt::Break(span)
             | Stmt::Continue(span)
-            | Stmt::Defer { span, .. } => *span,
+            | Stmt::Defer { span, .. }
+            | Stmt::Arena { span, .. } => *span,
             Stmt::Invariant(contract) => contract.span,
         }
     }
@@ -682,6 +683,8 @@ pub enum Stmt {
     Continue(Span),
     /// `defer { .. }` -- always a braced block, never an expression.
     Defer { body: Block, span: Span },
+    /// `arena { .. }` -- one arena for the block, released at block exit.
+    Arena { body: Block, span: Span },
     /// `invariant n >= 0` -- a fact a loop promises at its head.
     ///
     /// It is a statement rather than a field on each loop variant because the

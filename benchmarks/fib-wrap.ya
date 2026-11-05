@@ -22,5 +22,5 @@ fn fib(int n) -> int {
 
 fn main() {
     print(fib(35));
-    println("");
+    print("");
 }

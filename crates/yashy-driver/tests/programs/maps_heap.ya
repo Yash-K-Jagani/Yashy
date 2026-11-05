@@ -20,8 +20,6 @@ fn main() {
         case Some(v) { print(v); }
         case None { print("missing"); }
     }
-    println("");
     print(m.len());
-    println("");
     m.free();
 }

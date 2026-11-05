@@ -25,9 +25,7 @@ impl Shape {
 fn main() {
     const point = Point { x: 2, y: 3 };
     print(point.sum());
-    println("");
 
     const circle = Shape.Circle(4);
     print(circle.area());
-    println("");
 }

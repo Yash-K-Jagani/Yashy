@@ -7,7 +7,6 @@ fn main() {
     let int x = 1;
     x = x + 1;
     print(x);
-    println("");
 
     let total = 0;
     if true {
@@ -15,9 +14,7 @@ fn main() {
         total = inner + 2;
     }
     print(total);
-    println("");
 
     const limit = 3;
     print(limit);
-    println("");
 }

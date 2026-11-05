@@ -61,7 +61,7 @@ fn main() {
     }
 
     let report = "{\"documents\": " + str_from_i64(documents) + ", \"distinct_keys\": " + str_from_i64(keys.len()) + ", \"note\": " + JSON.quote("counted by Yashy") + "}";
-    println(report);
+    print(report);
 
     keys.free();
 }

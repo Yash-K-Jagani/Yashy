@@ -34,11 +34,11 @@ fn main() {
     const ratio = 0.5;
     const ready = true;
 
-    println("total = ${total}");
+    print("total = ${total}");
     print("half of total = ");
     print((total as float * ratio) as int);
-    println();
-    println("ready = ${ready}");
+    print();
+    print("ready = ${ready}");
     // => total = 22
     // => half of total = 11
     // => ready = true
@@ -105,7 +105,7 @@ fn main() {
     print(1 << 4);
     print(" ");
     print(negative >> 2);
-    println();
+    print();
     // => 2 14 12 -11 16 -4
 }
 ```
@@ -123,7 +123,7 @@ shifts, `+ -`, `* / %`. The bitwise levels sit between `&&` and equality, so
 ```yashy
 fn main() {
     print(1 | 2 ^ 3 & 4);
-    println();
+    print();
     // => 3
 }
 ```
@@ -153,18 +153,18 @@ fn main() {
     const letter = 'A';
     print(letter);
     print(letter.to_int());
-    println();
+    print();
     // => A65
 
     const code = 97;
     const lower = code.to_char();
     print(lower.to_string());
-    println();
+    print();
     // => a
 
     const word = "cat";
     print(word.byte_at(1));
-    println();
+    print();
     // => a
 }
 ```
@@ -191,7 +191,7 @@ fn main() {
     print(0b1010);
     print(" ");
     print(0o777);
-    println();
+    print();
     // => 1000000 255 10 511
 }
 ```
@@ -213,7 +213,7 @@ That matters when the right side has a side effect or can fault:
 
 ```text
 if n != 0 && 10 / n > 1 {
-    println("large");
+    print("large");
 }
 ```
 

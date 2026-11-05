@@ -15,7 +15,15 @@ fn main() {
     second[0] = 5;
 
     print(first[0] + first[3] + second[0]);
-    println("");
 
     arena_free_all(arena);
+
+    arena {
+        let buf = alloc(16);
+        buf[0] = 1;
+        buf[1] = 2;
+        let more = alloc(8);
+        more[0] = 3;
+        print(buf[0] + buf[1] + more[0]);
+    }
 }

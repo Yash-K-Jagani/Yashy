@@ -10,5 +10,5 @@ struct Plain {
 
 fn main() {
     print(offsetof(Plain, a));
-    println("");
+    print("");
 }

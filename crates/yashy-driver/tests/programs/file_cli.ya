@@ -40,11 +40,11 @@ fn report(string path, string body) {
     }
     lines.free();
 
-    const text = "lines=" + str_from_i64(line_count) + " words=" + str_from_i64(words) + "\n";
+    const text = "lines=" + str_from_i64(line_count) + " words=" + str_from_i64(words);
     const report_path = path + ".report";
-    switch write_file(report_path, text) {
+    switch write_file(report_path, text + "\n") {
         case Ok(_) { print(text) }
-        case Err(_) { println("file_cli: cannot write " + report_path) }
+        case Err(_) { print("file_cli: cannot write " + report_path) }
     }
 }
 
@@ -59,12 +59,12 @@ fn main() {
     };
     arguments.free();
     if path.len() == 0 {
-        println("usage: file_cli <path>");
+        print("usage: file_cli <path>");
         return;
     }
 
     switch read_file(path) {
         case Ok(body) { report(path, body) }
-        case Err(_) { println("file_cli: cannot read " + path) }
+        case Err(_) { print("file_cli: cannot read " + path) }
     }
 }

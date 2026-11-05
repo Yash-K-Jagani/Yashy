@@ -1,17 +1,10 @@
 fn main() {
     const ch = 'e';
     print(ch.to_string());
-    println("");
     print(ch.to_int());
-    println("");
     print('A'.to_int());
-    println("");
     print(65.to_char().to_string());
-    println("");
     print('A'.to_string());
-    println("");
     print("${'B'}");
-    println("");
     print("${'\n':?}");
-    println("");
 }

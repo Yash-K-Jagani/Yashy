@@ -15,15 +15,15 @@ fn main() {
     let buffer = alloc(4);
     buffer[0] = 7;
     print(buffer[0]);
-    println();
+    print();
     // => 7
 
     let owned = move buffer;
     defer {
         owned.free();
-        println("released");
+        print("released");
     }
-    println("still inside");
+    print("still inside");
     // => still inside
     // => released
 }
@@ -155,7 +155,7 @@ fn positive(int n) -> int requires n > 0 ensures result > 0 {
 fn main() {
     let value = positive(3);
     print(value);
-    println();
+    print();
     // => 3
 }
 ```

@@ -48,6 +48,6 @@ fn main() {
     }
 
     print(wrapping_add(total, hits));
-    println("");
+    print("");
     m.free();
 }

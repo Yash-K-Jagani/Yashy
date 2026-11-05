@@ -18,20 +18,14 @@ struct Server {
 fn main() {
     const c = Config { name: "x" };
     print(c.retries);
-    println("");
 
     const d = Config { retries: 5, name: "y" };
     print(d.retries);
-    println("");
 
     const base = Config { retries: 9, name: "b" };
     const e = Config { ..base };
     print(e.retries);
-    println("");
 
     const s = Server { port: 9090 };
-    print(s.host);
-    print(":");
-    print(s.port);
-    println("");
+    print(s.host, s.port);
 }

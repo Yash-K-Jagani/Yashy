@@ -24,7 +24,7 @@ fn main() {
         sum = wrapping_add(sum, x);
     }
     print(sum);
-    println("");
+    print("");
 
     doubled.free();
     xs.free();

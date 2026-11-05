@@ -18,16 +18,14 @@ fn doubled(Option[int] o) -> int {
 fn main() {
     const Option[int] seven = Some(7);
     print(doubled(seven));
-    println("");
 
     const Option[int] nothing = None;
     print(doubled(nothing));
-    println("");
 
     if let Some(x) = nothing {
         print(x);
     } else {
-        print("no value\n");
+        print("no value");
     }
 
     let xs = []int { 1, 2, 3, 4 };
@@ -36,7 +34,6 @@ fn main() {
         sum = sum + x;
     }
     print(sum);
-    println("");
 
     let ys = []int { 10, 20, 30 };
     let first = 0;
@@ -45,9 +42,7 @@ fn main() {
         break;
     }
     print(first);
-    println("");
     print(ys.len());
-    println("");
 
     xs.free();
     ys.free();

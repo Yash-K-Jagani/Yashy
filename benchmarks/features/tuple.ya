@@ -30,5 +30,5 @@ fn main() {
         i = wrapping_add(i, 1);
     }
     print(total);
-    println("");
+    print("");
 }

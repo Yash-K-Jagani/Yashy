@@ -15,7 +15,7 @@ the live documentation. In the same change the language surface gets smaller:
 - One integer type and one float type, spelled `int` and `float` (both 64-bit).
 - A `char` type for one byte.
 - `void` as the spelling for "returns nothing".
-- One way to print: `print(x)` and `println(x)`, for every type.
+- One way to print: `print(x)` and `print(x)`, for every type.
 - One way to make a reassignable binding: `let`.
 - One way to release an owned value: `.free()`.
 - Two array spellings instead of three: `[T; N]` and `[]T`.
@@ -42,7 +42,7 @@ phase changes no behavior at all and the existing suite proves it.
 Two mechanisms already exist and are reused rather than replaced:
 
 - **Interpolation.** `"total = ${total}"` already lowers to concatenation, so
-  `println("x = ${x}")` needs no new syntax.
+  `print("x = ${x}")` needs no new syntax.
 - **Debug formatting.** Structs, enums, tuples, arrays, slices and the built-in
   sum types already render as `Point { x: 3, y: 4 }`, `Circle(2.5)`, `Empty`,
   `(1, true)`, `[1, 2, 3]`, `Some(7)`, `None`, `Ok(7)`, `"a\nb\"c"`.
@@ -63,7 +63,7 @@ Two mechanisms already exist and are reused rather than replaced:
 | Float type | `float`, 64-bit |
 | Character type | `char`, one byte, 0–255 |
 | No-value type | `void` |
-| Printing | `print(x)`, `println(x)`; interpolation stays `${...}` |
+| Printing | `print(x)`, `print(x)`; interpolation stays `${...}` |
 | Reassignable binding | `let` only; `var` removed |
 | Releasing a value | `x.free()` |
 | Array type spellings | `[T; N]` and `[]T`; `[T]` views internal |
@@ -76,7 +76,7 @@ Two mechanisms already exist and are reused rather than replaced:
    decided when. Live docs change; the README carries one line explaining that
    the project was called Otter until 2026-10-23. Rewriting a dated record would
    make it say something it never said.
-2. **`println()` with no arguments is legal** and prints one newline. It costs
+2. **`print()` with no arguments is legal** and prints one newline. It costs
    nothing and removes a special case from the explanation of the print family.
 3. **`char` arithmetic requires `.to_int()`.** `'A' + 1` is an error; you write
    `'A'.to_int() + 1`. This is the language's existing "one spelling per
@@ -147,7 +147,7 @@ and `i64`, because they are history, not instructions.
   `'\0'`), and `c.to_string()` yields a one-character string. Strings are not
   iterable today (`for` iterates arrays only), and that does not change; a byte
   is reached with `s.byte_at(i)`.
-- Printing: `print('A')` and `println('A')` write `A`. Inside interpolation,
+- Printing: `print('A')` and `print('A')` write `A`. Inside interpolation,
   `"${c}"` writes the character, not its value.
 - Storage is one byte in memory; `char` participates in structs, arrays,
   `Option[char]` and `Result[char, E]` like any other scalar.
@@ -156,7 +156,7 @@ and `i64`, because they are history, not instructions.
 
 ## 6. Printing
 
-- `print(x)` writes `x`; `println(x)` writes `x` and a newline; `println()`
+- `print(x)` writes `x`; `print(x)` writes `x` and a newline; `print()`
   writes only a newline.
 - One argument, any printable type. The checker resolves by the argument's type,
   so there is no format string and no varargs machinery.

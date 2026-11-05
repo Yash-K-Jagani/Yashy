@@ -411,7 +411,6 @@ struct ClosureFrame {
 /// mean" suggestion has to offer them explicitly.
 const CALLABLE_EXTRAS: &[&str] = &[
     "print",
-    "println",
     "None",
     "Some",
     "Ok",
@@ -3197,6 +3196,7 @@ impl<'src> Checker<'src> {
         Some(HirBlock {
             stmts,
             span: block.span,
+            arena: false,
         })
     }
 
@@ -3936,6 +3936,7 @@ impl<'src> Checker<'src> {
                         body: HirBlock {
                             stmts,
                             span: body.span,
+                            arena: false,
                         },
                         span: *span,
                     });
@@ -4002,6 +4003,27 @@ impl<'src> Checker<'src> {
             Stmt::Defer { body, span } => {
                 let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::Defer { body, span: *span })
+            }
+            Stmt::Arena { body, span } => {
+                // `arena { .. }` is an `if true` whose block carries the arena
+                // boundary bit; the existing block machinery releases it on
+                // every exit, including `break`, `continue` and `return`.
+                let body = self.check_block_with_ret(body, ret)?;
+                Some(HirStmt::If {
+                    init: None,
+                    cond: HirExpr::Literal(
+                        yashy_hir::hir::Literal::Bool(true),
+                        *span,
+                        prim(TypeKind::Bool),
+                    ),
+                    then_block: HirBlock {
+                        stmts: body.stmts,
+                        span: body.span,
+                        arena: true,
+                    },
+                    else_block: None,
+                    span: *span,
+                })
             }
             Stmt::Invariant(contract) => {
                 let checked = self.check_contract(contract)?;
@@ -4124,6 +4146,7 @@ impl<'src> Checker<'src> {
             else_block: Some(HirBlock {
                 stmts: vec![HirStmt::Break(span)],
                 span,
+                arena: false,
             }),
             span,
         };
@@ -4134,6 +4157,7 @@ impl<'src> Checker<'src> {
             body: HirBlock {
                 stmts: vec![hit],
                 span,
+                arena: false,
             },
             span,
         })
@@ -7730,39 +7754,18 @@ impl<'src> Checker<'src> {
                 if let Some(checked) = self.check_builtin_method(callee, args, *span) {
                     return checked;
                 }
-                // `print` and `println` are the new spelling. They take one value
-                // of any printable type (or none, for `println()`), convert it
-                // to a string internally, and print it. The old names are handled
+                // `print` is the output form. It takes any number of values
+                // of any printable type (or none), converts each to a string
+                // internally, and writes one line. The old names are handled
                 // by the migration table below.
                 if callee.len() == 1 {
                     let call_name = callee.last().cloned().unwrap_or_default();
                     match call_name.as_str() {
                         "print" => {
-                            if args.len() != 1 {
-                                self.error(*span, "`print` takes one value".to_string());
-                                return None;
-                            }
-                            let Some(arg) = args.first() else {
-                                return None;
-                            };
-                            let checked = match self.check_expr(arg) {
-                                Some(c) => c,
-                                None => return None,
-                            };
-                            let string = self.as_string(checked, *span)?;
-                            return Some(HirExpr::Call {
-                                callee: vec!["print_str".to_string()],
-                                args: vec![string],
-                                unsafe_call: false,
-                                span: *span,
-                                ty: prim(TypeKind::Unit),
-                            });
-                        }
-                        "println" => {
-                            // `println` takes any number of values: they are
-                            // converted to text and joined with one space, then
-                            // a newline is written. Zero values print an empty
-                            // line. `print` stays as the no-newline form.
+                            // `print` is the main, Python-style output: any
+                            // number of values, converted to text and joined
+                            // with one space, then a newline. `println` was
+                            // removed; the checker names the fix.
                             let mut parts: Vec<HirExpr> = Vec::with_capacity(args.len());
                             for arg in args {
                                 let checked = match self.check_expr(arg) {
@@ -7811,6 +7814,14 @@ impl<'src> Checker<'src> {
                                 span: *span,
                                 ty: prim(TypeKind::Unit),
                             });
+                        }
+                        "println" => {
+                            self.error(
+                                *span,
+                                "`println` was removed: use `print`, which takes any number of \
+                                 values and writes a newline".to_string(),
+                            );
+                            return None;
                         }
                         _ => {}
                     }
@@ -8070,7 +8081,7 @@ impl<'src> Checker<'src> {
                         // Migration table for retired builtins.
                         let last_name = callee.last().cloned().unwrap_or_default();
                         let migration_msg = match last_name.as_str() {
-                            "print_str" => Some("`print_str` was replaced: use `println` (or `print`)"),
+                            "print_str" => Some("`print_str` was replaced: use `print`"),
                             "print_i64" => Some("`print_i64` was replaced"),
                             "print_f64" => Some("`print_f64` was replaced"),
                             _ => None,

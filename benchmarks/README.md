@@ -166,7 +166,7 @@ have a comparable standard-library primitive.
 | `map_scan` | a 1,000,000-entry map, its keys and values copied into two arrays ten times over, then 2,000,000 `contains_key` probes | Go and Rust loops that collect the table into two slices or vectors |
 | `debug_format` | 1,000,000 debug-formatted points (`${value:?}`), and the total length of the text built | Rust's derived `Debug` |
 | `char` | 1 MiB of text scanned one byte at a time with `byte_at`, each byte compared with `'a'` and `'z'`, and the lowercase count printed | none: other languages compare bytes as integers, which is not the `char` type being measured |
-| `print` | 200,000 `println` lines, with stdout redirected to a file and the byte count checked (1,288,890) | none: the other languages' print APIs do different work |
+| `print` | 200,000 `print` lines, with stdout redirected to a file and the byte count checked (1,288,890) | none: the other languages' print APIs do different work |
 | `method` | 10,000,000 calls to a method that takes `self: *mut T` and increments one field | C struct and pointer, Go pointer receiver, Rust `&mut self` |
 | `generics` | 100,000,000 calls to a generic function, and the same loop with the type written out | C (the specialized function), Go generics, Rust generics |
 | `fixed_array` | 50,000,000 traversals of an 8-element fixed array (400,000,000 element adds), once with checked `+` and once with `wrapping_add` | C stack array (clang and gcc), Go array, Rust array |
@@ -950,7 +950,7 @@ measure.
 |---|---:|---:|---:|
 | Yashy -O2 | 159.4 | 201.5 | 797.00 |
 
-The program writes `println(i)` for `i` from 0 to 199,999. The runner hands the
+The program writes `print(i)` for `i` from 0 to 199,999. The runner hands the
 child's stdout straight to a file (PowerShell's `>` would decode the text and
 rewrite the line endings) and checks the byte count, `1288890` — the digits of
 0..199,999 plus one newline each — so a missing newline or a wrong conversion is

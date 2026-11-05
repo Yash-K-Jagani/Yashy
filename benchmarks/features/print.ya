@@ -3,7 +3,7 @@
 fn main() {
     let i = 0;
     while i < 200000 {
-        println(i);
+        print(i);
         i = i + 1;
     }
 }

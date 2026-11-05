@@ -20,7 +20,7 @@ extern "C" link "m" {
 
 fn main() {
     print(c_sqrt(2.0) == 1.4142135623730951);
-    println("");
+    print("");
     // => true
 }
 ```
@@ -80,15 +80,15 @@ repr(C) struct Point {
 
 fn main() {
     print(sizeof(Point));
-    println("");
+    print("");
     print(alignof(Point));
-    println("");
+    print("");
     print(offsetof(Point, tag));
-    println("");
+    print("");
     print(offsetof(Point, x));
-    println("");
+    print("");
     print(offsetof(Point, y));
-    println("");
+    print("");
     // => 12
     // => 4
     // => 0

@@ -76,6 +76,10 @@ pub const MALFORMED_EXTERN: &str = "E0901";
 pub const VARIADIC_MISPLACED: &str = "E0902";
 /// A linear value is never released.
 pub const LEAK: &str = "E1000";
+/// An arena-owned value crosses its block's boundary.
+pub const ARENA_ESCAPE: &str = "E1003";
+/// An arena-owned value is freed individually.
+pub const ARENA_FREE: &str = "E1004";
 /// A value spread into a literal is used again afterwards.
 pub const PARTIAL_MOVE: &str = "E1002";
 /// A contract clause is not proved.
@@ -264,6 +268,18 @@ pub const CODES: &[Code] = &[
         title: "spread operand used after the literal",
         summary: "A value spread into a struct or array literal has been moved as a whole and cannot be used again.",
         page: include_str!("../../../docs/errors/E1002.md"),
+    },
+    Code {
+        id: ARENA_ESCAPE,
+        title: "arena value escapes its block",
+        summary: "A value allocated inside an `arena { }` block is returned, stored in an outer binding, or handed to a thread.",
+        page: include_str!("../../../docs/errors/E1003.md"),
+    },
+    Code {
+        id: ARENA_FREE,
+        title: "arena value freed individually",
+        summary: "A value owned by an `arena { }` block is freed with `.free()`, but the block frees it all at exit.",
+        page: include_str!("../../../docs/errors/E1004.md"),
     },
     Code {
         id: CONTRACT,

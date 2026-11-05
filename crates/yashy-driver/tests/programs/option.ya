@@ -12,5 +12,4 @@ fn unwrap_or_zero(Option[int] o) -> int {
 
 fn main() {
     print(unwrap_or_zero(Some(42)));
-    println("");
 }

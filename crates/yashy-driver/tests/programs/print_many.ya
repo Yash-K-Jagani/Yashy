@@ -1,0 +1,8 @@
+// `print` is the main, preferred output: it takes any number of values,
+// joins them with one space, and ends with a newline. `print` itself is
+// writing the next characters on the same line.
+
+fn main() {
+    print("sum", 1 + 2, true);
+    print("tail");
+}

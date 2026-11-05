@@ -23,7 +23,7 @@ fn pick(bool flag, string text) -> string {
 }
 
 fn main() {
-    println(pick(true, "a"));
-    println(pick(false, "b"));
-    println(pick(false, ""));
+    print(pick(true, "a"));
+    print(pick(false, "b"));
+    print(pick(false, ""));
 }

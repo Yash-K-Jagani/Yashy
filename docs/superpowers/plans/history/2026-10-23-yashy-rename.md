@@ -34,7 +34,7 @@
 1. **The rename smuggles in a behaviour change.** Phase 1 must be provably mechanical. The check is the golden IR diff (only `otter_`→`yashy_` and `.ot`→`.ya`) plus an unchanged e2e pass count. A "while I was there" edit in phase 1 is a defect.
 2. **`char` compares with signed instructions.** `char` is 0–255. `'\xFF' > 'A'` must be true, which means unsigned predicates (`icmp ugt`), not the signed ones every other integer uses. A test must cross 0x7F.
 3. **`void` leaks into value positions.** `let x: void`, `Option[void]`, `[]void` and a `void` parameter must all be refused, while `fn f() -> void` and `fn f()` remain identical. The existing `is_void_value`/`is_return` machinery is the place to enforce it, not a new flag on every call site.
-4. **`println` allocates per call.** The newline must not be built by concatenating at run time. `println(x)` lowers to one `yashy_print_line_str` call; `println()` to the same call with an empty string.
+4. **`println` allocates per call.** The newline must not be built by concatenating at run time. `print(x)` lowers to one `yashy_print_line_str` call; `print()` to the same call with an empty string.
 5. **A removed builtin falls through to "unknown function".** `print_str(x)` must say it was replaced and name `println`, with a caret, not `cannot find function`.
 6. **The view message regresses.** `[T]` is already refused; the change is the wording, and the range expression `a[start..end]` must keep working and keep being inferrable.
 7. **The tutorial is a test, not prose.** It is migrated with each phase, not at the end: the harness compiles every block and compares its `// =>` lines, so a stale chapter fails the gate in the phase that changed the surface.
@@ -1256,7 +1256,7 @@ print_str("\n");
 
 - [ ] **Step 4: Update the tutorial's table and example**
 
-`docs/tutorial/08-strings.md`: `byte_at` is `char`, out of range is `'\0'`; the example prints a byte with `print_i64(s.byte_at(2).to_int())` until Phase 4 adds `println` (then it becomes `println(s.byte_at(2))`). Keep every `// =>` line truthful.
+`docs/tutorial/08-strings.md`: `byte_at` is `char`, out of range is `'\0'`; the example prints a byte with `print_i64(s.byte_at(2).to_int())` until Phase 4 adds `println` (then it becomes `print(s.byte_at(2))`). Keep every `// =>` line truthful.
 
 - [ ] **Step 5: Run the suite**
 
@@ -1287,7 +1287,7 @@ git push origin main
 - Test: `check.rs`, `e2e.rs` (the `print_all.ya` proof program is created in 4.4)
 
 **Interfaces:**
-- Produces: `print(x)` (one argument, any printable type), `println(x)`, `println()`; the three old names produce a migration diagnostic. `print_str` survives only as the internal lowering name.
+- Produces: `print(x)` (one argument, any printable type), `print(x)`, `print()`; the three old names produce a migration diagnostic. `print_str` survives only as the internal lowering name.
 - Consumes: 3.4.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1295,14 +1295,14 @@ git push origin main
 ```rust
 #[test]
 fn print_takes_one_value_and_returns_nothing() {
-    let (result, _, _) = check_source("fn main() { print(1); println(\"x\"); println(); }");
+    let (result, _, _) = check_source("fn main() { print(1); print(\"x\"); print(); }");
     assert!(result.is_ok(), "{result:?}");
 }
 
 #[test]
 fn print_takes_exactly_one_value() {
     assert_error("fn main() { print(); }", "`print` takes one value");
-    assert_error("fn main() { println(1, 2); }", "`println` takes one value");
+    assert_error("fn main() { print(1, 2); }", "`println` takes one value");
 }
 
 #[test]
@@ -1326,8 +1326,8 @@ Expected: FAIL — `cannot find function \`print\``.
 - Delete the `print_str`, `print_i64`, `print_f64` entries from the builtin table.
 - In the `Expr::Call` arm, before the unknown-function path, special-case `callee == ["print"]` and `["println"]`:
   - `print(x)` → `HirExpr::Call { callee: ["print_str"], args: [as_string(x)], ty: Unit }`.
-  - `println(x)` → `HirExpr::Call { callee: ["print_line_str"], args: [as_string(x)], ty: Unit }`.
-  - `println()` → `HirExpr::Call { callee: ["print_line_str"], args: [""], ty: Unit }`.
+  - `print(x)` → `HirExpr::Call { callee: ["print_line_str"], args: [as_string(x)], ty: Unit }`.
+  - `print()` → `HirExpr::Call { callee: ["print_line_str"], args: [""], ty: Unit }`.
   - Any other arity → `` `print` takes one value `` / `` `println` takes one value ``.
 - Add the three removed names to the migration table consulted before the unknown-function diagnostic, with the exact message from the spec.
 - Codegen: `"print_line_str" =>` lowers to `call void @yashy_print_line_str(i8* …)`, releasing an owned temporary like `print_str` does.
@@ -1336,7 +1336,7 @@ Expected: FAIL — `cannot find function \`print\``.
 - [ ] **Step 4: Migrate the corpus, the tutorial, and the goldens**
 
 Deleting the three names makes every `.ya` that calls them fail to check, so the migration rides in this commit. Rule, applied in order:
-1. `print_str(<string literal ending in `\n`>)` → `println(<same literal without the final `\n`>)`.
+1. `print_str(<string literal ending in `\n`>)` → `print(<same literal without the final `\n`>)`.
 2. `print_str(<x>)` where `x` is not a literal → `print(x)`.
 3. `print_i64(x)` / `print_f64(x)` → `print(x)`.
 
@@ -1345,7 +1345,7 @@ Get-ChildItem -Recurse -Filter *.ya |
   Where-Object { $_.FullName -notmatch '\\target\\' } |
   ForEach-Object {
     $path = $_.FullName; $text = Get-Content -Raw -LiteralPath $path
-    $next = $text -replace 'print_str\((\"[^\"\r\n]*)\\n\"\)', 'println($1")'
+    $next = $text -replace 'print_str\((\"[^\"\r\n]*)\\n\"\)', 'print($1")'
     $next = $next -replace 'print_(i64|f64)\(', 'print('
     $next = $next -replace 'print_str\(', 'print('
     if ($next -ne $text) { Set-Content -LiteralPath $path -Value $next -NoNewline -Encoding utf8NoBOM }
@@ -1359,7 +1359,7 @@ cargo test -p yashy-driver --test e2e 2>&1 | Tee-Object "$env:TEMP\print-migrate
 cargo test -p yashy-driver --test tutorial
 ```
 
-For each failing program, compare its actual stdout with the expected string in `e2e.rs`. A missing newline means a `print_str(msg)` whose `msg` already ended in `\n` at run time: change it to `println(msg)` only if `msg` does not contain the newline, otherwise leave `print(msg)`. Do not edit an expected stdout to match a wrong program.
+For each failing program, compare its actual stdout with the expected string in `e2e.rs`. A missing newline means a `print_str(msg)` whose `msg` already ended in `\n` at run time: change it to `print(msg)` only if `msg` does not contain the newline, otherwise leave `print(msg)`. Do not edit an expected stdout to match a wrong program.
 
 Finally regenerate the goldens; their print calls move even though their output does not:
 
@@ -1409,11 +1409,11 @@ fn every_aggregate_prints() {
     let (result, _, _) = check_source(
         "struct P { x: int } enum E { A, B(int) } \
          fn main() { \
-           const p = P { x: 1 }; println(p); \
-           println(E.A); println((1, true)); \
-           const xs = [1, 2, 3]; println(xs); println(xs[0..1]); \
-           const o: Option[int] = Some(1); println(o); \
-           const r: Result[int, string] = Ok(1); println(r); \
+           const p = P { x: 1 }; print(p); \
+           print(E.A); print((1, true)); \
+           const xs = [1, 2, 3]; print(xs); print(xs[0..1]); \
+           const o: Option[int] = Some(1); print(o); \
+           const r: Result[int, string] = Ok(1); print(r); \
          }",
     );
     assert!(result.is_ok(), "{result:?}");
@@ -1422,7 +1422,7 @@ fn every_aggregate_prints() {
 #[test]
 fn a_map_has_no_text_form() {
     assert_error(
-        "fn main() { const m: map[string]int = map_new(); println(m); }",
+        "fn main() { const m: map[string]int = map_new(); print(m); }",
         "cannot print a `map[string]int`",
     );
 }
@@ -1525,7 +1525,7 @@ The corpus and its goldens were migrated in 4.1; this task is the user-facing pr
 **Files:**
 - Create: `crates/yashy-driver/tests/programs/print_all.ya`
 - Modify: `crates/yashy-driver/tests/e2e.rs` (one new test)
-- Modify: `docs/tutorial/{01-hello,02-values,08-strings}.md` (use `println(x)` directly instead of the `.to_int()` workaround)
+- Modify: `docs/tutorial/{01-hello,02-values,08-strings}.md` (use `print(x)` directly instead of the `.to_int()` workaround)
 
 **Interfaces:**
 - Produces: one program that prints one line per row of the spec's print table; the tutorial's print examples use the final surface.
@@ -1541,31 +1541,31 @@ struct Point { x: int, y: int }
 enum Shape { Circle(float), Empty }
 
 fn main() {
-    println("text");
-    println('A');
-    println(42);
-    println(2.5);
-    println(true);
-    println(Point { x: 3, y: 4 });
-    println(Shape.Circle(2.5));
-    println((1, true));
+    print("text");
+    print('A');
+    print(42);
+    print(2.5);
+    print(true);
+    print(Point { x: 3, y: 4 });
+    print(Shape.Circle(2.5));
+    print((1, true));
     const xs = [1, 2, 3];
-    println(xs);
-    println(xs[0..2]);
+    print(xs);
+    print(xs[0..2]);
     const maybe: Option[int] = Some(7);
-    println(maybe);
+    print(maybe);
     const missing: Option[int] = None;
-    println(missing);
+    print(missing);
     const answer: Result[int, string] = Ok(7);
-    println(answer);
-    println("1 + 1 = ${1 + 1}");
-    println();
+    print(answer);
+    print("1 + 1 = ${1 + 1}");
+    print();
 }
 ```
 
 Expected output, in order: `text`, `A`, `42`, `2.5`, `true`, `Point { x: 3, y: 4 }`, the enum's variant form, `(1, true)`, `[1, 2, 3]`, `[1, 2]`, `Some(7)`, `None`, `Ok(7)`, `1 + 1 = 2`, and one empty line.
 
-The enum line is not invented here: `println(Shape.Circle(2.5))` must print exactly what `"${Shape.Circle(2.5):?}"` printed before this phase. Read `debug.rs`'s `enum_text` (or run the interpolation once) and put that text in the assertion. Everything else is pinned by the formatter's doc comments: `Name { field: value }`, `(a, b)`, `[a, b]`, `Some(x)`, `None`, `Ok(x)`.
+The enum line is not invented here: `print(Shape.Circle(2.5))` must print exactly what `"${Shape.Circle(2.5):?}"` printed before this phase. Read `debug.rs`'s `enum_text` (or run the interpolation once) and put that text in the assertion. Everything else is pinned by the formatter's doc comments: `Name { field: value }`, `(a, b)`, `[a, b]`, `Some(x)`, `None`, `Ok(x)`.
 
 - [ ] **Step 2: Add the e2e test**
 
@@ -1595,7 +1595,7 @@ Expected: PASS. A failure here is a print-rule defect in 4.1–4.3, not a test t
 
 - [ ] **Step 4: Finish the tutorial's print examples**
 
-Replace the phase-3 workarounds the migration left behind — `print(c.to_int())`, `print(s.byte_at(2).to_int())` and the like — with the direct form now that it exists (`println(c)`, `println(s.byte_at(2))`), keeping every `// =>` line truthful:
+Replace the phase-3 workarounds the migration left behind — `print(c.to_int())`, `print(s.byte_at(2).to_int())` and the like — with the direct form now that it exists (`print(c)`, `print(s.byte_at(2))`), keeping every `// =>` line truthful:
 
 ```powershell
 cargo test -p yashy-driver --test tutorial
@@ -1625,7 +1625,7 @@ git push origin main
 ### Phase 4, as built
 
 1. **4.2 and 4.3 landed in one commit.** Delegating display to the debug
-   machinery is what makes both `${p}` and `println(p)` work; the 4.3 commit
+   machinery is what makes both `${p}` and `print(p)` work; the 4.3 commit
    would have carried only its tests and the reworded needles, so the two rode
    together.
 
@@ -1639,7 +1639,7 @@ git push origin main
    plan named.** `tutorial.rs` builds every chapter, so `print_str`/`print_i64`/
    `print_f64` had to move everywhere. The three ordered rules were applied to
    the `.md` blocks as written, plus one cleanup the plan implies: a
-   `println("")` produced by a bare `print_str("\n")` became `println()`.
+   `print("")` produced by a bare `print_str("\n")` became `print()`.
 
 4. **`byte_at`'s tutorial rows follow Phase 3.** It returns `char` now, so the
    string chapter's `// => 89` became `// => Y`, the operations table row says
@@ -1653,7 +1653,7 @@ git push origin main
 
 6. **`print`/`println` are special-cased in `Expr::Call`, not table entries.**
    The builtin table is typed, and these two accept any printable type;
-   `println()` builds an empty string literal and reuses the same
+   `print()` builds an empty string literal and reuses the same
    `print_line_str` lowering.
 
 7. **4.4's commit is `fix:`, not `test:`.** The end-to-end proof found three
@@ -1661,7 +1661,7 @@ git push origin main
    retired names, `as_string` had grown an `unreachable!()` (which the
    compiler's no-panic rule forbids), and the container fixtures compared
    `byte_at`'s `char` with an `int`. The hover now says `fn print(value)` and
-   `fn println(value)` in the same untyped style as `len`, the `as_string`
+   `fn print(value)` in the same untyped style as `len`, the `as_string`
    fallthrough reports a missing text form instead of panicking, and the
    fixtures convert with `.to_int()`. The test expectations that moved do so
    because the source text changed: `print_i64(` became `print(`, so the fault
@@ -1923,7 +1923,7 @@ fn a_view_cannot_be_named() {
 
 #[test]
 fn a_range_is_still_inferred() {
-    let (result, _, _) = check_source("fn f(xs: []int) { let v = xs[0..1]; println(v.len()); }");
+    let (result, _, _) = check_source("fn f(xs: []int) { let v = xs[0..1]; print(v.len()); }");
     assert!(result.is_ok(), "{result:?}");
 }
 ```
@@ -1998,7 +1998,7 @@ git push origin main
 - [ ] **Step 1: Add the two chapters' missing sections**
 
 - `02-values.md`: a table of the six scalar spellings with widths; a `char` subsection (literal, escapes, `to_int`/`to_char`, `to_string`, `byte_at`); a `void` paragraph (`fn f()` and `fn f() -> void` are the same; `let x: void` is refused).
-- `01-hello.md`: `print` vs `println`, `println()` for a blank line, and `${…}`.
+- `01-hello.md`: `print` vs `println`, `print()` for a blank line, and `${…}`.
 - `07-memory.md`: one `.free()` table (slice/map/pointer; string refuses).
 - `09-arrays.md`: `[T; N]` and `[]T`; `a[start..end]` is inferred, never named.
 
@@ -2036,8 +2036,8 @@ git push origin main
    harness proves `to_int`, `to_char`, `to_string` and `byte_at` together.
 
 4. **`01-hello.md` gained the `.ya` build line and the print paragraph.** The
-   chapter used `print`/`println()` in examples without saying what the
-   difference was; it now states `print(x)`, `println(x)`, `println()`, and the
+   chapter used `print`/`print()` in examples without saying what the
+   difference was; it now states `print(x)`, `print(x)`, `print()`, and the
    `${...}` sugar in one place.
 
 5. **`07-memory.md` gained the one-release table.** Pointer, slice and map rows
@@ -2085,7 +2085,7 @@ git push origin main
 
 2. **The README's code blocks moved from `print_i64`/`print_str` to
    `println`.** Every pair of `print_i64(x); print_str("\n");` became
-   `println(x)`, and `print_str(expr + "\n")` became `println(expr)`. The
+   `print(x)`, and `print_str(expr + "\n")` became `print(expr)`. The
    console transcripts below the blocks were already showing the same output,
    so they did not move.
 
@@ -2119,7 +2119,7 @@ git push origin main
 - [ ] **Step 1: Write the two programs**
 
 - `char.ya`: build a 1 KiB `pattern` of printable bytes, take `pattern.repeat(1024)` for a 1 MiB string, then scan it with `s.byte_at(i)`, counting the bytes in `'a'..='z'`. This measures the `char` load, the two unsigned comparisons and the loop.
-- `print.ya`: write 200,000 lines with `println(i)` to a redirected file. This measures `print_line_str` and the `str_from_*` conversion. The runner must redirect stdout to `$null`/a file and report bytes written, so the row is not measuring terminal speed.
+- `print.ya`: write 200,000 lines with `print(i)` to a redirected file. This measures `print_line_str` and the `str_from_*` conversion. The runner must redirect stdout to `$null`/a file and report bytes written, so the row is not measuring terminal speed.
 
 - [ ] **Step 2: Add the rows and run**
 

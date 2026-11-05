@@ -15,5 +15,5 @@ let total=0;
        with a second line. */
  if total>50{print("big");}else{ print("small") ; }
  print(total);
-println("");
+print("");
 }

@@ -38,27 +38,11 @@ fn flag(bool value) -> string {
 }
 
 fn main() {
-    print(classify(0));
-    print(" ");
-    print(classify(1));
-    print(" ");
-    print(classify(9));
-    println("");
+    print(classify(0), classify(1), classify(9));
 
-    print(name("yashy"));
-    print(" ");
-    print(name("yashy!"));
-    print(" ");
-    print(name("nope"));
-    println("");
+    print(name("yashy"), name("yashy!"), name("nope"));
 
-    print(half(1.5));
-    print(" ");
-    print(half(2.5));
-    println("");
+    print(half(1.5), half(2.5));
 
-    print(flag(true));
-    print(" ");
-    print(flag(false));
-    println("");
+    print(flag(true), flag(false));
 }

@@ -299,7 +299,7 @@ fn the_entry_point_initializes_the_argument_vector() {
         .find("call void @yashy_args_init")
         .expect("the init call must exist");
     let body = ir_text
-        .find("call void @yashy_print_str")
+        .find("call void @yashy_print_line_str")
         .expect("the body must print");
     assert!(
         init < body,

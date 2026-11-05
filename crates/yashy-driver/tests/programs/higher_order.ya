@@ -10,7 +10,6 @@ fn main() {
     let doubled = xs.map(|int x| -> int { return x * 2; });
     for x in doubled {
         print(x);
-        println("");
     }
     doubled.free();
 
@@ -18,19 +17,16 @@ fn main() {
     let big = xs.filter(|int x| -> bool { return x > 2; });
     for x in big {
         print(x);
-        println("");
     }
     big.free();
 
     // `fold` carries one value through the whole array.
     print(xs.fold(0, |int acc, int x| -> int { return acc + x; }));
-    println("");
 
     // The element type may change: `[]int` maps to `[]string`.
     let texts = xs.map(|int x| -> string { return str_from_i64(x); });
     for text in texts {
         print(text);
-        println("");
     }
     texts.free();
 

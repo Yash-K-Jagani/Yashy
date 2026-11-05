@@ -45,5 +45,5 @@ fn main() {
     outbox.free();
     inbox.free();
     print(sum);
-    println("");
+    print("");
 }

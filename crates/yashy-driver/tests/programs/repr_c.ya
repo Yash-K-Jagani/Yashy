@@ -14,13 +14,8 @@ repr(C) struct Point {
 
 fn main() {
     print(sizeof(Point));
-    println("");
     print(alignof(Point));
-    println("");
     print(offsetof(Point, tag));
-    println("");
     print(offsetof(Point, x));
-    println("");
     print(offsetof(Point, y));
-    println("");
 }

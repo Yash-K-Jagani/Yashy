@@ -13,6 +13,6 @@ fn main() {
     let p = alloc(1);
     let q = fill(p);
     print(q[0]);
-    println("");
+    print("");
     q.free();
 }

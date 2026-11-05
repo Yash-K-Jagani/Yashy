@@ -14,7 +14,6 @@ fn checked_halve(int n) -> int {
 
 fn main() {
     print(checked_halve(20));
-    println("");
     print(checked_halve(7));
-    println("this line must never be printed");
+    print("this line must never be printed");
 }

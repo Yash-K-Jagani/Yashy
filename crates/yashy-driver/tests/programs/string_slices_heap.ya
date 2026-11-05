@@ -15,6 +15,5 @@ fn main() {
         total = total + number.len();
     }
     print(total);
-    println("");
     numbers.free();
 }

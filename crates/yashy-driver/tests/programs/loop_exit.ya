@@ -16,8 +16,8 @@ fn main() {
         if i == 3 {
             break;
         }
-        println(body);
+        print(body);
         i = i + 1;
     }
-    println("done");
+    print("done");
 }

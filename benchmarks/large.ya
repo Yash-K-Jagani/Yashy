@@ -997,5 +997,5 @@ fn main() {
     total = total + f493(1);
     total = total + f494(1);
     print(total);
-    println("");
+    print("");
 }

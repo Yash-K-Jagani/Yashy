@@ -16,5 +16,5 @@ fn main() {
         }
         i = i + 1;
     }
-    println(count);
+    print(count);
 }

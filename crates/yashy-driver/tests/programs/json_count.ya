@@ -54,9 +54,7 @@ fn main() {
     }
 
     print(seen);
-    println("");
     print(keys.len());
-    println("");
 
     lines.free();
     keys.free();

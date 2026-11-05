@@ -21,9 +21,7 @@ fn error_code(io.Error e) -> int {
 
 /// Print a labelled failure code.
 fn report(string label, io.Error e) {
-    print(label);
-    print(error_code(e));
-    println("");
+    print(label, error_code(e));
 }
 
 /// Compare the loaded bytes against the pattern that built them, then release
@@ -31,7 +29,6 @@ fn report(string label, io.Error e) {
 /// backing array `read_bytes` allocated.
 fn verify([]char bytes) {
     print(bytes.len());
-    println("");
     let mismatches = 0;
     let j = 0;
     while j < bytes.len() {
@@ -45,7 +42,6 @@ fn verify([]char bytes) {
         j = j + 1;
     }
     print(mismatches);
-    println("");
     bytes.free();
 }
 
@@ -62,11 +58,7 @@ fn main() {
     buf[1] = 'b';
     buf[2] = 'c';
     buf[3] = 'd';
-    print(buf[0]);
-    print(buf[1]);
-    print(buf[2]);
-    print(buf[3]);
-    println("");
+    print("${buf[0]}${buf[1]}${buf[2]}${buf[3]}");
     buf.free();
 
     let arguments = args();
@@ -80,7 +72,7 @@ fn main() {
         arguments.free();
     };
     if path.len() == 0 {
-        println("usage: bytes <path>");
+        print("usage: bytes <path>");
         return;
     }
 
@@ -93,23 +85,23 @@ fn main() {
         i = i + 1;
     }
     switch write_bytes(path, data) {
-        case Ok(_) { println("saved") }
-        case Err(e) { report("save failed ", e) }
+        case Ok(_) { print("saved") }
+        case Err(e) { report("save failed", e) }
     }
     data.free();
 
     switch load(path) {
         case Ok(bytes) { verify(bytes) }
-        case Err(e) { report("load failed ", e) }
+        case Err(e) { report("load failed", e) }
     }
 
     // A missing file is a value, not an empty result.
     switch load("/no/such/yashy/file") {
-        case Ok(_) { println("unexpected") }
+        case Ok(_) { print("unexpected") }
         case Err(e) {
             switch e {
-                case NotFound { println("missing") }
-                default { println("wrong error") }
+                case NotFound { print("missing") }
+                default { print("wrong error") }
             }
         }
     }

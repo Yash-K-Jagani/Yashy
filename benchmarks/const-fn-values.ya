@@ -9,7 +9,7 @@ fn main() {
     const squares = 338350;
     const tenth = 55;
     print(squares);
-    println("");
+    print("");
     print(tenth);
-    println("");
+    print("");
 }

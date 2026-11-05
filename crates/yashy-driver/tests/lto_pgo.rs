@@ -22,7 +22,7 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-const SOURCE: &str = "fn main() { print(1 + 1); println(\"\"); }";
+const SOURCE: &str = "fn main() { print(1 + 1); print(\"\"); }";
 
 #[test]
 fn a_release_build_reports_thin_lto() {

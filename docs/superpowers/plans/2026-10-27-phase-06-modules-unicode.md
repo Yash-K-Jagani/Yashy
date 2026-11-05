@@ -76,9 +76,9 @@ See the master index. The ones that bite here:
 - Modify: `docs/cli.md`
 
 **Interfaces:**
-- Produces: `import std.io;` and `import std.io as io;` resolve; `io.println(..)` and `println(..)` both work for an imported module; a name collision is `E0001` with both origins named.
+- Produces: `import std.io;` and `import std.io as io;` resolve; `io.print(..)` and `print(..)` both work for an imported module; a name collision is `E0001` with both origins named.
 
-- [ ] **Step 1: Write the failing tests** — `import std.io as io; io.println("x");` compiles and prints; two modules exporting the same name require a prefix and an unprefixed use is ambiguous (`E0001` naming both modules).
+- [ ] **Step 1: Write the failing tests** — `import std.io as io; io.print("x");` compiles and prints; two modules exporting the same name require a prefix and an unprefixed use is ambiguous (`E0001` naming both modules).
 - [ ] **Step 2: Watch them fail.**
 - [ ] **Step 3: Implement** — an alias table per module; resolution tries the alias, then the unqualified name, then fails with both candidates.
 - [ ] **Step 4: Run** → PASS.

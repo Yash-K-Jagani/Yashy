@@ -49,7 +49,7 @@ See the master index. The ones that bite here:
   ```
 - Produces: `HirFn.declared: DeclaredEffect`.
 
-- [x] **Step 1: Write the failing tests** — `pure fn f() -> int { 1 }` parses; `io fn g() { println("x"); }` parses; `fn h()` has `DeclaredEffect::Inferred`; the formatter round-trips all four spellings.
+- [x] **Step 1: Write the failing tests** — `pure fn f() -> int { 1 }` parses; `io fn g() { print("x"); }` parses; `fn h()` has `DeclaredEffect::Inferred`; the formatter round-trips all four spellings.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — a modifier before `fn`, exactly where `pub` already sits (`Item::Public` wraps an item; effects need the same treatment: `Item::Effect { effect, item, span }`). Reuse the existing `unsafe` keyword rather than adding a second one.
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt` → PASS.
@@ -72,25 +72,25 @@ See the master index. The ones that bite here:
 ```rust
 #[test]
 fn a_pure_function_that_prints_is_rejected() {
-    let source = "pure fn f() { println(\"x\"); } fn main() { }";
+    let source = "pure fn f() { print(\"x\"); } fn main() { }";
     assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
 }
 
 #[test]
 fn an_unannotated_caller_of_an_io_function_is_inferred_io() {
-    let source = "io fn g() { println(\"x\"); } fn h() { g(); } fn main() { h(); }";
+    let source = "io fn g() { print(\"x\"); } fn h() { g(); } fn main() { h(); }";
     assert!(verify_source(source).diagnostics.is_empty());
 }
 
 #[test]
 fn a_pure_function_calling_an_io_function_is_rejected() {
-    let source = "io fn g() { println(\"x\"); } pure fn h() { g(); } fn main() { }";
+    let source = "io fn g() { print(\"x\"); } pure fn h() { g(); } fn main() { }";
     assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
 }
 
 #[test]
 fn mutual_recursion_terminates_and_propagates() {
-    let source = "fn a(n: int) { if n > 0 { b(n - 1); } } fn b(n: int) { println(\"x\"); a(n); } fn main() { }";
+    let source = "fn a(n: int) { if n > 0 { b(n - 1); } } fn b(n: int) { print(\"x\"); a(n); } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert_eq!(report.effects["a"].io, true);

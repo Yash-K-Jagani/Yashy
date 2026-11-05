@@ -9,7 +9,7 @@ fn run_compiles_and_prints_program_output() {
     write(
         &dir,
         "main.ya",
-        "fn main() { println(\"hello from run\"); }\n",
+        "fn main() { print(\"hello from run\"); }\n",
     );
 
     let output = Command::new(yashy())
@@ -51,8 +51,8 @@ fn run_forwards_user_arguments_after_the_separator() {
         "fn main() {\n\
          \x20   let argv = args();\n\
          \x20   print(argv.len());\n\
-         \x20   println(\"\");\n\
-         \x20   for value in argv { println(value); }\n\
+         \x20   print(\"\");\n\
+         \x20   for value in argv { print(value); }\n\
          \x20   argv.free();\n\
          }\n",
     );
@@ -87,7 +87,7 @@ fn run_reports_the_directory_it_started_in() {
     write(
         &dir,
         "main.ya",
-        "fn main() { switch getcwd() { case Ok(here) { println(here) } case Err(_) { println(\"\") } } }\n",
+        "fn main() { switch getcwd() { case Ok(here) { print(here) } case Err(_) { print(\"\") } } }\n",
     );
 
     let output = Command::new(yashy())
@@ -126,8 +126,8 @@ fn run_sleeps_for_at_least_the_requested_time() {
          \x20   sleep(30);\n\
          \x20   let end = now();\n\
          \x20   let stamp = str_from_i64(end);\n\
-         \x20   if end - start >= 20 { println(\"slept\"); } else { println(\"too fast\"); }\n\
-         \x20   if stamp.len() > 0 { println(\"stamp\"); }\n\
+         \x20   if end - start >= 20 { print(\"slept\"); } else { print(\"too fast\"); }\n\
+         \x20   if stamp.len() > 0 { print(\"stamp\"); }\n\
          }\n",
     );
 

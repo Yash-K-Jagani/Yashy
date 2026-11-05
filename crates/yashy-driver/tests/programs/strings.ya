@@ -15,21 +15,17 @@ fn bracket(string text) -> string {
 fn main() {
     const greeting = "Hello, " + "Yashy!";
     print(greeting);
-    println("");
     print(greeting.len());
-    println("");
     print(bracket("x"));
-    println("");
     const empty = "";
     print(empty.len());
-    println("");
     if greeting == "Hello, Yashy" {
-        println("unexpected: the `!` was dropped");
+        print("unexpected: the `!` was dropped");
     }
     if greeting != "Hello, Yashy" {
-        println("different");
+        print("different");
     }
     if greeting == "Hello, Yashy!" {
-        println("equal");
+        print("equal");
     }
 }

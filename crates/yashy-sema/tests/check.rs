@@ -1544,14 +1544,19 @@ fn assert_eq_reports_operands_it_cannot_compare() {
 
 #[test]
 fn print_takes_one_value_and_returns_nothing() {
-    let (result, _, _) = check_source("fn main() { print(1); println(\"x\"); println(); }");
+    let (result, _, _) = check_source("fn main() { print(1); print(\"x\"); print(); }");
     assert!(result.is_ok(), "{result:?}");
 }
 
 #[test]
-fn print_takes_exactly_one_value() {
-    assert_error("fn main() { print(); }", "`print` takes one value");
-    assert_error("fn main() { println(1, 2); }", "`println` takes one value");
+fn print_takes_any_number_of_values() {
+    let (result, _, _) = check_source("fn main() { print(1, 2, \"x\"); }");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn println_is_removed() {
+    assert_error("fn main() { println(1); }", "`println` was removed");
 }
 
 #[test]
@@ -1559,11 +1564,11 @@ fn every_aggregate_prints() {
     let (result, _, _) = check_source(
         "struct P { x: int } enum E { A, B(int) } \
          fn main() { \
-           const p = P { x: 1 }; println(p); \
-           println(E.A); println((1, true)); \
-           const xs = [1, 2, 3]; println(xs); println(xs[0..1]); \
-           const Option[int] o = Some(1); println(o); \
-           const Result[int, string] r = Ok(1); println(r); \
+           const p = P { x: 1 }; print(p); \
+           print(E.A); print((1, true)); \
+           const xs = [1, 2, 3]; print(xs); print(xs[0..1]); \
+           const Option[int] o = Some(1); print(o); \
+           const Result[int, string] r = Ok(1); print(r); \
          }",
     );
     assert!(result.is_ok(), "{result:?}");
@@ -1572,7 +1577,7 @@ fn every_aggregate_prints() {
 #[test]
 fn a_map_has_no_text_form() {
     assert_error(
-        "fn main() { const map[string]int m = map_new(); println(m); }",
+        "fn main() { const map[string]int m = map_new(); print(m); }",
         "cannot print a `map[string]int`",
     );
 }
@@ -2329,7 +2334,7 @@ fn a_view_cannot_be_named() {
 
 #[test]
 fn a_range_is_still_inferred() {
-    let (result, _, _) = check_source("fn f([]int xs) { let v = xs[0..1]; println(v.len()); }");
+    let (result, _, _) = check_source("fn f([]int xs) { let v = xs[0..1]; print(v.len()); }");
     assert!(result.is_ok(), "{result:?}");
 }
 
@@ -2617,11 +2622,11 @@ fn a_misspelled_value_suggests_the_binding() {
 
 #[test]
 fn a_misspelled_function_suggests_the_function() {
-    let (result, _, _) = check_source("fn main() { prntln(\"x\"); }");
+    let (result, _, _) = check_source("fn main() { prnt(\"x\"); }");
     let diags = result.expect_err("the program should fail to check");
     assert_eq!(
-        label_for(&diags, "cannot find function `prntln`").as_deref(),
-        Some("did you mean `println`?")
+        label_for(&diags, "cannot find function `prnt`").as_deref(),
+        Some("did you mean `print`?")
     );
 }
 

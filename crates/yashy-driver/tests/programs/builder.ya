@@ -19,7 +19,6 @@ fn main() {
         i += 1;
     }
     print(acc.len());
-    println("");
 
     let last = 0;
     i = 0;
@@ -29,5 +28,4 @@ fn main() {
         i += 1;
     }
     print(last);
-    println("");
 }

@@ -23,36 +23,25 @@ fn main() {
     const base = Point { x: 1, y: 2 };
     const p = Point { x: 9, ..base };
     print(p.x);
-    println("");
     print(p.y);
-    println("");
 
     const origin = Point { x: 0, y: 0 };
     const q = Point { ..origin };
     print(q.x);
-    println("");
     print(q.y);
-    println("");
 
     let rest = []int { 7, 8 };
     let xs = []int { 0, ..rest, 4 };
     print(xs.len());
-    println("");
     print(show(xs[0]));
-    println("");
     print(show(xs[1]));
-    println("");
     print(show(xs[2]));
-    println("");
     print(show(xs[3]));
-    println("");
     xs.free();
 
     let again = []int { 7, 8 };
     let same = [..again];
     print(same.len());
-    println("");
     print(show(same[1]));
-    println("");
     same.free();
 }

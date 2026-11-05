@@ -29,10 +29,7 @@ fn main() {
     const Option[int] absent = None;
 
     print(unwrap_or_zero(present));
-    println("");
     print(unwrap_or_zero(absent));
-    println("");
     // Typed by the parameter it is passed to.
     print(unwrap_or_zero(None));
-    println("");
 }

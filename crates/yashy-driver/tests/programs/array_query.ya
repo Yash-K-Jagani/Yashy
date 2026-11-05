@@ -14,40 +14,33 @@ fn show(Option[int] o) -> int {
 fn main() {
     let empty = []int {};
     if empty.is_empty() {
-        println("empty is empty");
+        print("empty is empty");
     }
     print(show(empty.first()));
-    println("");
     print(show(empty.last()));
-    println("");
 
     let xs = []int { 10, 20, 30 };
     if xs.is_empty() {
-        println("unexpected: not empty");
+        print("unexpected: not empty");
     } else {
-        println("xs is not empty");
+        print("xs is not empty");
     }
     print(show(xs.get(1)));
-    println("");
     print(show(xs.get(3)));
-    println("");
     print(show(xs.first()));
-    println("");
     print(show(xs.last()));
-    println("");
 
     if xs.set(1, 99) {
-        println("set in range");
+        print("set in range");
     } else {
-        println("unexpected: set missed");
+        print("unexpected: set missed");
     }
     print(show(xs.get(1)));
-    println("");
 
     if xs.set(3, 1) {
-        println("unexpected: set accepted an out-of-range index");
+        print("unexpected: set accepted an out-of-range index");
     } else {
-        println("set out of range");
+        print("set out of range");
     }
 
     empty.free();

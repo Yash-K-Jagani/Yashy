@@ -13,7 +13,6 @@ fn divide(int a, int b) -> int {
 
 fn main() {
     print(divide(10, 2));
-    println("");
     print(divide(10, 0));
-    println("this line must never be printed");
+    print("this line must never be printed");
 }

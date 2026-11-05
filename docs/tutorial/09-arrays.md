@@ -19,7 +19,7 @@ fn main() {
     let xs = []int { 10, 20 };
     xs.push(30);
     print(xs.len());
-    println();
+    print();
     // => 3
 
     switch xs[1] {
@@ -30,12 +30,12 @@ fn main() {
             print("missing");
         }
     }
-    println();
+    print();
     // => 20
 
     for x in xs {
         print(x);
-        println();
+        print();
     }
     // => 10
     // => 20
@@ -49,7 +49,7 @@ fn main() {
             print("missing");
         }
     }
-    println();
+    print();
     // => missing
 
     xs.free();
@@ -122,7 +122,7 @@ fn total([]int xs) -> int {
 fn main() {
     let xs = []int { 1, 2, 3 };
     print(total(xs));
-    println();
+    print();
     // => 6
     // xs.free(); would be a compile error here: `xs` was moved.
 }
@@ -206,20 +206,20 @@ fn main() {
     const [int; 3] grid = [1, 2, 3];
 
     print(grid.len());
-    println();
+    print();
     // => 3
 
     print(show(grid[1]));
-    println();
+    print();
     // => 2
 
     print(show(grid[3]));
-    println();
+    print();
     // => -1
 
     const head = grid[0..2];
     print(head.len());
-    println();
+    print();
     // => 2
 
     let total = 0;
@@ -227,7 +227,7 @@ fn main() {
         total = total + value;
     }
     print(total);
-    println();
+    print();
     // => 3
 }
 ```
@@ -253,7 +253,7 @@ fn main() {
     // xs.push(4);   error: cannot change `xs` while a view of it is alive
     // move xs;      error: cannot move `xs` while a view of it is alive
     print(view.len());
-    println();
+    print();
     // => 2
 }
 ```
@@ -283,7 +283,7 @@ fn middle_sum([]int xs) -> int {
 fn main() {
     // => 50
     print(middle_sum([]int { 10, 20, 30, 40 }));
-    println();
+    print();
 }
 ```
 
@@ -373,10 +373,10 @@ that owns a reference.
        const whole = grid[0..99];
        const none = grid[3..3];
        print(whole.len());
-       println();
+       print();
        // => 3
        print(none.len());
-       println();
+       print();
        // => 0
    }
    ```

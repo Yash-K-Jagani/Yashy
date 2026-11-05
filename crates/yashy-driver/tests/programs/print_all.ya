@@ -3,23 +3,22 @@ struct Point { x: int, y: int }
 enum Shape { Circle(float), Empty }
 
 fn main() {
-    println("text");
-    println('A');
-    println(42);
-    println(2.5);
-    println(true);
-    println(Point { x: 3, y: 4 });
-    println(Shape.Circle(2.5));
-    println((1, true));
+    print("text");
+    print('A');
+    print(42);
+    print(2.5);
+    print(true);
+    print(Point { x: 3, y: 4 });
+    print(Shape.Circle(2.5));
+    print((1, true));
     const xs = [1, 2, 3];
-    println(xs);
-    println(xs[0..2]);
+    print(xs);
+    print(xs[0..2]);
     const Option[int] maybe = Some(7);
-    println(maybe);
+    print(maybe);
     const Option[int] missing = None;
-    println(missing);
+    print(missing);
     const Result[int, string] answer = Ok(7);
-    println(answer);
-    println("1 + 1 = ${1 + 1}");
-    println();
+    print(answer);
+    print("1 + 1 = ${1 + 1}");
 }

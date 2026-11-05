@@ -12,5 +12,4 @@ object Counter {
 
 fn main() {
     print(Counter.new(3).get());
-    println("");
 }

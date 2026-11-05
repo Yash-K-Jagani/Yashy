@@ -4,5 +4,5 @@
 // standard library, and one clang invocation -- with no program logic to
 // confuse it.
 fn main() {
-    println("hello, world");
+    print("hello, world");
 }

@@ -39,10 +39,5 @@ fn main() {
         line = read_line();
     }
 
-    print(lines);
-    print(" ");
-    print(words);
-    print(" ");
-    print(bytes);
-    println("");
+    print(lines, words, bytes);
 }

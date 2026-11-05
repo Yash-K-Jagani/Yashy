@@ -6,6 +6,6 @@ fn main() {
     let removed = counts.remove("b");
     let n = counts.len();
     print(n);
-    println("");
+    print("");
     counts.free();
 }

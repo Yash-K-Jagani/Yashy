@@ -42,7 +42,7 @@ fn sidecar(output: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
-const HELLO: &str = "fn main() {\n    println(\"hello\");\n}\n";
+const HELLO: &str = "fn main() {\n    print(\"hello\");\n}\n";
 
 #[test]
 fn no_verify_writes_a_sidecar_and_warns() {

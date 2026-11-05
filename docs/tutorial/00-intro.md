@@ -61,7 +61,7 @@ The first program is the smallest complete one:
 
 ```yashy
 fn main() {
-    println("Yashy speaks.");
+    print("Yashy speaks.");
     // => Yashy speaks.
 }
 ```

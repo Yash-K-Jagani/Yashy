@@ -132,7 +132,7 @@ store i8 255, ptr %slot1
 %t2 = icmp ult i8 %t0, %t1
 br i1 %t2, label %bb0_then, label %bb1_else
 bb0_then:
-call void @yashy_print_str(i8* @.str.0)
+call void @yashy_print_line_str(i8* @.str.0)
 br label %bb2_merge
 bb1_else:
 br label %bb2_merge
@@ -141,7 +141,7 @@ bb2_merge:
 %t4 = icmp ugt i8 %t3, 65
 br i1 %t4, label %bb3_then, label %bb4_else
 bb3_then:
-call void @yashy_print_str(i8* @.str.1)
+call void @yashy_print_line_str(i8* @.str.1)
 br label %bb5_merge
 bb4_else:
 br label %bb5_merge

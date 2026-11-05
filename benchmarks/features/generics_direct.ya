@@ -14,5 +14,5 @@ fn main() {
         i = wrapping_add(i, 1);
     }
     print(sum);
-    println("");
+    print("");
 }

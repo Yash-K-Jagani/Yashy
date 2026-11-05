@@ -27,6 +27,6 @@ fn main() {
     }
 
     print(sum);
-    println("");
+    print("");
     m.free();
 }

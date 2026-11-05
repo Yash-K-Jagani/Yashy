@@ -8,6 +8,6 @@ fn main() {
         sum = sum + value;
     }
     print(n + sum);
-    println("");
+    print("");
     xs.free();
 }

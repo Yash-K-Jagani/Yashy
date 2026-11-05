@@ -21,7 +21,7 @@ fn greeting(string name) -> string {
 fn main() {
     // A comment the compiler ignores.
     print(greeting("Yashy"));
-    println();
+    print();
     // => Hello, Yashy!
 }
 ```
@@ -32,25 +32,24 @@ interpolation (chapter 2) is sugar over them. The rule is not fussiness. A
 silent conversion would make `"n = " + n` compile, and then it would be unclear
 whether the program meant the number or its decimal spelling.
 
-`println` is the main, preferred way to write output. `println(x)` writes `x`
-and then a newline, `println()` writes only the newline, and `println(a, b, c)`
-takes any number of arguments, converting each to text and joining them with
-one space. `print(x)` takes one argument of any printable type and writes it
-with no newline -- for the cases where the next characters belong on the
-same line. All of `print(1)`, `print('A')` and `print("text")` work without a
-format string. A string may interpolate an expression:
-`"Hello, ${name}!"` is the same program as `"Hello, " + name + "!"`.
+`print` is the main, preferred way to write output, and it works like
+Python's `print`: `print(x)` writes `x` and then a newline, `print()` writes
+only the newline, and `print(a, b, c)` takes any number of arguments,
+converting each to text and joining them with one space. `println` was
+removed; the checker says so. All of `print(1)`, `print('A')` and
+`print("text")` work without a format string. A string may interpolate an
+expression: `"Hello, ${name}!"` is the same program as `"Hello, " + name + "!"`.
 
 A function that returns nothing writes no `->`:
 
 ```yashy
 fn banner() {
-    println("===");
+    print("===");
 }
 
 fn main() {
     banner();
-    println("done");
+    print("done");
     // => ===
     // => done
 }
@@ -74,7 +73,7 @@ does not become the function's result by being last.
 | `return expr;` | Returns `expr` to the caller. | `expr` must match the return type. |
 | `f(1, 2)` | A call. | Argument count and types are checked at the call. |
 | `main` | The entry point. | Takes no arguments; may return `int` as the exit status. |
-| `print`, `println` | Builtins. | In scope everywhere; cannot be redeclared. |
+| `print` | Builtin. | In scope everywhere; cannot be redeclared. |
 
 Declaration order does not matter. The checker reads every signature in the
 program first, then checks every body. That is why `main` can call a function
@@ -85,7 +84,7 @@ every use into "cannot find function".
 ## Calls and results
 
 A call is an expression. It may be used where a value is expected, or stand
-alone as a statement, in which case its result is discarded. `println` is a
+alone as a statement, in which case its result is discarded. `print` is a
 call like any other; it just happens to return `void`.
 
 `return` leaves the function as soon as it runs. A `return` inside an `if`

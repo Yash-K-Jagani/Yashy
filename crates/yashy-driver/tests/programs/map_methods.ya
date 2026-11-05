@@ -17,24 +17,21 @@ fn main() {
     let []int values = scores.values();
 
     print(keys.len());
-    println("");
     print(values.len());
-    println("");
 
     let int total = 0;
     for v in values {
         total = total + v;
     }
     print(total);
-    println("");
 
     if scores.contains_key("ada") {
-        println("has ada");
+        print("has ada");
     }
     if scores.contains_key("zz") {
-        println("has zz");
+        print("has zz");
     } else {
-        println("no zz");
+        print("no zz");
     }
 
     // The map goes first: the key array holds a reference of its own, so the
@@ -46,7 +43,6 @@ fn main() {
         kept = kept + k.len();
     }
     print(kept);
-    println("");
 
     keys.free();
     values.free();
@@ -64,7 +60,6 @@ fn main() {
         }
     }
     print(trues);
-    println("");
     flag_values.free();
     flags.free();
 }

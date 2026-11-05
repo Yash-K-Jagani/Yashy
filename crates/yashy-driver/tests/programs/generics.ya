@@ -22,11 +22,8 @@ fn square(int x) -> int {
 
 fn main() {
     print(identity(7));
-    println("");
     print(identity("seven"));
-    println("");
     print(apply_twice(square, 3));
-    println("");
     // => 7
     //    seven
     //    81

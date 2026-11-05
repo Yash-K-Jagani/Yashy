@@ -175,7 +175,7 @@ fn main() {
     print(words);
     print(" ");
     print(bytes);
-    println("");
+    print("");
 }
 ```
 

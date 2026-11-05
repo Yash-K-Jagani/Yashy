@@ -220,6 +220,12 @@ pub struct FnCtx<'a> {
     /// defer and ref-scope stacks, so a block exit releases only the arenas
     /// that block owns.
     pub(crate) arena_scopes: Vec<Vec<ArenaId>>,
+    /// The scope index that owns each live arena.
+    ///
+    /// An `arena { }` block opens its arena when the block opens, so an
+    /// allocation written in a nested block still registers the handle with the
+    /// block that must release it rather than with the innermost one.
+    pub(crate) arena_owners: HashMap<ArenaId, usize>,
 }
 
 impl<'a> FnCtx<'a> {
@@ -248,6 +254,7 @@ impl<'a> FnCtx<'a> {
             promoted_slots: HashSet::new(),
             arena_handles: HashMap::new(),
             arena_scopes: Vec::new(),
+            arena_owners: HashMap::new(),
             atomic_strings,
         }
     }
@@ -546,7 +553,16 @@ impl<'a> FnCtx<'a> {
         let handle = self.tmp();
         self.push(format!("{handle} = call i8* @yashy_arena_new()"));
         self.arena_handles.insert(id, handle.clone());
-        if let Some(scope) = self.arena_scopes.last_mut() {
+        // An arena belongs to the block that opened it, not to whatever block
+        // the allocation is written in. An explicit `arena { }` registers its
+        // owner when the block opens; an implicit block arena is the innermost
+        // open block.
+        let owner = self
+            .arena_owners
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| self.arena_scopes.len().saturating_sub(1));
+        if let Some(scope) = self.arena_scopes.get_mut(owner) {
             scope.push(id);
         }
         handle
@@ -585,6 +601,7 @@ impl<'a> FnCtx<'a> {
 
     fn release_arenas_in(&mut self, ids: &[ArenaId]) {
         for id in ids {
+            self.arena_owners.remove(id);
             if let Some(handle) = self.arena_handles.remove(id) {
                 self.push(format!("call void @yashy_arena_free_all(i8* {handle})"));
             }

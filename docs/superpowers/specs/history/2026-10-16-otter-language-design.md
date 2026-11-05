@@ -89,24 +89,24 @@ fn distance(a: Point, b: Point) -> f64 {
 fn main() {
     const p = Point { x: 3.0, y: 4.0 };
 
-    defer io.println("done");            // no GC: cleanup is explicit
+    defer io.print("done");            // no GC: cleanup is explicit
 
     if d := distance(p, origin); d > 5.0 {
-        io.println("far: ${d}");        // interpolation, not printf
+        io.print("far: ${d}");        // interpolation, not printf
     } else {
-        io.println("close");
+        io.print("close");
     }
 
     for i in 0..10 {                      // range loop
         if i % 2 == 0 { continue; }
-        io.println(i);
+        io.print(i);
     }
 
     switch color {
         case Circle(r):    return 3.14159 * r * r;
         case Rect { w, h }: return w * h;
-        case Color.Red:    io.println("red");
-        default:           io.println("other");
+        case Color.Red:    io.print("red");
+        default:           io.print("other");
     }
 }
 ```

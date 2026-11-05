@@ -5,13 +5,13 @@
 // canonicalizing both sides.
 
 fn show(string path) {
-    println("cwd ok");
-    println(path);
+    print("cwd ok");
+    print(path);
 }
 
 fn main() {
     switch getcwd() {
         case Ok(here) { show(here) }
-        case Err(_) { println("cwd empty") }
+        case Err(_) { print("cwd empty") }
     }
 }

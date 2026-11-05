@@ -1,11 +1,11 @@
 // Text output (M6 Task 10).
 //
-// `print`, `println` and `read_line` are builtins: they are in scope in every
-// file, imported or not, because Yashy's modules share one root scope (the
-// plan's Task 9 rule). `println` already takes one value of any printable type,
-// so a module-level `print` or `println` would never be reached by that name;
-// the compiler rewrites both before ordinary name resolution. What this module
-// adds is the explicitly typed number forms, for a call site that wants the
+// `print` and `read_line` are builtins: they are in scope in every file,
+// imported or not, because Yashy's modules share one root scope (the plan's
+// Task 9 rule). `print` takes any number of printable values and writes one
+// newline, so a module-level `print` would never be reached by that name; the
+// compiler rewrites it before ordinary name resolution. What this module adds
+// is the explicitly typed number forms, for a call site that wants the
 // conversion named.
 //
 // The file half of I/O is built in too: `read_file(path)` answers
@@ -14,15 +14,15 @@
 // reader looks in for them; there is no wrapper, because a wrapper would have to
 // use the same name and the names live in one scope.
 //
-// Ownership: none of these consume their argument. `println` copies the bytes
+// Ownership: none of these consume their argument. `print` copies the bytes
 // and keeps no pointer.
 
 // Ownership: none; a number owns nothing.
 pub fn println_i64(int value) {
-    println(value);
+    print(value);
 }
 
 // Ownership: none; a number owns nothing.
 pub fn println_f64(float value) {
-    println(value);
+    print(value);
 }

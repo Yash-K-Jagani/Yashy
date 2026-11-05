@@ -88,22 +88,22 @@ import os;
 import alloc;
 
 fn main() {
-    println(\"hello\");
+    print(\"hello\");
     println_i64(abs(-7));
     println_i64(min(3, 4));
     println_i64(max(3, 4));
     println_i64(pow(2, 10));
     println_f64(sqrt(9.0));
-    println(concat(\"a\", \"b\"));
+    print(concat(\"a\", \"b\"));
     let padded = \"  padded \\n\";
-    println(padded.trim());
+    print(padded.trim());
     let hello = \"hello\";
-    if hello.contains(\"ell\") { println(\"contains\"); }
-    if hello.starts_with(\"he\") { println(\"starts\"); }
+    if hello.contains(\"ell\") { print(\"contains\"); }
+    if hello.starts_with(\"he\") { print(\"starts\"); }
     let csv = \"a,b,c\";
     let parts = csv.split(\",\");
     println_i64(parts.len());
-    for part in parts { println(part); }
+    for part in parts { print(part); }
     parts.free();
     let one = alloc_one(5);
     println_i64(one[0]);
@@ -112,8 +112,8 @@ fn main() {
     println_i64(zeros[0] + zeros[2]);
     zeros.free();
     switch getenv(\"YASHY_STDLIB_PROBE\") {
-        case Some(value) { println(value) }
-        case None { println(\"unset\") }
+        case Some(value) { print(value) }
+        case None { print(\"unset\") }
     }
 }
 ";
@@ -169,21 +169,21 @@ import string;
 
 fn show(string text) {
     println_i64(text.len());
-    if text.contains(\"two\") { println(\"two\"); }
+    if text.contains(\"two\") { print(\"two\"); }
     let lines = text.split(\"\\n\");
     println_i64(lines.len());
-    for line in lines { println(line); }
+    for line in lines { print(line); }
     lines.free();
 }
 
 fn main() {
     switch write_file(\"out.txt\", \"line one\\nline two\\n\") {
-        case Ok(_) { println(\"wrote\") }
-        case Err(_) { println(\"failed\") }
+        case Ok(_) { print(\"wrote\") }
+        case Err(_) { print(\"failed\") }
     }
     switch read_file(\"out.txt\") {
         case Ok(text) { show(text) }
-        case Err(_) { println(\"failed\") }
+        case Err(_) { print(\"failed\") }
     }
 }
 ";
@@ -227,7 +227,7 @@ fn stdlib_is_found_without_yashy_path() {
     write(
         &dir,
         "main.ya",
-        "import io;\nfn main() { println(\"ok\"); }\n",
+        "import io;\nfn main() { print(\"ok\"); }\n",
     );
     let output = Command::new(yashy())
         .arg("build")
@@ -262,34 +262,34 @@ import rand;
 import JSON;
 
 fn check_cwd(string here) {
-    if here.len() > 0 { println(\"cwd\"); }
+    if here.len() > 0 { print(\"cwd\"); }
 }
 
 fn main() {
-    println(join(\"a\", \"b\"));
-    println(join(\"a/\", \"/b\"));
-    println(join(\"\", \"b\"));
-    println(join(\"a\", \"\"));
-    println(basename(\"/usr/local/bin/yashy\"));
-    println(basename(\"/\"));
-    println(basename(\"\"));
-    println(dirname(\"/usr/local/bin/yashy\"));
-    println(dirname(\"\"));
-    println(extension(\"archive.tar.gz\"));
-    println(extension(\".gitignore\"));
-    println(quote(\"a\\\"b\\n\"));
+    print(join(\"a\", \"b\"));
+    print(join(\"a/\", \"/b\"));
+    print(join(\"\", \"b\"));
+    print(join(\"a\", \"\"));
+    print(basename(\"/usr/local/bin/yashy\"));
+    print(basename(\"/\"));
+    print(basename(\"\"));
+    print(dirname(\"/usr/local/bin/yashy\"));
+    print(dirname(\"\"));
+    print(extension(\"archive.tar.gz\"));
+    print(extension(\".gitignore\"));
+    print(quote(\"a\\\"b\\n\"));
     let first = next(1);
     let second = next(1);
-    if first == second { println(\"deterministic\"); }
-    if first >= 0 { println(\"non-negative\"); }
+    if first == second { print(\"deterministic\"); }
+    if first >= 0 { print(\"non-negative\"); }
     let argv = args();
     println_i64(argv.len());
     argv.free();
     switch getcwd() {
         case Ok(here) { check_cwd(here) }
-        case Err(_) { println(\"cwd error\") }
+        case Err(_) { print(\"cwd error\") }
     }
-    if now() > 0 { println(\"clock\"); }
+    if now() > 0 { print(\"clock\"); }
     sleep(0);
 }
 ";

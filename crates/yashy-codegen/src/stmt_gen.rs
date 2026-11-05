@@ -31,7 +31,7 @@ use yashy_sema::{
     expr_ty, linearity_of, BinOp, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind,
 };
 
-use crate::escape::{AllocSite, Placement};
+use crate::escape::{AllocSite, ArenaId, Placement};
 use crate::expr_gen::retain_struct_fields;
 use crate::expr_gen::{
     gen_expr, gen_expr_to_slot, has_string_payload, release_payload, retain_payload, FnCtx,
@@ -180,6 +180,13 @@ pub fn gen_block(ctx: &mut FnCtx<'_>, block: &HirBlock) -> Flow {
     ctx.defers.push(Vec::new());
     ctx.open_ref_scope();
     ctx.arena_scopes.push(Vec::new());
+    if block.arena {
+        // An explicit `arena { }` block owns its arena even when an allocation
+        // written in a nested block uses it: the inner block exit must not free
+        // an arena the outer block is still using.
+        let owner = ctx.arena_scopes.len() - 1;
+        ctx.arena_owners.insert(ArenaId(block.span.start), owner);
+    }
     for stmt in &block.stmts {
         let flow = gen_stmt(ctx, stmt);
         if flow != Flow::Fallthrough {

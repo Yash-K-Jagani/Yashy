@@ -268,8 +268,8 @@ fn a_defer_after_checked_arithmetic_still_registers_and_runs() {
         "fn f() {\n\
          \x20   let i = 0;\n\
          \x20   while i < 2 { i += 1; }\n\
-         \x20   defer { println(\"done\"); }\n\
-         \x20   println(\"ok\");\n\
+         \x20   defer { print(\"done\"); }\n\
+         \x20   print(\"ok\");\n\
          }",
     );
     assert!(
@@ -296,7 +296,7 @@ fn a_fault_inside_a_deferred_body_does_not_re_enter_the_fault_lowering() {
     let ir_text = gen_body(
         "fn f(int x) {\n\
          \x20   defer { print(10 / x); }\n\
-         \x20   println(\"ok\");\n\
+         \x20   print(\"ok\");\n\
          }",
     );
     assert!(

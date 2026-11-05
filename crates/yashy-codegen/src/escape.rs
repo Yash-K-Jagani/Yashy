@@ -1,654 +1,11 @@
-//! Escape analysis: where one allocation site may live.
+//! Escape analysis, re-exported from `yashy-hir`.
 //!
-//! The language already has linear ownership, so an allocation reaches exactly
-//! one `dealloc`, one `move`, or one returned owner. Correctness does not depend
-//! on this pass — a missed promotion only leaves a heap allocation in place.
-//! What the pass does is answer one question per `alloc` site: does the pointer
-//! outlive its function, and does it outlive the block that allocated it?
-//!
-//! Three placements, one rule each:
-//!
-//! * [`Placement::Stack`] when the pointer never escapes the function and the
-//!   size is a constant small enough for a frame. The allocation becomes one
-//!   `alloca` in the entry block.
-//! * [`Placement::Arena`] when the pointer never escapes the function, the
-//!   binding was declared in the same block as the allocation, and the size is
-//!   not known to be small. The block gets one arena, freed when the block
-//!   exits, so a loop body recycles its memory once per iteration instead of
-//!   calling the allocator twice.
-//! * [`Placement::Heap`] otherwise — and that is the conservative default. An
-//!   escape this pass cannot follow is an escape.
-//!
-//! # What counts as an escape
-//!
-//! A bare binding name in a value position is an escape: a return, a call
-//! argument, a struct/tuple/slice literal, a move, a closure capture, a
-//! reassignment. A read through the pointer (`p[i]`, `p[0].field`) is not, and
-//! neither is a write through it (`p[i] = v`) or a `dealloc(p)`/`p.free()`:
-//! those use the pointer, they do not hand it to anyone else.
-//!
-//! Treating a call argument as an escape is stronger than LLVM needs — the
-//! callee is handed the same pointer, not a copy — but it is the rule that stays
-//! true without an interprocedural analysis. A callee can store the pointer in a
-//! global, return it, or keep it alive after the call, and this pass does not
-//! look across functions.
-//!
-//! # The verifier's facts
-//!
-//! Phase 3 does not record a "this value is shared" fact yet, so there is
-//! nothing to cross-check here. The `facts` argument is part of the interface
-//! for the day it does: a disagreement between the ownership pass and this one
-//! would be a verifier bug, and the pass would refuse to promote rather than
-//! turn it into a miscompile.
+//! The verifier owns the arena findings (`arena_findings`) and codegen owns
+//! the placement decision, so both read one walk. Keeping a copy here would
+//! let the two disagree, which is exactly the miscompile the shared module
+//! exists to prevent.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-use yashy_common::{ProofFacts, Span};
-use yashy_sema::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, Literal};
-
-/// The largest constant allocation a frame will hold.
-///
-/// A source-level `alloc` can ask for any count. Promoting a one-megabyte buffer
-/// to the stack overflows it, and a stack overflow is a crash rather than a
-/// diagnostic. Four KiB is the cap; anything larger stays on the heap or in a
-/// block arena.
-pub const STACK_LIMIT: u64 = 4096;
-
-/// One `alloc` call, identified by the span the checker gave the call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AllocSite {
-    start: u32,
-    end: u32,
-}
-
-impl AllocSite {
-    /// The site named by a call's span.
-    pub fn of(span: Span) -> Self {
-        Self {
-            start: span.start,
-            end: span.end,
-        }
-    }
-
-    /// The site's first byte, for diagnostics and tests.
-    pub fn start(self) -> u32 {
-        self.start
-    }
-
-    /// The site's end byte.
-    pub fn end(self) -> u32 {
-        self.end
-    }
-}
-
-/// One block's arena, named by the block's span start.
-///
-/// The id is the block's position in the source, which is unique within a
-/// function and stable across runs. Phase 5's `arena { }` syntax reuses this
-/// type with an explicit name; nothing in this pass invents an id that the
-/// code generator cannot map back to the block it is lowering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArenaId(pub u32);
-
-impl ArenaId {
-    /// The arena belonging to `block`.
-    pub fn of_block(block: &HirBlock) -> Self {
-        Self(block.span.start)
-    }
-}
-
-/// Where one allocation site may live.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Placement {
-    /// The ordinary runtime allocator. The conservative default.
-    Heap,
-    /// One `alloca` in the function's entry block.
-    Stack,
-    /// The innermost enclosing block's arena.
-    Arena(ArenaId),
-}
-
-/// A placement and the reason escape analysis reached it.
-///
-/// The reason is the report's whole content: `--opt-report` prints it beside
-/// the allocation, so a programmer can see which fact was missing rather than
-/// only that the allocation stayed on the heap.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Site {
-    /// Where the allocation lives.
-    pub placement: Placement,
-    /// Why, in a sentence.
-    pub reason: String,
-}
-
-/// What one pass over a function learned about its allocation sites.
-#[derive(Default)]
-struct Analysis<'f> {
-    sites: BTreeMap<AllocSite, SiteInfo>,
-    bindings: HashMap<String, (AllocSite, Option<u32>)>,
-    frames: Vec<Frame>,
-    block_spans: Vec<u32>,
-    lambdas: Vec<&'f HirFn>,
-}
-
-/// A binding's allocation site and the block it was declared in.
-type Binding = (AllocSite, Option<u32>);
-
-/// One lexical scope: the names it declared, and what they shadowed.
-#[derive(Default)]
-struct Frame {
-    declared: HashSet<String>,
-    saved: Vec<(String, Option<Binding>)>,
-}
-
-/// What the walk learned about one site.
-#[derive(Clone, Copy)]
-struct SiteInfo {
-    /// `Some(bytes)` when the count is a literal and the product fits.
-    constant_bytes: Option<u64>,
-    /// The pointer reached a return, a call, an aggregate, a move or a capture.
-    escaped: bool,
-    /// The block the allocating binding was declared in.
-    binding_block: Option<u32>,
-    /// The block the allocation expression itself is written in.
-    site_block: Option<u32>,
-}
-
-/// Where an allocation that is too big for the frame, or has no literal
-/// element count, can live, and why.
-///
-/// A block arena can take either kind only when the binding dies with the block
-/// that allocates it: an assignment to an outer binding outlives the arena.
-fn scope_placement(info: &SiteInfo) -> (Placement, &'static str) {
-    match (info.binding_block, info.site_block) {
-        (Some(binding), Some(site_block)) if binding == site_block => (
-            Placement::Arena(ArenaId(binding)),
-            "the pointer does not escape and the binding dies with the block \
-             that allocates it, so the block arena owns it",
-        ),
-        (Some(_), _) => (
-            Placement::Heap,
-            "the binding outlives the block that allocates it, so a block arena \
-             would free it too early",
-        ),
-        _ => (
-            Placement::Heap,
-            "the allocation is not bound to a name, so no scope owns its lifetime",
-        ),
-    }
-}
-
-/// Classify every `alloc` site in `f`.
-///
-/// The result contains an entry for every site, including the ones that stay on
-/// the heap: a caller that wants "what changed" can look for the non-heap
-/// values, and a caller that wants the default does not have to tell a missing
-/// entry from a deliberate one.
-pub fn classify(f: &HirFn, _facts: &ProofFacts) -> HashMap<AllocSite, Placement> {
-    classify_sites(f, _facts)
-        .into_iter()
-        .map(|(site, info)| (site, info.placement))
-        .collect()
-}
-
-/// Classify every `alloc` site and keep the reason, for `--opt-report`.
-///
-/// One walk answers both questions: the placement is the decision and the
-/// reason is why. A report that ran its own analysis could disagree with the
-/// compiler, which is worse than no report.
-pub fn classify_sites(f: &HirFn, _facts: &ProofFacts) -> HashMap<AllocSite, Site> {
-    analyse(f).sites()
-}
-
-/// Count the sites this pass would promote, for `--timings`.
-///
-/// Lambdas are functions too, so their allocations are classified and counted
-/// as well. A lambda's body is emitted by its own `gen_body` call, which
-/// classifies it independently; the count walks the tree because no single
-/// function item owns a nested lambda.
-pub fn promotion_counts(hir: &HirProgram, facts: &ProofFacts) -> (usize, usize) {
-    fn count(f: &HirFn, facts: &ProofFacts, stack: &mut usize, arena: &mut usize) {
-        let analysis = analyse(f);
-        for site in analysis.sites().values() {
-            match site.placement {
-                Placement::Stack => *stack += 1,
-                Placement::Arena(_) => *arena += 1,
-                Placement::Heap => {}
-            }
-        }
-        for lambda in analysis.lambdas {
-            count(lambda, facts, stack, arena);
-        }
-    }
-
-    let mut stack = 0;
-    let mut arena = 0;
-    for item in &hir.items {
-        if let HirItem::Fn(function) = item {
-            count(function, facts, &mut stack, &mut arena);
-        }
-    }
-    (stack, arena)
-}
-
-fn analyse<'f>(f: &'f HirFn) -> Analysis<'f> {
-    let mut analysis = Analysis::default();
-    analysis.block(&f.body);
-    analysis
-}
-
-impl<'f> Analysis<'f> {
-    fn sites(&self) -> HashMap<AllocSite, Site> {
-        let mut out = HashMap::new();
-        for (site, info) in &self.sites {
-            let (placement, reason) = if info.escaped {
-                (
-                    Placement::Heap,
-                    "the pointer escapes the function: it reaches a return, a \
-                     call, an aggregate, a move, or a capture"
-                        .to_string(),
-                )
-            } else {
-                match info.constant_bytes {
-                    Some(bytes) if bytes <= STACK_LIMIT => (
-                        Placement::Stack,
-                        format!(
-                            "a literal count of {bytes} bytes fits in the frame \
-                             and the pointer does not escape"
-                        ),
-                    ),
-                    Some(bytes) => {
-                        // Too large for the frame. The block arena can still
-                        // own it when the binding dies with the block.
-                        let (placement, why) = scope_placement(info);
-                        (
-                            placement,
-                            format!(
-                                "a literal count of {bytes} bytes is larger than the \
-                                 {STACK_LIMIT}-byte frame limit; {why}"
-                            ),
-                        )
-                    }
-                    None => {
-                        let (placement, why) = scope_placement(info);
-                        (placement, why.to_string())
-                    }
-                }
-            };
-            out.insert(*site, Site { placement, reason });
-        }
-        out
-    }
-
-    fn current_block(&self) -> Option<u32> {
-        self.block_spans.last().copied()
-    }
-
-    fn block(&mut self, block: &'f HirBlock) {
-        self.frames.push(Frame::default());
-        self.block_spans.push(block.span.start);
-        for stmt in &block.stmts {
-            self.stmt(stmt);
-        }
-        self.block_spans.pop();
-        self.pop_frame();
-    }
-
-    fn push_scope(&mut self) {
-        self.frames.push(Frame::default());
-    }
-
-    fn pop_frame(&mut self) {
-        let Some(frame) = self.frames.pop() else {
-            return;
-        };
-        for (name, previous) in frame.saved.into_iter().rev() {
-            match previous {
-                Some(binding) => {
-                    self.bindings.insert(name, binding);
-                }
-                None => {
-                    self.bindings.remove(&name);
-                }
-            }
-        }
-    }
-
-    fn declare(&mut self, name: &str, binding: Option<Binding>) {
-        let Some(frame) = self.frames.last_mut() else {
-            return;
-        };
-        if frame.declared.insert(name.to_string()) {
-            let previous = self.bindings.get(name).copied();
-            frame.saved.push((name.to_string(), previous));
-        }
-        match binding {
-            Some(binding) => {
-                self.bindings.insert(name.to_string(), binding);
-            }
-            None => {
-                self.bindings.remove(name);
-            }
-        }
-    }
-
-    /// Record an `alloc` call and answer its site.
-    ///
-    /// The first walk wins: the same expression cannot have two counts, and a
-    /// later encounter is the same site seen from a different context.
-    fn record_alloc(&mut self, expr: &HirExpr) -> Option<AllocSite> {
-        let HirExpr::Call {
-            callee, args, span, ..
-        } = expr
-        else {
-            return None;
-        };
-        if callee.last().map(String::as_str) != Some("alloc") {
-            return None;
-        }
-        let site = AllocSite::of(*span);
-        let constant_bytes = match args.first() {
-            Some(HirExpr::Literal(Literal::I64(count), ..)) if *count > 0 => u64::try_from(*count)
-                .ok()
-                .and_then(|count| count.checked_mul(8)),
-            _ => None,
-        };
-        let site_block = self.current_block();
-        self.sites.entry(site).or_insert(SiteInfo {
-            constant_bytes,
-            escaped: false,
-            binding_block: None,
-            site_block,
-        });
-        Some(site)
-    }
-
-    fn escape_name(&mut self, name: &str) {
-        let Some((site, _)) = self.bindings.get(name).copied() else {
-            return;
-        };
-        if let Some(info) = self.sites.get_mut(&site) {
-            info.escaped = true;
-        }
-    }
-
-    fn stmt(&mut self, stmt: &'f HirStmt) {
-        match stmt {
-            HirStmt::Expr(expr, ..) => self.value(expr, Mode::Escape),
-            HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {
-                if let Some(site) = self.record_alloc(init) {
-                    let block = self.current_block();
-                    self.declare(name, Some((site, block)));
-                    if let Some(info) = self.sites.get_mut(&site) {
-                        info.binding_block = block;
-                    }
-                } else {
-                    self.value(init, Mode::Escape);
-                    self.declare(name, None);
-                }
-            }
-            HirStmt::Destructure { init, .. } => self.value(init, Mode::Escape),
-            HirStmt::Assign { name, value, .. } => {
-                // The RHS is evaluated before the binding changes, so a shadow
-                // or a self-reference still sees the old value.
-                if let Some(site) = self.record_alloc(value) {
-                    // An assignment to a binding declared outside the current
-                    // block does not make the allocation outlive the function,
-                    // but it does outlive the block, so the arena rule must not
-                    // apply. Keep the declaration block when one is known.
-                    let block = self.bindings.get(name).and_then(|(_, block)| *block);
-                    self.bindings.insert(name.clone(), (site, block));
-                    if let Some(info) = self.sites.get_mut(&site) {
-                        info.binding_block = block;
-                    }
-                } else {
-                    self.value(value, Mode::Escape);
-                    self.bindings.remove(name);
-                }
-            }
-            HirStmt::IndexAssign {
-                base, index, value, ..
-            } => {
-                self.value(base, Mode::Read);
-                self.value(index, Mode::Escape);
-                self.value(value, Mode::Escape);
-            }
-            HirStmt::FieldAssign { value, .. } => self.value(value, Mode::Escape),
-            HirStmt::FieldPtrAssign {
-                pointer,
-                index,
-                value,
-                ..
-            } => {
-                self.value(pointer, Mode::Read);
-                self.value(index, Mode::Escape);
-                self.value(value, Mode::Escape);
-            }
-            HirStmt::Return(Some(expr), _) => self.value(expr, Mode::Escape),
-            HirStmt::Return(None, _) => {}
-            HirStmt::If {
-                init,
-                cond,
-                then_block,
-                else_block,
-                ..
-            } => {
-                self.push_scope();
-                if let Some(init) = init {
-                    self.stmt(init);
-                }
-                self.value(cond, Mode::Escape);
-                self.block(then_block);
-                if let Some(else_block) = else_block {
-                    self.block(else_block);
-                }
-                self.pop_frame();
-            }
-            HirStmt::ForRange {
-                start, end, body, ..
-            } => {
-                self.value(start, Mode::Escape);
-                self.value(end, Mode::Escape);
-                self.block(body);
-            }
-            HirStmt::ForIn { iterable, body, .. } => {
-                self.value(iterable, Mode::Escape);
-                self.block(body);
-            }
-            HirStmt::ForC {
-                init,
-                cond,
-                update,
-                body,
-                ..
-            } => {
-                self.push_scope();
-                if let Some(init) = init {
-                    self.stmt(init);
-                }
-                if let Some(cond) = cond {
-                    self.value(cond, Mode::Escape);
-                }
-                if let Some(update) = update {
-                    self.value(update, Mode::Escape);
-                }
-                self.block(body);
-                self.pop_frame();
-            }
-            HirStmt::Switch { subject, arms, .. } => {
-                self.value(subject, Mode::Escape);
-                for arm in arms {
-                    self.push_scope();
-                    if let Some(guard) = &arm.guard {
-                        self.value(guard, Mode::Escape);
-                    }
-                    self.value(&arm.body, Mode::Escape);
-                    self.pop_frame();
-                }
-            }
-            HirStmt::IfLet {
-                subject,
-                then_block,
-                else_block,
-                ..
-            } => {
-                // A pattern binding names a value the subject already holds,
-                // not a new allocation, so it declares no site. Its own frame
-                // keeps the name from marking an outer binding as escaped when
-                // it shadows one.
-                self.value(subject, Mode::Escape);
-                self.push_scope();
-                self.block(then_block);
-                self.pop_frame();
-                if let Some(else_block) = else_block {
-                    self.block(else_block);
-                }
-            }
-            HirStmt::Defer { body, .. } => self.block(body),
-            HirStmt::LoopInvariant(contract) => self.value(&contract.expr, Mode::Escape),
-            HirStmt::Break(_) | HirStmt::Continue(_) => {}
-        }
-    }
-
-    /// Walk `expr`, marking every promoted binding it hands away.
-    ///
-    /// `Read` is the pointer-read position: `p` in `p[i]` or `p[0].field` names
-    /// storage, not a value being given away.
-    fn value(&mut self, expr: &'f HirExpr, mode: Mode) {
-        if mode == Mode::Read {
-            match expr {
-                HirExpr::Ident(..) => return,
-                HirExpr::Index { base, index, .. } => {
-                    self.value(base, Mode::Read);
-                    self.value(index, Mode::Escape);
-                    return;
-                }
-                HirExpr::FieldAccess { base, .. } => {
-                    self.value(base, Mode::Read);
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        match expr {
-            HirExpr::Literal(..) | HirExpr::AddrOf { .. } | HirExpr::Capture { .. } => {}
-            HirExpr::Ident(path, ..) => {
-                if let [name] = path.as_slice() {
-                    self.escape_name(name);
-                }
-            }
-            HirExpr::Binary { lhs, rhs, .. } => {
-                self.value(lhs, Mode::Escape);
-                self.value(rhs, Mode::Escape);
-            }
-            HirExpr::Unary { operand, .. } => self.value(operand, Mode::Escape),
-            HirExpr::Move(inner, ..) => {
-                self.value(inner, Mode::Escape);
-                if let HirExpr::Ident(path, ..) = &**inner {
-                    if let [name] = path.as_slice() {
-                        self.bindings.remove(name);
-                    }
-                }
-            }
-            HirExpr::Call { callee, args, .. } => {
-                if callee.last().map(String::as_str) == Some("alloc") {
-                    // Reaching here means the allocation is not the direct
-                    // initializer of a binding: it is an argument, a return
-                    // value, or a discarded temporary. It has no owner this
-                    // pass can follow, so it stays on the heap.
-                    if let Some(site) = self.record_alloc(expr) {
-                        if let Some(info) = self.sites.get_mut(&site) {
-                            info.escaped = true;
-                        }
-                    }
-                } else if callee.last().map(String::as_str) == Some("dealloc") {
-                    // `.free()` ends the allocation; it does not hand the
-                    // pointer to anyone.
-                    if let Some(first) = args.first() {
-                        self.value(first, Mode::Read);
-                    }
-                    for arg in args.iter().skip(1) {
-                        self.value(arg, Mode::Escape);
-                    }
-                } else {
-                    for arg in args {
-                        self.value(arg, Mode::Escape);
-                    }
-                }
-            }
-            HirExpr::StructLit { fields, .. } => {
-                for (_, value, _) in fields {
-                    self.value(value, Mode::Escape);
-                }
-            }
-            HirExpr::SliceLit { elements, .. }
-            | HirExpr::FixedArrayLit { elements, .. }
-            | HirExpr::TupleLit { elements, .. } => {
-                for element in elements {
-                    self.value(element, Mode::Escape);
-                }
-            }
-            HirExpr::FieldAccess { base, .. } => self.value(base, Mode::Read),
-            HirExpr::Index { base, index, .. } => {
-                self.value(base, Mode::Read);
-                self.value(index, Mode::Escape);
-            }
-            HirExpr::View {
-                base, start, end, ..
-            } => {
-                self.value(base, Mode::Read);
-                self.value(start, Mode::Escape);
-                self.value(end, Mode::Escape);
-            }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => {
-                self.value(expr, Mode::Escape)
-            }
-            HirExpr::SwitchExpr { subject, arms, .. } => {
-                self.value(subject, Mode::Escape);
-                for arm in arms {
-                    if let Some(guard) = &arm.guard {
-                        self.value(guard, Mode::Escape);
-                    }
-                    self.value(&arm.body, Mode::Escape);
-                }
-            }
-            // The body is a function of its own and is classified separately by
-            // its own `gen_body`. A capture copies the value into the closure's
-            // environment, so an outer promoted pointer captured here escapes.
-            HirExpr::Lambda { f, .. } => {
-                for capture in &f.captures {
-                    self.escape_name(&capture.name);
-                }
-                self.lambdas.push(f.as_ref());
-            }
-            HirExpr::HigherOrder {
-                receiver,
-                func,
-                init,
-                ..
-            } => {
-                self.value(receiver, Mode::Escape);
-                self.value(func, Mode::Escape);
-                if let Some(init) = init {
-                    self.value(init, Mode::Escape);
-                }
-            }
-            HirExpr::CallCapture { args, .. } => {
-                for arg in args {
-                    self.value(arg, Mode::Escape);
-                }
-            }
-        }
-    }
-}
-
-/// Whether a name is being read through or handed away.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    Read,
-    Escape,
-}
+pub use yashy_hir::escape::*;
 
 #[cfg(test)]
 mod tests {
@@ -804,5 +161,91 @@ mod tests {
             classify(&f, &facts).get(&site(&f)),
             Some(Placement::Stack)
         ));
+    }
+
+    #[test]
+    fn an_allocation_inside_an_arena_block_uses_the_block_arena() {
+        let f = function(
+            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } }",
+            "f",
+        );
+        let facts = ProofFacts::empty();
+        assert!(
+            classify(&f, &facts).values().any(|placement| matches!(placement, Placement::Arena(_))),
+            "every allocation inside the block must use its arena"
+        );
+        let findings = crate::escape::arena_findings(&f, &facts);
+        assert!(
+            findings.is_empty(),
+            "a value read inside the block is not an escape"
+        );
+    }
+
+    #[test]
+    fn an_arena_value_returned_is_reported_and_stays_on_the_heap() {
+        use crate::escape::{arena_findings, ArenaFindingKind};
+
+        let f = function("fn f() -> *mut int { arena { let p = alloc(8); return p; } }", "f");
+        let facts = ProofFacts::empty();
+        assert_eq!(classify(&f, &facts).get(&site(&f)), Some(&Placement::Heap));
+        let findings = arena_findings(&f, &facts);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind, ArenaFindingKind::Escape);
+        assert_eq!(findings[0].name, "p");
+    }
+
+    #[test]
+    fn an_arena_value_assigned_to_an_outer_binding_is_reported() {
+        use crate::escape::{arena_findings, ArenaFindingKind};
+
+        let f = function(
+            "fn f() { let out = alloc(8); arena { let p = alloc(8); out = move p; } out.free(); }",
+            "f",
+        );
+        let facts = ProofFacts::empty();
+        assert!(arena_findings(&f, &facts)
+            .iter()
+            .any(|finding| finding.kind == ArenaFindingKind::Escape));
+    }
+
+    #[test]
+    fn an_arena_value_freed_individually_is_reported() {
+        use crate::escape::{arena_findings, ArenaFindingKind};
+
+        let f = function("fn f() { arena { let p = alloc(8); p.free(); } }", "f");
+        let facts = ProofFacts::empty();
+        let findings = arena_findings(&f, &facts);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind, ArenaFindingKind::Free);
+    }
+
+    #[test]
+    fn a_value_returned_from_inside_the_arena_block_is_not_an_escape() {
+        use crate::escape::arena_findings;
+
+        let f = function(
+            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } }",
+            "f",
+        );
+        let facts = ProofFacts::empty();
+        assert!(arena_findings(&f, &facts).is_empty());
+    }
+
+    #[test]
+    fn a_break_out_of_an_arena_still_releases_it() {
+        let f = function(
+            "fn f() -> int { let total = 0; for i in 0..3 { arena { let p = alloc(8); p[0] = i; if i == 1 { break; } total = total + p[0]; } } total }",
+            "f",
+        );
+        let facts = ProofFacts::empty();
+        assert!(
+            classify(&f, &facts).values().any(|placement| matches!(placement, Placement::Arena(_))),
+            "the arena must allocate so its block exit can release it"
+        );
+        let findings = crate::escape::arena_findings(&f, &facts);
+        assert!(
+            findings.is_empty(),
+            "a `break` inside the block is not an escape"
+        );
     }
 }

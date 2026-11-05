@@ -12,7 +12,7 @@
 //     arguments.free();
 //
 //     if path.len() == 0 {
-//         println("usage: mytool <path>");
+//         print("usage: mytool <path>");
 //         return;
 //     }
 //     print(path);

@@ -23,17 +23,10 @@ fn main() {
     const tiny = 0.0000001;
 
     print(add as int);
-    println("");
     print(sub as int);
-    println("");
     print(mul as int);
-    println("");
     print(div as int);
-    println("");
     print(rem as int);
-    println("");
     print(neg as int);
-    println("");
     print(tiny as int);
-    println("");
 }

@@ -29,5 +29,5 @@ fn main() {
 
     gate.free();
     print(wrapping_mul(rounds, 4));
-    println("");
+    print("");
 }
