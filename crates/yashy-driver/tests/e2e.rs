@@ -550,8 +550,10 @@ fn a_non_capturing_lambda_is_a_function_value() {
 
 #[test]
 fn a_closure_outlives_its_creating_scope() {
+    // The last line is the trailing block: `twice(20) { |x| return x + 1; }`
+    // applies its inferred lambda twice, from `20` to `22`.
     let output = build_and_run("closures");
-    assert_eq!(stdout_of(&output), "15\nhello\n");
+    assert_eq!(stdout_of(&output), "15\nhello\n22\n");
 }
 
 #[test]

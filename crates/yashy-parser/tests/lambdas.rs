@@ -45,7 +45,7 @@ fn const_init(src: &str) -> Expr {
 }
 
 /// The lambda in `src`, which must be the whole initialiser.
-fn lambda(src: &str) -> (Vec<(String, TypeExpr)>, Option<TypeExpr>) {
+fn lambda(src: &str) -> (Vec<(String, Option<TypeExpr>)>, Option<TypeExpr>) {
     match const_init(src) {
         Expr::Lambda {
             params, ret, body, ..
@@ -68,9 +68,9 @@ fn a_lambda_keeps_its_parameters_and_return_type() {
     let (params, ret) = lambda("fn main() { const f = |int x, string y| -> bool { return true; }; }");
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "x");
-    assert!(matches!(&params[0].1, TypeExpr::Name(name, _) if name == "int"));
+    assert!(matches!(&params[0].1, Some(TypeExpr::Name(name, _)) if name == "int"));
     assert_eq!(params[1].0, "y");
-    assert!(matches!(&params[1].1, TypeExpr::Name(name, _) if name == "string"));
+    assert!(matches!(&params[1].1, Some(TypeExpr::Name(name, _)) if name == "string"));
     assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "bool"));
 }
 
@@ -88,6 +88,65 @@ fn a_lambda_may_take_no_parameters() {
     assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "int"));
 }
 
+#[test]
+fn a_lambda_parameter_may_omit_its_type() {
+    let (params, ret) = lambda("fn main() { const f = |x, y| -> int { return 1; }; }");
+    assert_eq!(params.len(), 2);
+    assert_eq!(params[0].0, "x");
+    assert!(params[0].1.is_none(), "`|x|` asks the callee for the type");
+    assert_eq!(params[1].0, "y");
+    assert!(params[1].1.is_none());
+    assert!(matches!(ret, Some(TypeExpr::Name(name, _)) if name == "int"));
+}
+
+#[test]
+fn a_trailing_block_is_the_last_argument_of_a_call() {
+    let stmt = first_stmt("fn main() { with_file(path) { |f| return f; }; }");
+    let Stmt::Expr(Expr::Call { args, .. }, _) = stmt else {
+        panic!("expected a call, got {stmt:?}");
+    };
+    assert_eq!(args.len(), 2, "the block is one more argument");
+    let Expr::Lambda { params, .. } = &args[1] else {
+        panic!("expected a lambda as the last argument, got {:?}", args[1]);
+    };
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name, "f");
+    assert!(params[0].ty.is_none());
+}
+
+#[test]
+fn a_trailing_block_attaches_to_a_method_without_parentheses() {
+    let stmt = first_stmt("fn main() { xs.map { |x| return x; }; }");
+    let Stmt::Expr(Expr::Call { callee, args, .. }, _) = stmt else {
+        panic!("expected a call, got {stmt:?}");
+    };
+    assert_eq!(callee, vec!["xs".to_string(), "map".to_string()]);
+    assert_eq!(args.len(), 1);
+    assert!(matches!(args[0], Expr::Lambda { .. }));
+}
+
+#[test]
+fn a_brace_after_a_condition_is_the_then_block() {
+    // The trailing block is only an argument where no block is expected. A
+    // condition's `{` still opens the body, even when the condition is a bare
+    // name (`if ready { }`) or a call (`if ready() { }`).
+    assert!(matches!(
+        first_stmt("fn main() { if ready { print(1); } }"),
+        Stmt::If { .. }
+    ));
+    assert!(matches!(
+        first_stmt("fn main() { if ready() { print(1); } }"),
+        Stmt::If { .. }
+    ));
+    assert!(matches!(
+        first_stmt("fn main() { while ready { } }"),
+        Stmt::ForC { .. }
+    ));
+    assert!(matches!(
+        first_stmt("fn main() { for x in xs { } }"),
+        Stmt::ForIn { .. }
+    ));
+}
 #[test]
 fn a_lambda_is_an_expression() {
     // The point of the syntax: a lambda is a value, so it can be an argument.

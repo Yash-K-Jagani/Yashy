@@ -179,7 +179,7 @@ fn a_lambda_parameter_writes_the_type_first() {
         panic!("expected a lambda, got {:?}", body.stmts[0]);
     };
     assert_eq!(params[0].name, "x");
-    assert!(name_is(&params[0].ty, "int"));
+    assert!(matches!(&params[0].ty, Some(ty) if name_is(ty, "int")));
 }
 
 #[test]

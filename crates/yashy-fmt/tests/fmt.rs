@@ -213,6 +213,20 @@ fn a_lambda_bars_bind_to_their_parameter_list() {
 }
 
 #[test]
+fn a_trailing_block_argument_formats_as_a_block() {
+    // The trailing block is a lambda in the last argument position: its brace
+    // stays with the call, its body indents beneath it, and the closing brace
+    // returns to the call's line. Formatting is a fixed point.
+    let source = "fn main() {\n    const r = apply(41) { |x| return x + 1; };\n}\n";
+    let formatted = format(source);
+    assert_eq!(
+        formatted,
+        "fn main() {\n    const r = apply(41) {\n        |x| return x + 1;\n    };\n}\n"
+    );
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+}
+
+#[test]
 fn a_trailing_comma_keeps_its_closer_attached() {
     // `(5,)` is the one-element tuple and `[1,]` is an array with a trailing
     // separator; in both cases the comma is followed by the closer rather

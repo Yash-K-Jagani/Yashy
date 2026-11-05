@@ -9,6 +9,13 @@ fn greeter(string greeting) -> fn() -> string {
     return || -> string { return greeting; };
 }
 
+// A trailing block is a lambda in the last argument position. `|x|` writes no
+// type: the callee's `fn(int) -> int` parameter supplies it, and the missing
+// arrow takes its `int` return the same way.
+fn twice(int x, fn(int) -> int f) -> int {
+    return f(f(x));
+}
+
 fn main() {
     const add5 = adder(5);
     print(add5(10));
@@ -23,4 +30,9 @@ fn main() {
     // A closure that is made and thrown away: its environment is released
     // with it, so it does not leak.
     |int x| -> int { return x; };
+
+    // The trailing block: `twice` applies its last argument twice, so this
+    // adds one twice, from `20` to `22`, with no type written anywhere.
+    print(twice(20) { |x| return x + 1; });
+    println("");
 }

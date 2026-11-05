@@ -18,7 +18,15 @@ impl<'src> Parser<'src> {
     pub fn parse_block(&mut self) -> Result<Block, ParseError> {
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
+        self.parse_block_after_open(open.span)
+    }
 
+    /// The statements of a block whose `{` has been consumed and pushed.
+    ///
+    /// A trailing block argument is one of these: its `{` is the block's own
+    /// brace, so the caller has already read it before the lambda's parameter
+    /// bars.
+    pub(crate) fn parse_block_after_open(&mut self, open: Span) -> Result<Block, ParseError> {
         let mut stmts = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.at_eof() {
             if self.eat(TokenKind::Semi) {
@@ -31,7 +39,7 @@ impl<'src> Parser<'src> {
         self.close_open(TokenKind::RBrace);
         Ok(Block {
             stmts,
-            span: cover(open.span, close.span),
+            span: cover(open, close.span),
         })
     }
 
@@ -239,12 +247,15 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::Let) {
             return self.parse_if_let(kw.span);
         }
-        let init = if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::ColonEq {
-            Some(Box::new(self.parse_binding_stmt()?))
-        } else {
-            None
-        };
-        let cond = self.parse_expr()?;
+        let (init, cond) = self.without_block_arg(|p| {
+            let init = if p.check(TokenKind::Ident) && p.peek_second() == TokenKind::ColonEq {
+                Some(Box::new(p.parse_binding_stmt()?))
+            } else {
+                None
+            };
+            let cond = p.parse_expr()?;
+            Ok((init, cond))
+        })?;
         let then_block = self.parse_block()?;
         let else_block = if self.eat(TokenKind::Else) {
             Some(self.parse_block()?)
@@ -273,7 +284,7 @@ impl<'src> Parser<'src> {
         let _ = self.expect(TokenKind::Let)?;
         let pattern = self.parse_pattern()?;
         self.expect(TokenKind::Eq)?;
-        let value = self.parse_expr()?;
+        let value = self.without_block_arg(|p| p.parse_expr())?;
         let then_block = self.parse_block()?;
         let else_block = if self.eat(TokenKind::Else) {
             Some(self.parse_block()?)
@@ -332,7 +343,7 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::In {
             let (name, _) = self.identifier()?;
             self.expect(TokenKind::In)?;
-            let first = self.parse_expr()?;
+            let first = self.without_block_arg(|p| p.parse_expr())?;
             if !self.check(TokenKind::DotDot) {
                 let body = self.parse_loop_body()?;
                 let body_span = body.span;
@@ -344,7 +355,7 @@ impl<'src> Parser<'src> {
                 });
             }
             self.expect(TokenKind::DotDot)?;
-            let end = self.parse_expr()?;
+            let end = self.without_block_arg(|p| p.parse_expr())?;
             let body = self.parse_loop_body()?;
             let body_span = body.span;
             return Ok(Stmt::ForRange {
@@ -404,7 +415,7 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::Let) {
             return self.parse_while_let(kw.span);
         }
-        let cond = self.parse_expr()?;
+        let cond = self.without_block_arg(|p| p.parse_expr())?;
         let body = self.parse_loop_body()?;
         let body_span = body.span;
         Ok(Stmt::ForC {
@@ -426,7 +437,7 @@ impl<'src> Parser<'src> {
         let _ = self.expect(TokenKind::Let)?;
         let pattern = self.parse_pattern()?;
         self.expect(TokenKind::Eq)?;
-        let value = self.parse_expr()?;
+        let value = self.without_block_arg(|p| p.parse_expr())?;
         let body = self.parse_loop_body()?;
         let body_span = body.span;
         Ok(Stmt::WhileLet {
@@ -439,7 +450,7 @@ impl<'src> Parser<'src> {
 
     fn parse_switch_stmt(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Switch)?;
-        let subject = self.parse_expr()?;
+        let subject = self.without_block_arg(|p| p.parse_expr())?;
         let (arms, close_span) = self.parse_switch_arms()?;
         Ok(Stmt::Switch {
             subject,
@@ -470,7 +481,7 @@ impl<'src> Parser<'src> {
             // it is checked after the pattern's names are in scope, which is
             // what makes `case Some(v) if v > 0` work.
             let guard = if self.eat(TokenKind::If) {
-                Some(self.parse_expr()?)
+                Some(self.without_block_arg(|p| p.parse_expr())?)
             } else {
                 None
             };

@@ -120,6 +120,14 @@ pub struct Parser<'src> {
     /// recurse without bound. This counter is carried across that reset, and
     /// checked against [`MAX_NESTING_DEPTH`] like any other nesting.
     interp_depth: usize,
+    /// True while a `{` after a call would open the surrounding block rather
+    /// than a trailing block argument.
+    ///
+    /// `if f(x) { }`, `while f() { }`, `for x in xs { }` and `switch x { }`
+    /// all end their head with an expression the body follows. While the head
+    /// is being parsed, a `{` belongs to the statement, so no trailing lambda
+    /// is read. Everywhere else `{` after a call is the last argument.
+    pub(crate) no_block_arg: bool,
 }
 
 impl<'src> Parser<'src> {
@@ -168,7 +176,21 @@ impl<'src> Parser<'src> {
             file,
             open: Vec::new(),
             interp_depth: 0,
+            no_block_arg: false,
         }
+    }
+
+    /// Parse while a `{` after a call means the enclosing block, not a
+    /// trailing block argument.
+    pub(crate) fn without_block_arg<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        let saved = self.no_block_arg;
+        self.no_block_arg = true;
+        let result = parse(self);
+        self.no_block_arg = saved;
+        result
     }
 
     /// The file this parser reports against.

@@ -28,8 +28,8 @@ use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, Contract, Expr, ExternDecl, InterpFormat, InterpPart, Item,
-    Literal, Param, Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr, VariantDef,
-    VariantField,
+    LambdaParam, Literal, Param, Pattern, PtrKind, Stmt, StringLit, SwitchArm, TypeExpr,
+    VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
@@ -521,6 +521,10 @@ pub struct Checker<'src> {    scope: Scope,
     /// run-time check, so the program has one rule and two build modes agree
     /// about it.
     in_const_init: bool,
+    /// Return types being inferred for lambdas whose callee does not fix one
+    /// (the `map` callback), innermost last. Each entry is the type the first
+    /// `return` fixed, or `None` until one is seen.
+    lambda_ret_infer: Vec<Option<Type>>,
     /// The linker symbols the `extern` declarations resolved to, keyed by the
     /// symbol string.
     ///
@@ -829,6 +833,7 @@ impl<'src> Checker<'src> {
             release: options.release,
             uses_threads: false,
             in_const_init: false,
+            lambda_ret_infer: Vec::new(),
             extern_symbols: HashMap::new(),
             defined_fns: HashSet::new(),
             iteration_borrows: Vec::new(),
@@ -2537,6 +2542,27 @@ impl<'src> Checker<'src> {
         let mut subst: HashMap<String, Type> = HashMap::new();
         let mut checked_args = Vec::with_capacity(args.len());
         for (arg, param) in args.iter().zip(generic.params.iter()) {
+            // An inferred lambda parameter cannot be typed here: the type
+            // parameters are what the arguments are still fixing. Name the
+            // declared signature it could not resolve against.
+            if let Expr::Lambda {
+                params,
+                span: lambda_span,
+                ..
+            } = arg
+            {
+                if params.iter().any(|param| param.ty.is_none()) {
+                    self.error_code(
+                        *lambda_span,
+                        codes::TYPE_MISMATCH,
+                        format!(
+                            "cannot infer a lambda parameter for `{}`: write its type",
+                            type_expr_name(&param.ty)
+                        ),
+                    );
+                    return None;
+                }
+            }
             let checked = self.check_expr(arg)?;
             let actual = expr_ty(&checked);
             if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
@@ -3578,21 +3604,66 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
-            Stmt::Return(expr, span) => match expr {
-                Some(e) => {
-                    let checked = self.check_expr_with_expected(e, ret)?;
-                    if !fits(ret, &expr_ty(&checked)) {
-                        self.mismatch(expr_span(&checked), ret, &expr_ty(&checked));
-                    }
-                    Some(HirStmt::Return(Some(checked), *span))
+            Stmt::Return(expr, span) => {
+                // Inside a lambda whose return type is being inferred, the
+                // first `return` fixes it and later ones must agree.
+                if let Some(current) = self.lambda_ret_infer.last().cloned() {
+                    return match expr {
+                        Some(e) => {
+                            let checked = match &current {
+                                Some(known) => self.check_expr_with_expected(e, known)?,
+                                None => self.check_expr(e)?,
+                            };
+                            let found = expr_ty(&checked);
+                            let prev = self.lambda_ret_infer.last().cloned().flatten();
+                            if let Some(prev) = prev {
+                                if !fits(&prev, &found) {
+                                    self.mismatch(expr_span(&checked), &prev, &found);
+                                }
+                            } else if let Some(top) = self.lambda_ret_infer.last_mut() {
+                                *top = Some(found.clone());
+                            }
+                            Some(HirStmt::Return(Some(checked), *span))
+                        }
+                        None => {
+                            let prev = self.lambda_ret_infer.last().cloned().flatten();
+                            match prev {
+                                None => {
+                                    if let Some(top) = self.lambda_ret_infer.last_mut() {
+                                        *top = Some(prim(TypeKind::Unit));
+                                    }
+                                }
+                                Some(prev) if !prev.eq_ignoring_span(&prim(TypeKind::Unit)) => {
+                                    self.mismatch_message(
+                                        *span,
+                                        format!("expected `{prev}`, found `void`"),
+                                    );
+                                }
+                                _ => {}
+                            }
+                            Some(HirStmt::Return(None, *span))
+                        }
+                    };
                 }
-                None => {
-                    if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
-                        self.mismatch_message(*span, format!("expected `{ret}`, found `void`"));
+                match expr {
+                    Some(e) => {
+                        let checked = self.check_expr_with_expected(e, ret)?;
+                        if !fits(ret, &expr_ty(&checked)) {
+                            self.mismatch(expr_span(&checked), ret, &expr_ty(&checked));
+                        }
+                        Some(HirStmt::Return(Some(checked), *span))
                     }
-                    Some(HirStmt::Return(None, *span))
+                    None => {
+                        if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
+                            self.mismatch_message(
+                                *span,
+                                format!("expected `{ret}`, found `void`"),
+                            );
+                        }
+                        Some(HirStmt::Return(None, *span))
+                    }
                 }
-            },
+            }
             Stmt::If {
                 init,
                 cond,
@@ -4555,6 +4626,25 @@ impl<'src> Checker<'src> {
     /// be typed from context. This is what makes `f(None)` work when `f`'s
     /// parameter is an `Option`.
     fn check_expr_with_expected(&mut self, expr: &Expr, expected: &Type) -> Option<HirExpr> {
+        // A lambda is checked against the function type it is wanted as: that
+        // is where an inferred `|x|` gets its type from.
+        if let Expr::Lambda {
+            params,
+            ret,
+            body,
+            span,
+        } = expr
+        {
+            if let TypeKind::Func(exp_params, exp_ret) = &expected.kind {
+                return self.check_lambda(
+                    params,
+                    ret,
+                    body,
+                    *span,
+                    Some((exp_params.as_slice(), Some(exp_ret.as_ref()))),
+                );
+            }
+        }
         if let Expr::Call {
             callee, args, span, ..
         } = expr
@@ -5564,7 +5654,11 @@ impl<'src> Checker<'src> {
         let TypeKind::Slice(element) = receiver_ty.kind else {
             return None;
         };
-        let Some(func_checked) = self.check_callback(&args[0], span) else {
+        let Some(func_checked) = self.check_callback(
+            &args[0],
+            span,
+            Some((std::slice::from_ref(element.as_ref()), None)),
+        ) else {
             return None;
         };
         let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
@@ -5609,7 +5703,12 @@ impl<'src> Checker<'src> {
         let TypeKind::Slice(element) = receiver_ty.kind else {
             return None;
         };
-        let Some(func_checked) = self.check_callback(&args[0], span) else {
+        let bool_ty = prim(TypeKind::Bool);
+        let Some(func_checked) = self.check_callback(
+            &args[0],
+            span,
+            Some((std::slice::from_ref(element.as_ref()), Some(&bool_ty))),
+        ) else {
             return None;
         };
         let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
@@ -5661,7 +5760,12 @@ impl<'src> Checker<'src> {
             return None;
         };
         let accumulator_ty = expr_ty(&init_checked);
-        let Some(func_checked) = self.check_callback(&args[1], span) else {
+        let fold_params = [accumulator_ty.clone(), (*element).clone()];
+        let Some(func_checked) = self.check_callback(
+            &args[1],
+            span,
+            Some((fold_params.as_slice(), Some(&accumulator_ty))),
+        ) else {
             return None;
         };
         let TypeKind::Func(params, ret) = expr_ty(&func_checked).kind else {
@@ -5692,13 +5796,180 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// Check a lambda, against an expected signature when one is known.
+    ///
+    /// A parameter that wrote its type is resolved as written and must agree
+    /// with the expected one; a parameter that wrote only its name takes the
+    /// expected type. The return type works the same way, except that an
+    /// expected signature with no return type (the `map` callback) leaves the
+    /// return to be inferred from the body's first `return`.
+    fn check_lambda(
+        &mut self,
+        params: &[LambdaParam],
+        ret: &Option<TypeExpr>,
+        body: &Block,
+        span: Span,
+        expected: Option<(&[Type], Option<&Type>)>,
+    ) -> Option<HirExpr> {
+        if let Some((exp_params, _)) = expected {
+            if exp_params.len() != params.len() {
+                self.error_code(
+                    span,
+                    codes::TYPE_MISMATCH,
+                    format!(
+                        "expected a function of {} argument{}, found {}",
+                        exp_params.len(),
+                        if exp_params.len() == 1 { "" } else { "s" },
+                        params.len()
+                    ),
+                );
+                return None;
+            }
+        }
+        let mut param_tys = Vec::with_capacity(params.len());
+        for (index, param) in params.iter().enumerate() {
+            let ty = match &param.ty {
+                Some(ty) => {
+                    let resolved = self.resolve_or_report(ty, param.span);
+                    if let Some((exp_params, _)) = expected {
+                        if let Some(exp) = exp_params.get(index) {
+                            if !resolved.eq_ignoring_span(exp) {
+                                self.mismatch(param.span, exp, &resolved);
+                            }
+                        }
+                    }
+                    resolved
+                }
+                None => match expected.and_then(|(exp, _)| exp.get(index)) {
+                    Some(exp) => exp.clone(),
+                    None => {
+                        self.error_code(
+                            param.span,
+                            codes::TYPE_MISMATCH,
+                            format!(
+                                "cannot infer the type of `{}`: write its type, for example \
+                                 `int {}`",
+                                param.name, param.name
+                            ),
+                        );
+                        return None;
+                    }
+                },
+            };
+            param_tys.push(ty);
+        }
+        let infer_ret = ret.is_none() && matches!(expected, Some((_, None)));
+        let ret_ty = match ret {
+            Some(ty) => {
+                let resolved = self.resolve_or_report_return(ty, span);
+                if let Some((_, Some(exp))) = expected {
+                    if !resolved.eq_ignoring_span(exp) {
+                        self.mismatch(span, exp, &resolved);
+                    }
+                }
+                resolved
+            }
+            None => match expected {
+                Some((_, Some(exp))) => exp.clone(),
+                _ => prim(TypeKind::Unit),
+            },
+        };
+
+        self.scope.push();
+        for (param, param_ty) in params.iter().zip(param_tys.iter()) {
+            let _ = self.scope.declare(
+                param.name.clone(),
+                Binding {
+                    ty: param_ty.clone(),
+                    mutability: Mutability::Const,
+                    span: param.span,
+                    ownership: Ownership::Live,
+                },
+            );
+        }
+        // A name that resolves above this depth belongs to an enclosing
+        // scope: a capture. The frame's depth is the scope the parameters
+        // live in, so the closure's own names are fine and a global is fine,
+        // and only an enclosing local is a capture.
+        self.closures.push(ClosureFrame {
+            scope_depth: self.scope.depth() - 1,
+            captures: Vec::new(),
+        });
+        if infer_ret {
+            self.lambda_ret_infer.push(None);
+        }
+        let checked_body = self.check_block_with_ret(body, &ret_ty);
+        let inferred = if infer_ret {
+            self.lambda_ret_infer.pop().flatten()
+        } else {
+            None
+        };
+        let frame = self.closures.pop().unwrap_or(ClosureFrame {
+            scope_depth: 0,
+            captures: Vec::new(),
+        });
+        self.scope.pop();
+
+        let checked_body = checked_body?;
+        let ret_ty = inferred.unwrap_or(ret_ty);
+        let ty = Type {
+            kind: TypeKind::Func(param_tys.clone(), Box::new(ret_ty.clone())),
+            span,
+        };
+        Some(HirExpr::Lambda {
+            f: Box::new(HirFn {
+                name: String::new(),
+                params: params
+                    .iter()
+                    .zip(param_tys.iter())
+                    .map(|(param, param_ty)| HirParam {
+                        name: param.name.clone(),
+                        ty: param_ty.clone(),
+                        span: param.span,
+                    })
+                    .collect(),
+                ret: ret_ty,
+                body: checked_body,
+                requires: Vec::new(),
+                ensures: Vec::new(),
+                captures: frame.captures,
+                effect: yashy_common::Effect::PURE,
+                declared: yashy_common::DeclaredEffect::Inferred,
+                file: self.file,
+                span,
+            }),
+            span,
+            ty,
+        })
+    }
+
     /// Check a callback argument and return its checked expression.
     ///
     /// The three higher-order methods all take a function, and all say so the
     /// same way: the argument has to be one, and a value that is not is
     /// reported here rather than deeper in.
-    fn check_callback(&mut self, expr: &Expr, span: Span) -> Option<HirExpr> {
-        let checked = self.check_expr(expr)?;
+    fn check_callback(
+        &mut self,
+        expr: &Expr,
+        span: Span,
+        expected: Option<(&[Type], Option<&Type>)>,
+    ) -> Option<HirExpr> {
+        let checked = match (expr, expected) {
+            (
+                Expr::Lambda {
+                    params,
+                    ret,
+                    body,
+                    span: lambda_span,
+                },
+                Some((exp_params, exp_ret)),
+            ) if params.len() == exp_params.len() => {
+                self.check_lambda(params, ret, body, *lambda_span, Some((exp_params, exp_ret)))?
+            }
+            // A wrong arity is the higher-order method's own diagnostic: let
+            // it check the lambda on its own and report the shape.
+            _ => self.check_expr(expr)?,
+        };
         let ty = expr_ty(&checked);
         if !matches!(ty.kind, TypeKind::Func(_, _)) {
             self.error(span, format!("expected a function, found `{ty}`"));
@@ -8110,77 +8381,7 @@ impl<'src> Checker<'src> {
                 ret,
                 body,
                 span,
-            } => {
-                // A lambda is a function without a name, so it is checked the
-                // way a function is: its own scope, its parameters bound in it,
-                // and its body checked against its declared return type.
-                let param_tys: Vec<Type> = params
-                    .iter()
-                    .map(|param| self.resolve_or_report(&param.ty, param.span))
-                    .collect();
-                let ret_ty = match ret {
-                    Some(ty) => self.resolve_or_report_return(ty, *span),
-                    None => prim(TypeKind::Unit),
-                };
-
-                self.scope.push();
-                for (param, param_ty) in params.iter().zip(param_tys.iter()) {
-                    let _ = self.scope.declare(
-                        param.name.clone(),
-                        Binding {
-                            ty: param_ty.clone(),
-                            mutability: Mutability::Const,
-                            span: param.span,
-                            ownership: Ownership::Live,
-                        },
-                    );
-                }
-                // A name that resolves above this depth belongs to an enclosing
-                // scope: a capture. The frame's depth is the scope the
-                // parameters live in, so the closure's own names are fine and
-                // a global is fine, and only an enclosing local is a capture.
-                self.closures.push(ClosureFrame {
-                    scope_depth: self.scope.depth() - 1,
-                    captures: Vec::new(),
-                });
-                let checked_body = self.check_block_with_ret(body, &ret_ty);
-                let frame = self.closures.pop().unwrap_or(ClosureFrame {
-                    scope_depth: 0,
-                    captures: Vec::new(),
-                });
-                self.scope.pop();
-
-                let checked_body = checked_body?;
-                let ty = Type {
-                    kind: TypeKind::Func(param_tys.clone(), Box::new(ret_ty.clone())),
-                    span: *span,
-                };
-                Some(HirExpr::Lambda {
-                    f: Box::new(HirFn {
-                        name: String::new(),
-                        params: params
-                            .iter()
-                            .zip(param_tys.iter())
-                            .map(|(param, param_ty)| HirParam {
-                                name: param.name.clone(),
-                                ty: param_ty.clone(),
-                                span: param.span,
-                            })
-                            .collect(),
-                        ret: ret_ty,
-                        body: checked_body,
-                        requires: Vec::new(),
-                        ensures: Vec::new(),
-                        captures: frame.captures,
-                        effect: yashy_common::Effect::PURE,
-                        declared: yashy_common::DeclaredEffect::Inferred,
-                        file: self.file,
-                        span: *span,
-                    }),
-                    span: *span,
-                    ty,
-                })
-            }
+            } => self.check_lambda(params, ret, body, *span, None),
         }
     }
 

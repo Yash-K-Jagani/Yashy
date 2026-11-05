@@ -1,7 +1,9 @@
 use yashy_common::Span;
 use yashy_lexer::{Lexer, StringPiece, Token, TokenKind};
 
-use crate::ast::{BinOp, Expr, InterpFormat, InterpPart, Literal, StringLit, TypeExpr, UnOp};
+use crate::ast::{
+    BinOp, Expr, InterpFormat, InterpPart, LambdaParam, Literal, StringLit, TypeExpr, UnOp,
+};
 use crate::error::ParseError;
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
 
@@ -271,6 +273,13 @@ impl<'src> Parser<'src> {
                         // path, and the call keeps it as one. A receiver that
                         // is a value -- the result of a call, say -- is not,
                         // and the call remembers it as the expression it is.
+                        let mut args = args;
+                        let mut span = span;
+                        if self.has_trailing_block() {
+                            let lambda = self.parse_trailing_lambda()?;
+                            span = cover(span, expr_span(&lambda));
+                            args.push(lambda);
+                        }
                         let mut callee = Vec::new();
                         if collect_callee(&expr, &mut callee) {
                             callee.push(field.clone());
@@ -280,6 +289,25 @@ impl<'src> Parser<'src> {
                                 receiver: Box::new(expr),
                                 method: field,
                                 args,
+                                span,
+                            };
+                        }
+                        continue;
+                    }
+                    // `receiver.method { |x| ... }` with no parentheses: the
+                    // block is the only argument.
+                    if self.has_trailing_block() {
+                        let lambda = self.parse_trailing_lambda()?;
+                        let span = cover(expr_span(&expr), expr_span(&lambda));
+                        let mut callee = Vec::new();
+                        if collect_callee(&expr, &mut callee) {
+                            callee.push(field.clone());
+                            expr = Expr::Call { callee, args: vec![lambda], unsafe_call: false, span };
+                        } else {
+                            expr = Expr::MethodCall {
+                                receiver: Box::new(expr),
+                                method: field,
+                                args: vec![lambda],
                                 span,
                             };
                         }
@@ -306,7 +334,13 @@ impl<'src> Parser<'src> {
                 }
                 let close = self.expect(TokenKind::RParen)?;
                 self.close_open(TokenKind::RParen);
-                let span = cover(expr_span(&expr), close.span);
+                let mut args = args;
+                let mut span = cover(expr_span(&expr), close.span);
+                if self.has_trailing_block() {
+                    let lambda = self.parse_trailing_lambda()?;
+                    span = cover(span, expr_span(&lambda));
+                    args.push(lambda);
+                }
                 expr = Expr::Call { callee, args, unsafe_call: false, span };
                 continue;
             }
@@ -417,7 +451,7 @@ impl<'src> Parser<'src> {
             TokenKind::Switch => {
                 // switch expression
                 let kw = self.advance();
-                let subject = self.parse_expr()?;
+                let subject = self.without_block_arg(|p| p.parse_expr())?;
                 let (arms, close_span) = self.parse_switch_arms_for_expr()?;
                 let span = cover(kw.span, close_span);
                 Ok(Expr::SwitchExpr { subject: Box::new(subject), arms, span })
@@ -503,6 +537,14 @@ impl<'src> Parser<'src> {
                     let span = cover(first_span, close.span);
                     return Ok(Expr::StructLit { path, fields, span });
                 }
+                // `f { |x| ... }` / `xs.map { |x| ... }` with no parentheses:
+                // the block is the only argument. The head flag keeps
+                // `if ready { }` from reaching here.
+                if self.has_trailing_block() {
+                    let lambda = self.parse_trailing_lambda()?;
+                    let span = cover(first_span, expr_span(&lambda));
+                    return Ok(Expr::Call { callee: path, args: vec![lambda], unsafe_call: false, span });
+                }
                 let span = cover(first_span, end);
                 Ok(Expr::Ident(path, span))
             }
@@ -529,7 +571,13 @@ impl<'src> Parser<'src> {
                 }
                 let close = self.expect(TokenKind::RParen)?;
                 self.close_open(TokenKind::RParen);
-                let span = cover(unsafe_tok.span, close.span);
+                let mut args = args;
+                let mut span = cover(unsafe_tok.span, close.span);
+                if self.has_trailing_block() {
+                    let lambda = self.parse_trailing_lambda()?;
+                    span = cover(span, expr_span(&lambda));
+                    args.push(lambda);
+                }
                 let _ = start_span;
                 Ok(Expr::Call { callee, args, unsafe_call: true, span })
             }
@@ -549,13 +597,27 @@ impl<'src> Parser<'src> {
     /// cannot be anything else -- there is no prefix `||` in Yashy -- so the
     /// parser reads it as the empty parameter list it is.
     fn parse_lambda(&mut self) -> Result<Expr, ParseError> {
+        let (bars, params, ret) = self.parse_lambda_head()?;
+        let body = self.parse_block()?;
+        Ok(Expr::Lambda {
+            params,
+            ret,
+            span: cover(bars, body.span),
+            body: Box::new(body),
+        })
+    }
+
+    /// The `|...|` and optional `-> T` of a lambda, without its body.
+    fn parse_lambda_head(
+        &mut self,
+    ) -> Result<(Span, Vec<LambdaParam>, Option<TypeExpr>), ParseError> {
         let (bars, params) = if self.eat(TokenKind::OrOr) {
             (self.previous_span(), Vec::new())
         } else {
             let open = self.expect(TokenKind::Pipe)?;
             let mut params = Vec::new();
             while !self.check(TokenKind::Pipe) && !self.at_eof() {
-                params.push(self.parse_param()?);
+                params.push(self.parse_lambda_param()?);
                 if !self.eat(TokenKind::Comma) {
                     break;
                 }
@@ -568,11 +630,64 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
-        let body = self.parse_block()?;
+        Ok((bars, params, ret))
+    }
+
+    /// One lambda parameter: `|x|` infers, `|int x|` writes.
+    fn parse_lambda_param(&mut self) -> Result<LambdaParam, ParseError> {
+        // `|x: int|` is the removed name-first order, exactly as for a
+        // function parameter.
+        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {
+            let span = self.peek_span();
+            return Err(crate::error::type_after_name(span));
+        }
+        // A bare name followed by `,` or the closing bar can only be an
+        // inferred parameter: a type-first parameter is followed by its name.
+        if self.check(TokenKind::Ident)
+            && matches!(self.peek_second(), TokenKind::Comma | TokenKind::Pipe)
+        {
+            let (name, span) = self.identifier()?;
+            return Ok(LambdaParam { name, ty: None, span });
+        }
+        let ty = self.parse_type_expr()?;
+        let (name, name_span) = self.identifier()?;
+        Ok(LambdaParam {
+            span: cover(ty_span(&ty), name_span),
+            name,
+            ty: Some(ty),
+        })
+    }
+
+    /// A `{` that opens a trailing block argument: `{ |x| ... }` / `{ || ... }`.
+    fn has_trailing_block(&self) -> bool {
+        !self.no_block_arg
+            && self.check(TokenKind::LBrace)
+            && matches!(self.peek_second(), TokenKind::Pipe | TokenKind::OrOr)
+    }
+
+    /// Parse a trailing block as a lambda whose `{` has not been read yet.
+    fn parse_trailing_lambda(&mut self) -> Result<Expr, ParseError> {
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+        let (_bars, params, ret) = self.parse_lambda_head()?;
+        // `{ |x| return x; }` reuses the outer brace as the body; the explicit
+        // form `{ |int x| -> int { return x; } }` keeps the lambda's own brace
+        // after the arrow. Both read as one lambda.
+        let body = if self.check(TokenKind::LBrace) {
+            let inner = self.parse_block()?;
+            let close = self.expect(TokenKind::RBrace)?;
+            self.close_open(TokenKind::RBrace);
+            crate::ast::Block {
+                stmts: inner.stmts,
+                span: cover(open.span, close.span),
+            }
+        } else {
+            self.parse_block_after_open(open.span)?
+        };
         Ok(Expr::Lambda {
             params,
             ret,
-            span: cover(bars, body.span),
+            span: cover(open.span, body.span),
             body: Box::new(body),
         })
     }
@@ -590,7 +705,7 @@ impl<'src> Parser<'src> {
                 self.parse_pattern()?
             };
             let guard = if self.eat(TokenKind::If) {
-                Some(self.parse_expr()?)
+                Some(self.without_block_arg(|p| p.parse_expr())?)
             } else {
                 None
             };

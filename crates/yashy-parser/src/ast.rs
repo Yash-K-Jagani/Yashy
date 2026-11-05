@@ -296,6 +296,19 @@ pub struct Param {
     pub span: Span,
 }
 
+/// One lambda parameter: `|x|` infers its type, `|int x|` writes it.
+///
+/// A lambda has no declaration to take a type from, so its parameters may
+/// leave the type out and let the callee's signature supply it. A function or
+/// an `extern` declaration always writes the type.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LambdaParam {
+    pub name: String,
+    /// The declared type, or `None` when the source wrote only the name.
+    pub ty: Option<TypeExpr>,
+    pub span: Span,
+}
+
 /// One contract clause: `requires n > 0` or `ensures result > 0`.
 ///
 /// A clause is a `bool` expression plus the span it was written at. It is kept
@@ -887,14 +900,13 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
-    /// `|x: i64| -> i64 { ... }` -- an anonymous function.
+    /// `|int x| -> int { ... }` and `|x| { ... }` -- an anonymous function.
     ///
-    /// The parameters and the return type are written, not inferred: a lambda
-    /// has no declaration to take a type from, so the type is the only place
-    /// it can come from. The body is an ordinary block, the same shape a
-    /// function's body has.
+    /// The return type is written when the source writes an arrow. A parameter
+    /// may leave its type out; the checker then takes it from the callee's
+    /// signature, which is what lets a trailing block read `{ |x| ... }`.
     Lambda {
-        params: Vec<Param>,
+        params: Vec<LambdaParam>,
         /// The declared return type. `None` when the source wrote no arrow,
         /// which means the lambda returns unit.
         ret: Option<TypeExpr>,
