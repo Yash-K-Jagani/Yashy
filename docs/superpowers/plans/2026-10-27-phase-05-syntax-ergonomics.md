@@ -268,11 +268,11 @@ See the master index. The ones that bite here:
 - Produces: precedence — explicit field, then spread (Task 4), then default. A field with neither is still `E0201`, whose message now says "has no default".
 - Produces: a default is checked once against the field's declared type; a mismatched default is `E0100` at the default's span, not at every construction.
 
-- [ ] **Step 1: Write the failing tests** — a literal omitting a defaulted field compiles and has the default; an explicit value overrides it; a spread's field overrides a default; a literal omitting a non-defaulted field is still `E0201` with the new wording; `= f()` is `E0102`; `= 1` on a `string` field is `E0100`; the formatter round-trips the declaration.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — Task 4 created `fill_struct_fields`; this task adds its default leg, so precedence has exactly one implementation. The default expression is checked against the field type when the struct is declared; the literal insertion clones the *checked* HIR expression, so a default cannot be type-checked differently at two call sites.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: default struct field values (E0102)"`
+- [x] **Step 1: Write the failing tests** — a literal omitting a defaulted field compiles and has the default; an explicit value overrides it; a spread's field overrides a default; a literal omitting a non-defaulted field is still `E0201` with the new wording; `= f()` is `E0102`; `= 1` on a `string` field is `E0100`; the formatter round-trips the declaration. Sema tests in `crates/yashy-sema/tests/defaults.rs` (7), fmt round-trip, `field_defaults.ya` + e2e.
+- [x] **Step 2: Watch them fail.** The sema tests failed to compile against the missing `FieldDef.default` / `StructSig.defaults` shapes, then failed on semantics until the default leg landed.
+- [x] **Step 3: Implement** — Task 4 created `fill_struct_fields`; this task adds its default leg, so precedence has exactly one implementation. The default expression is checked against the field type when the struct is declared; the literal insertion clones the *checked* HIR expression, so a default cannot be type-checked differently at two call sites.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: default struct field values (E0102)"`
 
 ---
 

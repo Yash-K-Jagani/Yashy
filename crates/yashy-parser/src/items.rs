@@ -381,11 +381,19 @@ impl<'src> Parser<'src> {
         let (name, name_span) = self.identifier()?;
         self.expect(TokenKind::Colon)?;
         let ty = self.parse_type_expr()?;
+        let (default, span) = if self.eat(TokenKind::Eq) {
+            let default = self.parse_expr()?;
+            let span = cover(name_span, crate::exprs::expr_span(&default));
+            (Some(default), span)
+        } else {
+            (None, cover(name_span, ty_span(&ty)))
+        };
         Ok(FieldDef {
             name,
             public,
-            span: cover(name_span, ty_span(&ty)),
+            span,
             ty,
+            default,
         })
     }
 

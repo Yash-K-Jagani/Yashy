@@ -225,6 +225,9 @@ pub enum Item {
 pub struct FieldDef {
     pub name: String,
     pub ty: TypeExpr,
+    /// A default value: `retries: int = 3`. A literal or a `const` name;
+    /// the checker folds it when the struct is declared.
+    pub default: Option<Expr>,
     /// Whether another module may read or write the field.
     ///
     /// A field is private to the module that declares it unless it is marked

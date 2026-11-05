@@ -254,6 +254,14 @@ fn an_indexed_loop_round_trips() {
 }
 
 #[test]
+fn a_field_default_round_trips() {
+    let source = "struct Config {\n    retries: int = 3,\n    name: string,\n}\n";
+    let formatted = format(source);
+    assert_eq!(formatted, source);
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+}
+
+#[test]
 fn a_trailing_comma_keeps_its_closer_attached() {
     // `(5,)` is the one-element tuple and `[1,]` is an array with a trailing
     // separator; in both cases the comma is followed by the closer rather

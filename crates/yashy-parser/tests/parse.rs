@@ -87,6 +87,7 @@ fn full_program(spans: &mut Spans) -> Program {
             fields: vec![FieldDef {
                 name: "x".to_string(),
                 ty: TypeExpr::Name("float".to_string(), spans.take()),
+                default: None,
                 public: false,
                 span: spans.take(),
             }],
@@ -687,10 +688,11 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             FieldDef {
                 name: "x".to_string(),
                 ty: TypeExpr::Unit(here()),
+                default: None,
                 public: false,
                 span: here(),
             },
-            &["FieldDef", "name", "ty", "span"],
+            &["FieldDef", "name", "ty", "default", "span"],
             &["VariantDef", "Param"],
         ),
         case(

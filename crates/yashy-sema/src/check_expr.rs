@@ -54,6 +54,10 @@ struct StructSig {
     /// A field is private to the module that declares it unless it is marked
     /// `pub`, the same rule an item follows.
     field_public: Vec<bool>,
+    /// A checked default per field, in the same order: `None` when the field
+    /// wrote none. Checked once, when the struct is declared, so a default
+    /// cannot be checked differently at two construction sites.
+    defaults: Vec<Option<HirExpr>>,
     /// Whether the declaration asked for C's layout with `repr(C)`.
     ///
     /// The checker records it rather than recomputing the layout: `offsetof`
@@ -1726,11 +1730,20 @@ impl<'src> Checker<'src> {
                     })
                     .collect();
                 let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
+                let defaults: Vec<Option<HirExpr>> = fields
+                    .iter()
+                    .zip(field_tys.iter())
+                    .map(|(f, (_, ty))| match &f.default {
+                        Some(default) => self.check_field_default(default, ty, f.span),
+                        None => None,
+                    })
+                    .collect();
                 self.structs.insert(
                     name.clone(),
                     StructSig {
                         fields: field_tys,
                         field_public,
+                        defaults,
                         repr_c: repr.is_some(),
                         origin: self.origin(public),
                     },
@@ -1821,11 +1834,20 @@ impl<'src> Checker<'src> {
                     })
                     .collect();
                 let field_public: Vec<bool> = fields.iter().map(|f| f.public).collect();
+                let defaults: Vec<Option<HirExpr>> = fields
+                    .iter()
+                    .zip(field_tys.iter())
+                    .map(|(f, (_, ty))| match &f.default {
+                        Some(default) => self.check_field_default(default, ty, f.span),
+                        None => None,
+                    })
+                    .collect();
                 self.structs.insert(
                     name.clone(),
                     StructSig {
                         fields: field_tys,
                         field_public,
+                        defaults,
                         repr_c: repr.is_some(),
                         origin: self.origin(public),
                     },
@@ -5900,6 +5922,48 @@ impl<'src> Checker<'src> {
         })
     }
 
+    /// Check one field default at declaration time.
+    ///
+    /// A default is a literal or a constant expression, evaluated once here;
+    /// the checked literal is cloned into every literal that omits the field.
+    /// Anything the constant evaluator refuses is `E0102`, and a value of
+    /// the wrong type is `E0100` at the default.
+    fn check_field_default(
+        &mut self,
+        default: &Expr,
+        field_ty: &Type,
+        span: Span,
+    ) -> Option<HirExpr> {
+        let mut work = const_eval::Work::default();
+        match const_eval::evaluate(
+            default,
+            &[],
+            &self.const_fns,
+            &mut work,
+            const_eval::Missing::NotConstant,
+        ) {
+            Ok(value) => {
+                let found = Type {
+                    kind: value.kind(),
+                    span,
+                };
+                if !fits(field_ty, &found) {
+                    self.mismatch(span, field_ty, &found);
+                    return None;
+                }
+                Some(value.to_expr(span))
+            }
+            Err(_) => {
+                self.error_code(
+                    span,
+                    codes::FIELD_DEFAULT_NOT_CONST,
+                    "a field default must be a literal or a `const` name".to_string(),
+                );
+                None
+            }
+        }
+    }
+
     /// Build a struct literal's fields in declaration order.
     ///
     /// Precedence has exactly one implementation: an explicit field wins,
@@ -5940,6 +6004,8 @@ impl<'src> Checker<'src> {
                     },
                     span,
                 ));
+            } else if let Some(Some(default)) = sig.defaults.get(index) {
+                hir_fields.push((fname.clone(), default.clone(), span));
             }
         }
         hir_fields
@@ -8078,12 +8144,17 @@ impl<'src> Checker<'src> {
                         };
                         let provided: Vec<&str> =
                             written.iter().map(|(n, _, _)| n.as_str()).collect();
-                        for (fname, _) in &sig.fields {
-                            if !provided.contains(&fname.as_str()) && spread_checked.is_none() {
+                        for (index, (fname, _)) in sig.fields.iter().enumerate() {
+                            if !provided.contains(&fname.as_str())
+                                && spread_checked.is_none()
+                                && !sig.defaults[index].is_some()
+                            {
                                 self.error_code(
                                     *span,
                                     codes::MISSING_FIELD,
-                                    format!("missing field `{fname}` in struct `{name}`"),
+                                    format!(
+                                        "missing field `{fname}` in struct `{name}`: it has no default"
+                                    ),
                                 );
                             }
                         }

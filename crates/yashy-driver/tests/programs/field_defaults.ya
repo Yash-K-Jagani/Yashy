@@ -1,0 +1,37 @@
+// Default field values: a literal omitting a defaulted field has it filled
+// at construction, so the HIR literal always carries every field.
+//
+// Every printed line is a claim: the first reads the default, the second
+// proves an explicit value wins, and the third proves a spread's field wins
+// over the default. The fourth reads a string default.
+
+struct Config {
+    retries: int = 3,
+    name: string,
+}
+
+struct Server {
+    host: string = "localhost",
+    port: int = 8080,
+}
+
+fn main() {
+    const c = Config { name: "x" };
+    print(c.retries);
+    println("");
+
+    const d = Config { retries: 5, name: "y" };
+    print(d.retries);
+    println("");
+
+    const base = Config { retries: 9, name: "b" };
+    const e = Config { ..base };
+    print(e.retries);
+    println("");
+
+    const s = Server { port: 9090 };
+    print(s.host);
+    print(":");
+    print(s.port);
+    println("");
+}

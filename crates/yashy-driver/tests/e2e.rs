@@ -1790,6 +1790,15 @@ fn a_struct_field_is_read_by_name_whatever_order_it_was_written() {
 }
 
 #[test]
+fn default_fields_fill_omitted_slots() {
+    // The default fills the omitted `retries` (3), an explicit value wins
+    // (5), a spread's field wins over the default (9), and a string default
+    // prints beside its explicit neighbour.
+    let output = build_and_run("field_defaults");
+    assert_eq!(stdout_of(&output), "3\n5\n9\nlocalhost:9090\n");
+}
+
+#[test]
 fn spread_fills_fields_and_concatenates_arrays() {
     // `p` takes `y` from `base` and keeps its own `x`; `q` copies `origin`
     // whole. The slice prints its length, then prefix, spread and suffix in

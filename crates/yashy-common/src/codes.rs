@@ -29,6 +29,8 @@ pub const UNKNOWN_TYPE: &str = "E0002";
 pub const TYPE_MISMATCH: &str = "E0100";
 /// `==` or `!=` inside a comparison chain.
 pub const CHAINED_EQUALITY: &str = "E0101";
+/// A field default is not a literal or a `const` name.
+pub const FIELD_DEFAULT_NOT_CONST: &str = "E0102";
 /// A bitwise operator is applied to a non-integer (or non-bool for the logical forms).
 pub const BITWISE_NOT_INTEGER: &str = "E0103";
 /// A bitwise operator is applied to two different types.
@@ -124,6 +126,12 @@ pub const CODES: &[Code] = &[
         title: "equality in a comparison chain",
         summary: "`==` and `!=` cannot appear in a chained comparison; write the two comparisons separately with `&&`.",
         page: include_str!("../../../docs/errors/E0101.md"),
+    },
+    Code {
+        id: FIELD_DEFAULT_NOT_CONST,
+        title: "field default is not constant",
+        summary: "A struct field default must be a literal or a `const` name.",
+        page: include_str!("../../../docs/errors/E0102.md"),
     },
     Code {
         id: BITWISE_NOT_INTEGER,
