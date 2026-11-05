@@ -168,7 +168,7 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Watch them fail.** The parser tests failed to compile against `Vec<Param>` (the RED that drove `LambdaParam { ty: Option }`), and the sema trailing-block test failed in the parser until `parse_trailing_lambda` landed.
 - [x] **Step 3: Implement** — one `no_block_arg` field on `Parser`, set with `without_block_arg()` around the `if`/`while`/`for`/`switch` heads, switch-arm guards, and the `switch`-expression subject; when a `{` followed by `|` or `||` follows a call's `)` (or a bare callee path, or a dotted method with no parentheses), it is parsed as a lambda and appended to `args`. `check_expr_with_expected` checks a lambda against an expected `Func` signature; `check_callback` does the same for `map`/`filter`/`fold`, with `map`'s return inferred from the body's first `return` via a `lambda_ret_infer` stack. The generic-argument pass refuses inferred parameters with `E0100` naming the declared `fn(T) -> T`. Rulings: the formatter needed no code change (its token printer already lays the block out as a block, pinned by the new test); the LSP needed no change (there is no signature-help request, and hover's `user_signature` reads unchanged `fn` declarations).
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-lsp` → PASS, plus `cargo test -p yashy-driver --test e2e a_closure_outlives` and `cargo check --workspace --all-targets` clean.
-- [x] **Step 5: Commit** — `git commit -m "feat: trailing block arguments with inferred closure parameters"`
+- [x] **Step 5: Commit** — `git commit -m "feat: trailing block arguments with inferred closure parameters"`. Landed as `150579c`.
 
 ---
 
