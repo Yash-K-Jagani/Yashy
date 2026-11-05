@@ -194,7 +194,7 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Watch them fail.** The parser tests failed to compile against the old AST (`spread` field, `SliceElement`); the sema tests failed until the checker arms landed.
 - [x] **Step 3: Implement** — `StructLit.spread: Option<Box<Expr>>` (must be last, else "the spread is written last"); `SliceLit { elem: Option, elements: Vec<SliceElement> }`, with `[0, ..xs, 4]` (no written element type) parsing as a slice whose element type is inferred. `fill_struct_fields` builds declaration-order fields (explicit, then spread); the spread operand is moved as a whole via `Scope::move_out_spread`, whose later-use diagnostic is `E1002` (`scope.rs` keeps a `spread_moved` set beside `move_out`). Array spread lowers to a `__spread` marker call inside `HirExpr::SliceLit`, which `slices::gen_literal` copies element-by-element into a runtime-sized allocation. `E0202` on a duplicated field; `E0100` on a wrong-type spread.
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [x] **Step 5: Commit** — `git commit -m "feat: struct and array spread, with partial-move rules (E0202, E1002)"`
+- [x] **Step 5: Commit** — `git commit -m "feat: struct and array spread, with partial-move rules (E0202, E1002)"`. Landed as `0d9c279`.
 
 ---
 
