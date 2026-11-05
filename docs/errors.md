@@ -38,6 +38,7 @@ the declaration or import involved when that is not obvious.
 | [E0200](errors/E0200.md) | unknown field |
 | [E0201](errors/E0201.md) | missing field |
 | [E0300](errors/E0300.md) | missing `?` |
+| [E0301](errors/E0301.md) | mixed `?` |
 | [E0400](errors/E0400.md) | const reassignment |
 | [E0500](errors/E0500.md) | moved value |
 | [E0600](errors/E0600.md) | non-exhaustive match |

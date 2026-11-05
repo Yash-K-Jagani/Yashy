@@ -229,6 +229,34 @@ fn a_while_let_that_always_matches_is_e0603_at_the_pattern() {
 }
 
 #[test]
+fn an_option_question_mark_in_a_result_function_is_e0301() {
+    assert_code(
+        "fn first(Option[int] o) -> Result[int, string] {\n    const int v = o?;\n    return Ok(v);\n}\n",
+        codes::MIXED_TRY,
+        "o?",
+    );
+}
+
+#[test]
+fn a_result_question_mark_in_an_option_function_is_e0301() {
+    assert_code(
+        "fn g() -> Result[int, string] {\n    return Ok(7);\n}\n\
+         fn first() -> Option[int] {\n    const int v = g()?;\n    return Some(v);\n}\n",
+        codes::MIXED_TRY,
+        "g()?",
+    );
+}
+
+#[test]
+fn an_option_question_mark_in_a_plain_function_is_e0301() {
+    assert_code(
+        "fn first(Option[int] o) -> int {\n    const int v = o?;\n    return v;\n}\n",
+        codes::MIXED_TRY,
+        "o?",
+    );
+}
+
+#[test]
 fn a_diagnostic_without_a_code_is_allowed_and_counted() {
     let (_, diags) = check("fn main() {\n    const x = 1;\n    const x = 2;\n}\n");
     assert!(

@@ -39,7 +39,7 @@ fn question_requires_a_result_function() {
     assert_error(
         "fn f() -> int { const v = g()?; return v; } \
          fn g() -> Result[int, string] { return Ok(1); }",
-        "`?` needs a function returning `Result`",
+        "`?` on a `Result` needs a function returning `Result`",
     );
 }
 

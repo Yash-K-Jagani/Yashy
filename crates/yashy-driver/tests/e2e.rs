@@ -3497,6 +3497,21 @@ fn if_let_and_while_let_bind_what_the_pattern_matched() {
 }
 
 #[test]
+fn question_mark_on_an_option_returns_none_early() {
+    // `option_try.ya` forwards `None` through two functions. `sum(1, 2)` has
+    // both operands, so it prints both progress lines and `6`. `sum(1, 0)`
+    // fails on the second `?`, after the first line. `sum(0, 2)` fails on the
+    // first `?`, so neither line prints. `show` turns each answer into `-1`
+    // when it is `None`, which is what the last two lines are.
+    let output = build_and_run("option_try");
+    assert_eq!(
+        stdout_of(&output),
+        "got first\ngot second\n6\ngot first\n-1\n-1\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn maps_insert_overwrite_remove_and_measure() {
     // `maps.ya` inserts "apple" twice (the second value wins), removes "pear",
     // then asks for "pear" again: a removed key is indistinguishable from one

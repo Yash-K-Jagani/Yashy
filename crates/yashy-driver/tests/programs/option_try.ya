@@ -1,0 +1,45 @@
+// `?` on an `Option`: an early `None` leaves the function, and a `Some` pays out
+// its payload and continues.
+//
+// `positive` is the only place that decides what counts as a failure, and every
+// function above it only forwards that decision. `sum` prints between its two
+// `?`s, so the output says exactly how far each call got: both operands okay
+// prints both lines and the sum, a failure on the second operand has already
+// printed the first line, and a failure on the first operand prints neither.
+// `show` turns the final `Option` into a number so `None` is visible as `-1`.
+
+fn show(Option[int] o) -> int {
+    if let Some(v) = o {
+        return v;
+    }
+    return 0 - 1;
+}
+
+fn positive(int n) -> Option[int] {
+    if n <= 0 {
+        return None;
+    }
+    return Some(n);
+}
+
+fn doubled(int n) -> Option[int] {
+    const int v = positive(n)?;
+    return Some(v * 2);
+}
+
+fn sum(int a, int b) -> Option[int] {
+    const int x = doubled(a)?;
+    print("got first\n");
+    const int y = doubled(b)?;
+    print("got second\n");
+    return Some(x + y);
+}
+
+fn main() {
+    print(show(sum(1, 2)));
+    println("");
+    print(show(sum(1, 0)));
+    println("");
+    print(show(sum(0, 2)));
+    println("");
+}

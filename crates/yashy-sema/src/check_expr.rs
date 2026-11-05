@@ -8012,12 +8012,29 @@ impl<'src> Checker<'src> {
                                     }
                                 }
                                 _ => {
-                                    self.error(*span, "`?` needs a function returning `Result`");
+                                    let error = TypeError::new(
+                                        *span,
+                                        "`?` on a `Result` needs a function returning `Result`",
+                                    )
+                                    .with_code(codes::MIXED_TRY)
+                                    .with_note(format!(
+                                        "this function returns `{ret}`: use `switch` to handle \
+                                         the `Result`, or change the return type"
+                                    ));
+                                    self.report(error);
                                     return None;
                                 }
                             },
                             None => {
-                                self.error(*span, "`?` needs a function returning `Result`");
+                                let error = TypeError::new(
+                                    *span,
+                                    "`?` on a `Result` needs a function returning `Result`",
+                                )
+                                .with_code(codes::MIXED_TRY)
+                                .with_note(
+                                    "use `switch` to handle the `Result`, or change the return type",
+                                );
+                                self.report(error);
                                 return None;
                             }
                         }
@@ -8026,8 +8043,24 @@ impl<'src> Checker<'src> {
                     TypeKind::Option(ok) => {
                         match self.fn_ret.clone() {
                             Some(ret) if matches!(ret.kind, TypeKind::Option(_)) => {}
-                            _ => {
-                                self.error(*span, "`?` needs a function returning `Option`");
+                            other => {
+                                let message =
+                                    "`?` on an `Option` needs a function returning `Option`";
+                                let error = match other {
+                                    Some(ret) => TypeError::new(*span, message)
+                                        .with_code(codes::MIXED_TRY)
+                                        .with_note(format!(
+                                            "this function returns `{ret}`: use `switch` to handle \
+                                             the `Option`, or change the return type"
+                                        )),
+                                    None => TypeError::new(*span, message)
+                                        .with_code(codes::MIXED_TRY)
+                                        .with_note(
+                                            "use `switch` to handle the `Option`, or change the \
+                                             return type",
+                                        ),
+                                };
+                                self.report(error);
                                 return None;
                             }
                         }

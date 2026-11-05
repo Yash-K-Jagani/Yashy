@@ -122,7 +122,7 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Run and watch them fail** — the new suites failed against the old parser and checker before the implementation landed.
 - [x] **Step 3: Implement** — parse `let` after the `if`/`while` keyword into a pattern plus `= expr`; `let` is already a keyword and an `if` condition cannot start with it. `while let` uses `parse_loop_body`, so `invariant` works there. Lowering happens in `check_expr` next to `Stmt::Switch`; the irrefutability question is asked before the blocks are checked, because the error is about the form, not the HIR. The pattern's scope is popped before the `else` branch, so the else path does not see the names it did not bind.
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt` and `cargo test -p yashy-driver --test e2e if_let` → PASS. The `E0603` transcript in `docs/errors/E0603.md` was re-run through the CLI and matches (`irrefutable.ya:3:12`, the same caret and `docs:` line).
-- [x] **Step 5: Commit** — `git commit -m "feat: if let and while let (E0603)"`
+- [x] **Step 5: Commit** — `git commit -m "feat: if let and while let (E0603)"`. Landed as `379c3b0`.
 
 ---
 
@@ -140,11 +140,11 @@ See the master index. The ones that bite here:
 - Produces: `gen_try` keeps reading the success tag from `variant_tag(&subject_ty, "Some"|"Ok", None)`. The codegen test asserts the emitted IR uses `icmp eq i8 %tag, 1` for an `Option` subject and `icmp eq i8 %tag, 0` for a `Result` subject.
 - Produces: `E0301` when `?` mixes the two: an `Option` inside a function returning `Result`, a `Result` inside a function returning `Option`, and either inside a function returning anything else. The note names both types and the two legal fixes (`switch`, or change the return type).
 
-- [ ] **Step 1: Write the failing tests** — `option_try.ya` returns `None` through two levels and asserts the early return; a `Result` `?` in an `Option` function is `E0301`; an `Option` `?` in a `Result` function is `E0301`; `?` on an `Option` in a function returning `int` is `E0301`; the existing `Result` `?` tests are unchanged; the IR test pins the two success tags.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the checker's `Expr::Try` arm already computes `TypeKind::Option(inner)` and yields `HirExpr::Try` with `ty = inner`; add `.with_code(MIXED_TRY)` and the notes to the three rejection paths. The codegen change is a comment naming `variant_tag`; the test is the guard.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: finish ? on Option with E0301 and the tag regression test"`
+- [x] **Step 1: Write the failing tests** — `option_try.ya` returns `None` through two levels and asserts the early return; a `Result` `?` in an `Option` function is `E0301`; an `Option` `?` in a `Result` function is `E0301`; `?` on an `Option` in a function returning `int` is `E0301`; the existing `Result` `?` tests are unchanged apart from the message text; the IR test pins the two success tags. The span of `Expr::Try` covers the subject and the `?`, not the `?` alone, so the three `codes.rs` tests expect `o?` and `g()?`. Semantics tests in `check.rs` add the `Option` success path, both mixings, the plain-function rejection, and a note check; `codes.rs` pins the span for each rejection path.
+- [x] **Step 2: Watch them fail** — the first run of the new tests failed on the span (they expected `?`, the checker reports `o?`/`g()?`) and on the older `errors.rs` test that still pinned `` `?` needs a function returning `Result` ``. Both were corrected; after that the suites went green.
+- [x] **Step 3: Implement** — the checker's `Expr::Try` arm already computes `TypeKind::Option(inner)` and yields `HirExpr::Try` with `ty = inner`; the three rejection paths now report `.with_code(MIXED_TRY)` and a note naming the enclosing return type and the two fixes. The codegen change is a comment naming the `variant_tag` table; the IR test is the guard against inverting `Some` = 1 and `Ok` = 0.
+- [x] **Step 4: Run** — `cargo test -p yashy-sema` green (16 targets; `methods` ran under the padded launcher at 15/15 after the host blocked the fresh binary), `cargo test -p yashy-codegen --test option_try` green (2/2), `cargo test -p yashy-driver --test e2e question_mark_on_an_option` green (1/1), `cargo test -p yashy-driver --test docs --test explain` green (3/3, 12/12). The `E0301` transcript in `docs/errors/E0301.md` was re-run through the CLI and matches (`mixed.ya:2:19`, the `^^` under `o?`, and the note).
+- [x] **Step 5: Commit** — `git commit -m "feat: finish ? on Option with E0301 and the tag regression test"`. Landed as `689397b`.
 
 ---
 

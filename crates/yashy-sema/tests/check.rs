@@ -527,6 +527,57 @@ fn try_on_a_result_returns_the_ok_value() {
 }
 
 #[test]
+fn try_on_an_option_returns_the_payload() {
+    let (result, _, _) =
+        check_source("fn f(Option[int] o) -> Option[int] { const v = o?; return Some(v + 1); }");
+    result.expect("`?` on Option[int] yields int");
+}
+
+#[test]
+fn try_on_an_option_in_a_result_function_is_an_error() {
+    assert_error(
+        "fn f(Option[int] o) -> Result[int, string] { const v = o?; return Ok(v); }",
+        "`?` on an `Option` needs a function returning `Option`",
+    );
+}
+
+#[test]
+fn try_on_a_result_in_an_option_function_is_an_error() {
+    assert_error(
+        "fn g() -> Result[int, string] { return Ok(7); } \
+         fn f() -> Option[int] { const v = g()?; return Some(v); }",
+        "`?` on a `Result` needs a function returning `Result`",
+    );
+}
+
+#[test]
+fn try_on_an_option_in_a_plain_function_is_an_error() {
+    assert_error(
+        "fn f(Option[int] o) -> int { const v = o?; return v; }",
+        "`?` on an `Option` needs a function returning `Option`",
+    );
+}
+
+#[test]
+fn a_mixed_try_names_the_enclosing_return_type() {
+    let (result, _, _) =
+        check_source("fn f(Option[int] o) -> Result[int, string] { const v = o?; return Ok(v); }");
+    let diags = result.expect_err("mixing the two must be refused");
+    let diagnostic = diags
+        .iter()
+        .find(|d| d.code == Some(yashy_common::codes::MIXED_TRY))
+        .unwrap_or_else(|| panic!("expected E0301, got {diags:?}"));
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("`Result[int, string]`")),
+        "the note must name the enclosing return type: {:?}",
+        diagnostic.notes
+    );
+}
+
+#[test]
 fn try_on_a_non_result_is_an_error() {
     assert_error(
         "fn f() -> int { const v = 1?; return v; }",

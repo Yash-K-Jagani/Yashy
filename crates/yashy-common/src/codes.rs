@@ -48,6 +48,8 @@ pub const UNKNOWN_FIELD: &str = "E0200";
 pub const MISSING_FIELD: &str = "E0201";
 /// A `Result` is used where its success value is expected.
 pub const MISSING_QUESTION: &str = "E0300";
+/// `?` propagates a failure kind the enclosing function cannot return.
+pub const MIXED_TRY: &str = "E0301";
 /// A `const` binding is assigned after its declaration.
 pub const CONST_REASSIGNMENT: &str = "E0400";
 /// A linear value is used after it was moved or freed.
@@ -170,6 +172,12 @@ pub const CODES: &[Code] = &[
         title: "missing `?`",
         summary: "A `Result` is used where its success value is expected.",
         page: include_str!("../../../docs/errors/E0300.md"),
+    },
+    Code {
+        id: MIXED_TRY,
+        title: "mixed `?`",
+        summary: "`?` propagates a failure kind the enclosing function cannot return.",
+        page: include_str!("../../../docs/errors/E0301.md"),
     },
     Code {
         id: CONST_REASSIGNMENT,

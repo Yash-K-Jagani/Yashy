@@ -2429,7 +2429,10 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
     let subject_repr = repr_type(&value.ty);
     let ret_repr = repr_type(&ctx.ret_type);
     // `Some` is tag 1 and `Ok` is tag 0, so the success tag depends on which
-    // failure-carrying type the subject is.
+    // failure-carrying type the subject is. `variant_tag` in `ir.rs` is the
+    // table: `Option` is `None` = 0, `Some` = 1; `Result` is `Ok` = 0,
+    // `Err` = 1. A copy-paste that hard-codes one of the two is the bug the
+    // codegen test pins against.
     let success_tag = if matches!(value.ty, TypeKind::Option(_)) {
         1
     } else {
