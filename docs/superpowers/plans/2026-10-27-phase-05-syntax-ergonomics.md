@@ -144,7 +144,7 @@ See the master index. The ones that bite here:
 - [x] **Step 2: Watch them fail** — the first run of the new tests failed on the span (they expected `?`, the checker reports `o?`/`g()?`) and on the older `errors.rs` test that still pinned `` `?` needs a function returning `Result` ``. Both were corrected; after that the suites went green.
 - [x] **Step 3: Implement** — the checker's `Expr::Try` arm already computes `TypeKind::Option(inner)` and yields `HirExpr::Try` with `ty = inner`; the three rejection paths now report `.with_code(MIXED_TRY)` and a note naming the enclosing return type and the two fixes. The codegen change is a comment naming the `variant_tag` table; the IR test is the guard against inverting `Some` = 1 and `Ok` = 0.
 - [x] **Step 4: Run** — `cargo test -p yashy-sema` green (16 targets; `methods` ran under the padded launcher at 15/15 after the host blocked the fresh binary), `cargo test -p yashy-codegen --test option_try` green (2/2), `cargo test -p yashy-driver --test e2e question_mark_on_an_option` green (1/1), `cargo test -p yashy-driver --test docs --test explain` green (3/3, 12/12). The `E0301` transcript in `docs/errors/E0301.md` was re-run through the CLI and matches (`mixed.ya:2:19`, the `^^` under `o?`, and the note).
-- [x] **Step 5: Commit** — `git commit -m "feat: finish ? on Option with E0301 and the tag regression test"`. Landed as `689397b`.
+- [x] **Step 5: Commit** — `git commit -m "feat: finish ? on Option with E0301 and the tag regression test"`. Landed as `972d937`.
 
 ---
 
