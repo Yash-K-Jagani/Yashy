@@ -49,6 +49,8 @@ the declaration or import involved when that is not obvious.
 | [E0604](errors/E0604.md) | unknown loop label |
 | [E0605](errors/E0605.md) | duplicate loop label |
 | [E0700](errors/E0700.md) | wrong argument count |
+| [E0801](errors/E0801.md) | private item used from another module |
+| [E0802](errors/E0802.md) | import cycle |
 | [E0900](errors/E0900.md) | duplicate extern symbol |
 | [E0901](errors/E0901.md) | malformed extern declaration |
 | [E0902](errors/E0902.md) | misplaced variadic marker |

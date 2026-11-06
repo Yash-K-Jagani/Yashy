@@ -203,10 +203,57 @@ fn an_import_cycle_is_reported_not_looped_on() {
         stderr.contains("import cycle"),
         "the message must say it is a cycle:\n{stderr}"
     );
+    assert!(stderr.contains("E0802"), "the code must be present:\n{stderr}");
     assert!(
         stderr.contains("a.ya") && stderr.contains("b.ya"),
         "the cycle must name both modules:\n{stderr}"
     );
+}
+
+#[test]
+fn a_self_import_is_a_cycle() {
+    let dir = work_dir("self-cycle");
+    write(&dir, "main.ya", "import a;\nfn main() { }\n");
+    write(&dir, "a.ya", "import a;\npub fn a() -> int { return 1; }\n");
+
+    let output = build(&dir, &dir.join("main.ya"), None);
+    assert!(!output.status.success(), "a self-import must fail the build");
+    let stderr = stderr_of(&output);
+    assert!(stderr.contains("import cycle"), "must say cycle:\n{stderr}");
+    assert!(stderr.contains("E0802"), "must carry E0802:\n{stderr}");
+}
+
+#[test]
+fn a_fifty_module_chain_resolves() {
+    let dir = work_dir("large-project");
+    // m0 imports m1 ... m49; each pub fn returns the next + 1, m49 returns 0.
+    // Names are unique per module: Yashy has one namespace, and an aliased
+    // import (Phase 6 Task 3) is what will make a shared name writable.
+    write(&dir, "m49.ya", "pub fn v49() -> int { return 0; }\n");
+    for index in (0..49).rev() {
+        write(
+            &dir,
+            &format!("m{index}.ya"),
+            &format!(
+                "import m{};\npub fn v{index}() -> int {{ return v{}() + 1; }}\n",
+                index + 1,
+                index + 1
+            ),
+        );
+    }
+    write(
+        &dir,
+        "main.ya",
+        "import m0;\nfn main() { print(v0()); }\n",
+    );
+
+    let output = build(&dir, &dir.join("main.ya"), None);
+    assert!(
+        output.status.success(),
+        "a 50-module chain must resolve:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(stdout_of(&run(&exe(&dir))), "49\n");
 }
 
 #[test]

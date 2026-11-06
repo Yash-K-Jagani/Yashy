@@ -64,6 +64,18 @@ pub struct Module {
     pub program: Program,
 }
 
+/// The import graph of a loaded program: every discovered module, and every
+/// edge one module's `import` statement names. The phase 4 query pipeline
+/// takes this as an input (`Db::module_graph`), so a change to `b.ya`
+/// invalidates `a.ya`'s check when `a` imports `b`, and a change to an
+/// unrelated file invalidates nothing.
+pub struct ModuleGraph {
+    /// Every discovered module, dependencies first.
+    pub modules: Vec<ModuleSource>,
+    /// `(importer, imported)` for each `import` statement, in discovery order.
+    pub edges: Vec<(FileId, FileId)>,
+}
+
 /// A module discovered by the loader but not yet parsed.
 ///
 /// Discovery still lexes each file -- the import graph lives in its tokens --
@@ -316,6 +328,15 @@ pub fn load_sources(
     entry_path: &Path,
     entry_source: String,
 ) -> Result<Vec<ModuleSource>, Vec<Diagnostic>> {
+    load_graph(sources, entry_path, entry_source).map(|graph| graph.modules)
+}
+
+/// Load the module graph for `entry_path`: every module and every import edge.
+pub fn load_graph(
+    sources: &mut SourceMap,
+    entry_path: &Path,
+    entry_source: String,
+) -> Result<ModuleGraph, Vec<Diagnostic>> {
     let roots = module_roots(entry_path);
     let mut loader = SourceLoader {
         sources,
@@ -324,6 +345,7 @@ pub fn load_sources(
         stack: Vec::new(),
         next_order: 0,
         sources_out: Vec::new(),
+        edges: Vec::new(),
     };
     loader.visit(
         identity_of(entry_path),
@@ -332,7 +354,10 @@ pub fn load_sources(
         None,
         None,
     )?;
-    Ok(loader.sources_out)
+    Ok(ModuleGraph {
+        modules: loader.sources_out,
+        edges: loader.edges,
+    })
 }
 
 /// Load `entry_path` and everything it imports, parsing every module on the
@@ -387,6 +412,8 @@ struct SourceLoader<'a> {
     next_order: u32,
     /// Discovered modules, dependencies first.
     sources_out: Vec<ModuleSource>,
+    /// Import edges in discovery order: `(importer, imported)`.
+    edges: Vec<(FileId, FileId)>,
 }
 
 impl SourceLoader<'_> {
@@ -461,6 +488,7 @@ impl SourceLoader<'_> {
             ) {
                 return Err(self.abandon(identity, diagnostics));
             }
+            self.edges.push((file, self.file_of(&target)));
         }
 
         self.stack.pop();
@@ -473,6 +501,15 @@ impl SourceLoader<'_> {
             tokens,
         });
         Ok(())
+    }
+
+    fn file_of(&self, target: &Path) -> FileId {
+        let identity = identity_of(target);
+        self.sources_out
+            .iter()
+            .find(|module| identity_of(&module.path) == identity)
+            .map(|module| module.file)
+            .unwrap_or(FileId::from_index(0))
     }
 
     /// Undo the loading state for `identity` before returning its diagnostics.
@@ -513,12 +550,25 @@ impl SourceLoader<'_> {
             .map(|(_, display)| display.display().to_string())
             .chain(std::iter::once(path.display().to_string()))
             .collect();
-        self.at(site, format!("import cycle: {}", names.join(" -> ")))
+        self.coded_at(
+            site,
+            yashy_common::codes::MODULE_CYCLE,
+            format!("import cycle: {}", names.join(" -> ")),
+        )
     }
 
     fn at(&self, site: Option<(FileId, Span)>, message: String) -> Diagnostic {
         let (file, span) = site.unwrap_or((FileId::from_index(0), Span::SYNTHETIC));
         Diagnostic::new(Severity::Error, file, span, message)
+    }
+
+    fn coded_at(
+        &self,
+        site: Option<(FileId, Span)>,
+        code: &'static str,
+        message: String,
+    ) -> Diagnostic {
+        self.at(site, message).with_code(code)
     }
 }
 

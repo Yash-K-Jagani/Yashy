@@ -336,6 +336,45 @@ impl Db {
         self.order = order;
     }
 
+    /// The import graph reachable from `entry`: `(importer, imported)` for each
+    /// `import` in a reachable module, in dependency order. The edge target is
+    /// the module registered under the import path's last segment, which is
+    /// the name the loader recorded for it. This is a query input: every
+    /// per-file query key already folds in its imports' text hashes through
+    /// the checker, so an edit to `b.ya` invalidates `a.ya`'s check when `a`
+    /// imports `b` and nothing else.
+    pub fn module_graph(&self, entry: FileId) -> Vec<(FileId, FileId)> {
+        let mut edges = Vec::new();
+        let mut seen: Vec<FileId> = Vec::new();
+        let mut queue = vec![entry];
+        while let Some(file) = queue.pop() {
+            if seen.contains(&file) {
+                continue;
+            }
+            seen.push(file);
+            let Some(program) = self.parse_cached(file) else {
+                continue;
+            };
+            for item in &program.items {
+                let Item::Import { path, .. } = item else {
+                    continue;
+                };
+                let Some(wanted) = path.last() else {
+                    continue;
+                };
+                if let Some(target) = self
+                    .modules
+                    .iter()
+                    .find(|m| m.name.as_deref() == Some(wanted.as_str()))
+                {
+                    edges.push((file, target.file));
+                    queue.push(target.file);
+                }
+            }
+        }
+        edges
+    }
+
     /// Replace a registered source with new text. The module keeps its id and
     /// its name. Only the whole-program caches are dropped: the per-function
     /// entries stay, and their read sets decide what actually re-runs. That is

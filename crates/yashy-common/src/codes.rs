@@ -110,6 +110,10 @@ pub const UNREACHABLE_CODE: &str = "E2002";
 pub const UNUSED_PARAMETER: &str = "E2003";
 /// A doc comment is written where no item follows.
 pub const DOC_COMMENT_MISPLACED: &str = "E2100";
+/// Modules import each other in a cycle.
+pub const MODULE_CYCLE: &str = "E0802";
+/// A non-`pub` item is used from another module.
+pub const PRIVATE_ITEM: &str = "E0801";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -370,6 +374,18 @@ pub const CODES: &[Code] = &[
         title: "doc comment with no item",
         summary: "A `///` doc comment must sit above an item, not a statement or the end of the file.",
         page: include_str!("../../../docs/errors/E2100.md"),
+    },
+    Code {
+        id: MODULE_CYCLE,
+        title: "import cycle",
+        summary: "Modules import each other in a cycle, which has no loading order.",
+        page: include_str!("../../../docs/errors/E0802.md"),
+    },
+    Code {
+        id: PRIVATE_ITEM,
+        title: "private item used from another module",
+        summary: "A non-`pub` item or field is used outside its module.",
+        page: include_str!("../../../docs/errors/E0801.md"),
     },
 ];
 
