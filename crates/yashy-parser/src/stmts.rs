@@ -86,7 +86,9 @@ impl<'src> Parser<'src> {
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Defer => self.parse_defer(),
-            TokenKind::Ident if self.identifier_is("arena") && self.peek_second() == TokenKind::LBrace => {
+            TokenKind::Ident
+                if self.identifier_is("arena") && self.peek_second() == TokenKind::LBrace =>
+            {
                 self.parse_arena()
             }
             TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => {
@@ -98,8 +100,8 @@ impl<'src> Parser<'src> {
 
     fn parse_const(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Const)?;
-        if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
-            return self.parse_destructure(BindingKeyword::Const, kw.span);
+        if self.opens_binding_pattern() {
+            return self.parse_pattern_binding(BindingKeyword::Const, kw.span);
         }
         let (name, ty) = self.parse_binding_head()?;
         self.expect(TokenKind::Eq)?;
@@ -115,8 +117,8 @@ impl<'src> Parser<'src> {
 
     fn parse_let(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Let)?;
-        if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
-            return self.parse_destructure(BindingKeyword::Let, kw.span);
+        if self.opens_binding_pattern() {
+            return self.parse_pattern_binding(BindingKeyword::Let, kw.span);
         }
         let (name, ty) = self.parse_binding_head()?;
         self.expect(TokenKind::Eq)?;
@@ -189,51 +191,48 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// The rest of `const (a, b) = pair;` once the keyword is consumed.
+    /// Whether the token after `let`/`const` starts a pattern rather than a
+    /// type-first binding head.
     ///
-    /// Only names and `_` are accepted: the elements are bound positionally,
-    /// so there is nothing else a pattern could say here. The list must not be
-    /// empty -- `const () = x;` has no binding to make and no tuple to
-    /// destructure, since `()` is the unit value, not a zero-element tuple.
-    fn parse_destructure(
+    /// Three shapes are patterns: a destructuring tuple (`let (a, b) = ...`),
+    /// a struct pattern (`let Point { x: x, y: y } = ...`, told apart from a
+    /// typed binding `let Point p = ...` by the brace that opens a field
+    /// list), a tuple-variant pattern (`let Some(x) = ...`), and the
+    /// wildcard `let _ = ...`. A bare name is still the ordinary `let`
+    /// form, so its node does not change.
+    fn opens_binding_pattern(&self) -> bool {
+        if self.check(TokenKind::LParen) && self.paren_opens_destructure() {
+            return true;
+        }
+        if self.identifier_is("_") && self.peek_second() == TokenKind::Eq {
+            return true;
+        }
+        // A tuple-variant pattern (`let Some(x) = opt;`): a type-first
+        // binding head is `Type name`, so an identifier followed by `(`
+        // after `let`/`const` can only be a pattern.
+        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::LParen {
+            return true;
+        }
+        self.check(TokenKind::Ident)
+            && self.peek_second() == TokenKind::LBrace
+            && (self.peek_third() == TokenKind::DotDot
+                || (self.peek_third() == TokenKind::Ident && self.peek_nth(3) == TokenKind::Colon))
+    }
+
+    /// The rest of a pattern binding once the keyword is consumed:
+    /// `let Point { x: x, y: y } = p;`.
+    fn parse_pattern_binding(
         &mut self,
         kind: BindingKeyword,
         keyword_span: Span,
     ) -> Result<Stmt, ParseError> {
-        let open = self.expect(TokenKind::LParen)?;
-        let _ = self.push_open(TokenKind::LParen, open.span)?;
-        let mut names = Vec::new();
-        while !self.check(TokenKind::RParen) && !self.at_eof() {
-            let span = self.peek_span();
-            if self.check(TokenKind::Ident) {
-                let (name, _) = self.identifier()?;
-                names.push(if name == "_" { None } else { Some(name) });
-            } else {
-                return Err(self.error(
-                    span,
-                    "a destructuring pattern is a list of names: each element of the tuple binds \
-                     to one name, or to `_` to skip it"
-                        .to_string(),
-                ));
-            }
-            if !self.eat(TokenKind::Comma) {
-                break;
-            }
-        }
-        let close = self.expect(TokenKind::RParen)?;
-        self.close_open(TokenKind::RParen);
-        if names.is_empty() {
-            return Err(self.error(
-                cover(open.span, close.span),
-                "a destructuring pattern needs at least one name".to_string(),
-            ));
-        }
+        let pattern = self.parse_pattern()?;
         self.expect(TokenKind::Eq)?;
         let init = self.parse_expr()?;
         let semi = self.expect(TokenKind::Semi)?;
-        Ok(Stmt::Destructure {
+        Ok(Stmt::LetPattern {
             kind,
-            names,
+            pattern,
             init,
             span: cover(keyword_span, semi.span),
         })
@@ -372,20 +371,17 @@ impl<'src> Parser<'src> {
         // Slice form: for <ident> in <expr> { } -- the head is the same up to
         // the token after the first expression.
         // Indexed form: for <ident>, <ident> in <expr> { }
-        let indexed = self.check(TokenKind::Ident)
-            && self.peek_second() == TokenKind::Comma
-            && self.peek_third() == TokenKind::Ident
-            && self.peek_nth(3) == TokenKind::In;
+        let indexed = self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Comma;
         if indexed {
             let (index, _) = self.identifier()?;
             self.expect(TokenKind::Comma)?;
-            let (name, _) = self.identifier()?;
+            let pattern = self.parse_pattern()?;
             self.expect(TokenKind::In)?;
             let iterable = self.without_block_arg(|p| p.parse_expr())?;
             let body = self.parse_loop_body()?;
             let body_span = body.span;
             return Ok(Stmt::ForIn {
-                name,
+                pattern,
                 index: Some(index),
                 iterable,
                 body,
@@ -393,15 +389,23 @@ impl<'src> Parser<'src> {
                 span: cover(kw.span, body_span),
             });
         }
-        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::In {
-            let (name, _) = self.identifier()?;
+        // A binding pattern: `x`, `_`, `Point { x, .. }` or `(a, b)`.
+        let element_pattern = self.check(TokenKind::LParen)
+            || (self.check(TokenKind::Ident)
+                && (self.peek_second() == TokenKind::In
+                    || (self.peek_second() == TokenKind::LBrace
+                        && (self.peek_third() == TokenKind::DotDot
+                            || (self.peek_third() == TokenKind::Ident
+                                && self.peek_nth(3) == TokenKind::Colon)))));
+        if element_pattern {
+            let pattern = self.parse_pattern()?;
             self.expect(TokenKind::In)?;
             let first = self.without_block_arg(|p| p.parse_expr())?;
             if !self.check(TokenKind::DotDot) {
                 let body = self.parse_loop_body()?;
                 let body_span = body.span;
                 return Ok(Stmt::ForIn {
-                    name,
+                    pattern,
                     index: None,
                     iterable: first,
                     body,
@@ -409,6 +413,15 @@ impl<'src> Parser<'src> {
                     span: cover(kw.span, body_span),
                 });
             }
+            // A range yields one `int`; only a name is meaningful there.
+            let Pattern::Binding { name, .. } = pattern else {
+                return Err(self.error(
+                    crate::exprs::pattern_span(&pattern),
+                    "a range `for` binds one name; a destructuring pattern needs a `for ... in` \
+                     over an array"
+                        .to_string(),
+                ));
+            };
             self.expect(TokenKind::DotDot)?;
             let end = self.without_block_arg(|p| p.parse_expr())?;
             let body = self.parse_loop_body()?;
@@ -614,6 +627,41 @@ impl<'src> Parser<'src> {
 
     /// A pattern with no `|` at its top level.
     fn parse_pattern_primary(&mut self) -> Result<Pattern, ParseError> {
+        // Tuple pattern: `(a, b)`, `(a, _)` and nested tuple patterns. A single
+        // parenthesised pattern is just that pattern; the trailing comma is
+        // what makes a one-element tuple.
+        if self.check(TokenKind::LParen) {
+            let open = self.expect(TokenKind::LParen)?;
+            let _ = self.push_open(TokenKind::LParen, open.span)?;
+            let mut elements = Vec::new();
+            let mut trailing_comma = false;
+            while !self.check(TokenKind::RParen) && !self.at_eof() {
+                elements.push(self.parse_pattern()?);
+                trailing_comma = self.eat(TokenKind::Comma);
+                if !trailing_comma {
+                    break;
+                }
+            }
+            let close = self.expect(TokenKind::RParen)?;
+            self.close_open(TokenKind::RParen);
+            if elements.is_empty() {
+                // `()` is the unit value, not a zero-element tuple: there is
+                // no tuple to unpack and no binding to make.
+                return Err(self.error(
+                    cover(open.span, close.span),
+                    "a destructuring pattern needs at least one name".to_string(),
+                ));
+            }
+            if elements.len() == 1 && !trailing_comma {
+                return elements
+                    .pop()
+                    .ok_or_else(|| self.error(open.span, "expected a pattern".to_string()));
+            }
+            return Ok(Pattern::Tuple {
+                elements,
+                span: cover(open.span, close.span),
+            });
+        }
         // Wildcard
         if self.check(TokenKind::Ident) {
             let (name, span) = self.identifier()?;

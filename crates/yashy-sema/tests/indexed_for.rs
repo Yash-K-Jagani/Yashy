@@ -8,7 +8,9 @@ use yashy_sema::{check_program, HirProgram, HirStmt};
 fn check(src: &str) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
     let file = sources.add_file("test.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser
         .parse_program()
@@ -42,8 +44,8 @@ fn an_indexed_loop_lowers_to_a_range_loop_with_a_read() {
     let (name, loop_body) = (name, loop_body);
     assert_eq!(name, "i");
     assert!(
-        matches!(loop_body.stmts[0], HirStmt::Const { .. }),
-        "the body first reads the element into `x`"
+        matches!(loop_body.stmts[0], HirStmt::Destructure { .. }),
+        "the body first reads the element into `x` through its pattern"
     );
 }
 

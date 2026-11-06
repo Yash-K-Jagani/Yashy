@@ -17,14 +17,18 @@ use crate::ty::{Mutability, Type, TypeKind};
 ///
 /// `variants` resolves an enum name to its declared variants; it returns
 /// `None` for `Option`/`Result` (handled structurally here) and for unknown
-/// names. `resolve` turns a payload [`TypeExpr`] into a [`Type`]: variant
-/// declarations name their payloads as syntax, and only the caller (which
-/// owns the type scope) can resolve them.
+/// names. `struct_fields` does the same for a struct name: its fields, in
+/// declaration order, each with the type the checker resolved for it. A
+/// struct pattern names a struct type, so it resolves through the struct
+/// table rather than the variant table. `resolve` turns a payload
+/// [`TypeExpr`] into a [`Type`]: variant declarations name their payloads as
+/// syntax, and only the caller (which owns the type scope) can resolve them.
 pub fn check_pattern(
     pat: &Pattern,
     scrutinee: &Type,
     out_bindings: &mut Vec<(String, Type, Mutability, Span)>,
     variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
+    struct_fields: &dyn Fn(&str) -> Option<Vec<(String, Type)>>,
     resolve: &dyn Fn(&TypeExpr) -> Result<Type, TypeError>,
 ) -> Result<HirPattern, TypeError> {
     match pat {
@@ -82,9 +86,7 @@ pub fn check_pattern(
             {
                 return Err(invalid_range(
                     *span,
-                    format!(
-                        "a range pattern is an interval of `int` or `char`, not `{scrutinee}`"
-                    ),
+                    format!("a range pattern is an interval of `int` or `char`, not `{scrutinee}`"),
                 ));
             }
             Ok(HirPattern::Range {
@@ -95,18 +97,21 @@ pub fn check_pattern(
                 span: *span,
             })
         }
-        Pattern::Or {
-            alternatives,
-            span,
-        } => {
+        Pattern::Or { alternatives, span } => {
             if alternatives.is_empty() {
                 return Err(TypeError::new(*span, "an or-pattern needs an alternative"));
             }
             let mut first: Option<(HirPattern, Vec<(String, Type, Mutability, Span)>)> = None;
             for alternative in alternatives {
                 let mut scratch = Vec::new();
-                let checked =
-                    check_pattern(alternative, scrutinee, &mut scratch, variants, resolve)?;
+                let checked = check_pattern(
+                    alternative,
+                    scrutinee,
+                    &mut scratch,
+                    variants,
+                    struct_fields,
+                    resolve,
+                )?;
                 match &first {
                     None => first = Some((checked, scratch)),
                     Some((_, expected)) => {
@@ -134,6 +139,7 @@ pub fn check_pattern(
                                     scrutinee,
                                     &mut scratch,
                                     variants,
+                                    struct_fields,
                                     resolve,
                                 )
                             })
@@ -160,12 +166,47 @@ pub fn check_pattern(
                     payload_ty,
                     out_bindings,
                     variants,
+                    struct_fields,
                     resolve,
                 )?);
             }
             Ok(HirPattern::TupleVariant {
                 path: path.clone(),
                 args: hir_args,
+                span: *span,
+            })
+        }
+        Pattern::Tuple { elements, span } => {
+            let TypeKind::Tuple(element_tys) = &scrutinee.kind else {
+                return Err(TypeError::new(
+                    *span,
+                    format!("a tuple pattern needs a tuple, found `{scrutinee}`"),
+                ));
+            };
+            if element_tys.len() != elements.len() {
+                return Err(TypeError::new(
+                    *span,
+                    format!(
+                        "this pattern binds {} element{}, but the tuple has {}",
+                        elements.len(),
+                        if elements.len() == 1 { "" } else { "s" },
+                        element_tys.len()
+                    ),
+                ));
+            }
+            let mut hir_elements = Vec::with_capacity(elements.len());
+            for (sub, element_ty) in elements.iter().zip(element_tys.iter()) {
+                hir_elements.push(check_pattern(
+                    sub,
+                    element_ty,
+                    out_bindings,
+                    variants,
+                    struct_fields,
+                    resolve,
+                )?);
+            }
+            Ok(HirPattern::Tuple {
+                elements: hir_elements,
                 span: *span,
             })
         }
@@ -181,6 +222,7 @@ pub fn check_pattern(
             scrutinee,
             out_bindings,
             variants,
+            struct_fields,
             resolve,
             *span,
         ),
@@ -321,6 +363,13 @@ fn tuple_payloads(
 }
 
 /// Check a struct-variant pattern: every field by name, all fields required.
+///
+/// It serves two subject kinds: an enum variant with named fields
+/// (`Rect { w, h }`), resolved through the variant table, and a struct value
+/// (`let Point { x, y } = p`), resolved through the struct table. Both want
+/// the same checks -- every field the pattern writes must be declared, and
+/// every declared field must be written or covered by `..` -- so they share
+/// this one function and cannot drift apart.
 #[allow(clippy::too_many_arguments)]
 fn check_struct_variant(
     path: &[String],
@@ -329,11 +378,31 @@ fn check_struct_variant(
     scrutinee: &Type,
     out_bindings: &mut Vec<(String, Type, Mutability, Span)>,
     variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
+    struct_fields: &dyn Fn(&str) -> Option<Vec<(String, Type)>>,
     resolve: &dyn Fn(&TypeExpr) -> Result<Type, TypeError>,
     span: Span,
 ) -> Result<HirPattern, TypeError> {
     let name = variant_name(path);
     let declared: Vec<(String, Type)> = match &scrutinee.kind {
+        TypeKind::Struct(struct_name) => {
+            // The pattern must name the struct it destructures: `Other { x }`
+            // against a `Point` would bind the wrong declaration's fields.
+            if name != *struct_name {
+                return Err(TypeError::new(
+                    span,
+                    format!("`{name}` is not the type `{struct_name}`"),
+                ));
+            }
+            match struct_fields(struct_name) {
+                Some(fields) => fields,
+                None => {
+                    return Err(
+                        TypeError::new(span, format!("cannot find type `{struct_name}`"))
+                            .with_code(codes::UNKNOWN_TYPE),
+                    );
+                }
+            }
+        }
         TypeKind::Enum(enum_name) => match variants(enum_name) {
             Some(defs) => match defs.iter().find(|d| d.name == name) {
                 Some(def) => {
@@ -404,7 +473,8 @@ fn check_struct_variant(
     for (fname, sub, fspan) in fields {
         match declared.iter().find(|(n, _)| n == fname) {
             Some((_, fty)) => {
-                let checked = check_pattern(sub, fty, out_bindings, variants, resolve)?;
+                let checked =
+                    check_pattern(sub, fty, out_bindings, variants, struct_fields, resolve)?;
                 hir_fields.push((fname.clone(), checked, *fspan));
             }
             None => {
@@ -438,6 +508,7 @@ pub fn hir_pattern_span(pattern: &HirPattern) -> Span {
         | HirPattern::TupleVariant { span, .. }
         | HirPattern::StructVariant { span, .. }
         | HirPattern::Binding { span, .. }
+        | HirPattern::Tuple { span, .. }
         | HirPattern::Or { span, .. }
         | HirPattern::Range { span, .. }
         | HirPattern::Literal(_, span) => *span,
@@ -464,19 +535,52 @@ pub fn is_irrefutable(
     pattern: &HirPattern,
     subject: &Type,
     variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
+    struct_fields: &dyn Fn(&str) -> Option<Vec<(String, Type)>>,
     resolve: &dyn Fn(&TypeExpr) -> Result<Type, TypeError>,
 ) -> bool {
     match pattern {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => true,
         HirPattern::Literal(..) | HirPattern::Range { .. } => false,
+        // A tuple pattern matches every tuple when every element does.
+        HirPattern::Tuple { elements, .. } => {
+            let TypeKind::Tuple(element_tys) = &subject.kind else {
+                return false;
+            };
+            if element_tys.len() != elements.len() {
+                return false;
+            }
+            elements
+                .iter()
+                .zip(element_tys.iter())
+                .all(|(sub, ty)| is_irrefutable(sub, ty, variants, struct_fields, resolve))
+        }
         // An or-pattern matches everything when one alternative does: the arm
         // still has a way to accept any value.
-        HirPattern::Or { alternatives, .. } => alternatives
-            .iter()
-            .any(|alternative| is_irrefutable(alternative, subject, variants, resolve)),
+        HirPattern::Or { alternatives, .. } => alternatives.iter().any(|alternative| {
+            is_irrefutable(alternative, subject, variants, struct_fields, resolve)
+        }),
         HirPattern::UnitVariant { path, .. }
         | HirPattern::TupleVariant { path, .. }
         | HirPattern::StructVariant { path, .. } => {
+            // A struct pattern over a struct value has no variant to miss: it
+            // is irrefutable when every field pattern is.
+            if let (TypeKind::Struct(struct_name), HirPattern::StructVariant { path, fields, .. }) =
+                (&subject.kind, pattern)
+            {
+                if variant_name(path) != *struct_name {
+                    return false;
+                }
+                let Some(structured) = struct_fields(struct_name) else {
+                    return false;
+                };
+                return fields.iter().all(|(name, sub, _)| {
+                    structured
+                        .iter()
+                        .find(|(declared, _)| declared == name)
+                        .map(|(_, ty)| is_irrefutable(sub, ty, variants, struct_fields, resolve))
+                        .unwrap_or(false)
+                });
+            }
             let TypeKind::Enum(enum_name) = &subject.kind else {
                 return false;
             };
@@ -493,7 +597,7 @@ pub fn is_irrefutable(
                 return false;
             }
             let irrefutable_payload = |ty: &TypeExpr, sub: &HirPattern| match resolve(ty) {
-                Ok(ty) => is_irrefutable(sub, &ty, variants, resolve),
+                Ok(ty) => is_irrefutable(sub, &ty, variants, struct_fields, resolve),
                 Err(_) => false,
             };
             match pattern {

@@ -177,6 +177,13 @@ pub struct Module {
     /// and the field's *representation* (`i8*`) is the same as a raw
     /// pointer's, so the representation alone cannot say which is which.
     struct_fields: HashMap<String, Vec<TypeKind>>,
+    /// The field names of every declared struct, in declaration order.
+    ///
+    /// A struct pattern names its fields, so a destructuring bind needs the
+    /// name-to-index resolution the enum variants already have through
+    /// `VariantRepr.fields`. The types alone cannot give it: two fields of
+    /// the same type are indistinguishable by position.
+    struct_field_names: HashMap<String, Vec<String>>,
     /// The index the next `@__lambda_N` will use.
     ///
     /// A lambda has no name in the source, so the backend gives it one: the
@@ -235,6 +242,7 @@ impl Module {
             fn_signatures: HashMap::new(),
             fn_value_thunks: HashMap::new(),
             struct_fields: HashMap::new(),
+            struct_field_names: HashMap::new(),
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
@@ -611,9 +619,24 @@ impl Module {
         self.struct_fields.insert(name.to_string(), fields);
     }
 
+    /// Record a struct's field names, so a destructuring pattern can find a
+    /// field's index by name.
+    pub fn add_struct_field_names(&mut self, name: &str, fields: Vec<String>) {
+        self.struct_field_names.insert(name.to_string(), fields);
+    }
+
     /// The field types of a struct, or an empty list when it is not known.
     pub fn struct_fields(&self, name: &str) -> &[TypeKind] {
         self.struct_fields
+            .get(name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// The field names of a struct, in declaration order, or an empty list
+    /// when the struct is not known.
+    pub fn struct_field_names(&self, name: &str) -> &[String] {
+        self.struct_field_names
             .get(name)
             .map(Vec::as_slice)
             .unwrap_or(&[])

@@ -2,7 +2,7 @@ use yashy_common::Span;
 use yashy_lexer::{Lexer, StringPiece, Token, TokenKind};
 
 use crate::ast::{
-    BinOp, Expr, InterpFormat, InterpPart, LambdaParam, Literal, SliceElement, StringLit,
+    BinOp, CallArg, Expr, InterpFormat, InterpPart, LambdaParam, Literal, SliceElement, StringLit,
     TypeExpr, UnOp,
 };
 use crate::error::ParseError;
@@ -13,12 +13,48 @@ impl<'src> Parser<'src> {
         self.parse_or()
     }
 
+    /// Arguments of a call: positional or `name: value` (named). A named
+    /// argument is recognised by an identifier followed by `:`.
+    fn parse_call_args(&mut self) -> Result<Vec<CallArg>, ParseError> {
+        let mut args = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.at_eof() {
+            if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {
+                let (name, name_span) = self.identifier()?;
+                self.expect(TokenKind::Colon)?;
+                let value = self.parse_expr()?;
+                let span = cover(name_span, expr_span(&value));
+                args.push(CallArg {
+                    name: Some(name),
+                    value,
+                    span,
+                });
+            } else {
+                let value = self.parse_expr()?;
+                let span = expr_span(&value);
+                args.push(CallArg {
+                    name: None,
+                    value,
+                    span,
+                });
+            }
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_and()?;
         while self.eat(TokenKind::OrOr) {
             let rhs = self.parse_and()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
-            lhs = Expr::Binary { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+            lhs = Expr::Binary {
+                op: BinOp::Or,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -28,7 +64,12 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::AndAnd) {
             let rhs = self.parse_bit_or()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
-            lhs = Expr::Binary { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+            lhs = Expr::Binary {
+                op: BinOp::And,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -38,7 +79,12 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::Pipe) {
             let rhs = self.parse_bit_xor()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
-            lhs = Expr::Binary { op: BinOp::BitOr, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+            lhs = Expr::Binary {
+                op: BinOp::BitOr,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -48,7 +94,12 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::Caret) {
             let rhs = self.parse_bit_and()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
-            lhs = Expr::Binary { op: BinOp::BitXor, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+            lhs = Expr::Binary {
+                op: BinOp::BitXor,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -58,7 +109,12 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::Amp) {
             let rhs = self.parse_eq()?;
             let span = cover(expr_span(&lhs), expr_span(&rhs));
-            lhs = Expr::Binary { op: BinOp::BitAnd, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+            lhs = Expr::Binary {
+                op: BinOp::BitAnd,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -71,13 +127,21 @@ impl<'src> Parser<'src> {
         let mut operands = vec![first];
         let mut ops = Vec::new();
         loop {
-            let op = if self.eat(TokenKind::EqEq) { Some(BinOp::Eq) }
-                else if self.eat(TokenKind::BangEq) { Some(BinOp::Ne) }
-                else if self.eat(TokenKind::Lt) { Some(BinOp::Lt) }
-                else if self.eat(TokenKind::LtEq) { Some(BinOp::Le) }
-                else if self.eat(TokenKind::Gt) { Some(BinOp::Gt) }
-                else if self.eat(TokenKind::GtEq) { Some(BinOp::Ge) }
-                else { None };
+            let op = if self.eat(TokenKind::EqEq) {
+                Some(BinOp::Eq)
+            } else if self.eat(TokenKind::BangEq) {
+                Some(BinOp::Ne)
+            } else if self.eat(TokenKind::Lt) {
+                Some(BinOp::Lt)
+            } else if self.eat(TokenKind::LtEq) {
+                Some(BinOp::Le)
+            } else if self.eat(TokenKind::Gt) {
+                Some(BinOp::Gt)
+            } else if self.eat(TokenKind::GtEq) {
+                Some(BinOp::Ge)
+            } else {
+                None
+            };
             match op {
                 Some(op) => {
                     ops.push(op);
@@ -87,20 +151,32 @@ impl<'src> Parser<'src> {
             }
         }
         match ops.len() {
-            0 => Ok(operands.into_iter().next().expect("one operand with no operator")),
+            0 => Ok(operands
+                .into_iter()
+                .next()
+                .expect("one operand with no operator")),
             1 => {
                 let op = ops.into_iter().next().expect("one operator");
                 let rhs = operands.pop().expect("two operands");
                 let lhs = operands.pop().expect("two operands");
                 let span = cover(expr_span(&lhs), expr_span(&rhs));
-                Ok(Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span })
+                Ok(Expr::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span,
+                })
             }
             _ => {
                 let span = cover(
                     expr_span(operands.first().expect("chain operands")),
                     expr_span(operands.last().expect("chain operands")),
                 );
-                Ok(Expr::CompareChain { operands, ops, span })
+                Ok(Expr::CompareChain {
+                    operands,
+                    ops,
+                    span,
+                })
             }
         }
     }
@@ -113,14 +189,23 @@ impl<'src> Parser<'src> {
     fn parse_shift(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_add()?;
         loop {
-            let op = if self.eat(TokenKind::Shl) { Some(BinOp::Shl) }
-                else if self.eat(TokenKind::Shr) { Some(BinOp::Shr) }
-                else { None };
+            let op = if self.eat(TokenKind::Shl) {
+                Some(BinOp::Shl)
+            } else if self.eat(TokenKind::Shr) {
+                Some(BinOp::Shr)
+            } else {
+                None
+            };
             match op {
                 Some(op) => {
                     let rhs = self.parse_add()?;
                     let span = cover(expr_span(&lhs), expr_span(&rhs));
-                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+                    lhs = Expr::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    };
                 }
                 None => break,
             }
@@ -131,14 +216,23 @@ impl<'src> Parser<'src> {
     fn parse_add(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_mul()?;
         loop {
-            let op = if self.eat(TokenKind::Plus) { Some(BinOp::Add) }
-                else if self.eat(TokenKind::Minus) { Some(BinOp::Sub) }
-                else { None };
+            let op = if self.eat(TokenKind::Plus) {
+                Some(BinOp::Add)
+            } else if self.eat(TokenKind::Minus) {
+                Some(BinOp::Sub)
+            } else {
+                None
+            };
             match op {
                 Some(op) => {
                     let rhs = self.parse_mul()?;
                     let span = cover(expr_span(&lhs), expr_span(&rhs));
-                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+                    lhs = Expr::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    };
                 }
                 None => break,
             }
@@ -149,15 +243,25 @@ impl<'src> Parser<'src> {
     fn parse_mul(&mut self) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_unary()?;
         loop {
-            let op = if self.eat(TokenKind::Star) { Some(BinOp::Mul) }
-                else if self.eat(TokenKind::Slash) { Some(BinOp::Div) }
-                else if self.eat(TokenKind::Percent) { Some(BinOp::Rem) }
-                else { None };
+            let op = if self.eat(TokenKind::Star) {
+                Some(BinOp::Mul)
+            } else if self.eat(TokenKind::Slash) {
+                Some(BinOp::Div)
+            } else if self.eat(TokenKind::Percent) {
+                Some(BinOp::Rem)
+            } else {
+                None
+            };
             match op {
                 Some(op) => {
                     let rhs = self.parse_unary()?;
                     let span = cover(expr_span(&lhs), expr_span(&rhs));
-                    lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+                    lhs = Expr::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    };
                 }
                 None => break,
             }
@@ -191,17 +295,29 @@ impl<'src> Parser<'src> {
             }
             let operand = self.parse_unary()?;
             let span = cover(minus_span, expr_span(&operand));
-            return Ok(Expr::Unary { op: UnOp::Neg, operand: Box::new(operand), span });
+            return Ok(Expr::Unary {
+                op: UnOp::Neg,
+                operand: Box::new(operand),
+                span,
+            });
         }
         if self.eat(TokenKind::Bang) {
             let operand = self.parse_unary()?;
             let span = expr_span(&operand);
-            return Ok(Expr::Unary { op: UnOp::Not, operand: Box::new(operand), span });
+            return Ok(Expr::Unary {
+                op: UnOp::Not,
+                operand: Box::new(operand),
+                span,
+            });
         }
         if self.eat(TokenKind::Tilde) {
             let operand = self.parse_unary()?;
             let span = expr_span(&operand);
-            return Ok(Expr::Unary { op: UnOp::BitNot, operand: Box::new(operand), span });
+            return Ok(Expr::Unary {
+                op: UnOp::BitNot,
+                operand: Box::new(operand),
+                span,
+            });
         }
         let base = self.parse_cast()?;
         Ok(base)
@@ -242,7 +358,11 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::As) {
             let ty = self.parse_type_expr()?;
             let span = cover(expr_span(&expr), ty_span(&ty));
-            expr = Expr::Cast { expr: Box::new(expr), ty, span };
+            expr = Expr::Cast {
+                expr: Box::new(expr),
+                ty,
+                span,
+            };
         }
         Ok(expr)
     }
@@ -258,7 +378,10 @@ impl<'src> Parser<'src> {
             if self.check(TokenKind::Question) {
                 let q = self.advance();
                 let span = cover(expr_span(&expr), q.span);
-                expr = Expr::Try { expr: Box::new(expr), span };
+                expr = Expr::Try {
+                    expr: Box::new(expr),
+                    span,
+                };
                 continue;
             }
             if self.check(TokenKind::Dot) {
@@ -270,11 +393,7 @@ impl<'src> Parser<'src> {
                         // parse args
                         let open = self.expect(TokenKind::LParen)?;
                         let _ = self.push_open(TokenKind::LParen, open.span)?;
-                        let mut args = Vec::new();
-                        while !self.check(TokenKind::RParen) && !self.at_eof() {
-                            args.push(self.parse_expr()?);
-                            if !self.eat(TokenKind::Comma) { break; }
-                        }
+                        let args = self.parse_call_args()?;
                         let close = self.expect(TokenKind::RParen)?;
                         self.close_open(TokenKind::RParen);
                         let span = cover(expr_span(&expr), close.span);
@@ -288,17 +407,26 @@ impl<'src> Parser<'src> {
                         if self.has_trailing_block() {
                             let lambda = self.parse_trailing_lambda()?;
                             span = cover(span, expr_span(&lambda));
-                            args.push(lambda);
+                            args.push(CallArg {
+                                name: None,
+                                value: lambda,
+                                span,
+                            });
                         }
                         let mut callee = Vec::new();
                         if collect_callee(&expr, &mut callee) {
                             callee.push(field.clone());
-                            expr = Expr::Call { callee, args, unsafe_call: false, span };
+                            expr = Expr::Call {
+                                callee,
+                                args,
+                                unsafe_call: false,
+                                span,
+                            };
                         } else {
                             expr = Expr::MethodCall {
                                 receiver: Box::new(expr),
                                 method: field,
-                                args,
+                                args: args.into_iter().map(|a| a.value).collect(),
                                 span,
                             };
                         }
@@ -312,7 +440,16 @@ impl<'src> Parser<'src> {
                         let mut callee = Vec::new();
                         if collect_callee(&expr, &mut callee) {
                             callee.push(field.clone());
-                            expr = Expr::Call { callee, args: vec![lambda], unsafe_call: false, span };
+                            expr = Expr::Call {
+                                callee,
+                                args: vec![CallArg {
+                                    name: None,
+                                    value: lambda,
+                                    span,
+                                }],
+                                unsafe_call: false,
+                                span,
+                            };
                         } else {
                             expr = Expr::MethodCall {
                                 receiver: Box::new(expr),
@@ -324,7 +461,11 @@ impl<'src> Parser<'src> {
                         continue;
                     }
                     let span = cover(expr_span(&expr), fspan);
-                    expr = Expr::FieldAccess { base: Box::new(expr), field, span };
+                    expr = Expr::FieldAccess {
+                        base: Box::new(expr),
+                        field,
+                        span,
+                    };
                     continue;
                 }
                 break;
@@ -337,11 +478,7 @@ impl<'src> Parser<'src> {
                 }
                 let open = self.expect(TokenKind::LParen)?;
                 let _ = self.push_open(TokenKind::LParen, open.span)?;
-                let mut args = Vec::new();
-                while !self.check(TokenKind::RParen) && !self.at_eof() {
-                    args.push(self.parse_expr()?);
-                    if !self.eat(TokenKind::Comma) { break; }
-                }
+                let args = self.parse_call_args()?;
                 let close = self.expect(TokenKind::RParen)?;
                 self.close_open(TokenKind::RParen);
                 let mut args = args;
@@ -349,9 +486,18 @@ impl<'src> Parser<'src> {
                 if self.has_trailing_block() {
                     let lambda = self.parse_trailing_lambda()?;
                     span = cover(span, expr_span(&lambda));
-                    args.push(lambda);
+                    args.push(CallArg {
+                        name: None,
+                        value: lambda,
+                        span,
+                    });
                 }
-                expr = Expr::Call { callee, args, unsafe_call: false, span };
+                expr = Expr::Call {
+                    callee,
+                    args,
+                    unsafe_call: false,
+                    span,
+                };
                 continue;
             }
             if self.check(TokenKind::LBracket) {
@@ -377,7 +523,11 @@ impl<'src> Parser<'src> {
                 let close = self.expect(TokenKind::RBracket)?;
                 self.close_open(TokenKind::RBracket);
                 let span = cover(expr_span(&expr), close.span);
-                expr = Expr::Index { base: Box::new(expr), index: Box::new(start), span };
+                expr = Expr::Index {
+                    base: Box::new(expr),
+                    index: Box::new(start),
+                    span,
+                };
                 continue;
             }
             break;
@@ -485,7 +635,11 @@ impl<'src> Parser<'src> {
                 let subject = self.without_block_arg(|p| p.parse_expr())?;
                 let (arms, close_span) = self.parse_switch_arms_for_expr()?;
                 let span = cover(kw.span, close_span);
-                Ok(Expr::SwitchExpr { subject: Box::new(subject), arms, span })
+                Ok(Expr::SwitchExpr {
+                    subject: Box::new(subject),
+                    arms,
+                    span,
+                })
             }
             TokenKind::Pipe => self.parse_lambda(),
             // `||` in prefix position is a lambda with no parameters: the
@@ -534,7 +688,9 @@ impl<'src> Parser<'src> {
                         let (seg, sspan) = self.identifier()?;
                         path.push(seg);
                         end = sspan;
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 // struct literal? Only treat `{ ... }` as a struct literal when it
                 // actually looks like one (`{ ident: ... }`); otherwise a `{`
@@ -573,12 +729,19 @@ impl<'src> Parser<'src> {
                         self.expect(TokenKind::Colon)?;
                         let val = self.parse_expr()?;
                         fields.push((fname, val, fspan));
-                        if !self.eat(TokenKind::Comma) { break; }
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
                     }
                     let close = self.expect(TokenKind::RBrace)?;
                     self.close_open(TokenKind::RBrace);
                     let span = cover(first_span, close.span);
-                    return Ok(Expr::StructLit { path, fields, spread, span });
+                    return Ok(Expr::StructLit {
+                        path,
+                        fields,
+                        spread,
+                        span,
+                    });
                 }
                 // `f { |x| ... }` / `xs.map { |x| ... }` with no parentheses:
                 // the block is the only argument. The head flag keeps
@@ -586,7 +749,16 @@ impl<'src> Parser<'src> {
                 if self.has_trailing_block() {
                     let lambda = self.parse_trailing_lambda()?;
                     let span = cover(first_span, expr_span(&lambda));
-                    return Ok(Expr::Call { callee: path, args: vec![lambda], unsafe_call: false, span });
+                    return Ok(Expr::Call {
+                        callee: path,
+                        args: vec![CallArg {
+                            name: None,
+                            value: lambda,
+                            span,
+                        }],
+                        unsafe_call: false,
+                        span,
+                    });
                 }
                 let span = cover(first_span, end);
                 Ok(Expr::Ident(path, span))
@@ -602,16 +774,14 @@ impl<'src> Parser<'src> {
                         let (seg, sspan) = self.identifier()?;
                         callee.push(seg);
                         end = sspan;
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 let _ = end;
                 let open = self.expect(TokenKind::LParen)?;
                 let _ = self.push_open(TokenKind::LParen, open.span)?;
-                let mut args = Vec::new();
-                while !self.check(TokenKind::RParen) && !self.at_eof() {
-                    args.push(self.parse_expr()?);
-                    if !self.eat(TokenKind::Comma) { break; }
-                }
+                let args = self.parse_call_args()?;
                 let close = self.expect(TokenKind::RParen)?;
                 self.close_open(TokenKind::RParen);
                 let mut args = args;
@@ -619,10 +789,19 @@ impl<'src> Parser<'src> {
                 if self.has_trailing_block() {
                     let lambda = self.parse_trailing_lambda()?;
                     span = cover(span, expr_span(&lambda));
-                    args.push(lambda);
+                    args.push(CallArg {
+                        name: None,
+                        value: lambda,
+                        span,
+                    });
                 }
                 let _ = start_span;
-                Ok(Expr::Call { callee, args, unsafe_call: true, span })
+                Ok(Expr::Call {
+                    callee,
+                    args,
+                    unsafe_call: true,
+                    span,
+                })
             }
             _ => Err(self.error(self.peek_span(), "expected an expression".to_string())),
         }
@@ -698,7 +877,11 @@ impl<'src> Parser<'src> {
             && matches!(self.peek_second(), TokenKind::Comma | TokenKind::Pipe)
         {
             let (name, span) = self.identifier()?;
-            return Ok(LambdaParam { name, ty: None, span });
+            return Ok(LambdaParam {
+                name,
+                ty: None,
+                span,
+            });
         }
         let ty = self.parse_type_expr()?;
         let (name, name_span) = self.identifier()?;
@@ -743,13 +926,20 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_switch_arms_for_expr(&mut self) -> Result<(Vec<crate::ast::SwitchArm>, Span), ParseError> {
+    fn parse_switch_arms_for_expr(
+        &mut self,
+    ) -> Result<(Vec<crate::ast::SwitchArm>, Span), ParseError> {
         // reuse stmts method? call parse_switch_arms? That's private in stmts impl but same trait. We'll duplicate minimal.
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
         let mut arms = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.at_eof() {
-            let is_default = if self.eat(TokenKind::Default) { true } else { self.expect(TokenKind::Case)?; false };
+            let is_default = if self.eat(TokenKind::Default) {
+                true
+            } else {
+                self.expect(TokenKind::Case)?;
+                false
+            };
             let pattern = if is_default {
                 crate::ast::Pattern::Wildcard(self.previous_span())
             } else {
@@ -762,7 +952,13 @@ impl<'src> Parser<'src> {
             };
             let body = self.parse_switch_arm_body_expr()?;
             let arm_span = cover(pattern_span(&pattern), expr_span(&body));
-            arms.push(crate::ast::SwitchArm { pattern, guard, body, is_default, span: arm_span });
+            arms.push(crate::ast::SwitchArm {
+                pattern,
+                guard,
+                body,
+                is_default,
+                span: arm_span,
+            });
         }
         let close = self.expect(TokenKind::RBrace)?;
         self.close_open(TokenKind::RBrace);
@@ -871,7 +1067,10 @@ impl<'src> Parser<'src> {
         let sub = match text.get(start..end) {
             Some(sub) => sub,
             None => {
-                return Err(self.error(region, "this interpolation could not be read from the source file"));
+                return Err(self.error(
+                    region,
+                    "this interpolation could not be read from the source file",
+                ));
             }
         };
 
@@ -888,7 +1087,10 @@ impl<'src> Parser<'src> {
         };
         let tokens: Vec<Token> = tokens
             .into_iter()
-            .map(|t| Token { kind: t.kind, span: shift_span(t.span, shift) })
+            .map(|t| Token {
+                kind: t.kind,
+                span: shift_span(t.span, shift),
+            })
             .collect();
 
         let mut sub_parser = self.sub_parser(tokens);
@@ -910,12 +1112,16 @@ impl<'src> Parser<'src> {
 // collect callee path from an expression
 fn collect_callee(expr: &Expr, out: &mut Vec<String>) -> bool {
     match expr {
-        Expr::Ident(path, _) => { out.extend(path.clone()); true }
-        Expr::FieldAccess { base, field, .. } => collect_callee(base, out)
-            && {
+        Expr::Ident(path, _) => {
+            out.extend(path.clone());
+            true
+        }
+        Expr::FieldAccess { base, field, .. } => {
+            collect_callee(base, out) && {
                 out.push(field.clone());
                 true
-            },
+            }
+        }
         Expr::Index { base, .. } => collect_callee(base, out),
         _ => false,
     }
@@ -936,10 +1142,7 @@ fn interpolation_format(raw: &str, start: usize, end: usize) -> (usize, InterpFo
     };
     let trimmed = region.trim_end();
     match trimmed.strip_suffix(":?") {
-        Some(head) => (
-            start.saturating_add(head.len()),
-            InterpFormat::Debug,
-        ),
+        Some(head) => (start.saturating_add(head.len()), InterpFormat::Debug),
         None => (end, InterpFormat::Display),
     }
 }
@@ -1033,8 +1236,8 @@ pub(crate) fn pattern_span(p: &crate::ast::Pattern) -> Span {
         Pattern::StructVariant { span, .. } => *span,
         Pattern::Binding { span, .. } => *span,
         Pattern::Literal(_, s) => *s,
+        Pattern::Tuple { span, .. } => *span,
         Pattern::Or { span, .. } => *span,
         Pattern::Range { span, .. } => *span,
     }
 }
-

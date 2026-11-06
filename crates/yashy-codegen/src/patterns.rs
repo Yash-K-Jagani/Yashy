@@ -41,7 +41,10 @@
 use yashy_parser::ast::Literal;
 use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, TypeKind};
 
-use crate::expr_gen::{gen_expr, gen_literal, has_string_payload, retain_payload, FnCtx, GenValue};
+use crate::expr_gen::{
+    gen_expr, gen_literal, has_string_payload, retain_payload, retain_struct_fields, FnCtx,
+    GenValue, RefKind,
+};
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
 use crate::stmt_gen::Flow;
 
@@ -52,6 +55,8 @@ fn needs_test(pattern: &HirPattern) -> bool {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => false,
         // An or-pattern matches everything when one alternative does.
         HirPattern::Or { alternatives, .. } => alternatives.iter().all(needs_test),
+        // A tuple pattern has no tag of its own; it tests its elements.
+        HirPattern::Tuple { elements, .. } => elements.iter().any(needs_test),
         HirPattern::UnitVariant { .. }
         | HirPattern::TupleVariant { .. }
         | HirPattern::StructVariant { .. }
@@ -71,10 +76,7 @@ fn emit_pattern_test(
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => None,
         HirPattern::Literal(literal, _) => Some(emit_literal_test(ctx, literal, subject)),
         HirPattern::Range {
-            lo,
-            hi,
-            inclusive,
-            ..
+            lo, hi, inclusive, ..
         } => Some(emit_range_test(ctx, lo, hi, *inclusive, subject)),
         HirPattern::UnitVariant { .. } => emit_tag_test(ctx, pattern, subject),
         HirPattern::TupleVariant { args, .. } => {
@@ -108,6 +110,22 @@ fn emit_pattern_test(
             let mut conditions = Vec::new();
             if let Some(tag) = emit_tag_test(ctx, pattern, subject) {
                 conditions.push(tag);
+            }
+            if matches!(subject.ty, TypeKind::Struct(_)) {
+                // A struct pattern over a struct value has no tag: its fields
+                // are the tests, at their declaration indexes.
+                for (field_name, subpattern, _) in fields {
+                    if !needs_test(subpattern) {
+                        continue;
+                    }
+                    let Some(value) = struct_field(ctx, subject, field_name) else {
+                        continue;
+                    };
+                    if let Some(condition) = emit_pattern_test(ctx, subpattern, &value) {
+                        conditions.push(condition);
+                    }
+                }
+                return and_all(ctx, conditions);
             }
             let declared = payload_fields(ctx, &subject.ty, pattern);
             let start = payload_start(ctx, &subject.ty, pattern);
@@ -147,14 +165,34 @@ fn emit_pattern_test(
             }
             or_all(ctx, conditions)
         }
+        HirPattern::Tuple { elements, .. } => {
+            let TypeKind::Tuple(element_tys) = &subject.ty else {
+                return None;
+            };
+            let element_tys = element_tys.clone();
+            let mut conditions = Vec::new();
+            for (index, element) in elements.iter().enumerate() {
+                if !needs_test(element) {
+                    continue;
+                }
+                let Some(field_ty) = element_tys.get(index) else {
+                    continue;
+                };
+                let payload = extract_field(ctx, subject, index as u32);
+                let value = GenValue {
+                    value: payload,
+                    ty: field_ty.kind.clone(),
+                };
+                if let Some(condition) = emit_pattern_test(ctx, element, &value) {
+                    conditions.push(condition);
+                }
+            }
+            and_all(ctx, conditions)
+        }
     }
 }
 
-fn emit_tag_test(
-    ctx: &mut FnCtx<'_>,
-    pattern: &HirPattern,
-    subject: &GenValue,
-) -> Option<String> {
+fn emit_tag_test(ctx: &mut FnCtx<'_>, pattern: &HirPattern, subject: &GenValue) -> Option<String> {
     let user = ctx.module.enum_variants(&subject.ty);
     let name = pattern_variant_name(pattern)?;
     let tag = variant_tag(&subject.ty, name, user)?;
@@ -304,6 +342,27 @@ fn payload_start(ctx: &FnCtx<'_>, subject_ty: &TypeKind, pattern: &HirPattern) -
     let name = pattern_variant_name(pattern)?;
     let user = ctx.module.enum_variants(subject_ty);
     variant_payload_index(subject_ty, name, user)
+}
+
+/// The value of one named field of a struct subject, extracted by its
+/// declaration index -- or `None` when the subject is not the struct the
+/// field belongs to, so a pattern sema already rejected degrades to no test
+/// rather than a wrong one.
+fn struct_field(ctx: &mut FnCtx<'_>, subject: &GenValue, field_name: &str) -> Option<GenValue> {
+    let TypeKind::Struct(struct_name) = &subject.ty else {
+        return None;
+    };
+    let index = ctx
+        .module
+        .struct_field_names(struct_name)
+        .iter()
+        .position(|name| name == field_name)?;
+    let field_ty = ctx.module.struct_fields(struct_name).get(index)?.clone();
+    let payload = extract_field(ctx, subject, index as u32);
+    Some(GenValue {
+        value: payload,
+        ty: field_ty,
+    })
 }
 
 /// Lower a `switch` on `subject` against `arms`. Returns the name of the
@@ -487,6 +546,11 @@ fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
                 pattern_names(first, out);
             }
         }
+        HirPattern::Tuple { elements, .. } => {
+            for element in elements {
+                pattern_names(element, out);
+            }
+        }
         HirPattern::Wildcard(_)
         | HirPattern::UnitVariant { .. }
         | HirPattern::Literal(..)
@@ -617,8 +681,34 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
                 bind_pattern(ctx, &value, arg);
             }
         }
+        HirPattern::Tuple { elements, .. } => {
+            let TypeKind::Tuple(element_tys) = &subject.ty else {
+                return;
+            };
+            let element_tys = element_tys.clone();
+            for (index, element) in elements.iter().enumerate() {
+                let Some(field_ty) = element_tys.get(index) else {
+                    continue;
+                };
+                let payload = extract_field(ctx, subject, index as u32);
+                let value = GenValue {
+                    value: payload,
+                    ty: field_ty.kind.clone(),
+                };
+                bind_pattern(ctx, &value, element);
+            }
+        }
         HirPattern::UnitVariant { .. } => {} // no payload
         HirPattern::StructVariant { fields, .. } => {
+            if matches!(subject.ty, TypeKind::Struct(_)) {
+                for (field_name, subpattern, _) in fields {
+                    let Some(value) = struct_field(ctx, subject, field_name) else {
+                        continue;
+                    };
+                    bind_pattern(ctx, &value, subpattern);
+                }
+                return;
+            }
             // A named payload is flattened into the enum's aggregate in source
             // order, so a field's index is its position in its own variant
             // plus the fields every earlier variant contributed.
@@ -649,6 +739,166 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
     }
 }
 
+/// Bind a pattern in binding position (`let`, `const`, `for`) into owned
+/// slots.
+///
+/// This is [`bind_pattern`] with ownership: a switch-arm binding borrows
+/// because the subject outlives every arm, but a binding here outlives the
+/// temporary the initializer was evaluated into, so each name takes its own
+/// reference -- exactly what a plain `let` of the extracted value would do.
+/// A `string` field is retained, a struct field's string fields are retained,
+/// and a payload field's string is retained, and each slot is tracked in the
+/// current ref scope so scope exit releases it. A field the pattern skips
+/// with `_` is not bound and is not retained: its reference is the
+/// initializer's bookkeeping, deliberately left to leak rather than freed,
+/// which is the backend's chosen failure mode when a count cannot be proved.
+pub fn bind_pattern_owned(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPattern) {
+    match pattern {
+        HirPattern::Wildcard(_) => {}
+        HirPattern::Binding { name, ty, .. } => {
+            bind_value_owned(ctx, name, subject, &ty.kind);
+        }
+        HirPattern::Or { .. } => bind_pattern(ctx, subject, pattern),
+        HirPattern::Tuple { elements, .. } => {
+            let TypeKind::Tuple(element_tys) = &subject.ty else {
+                return;
+            };
+            let element_tys = element_tys.clone();
+            for (index, element) in elements.iter().enumerate() {
+                let Some(field_ty) = element_tys.get(index) else {
+                    continue;
+                };
+                bind_owned_field(ctx, subject, index as u32, &field_ty.kind, element);
+            }
+        }
+        HirPattern::TupleVariant { args, .. } => {
+            let fields = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            let Some(start) = start else {
+                return;
+            };
+            for (offset, arg) in args.iter().enumerate() {
+                let Some((_, field_ty)) = fields.get(offset) else {
+                    continue;
+                };
+                bind_owned_field(ctx, subject, start + offset as u32, field_ty, arg);
+            }
+        }
+        HirPattern::UnitVariant { .. } => {} // no payload
+        HirPattern::StructVariant { fields, .. } => {
+            if matches!(subject.ty, TypeKind::Struct(_)) {
+                for (field_name, subpattern, _) in fields {
+                    let Some(value) = struct_field(ctx, subject, field_name) else {
+                        continue;
+                    };
+                    bind_pattern_owned(ctx, &value, subpattern);
+                }
+                return;
+            }
+            let declared = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            let Some(start) = start else {
+                return;
+            };
+            for (field_name, subpattern, _) in fields {
+                let Some(offset) = declared
+                    .iter()
+                    .position(|(name, _)| name.as_deref() == Some(field_name.as_str()))
+                else {
+                    continue;
+                };
+                let Some((_, field_ty)) = declared.get(offset) else {
+                    continue;
+                };
+                bind_owned_field(ctx, subject, start + offset as u32, field_ty, subpattern);
+            }
+        }
+        HirPattern::Literal(_, _) | HirPattern::Range { .. } => {} // bind nothing
+    }
+}
+
+/// Bind one extracted field of `subject` at `index`: a direct name goes to an
+/// owned slot (slot first, then the extract, then the store, so a plain
+/// tuple still lowers exactly as it did before struct patterns); anything
+/// deeper recurses as [`bind_pattern_owned`].
+fn bind_owned_field(
+    ctx: &mut FnCtx<'_>,
+    subject: &GenValue,
+    index: u32,
+    field_ty: &TypeKind,
+    subpattern: &HirPattern,
+) {
+    match subpattern {
+        // A skipped field extracts nothing at all: no read, no slot, no store.
+        HirPattern::Wildcard(_)
+        | HirPattern::UnitVariant { .. }
+        | HirPattern::Literal(_, _)
+        | HirPattern::Range { .. } => {}
+        HirPattern::Binding { name, ty, .. } => {
+            let repr = repr_type(&ty.kind);
+            let slot = ctx.alloc_slot();
+            ctx.push_alloca(format!("{slot} = alloca {repr}"));
+            let payload = extract_field(ctx, subject, index);
+            if !payload.is_empty() {
+                retain_field(ctx, &payload, &ty.kind);
+                ctx.push(format!("store {repr} {payload}, ptr {slot}"));
+                track_field(ctx, &slot, &ty.kind);
+            }
+            ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
+        }
+        nested => {
+            let payload = extract_field(ctx, subject, index);
+            let value = GenValue {
+                value: payload,
+                ty: field_ty.clone(),
+            };
+            bind_pattern_owned(ctx, &value, nested);
+        }
+    }
+}
+
+/// Take the reference a plain `let` of a copy of `value` would take.
+fn retain_field(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
+    if matches!(ty, TypeKind::Str) {
+        ctx.push_str_retain(value);
+    } else if matches!(ty, TypeKind::Func(_, _)) {
+        ctx.retain_env(value);
+    } else if matches!(ty, TypeKind::Struct(_)) {
+        retain_struct_fields(ctx, value, ty);
+    } else if has_string_payload(ty) {
+        retain_payload(ctx, value, ty);
+    }
+}
+
+/// Track an owned field's slot in the current ref scope, when it holds a
+/// reference.
+fn track_field(ctx: &mut FnCtx<'_>, slot: &str, ty: &TypeKind) {
+    if matches!(ty, TypeKind::Str) {
+        ctx.track_ref_slot(slot, RefKind::Str);
+    } else if matches!(ty, TypeKind::Func(_, _)) {
+        ctx.track_ref_slot(slot, RefKind::Env);
+    } else if matches!(ty, TypeKind::Struct(_)) {
+        ctx.track_ref_slot_typed(slot, RefKind::StructFields, Some(ty.clone()));
+    } else if has_string_payload(ty) {
+        ctx.track_ref_slot_typed(slot, RefKind::Payload, Some(ty.clone()));
+    }
+}
+
+/// Store `subject`'s value in a slot bound to `name`, taking the reference a
+/// plain `let` of that value would take. See [`bind_pattern_owned`].
+fn bind_value_owned(ctx: &mut FnCtx<'_>, name: &str, subject: &GenValue, ty: &TypeKind) {
+    if subject.value.is_empty() {
+        return;
+    }
+    let repr = repr_type(ty);
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca {repr}"));
+    retain_field(ctx, &subject.value, ty);
+    ctx.push(format!("store {repr} {}, ptr {slot}", subject.value));
+    track_field(ctx, &slot, ty);
+    ctx.locals.insert(name.to_string(), (slot, ty.clone()));
+}
+
 /// Bind an or-pattern through the alternative that matched.
 fn bind_or(ctx: &mut FnCtx<'_>, subject: &GenValue, alternatives: &[HirPattern]) {
     if alternatives.is_empty() {
@@ -665,9 +915,7 @@ fn bind_or(ctx: &mut FnCtx<'_>, subject: &GenValue, alternatives: &[HirPattern])
         let hit = ctx.alloc_label_base() + "_or_hit";
         let miss = ctx.alloc_label_base() + "_or_miss";
         match emit_pattern_test(ctx, alternative, subject) {
-            Some(condition) => {
-                ctx.push(format!("br i1 {condition}, label %{hit}, label %{miss}"))
-            }
+            Some(condition) => ctx.push(format!("br i1 {condition}, label %{hit}, label %{miss}")),
             None => ctx.push(format!("br label %{hit}")),
         }
         ctx.push(format!("{hit}:"));

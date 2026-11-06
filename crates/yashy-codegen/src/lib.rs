@@ -225,6 +225,10 @@ fn emit(
                     &s.name,
                     s.fields.iter().map(|f| f.ty.kind.clone()).collect(),
                 );
+                module.add_struct_field_names(
+                    &s.name,
+                    s.fields.iter().map(|f| f.name.clone()).collect(),
+                );
             }
             HirItem::Enum(e) => {
                 let variants = e

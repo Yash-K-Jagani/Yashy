@@ -767,10 +767,16 @@ impl<'src> Parser<'src> {
             }
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type_expr()?;
+            let default = if self.eat(TokenKind::Eq) {
+                Some(Box::new(self.parse_expr()?))
+            } else {
+                None
+            };
             return Ok(Param {
                 span: cover(name_span, ty_span(&ty)),
                 name,
                 ty,
+                default,
             });
         }
         // A bare name can only be the receiver: every other parameter has a
@@ -788,6 +794,7 @@ impl<'src> Parser<'src> {
                     name,
                     ty: TypeExpr::Name("Self".to_string(), name_span),
                     span: name_span,
+                    default: None,
                 });
             }
             return Err(self.error(
@@ -798,10 +805,17 @@ impl<'src> Parser<'src> {
         // Type-first: `int a`, `[]T xs`, `*mut P p`, `fn(int) -> int f`.
         let ty = self.parse_type_expr()?;
         let (name, name_span) = self.identifier()?;
+        // A default: `int b = 2`. Only on `fn` params, not on `self`.
+        let default = if self.eat(TokenKind::Eq) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
         Ok(Param {
             span: cover(ty_span(&ty), name_span),
             name,
             ty,
+            default,
         })
     }
 

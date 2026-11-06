@@ -313,6 +313,17 @@ pub struct Param {
     pub name: String,
     pub ty: TypeExpr,
     pub span: Span,
+    /// A default value: `int b = 2`. Must be a literal or a `const` name (E0102).
+    pub default: Option<Box<Expr>>,
+}
+
+/// One call argument: positional or named (`b: 2`). Named arguments are
+/// resolved to positional HIR by the checker; the HIR never sees the name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallArg {
+    pub name: Option<String>,
+    pub value: Expr,
+    pub span: Span,
 }
 
 /// One lambda parameter: `|x|` infers its type, `|int x|` writes it.
@@ -488,7 +499,7 @@ impl Stmt {
             Stmt::Expr(_, span)
             | Stmt::Const { span, .. }
             | Stmt::Let { span, .. }
-            | Stmt::Destructure { span, .. }
+            | Stmt::LetPattern { span, .. }
             | Stmt::Assign { span, .. }
             | Stmt::Return(_, span)
             | Stmt::If { span, .. }
@@ -540,21 +551,20 @@ pub enum Stmt {
         init: Expr,
         span: Span,
     },
-    /// `const (n, s) = pair;` -- one binding per element of a tuple.
+    /// `let Point { x, y } = p;` or `const (n, s) = pair;` -- a pattern in
+    /// binding position.
     ///
-    /// No type annotation: the tuple's own type says what each name binds, and
-    /// there is no syntax for annotating an element in place. `None` in
-    /// `names` is `_`, which skips that element; the name is bound in the
-    /// enclosing block exactly as a `const`/`let` would be, with the
-    /// mutability of `kind`.
+    /// The pattern must be irrefutable: `let Some(x) = opt;` is E0100, because
+    /// the binding has no `else` branch to run when the value is `None`. The
+    /// names the pattern binds enter the enclosing block with the mutability
+    /// `kind` names, exactly as a plain `let`/`const` would.
     ///
     /// Destructuring is a statement rather than an expression because each
-    /// element becomes its own binding, and bindings are statements
-    /// everywhere else in the language.
-    Destructure {
+    /// name becomes its own binding, and bindings are statements everywhere
+    /// else in the language.
+    LetPattern {
         kind: BindingKeyword,
-        /// One entry per tuple element: the name to bind, or `None` for `_`.
-        names: Vec<Option<String>>,
+        pattern: Pattern,
         init: Expr,
         span: Span,
     },
@@ -663,7 +673,10 @@ pub enum Stmt {
     /// temporary has no stable header to read. The checker enforces that and
     /// rejects moving the slice while the loop can still read it.
     ForIn {
-        name: String,
+        /// The element pattern: `x`, `_`, or a struct/tuple destructuring
+        /// pattern. It is checked against the element type and must be
+        /// irrefutable, because a `for` has no arm to skip.
+        pattern: Pattern,
         /// When `for i, x in xs` is written, the index binding.
         index: Option<String>,
         iterable: Expr,
@@ -767,6 +780,13 @@ pub enum Pattern {
     Binding { name: String, span: Span },
     /// A literal to compare against.
     Literal(Literal, Span),
+    /// `(a, b)` -- a tuple destructuring pattern.
+    ///
+    /// It appears in binding position (`let (a, _) = pair;`) and, because a
+    /// tuple payload is a value like any other, as a nested arm pattern
+    /// (`case Pair((x, y))`). The elements are checked positionally against the
+    /// tuple's types.
+    Tuple { elements: Vec<Pattern>, span: Span },
     /// `Red | Green` -- matches when any alternative matches.
     ///
     /// Alternatives are flattened into one node and bind the same names with
@@ -857,7 +877,7 @@ pub enum Expr {
     /// call in one keyword an extra level of tree to walk.
     Call {
         callee: Vec<String>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
         /// True only when the source wrote `unsafe` before this call.
         unsafe_call: bool,
         span: Span,

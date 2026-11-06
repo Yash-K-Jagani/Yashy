@@ -282,15 +282,16 @@ pub enum HirStmt {
         mutability: Mutability,
         span: Span,
     },
-    /// `const (a, b) = pair;` -- one binding per tuple element.
+    /// `let Point { x, y } = p;` or `const (a, b) = pair;` -- a pattern in
+    /// binding position.
     ///
-    /// `bindings` is aligned with the tuple's elements, so code generation
-    /// extracts element `i` for the binding at position `i`. `None` is `_`:
-    /// the element is extracted by nothing and simply dropped, which is free
-    /// because a tuple element is a copyable value.
+    /// The checker proved the pattern irrefutable, so code generation lowers it
+    /// as extraction, never as a test. `pattern` is the single tree the
+    /// bindings come from; there is no flattened parallel list to drift from
+    /// it.
     Destructure {
         init: HirExpr,
-        bindings: Vec<Option<(String, Type)>>,
+        pattern: HirPattern,
         mutability: Mutability,
         span: Span,
     },
@@ -398,7 +399,9 @@ pub enum HirStmt {
     /// checker made sure the binding is not moved while the loop can still read
     /// it.
     ForIn {
-        name: String,
+        /// The pattern each element is bound through. It is irrefutable, so
+        /// code generation extracts rather than tests.
+        pattern: HirPattern,
         iterable: HirExpr,
         body: HirBlock,
         span: Span,
@@ -475,6 +478,11 @@ pub enum HirPattern {
         span: Span,
     },
     Literal(Literal, Span),
+    /// `(a, b)` -- a tuple destructuring pattern.
+    Tuple {
+        elements: Vec<HirPattern>,
+        span: Span,
+    },
     /// `Red | Green` -- matches when any alternative matches.
     ///
     /// Every alternative binds the same names with the same types, so the
@@ -494,6 +502,45 @@ pub enum HirPattern {
         ty: Type,
         span: Span,
     },
+}
+
+impl HirPattern {
+    /// The names this pattern binds, in source order, with their types.
+    ///
+    /// Every alternative of an or-pattern binds the same names with the same
+    /// types (the checker enforces it), so one alternative is the complete
+    /// list. This is how a pass that only needs "what does this binding
+    /// introduce?" reads a pattern tree without duplicating the traversal.
+    pub fn bindings(&self) -> Vec<(String, Type)> {
+        let mut out = Vec::new();
+        self.collect_bindings(&mut out);
+        out
+    }
+
+    fn collect_bindings(&self, out: &mut Vec<(String, Type)>) {
+        match self {
+            HirPattern::Wildcard(_)
+            | HirPattern::UnitVariant { .. }
+            | HirPattern::Literal(..)
+            | HirPattern::Range { .. } => {}
+            HirPattern::Binding { name, ty, .. } => out.push((name.clone(), ty.clone())),
+            HirPattern::TupleVariant { args, .. } | HirPattern::Tuple { elements: args, .. } => {
+                for element in args {
+                    element.collect_bindings(out);
+                }
+            }
+            HirPattern::StructVariant { fields, .. } => {
+                for (_, pattern, _) in fields {
+                    pattern.collect_bindings(out);
+                }
+            }
+            HirPattern::Or { alternatives, .. } => {
+                if let Some(first) = alternatives.first() {
+                    first.collect_bindings(out);
+                }
+            }
+        }
+    }
 }
 
 /// Where a runtime fault inside an expression reports itself from.

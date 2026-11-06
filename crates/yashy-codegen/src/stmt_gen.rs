@@ -28,7 +28,7 @@
 //! lowers to a comment rather than an abort.
 
 use yashy_sema::{
-    expr_ty, linearity_of, BinOp, HirBlock, HirExpr, HirStmt, Linearity, Type, TypeKind,
+    expr_ty, linearity_of, BinOp, HirBlock, HirExpr, HirPattern, HirStmt, Linearity, Type, TypeKind,
 };
 
 use crate::escape::{AllocSite, ArenaId, Placement};
@@ -510,27 +510,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             note_promotion(ctx, value_expr, name);
             Flow::Fallthrough
         }
-        HirStmt::Destructure { init, bindings, .. } => {
-            // The tuple value is an aggregate, so each element is one
-            // `extractvalue` -- no address, no copy of the whole, and nothing
-            // to free: the checker only admits elements that own nothing.
+        HirStmt::Destructure { init, pattern, .. } => {
+            // The pattern is irrefutable (the checker proved it), so there is
+            // no test: every name it binds is an extraction from the one
+            // evaluated initializer, owned the way a plain `let` would own
+            // it. See `bind_pattern_owned`.
             let value = gen_expr(ctx, init);
-            let repr = repr_type(&value.ty);
-            for (index, binding) in bindings.iter().enumerate() {
-                let Some((name, ty)) = binding else { continue };
-                let element_repr = repr_type(&ty.kind);
-                let slot = ctx.alloc_slot();
-                ctx.push_alloca(format!("{slot} = alloca {element_repr}"));
-                let element = ctx.tmp();
-                ctx.push(format!(
-                    "{element} = extractvalue {repr} {}, {index}",
-                    value.value
-                ));
-                if element_repr != "void" {
-                    ctx.push(format!("store {element_repr} {element}, ptr {slot}"));
-                }
-                ctx.locals.insert(name.clone(), (slot, ty.kind.clone()));
-            }
+            crate::patterns::bind_pattern_owned(ctx, &value, pattern);
             Flow::Fallthrough
         }
         HirStmt::IndexAssign {
@@ -717,11 +703,11 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             ..
         } => gen_for_range(ctx, name, start, end, body),
         HirStmt::ForIn {
-            name,
+            pattern,
             iterable,
             body,
             ..
-        } => gen_for_in(ctx, name, iterable, body),
+        } => gen_for_in(ctx, pattern, iterable, body),
         HirStmt::ForC {
             init,
             cond,
@@ -915,7 +901,7 @@ fn gen_for_range(
     Flow::Fallthrough
 }
 
-/// Lower `for x in slice { .. }`.
+/// Lower `for pattern in slice { .. }`.
 ///
 /// The iterable is a binding (the checker requires it), so the loop can read the
 /// header through the binding's slot on every iteration. That is what makes a
@@ -923,10 +909,15 @@ fn gen_for_range(
 /// slot, and caching any of them before the loop would either stop early or
 /// read freed memory.
 ///
-/// The element is copied into a fresh slot that the body sees as `name`. Element
-/// types the checker admits are numbers and `bool`, so the copy owns nothing and
-/// needs no retain/release at either end of the iteration.
-fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlock) -> Flow {
+/// The element is copied into a fresh slot, and the pattern's names are bound
+/// from it each iteration. A bare `for x in` sees the same slot under `x` it
+/// always did: the element is copied, not extracted.
+fn gen_for_in(
+    ctx: &mut FnCtx<'_>,
+    pattern: &HirPattern,
+    iterable: &HirExpr,
+    body: &HirBlock,
+) -> Flow {
     let HirExpr::Ident(path, _, _) = iterable else {
         return Flow::Fallthrough;
     };
@@ -1023,9 +1014,32 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     let element_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{element_slot} = alloca {element_repr}"));
     ctx.push(format!("store {element_repr} {value}, ptr {element_slot}"));
-    let shadowed = ctx
-        .locals
-        .insert(name.to_string(), (element_slot, element_kind));
+    let element = GenValue {
+        value,
+        ty: element_kind.clone(),
+    };
+    // For a bare binding this binds exactly one name; a destructuring pattern
+    // extracts its fields. Every name it binds shadows an outer one, and the
+    // shadow is restored when the loop ends -- the same save/restore `if let`
+    // does over its block.
+    let names: Vec<String> = pattern
+        .bindings()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    let shadowed: Vec<(String, Option<(String, TypeKind)>)> = names
+        .into_iter()
+        .map(|name| {
+            let previous = ctx.locals.get(&name).cloned();
+            (name, previous)
+        })
+        .collect();
+    if let HirPattern::Binding { name, ty, .. } = pattern {
+        ctx.locals
+            .insert(name.clone(), (element_slot, ty.kind.clone()));
+    } else {
+        crate::patterns::bind_pattern_owned(ctx, &element, pattern);
+    }
     let (scope_base, defer_base) = ctx.unwind_depths();
     ctx.loops.push(LoopTarget {
         break_label: done_label.clone(),
@@ -1036,12 +1050,14 @@ fn gen_for_in(ctx: &mut FnCtx<'_>, name: &str, iterable: &HirExpr, body: &HirBlo
     });
     let flow = gen_block(ctx, body);
     ctx.loops.pop();
-    match shadowed {
-        Some(previous) => {
-            ctx.locals.insert(name.to_string(), previous);
-        }
-        None => {
-            ctx.locals.remove(name);
+    for (name, previous) in shadowed {
+        match previous {
+            Some(binding) => {
+                ctx.locals.insert(name, binding);
+            }
+            None => {
+                ctx.locals.remove(&name);
+            }
         }
     }
     if flow == Flow::Fallthrough {
