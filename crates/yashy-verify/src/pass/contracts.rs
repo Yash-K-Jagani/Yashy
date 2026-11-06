@@ -220,12 +220,13 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 }
                 Flow::normal(env)
             }
-            HirStmt::Destructure { init, bindings, .. } => {
+            HirStmt::Destructure { init, pattern, .. } => {
                 self.eval(init, &mut env);
-                // A tuple is not modelled, so each element is unknown. Setting
-                // it is what keeps a stale binding from surviving the shadow.
-                for (name, _) in bindings.iter().flatten() {
-                    env.set(name.clone(), Value::top());
+                // Extracted fields are not modelled, so each bound name is
+                // unknown. Setting it is what keeps a stale binding from
+                // surviving the shadow.
+                for (name, _) in pattern.bindings() {
+                    env.set(name, Value::top());
                 }
                 Flow::normal(env)
             }
@@ -375,13 +376,15 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 self.run_loop(body_env, None, None, body, ctx)
             }
             HirStmt::ForIn {
-                name,
+                pattern,
                 iterable,
                 body,
                 ..
             } => {
                 self.eval(iterable, &mut env);
-                env.set(name.clone(), Value::top());
+                for (name, _) in pattern.bindings() {
+                    env.set(name, Value::top());
+                }
                 self.run_loop(env, None, None, body, ctx)
             }
             HirStmt::ForC {
@@ -1182,16 +1185,21 @@ impl<'p, 'o> ContractPass<'p, 'o> {
     }
     fn check_contract_purity(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Call { callee, args, span, .. } => {
+            HirExpr::Call {
+                callee, args, span, ..
+            } => {
                 if let Some(name) = callee.last() {
                     if let Some(effect) = self.effects.get(name.as_str()) {
                         if !effect.is_pure() {
-                            self.out.push(Diagnostic::new(
-                                Severity::Error,
-                                self.file,
-                                *span,
-                                format!("contract calls non-pure function `{}`", name),
-                            ).with_code(codes::EFFECT));
+                            self.out.push(
+                                Diagnostic::new(
+                                    Severity::Error,
+                                    self.file,
+                                    *span,
+                                    format!("contract calls non-pure function `{}`", name),
+                                )
+                                .with_code(codes::EFFECT),
+                            );
                         }
                     }
                 }
@@ -1207,19 +1215,25 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 self.check_contract_purity(operand);
             }
             HirExpr::StructLit { fields, .. } => {
-                for (_, v, _) in fields { self.check_contract_purity(v); }
+                for (_, v, _) in fields {
+                    self.check_contract_purity(v);
+                }
             }
             HirExpr::SliceLit { elements, .. }
             | HirExpr::FixedArrayLit { elements, .. }
             | HirExpr::TupleLit { elements, .. } => {
-                for e in elements { self.check_contract_purity(e); }
+                for e in elements {
+                    self.check_contract_purity(e);
+                }
             }
             HirExpr::FieldAccess { base, .. } => self.check_contract_purity(base),
             HirExpr::Index { base, index, .. } => {
                 self.check_contract_purity(base);
                 self.check_contract_purity(index);
             }
-            HirExpr::View { base, start, end, .. } => {
+            HirExpr::View {
+                base, start, end, ..
+            } => {
                 self.check_contract_purity(base);
                 self.check_contract_purity(start);
                 self.check_contract_purity(end);
@@ -1230,20 +1244,27 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.check_contract_purity(subject);
                 for arm in arms {
-                    if let Some(guard) = &arm.guard { self.check_contract_purity(guard); }
+                    if let Some(guard) = &arm.guard {
+                        self.check_contract_purity(guard);
+                    }
                     self.check_contract_purity(&arm.body);
                 }
             }
-            HirExpr::HigherOrder { receiver, func, init, .. } => {
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
                 self.check_contract_purity(receiver);
                 self.check_contract_purity(func);
-                if let Some(init) = init { self.check_contract_purity(init); }
+                if let Some(init) = init {
+                    self.check_contract_purity(init);
+                }
             }
             _ => {}
         }
     }
-
-
 }
 
 /// The join of every environment that reaches the loop's head again.

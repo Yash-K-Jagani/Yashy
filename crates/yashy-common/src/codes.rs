@@ -62,6 +62,8 @@ pub const CONST_REASSIGNMENT: &str = "E0400";
 pub const MOVED_VALUE: &str = "E0500";
 /// A `switch` does not cover every case.
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
+/// A `switch` arm matches no value because an earlier arm covers it.
+pub const UNREACHABLE_ARM: &str = "E0601";
 /// A range pattern's bounds are not both `int` or both `char`, or `lo > hi`.
 pub const BAD_RANGE_PATTERN: &str = "E0602";
 /// An `if let` or `while let` pattern matches every value of its type.
@@ -72,6 +74,11 @@ pub const UNKNOWN_LABEL: &str = "E0604";
 pub const DUPLICATE_LABEL: &str = "E0605";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
+/// A named argument names no parameter, or a positional argument follows a
+/// named one.
+pub const UNKNOWN_NAMED_ARGUMENT: &str = "E0701";
+/// A parameter is given twice in one call.
+pub const DUPLICATE_ARGUMENT: &str = "E0702";
 /// Two things claim the same linker symbol: two `extern` declarations that
 /// disagree about the signature, or a declaration and a function the program
 /// defines.
@@ -242,6 +249,12 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E0600.md"),
     },
     Code {
+        id: UNREACHABLE_ARM,
+        title: "unreachable switch arm",
+        summary: "A `switch` arm matches no value because an earlier arm already covers it.",
+        page: include_str!("../../../docs/errors/E0601.md"),
+    },
+    Code {
         id: BAD_RANGE_PATTERN,
         title: "invalid range pattern",
         summary: "A range pattern's bounds are not both `int` or both `char`, or its start is greater than its end.",
@@ -270,6 +283,18 @@ pub const CODES: &[Code] = &[
         title: "wrong argument count",
         summary: "A call passes the wrong number of arguments.",
         page: include_str!("../../../docs/errors/E0700.md"),
+    },
+    Code {
+        id: UNKNOWN_NAMED_ARGUMENT,
+        title: "unknown named argument",
+        summary: "A named argument names no parameter of the callee, or a positional argument follows a named one.",
+        page: include_str!("../../../docs/errors/E0701.md"),
+    },
+    Code {
+        id: DUPLICATE_ARGUMENT,
+        title: "duplicate argument",
+        summary: "A parameter is given twice in one call.",
+        page: include_str!("../../../docs/errors/E0702.md"),
     },
     Code {
         id: DUPLICATE_EXTERN_SYMBOL,

@@ -8,9 +8,9 @@
 //! merge is an intersection: a resource must be in the same state on every path
 //! that reaches a point, otherwise it is `E1400` with both states named.
 
+use crate::typestate::ResourceState as State;
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
 use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm};
-use crate::typestate::ResourceState as State;
 
 /// Run the typestate pass over `program`, pushing diagnostics into `out`.
 pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
@@ -82,8 +82,20 @@ impl TypestatePass<'_> {
                 self.walk(expr);
                 true
             }
-            HirStmt::Const { name, ty, init, span, .. }
-            | HirStmt::Var { name, ty, init, span, .. } => {
+            HirStmt::Const {
+                name,
+                ty,
+                init,
+                span,
+                ..
+            }
+            | HirStmt::Var {
+                name,
+                ty,
+                init,
+                span,
+                ..
+            } => {
                 self.walk(init);
                 let state = resource_state_of_init(init);
                 if let Some(state) = state {
@@ -99,14 +111,19 @@ impl TypestatePass<'_> {
                 let _ = ty;
                 true
             }
-            HirStmt::Destructure { init, bindings, span, .. } => {
+            HirStmt::Destructure {
+                init,
+                pattern,
+                span,
+                ..
+            } => {
                 self.walk(init);
                 let state = resource_state_of_init(init);
                 if let Some(state) = state {
                     if let Some(frame) = self.frames.last_mut() {
-                        for binding in bindings.iter().flatten() {
+                        for (name, _) in pattern.bindings() {
                             frame.push(Binding {
-                                name: binding.0.clone(),
+                                name,
                                 span: *span,
                                 state,
                                 tracked: true,
@@ -132,7 +149,9 @@ impl TypestatePass<'_> {
                 }
                 true
             }
-            HirStmt::IndexAssign { base, index, value, .. } => {
+            HirStmt::IndexAssign {
+                base, index, value, ..
+            } => {
                 self.walk(base);
                 self.walk(index);
                 self.walk(value);
@@ -142,7 +161,12 @@ impl TypestatePass<'_> {
                 self.walk(value);
                 true
             }
-            HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+            HirStmt::FieldPtrAssign {
+                pointer,
+                index,
+                value,
+                ..
+            } => {
                 self.walk(pointer);
                 self.walk(index);
                 self.walk(value);
@@ -154,7 +178,13 @@ impl TypestatePass<'_> {
                 }
                 false
             }
-            HirStmt::If { init, cond, then_block, else_block, .. } => {
+            HirStmt::If {
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
                 if let Some(init) = init {
                     if !self.stmt(init) {
                         return false;
@@ -163,7 +193,9 @@ impl TypestatePass<'_> {
                 self.walk(cond);
                 self.branch(then_block, else_block.as_ref())
             }
-            HirStmt::ForRange { start, end, body, .. } => {
+            HirStmt::ForRange {
+                start, end, body, ..
+            } => {
                 self.walk(start);
                 self.walk(end);
                 self.loop_body(body);
@@ -174,7 +206,13 @@ impl TypestatePass<'_> {
                 self.loop_body(body);
                 true
             }
-            HirStmt::ForC { init, cond, update, body, .. } => {
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                ..
+            } => {
                 if let Some(init) = init {
                     if !self.stmt(init) {
                         return false;
@@ -221,7 +259,10 @@ impl TypestatePass<'_> {
 
     fn walk(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Literal(..) | HirExpr::Ident(..) | HirExpr::AddrOf { .. } | HirExpr::Capture { .. } => {
+            HirExpr::Literal(..)
+            | HirExpr::Ident(..)
+            | HirExpr::AddrOf { .. }
+            | HirExpr::Capture { .. } => {
                 // Check terminal-state use on ident.
                 if let HirExpr::Ident(path, span, _) = expr {
                     if path.len() == 1 {
@@ -264,9 +305,11 @@ impl TypestatePass<'_> {
                                     if binding.tracked {
                                         let (req, next) = t;
                                         // chan_free accepts both Open and Closed.
-                                        let callee_name = callee.last().map(|s| s.as_str()).unwrap_or("");
+                                        let callee_name =
+                                            callee.last().map(|s| s.as_str()).unwrap_or("");
                                         let ok = if callee_name == "chan_free" {
-                                            binding.state == State::Open || binding.state == State::Closed
+                                            binding.state == State::Open
+                                                || binding.state == State::Closed
                                         } else {
                                             binding.state == req
                                         };
@@ -311,7 +354,9 @@ impl TypestatePass<'_> {
                 self.walk(base);
                 self.walk(index);
             }
-            HirExpr::View { base, start, end, .. } => {
+            HirExpr::View {
+                base, start, end, ..
+            } => {
                 self.walk(base);
                 self.walk(start);
                 self.walk(end);
@@ -327,7 +372,12 @@ impl TypestatePass<'_> {
                 }
             }
             HirExpr::Lambda { f, .. } => self.check_fn(f),
-            HirExpr::HigherOrder { receiver, func, init, .. } => {
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
                 self.walk(receiver);
                 self.walk(func);
                 if let Some(init) = init {
@@ -407,21 +457,27 @@ impl TypestatePass<'_> {
     }
 
     fn report_bad_transition(&mut self, name: &str, from: State, to: State, span: Span) {
-        self.out.push(Diagnostic::new(
-            Severity::Error,
-            self.file,
-            span,
-            format!("`{name}` is in state `{from}`, but this operation requires `{to}`"),
-        ).with_code(codes::DOUBLE_CLOSE));
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!("`{name}` is in state `{from}`, but this operation requires `{to}`"),
+            )
+            .with_code(codes::DOUBLE_CLOSE),
+        );
     }
 
     fn report_use_after_close(&mut self, name: &str, span: Span) {
-        self.out.push(Diagnostic::new(
-            Severity::Error,
-            self.file,
-            span,
-            format!("`{name}` is used after it has been released"),
-        ).with_code(codes::USE_AFTER_CLOSE));
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!("`{name}` is used after it has been released"),
+            )
+            .with_code(codes::USE_AFTER_CLOSE),
+        );
     }
 }
 
@@ -461,11 +517,7 @@ fn transition_for(callee: &[String]) -> Option<(State, State)> {
     }
 }
 
-fn merge_states(
-    states: &[StateFrames],
-    out: &mut Vec<Diagnostic>,
-    file: FileId,
-) -> StateFrames {
+fn merge_states(states: &[StateFrames], out: &mut Vec<Diagnostic>, file: FileId) -> StateFrames {
     if states.is_empty() {
         return Vec::new();
     }
@@ -526,7 +578,12 @@ fn check_race(program: &HirProgram, out: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_race_in_block(block: &HirBlock, uses_threads: bool, out: &mut Vec<Diagnostic>, file: FileId) {
+fn check_race_in_block(
+    block: &HirBlock,
+    uses_threads: bool,
+    out: &mut Vec<Diagnostic>,
+    file: FileId,
+) {
     for stmt in &block.stmts {
         check_race_in_stmt(stmt, uses_threads, out, file);
     }
@@ -535,29 +592,50 @@ fn check_race_in_block(block: &HirBlock, uses_threads: bool, out: &mut Vec<Diagn
 fn check_race_in_stmt(stmt: &HirStmt, uses_threads: bool, out: &mut Vec<Diagnostic>, file: FileId) {
     match stmt {
         HirStmt::Expr(expr, ..) => check_race_in_expr(expr, uses_threads, out, file),
-        HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => {
+        HirStmt::Const { init, .. }
+        | HirStmt::Var { init, .. }
+        | HirStmt::Destructure { init, .. } => {
             check_race_in_expr(init, uses_threads, out, file);
         }
         HirStmt::Assign { value, .. } => check_race_in_expr(value, uses_threads, out, file),
-        HirStmt::IndexAssign { base, index, value, .. } => {
+        HirStmt::IndexAssign {
+            base, index, value, ..
+        } => {
             check_race_in_expr(base, uses_threads, out, file);
             check_race_in_expr(index, uses_threads, out, file);
             check_race_in_expr(value, uses_threads, out, file);
         }
         HirStmt::FieldAssign { value, .. } => check_race_in_expr(value, uses_threads, out, file),
-        HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+        HirStmt::FieldPtrAssign {
+            pointer,
+            index,
+            value,
+            ..
+        } => {
             check_race_in_expr(pointer, uses_threads, out, file);
             check_race_in_expr(index, uses_threads, out, file);
             check_race_in_expr(value, uses_threads, out, file);
         }
         HirStmt::Return(Some(expr), _) => check_race_in_expr(expr, uses_threads, out, file),
-        HirStmt::If { init, cond, then_block, else_block, .. } => {
-            if let Some(init) = init { check_race_in_stmt(init, uses_threads, out, file); }
+        HirStmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            if let Some(init) = init {
+                check_race_in_stmt(init, uses_threads, out, file);
+            }
             check_race_in_expr(cond, uses_threads, out, file);
             check_race_in_block(then_block, uses_threads, out, file);
-            if let Some(eb) = else_block { check_race_in_block(eb, uses_threads, out, file); }
+            if let Some(eb) = else_block {
+                check_race_in_block(eb, uses_threads, out, file);
+            }
         }
-        HirStmt::ForRange { start, end, body, .. } => {
+        HirStmt::ForRange {
+            start, end, body, ..
+        } => {
             check_race_in_expr(start, uses_threads, out, file);
             check_race_in_expr(end, uses_threads, out, file);
             check_race_in_block(body, uses_threads, out, file);
@@ -566,16 +644,30 @@ fn check_race_in_stmt(stmt: &HirStmt, uses_threads: bool, out: &mut Vec<Diagnost
             check_race_in_expr(iterable, uses_threads, out, file);
             check_race_in_block(body, uses_threads, out, file);
         }
-        HirStmt::ForC { init, cond, update, body, .. } => {
-            if let Some(init) = init { check_race_in_stmt(init, uses_threads, out, file); }
-            if let Some(cond) = cond { check_race_in_expr(cond, uses_threads, out, file); }
-            if let Some(update) = update { check_race_in_expr(update, uses_threads, out, file); }
+        HirStmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                check_race_in_stmt(init, uses_threads, out, file);
+            }
+            if let Some(cond) = cond {
+                check_race_in_expr(cond, uses_threads, out, file);
+            }
+            if let Some(update) = update {
+                check_race_in_expr(update, uses_threads, out, file);
+            }
             check_race_in_block(body, uses_threads, out, file);
         }
         HirStmt::Switch { subject, arms, .. } => {
             check_race_in_expr(subject, uses_threads, out, file);
             for arm in arms {
-                if let Some(guard) = &arm.guard { check_race_in_expr(guard, uses_threads, out, file); }
+                if let Some(guard) = &arm.guard {
+                    check_race_in_expr(guard, uses_threads, out, file);
+                }
                 check_race_in_expr(&arm.body, uses_threads, out, file);
             }
         }
@@ -587,7 +679,9 @@ fn check_race_in_stmt(stmt: &HirStmt, uses_threads: bool, out: &mut Vec<Diagnost
 
 fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnostic>, file: FileId) {
     match expr {
-        HirExpr::Call { callee, args, span, .. } => {
+        HirExpr::Call {
+            callee, args, span, ..
+        } => {
             let name = callee.last().map(|s| s.as_str()).unwrap_or("");
             if name == "thread_spawn" {
                 for arg in args {
@@ -618,19 +712,25 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
             check_race_in_expr(operand, uses_threads, out, file);
         }
         HirExpr::StructLit { fields, .. } => {
-            for (_, v, _) in fields { check_race_in_expr(v, uses_threads, out, file); }
+            for (_, v, _) in fields {
+                check_race_in_expr(v, uses_threads, out, file);
+            }
         }
         HirExpr::SliceLit { elements, .. }
         | HirExpr::FixedArrayLit { elements, .. }
         | HirExpr::TupleLit { elements, .. } => {
-            for e in elements { check_race_in_expr(e, uses_threads, out, file); }
+            for e in elements {
+                check_race_in_expr(e, uses_threads, out, file);
+            }
         }
         HirExpr::FieldAccess { base, .. } => check_race_in_expr(base, uses_threads, out, file),
         HirExpr::Index { base, index, .. } => {
             check_race_in_expr(base, uses_threads, out, file);
             check_race_in_expr(index, uses_threads, out, file);
         }
-        HirExpr::View { base, start, end, .. } => {
+        HirExpr::View {
+            base, start, end, ..
+        } => {
             check_race_in_expr(base, uses_threads, out, file);
             check_race_in_expr(start, uses_threads, out, file);
             check_race_in_expr(end, uses_threads, out, file);
@@ -641,17 +741,28 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
         HirExpr::SwitchExpr { subject, arms, .. } => {
             check_race_in_expr(subject, uses_threads, out, file);
             for arm in arms {
-                if let Some(guard) = &arm.guard { check_race_in_expr(guard, uses_threads, out, file); }
+                if let Some(guard) = &arm.guard {
+                    check_race_in_expr(guard, uses_threads, out, file);
+                }
                 check_race_in_expr(&arm.body, uses_threads, out, file);
             }
         }
         HirExpr::CallCapture { args, .. } => {
-            for arg in args { check_race_in_expr(arg, uses_threads, out, file); }
+            for arg in args {
+                check_race_in_expr(arg, uses_threads, out, file);
+            }
         }
-        HirExpr::HigherOrder { receiver, func, init, .. } => {
+        HirExpr::HigherOrder {
+            receiver,
+            func,
+            init,
+            ..
+        } => {
             check_race_in_expr(receiver, uses_threads, out, file);
             check_race_in_expr(func, uses_threads, out, file);
-            if let Some(init) = init { check_race_in_expr(init, uses_threads, out, file); }
+            if let Some(init) = init {
+                check_race_in_expr(init, uses_threads, out, file);
+            }
         }
         _ => {}
     }
@@ -660,9 +771,17 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
 fn is_shareable(ty: &yashy_hir::ty::Type, uses_threads: bool) -> bool {
     use yashy_hir::ty::TypeKind;
     match &ty.kind {
-        TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Char | TypeKind::Unit
-        | TypeKind::CInt(_) | TypeKind::CUInt(_) | TypeKind::CFloat(_) | TypeKind::CVoid
-        | TypeKind::FixedArray(..) | TypeKind::View(_) => true,
+        TypeKind::I64
+        | TypeKind::F64
+        | TypeKind::Bool
+        | TypeKind::Char
+        | TypeKind::Unit
+        | TypeKind::CInt(_)
+        | TypeKind::CUInt(_)
+        | TypeKind::CFloat(_)
+        | TypeKind::CVoid
+        | TypeKind::FixedArray(..)
+        | TypeKind::View(_) => true,
         TypeKind::Str => uses_threads,
         TypeKind::Mutex => true,
         TypeKind::Channel(_) => true,

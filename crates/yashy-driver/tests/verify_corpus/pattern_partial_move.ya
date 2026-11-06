@@ -1,0 +1,12 @@
+enum Opt {
+    A(int),
+    B,
+}
+
+fn main() {
+    let o = Opt.B;
+    print(switch o {
+        case A(n) | B { 0 }
+        default { 1 }
+    });
+}

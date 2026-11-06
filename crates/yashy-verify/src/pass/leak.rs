@@ -215,14 +215,14 @@ impl LeakPass<'_> {
             }
             HirStmt::Destructure {
                 init,
-                bindings,
+                pattern,
                 span,
                 ..
             } => {
                 self.walk(init);
                 if !self.inside_arena() {
-                    for binding in bindings.iter().flatten() {
-                        self.declare(&binding.0, &binding.1, *span);
+                    for (name, ty) in pattern.bindings() {
+                        self.declare(&name, &ty, *span);
                     }
                 }
                 Flow::Falls

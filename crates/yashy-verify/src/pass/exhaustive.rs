@@ -14,11 +14,13 @@
 //! [`Pattern`] counterpart after checking, so the conversion is total.
 
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
-use yashy_hir::exhaustive::{missing_cases, Pattern, VariantDef};
+use yashy_hir::exhaustive::{
+    missing_witnesses, reachable_arms, Pattern, TypeExpr, VariantDef, VariantField,
+};
 use yashy_hir::hir::{
     expr_ty, HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
 };
-use yashy_hir::ty::TypeKind;
+use yashy_hir::ty::{Type, TypeKind};
 
 /// Re-check every `switch` in `program`, appending a diagnostic per gap.
 pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
@@ -239,12 +241,11 @@ fn check_switch(
     out: &mut Vec<Diagnostic>,
 ) {
     // A guard does not cover the case where it is false, so a guarded arm takes
-    // no part in exhaustiveness. A `default` does, but only when unguarded.
-    if arms.iter().any(|arm| arm.is_default && arm.guard.is_none()) {
-        return;
-    }
-
+    // no part in exhaustiveness. A `default` is a wildcard pattern, handled by
+    // the matrix itself -- except over a non-enum subject, where the matrix
+    // has no variants to search and only the `default` can cover the value.
     let subject_ty = expr_ty(subject);
+    let has_default = arms.iter().any(|arm| arm.is_default && arm.guard.is_none());
     let variants = match &subject_ty.kind {
         TypeKind::Enum(name) => match enum_variants(program, name) {
             Some(variants) => variants,
@@ -252,9 +253,18 @@ fn check_switch(
             // the program does not declare is not a gap this pass can describe.
             None => return,
         },
-        TypeKind::Option(_) => vec![variant("None"), variant("Some")],
-        TypeKind::Result(_, _) => vec![variant("Ok"), variant("Err")],
+        TypeKind::Option(inner) => vec![
+            variant("None", &[]),
+            variant("Some", &[type_expr_of(inner)]),
+        ],
+        TypeKind::Result(ok, err) => vec![
+            variant("Ok", &[type_expr_of(ok)]),
+            variant("Err", &[type_expr_of(err)]),
+        ],
         _ => {
+            if has_default {
+                return;
+            }
             out.push(
                 Diagnostic::new(
                     Severity::Error,
@@ -274,27 +284,57 @@ fn check_switch(
         .filter(|arm| arm.guard.is_none())
         .map(|arm| to_ast_pattern(&arm.pattern))
         .collect();
-    let missing = missing_cases("", &variants, &patterns, false);
-    if missing.is_empty() {
-        return;
+    let missing = missing_witnesses("", &variants, &patterns, false);
+    if !missing.is_empty() {
+        let message = format!(
+            "switch is not exhaustive: missing case{} {}",
+            if missing.len() == 1 { "" } else { "s" },
+            missing
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        out.push(
+            Diagnostic::new(Severity::Error, file, span, message)
+                .with_code(codes::NON_EXHAUSTIVE_MATCH)
+                .with_label("this switch does not cover every case"),
+        );
     }
-    let message = format!(
-        "switch is not exhaustive: missing case{} {}",
-        if missing.len() == 1 { "" } else { "s" },
-        missing
-            .iter()
-            .map(|name| format!("`{name}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    out.push(
-        Diagnostic::new(Severity::Error, file, span, message)
-            .with_code(codes::NON_EXHAUSTIVE_MATCH)
-            .with_label("this switch does not cover every case"),
-    );
+    // Unreachable arms: a later arm covered by an earlier unguarded arm.
+    // A guarded arm is always reachable (the guard may fail).
+    let enum_name = match &subject_ty.kind {
+        TypeKind::Enum(name) => name.clone(),
+        TypeKind::Option(_) => "Option".to_string(),
+        TypeKind::Result(_, _) => "Result".to_string(),
+        _ => String::new(),
+    };
+    let all_patterns: Vec<Pattern> = arms
+        .iter()
+        .map(|arm| to_ast_pattern(&arm.pattern))
+        .collect();
+    let guards: Vec<bool> = arms.iter().map(|arm| arm.guard.is_some()).collect();
+    let reachable = reachable_arms(&enum_name, &variants, &all_patterns, false, &guards);
+    for (arm, is_reachable) in arms.iter().zip(reachable.iter()) {
+        if !is_reachable {
+            out.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    file,
+                    arm.span,
+                    "unreachable switch arm; an earlier arm already covers it".to_string(),
+                )
+                .with_code(codes::UNREACHABLE_ARM)
+                .with_label("this arm can never match"),
+            );
+        }
+    }
 }
 
-/// The variants of the enum called `name`, in declaration order.
+/// The variants of the enum called `name`, in declaration order, with their
+/// payload types preserved: the usefulness matrix recurses into payload
+/// columns, so a variant with no field types would look like a nullary
+/// constructor and a payload pattern would be searched against nothing.
 fn enum_variants(program: &HirProgram, name: &str) -> Option<Vec<VariantDef>> {
     program.items.iter().find_map(|item| match item {
         HirItem::Enum(definition) if definition.name == name => Some(
@@ -303,9 +343,21 @@ fn enum_variants(program: &HirProgram, name: &str) -> Option<Vec<VariantDef>> {
                 .iter()
                 .map(|variant| VariantDef {
                     name: variant.name.clone(),
-                    // `missing_cases` matches names only; the payload shape is
-                    // the checker's business.
-                    fields: Vec::new(),
+                    fields: variant
+                        .fields
+                        .iter()
+                        .map(|field| match &field.name {
+                            Some(field_name) => VariantField::Named {
+                                name: field_name.clone(),
+                                ty: type_expr_of(&field.ty),
+                                span: field.span,
+                            },
+                            None => VariantField::Positional {
+                                ty: type_expr_of(&field.ty),
+                                span: field.span,
+                            },
+                        })
+                        .collect(),
                     span: variant.span,
                 })
                 .collect(),
@@ -314,11 +366,45 @@ fn enum_variants(program: &HirProgram, name: &str) -> Option<Vec<VariantDef>> {
     })
 }
 
-fn variant(name: &str) -> VariantDef {
+/// A synthetic `Option`/`Result` variant: `Some`, `Ok` and `Err` each carry
+/// one payload, `None` carries none.
+fn variant(name: &str, payload: &[TypeExpr]) -> VariantDef {
     VariantDef {
         name: name.to_string(),
-        fields: Vec::new(),
+        fields: payload
+            .iter()
+            .map(|ty| VariantField::Positional {
+                ty: ty.clone(),
+                span: Span::new(0, 0),
+            })
+            .collect(),
         span: Span::new(0, 0),
+    }
+}
+
+/// The AST spelling of a checked type, for the shape matcher: only the kinds
+/// the matrix can search (primitives, enums, `Option`, `Result`, tuples) are
+/// spelled precisely; everything else becomes an unknown name, which the
+/// matcher reads as an opaque leaf.
+fn type_expr_of(ty: &Type) -> TypeExpr {
+    let span = ty.span;
+    match &ty.kind {
+        TypeKind::I64 => TypeExpr::Name("int".to_string(), span),
+        TypeKind::F64 => TypeExpr::Name("float".to_string(), span),
+        TypeKind::Bool => TypeExpr::Name("bool".to_string(), span),
+        TypeKind::Char => TypeExpr::Name("char".to_string(), span),
+        TypeKind::Str => TypeExpr::Name("string".to_string(), span),
+        TypeKind::Struct(name) | TypeKind::Enum(name) => TypeExpr::Name(name.clone(), span),
+        TypeKind::Option(inner) => TypeExpr::Option(Box::new(type_expr_of(inner)), span),
+        TypeKind::Result(ok, err) => TypeExpr::Result(
+            Box::new(type_expr_of(ok)),
+            Box::new(type_expr_of(err)),
+            span,
+        ),
+        TypeKind::Tuple(elements) => {
+            TypeExpr::Tuple(elements.iter().map(type_expr_of).collect(), span)
+        }
+        _ => TypeExpr::Name("?".to_string(), span),
     }
 }
 
@@ -335,7 +421,12 @@ fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
             args: args.iter().map(to_ast_pattern).collect(),
             span: *span,
         },
-        HirPattern::StructVariant { path, fields, rest, span } => Pattern::StructVariant {
+        HirPattern::StructVariant {
+            path,
+            fields,
+            rest,
+            span,
+        } => Pattern::StructVariant {
             path: path.clone(),
             fields: fields
                 .iter()
@@ -361,11 +452,12 @@ fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
             inclusive: *inclusive,
             span: *span,
         },
-        HirPattern::Or {
-            alternatives,
-            span,
-        } => Pattern::Or {
+        HirPattern::Or { alternatives, span } => Pattern::Or {
             alternatives: alternatives.iter().map(to_ast_pattern).collect(),
+            span: *span,
+        },
+        HirPattern::Tuple { elements, span } => Pattern::Tuple {
+            elements: elements.iter().map(to_ast_pattern).collect(),
             span: *span,
         },
     }

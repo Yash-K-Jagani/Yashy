@@ -60,6 +60,7 @@ fn names_variant(pattern: &HirPattern, name: &str) -> bool {
         | HirPattern::StructVariant { path, .. } => path.last().map(String::as_str) == Some(name),
         HirPattern::Wildcard(_)
         | HirPattern::Binding { .. }
+        | HirPattern::Tuple { .. }
         | HirPattern::Literal(..)
         | HirPattern::Range { .. }
         | HirPattern::Or { .. } => false,

@@ -143,11 +143,7 @@ fn verify_json_is_silent_about_proof_when_the_program_is_clean() {
 #[test]
 fn timings_go_to_stderr_and_the_json_report_and_never_to_stdout() {
     let dir = work_dir("timings");
-    write(
-        &dir,
-        "hello.ya",
-        "fn main() {\n    print(\"hello\");\n}\n",
-    );
+    write(&dir, "hello.ya", "fn main() {\n    print(\"hello\");\n}\n");
 
     let plain = run(&dir, &["run", "hello.ya"]);
     let timed = run(&dir, &["run", "hello.ya", "--timings"]);
@@ -323,6 +319,13 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("arena_free", 1, &["E1004"]),
     ("string_oob", 1, &["E1200"]),
     ("string_slice_split", 0, &[]),
+    // Phase 7's pattern and named-argument rules. The or-pattern binds `n`
+    // on one side only (E1002, at check time), the second arm is dead after
+    // the wildcard (E0601, at verify time), and `c` names no parameter
+    // (E0701, at check time).
+    ("pattern_partial_move", 1, &["E1002"]),
+    ("unreachable_arm", 1, &["E0601"]),
+    ("named_arg_unknown", 1, &["E0701"]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

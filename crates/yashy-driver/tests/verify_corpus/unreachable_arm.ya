@@ -1,0 +1,16 @@
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn code(Color c) -> int {
+    return switch c {
+        case _ { 1 }
+        case Red { 2 }
+    };
+}
+
+fn main() {
+    print(code(Color.Red));
+}

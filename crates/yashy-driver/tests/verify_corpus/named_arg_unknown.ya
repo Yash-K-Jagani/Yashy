@@ -1,0 +1,7 @@
+fn f(int a, int b) -> int {
+    return a + b;
+}
+
+fn main() {
+    print(f(c: 1, a: 2));
+}

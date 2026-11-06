@@ -26,8 +26,8 @@
 //! membership test. There is no `unwrap`, no `expect`, no `panic!` and no
 //! unchecked indexing here.
 
-pub use yashy_parser::ast::{Pattern, VariantDef};
-use yashy_parser::ast::{Literal, TypeExpr, VariantField};
+use yashy_parser::ast::Literal;
+pub use yashy_parser::ast::{Pattern, TypeExpr, VariantDef, VariantField};
 
 /// The names of the enum variants no arm covers, in declaration order.
 /// Empty means the arms are exhaustive.
@@ -70,10 +70,7 @@ pub fn missing_cases_with(
     }
     let ctx = Ctx { lookup };
     let ty = Ty::Enum(enum_name.to_string());
-    let matrix: Vec<Vec<Pat>> = arms
-        .iter()
-        .map(|arm| vec![ctx.pat_of(arm, &ty)])
-        .collect();
+    let matrix: Vec<Vec<Pat>> = arms.iter().map(|arm| vec![ctx.pat_of(arm, &ty)]).collect();
     let mut missing = Vec::new();
     for variant in variants {
         let args = vec![Pat::Wild; variant.fields.len()];
@@ -124,10 +121,7 @@ pub fn missing_witnesses_with(
     }
     let ctx = Ctx { lookup };
     let ty = Ty::Enum(enum_name.to_string());
-    let matrix: Vec<Vec<Pat>> = arms
-        .iter()
-        .map(|arm| vec![ctx.pat_of(arm, &ty)])
-        .collect();
+    let matrix: Vec<Vec<Pat>> = arms.iter().map(|arm| vec![ctx.pat_of(arm, &ty)]).collect();
     let mut missing = Vec::new();
     for variant in variants {
         let args = vec![Pat::Wild; variant.fields.len()];
@@ -241,6 +235,9 @@ enum Ty {
     Enum(String),
     Option(Box<Ty>),
     Result(Box<Ty>, Box<Ty>),
+    /// A tuple payload: one anonymous constructor of its element types,
+    /// searched column by column like every other.
+    Tuple(Vec<Ty>),
     Int,
     Char,
     Bool,
@@ -258,7 +255,10 @@ impl Ty {
 #[derive(Clone, Debug, PartialEq)]
 enum Pat {
     Wild,
-    Ctor { name: String, args: Vec<Pat> },
+    Ctor {
+        name: String,
+        args: Vec<Pat>,
+    },
     Lit(Literal),
     Range {
         lo: Literal,
@@ -309,6 +309,12 @@ impl Ctx<'_> {
             TypeExpr::Result(ok, err, _) => Ty::Result(
                 Box::new(self.shape(ok, depth + 1)),
                 Box::new(self.shape(err, depth + 1)),
+            ),
+            TypeExpr::Tuple(elements, _) => Ty::Tuple(
+                elements
+                    .iter()
+                    .map(|element| self.shape(element, depth + 1))
+                    .collect(),
             ),
             _ => Ty::Other,
         }
@@ -365,6 +371,11 @@ impl Ctx<'_> {
                     arg_tys: Vec::new(),
                 },
             ]),
+            Ty::Tuple(elements) => Some(vec![Ctor {
+                name: "tuple".to_string(),
+                args: vec![Pat::Wild; elements.len()],
+                arg_tys: elements.clone(),
+            }]),
             _ => None,
         }
     }
@@ -384,10 +395,7 @@ impl Ctx<'_> {
             },
             Pattern::Literal(literal, _) => Pat::Lit(literal.clone()),
             Pattern::Range {
-                lo,
-                hi,
-                inclusive,
-                ..
+                lo, hi, inclusive, ..
             } => Pat::Range {
                 lo: lo.clone(),
                 hi: hi.clone(),
@@ -451,7 +459,27 @@ impl Ctx<'_> {
                             .unwrap_or_else(|| vec![Pat::Wild; arg_tys.len()]);
                         Pat::Ctor { name, args }
                     }
-                    None => Pat::Ctor { name, args: Vec::new() },
+                    None => Pat::Ctor {
+                        name,
+                        args: Vec::new(),
+                    },
+                }
+            }
+            Pattern::Tuple { elements, .. } => {
+                let element_tys = match ty {
+                    Ty::Tuple(element_tys) => element_tys.clone(),
+                    _ => Vec::new(),
+                };
+                let args: Vec<Pat> = elements
+                    .iter()
+                    .enumerate()
+                    .map(|(index, element)| {
+                        self.pat_of(element, element_tys.get(index).unwrap_or(&Ty::Other))
+                    })
+                    .collect();
+                Pat::Ctor {
+                    name: "tuple".to_string(),
+                    args,
                 }
             }
             Pattern::Or { alternatives, .. } => Pat::Or(
@@ -521,6 +549,13 @@ fn is_useful(matrix: &[Vec<Pat>], vector: &[Pat], tys: &[Ty], ctx: &Ctx<'_>) -> 
     if vector.is_empty() {
         return matrix.is_empty();
     }
+    if tys.is_empty() {
+        // A pattern with more columns than the type list has (for example a
+        // synthetic variant with no payload types) cannot be searched: treat
+        // it as covered exactly when the matrix already covers the empty
+        // row. This keeps the module total -- no indexing past the end.
+        return matrix.is_empty();
+    }
     let matrix = expand_or_rows(matrix);
     match &vector[0] {
         Pat::Or(alternatives) => alternatives.iter().any(|alternative| {
@@ -559,9 +594,7 @@ fn is_useful(matrix: &[Vec<Pat>], vector: &[Pat], tys: &[Ty], ctx: &Ctx<'_>) -> 
                 for row in &matrix {
                     match row.first() {
                         Some(Pat::Wild) => sub.push(row[1..].to_vec()),
-                        Some(Pat::Lit(other)) if other == literal => {
-                            sub.push(row[1..].to_vec())
-                        }
+                        Some(Pat::Lit(other)) if other == literal => sub.push(row[1..].to_vec()),
                         _ => {}
                     }
                 }
@@ -569,11 +602,7 @@ fn is_useful(matrix: &[Vec<Pat>], vector: &[Pat], tys: &[Ty], ctx: &Ctx<'_>) -> 
             };
             is_useful_interval(&matrix, vector, tys, ctx, interval)
         }
-        Pat::Range {
-            lo,
-            hi,
-            inclusive,
-        } => {
+        Pat::Range { lo, hi, inclusive } => {
             let Some(interval) = Interval::range(lo, hi, *inclusive) else {
                 return false;
             };
@@ -615,13 +644,19 @@ fn is_useful_open(matrix: &[Vec<Pat>], vector: &[Pat], tys: &[Ty], ctx: &Ctx<'_>
             Some((interval, row[1..].to_vec()))
         })
         .collect();
-    let gaps = uncovered_segments(domain, &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>());
+    let gaps = uncovered_segments(
+        domain,
+        &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+    );
     if !gaps.is_empty() {
         return true;
     }
     // The union covers the domain. Check the remaining columns segment by
     // segment, with only the rows that reach that segment.
-    for segment in atomic_segments(domain, &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>()) {
+    for segment in atomic_segments(
+        domain,
+        &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+    ) {
         let remainders: Vec<Vec<Pat>> = intervals
             .iter()
             .filter(|(interval, _)| interval.contains_segment(segment))
@@ -650,7 +685,10 @@ fn is_useful_interval(
             Some((interval, row[1..].to_vec()))
         })
         .collect();
-    for segment in atomic_segments(interval, &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>()) {
+    for segment in atomic_segments(
+        interval,
+        &intervals.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+    ) {
         let remainders: Vec<Vec<Pat>> = intervals
             .iter()
             .filter(|(row_interval, _)| row_interval.contains_segment(segment))
@@ -683,9 +721,12 @@ fn first_uncovered(matrix: &[Vec<Pat>], tys: &[Ty], ctx: &Ctx<'_>) -> Option<Vec
             let mut sub_tys = ctor.arg_tys.clone();
             sub_tys.extend_from_slice(&tys[1..]);
             if let Some(mut witness) = first_uncovered(&sub, &sub_tys, ctx) {
-                let args = witness.drain(..ctor.arg_tys.len()).collect::<Vec<_>>();
+                let take = ctor.arg_tys.len().min(witness.len());
+                let args = witness.drain(..take).collect::<Vec<_>>();
                 let mut out = vec![if args.is_empty() {
                     ctor.name.clone()
+                } else if ctor.name == "tuple" {
+                    format!("({})", args.join(", "))
                 } else {
                     format!("{}({})", ctor.name, args.join(", "))
                 }];
@@ -712,10 +753,7 @@ fn first_uncovered(matrix: &[Vec<Pat>], tys: &[Ty], ctx: &Ctx<'_>) -> Option<Vec
 
 fn domain(ty: &Ty) -> Interval {
     match ty {
-        Ty::Char => Interval {
-            lo: 0,
-            hi: 255,
-        },
+        Ty::Char => Interval { lo: 0, hi: 255 },
         _ => Interval {
             lo: i64::MIN,
             hi: i64::MAX,
@@ -754,11 +792,7 @@ impl Interval {
     fn from_pat(pattern: &Pat) -> Option<Self> {
         match pattern {
             Pat::Lit(literal) => Interval::point(literal),
-            Pat::Range {
-                lo,
-                hi,
-                inclusive,
-            } => Interval::range(lo, hi, *inclusive),
+            Pat::Range { lo, hi, inclusive } => Interval::range(lo, hi, *inclusive),
             _ => None,
         }
     }
@@ -801,7 +835,10 @@ fn atomic_segments(domain: Interval, bounds: &[Interval]) -> Vec<Interval> {
 fn uncovered_segments(domain: Interval, intervals: &[Interval]) -> Vec<Interval> {
     let mut out = Vec::new();
     for segment in atomic_segments(domain, intervals) {
-        if !intervals.iter().any(|interval| interval.contains_segment(segment)) {
+        if !intervals
+            .iter()
+            .any(|interval| interval.contains_segment(segment))
+        {
             out.push(segment);
         }
     }
