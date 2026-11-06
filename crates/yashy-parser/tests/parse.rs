@@ -11,8 +11,8 @@ use std::fmt::Debug;
 use yashy_common::{SourceMap, Span};
 use yashy_lexer::Lexer;
 use yashy_parser::ast::{
-    BinOp, Block, Expr, ExternDecl, FieldDef, InterpFormat, InterpPart, Item, Literal, Param,
-    Pattern, Program, Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
+    BinOp, Block, CallArg, Expr, ExternDecl, FieldDef, InterpFormat, InterpPart, Item, Literal,
+    Param, Pattern, Program, Stmt, StringLit, SwitchArm, TypeExpr, UnOp, VariantDef, VariantField,
 };
 use yashy_parser::Parser;
 
@@ -142,6 +142,7 @@ fn full_program(spans: &mut Spans) -> Program {
                         spans.take(),
                     ),
                     span: spans.take(),
+                    default: None,
                 }],
                 ret: Some(TypeExpr::Option(
                     Box::new(TypeExpr::Name("float".to_string(), spans.take())),
@@ -168,6 +169,7 @@ fn full_program(spans: &mut Spans) -> Program {
                         name: "s".to_string(),
                         ty: TypeExpr::Name("string".to_string(), spans.take()),
                         span: spans.take(),
+                        default: None,
                     }],
                     ret: Some(TypeExpr::Name("int".to_string(), spans.take())),
                     span: spans.take(),
@@ -422,7 +424,11 @@ fn full_expr_tail(spans: &mut Spans) -> Expr {
     });
     ops.push(Expr::Call {
         callee: vec!["print".to_string()],
-        args: vec![int(1, spans.take())],
+        args: vec![CallArg {
+            name: None,
+            value: int(1, spans.take()),
+            span: spans.take(),
+        }],
         unsafe_call: false,
         span: spans.take(),
     });
@@ -539,7 +545,15 @@ fn ast_nodes_round_trip_through_debug() {
 
     // One of every Item variant. `"Extern {"` rather than `"Extern"`, which
     // would match `ExternDecl` and prove nothing.
-    for name in ["Import", "Struct", "Enum", "Fn", "Extern {", "ExternDecl", "Public"] {
+    for name in [
+        "Import",
+        "Struct",
+        "Enum",
+        "Fn",
+        "Extern {",
+        "ExternDecl",
+        "Public",
+    ] {
         assert!(
             debug.contains(name),
             "the tree must contain a {name}: {debug}"
@@ -547,8 +561,8 @@ fn ast_nodes_round_trip_through_debug() {
     }
     // One of every Stmt variant.
     for name in [
-        "Expr", "Const", "Let", "Return", "If", "IfLet", "WhileLet", "ForRange", "ForC",
-        "Switch", "Break", "Continue", "Defer",
+        "Expr", "Const", "Let", "Return", "If", "IfLet", "WhileLet", "ForRange", "ForC", "Switch",
+        "Break", "Continue", "Defer",
     ] {
         assert!(
             debug.contains(name),
@@ -740,8 +754,9 @@ fn debug_names_every_item_type_variant_and_its_fields() {
                 name: "p".to_string(),
                 ty: TypeExpr::Unit(here()),
                 span: here(),
+                default: None,
             },
-            &["Param", "name", "ty", "span"],
+            &["Param", "name", "ty", "span", "default"],
             &["FieldDef", "VariantDef"],
         ),
         case(
@@ -871,6 +886,7 @@ fn extern_block_keeps_its_abi_its_link_and_its_declarations() {
                     name: "s".to_string(),
                     ty: TypeExpr::Name("string".to_string(), ty_span),
                     span: param_span,
+                    default: None,
                 }],
                 ret: Some(TypeExpr::Name("int".to_string(), ret_span)),
                 span: decl_span,
@@ -1112,14 +1128,22 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // `f(1)`
     let ordinary = Expr::Call {
         callee: vec!["puts".to_string()],
-        args: vec![int(1, arg_span)],
+        args: vec![CallArg {
+            name: None,
+            value: int(1, arg_span),
+            span: arg_span,
+        }],
         unsafe_call: false,
         span: call_span,
     };
     // `unsafe f(1)`
     let marked = Expr::Call {
         callee: vec!["puts".to_string()],
-        args: vec![int(1, marked_arg_span)],
+        args: vec![CallArg {
+            name: None,
+            value: int(1, marked_arg_span),
+            span: marked_arg_span,
+        }],
         unsafe_call: true,
         span: marked_call_span,
     };
@@ -1147,7 +1171,11 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // differs from `ordinary` in the bool and nothing else.
     let same_parts = Expr::Call {
         callee: vec!["puts".to_string()],
-        args: vec![int(1, arg_span)],
+        args: vec![CallArg {
+            name: None,
+            value: int(1, arg_span),
+            span: arg_span,
+        }],
         unsafe_call: true,
         span: call_span,
     };
@@ -1160,7 +1188,11 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     // itself ordinary, so the marker survives one level down and stops there.
     let nested = Expr::Call {
         callee: vec!["wrapper".to_string()],
-        args: vec![marked.clone()],
+        args: vec![CallArg {
+            name: None,
+            value: marked.clone(),
+            span: call_span,
+        }],
         unsafe_call: false,
         span: call_span,
     };
@@ -1172,16 +1204,22 @@ fn a_call_records_whether_the_source_wrote_unsafe() {
     );
     assert_ne!(nested, marked, "the outer call is a different call");
 
-    // Every span is the one it was given, once each, in the dump that holds it.
-    for (span, debug) in [
-        (arg_span, &ordinary_debug),
-        (call_span, &nested_debug),
-        (marked_arg_span, &nested_debug),
-        (marked_call_span, &nested_debug),
+    // Every span is the one it was given in the dump that holds it. An
+    // argument's span appears twice by construction: the CallArg carries it
+    // and the value it wraps carries it, because a call argument's span is
+    // the value's span until a name is written.
+    for (span, debug, expected) in [
+        (arg_span, &ordinary_debug, 2),
+        (call_span, &nested_debug, 2),
+        (marked_arg_span, &nested_debug, 2),
+        (marked_call_span, &nested_debug, 1),
     ] {
         let needle = format!("{span:?}");
         let found = debug.matches(&needle).count();
-        assert_eq!(found, 1, "{needle:?} must appear exactly once in {debug}");
+        assert_eq!(
+            found, expected,
+            "{needle:?} must appear {expected} time(s) in {debug}"
+        );
     }
 
     // The field is reachable from statement position, which is where a parser
@@ -1300,8 +1338,8 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["If", "init", "cond", "then_block", "else_block", "span"],
             &[
-                "Const", "Return", "ForRange", "ForC", "Switch", "Break", "Continue",
-                "Defer", "Assign", "Binary", "Call",
+                "Const", "Return", "ForRange", "ForC", "Switch", "Break", "Continue", "Defer",
+                "Assign", "Binary", "Call",
             ],
         ),
         case(
@@ -1313,7 +1351,14 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 else_block: None,
                 span: here(),
             },
-            &["IfLet", "pattern", "value", "then_block", "else_block", "span"],
+            &[
+                "IfLet",
+                "pattern",
+                "value",
+                "then_block",
+                "else_block",
+                "span",
+            ],
             &["WhileLet", "ForRange", "Switch", "Defer"],
         ),
         case(
@@ -1340,8 +1385,8 @@ fn debug_names_every_stmt_variant_and_its_fields() {
             },
             &["ForRange", "name", "start", "end", "body", "label", "span"],
             &[
-                "Const", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer",
-                "Assign", "Binary", "Call",
+                "Const", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer", "Assign",
+                "Binary", "Call",
             ],
         ),
         case(
@@ -2024,7 +2069,9 @@ fn var_names_its_replacement() {
     let src = "fn f() { var x = 1; }";
     let mut sm = SourceMap::new();
     let file = sm.add_file("t.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer does not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer does not panic");
     let mut parser = Parser::new(tokens, &sm, file);
     let errors = parser.parse_program().expect_err("`var` must be refused");
     assert_eq!(errors[0].message, "`var` was removed: use `let`");

@@ -5,13 +5,15 @@
 
 use yashy_common::SourceMap;
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Stmt, TypeExpr};
+use yashy_parser::ast::{Expr, Item, Pattern, Stmt, TypeExpr};
 use yashy_parser::Parser;
 
 fn parse(src: &str) -> yashy_parser::ast::Program {
     let mut sources = SourceMap::new();
     let file = sources.add_file("test.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must accept it");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must accept it");
     let mut parser = Parser::new(tokens, &sources, file);
     parser
         .parse_program()
@@ -52,9 +54,7 @@ fn a_slice_type_is_empty_brackets_then_the_element_type() {
 fn a_slice_literal_names_its_element_type_and_keeps_source_order() {
     let expr = body_expr(r#"fn main() { const xs = []int { 1, 2, 3 }; }"#);
     match expr {
-        Expr::SliceLit {
-            elem, elements, ..
-        } => {
+        Expr::SliceLit { elem, elements, .. } => {
             assert!(
                 matches!(elem.as_deref(), Some(TypeExpr::Name(name, _)) if name == "int"),
                 "the literal names its element type: {elem:?}"
@@ -69,9 +69,7 @@ fn a_slice_literal_names_its_element_type_and_keeps_source_order() {
 fn an_empty_slice_literal_is_still_typed() {
     let expr = body_expr("fn main() { const xs = []string {}; }");
     match expr {
-        Expr::SliceLit {
-            elem, elements, ..
-        } => {
+        Expr::SliceLit { elem, elements, .. } => {
             assert!(
                 matches!(elem.as_deref(), Some(TypeExpr::Name(name, _)) if name == "string"),
                 "the empty literal names its element type: {elem:?}"
@@ -96,9 +94,12 @@ fn for_in_over_a_slice_binds_one_name() {
     let stmts = statements("fn main() { let xs = []int { 1 }; for x in xs { print(x); } }");
     match &stmts[1] {
         Stmt::ForIn {
-            name, iterable, ..
+            pattern, iterable, ..
         } => {
-            assert_eq!(name, "x");
+            assert!(
+                matches!(pattern, Pattern::Binding { name, .. } if name == "x"),
+                "{pattern:?}"
+            );
             assert!(
                 matches!(iterable, Expr::Ident(path, _) if path == &["xs".to_string()]),
                 "the iterable is the slice binding: {iterable:?}"
@@ -116,8 +117,14 @@ fn for_in_still_reads_the_range_form() {
             name, start, end, ..
         } => {
             assert_eq!(name, "i");
-            assert!(matches!(start, Expr::Literal(yashy_parser::ast::Literal::I64(0), _)));
-            assert!(matches!(end, Expr::Literal(yashy_parser::ast::Literal::I64(3), _)));
+            assert!(matches!(
+                start,
+                Expr::Literal(yashy_parser::ast::Literal::I64(0), _)
+            ));
+            assert!(matches!(
+                end,
+                Expr::Literal(yashy_parser::ast::Literal::I64(3), _)
+            ));
         }
         other => panic!("expected the range form, got {other:?}"),
     }

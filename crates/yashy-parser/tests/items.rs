@@ -1563,8 +1563,8 @@ fn an_interpolated_string_is_one_node_of_text_and_expressions() {
     let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[1] else {
         panic!("expected the print_str call, got {:?}", body.stmts[1]);
     };
-    let Expr::Interp { parts, span } = &args[0] else {
-        panic!("expected an interpolation, got {:?}", args[0]);
+    let Expr::Interp { parts, span } = &args[0].value else {
+        panic!("expected an interpolation, got {:?}", args[0].value);
     };
     assert_eq!(
         span_of(src, "\"n = ${value + 1}\""),
@@ -1600,8 +1600,8 @@ fn a_debug_suffix_marks_one_interpolation_part() {
     let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
         panic!("expected the print_str call, got {:?}", body.stmts[0]);
     };
-    let Expr::Interp { parts, .. } = &args[0] else {
-        panic!("expected an interpolation, got {:?}", args[0]);
+    let Expr::Interp { parts, .. } = &args[0].value else {
+        panic!("expected an interpolation, got {:?}", args[0].value);
     };
     assert_eq!(parts.len(), 1, "one part: {parts:?}");
     let InterpPart::Expr(inner, format) = &parts[0] else {
@@ -1631,8 +1631,8 @@ fn a_display_interpolation_has_no_suffix() {
     let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
         panic!("expected the print_str call, got {:?}", body.stmts[0]);
     };
-    let Expr::Interp { parts, .. } = &args[0] else {
-        panic!("expected an interpolation, got {:?}", args[0]);
+    let Expr::Interp { parts, .. } = &args[0].value else {
+        panic!("expected an interpolation, got {:?}", args[0].value);
     };
     let formats: Vec<InterpFormat> = parts
         .iter()
@@ -1661,8 +1661,8 @@ fn adjacent_interpolations_have_no_text_between_them() {
     let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
         panic!("expected the print_str call, got {:?}", body.stmts[0]);
     };
-    let Expr::Interp { parts, .. } = &args[0] else {
-        panic!("expected an interpolation, got {:?}", args[0]);
+    let Expr::Interp { parts, .. } = &args[0].value else {
+        panic!("expected an interpolation, got {:?}", args[0].value);
     };
     assert_eq!(parts.len(), 2, "two expressions, no text: {parts:?}");
     assert!(
@@ -1686,9 +1686,9 @@ fn a_literal_without_interpolation_is_a_plain_string_not_an_interp_node() {
         panic!("expected the print_str call, got {:?}", body.stmts[0]);
     };
     assert!(
-        matches!(&args[0], Expr::Literal(Literal::Str(lit), _) if lit.value == "hi"),
+        matches!(&args[0].value, Expr::Literal(Literal::Str(lit), _) if lit.value == "hi"),
         "expected a plain string literal, got {:?}",
-        args[0]
+        args[0].value
     );
 }
 

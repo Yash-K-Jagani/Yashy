@@ -9,7 +9,7 @@
 
 use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Program, Stmt, TypeExpr};
+use yashy_parser::ast::{Expr, Item, Pattern, Program, Stmt, TypeExpr};
 use yashy_parser::Parser;
 
 fn parse_src(src: &str) -> Result<Program, Vec<Diagnostic>> {
@@ -137,7 +137,10 @@ fn a_destructuring_binding_is_not_a_tuple_type() {
     // The `(` after `const` could start a tuple type; the `=` after the
     // matching `)` is what says it is a list of names instead.
     match first_main_stmt("const (a, b) = pair;") {
-        Stmt::Destructure { names, .. } => assert_eq!(names.len(), 2),
+        Stmt::LetPattern { pattern, .. } => match pattern {
+            Pattern::Tuple { elements, .. } => assert_eq!(elements.len(), 2),
+            other => panic!("expected a tuple pattern, got {other:?}"),
+        },
         other => panic!("expected a destructuring binding, got {other:?}"),
     }
 }

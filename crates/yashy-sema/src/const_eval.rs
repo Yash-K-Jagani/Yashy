@@ -226,10 +226,7 @@ impl ConstError {
 /// The `const fn`s the body calls are returned with the answer: a call to
 /// another module's `const fn` is a mistake, and the body check is what knows
 /// which functions the body called.
-pub fn check_body(
-    function: &ConstFn,
-    consts: &ConstFns,
-) -> Result<Vec<(String, Span)>, TypeError> {
+pub fn check_body(function: &ConstFn, consts: &ConstFns) -> Result<Vec<(String, Span)>, TypeError> {
     let env: Vec<(String, Type)> = function.params.clone();
     let mut work = Work::default();
     check_block(
@@ -359,18 +356,10 @@ fn check_expr(
             let name = path.last().cloned().unwrap_or_default();
             match env.iter().rev().find(|(param, _)| param == &name) {
                 Some((_, ty)) => Ok(ty.clone()),
-                None => Err(TypeError::new(
-                    *span,
-                    format!("cannot find value `{name}`"),
-                )),
+                None => Err(TypeError::new(*span, format!("cannot find value `{name}`"))),
             }
         }
-        Expr::Binary {
-            op,
-            lhs,
-            rhs,
-            span,
-        } => {
+        Expr::Binary { op, lhs, rhs, span } => {
             let left = check_expr(lhs, env, consts, context, work)?;
             let right = check_expr(rhs, env, consts, context, work)?;
             let kind = binary_kind(*op, &left, &right, *span)?;
@@ -394,11 +383,7 @@ fn check_expr(
             }
             Ok(kind)
         }
-        Expr::Unary {
-            op,
-            operand,
-            span,
-        } => {
+        Expr::Unary { op, operand, span } => {
             let inner = check_expr(operand, env, consts, context, work)?;
             match op {
                 UnOp::Neg if is_numeric(&inner.kind) => Ok(inner),
@@ -422,10 +407,7 @@ fn check_expr(
             }
         }
         Expr::Call {
-            callee,
-            args,
-            span,
-            ..
+            callee, args, span, ..
         } => {
             let name = match callee.as_slice() {
                 [name] => name.clone(),
@@ -457,10 +439,10 @@ fn check_expr(
                 .with_code(codes::WRONG_ARGUMENT_COUNT));
             }
             for (argument, (_, param)) in args.iter().zip(function.params.iter()) {
-                let actual = check_expr(argument, env, consts, context, work)?;
+                let actual = check_expr(&argument.value, env, consts, context, work)?;
                 if actual.kind != param.kind {
                     return Err(TypeError::new(
-                        expr_span(argument),
+                        argument.span,
                         format!("expected `{param}`, found `{actual}`"),
                     )
                     .with_code(codes::TYPE_MISMATCH));
@@ -511,8 +493,8 @@ fn binary_kind(op: BinOp, left: &Type, right: &Type, span: Span) -> Result<Type,
     match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
             let same = left.kind == right.kind;
-            let allowed = is_numeric(&left.kind)
-                || (matches!(op, BinOp::Add) && left.kind == TypeKind::Str);
+            let allowed =
+                is_numeric(&left.kind) || (matches!(op, BinOp::Add) && left.kind == TypeKind::Str);
             if same && allowed {
                 return Ok(left.clone());
             }
@@ -541,9 +523,7 @@ fn binary_kind(op: BinOp, left: &Type, right: &Type, span: Span) -> Result<Type,
             ))
         }
         BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-            if left.kind == right.kind
-                && (is_numeric(&left.kind) || left.kind == TypeKind::Char)
-            {
+            if left.kind == right.kind && (is_numeric(&left.kind) || left.kind == TypeKind::Char) {
                 return Ok(bool_type());
             }
             Err(TypeError::new(
@@ -615,7 +595,7 @@ fn statement_kind(statement: &Stmt) -> &'static str {
         Stmt::Expr(_, _) => "an expression statement",
         Stmt::Const { .. } => "a `const` binding",
         Stmt::Let { .. } => "a `let` binding",
-        Stmt::Destructure { .. } => "a destructuring binding",
+        Stmt::LetPattern { .. } => "a destructuring binding",
         Stmt::Assign { .. } => "an assignment",
         Stmt::Return(_, _) => "a `return`",
         Stmt::If { .. } => "an `if`",
@@ -702,7 +682,7 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::Move(inner, _) => mentions_const_fn(inner, consts),
         Expr::Call { callee, args, .. } => {
             matches!(callee.as_slice(), [name] if consts.contains_key(name))
-                || args.iter().any(|arg| mentions_const_fn(arg, consts))
+                || args.iter().any(|arg| mentions_const_fn(&arg.value, consts))
         }
         Expr::StructLit { fields, spread, .. } => {
             fields
@@ -744,7 +724,7 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::SwitchExpr { subject, arms, .. } => {
             mentions_const_fn(subject, consts)
                 || arms.iter().any(|arm| {
-                    matches!(&arm.body, Expr::Call { args, .. } if args.iter().any(|arg| mentions_const_fn(arg, consts)))
+                    matches!(&arm.body, Expr::Call { args, .. } if args.iter().any(|arg| mentions_const_fn(&arg.value, consts)))
                 })
         }
         Expr::Lambda { .. } => false,
@@ -780,26 +760,15 @@ pub fn evaluate(
                 None => Err(ConstError::new(*span, missing.message(&name))),
             }
         }
-        Expr::Binary {
-            op,
-            lhs,
-            rhs,
-            span,
-        } => {
+        Expr::Binary { op, lhs, rhs, span } => {
             let left = evaluate(lhs, env, consts, work, missing)?;
             let right = evaluate(rhs, env, consts, work, missing)?;
             evaluate_binary(*op, &left, &right, *span)
         }
-        Expr::Unary {
-            op,
-            operand,
-            span,
-        } => {
+        Expr::Unary { op, operand, span } => {
             let inner = evaluate(operand, env, consts, work, missing)?;
             match (op, &inner) {
-                (UnOp::Neg, ConstValue::I64(value)) => {
-                    Ok(ConstValue::I64(value.wrapping_neg()))
-                }
+                (UnOp::Neg, ConstValue::I64(value)) => Ok(ConstValue::I64(value.wrapping_neg())),
                 (UnOp::Neg, ConstValue::F64(value)) => Ok(ConstValue::F64(-value)),
                 (UnOp::Neg, other) => Err(ConstError::new(
                     *span,
@@ -818,10 +787,7 @@ pub fn evaluate(
             }
         }
         Expr::Call {
-            callee,
-            args,
-            span,
-            ..
+            callee, args, span, ..
         } => {
             let name = match callee.as_slice() {
                 [name] => name.clone(),
@@ -850,7 +816,7 @@ pub fn evaluate(
             }
             let mut values = Vec::with_capacity(args.len());
             for argument in args {
-                values.push(evaluate(argument, env, consts, work, missing)?);
+                values.push(evaluate(&argument.value, env, consts, work, missing)?);
             }
             let mut bound = Vec::with_capacity(function.params.len());
             for ((param, _), value) in function.params.iter().zip(values.into_iter()) {
@@ -879,10 +845,7 @@ pub fn evaluate(
         }
         other => Err(ConstError::new(
             expr_span(other),
-            format!(
-                "{} is not allowed in a const fn",
-                expression_kind(other)
-            ),
+            format!("{} is not allowed in a const fn", expression_kind(other)),
         )),
     }
 }
@@ -940,10 +903,7 @@ fn evaluate_block(
             other => {
                 return Err(ConstError::new(
                     other.span(),
-                    format!(
-                        "{} is not allowed in a const fn",
-                        statement_kind(other)
-                    ),
+                    format!("{} is not allowed in a const fn", statement_kind(other)),
                 ))
             }
         }
@@ -1009,20 +969,14 @@ fn evaluate_binary(
         (BinOp::Le, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a <= b)),
         (BinOp::Gt, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a > b)),
         (BinOp::Ge, ConstValue::Char(a), ConstValue::Char(b)) => Ok(ConstValue::Bool(a >= b)),
-        (BinOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => {
-            Ok(ConstValue::Bool(*a && *b))
-        }
+        (BinOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a && *b)),
         (BinOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a || *b)),
         (BinOp::BitAnd, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a & b)),
         (BinOp::BitOr, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a | b)),
         (BinOp::BitXor, ConstValue::I64(a), ConstValue::I64(b)) => Ok(ConstValue::I64(a ^ b)),
-        (BinOp::BitAnd, ConstValue::Bool(a), ConstValue::Bool(b)) => {
-            Ok(ConstValue::Bool(*a && *b))
-        }
+        (BinOp::BitAnd, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a && *b)),
         (BinOp::BitOr, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a || *b)),
-        (BinOp::BitXor, ConstValue::Bool(a), ConstValue::Bool(b)) => {
-            Ok(ConstValue::Bool(*a ^ *b))
-        }
+        (BinOp::BitXor, ConstValue::Bool(a), ConstValue::Bool(b)) => Ok(ConstValue::Bool(*a ^ *b)),
         (BinOp::Shl, ConstValue::I64(a), ConstValue::I64(b)) => {
             if *b < 0 || *b >= 64 {
                 return Err(shift_out_of_range(span, *b));

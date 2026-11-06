@@ -2371,27 +2371,18 @@ fn destructuring_binds_each_element_with_its_own_type() {
     else {
         panic!("main should exist");
     };
-    let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
+    let Some(HirStmt::Destructure { pattern, .. }) = f.body.stmts.get(1) else {
         panic!(
             "the destructuring statement should be second: {:?}",
             f.body.stmts
         );
     };
+    let bindings = pattern.bindings();
     assert_eq!(bindings.len(), 2, "one entry per element");
-    match &bindings[0] {
-        Some((name, ty)) => {
-            assert_eq!(name, "n");
-            assert_eq!(ty.to_string(), "int", "element 0 is the int");
-        }
-        other => panic!("expected a binding for element 0, got {other:?}"),
-    }
-    match &bindings[1] {
-        Some((name, ty)) => {
-            assert_eq!(name, "flag");
-            assert_eq!(ty.to_string(), "bool", "element 1 is the bool");
-        }
-        other => panic!("expected a binding for element 1, got {other:?}"),
-    }
+    assert_eq!(bindings[0].0, "n");
+    assert_eq!(bindings[0].1.to_string(), "int", "element 0 is the int");
+    assert_eq!(bindings[1].0, "flag");
+    assert_eq!(bindings[1].1.to_string(), "bool", "element 1 is the bool");
 
     // `_` is a hole in the binding list, not a name: the element is dropped.
     let (result, _, _) =
@@ -2404,10 +2395,12 @@ fn destructuring_binds_each_element_with_its_own_type() {
     else {
         panic!("main should exist");
     };
-    let Some(HirStmt::Destructure { bindings, .. }) = f.body.stmts.get(1) else {
+    let Some(HirStmt::Destructure { pattern, .. }) = f.body.stmts.get(1) else {
         panic!("the destructuring statement should be second");
     };
-    assert_eq!(bindings[0], None, "`_` binds nothing");
+    let bindings = pattern.bindings();
+    assert_eq!(bindings.len(), 1, "`_` binds nothing");
+    assert_eq!(bindings[0].0, "flag");
 
     // The names really are in scope afterwards: this only type-checks if `n`
     // and `flag` resolve to the element types.
@@ -2423,15 +2416,15 @@ fn destructuring_binds_each_element_with_its_own_type() {
 fn only_a_tuple_can_be_destructured() {
     assert_error(
         "fn main() { const (a, b) = 1; }",
-        "cannot destructure `int`",
+        "a tuple pattern needs a tuple, found `int`",
     );
     assert_error(
         "fn main() { const (a, b) = (1, 2, 3); }",
-        "this pattern binds 2 names, but the tuple has 3 elements",
+        "this pattern binds 2 elements, but the tuple has 3",
     );
     assert_error(
         "fn main() { const (a, b, c) = (1, 2); }",
-        "this pattern binds 3 names, but the tuple has 2 elements",
+        "this pattern binds 3 elements, but the tuple has 2",
     );
 }
 

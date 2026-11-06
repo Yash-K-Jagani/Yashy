@@ -27,15 +27,15 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
-    BinOp, BindingKeyword, Block, Contract, Expr, ExternDecl, InterpFormat, InterpPart, Item,
-    LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit, SwitchArm,
+    BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, InterpFormat, InterpPart,
+    Item, LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit, SwitchArm,
     TypeExpr, VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
 use crate::const_eval::{self, ConstFn, ConstFns, Missing};
 use crate::error::TypeError;
-use crate::exhaustive::missing_cases_with;
+use crate::exhaustive::missing_witnesses_with;
 use crate::hir::*;
 use crate::ownership::{linearity_of, Linearity, Ownership};
 use crate::scope::{Binding, Scope, Visibility};
@@ -141,6 +141,8 @@ impl Decls for CheckerDecls<'_> {
 #[derive(Clone, Debug)]
 struct FnSig {
     params: Vec<Type>,
+    param_names: Vec<String>,
+    param_defaults: Vec<Option<Box<Expr>>>,
     ret: Type,
 }
 
@@ -258,7 +260,11 @@ fn mangled_type_name(ty: &Type) -> String {
         TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
         TypeKind::Option(inner) => format!("option_{}", mangled_type_name(inner)),
         TypeKind::Result(ok, err) => {
-            format!("result_{}_{}", mangled_type_name(ok), mangled_type_name(err))
+            format!(
+                "result_{}_{}",
+                mangled_type_name(ok),
+                mangled_type_name(err)
+            )
         }
         TypeKind::Slice(element) => format!("array_{}", mangled_type_name(element)),
         TypeKind::FixedArray(element, length) => {
@@ -266,7 +272,11 @@ fn mangled_type_name(ty: &Type) -> String {
         }
         TypeKind::View(element) => format!("view_{}", mangled_type_name(element)),
         TypeKind::Map(key, value) => {
-            format!("map_{}_{}", mangled_type_name(key), mangled_type_name(value))
+            format!(
+                "map_{}_{}",
+                mangled_type_name(key),
+                mangled_type_name(value)
+            )
         }
         TypeKind::Mutex => "mutex".to_string(),
         TypeKind::Channel(element) => format!("channel_{}", mangled_type_name(element)),
@@ -434,7 +444,8 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
 /// errors found so far.
-pub struct Checker<'src> {    scope: Scope,
+pub struct Checker<'src> {
+    scope: Scope,
     structs: HashMap<String, StructSig>,
     enums: HashMap<String, EnumSig>,
     fns: HashMap<String, FnSig>,
@@ -644,11 +655,7 @@ impl<'src> Checker<'src> {
             // `int`s; `arena_free_all(arena)` releases every block at once.
             // No per-allocation free, and no automatic release -- the program
             // calls `arena_free_all` when it is done, or leaks until exit.
-            (
-                "arena_new",
-                vec![],
-                ptr(prim(TypeKind::I64)),
-            ),
+            ("arena_new", vec![], ptr(prim(TypeKind::I64))),
             (
                 "arena_alloc",
                 vec![ptr(prim(TypeKind::I64)), prim(TypeKind::I64)],
@@ -701,11 +708,7 @@ impl<'src> Checker<'src> {
                 vec![],
                 prim(TypeKind::Slice(Box::new(prim(TypeKind::Str)))),
             ),
-            (
-                "getcwd",
-                vec![],
-                result_of(prim(TypeKind::Str), io_error()),
-            ),
+            ("getcwd", vec![], result_of(prim(TypeKind::Str), io_error())),
             ("now", vec![], prim(TypeKind::I64)),
             ("sleep", vec![prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Out the other way: a number as text, so a program can build a
@@ -718,9 +721,21 @@ impl<'src> Checker<'src> {
             // there is no overloading to hang three argument types on. Task 7's
             // interpolation is the ergonomic form of this ("n = ${n}") and will
             // call exactly these conversions.
-            ("str_from_i64", vec![prim(TypeKind::I64)], prim(TypeKind::Str)),
-            ("str_from_f64", vec![prim(TypeKind::F64)], prim(TypeKind::Str)),
-            ("str_from_bool", vec![prim(TypeKind::Bool)], prim(TypeKind::Str)),
+            (
+                "str_from_i64",
+                vec![prim(TypeKind::I64)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "str_from_f64",
+                vec![prim(TypeKind::F64)],
+                prim(TypeKind::Str),
+            ),
+            (
+                "str_from_bool",
+                vec![prim(TypeKind::Bool)],
+                prim(TypeKind::Str),
+            ),
             // The way out of a situation the program cannot continue from.
             //
             // Its result type is `Never`, not `void`, and that is the whole point:
@@ -901,7 +916,8 @@ impl<'src> Checker<'src> {
                     },
                 );
             }
-            Some(existing) if same_signature(&existing.sig, sig) && existing.variadic == decl.variadic => {}
+            Some(existing)
+                if same_signature(&existing.sig, sig) && existing.variadic == decl.variadic => {}
             Some(existing) => {
                 let message = format!(
                     "`{}` and `{}` both resolve to symbol `{}`, but their signatures differ: `{}` and `{}`",
@@ -1086,10 +1102,7 @@ impl<'src> Checker<'src> {
     /// The nearest field of `struct_name`, for a "did you mean" label.
     fn struct_field_suggestion(&self, struct_name: &str, field: &str) -> Option<String> {
         let fields = self.structs.get(struct_name)?;
-        yashy_common::closest(
-            field,
-            fields.fields.iter().map(|(name, _)| name.as_str()),
-        )
+        yashy_common::closest(field, fields.fields.iter().map(|(name, _)| name.as_str()))
     }
 
     /// Look a name up for a read, a call or an assignment.
@@ -1150,13 +1163,7 @@ impl<'src> Checker<'src> {
     /// The closure that is being checked captures the name; the closures
     /// between it and the scope the name belongs to capture it too, so that
     /// the value is there to be copied.
-    fn capture_in(
-        &mut self,
-        frame_index: usize,
-        name: &str,
-        depth: usize,
-        ty: &Type,
-    ) -> usize {
+    fn capture_in(&mut self, frame_index: usize, name: &str, depth: usize, ty: &Type) -> usize {
         if let Some(index) = self.closures[frame_index]
             .captures
             .iter()
@@ -1234,7 +1241,11 @@ impl<'src> Checker<'src> {
     }
 
     fn move_out(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
-        if self.iteration_borrows.iter().any(|borrowed| borrowed == name) {
+        if self
+            .iteration_borrows
+            .iter()
+            .any(|borrowed| borrowed == name)
+        {
             return Err(TypeError::new(
                 span,
                 format!("cannot move `{name}` while it is being iterated"),
@@ -1259,7 +1270,11 @@ impl<'src> Checker<'src> {
 
     /// Spread-move `name`: like [`Self::move_out`], but a later use is `E1002`.
     fn move_out_spread(&mut self, name: &str, span: Span) -> Result<(), TypeError> {
-        if self.iteration_borrows.iter().any(|borrowed| borrowed == name) {
+        if self
+            .iteration_borrows
+            .iter()
+            .any(|borrowed| borrowed == name)
+        {
             return Err(TypeError::new(
                 span,
                 format!("cannot move `{name}` while it is being iterated"),
@@ -1434,16 +1449,19 @@ impl<'src> Checker<'src> {
                     _ => {
                         self.error(
                             param.span,
-                            format!(
-                                "a receiver is `self` or `self: *mut {type_name}`"
-                            ),
+                            format!("a receiver is `self` or `self: *mut {type_name}`"),
                         );
                         param_tys.push(receiver_ty.clone());
                     }
                 }
                 continue;
             }
-            param_tys.push(self.resolve_or_report(&param.ty, param.span));
+            let param_ty = self.resolve_or_report(&param.ty, param.span);
+            if let Some(default) = &param.default {
+                let _ =
+                    self.check_const_default(default, &param_ty, param.span, "a parameter default");
+            }
+            param_tys.push(param_ty);
         }
         let ret_ty = match ret {
             Some(ty) => self.resolve_or_report_return(ty, span),
@@ -1662,8 +1680,25 @@ impl<'src> Checker<'src> {
                 };
                 let sig = FnSig {
                     params: param_tys.clone(),
+                    param_names: params.iter().map(|p| p.name.clone()).collect(),
+                    param_defaults: params.iter().map(|p| p.default.clone()).collect(),
                     ret: ret_ty.clone(),
                 };
+                // A parameter default is held to the same rule as a field
+                // default (E0102), checked here, at the declaration, so a bad
+                // default is reported even before any call. The evaluated
+                // value is discarded: the call site re-evaluates the
+                // (constant) expression when it fills the slot.
+                for (param, ty) in params.iter().zip(param_tys.iter()) {
+                    if let Some(default) = &param.default {
+                        let _ = self.check_const_default(
+                            default,
+                            ty,
+                            param.span,
+                            "a parameter default",
+                        );
+                    }
+                }
                 let binding = Binding {
                     ty: Type {
                         kind: TypeKind::Func(param_tys, Box::new(ret_ty)),
@@ -1709,10 +1744,7 @@ impl<'src> Checker<'src> {
                         continue;
                     };
                     if !type_params.is_empty() {
-                        self.error(
-                            *method_span,
-                            "a method cannot have type parameters yet",
-                        );
+                        self.error(*method_span, "a method cannot have type parameters yet");
                         continue;
                     }
                     let sig = self.method_signature(
@@ -1805,10 +1837,7 @@ impl<'src> Checker<'src> {
                         continue;
                     };
                     if !type_params.is_empty() {
-                        self.error(
-                            *method_span,
-                            "a method cannot have type parameters yet",
-                        );
+                        self.error(*method_span, "a method cannot have type parameters yet");
                         continue;
                     }
                     let sig = self.method_signature(
@@ -1862,10 +1891,7 @@ impl<'src> Checker<'src> {
                         // aggregate has no way to release it: the copy would
                         // outlive the environment it points at.
                         if matches!(ty.kind, TypeKind::Func(_, _)) {
-                            self.error(
-                                f.span,
-                                "a struct field cannot have a function type yet",
-                            );
+                            self.error(f.span, "a struct field cannot have a function type yet");
                         }
                         (f.name.clone(), ty)
                     })
@@ -1966,6 +1992,8 @@ impl<'src> Checker<'src> {
                     };
                     let sig = FnSig {
                         params: param_tys.clone(),
+                        param_names: decl.params.iter().map(|p| p.name.clone()).collect(),
+                        param_defaults: decl.params.iter().map(|p| p.default.clone()).collect(),
                         ret: ret_ty.clone(),
                     };
                     let binding = Binding {
@@ -2019,10 +2047,7 @@ impl<'src> Checker<'src> {
                 // not in the root scope: there is no function of that
                 // name for a call to reach.
                 if self.const_fns.contains_key(name) {
-                    self.error(
-                        *span,
-                        format!("duplicate definition of `{name}`"),
-                    );
+                    self.error(*span, format!("duplicate definition of `{name}`"));
                 }
                 self.const_fns.insert(
                     name.clone(),
@@ -2305,9 +2330,7 @@ impl<'src> Checker<'src> {
                 ) {
                     return Err(TypeError::new(
                         *span,
-                        format!(
-                            "a channel cannot carry `{element}`: its slots would have no size"
-                        ),
+                        format!("a channel cannot carry `{element}`: its slots would have no size"),
                     ));
                 }
                 if linearity_of(&element.kind) == Linearity::Linear {
@@ -2392,8 +2415,7 @@ impl<'src> Checker<'src> {
                 // internally and in messages; it is not a spelling.
                 Err(TypeError::new(
                     *span,
-                    "a view cannot be named: bind it with `let` and use it in place"
-                        .to_string(),
+                    "a view cannot be named: bind it with `let` and use it in place".to_string(),
                 ))
             }
             TypeExpr::Slice(element, span) => {
@@ -2404,9 +2426,7 @@ impl<'src> Checker<'src> {
                 ) {
                     return Err(TypeError::new(
                         *span,
-                        format!(
-                            "an array cannot hold `{inner}`: its elements would have no size"
-                        ),
+                        format!("an array cannot hold `{inner}`: its elements would have no size"),
                     ));
                 }
                 Ok(Type {
@@ -2532,8 +2552,7 @@ impl<'src> Checker<'src> {
         let ensures = ensures?;
         // A function that returns a value has to return one on every path out
         // of its body.
-        if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
-            && !block_always_returns(&body)
+        if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never) && !block_always_returns(&body)
         {
             self.error(span, "missing return");
         }
@@ -2592,12 +2611,7 @@ impl<'src> Checker<'src> {
     /// type is what the call is trying to discover. Each argument's type is
     /// then unified with the parameter's declared type, which binds the type
     /// parameters; a parameter that stays unbound is an error at the call.
-    fn check_generic_call(
-        &mut self,
-        name: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_generic_call(&mut self, name: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let Some(generic) = self.generics.get(name).cloned() else {
             return None;
         };
@@ -2642,10 +2656,7 @@ impl<'src> Checker<'src> {
             if !self.unify_type(&param.ty, &generic.type_params, &mut subst, &actual) {
                 self.mismatch_message(
                     expr_span(&checked),
-                    format!(
-                        "expected `{}`, found `{actual}`",
-                        type_expr_name(&param.ty)
-                    ),
+                    format!("expected `{}`, found `{actual}`", type_expr_name(&param.ty)),
                 );
             }
             checked_args.push(checked);
@@ -2784,15 +2795,16 @@ impl<'src> Checker<'src> {
                 }
                 _ => false,
             },
-            TypeExpr::Fn { params: declared_params, ret, .. } => match &actual.kind {
+            TypeExpr::Fn {
+                params: declared_params,
+                ret,
+                ..
+            } => match &actual.kind {
                 TypeKind::Func(actual_params, actual_ret) => {
                     declared_params.len() == actual_params.len()
-                        && declared_params
-                            .iter()
-                            .zip(actual_params.iter())
-                            .all(|(declared, actual)| {
-                                self.unify_type(declared, params, subst, actual)
-                            })
+                        && declared_params.iter().zip(actual_params.iter()).all(
+                            |(declared, actual)| self.unify_type(declared, params, subst, actual),
+                        )
                         && self.unify_type(ret, params, subst, actual_ret)
                 }
                 _ => false,
@@ -2801,12 +2813,9 @@ impl<'src> Checker<'src> {
             TypeExpr::Tuple(items, _) => match &actual.kind {
                 TypeKind::Tuple(elements) => {
                     items.len() == elements.len()
-                        && items
-                            .iter()
-                            .zip(elements.iter())
-                            .all(|(declared, actual)| {
-                                self.unify_type(declared, params, subst, actual)
-                            })
+                        && items.iter().zip(elements.iter()).all(|(declared, actual)| {
+                            self.unify_type(declared, params, subst, actual)
+                        })
                 }
                 _ => false,
             },
@@ -2885,7 +2894,8 @@ impl<'src> Checker<'src> {
                 None => prim(TypeKind::Unit),
             };
             let mangled = mangled_generic_name(&job.name, &job.subst);
-            self.active_generics.push((job.name.clone(), job.subst.clone()));
+            self.active_generics
+                .push((job.name.clone(), job.subst.clone()));
             let checked = self.check_fn_body(
                 &mangled,
                 &generic.params,
@@ -3053,9 +3063,9 @@ impl<'src> Checker<'src> {
                             })
                             .collect(),
                         ret: match &decl.ret {
-                            Some(ty) => {
-                                self.resolve_type_in(ty, true).unwrap_or_else(|_| never(decl.span))
-                            }
+                            Some(ty) => self
+                                .resolve_type_in(ty, true)
+                                .unwrap_or_else(|_| never(decl.span)),
                             None => prim(TypeKind::Unit),
                         },
                         span: decl.span,
@@ -3114,11 +3124,7 @@ impl<'src> Checker<'src> {
     /// parameter is the receiver, and `Self` inside it is the type the block
     /// is for. The name the backend emits is the mangled `Type.method`, which
     /// is what the call site resolves to.
-    fn check_impl_methods(
-        &mut self,
-        type_name: &str,
-        methods: &[Item],
-    ) -> Option<Vec<HirItem>> {
+    fn check_impl_methods(&mut self, type_name: &str, methods: &[Item]) -> Option<Vec<HirItem>> {
         let Some(receiver_ty) = self.declared_type(type_name) else {
             return None;
         };
@@ -3151,14 +3157,7 @@ impl<'src> Checker<'src> {
                     "a method cannot declare a contract yet: write it on a free function",
                 );
             }
-            let sig = self.method_signature(
-                type_name,
-                name,
-                params,
-                ret,
-                &receiver_ty,
-                *span,
-            );
+            let sig = self.method_signature(type_name, name, params, ret, &receiver_ty, *span);
             let ret_ty = sig.ret.clone();
             self.scope.push();
             for (param, param_ty) in params.iter().zip(sig.params.iter()) {
@@ -3269,11 +3268,7 @@ impl<'src> Checker<'src> {
     /// the same statements a hand-written program would have. The flags are
     /// mutable `let` bindings (`Var`), never `const`.
     fn flag_bool(_flag: &str, value: bool, span: Span) -> HirExpr {
-        HirExpr::Literal(
-            Literal::Bool(value),
-            span,
-            prim(TypeKind::Bool),
-        )
+        HirExpr::Literal(Literal::Bool(value), span, prim(TypeKind::Bool))
     }
 
     fn flag_decl(label: &str, is_break: bool, span: Span) -> HirStmt {
@@ -3285,11 +3280,7 @@ impl<'src> Checker<'src> {
         HirStmt::Var {
             name: flag,
             ty: None,
-            init: Self::flag_bool(
-                "",
-                false,
-                span,
-            ),
+            init: Self::flag_bool("", false, span),
             mutability: Mutability::Var,
             span,
         }
@@ -3406,7 +3397,13 @@ impl<'src> Checker<'src> {
         }
         // Rebuild the loop with the augmented body.
         let loop_stmt = match loop_stmt {
-            HirStmt::ForRange { name, start, end, body, span } => HirStmt::ForRange {
+            HirStmt::ForRange {
+                name,
+                start,
+                end,
+                body,
+                span,
+            } => HirStmt::ForRange {
                 name,
                 start,
                 end,
@@ -3417,8 +3414,13 @@ impl<'src> Checker<'src> {
                 },
                 span,
             },
-            HirStmt::ForIn { name, iterable, body, span } => HirStmt::ForIn {
-                name,
+            HirStmt::ForIn {
+                pattern,
+                iterable,
+                body,
+                span,
+            } => HirStmt::ForIn {
+                pattern,
                 iterable,
                 body: HirBlock {
                     stmts: with_checks,
@@ -3427,7 +3429,13 @@ impl<'src> Checker<'src> {
                 },
                 span,
             },
-            HirStmt::ForC { init, cond, update, body, span } => HirStmt::ForC {
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                span,
+            } => HirStmt::ForC {
                 init,
                 cond,
                 update,
@@ -3529,7 +3537,11 @@ impl<'src> Checker<'src> {
     /// Push a loop label, reporting `E0605` for a duplicate.
     fn push_loop_label(&mut self, label: &Option<String>, span: Span) {
         if let Some(label) = label {
-            if self.loop_labels.iter().any(|l| l.as_deref() == Some(label.as_str())) {
+            if self
+                .loop_labels
+                .iter()
+                .any(|l| l.as_deref() == Some(label.as_str()))
+            {
                 self.error_code(
                     span,
                     codes::DUPLICATE_LABEL,
@@ -3558,13 +3570,7 @@ impl<'src> Checker<'src> {
         // from constants, so a name that is not one is a run-time value the
         // compiler cannot know.
         let mut work = const_eval::Work::default();
-        match const_eval::evaluate(
-            init,
-            &[],
-            &self.const_fns,
-            &mut work,
-            Missing::NotConstant,
-        ) {
+        match const_eval::evaluate(init, &[], &self.const_fns, &mut work, Missing::NotConstant) {
             Ok(value) => {
                 // Every `const fn` the evaluation called has to be one this
                 // module may use: a `const fn` belongs to its module like any
@@ -3673,11 +3679,7 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.mismatch(
-                            expr_span(&init_expr),
-                            declared,
-                            &expr_ty(&init_expr),
-                        );
+                        self.mismatch(expr_span(&init_expr), declared, &expr_ty(&init_expr));
                     }
                 }
                 // A linear value may leave its binding only through `move`.
@@ -3731,11 +3733,7 @@ impl<'src> Checker<'src> {
                 };
                 if let Some(declared) = &declared {
                     if !declared.eq_ignoring_span(&expr_ty(&init_expr)) {
-                        self.mismatch(
-                            expr_span(&init_expr),
-                            declared,
-                            &expr_ty(&init_expr),
-                        );
+                        self.mismatch(expr_span(&init_expr), declared, &expr_ty(&init_expr));
                     }
                 }
                 // Same as `Stmt::Const`: a linear initializer has to say
@@ -3761,37 +3759,14 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })
             }
-            Stmt::Destructure {
+            Stmt::LetPattern {
                 kind,
-                names,
+                pattern,
                 init,
                 span,
             } => {
                 let init_expr = self.check_expr(init)?;
                 let init_ty = expr_ty(&init_expr);
-                let TypeKind::Tuple(elements) = &init_ty.kind else {
-                    self.error(
-                        expr_span(&init_expr),
-                        format!(
-                            "cannot destructure `{init_ty}`: a destructuring pattern needs a \
-                             tuple, and this has no elements to bind"
-                        ),
-                    );
-                    return None;
-                };
-                if elements.len() != names.len() {
-                    self.error(
-                        *span,
-                        format!(
-                            "this pattern binds {} name{}, but the tuple has {} element{}",
-                            names.len(),
-                            if names.len() == 1 { "" } else { "s" },
-                            elements.len(),
-                            if elements.len() == 1 { "" } else { "s" }
-                        ),
-                    );
-                    return None;
-                }
                 // A tuple is a copyable value, but the rule is still stated the
                 // same way every other binding states it: a linear initializer
                 // has to say `move`. Nothing a tuple can currently hold is
@@ -3801,30 +3776,10 @@ impl<'src> Checker<'src> {
                     BindingKeyword::Const => Mutability::Const,
                     BindingKeyword::Let => Mutability::Var,
                 };
-                let mut bindings = Vec::with_capacity(names.len());
-                for (name, element) in names.iter().zip(elements.iter()) {
-                    match name {
-                        Some(name) => {
-                            if let Err(error) = self.scope.declare(
-                                name.clone(),
-                                Binding {
-                                    ty: element.clone(),
-                                    mutability,
-                                    span: *span,
-                                    ownership: Ownership::Live,
-                                    visibility: Visibility::Private,
-                                },
-                            ) {
-                                self.report(error);
-                            }
-                            bindings.push(Some((name.clone(), element.clone())));
-                        }
-                        None => bindings.push(None),
-                    }
-                }
+                let pattern = self.check_binding_pattern(pattern, &init_ty, mutability)?;
                 Some(HirStmt::Destructure {
                     init: init_expr,
-                    bindings,
+                    pattern,
                     mutability,
                     span: *span,
                 })
@@ -3876,7 +3831,9 @@ impl<'src> Checker<'src> {
                         let _ = self.check_expr(value);
                         self.error(
                             *span,
-                            format!("a pointer to nothing cannot be written through: `*mut {pointee}`"),
+                            format!(
+                                "a pointer to nothing cannot be written through: `*mut {pointee}`"
+                            ),
                         );
                         return None;
                     }
@@ -4037,10 +3994,7 @@ impl<'src> Checker<'src> {
                     }
                     None => {
                         if !ret.eq_ignoring_span(&prim(TypeKind::Unit)) {
-                            self.mismatch_message(
-                                *span,
-                                format!("expected `{ret}`, found `void`"),
-                            );
+                            self.mismatch_message(*span, format!("expected `{ret}`, found `void`"));
                         }
                         Some(HirStmt::Return(None, *span))
                     }
@@ -4182,7 +4136,7 @@ impl<'src> Checker<'src> {
                 Some(self.wrap_loop(label, loop_stmt, *span))
             }
             Stmt::ForIn {
-                name,
+                pattern,
                 index,
                 iterable,
                 body,
@@ -4235,8 +4189,8 @@ impl<'src> Checker<'src> {
                     self.error(*span, unsupported_element_message(&element));
                     return None;
                 }
-                // `for i, x in xs` lowers to a range loop over `xs.len()`
-                // whose body first reads element `i` into `x`.
+                // `for i, pattern in xs` lowers to a range loop over `xs.len()`
+                // whose body first reads element `i` and binds the pattern.
                 if let Some(index) = index {
                     self.scope.push();
                     let _ = self.scope.declare(
@@ -4249,16 +4203,8 @@ impl<'src> Checker<'src> {
                             visibility: Visibility::Private,
                         },
                     );
-                    let _ = self.scope.declare(
-                        name.clone(),
-                        Binding {
-                            ty: element.clone(),
-                            mutability: Mutability::Const,
-                            span: *span,
-                            ownership: Ownership::Live,
-                            visibility: Visibility::Private,
-                        },
-                    );
+                    let element_pattern =
+                        self.check_binding_pattern(pattern, &element, Mutability::Const);
                     self.iteration_borrows.push(binding);
                     self.push_loop_label(label, *span);
                     if label.is_some() {
@@ -4272,9 +4218,8 @@ impl<'src> Checker<'src> {
                     self.iteration_borrows.pop();
                     self.scope.pop();
                     let body = body?;
-                    let read = HirStmt::Const {
-                        name: name.clone(),
-                        ty: Some(element.clone()),
+                    let element_pattern = element_pattern?;
+                    let read = HirStmt::Destructure {
                         init: HirExpr::Index {
                             base: Box::new(iterable_expr.clone()),
                             index: Box::new(HirExpr::Ident(
@@ -4285,6 +4230,7 @@ impl<'src> Checker<'src> {
                             span: *span,
                             ty: element.clone(),
                         },
+                        pattern: element_pattern,
                         mutability: Mutability::Const,
                         span: *span,
                     };
@@ -4330,16 +4276,8 @@ impl<'src> Checker<'src> {
                     return Some(self.wrap_loop(label, loop_stmt, *span));
                 }
                 self.scope.push();
-                let _ = self.scope.declare(
-                    name.clone(),
-                    Binding {
-                        ty: element,
-                        mutability: Mutability::Const,
-                        span: *span,
-                        ownership: Ownership::Live,
-                        visibility: Visibility::Private,
-                    },
-                );
+                let element_pattern =
+                    self.check_binding_pattern(pattern, &element, Mutability::Const);
                 self.iteration_borrows.push(binding);
                 self.push_loop_label(label, *span);
                 if label.is_some() {
@@ -4354,7 +4292,7 @@ impl<'src> Checker<'src> {
                 self.scope.pop();
                 let body = body?;
                 let loop_stmt = HirStmt::ForIn {
-                    name: name.clone(),
+                    pattern: element_pattern?,
                     iterable: iterable_expr,
                     body,
                     span: *span,
@@ -4603,7 +4541,15 @@ impl<'src> Checker<'src> {
         let irrefutable = {
             let this = &*self;
             let variants = |name: &str| this.enums.get(name).map(|sig| sig.variants.clone());
-            is_irrefutable(&checked, &subject_ty, &variants, &|ty| {
+            let struct_fields = |name: &str| {
+                this.structs.get(name).map(|sig| {
+                    sig.fields
+                        .iter()
+                        .map(|(field, ty)| (field.clone(), ty.clone()))
+                        .collect()
+                })
+            };
+            is_irrefutable(&checked, &subject_ty, &variants, &struct_fields, &|ty| {
                 this.resolve_type(ty)
             })
         };
@@ -4680,13 +4626,26 @@ impl<'src> Checker<'src> {
     ) -> Result<HirPattern, TypeError> {
         let mut bindings = Vec::new();
         let variants = |name: &str| self.enums.get(name).map(|sig| sig.variants.clone());
+        let struct_fields = |name: &str| {
+            self.structs.get(name).map(|sig| {
+                sig.fields
+                    .iter()
+                    .map(|(field, ty)| (field.clone(), ty.clone()))
+                    .collect()
+            })
+        };
         // `resolve_type` borrows `self` immutably; wrap it so the closure
         // does not capture the whole checker mutably.
         let checked = {
             let this = &*self;
-            check_pattern(pattern, subject_ty, &mut bindings, &variants, &|ty| {
-                this.resolve_type(ty)
-            })?
+            check_pattern(
+                pattern,
+                subject_ty,
+                &mut bindings,
+                &variants,
+                &struct_fields,
+                &|ty| this.resolve_type(ty),
+            )?
         };
         for (name, ty, mutability, span) in bindings {
             self.scope.declare(
@@ -4701,6 +4660,92 @@ impl<'src> Checker<'src> {
             )?;
         }
         Ok(checked)
+    }
+
+    /// Check a pattern in binding position: `let Point { x, y } = p;`,
+    /// `const (a, b) = pair;` and `for Point { x, .. } in points`.
+    ///
+    /// Unlike [`Self::check_arm_pattern`], which binds with the pattern's
+    /// [`Mutability::Const`], a binding-position pattern binds with
+    /// `mutability` -- `let` names its `Var`, `const` and `for` name `Const`.
+    /// The pattern must also be irrefutable: there is no branch to run when
+    /// it misses, so `let Some(x) = opt;` is E0100, the same code the other
+    /// type mismatches use.
+    fn check_binding_pattern(
+        &mut self,
+        pattern: &Pattern,
+        subject_ty: &Type,
+        mutability: Mutability,
+    ) -> Option<HirPattern> {
+        let mut bindings = Vec::new();
+        let variants = |name: &str| self.enums.get(name).map(|sig| sig.variants.clone());
+        let struct_fields = |name: &str| {
+            self.structs.get(name).map(|sig| {
+                sig.fields
+                    .iter()
+                    .map(|(field, ty)| (field.clone(), ty.clone()))
+                    .collect()
+            })
+        };
+        let checked = {
+            let this = &*self;
+            match check_pattern(
+                pattern,
+                subject_ty,
+                &mut bindings,
+                &variants,
+                &struct_fields,
+                &|ty| this.resolve_type(ty),
+            ) {
+                Ok(checked) => checked,
+                Err(error) => {
+                    self.report(error);
+                    return None;
+                }
+            }
+        };
+        let irrefutable = {
+            let this = &*self;
+            let variants = |name: &str| this.enums.get(name).map(|sig| sig.variants.clone());
+            let struct_fields = |name: &str| {
+                this.structs.get(name).map(|sig| {
+                    sig.fields
+                        .iter()
+                        .map(|(field, ty)| (field.clone(), ty.clone()))
+                        .collect()
+                })
+            };
+            is_irrefutable(&checked, subject_ty, &variants, &struct_fields, &|ty| {
+                this.resolve_type(ty)
+            })
+        };
+        if !irrefutable {
+            self.report(
+                TypeError::new(
+                    hir_pattern_span(&checked),
+                    format!("this pattern can fail against `{subject_ty}`: it cannot appear in binding position"),
+                )
+                .with_code(codes::TYPE_MISMATCH)
+                .with_label("use `switch`")
+                .with_note("a binding has no branch to run when the pattern misses: use a `switch` to handle the case"),
+            );
+            return None;
+        }
+        for (name, ty, _, binding_span) in bindings {
+            if let Err(error) = self.scope.declare(
+                name,
+                Binding {
+                    ty,
+                    mutability,
+                    span: binding_span,
+                    ownership: Ownership::Live,
+                    visibility: Visibility::Private,
+                },
+            ) {
+                self.report(error);
+            }
+        }
+        Some(checked)
     }
 
     /// Enforce exhaustiveness: enums must cover every variant, non-enums need
@@ -4810,7 +4855,7 @@ impl<'src> Checker<'src> {
                     self.enums.get(name).map(|sig| sig.variants.clone())
                 }
             };
-            missing_cases_with(enum_name, variants, &patterns, has_default, &lookup)
+            missing_witnesses_with(enum_name, variants, &patterns, has_default, &lookup)
         };
         if missing.is_empty() {
             Some(())
@@ -5226,14 +5271,15 @@ impl<'src> Checker<'src> {
         {
             if callee.len() == 1 {
                 let name = callee.last().cloned().unwrap_or_default();
+                let arg_vals: Vec<Expr> = args.iter().map(|a| a.value.clone()).collect();
                 if matches!(name.as_str(), "None" | "Some" | "Ok" | "Err") {
-                    return self.check_constructor(&name, args, *span, Some(expected))?;
+                    return self.check_constructor(&name, &arg_vals, *span, Some(expected))?;
                 }
                 if name == "map_new" {
-                    return self.check_map_new(args, *span, Some(expected));
+                    return self.check_map_new(&arg_vals, *span, Some(expected));
                 }
                 if name == "chan_new" {
-                    return self.check_chan_new(args, *span, Some(expected));
+                    return self.check_chan_new(&arg_vals, *span, Some(expected));
                 }
             }
         }
@@ -5346,17 +5392,17 @@ impl<'src> Checker<'src> {
         // the runtime contract and skips the public spelling.
         let checked = match builtin {
             "len" => self.check_len_builtin(&call_args, span),
-            "push" | "pop" | "free_slice" => {
-                self.check_slice_builtin(builtin, &call_args, span).flatten()
-            }
-            "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free"
-            | "map_keys" | "map_values" | "map_contains_key" => {
+            "push" | "pop" | "free_slice" => self
+                .check_slice_builtin(builtin, &call_args, span)
+                .flatten(),
+            "map_get" | "map_insert" | "map_remove" | "map_len" | "map_free" | "map_keys"
+            | "map_values" | "map_contains_key" => {
                 self.check_map_builtin(builtin, &call_args, span).flatten()
             }
             "chan_send" | "chan_recv" | "chan_close" | "chan_free" | "mutex_lock"
-            | "mutex_unlock" | "mutex_free" => {
-                self.check_thread_builtin(builtin, &call_args, span).flatten()
-            }
+            | "mutex_unlock" | "mutex_free" => self
+                .check_thread_builtin(builtin, &call_args, span)
+                .flatten(),
             "dealloc" => self.check_pointer_free(&call_args, span),
             _ => None,
         };
@@ -5510,13 +5556,15 @@ impl<'src> Checker<'src> {
     /// value.
     fn has_equality(&self, ty: &TypeKind) -> bool {
         match ty {
-            TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str | TypeKind::Char => {
-                true
-            }
+            TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Str | TypeKind::Char => true,
             TypeKind::Struct(name) => self
                 .structs
                 .get(name)
-                .map(|sig| sig.fields.iter().all(|(_, field)| self.has_equality(&field.kind)))
+                .map(|sig| {
+                    sig.fields
+                        .iter()
+                        .all(|(_, field)| self.has_equality(&field.kind))
+                })
                 .unwrap_or(false),
             _ => false,
         }
@@ -5657,9 +5705,7 @@ impl<'src> Checker<'src> {
         let Some(receiver) = args.first() else {
             self.error(
                 span,
-                format!(
-                    "`{name}` has moved to method syntax: call `.{method}()` on the receiver"
-                ),
+                format!("`{name}` has moved to method syntax: call `.{method}()` on the receiver"),
             );
             return;
         };
@@ -5893,11 +5939,7 @@ impl<'src> Checker<'src> {
                 Some(Some(HirExpr::Binary {
                     op: BinOp::Eq,
                     lhs: Box::new(len),
-                    rhs: Box::new(HirExpr::Literal(
-                        Literal::I64(0),
-                        span,
-                        prim(TypeKind::I64),
-                    )),
+                    rhs: Box::new(HirExpr::Literal(Literal::I64(0), span, prim(TypeKind::I64))),
                     span,
                     ty: prim(TypeKind::Bool),
                     fault: None,
@@ -5970,7 +6012,11 @@ impl<'src> Checker<'src> {
                         let Some(count) = self.check_i64_argument(&args[0]) else {
                             return Some(None);
                         };
-                        ("str_repeat", prim(TypeKind::Str), vec![receiver_checked, count])
+                        (
+                            "str_repeat",
+                            prim(TypeKind::Str),
+                            vec![receiver_checked, count],
+                        )
                     }
                     "split" => {
                         let Some(separator) = self.check_string_argument(&args[0]) else {
@@ -6067,11 +6113,7 @@ impl<'src> Checker<'src> {
                 Some(Some(HirExpr::Binary {
                     op: BinOp::Eq,
                     lhs: Box::new(len),
-                    rhs: Box::new(HirExpr::Literal(
-                        Literal::I64(0),
-                        span,
-                        prim(TypeKind::I64),
-                    )),
+                    rhs: Box::new(HirExpr::Literal(Literal::I64(0), span, prim(TypeKind::I64))),
                     span,
                     ty: prim(TypeKind::Bool),
                     fault: None,
@@ -6112,11 +6154,7 @@ impl<'src> Checker<'src> {
                 let index = HirExpr::Binary {
                     op: BinOp::Sub,
                     lhs: Box::new(len),
-                    rhs: Box::new(HirExpr::Literal(
-                        Literal::I64(1),
-                        span,
-                        prim(TypeKind::I64),
-                    )),
+                    rhs: Box::new(HirExpr::Literal(Literal::I64(1), span, prim(TypeKind::I64))),
                     span,
                     ty: prim(TypeKind::I64),
                     fault: None,
@@ -6176,11 +6214,8 @@ impl<'src> Checker<'src> {
             );
             return Some(None);
         }
-        let receiver_expr = || HirExpr::Ident(
-            vec![receiver.to_string()],
-            span,
-            receiver_ty.clone(),
-        );
+        let receiver_expr =
+            || HirExpr::Ident(vec![receiver.to_string()], span, receiver_ty.clone());
         let len = match &receiver_ty.kind {
             TypeKind::FixedArray(_, length) => HirExpr::Literal(
                 Literal::I64(i64::try_from(*length).unwrap_or(i64::MAX)),
@@ -6200,11 +6235,7 @@ impl<'src> Checker<'src> {
             "is_empty" => Some(Some(HirExpr::Binary {
                 op: BinOp::Eq,
                 lhs: Box::new(len),
-                rhs: Box::new(HirExpr::Literal(
-                    Literal::I64(0),
-                    span,
-                    prim(TypeKind::I64),
-                )),
+                rhs: Box::new(HirExpr::Literal(Literal::I64(0), span, prim(TypeKind::I64))),
                 span,
                 ty: prim(TypeKind::Bool),
                 fault: None,
@@ -6229,11 +6260,7 @@ impl<'src> Checker<'src> {
                 let index = HirExpr::Binary {
                     op: BinOp::Sub,
                     lhs: Box::new(len),
-                    rhs: Box::new(HirExpr::Literal(
-                        Literal::I64(1),
-                        span,
-                        prim(TypeKind::I64),
-                    )),
+                    rhs: Box::new(HirExpr::Literal(Literal::I64(1), span, prim(TypeKind::I64))),
                     span,
                     ty: prim(TypeKind::I64),
                     fault: None,
@@ -6264,12 +6291,7 @@ impl<'src> Checker<'src> {
     /// so the result is an array of the callback's return type. The element type
     /// may differ from the source's: `[]i64` maps to `[]string` as well as to
     /// `[]i64`.
-    fn check_array_map(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_map(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
         let TypeKind::Slice(element) = receiver_ty.kind else {
             return None;
@@ -6313,12 +6335,7 @@ impl<'src> Checker<'src> {
     ///
     /// The callback takes one element and says whether it stays, so the
     /// result is an array of the source's own element type.
-    fn check_array_filter(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_filter(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
         let TypeKind::Slice(element) = receiver_ty.kind else {
             return None;
@@ -6366,12 +6383,7 @@ impl<'src> Checker<'src> {
     ///
     /// The accumulator's type is the type of `init`, and the callback takes
     /// the accumulator and the element and returns the next accumulator.
-    fn check_array_fold(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_fold(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (receiver_checked, receiver_ty) = self.check_array_receiver(receiver, span)?;
         let TypeKind::Slice(element) = receiver_ty.kind else {
             return None;
@@ -6428,6 +6440,21 @@ impl<'src> Checker<'src> {
         field_ty: &Type,
         span: Span,
     ) -> Option<HirExpr> {
+        self.check_const_default(default, field_ty, span, "a field default")
+    }
+
+    /// One rule, one implementation, for every default site: a field default
+    /// and a parameter default share this check, so the two cannot drift
+    /// apart. A default is a literal or a `const` name (E0102); anything the
+    /// constant evaluator refuses is rejected, and a value of the wrong type
+    /// is E0100 at the default.
+    fn check_const_default(
+        &mut self,
+        default: &Expr,
+        ty: &Type,
+        span: Span,
+        what: &str,
+    ) -> Option<HirExpr> {
         let mut work = const_eval::Work::default();
         match const_eval::evaluate(
             default,
@@ -6441,8 +6468,8 @@ impl<'src> Checker<'src> {
                     kind: value.kind(),
                     span,
                 };
-                if !fits(field_ty, &found) {
-                    self.mismatch(span, field_ty, &found);
+                if !fits(ty, &found) {
+                    self.mismatch(span, ty, &found);
                     return None;
                 }
                 Some(value.to_expr(span))
@@ -6451,11 +6478,120 @@ impl<'src> Checker<'src> {
                 self.error_code(
                     span,
                     codes::FIELD_DEFAULT_NOT_CONST,
-                    "a field default must be a literal or a `const` name".to_string(),
+                    format!("{what} must be a literal or a `const` name"),
                 );
                 None
             }
         }
+    }
+
+    /// Resolve `name: value` and positional call arguments to positional
+    /// expressions, in parameter order.
+    ///
+    /// Named arguments never reach the HIR: the call the backend sees is
+    /// positional, exactly as if the caller had written it in declaration
+    /// order. `E0701` is an unknown name or a positional argument after a
+    /// named one; `E0702` is a parameter given twice, checked by slot, so
+    /// `f(a: 1, a: 2)` and `f(1, a: 2)` both report it. A slot left empty
+    /// takes the parameter's default, or is `E0700` when it has none.
+    fn resolve_named_args(
+        &mut self,
+        args: &[CallArg],
+        param_names: &[String],
+        param_defaults: &[Option<Box<Expr>>],
+        span: Span,
+        variadic: bool,
+    ) -> Option<Vec<Expr>> {
+        let n = param_names.len();
+        let mut slots: Vec<Option<Expr>> = vec![None; n];
+        let mut extras: Vec<Expr> = Vec::new();
+        let mut next_pos = 0usize;
+        let mut seen_named = false;
+        for arg in args {
+            match &arg.name {
+                None => {
+                    if seen_named {
+                        self.error_code(
+                            arg.span,
+                            codes::UNKNOWN_NAMED_ARGUMENT,
+                            "a positional argument cannot follow a named argument".to_string(),
+                        );
+                        return None;
+                    }
+                    if next_pos < n {
+                        slots[next_pos] = Some(arg.value.clone());
+                        next_pos += 1;
+                    } else if variadic {
+                        extras.push(arg.value.clone());
+                    } else {
+                        self.error_code(
+                            arg.span,
+                            codes::WRONG_ARGUMENT_COUNT,
+                            format!("expected {n} arguments, found {}", args.len()),
+                        );
+                        return None;
+                    }
+                }
+                Some(name) => {
+                    seen_named = true;
+                    let Some(index) = param_names.iter().position(|p| p == name) else {
+                        self.error_code(
+                            arg.span,
+                            codes::UNKNOWN_NAMED_ARGUMENT,
+                            format!(
+                                "unknown named argument `{name}`; the parameters are {}",
+                                param_names
+                                    .iter()
+                                    .map(|p| format!("`{p}`"))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        );
+                        return None;
+                    };
+                    if slots[index].is_some() {
+                        self.error_code(
+                            arg.span,
+                            codes::DUPLICATE_ARGUMENT,
+                            format!("parameter `{name}` is given twice"),
+                        );
+                        return None;
+                    }
+                    slots[index] = Some(arg.value.clone());
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(n + extras.len());
+        for (index, slot) in slots.into_iter().enumerate() {
+            match slot {
+                Some(value) => out.push(value),
+                None => match param_defaults.get(index).and_then(|d| d.as_ref()) {
+                    Some(default) => out.push((**default).clone()),
+                    None if variadic => {
+                        self.error_code(
+                            span,
+                            codes::WRONG_ARGUMENT_COUNT,
+                            format!("expected at least {} arguments, found {}", n, args.len()),
+                        );
+                        return None;
+                    }
+                    None => {
+                        self.error_code(
+                            span,
+                            codes::WRONG_ARGUMENT_COUNT,
+                            format!(
+                                "expected {n} arguments, found {}: parameter `{}` has no default",
+                                args.len(),
+                                param_names[index]
+                            ),
+                        );
+                        return None;
+                    }
+                },
+            }
+        }
+        out.extend(extras);
+        Some(out)
     }
 
     /// Build a struct literal's fields in declaration order.
@@ -6689,11 +6825,7 @@ impl<'src> Checker<'src> {
     }
 
     /// Resolve the receiver of an array method to its binding and slice type.
-    fn check_array_receiver(
-        &mut self,
-        receiver: &str,
-        span: Span,
-    ) -> Option<(HirExpr, Type)> {
+    fn check_array_receiver(&mut self, receiver: &str, span: Span) -> Option<(HirExpr, Type)> {
         let receiver_expr = Expr::Ident(vec![receiver.to_string()], span);
         let checked = self.check_expr(&receiver_expr)?;
         let ty = expr_ty(&checked);
@@ -6716,12 +6848,7 @@ impl<'src> Checker<'src> {
     }
 
     /// `xs.insert(index, value) -> bool`.
-    fn check_array_insert(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_insert(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (checked, ty) = self.check_array_receiver(receiver, span)?;
         let element = Self::array_element(&ty)?;
         if !slice_element_is_operable(&element.kind) {
@@ -6761,12 +6888,7 @@ impl<'src> Checker<'src> {
     }
 
     /// `xs.remove(index) -> Option[T]`.
-    fn check_array_remove(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_remove(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (checked, ty) = self.check_array_receiver(receiver, span)?;
         let element = Self::array_element(&ty)?;
         if !slice_element_is_operable(&element.kind) {
@@ -6896,12 +7018,7 @@ impl<'src> Checker<'src> {
     /// literal or a call result is a temporary with the same ownership. A
     /// field or index projection is refused: freeing its backing array would
     /// leave the field holding a dangling header.
-    fn check_array_extend(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_extend(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (checked, ty) = self.check_array_receiver(receiver, span)?;
         let element = Self::array_element(&ty)?;
         if !slice_element_is_operable(&element.kind) {
@@ -6955,12 +7072,7 @@ impl<'src> Checker<'src> {
     }
 
     /// `xs.slice(start, end) -> []T`, a fresh array over the clamped range.
-    fn check_array_slice(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_slice(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let (checked, ty) = self.check_array_receiver(receiver, span)?;
         let element = Self::array_element(&ty)?;
         if !slice_element_is_operable(&element.kind) {
@@ -6999,12 +7111,7 @@ impl<'src> Checker<'src> {
     /// `xs.set(index, value) -> bool`, where the receiver must be a plain
     /// binding because the runtime updates its header through the binding's
     /// slot.
-    fn check_array_set(
-        &mut self,
-        receiver: &str,
-        args: &[Expr],
-        span: Span,
-    ) -> Option<HirExpr> {
+    fn check_array_set(&mut self, receiver: &str, args: &[Expr], span: Span) -> Option<HirExpr> {
         let receiver_expr = Expr::Ident(vec![receiver.to_string()], span);
         let checked = self.check_expr(&receiver_expr)?;
         let receiver_ty = expr_ty(&checked);
@@ -7510,7 +7617,11 @@ impl<'src> Checker<'src> {
             return None;
         }
         let body_name = path.last().cloned().unwrap_or_default();
-        let Some(body_ty) = self.scope.resolve(&body_name).map(|binding| binding.ty.clone()) else {
+        let Some(body_ty) = self
+            .scope
+            .resolve(&body_name)
+            .map(|binding| binding.ty.clone())
+        else {
             self.error(
                 *ident_span,
                 format!("`thread_spawn` needs a function, `{body_name}` is not declared"),
@@ -7535,11 +7646,7 @@ impl<'src> Checker<'src> {
             self.error_code(
                 span,
                 codes::WRONG_ARGUMENT_COUNT,
-                format!(
-                    "expected {} arguments, found {}",
-                    params.len(),
-                    rest.len()
-                ),
+                format!("expected {} arguments, found {}", params.len(), rest.len()),
             );
             return None;
         }
@@ -8033,8 +8140,7 @@ impl<'src> Checker<'src> {
                         );
                         return None;
                     }
-                    if let Err(message) =
-                        binary_result_type(*op, &types[index], &types[index + 1])
+                    if let Err(message) = binary_result_type(*op, &types[index], &types[index + 1])
                     {
                         self.error_code(*span, codes::TYPE_MISMATCH, message);
                         return None;
@@ -8193,12 +8299,13 @@ impl<'src> Checker<'src> {
                 unsafe_call,
                 span,
             } => {
+                let arg_vals: Vec<Expr> = args.iter().map(|a| a.value.clone()).collect();
                 // `Enum.Variant(args)` constructs a user enum. Checked first:
                 // the ordinary path resolves only the last segment, so `A` in
                 // `Shape.Circle(...)` would otherwise be reported as an unknown
                 // function and `Shape` as an unknown value.
                 if callee.len() >= 2 {
-                    if let Some(constructed) = self.check_enum_call(callee, args, *span) {
+                    if let Some(constructed) = self.check_enum_call(callee, &arg_vals, *span) {
                         return constructed;
                     }
                 }
@@ -8208,9 +8315,7 @@ impl<'src> Checker<'src> {
                 // a receiver method, handled below). Resolve the tail as an
                 // ordinary unqualified call after the visibility check for
                 // the target module.
-                if callee.len() == 2
-                    && self.scope.resolve(&callee[0]).is_none()
-                {
+                if callee.len() == 2 && self.scope.resolve(&callee[0]).is_none() {
                     let aliased = self
                         .aliases
                         .iter()
@@ -8223,9 +8328,7 @@ impl<'src> Checker<'src> {
                                 self.error_code(
                                     *span,
                                     codes::UNKNOWN_NAME,
-                                    format!(
-                                        "`{name}` is not declared in module `{target_module}`"
-                                    ),
+                                    format!("`{name}` is not declared in module `{target_module}`"),
                                 );
                                 return None;
                             }
@@ -8263,7 +8366,7 @@ impl<'src> Checker<'src> {
                 // module path: rewrite it to the receiver-first builtin and
                 // check that. A first segment that is not a local stays on the
                 // ordinary path, so `std.io.print(...)` is untouched.
-                if let Some(checked) = self.check_builtin_method(callee, args, *span) {
+                if let Some(checked) = self.check_builtin_method(callee, &arg_vals, *span) {
                     return checked;
                 }
                 // `print` is the output form. It takes any number of values
@@ -8278,8 +8381,8 @@ impl<'src> Checker<'src> {
                             // number of values, converted to text and joined
                             // with one space, then a newline. `println` was
                             // removed; the checker names the fix.
-                            let mut parts: Vec<HirExpr> = Vec::with_capacity(args.len());
-                            for arg in args {
+                            let mut parts: Vec<HirExpr> = Vec::with_capacity(arg_vals.len());
+                            for arg in &arg_vals {
                                 let checked = match self.check_expr(arg) {
                                     Some(c) => c,
                                     None => return None,
@@ -8331,7 +8434,8 @@ impl<'src> Checker<'src> {
                             self.error(
                                 *span,
                                 "`println` was removed: use `print`, which takes any number of \
-                                 values and writes a newline".to_string(),
+                                 values and writes a newline"
+                                    .to_string(),
                             );
                             return None;
                         }
@@ -8345,10 +8449,8 @@ impl<'src> Checker<'src> {
                 // backend never sees a function that does not exist. Their
                 // argument is a type *name*, which is why they are read here
                 // before the arguments are checked as expressions.
-                if callee.len() == 1
-                    && matches!(name.as_str(), "sizeof" | "alignof" | "offsetof")
-                {
-                    return self.check_layout_query(&name, args, *span);
+                if callee.len() == 1 && matches!(name.as_str(), "sizeof" | "alignof" | "offsetof") {
+                    return self.check_layout_query(&name, &arg_vals, *span);
                 }
                 // A generic function is found by name like an ordinary one, but
                 // its signature has type variables: the substitution comes from
@@ -8358,7 +8460,7 @@ impl<'src> Checker<'src> {
                     // A generic function is an item, so it is private to the
                     // module that declares it unless it is `pub`.
                     self.check_visibility(&name, *span);
-                    return self.check_generic_call(&name, args, *span);
+                    return self.check_generic_call(&name, &arg_vals, *span);
                 }
                 // The method surface replaced these free-function spellings.
                 // They are not aliases: a call written this way points at the
@@ -8367,8 +8469,8 @@ impl<'src> Checker<'src> {
                 // through to a scope lookup that no longer has them.
                 if callee.len() == 1 {
                     if let Some((method, arity)) = old_builtin_method_name(&name) {
-                        if args.len() == arity {
-                            self.report_old_builtin(&name, method, args, *span);
+                        if arg_vals.len() == arity {
+                            self.report_old_builtin(&name, method, &arg_vals, *span);
                             return None;
                         }
                     }
@@ -8378,17 +8480,19 @@ impl<'src> Checker<'src> {
                 // not by scope lookup — `None` takes no arguments and the
                 // others take exactly one.
                 if callee.len() == 1 {
-                    if let Some(constructed) = self.check_constructor(&name, args, *span, None)? {
+                    if let Some(constructed) =
+                        self.check_constructor(&name, &arg_vals, *span, None)?
+                    {
                         return Some(constructed);
                     }
                     if name == "map_new" {
-                        return self.check_map_new(args, *span, None);
+                        return self.check_map_new(&arg_vals, *span, None);
                     }
                     if matches!(
                         name.as_str(),
                         "thread_spawn" | "thread_join" | "mutex_new" | "chan_new"
                     ) {
-                        return self.check_thread_builtin(&name, args, *span).flatten();
+                        return self.check_thread_builtin(&name, &arg_vals, *span).flatten();
                     }
                 }
                 // A `const fn` has no run-time existence, so a call to one
@@ -8416,7 +8520,7 @@ impl<'src> Checker<'src> {
                     // A capture is a value, not a missing name: the call goes
                     // through the captured function.
                     NameLookup::Capture { index, ty } => {
-                        return self.check_capture_call(index, ty, args, *span);
+                        return self.check_capture_call(index, ty, &arg_vals, *span);
                     }
                     NameLookup::Missing => None,
                 };
@@ -8428,27 +8532,61 @@ impl<'src> Checker<'src> {
                             // the fixed ones and leaves the rest to the
                             // caller. Everything else is exact.
                             let variadic = self.variadic_externs.contains(&name);
+                            // Named and default arguments are resolved here,
+                            // at the call site, to positional expressions in
+                            // parameter order. The HIR call below is positional
+                            // either way, so no later pass learns about names.
+                            // A callee with no signature on file (a first-class
+                            // function value, an `extern` reached by type) has
+                            // no names to resolve against: a named argument
+                            // there is E0701.
+                            let arg_vals: Vec<Expr> = match self.fns.get(&name).cloned() {
+                                Some(sig) => match self.resolve_named_args(
+                                    args,
+                                    &sig.param_names,
+                                    &sig.param_defaults,
+                                    *span,
+                                    variadic,
+                                ) {
+                                    Some(resolved_args) => resolved_args,
+                                    None => return None,
+                                },
+                                None => {
+                                    if let Some(named) = args.iter().find(|a| a.name.is_some()) {
+                                        self.error_code(
+                                            named.span,
+                                            codes::UNKNOWN_NAMED_ARGUMENT,
+                                            format!(
+                                                "unknown named argument `{}`: `{name}` declares no named parameters",
+                                                named.name.as_deref().unwrap_or_default()
+                                            ),
+                                        );
+                                        return None;
+                                    }
+                                    arg_vals.clone()
+                                }
+                            };
                             if variadic {
-                                if args.len() < params.len() {
+                                if arg_vals.len() < params.len() {
                                     self.error_code(
                                         *span,
                                         codes::WRONG_ARGUMENT_COUNT,
                                         format!(
                                             "expected at least {} arguments, found {}",
                                             params.len(),
-                                            args.len()
+                                            arg_vals.len()
                                         ),
                                     );
                                     return None;
                                 }
-                            } else if params.len() != args.len() {
+                            } else if params.len() != arg_vals.len() {
                                 self.error_code(
                                     *span,
                                     codes::WRONG_ARGUMENT_COUNT,
                                     format!(
                                         "expected {} arguments, found {}",
                                         params.len(),
-                                        args.len()
+                                        arg_vals.len()
                                     ),
                                 );
                                 return None;
@@ -8460,15 +8598,19 @@ impl<'src> Checker<'src> {
                             // pair is never consulted. See
                             // `Checker::assert_cmp_call`.
                             if callee.len() == 1 && (name == "assert_eq" || name == "assert_ne") {
-                                return self.assert_cmp_call(&name, args, *span);
+                                return self.assert_cmp_call(&name, &arg_vals, *span);
                             }
-                            let mut arg_exprs = Vec::with_capacity(args.len());
-                            for (i, (arg, param)) in args.iter().zip(params.iter()).enumerate() {
+                            let mut arg_exprs = Vec::with_capacity(arg_vals.len());
+                            for (i, (arg, param)) in arg_vals.iter().zip(params.iter()).enumerate()
+                            {
                                 let checked = self.check_expr_with_expected(arg, param)?;
                                 if !fits(param, &expr_ty(&checked)) {
                                     self.error(
                                         expr_span(&checked),
-                                        format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                                        format!(
+                                            "expected `{param}`, found `{}`",
+                                            expr_ty(&checked)
+                                        ),
                                     );
                                 }
                                 // A parameter of linear type takes ownership, so
@@ -8505,12 +8647,12 @@ impl<'src> Checker<'src> {
                             // makes the call say `unsafe`, because the callee's
                             // format string decides how these bytes are read.
                             if variadic {
-                                for arg in args.iter().skip(params.len()) {
+                                for arg in arg_vals.iter().skip(params.len()) {
                                     let checked = self.check_expr(arg)?;
                                     self.check_variadic_argument(&checked);
                                     arg_exprs.push(checked);
                                 }
-                                if args.len() > params.len() && !*unsafe_call {
+                                if arg_vals.len() > params.len() && !*unsafe_call {
                                     self.error(
                                         *span,
                                         format!(
@@ -8614,7 +8756,7 @@ impl<'src> Checker<'src> {
                         // argument is valid by itself — and an argument that is
                         // fine reports nothing, so the common case of a
                         // misspelled callee with good arguments is unchanged.
-                        for arg in args {
+                        for arg in &arg_vals {
                             let _ = self.check_expr(arg);
                         }
                         None
@@ -8673,10 +8815,9 @@ impl<'src> Checker<'src> {
                                 }
                                 if let Expr::Ident(spread_path, spread_span) = operand.as_ref() {
                                     if spread_path.len() == 1 {
-                                        if let Err(error) = self.move_out_spread(
-                                            &spread_path[0],
-                                            *spread_span,
-                                        ) {
+                                        if let Err(error) =
+                                            self.move_out_spread(&spread_path[0], *spread_span)
+                                        {
                                             self.report(error);
                                         }
                                     }
@@ -8702,8 +8843,7 @@ impl<'src> Checker<'src> {
                             }
                         }
                         for (fname, fty) in &sig.fields {
-                            if let Some((_, value, _)) =
-                                written.iter().find(|(n, _, _)| n == fname)
+                            if let Some((_, value, _)) = written.iter().find(|(n, _, _)| n == fname)
                             {
                                 let value_ty = expr_ty(value);
                                 if !fty.eq_ignoring_span(&value_ty) {
@@ -8721,23 +8861,18 @@ impl<'src> Checker<'src> {
                                     format!("unknown field `{fname}` in struct `{name}`"),
                                 )
                                 .with_code(codes::UNKNOWN_FIELD);
-                                if let Some(suggestion) =
-                                    self.struct_field_suggestion(&name, fname)
+                                if let Some(suggestion) = self.struct_field_suggestion(&name, fname)
                                 {
-                                    error = error
-                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                    error =
+                                        error.with_label(format!("did you mean `{suggestion}`?"));
                                 }
                                 self.errors.push((self.file, error));
                                 continue;
                             }
                             // A field that is not `pub` may not be written from
                             // another module.
-                            if let Some(index) =
-                                sig.fields.iter().position(|(n, _)| n == fname)
-                            {
-                                self.check_field_visibility(
-                                    &name, fname, &sig, index, *span,
-                                );
+                            if let Some(index) = sig.fields.iter().position(|(n, _)| n == fname) {
+                                self.check_field_visibility(&name, fname, &sig, index, *span);
                             }
                         }
                         // Laid out in **declaration** order, not the order the
@@ -8764,8 +8899,9 @@ impl<'src> Checker<'src> {
                         })
                     }
                     None => {
-                        let mut error = TypeError::new(*span, format!("cannot find struct `{name}`"))
-                            .with_code(codes::UNKNOWN_TYPE);
+                        let mut error =
+                            TypeError::new(*span, format!("cannot find struct `{name}`"))
+                                .with_code(codes::UNKNOWN_TYPE);
                         if let Some(suggestion) = self.type_suggestion(&name) {
                             error = error.with_label(format!("did you mean `{suggestion}`?"));
                         }
@@ -8807,10 +8943,7 @@ impl<'src> Checker<'src> {
                     if matches!(elem_ty.kind, TypeKind::Func(_, _)) {
                         // The same reason a struct cannot hold one: the array would
                         // hold a copy the environment does not know about.
-                        self.error(
-                            *span,
-                            "an array cannot hold a function value yet",
-                        );
+                        self.error(*span, "an array cannot hold a function value yet");
                         return None;
                     }
                 }
@@ -8920,10 +9053,7 @@ impl<'src> Checker<'src> {
                 };
                 let index = self.check_expr(index)?;
                 if !expr_ty(&index).eq_ignoring_span(&prim(TypeKind::I64)) {
-                    self.error(
-                        expr_span(&index),
-                        "index must be `int`",
-                    );
+                    self.error(expr_span(&index), "index must be `int`");
                     return None;
                 }
                 let ty = if checked {
@@ -8936,7 +9066,9 @@ impl<'src> Checker<'src> {
                     if matches!(element.kind, TypeKind::Unit | TypeKind::Never) {
                         self.error(
                             *span,
-                            format!("a pointer to nothing cannot be read through: `*mut {element}`"),
+                            format!(
+                                "a pointer to nothing cannot be read through: `*mut {element}`"
+                            ),
                         );
                         return None;
                     }
@@ -9026,7 +9158,12 @@ impl<'src> Checker<'src> {
                     },
                 })
             }
-            Expr::IndexRange { base, start, end, span } => {
+            Expr::IndexRange {
+                base,
+                start,
+                end,
+                span,
+            } => {
                 // A view borrows the array's storage, so the source has to be
                 // a binding the checker can follow: a temporary would be gone
                 // at the end of the expression and a field access is not
@@ -9104,11 +9241,10 @@ impl<'src> Checker<'src> {
                                     format!("struct `{sname}` has no field `{field}`"),
                                 )
                                 .with_code(codes::UNKNOWN_FIELD);
-                                if let Some(suggestion) =
-                                    self.struct_field_suggestion(sname, field)
+                                if let Some(suggestion) = self.struct_field_suggestion(sname, field)
                                 {
-                                    error = error
-                                        .with_label(format!("did you mean `{suggestion}`?"));
+                                    error =
+                                        error.with_label(format!("did you mean `{suggestion}`?"));
                                 }
                                 self.errors.push((self.file, error));
                                 None
@@ -9387,11 +9523,7 @@ impl<'src> Checker<'src> {
         if params.len() != args.len() {
             self.error(
                 span,
-                format!(
-                    "expected {} arguments, found {}",
-                    params.len(),
-                    args.len()
-                ),
+                format!("expected {} arguments, found {}", params.len(), args.len()),
             );
             return None;
         }
@@ -9456,9 +9588,7 @@ impl<'src> Checker<'src> {
                         format!("struct `{struct_name}` has no field `{field}`"),
                     )
                     .with_code(codes::UNKNOWN_FIELD);
-                    if let Some(suggestion) =
-                        self.struct_field_suggestion(&struct_name, field)
-                    {
+                    if let Some(suggestion) = self.struct_field_suggestion(&struct_name, field) {
                         error = error.with_label(format!("did you mean `{suggestion}`?"));
                     }
                     self.errors.push((self.file, error));
@@ -9624,11 +9754,9 @@ impl<'src> Checker<'src> {
             let (index, field_ty) = match resolved {
                 Some(found) => found,
                 None => {
-                    let mut error = TypeError::new(
-                        *fspan,
-                        format!("struct `{sname}` has no field `{field}`"),
-                    )
-                    .with_code(codes::UNKNOWN_FIELD);
+                    let mut error =
+                        TypeError::new(*fspan, format!("struct `{sname}` has no field `{field}`"))
+                            .with_code(codes::UNKNOWN_FIELD);
                     if let Some(suggestion) = self.struct_field_suggestion(sname, field) {
                         error = error.with_label(format!("did you mean `{suggestion}`?"));
                     }
@@ -9731,7 +9859,9 @@ impl<'src> Checker<'src> {
             self.error_code(
                 span,
                 codes::SIZE_OF_UNKNOWN,
-                format!("`{name}` of `{ty}` has no layout: a field names a type this module cannot see"),
+                format!(
+                    "`{name}` of `{ty}` has no layout: a field names a type this module cannot see"
+                ),
             );
             return None;
         };
@@ -9903,11 +10033,7 @@ impl<'src> Checker<'src> {
         // mutexes, pointers, functions, void) are reported.
         if !matches!(
             ty.kind,
-            TypeKind::Str
-                | TypeKind::I64
-                | TypeKind::F64
-                | TypeKind::Bool
-                | TypeKind::Char
+            TypeKind::Str | TypeKind::I64 | TypeKind::F64 | TypeKind::Bool | TypeKind::Char
         ) {
             if self.has_debug_form(&ty.kind) {
                 return self.debug_string(expr, span);
@@ -9921,10 +10047,7 @@ impl<'src> Checker<'src> {
                 TypeKind::Unit | TypeKind::Never => "void has no text form",
                 _ => "this type has no text form",
             };
-            self.error(
-                expr_span(&expr),
-                format!("cannot print a `{ty}`: {why}"),
-            );
+            self.error(expr_span(&expr), format!("cannot print a `{ty}`: {why}"));
             return None;
         }
         let callee = match &ty.kind {
@@ -10511,7 +10634,15 @@ fn io_error() -> Type {
 fn mutates_storage(method: &str) -> bool {
     matches!(
         method,
-        "push" | "pop" | "set" | "insert" | "remove" | "clear" | "reverse" | "sort" | "extend"
+        "push"
+            | "pop"
+            | "set"
+            | "insert"
+            | "remove"
+            | "clear"
+            | "reverse"
+            | "sort"
+            | "extend"
             | "free"
     )
 }

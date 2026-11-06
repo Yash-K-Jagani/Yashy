@@ -26,7 +26,9 @@ fn check(src: &str) -> HirProgram {
 fn check_inner(src: &str) -> Result<HirProgram, Vec<Diagnostic>> {
     let mut sources = SourceMap::new();
     let file = sources.add_file("desugar.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser
         .parse_program()
@@ -155,10 +157,13 @@ fn an_indexed_for_lowers_to_a_range_loop_with_a_direct_read() {
         panic!("expected a range loop, got {:?}", f.body.stmts);
     };
     assert_eq!(name, "i");
-    let Some(HirStmt::Const { name, init, .. }) = body.stmts.first() else {
+    let Some(HirStmt::Destructure { pattern, init, .. }) = body.stmts.first() else {
         panic!("expected the element read, got {:?}", body.stmts);
     };
-    assert_eq!(name, "x");
+    assert_eq!(
+        pattern.bindings(),
+        vec![("x".to_string(), pattern.bindings()[0].1.clone())]
+    );
     assert!(
         matches!(init, HirExpr::Index { .. }),
         "the body opens with a direct element read: {init:?}"
@@ -211,9 +216,8 @@ fn an_if_let_lowers_to_a_single_if_let_node() {
 #[test]
 fn a_while_let_lowers_to_a_loop_with_a_breaking_else() {
     use yashy_sema::{HirItem, HirStmt};
-    let hir = check(
-        "fn main() { const Option[int] o = Some(1); while let Some(x) = o { print(x); } }",
-    );
+    let hir =
+        check("fn main() { const Option[int] o = Some(1); while let Some(x) = o { print(x); } }");
     let HirItem::Fn(f) = hir.items.as_slice().first().expect("one function") else {
         panic!("expected a function, got {:?}", hir.items);
     };
@@ -266,16 +270,16 @@ fn a_labeled_loop_lowers_to_flag_statements() {
     // checks after nested loops), so this pins the flag statements
     // themselves; the labeled-loop suite pins the behavior end to end.
     use yashy_sema::{HirItem, HirStmt, Mutability};
-    let hir = check(
-        "fn main() { outer: for i in 0..3 { for j in 0..3 { break outer; } } }",
-    );
+    let hir = check("fn main() { outer: for i in 0..3 { for j in 0..3 { break outer; } } }");
     let HirItem::Fn(f) = hir.items.as_slice().first().expect("one function") else {
         panic!("expected a function, got {:?}", hir.items);
     };
     fn walk<'a>(stmt: &'a HirStmt, out: &mut Vec<&'a HirStmt>) {
         out.push(stmt);
         match stmt {
-            HirStmt::If { init, then_block, .. } => {
+            HirStmt::If {
+                init, then_block, ..
+            } => {
                 if let Some(init) = init {
                     walk(init, out);
                 }
@@ -283,7 +287,9 @@ fn a_labeled_loop_lowers_to_flag_statements() {
                     walk(s, out);
                 }
             }
-            HirStmt::ForRange { body, .. } | HirStmt::ForIn { body, .. } | HirStmt::ForC { body, .. } => {
+            HirStmt::ForRange { body, .. }
+            | HirStmt::ForIn { body, .. }
+            | HirStmt::ForC { body, .. } => {
                 for s in &body.stmts {
                     walk(s, out);
                 }
@@ -319,7 +325,10 @@ fn an_arena_block_lowers_to_an_if_true_with_the_arena_bit() {
     let HirItem::Fn(f) = hir.items.as_slice().first().expect("one function") else {
         panic!("expected a function, got {:?}", hir.items);
     };
-    let Some(HirStmt::If { cond, then_block, .. }) = f.body.stmts.first() else {
+    let Some(HirStmt::If {
+        cond, then_block, ..
+    }) = f.body.stmts.first()
+    else {
         panic!("expected the `if true`, got {:?}", f.body.stmts);
     };
     assert!(
@@ -365,7 +374,10 @@ fn a_chained_comparison_lowers_to_nested_binding_switches() {
                 assert!(
                     matches!(
                         other,
-                        HirExpr::Binary { op: yashy_sema::BinOp::And, .. }
+                        HirExpr::Binary {
+                            op: yashy_sema::BinOp::And,
+                            ..
+                        }
                     ),
                     "the innermost body joins the comparisons with `&&`: {other:?}"
                 );

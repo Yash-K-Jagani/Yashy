@@ -379,22 +379,25 @@ impl Checker<'_> {
 
     /// `(a, b, c)` -- the elements are copied out by a destructuring binding,
     /// because a tuple has no element accessor of its own.
-    fn tuple_body(
-        &mut self,
-        elements: &[Type],
-        value: HirExpr,
-        span: Span,
-    ) -> Option<HirBlock> {
-        let mut bindings = Vec::with_capacity(elements.len());
+    fn tuple_body(&mut self, elements: &[Type], value: HirExpr, span: Span) -> Option<HirBlock> {
+        let mut pattern_elements = Vec::with_capacity(elements.len());
         let mut reads = Vec::with_capacity(elements.len());
         for (index, ty) in elements.iter().enumerate() {
             let name = format!("__t{index}");
-            bindings.push(Some((name.clone(), ty.clone())));
+            pattern_elements.push(HirPattern::Binding {
+                name: name.clone(),
+                ty: ty.clone(),
+                mutability: Mutability::Const,
+                span,
+            });
             reads.push(ident(&name, ty, span));
         }
         let mut stmts = vec![HirStmt::Destructure {
             init: value,
-            bindings,
+            pattern: HirPattern::Tuple {
+                elements: pattern_elements,
+                span,
+            },
             mutability: Mutability::Const,
             span,
         }];
@@ -465,7 +468,11 @@ impl Checker<'_> {
             else_block: Some(block(
                 vec![assign_string(
                     out_name,
-                    concat(ident(out_name, &prim(TypeKind::Str), span), text(", ", span), span),
+                    concat(
+                        ident(out_name, &prim(TypeKind::Str), span),
+                        text(", ", span),
+                        span,
+                    ),
                     span,
                 )],
                 span,
@@ -481,12 +488,21 @@ impl Checker<'_> {
         );
         let loop_body = block(vec![separator, append], span);
         stmts.push(HirStmt::ForIn {
-            name: item_name.to_string(),
+            pattern: HirPattern::Binding {
+                name: item_name.to_string(),
+                ty: element.clone(),
+                mutability: Mutability::Const,
+                span,
+            },
             iterable: ident("value", iterable_ty, span),
             body: loop_body,
             span,
         });
-        let tail = concat(ident(out_name, &prim(TypeKind::Str), span), text("]", span), span);
+        let tail = concat(
+            ident(out_name, &prim(TypeKind::Str), span),
+            text("]", span),
+            span,
+        );
         stmts.push(HirStmt::Return(Some(tail), span));
         Some(HirBlock {
             stmts,
@@ -509,7 +525,11 @@ fn runtime_call(name: &str, value: HirExpr, span: Span) -> HirExpr {
 
 /// A `string` literal expression.
 fn text(value: &str, span: Span) -> HirExpr {
-    HirExpr::Literal(Literal::Str(str_lit(value.to_string())), span, prim(TypeKind::Str))
+    HirExpr::Literal(
+        Literal::Str(str_lit(value.to_string())),
+        span,
+        prim(TypeKind::Str),
+    )
 }
 
 /// The concatenation the language's `+` performs on two `string`s. It cannot

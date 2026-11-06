@@ -124,7 +124,11 @@ fn a_comma_is_what_makes_a_tuple_and_grouping_stays_grouping() {
     match first_stmt("fn main() { const c = (1,); }") {
         Stmt::Const { init, .. } => match init {
             Expr::TupleLit { elements, .. } => {
-                assert_eq!(elements.len(), 1, "a trailing comma is not an element: {elements:?}")
+                assert_eq!(
+                    elements.len(),
+                    1,
+                    "a trailing comma is not an element: {elements:?}"
+                )
             }
             other => panic!("`(1,)` is a one-element tuple, got {other:?}"),
         },
@@ -157,18 +161,36 @@ fn a_comma_is_what_makes_a_tuple_and_grouping_stays_grouping() {
 
 // -- destructuring ---------------------------------------------------------
 
+fn names_of(pattern: &Pattern) -> Vec<Option<String>> {
+    match pattern {
+        Pattern::Tuple { elements, .. } => elements
+            .iter()
+            .map(|element| match element {
+                Pattern::Binding { name, .. } => Some(name.clone()),
+                Pattern::Wildcard(_) => None,
+                other => panic!("expected a name or `_`, got {other:?}"),
+            })
+            .collect(),
+        other => panic!("expected a tuple pattern, got {other:?}"),
+    }
+}
+
 #[test]
 fn destructuring_names_each_element_in_order() {
     match first_stmt("fn main() { const (a, _, c) = pair; }") {
-        Stmt::Destructure {
+        Stmt::LetPattern {
             kind,
-            names,
+            pattern,
             init,
             span,
         } => {
-            assert_eq!(kind, BindingKeyword::Const, "the keyword is kept as written");
             assert_eq!(
-                names,
+                kind,
+                BindingKeyword::Const,
+                "the keyword is kept as written"
+            );
+            assert_eq!(
+                names_of(&pattern),
                 vec![Some("a".to_string()), None, Some("c".to_string())],
                 "`_` is a hole, not a binding named `_`"
             );
@@ -177,7 +199,11 @@ fn destructuring_names_each_element_in_order() {
                 "{init:?}"
             );
             let src = "fn main() { const (a, _, c) = pair; }";
-            assert_eq!(span, span_of(src, "const (a, _, c) = pair;"), "the whole statement");
+            assert_eq!(
+                span,
+                span_of(src, "const (a, _, c) = pair;"),
+                "the whole statement"
+            );
         }
         other => panic!("expected a destructuring statement, got {other:?}"),
     }
@@ -187,9 +213,9 @@ fn destructuring_names_each_element_in_order() {
 fn a_let_binding_can_destructure() {
     let source = "fn main() { let (a, b) = pair; }";
     match first_stmt(source) {
-        Stmt::Destructure { kind, names, .. } => {
+        Stmt::LetPattern { kind, pattern, .. } => {
             assert_eq!(kind, BindingKeyword::Let, "{source}");
-            assert_eq!(names.len(), 2, "{source}");
+            assert_eq!(names_of(&pattern).len(), 2, "{source}");
         }
         other => panic!("{source}: expected a destructuring statement, got {other:?}"),
     }
@@ -199,14 +225,29 @@ fn a_let_binding_can_destructure() {
 fn a_destructuring_pattern_accepts_a_trailing_comma_and_nothing_else() {
     // A trailing comma before `)` is a separator, not a name.
     match first_stmt("fn main() { const (a, b,) = pair; }") {
-        Stmt::Destructure { names, .. } => assert_eq!(names.len(), 2, "{names:?}"),
+        Stmt::LetPattern { pattern, .. } => assert_eq!(names_of(&pattern).len(), 2, "{pattern:?}"),
         other => panic!("expected a destructuring statement, got {other:?}"),
     }
 
-    // An element position is a name or `_`. A literal there is a mistake worth
-    // naming, not something the parser should try to read as an expression.
-    let message = all_messages(&parse_err("fn main() { const (1, b) = pair; }"));
-    assert!(message.contains("list of names"), "{message}");
+    // A literal in an element position is a pattern, not a parse error: a
+    // binding position is a pattern position, and `1` is a literal pattern.
+    // The checker rejects it as refutable (E0100); the parser only shapes it.
+    match first_stmt("fn main() { const (1, b) = pair; }") {
+        Stmt::LetPattern { pattern, .. } => match pattern {
+            Pattern::Tuple { elements, .. } => {
+                assert!(
+                    matches!(elements[0], Pattern::Literal(_, _)),
+                    "{elements:?}"
+                );
+                assert!(
+                    matches!(elements[1], Pattern::Binding { .. }),
+                    "{elements:?}"
+                );
+            }
+            other => panic!("expected a tuple pattern, got {other:?}"),
+        },
+        other => panic!("expected a destructuring statement, got {other:?}"),
+    }
 
     // A pattern with no elements has no tuple to unpack: `()` is the unit
     // type, so this is a diagnostic rather than a zero-binding statement.
@@ -218,13 +259,15 @@ fn a_destructuring_pattern_accepts_a_trailing_comma_and_nothing_else() {
 
 #[test]
 fn a_guard_is_parsed_after_the_pattern_in_a_switch_statement() {
-    let arms = switch_arms(
-        "fn main() { switch n { case 1 if n > 0 { 1 } case _ { 0 } } }",
-    );
+    let arms = switch_arms("fn main() { switch n { case 1 if n > 0 { 1 } case _ { 0 } } }");
     assert_eq!(arms.len(), 2);
     match &arms[0].guard {
         Some(Expr::Binary { op, .. }) => {
-            assert_eq!(*op, yashy_parser::ast::BinOp::Gt, "the guard is the comparison");
+            assert_eq!(
+                *op,
+                yashy_parser::ast::BinOp::Gt,
+                "the guard is the comparison"
+            );
         }
         other => panic!("the first arm must carry a guard, got {other:?}"),
     }
@@ -249,7 +292,10 @@ fn a_guard_is_parsed_in_a_switch_expression_too() {
     assert_eq!(arms.len(), 2);
     assert!(arms[0].guard.is_some(), "the first arm has a guard");
     assert_eq!(arms[1].guard, None, "`default` has none");
-    assert!(arms[1].is_default, "`default` is still marked as the catch-all");
+    assert!(
+        arms[1].is_default,
+        "`default` is still marked as the catch-all"
+    );
 }
 
 #[test]

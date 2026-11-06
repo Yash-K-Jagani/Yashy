@@ -65,7 +65,8 @@ fn lambda(src: &str) -> (Vec<(String, Option<TypeExpr>)>, Option<TypeExpr>) {
 
 #[test]
 fn a_lambda_keeps_its_parameters_and_return_type() {
-    let (params, ret) = lambda("fn main() { const f = |int x, string y| -> bool { return true; }; }");
+    let (params, ret) =
+        lambda("fn main() { const f = |int x, string y| -> bool { return true; }; }");
     assert_eq!(params.len(), 2);
     assert_eq!(params[0].0, "x");
     assert!(matches!(&params[0].1, Some(TypeExpr::Name(name, _)) if name == "int"));
@@ -106,8 +107,11 @@ fn a_trailing_block_is_the_last_argument_of_a_call() {
         panic!("expected a call, got {stmt:?}");
     };
     assert_eq!(args.len(), 2, "the block is one more argument");
-    let Expr::Lambda { params, .. } = &args[1] else {
-        panic!("expected a lambda as the last argument, got {:?}", args[1]);
+    let Expr::Lambda { params, .. } = &args[1].value else {
+        panic!(
+            "expected a lambda as the last argument, got {:?}",
+            args[1].value
+        );
     };
     assert_eq!(params.len(), 1);
     assert_eq!(params[0].name, "f");
@@ -122,7 +126,7 @@ fn a_trailing_block_attaches_to_a_method_without_parentheses() {
     };
     assert_eq!(callee, vec!["xs".to_string(), "map".to_string()]);
     assert_eq!(args.len(), 1);
-    assert!(matches!(args[0], Expr::Lambda { .. }));
+    assert!(matches!(args[0].value, Expr::Lambda { .. }));
 }
 
 #[test]
@@ -166,5 +170,5 @@ fn a_lambda_is_an_expression() {
     let Stmt::Expr(Expr::Call { args, .. }, _) = &body.stmts[0] else {
         panic!("expected a call, got {:?}", body.stmts[0]);
     };
-    assert!(matches!(args[0], Expr::Lambda { .. }));
+    assert!(matches!(args[0].value, Expr::Lambda { .. }));
 }
