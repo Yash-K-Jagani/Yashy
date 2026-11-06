@@ -90,6 +90,87 @@ no declaration for the checker to take them from. The arrow is optional: a
 lambda with no arrow returns nothing, exactly as a function declaration with
 no return annotation does.
 
+## A trailing block
+
+When a lambda is the last argument of a call, the block may be written after
+the call instead of inside it — and then `|x|` needs no type at all, because
+the callee's parameter type supplies it:
+
+```yashy
+fn twice(int x, fn(int) -> int f) -> int {
+    return f(f(x));
+}
+
+fn main() {
+    print(twice(20) { |x| return x + 1; });
+    // => 22
+}
+```
+
+`twice(20) { |x| return x + 1; }` is the same program as
+`twice(20, |int x| -> int { return x + 1; })`. An explicit `|int x|` still
+works and must agree with the callee's signature. The block form is refused
+where a statement position is expected — `if f(x) { }` keeps meaning "if the
+call, then this block" — which is why the parser tracks whether it is reading
+a condition head.
+
+## `?` propagates `Option` too
+
+Chapter 6's `?` works on `Result`; it works on `Option` the same way, in a
+function that returns `Option`. On `None` the function returns `None`; on
+`Some` the payload continues:
+
+```yashy
+fn lookup(int k) -> Option[int] {
+    if k < 0 {
+        return None;
+    }
+    return Some(k);
+}
+
+fn get() -> Option[int] {
+    let v = lookup(7)?;
+    return Some(v + 1);
+}
+
+fn main() {
+    if let Some(v) = get() {
+        print(v);
+    }
+    // => 8
+}
+```
+
+The two failure kinds cannot be mixed: an `Option` `?` in a function
+returning `Result` (or the reverse) is `E0301`, with the fix — `switch` on
+the value, or change the return type. The success tag is read from the
+subject's own type (`Some` is 1, `Ok` is 0), so the two are never confused.
+
+## Doc comments
+
+A run of `///` lines above an item documents it. The text is stored, not
+interpreted — `yashy doc` reads it later — and it changes nothing about the
+program:
+
+```yashy
+/// Adds two numbers.
+fn add(int a, int b) -> int {
+    return a + b;
+}
+
+fn main() {
+    print(add(1, 2));
+    // => 3
+}
+```
+
+The block attaches to the next item: a function, struct, enum, object, const,
+or a method inside an `impl`. Consecutive lines form one block, and a blank
+line ends one, so only the last block above an item is its documentation.
+`///` before a statement or at the end of the file is `E2100`, and `////` is
+an ordinary comment that never attaches. The formatter keeps the block above
+its item, normalizing `///no space` to `/// no space`.
+
 ### What a lambda may not do yet
 
 A lambda may use its own parameters and any top-level function. It may not

@@ -103,6 +103,14 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **Keep the language's identity.** No garbage collector, borrow checker,
   exceptions, implicit coercion, operator overloading, class inheritance, or
   power-user procedural macros.
+- **Sugar desugars; it does not add HIR.** Phase 5's forms (`if let`,
+  `?` on `Option`, trailing blocks, spread, chained comparisons, `for i, x`,
+  field defaults, `arena { }`, labels) lower into HIR that already exists —
+  `crates/yashy-sema/tests/desugar.rs` is the proof. The two recorded
+  exceptions are `HirStmt::IfLet` (two blocks, which a `switch` arm cannot
+  hold) and `HirBlock::arena` (one placement bit). `///` is documentation,
+  not an attribute: it is stored on the item for `yashy doc` and interpreted
+  nowhere else.
 - **The object model is Rust-style, not class-based.** Traits are requirement
   sets with no state; `impl` is inherent or `impl Trait for Type`; dispatch is
   static only, so there is no `dyn`, no vtable and no runtime type information;

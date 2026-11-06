@@ -106,6 +106,31 @@ arena keeps the storage alive until it is freed. This is useful when a group of
 allocations shares one lifetime and freeing each one individually would be
 noise.
 
+An `arena { }` block is the same allocator with the lifetime written on the
+block: every allocation inside it is placed in one arena, released at block
+exit on every path — fall-through, `break`, `continue`, and early `return`
+alike. There is nothing to free by hand inside it, and nothing may escape it.
+
+```yashy
+fn main() {
+    arena {
+        let buf = alloc(16);
+        buf[0] = 1;
+        buf[1] = 2;
+        let more = alloc(8);
+        more[0] = 3;
+        print(buf[0] + buf[1] + more[0]);
+    }
+    // => 6
+}
+```
+
+The block owns everything built inside it, which the verifier enforces both
+ways: a value that crosses the boundary (returned, or stored outside) is
+`E1003`, and freeing an arena value on its own is `E1004` — the block
+releases it. Nesting is legal; an inner block uses its own arena and leaves
+the outer one untouched.
+
 ## Common mistakes
 
 - **Freeing twice.** `xs.free()` called twice, or `b.free()` after

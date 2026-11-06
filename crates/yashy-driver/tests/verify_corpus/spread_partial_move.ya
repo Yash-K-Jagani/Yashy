@@ -1,0 +1,10 @@
+// A spread operand used after the literal: the spread moves it whole.
+// Expected: E1002 on the later use of `base`.
+struct Point { x: int, y: int }
+fn main() {
+    const Point base = Point { x: 1, y: 2 };
+    const Point p = Point { ..base };
+    const int z = base.x;
+    print(z);
+    print(p.x);
+}

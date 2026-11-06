@@ -1,0 +1,11 @@
+// An arena value returned out of its block.
+// Expected: E1003 on the escape.
+fn f() -> *mut int {
+    arena { let buf = alloc(16); return buf; }
+    return alloc(16);
+}
+fn main() {
+    let p = f();
+    print(p[0]);
+    p.free();
+}

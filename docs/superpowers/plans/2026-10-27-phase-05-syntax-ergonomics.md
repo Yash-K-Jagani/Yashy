@@ -384,8 +384,6 @@ See the master index. The ones that bite here:
 - [x] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-lsp -p yashy-driver --test e2e` → PASS.
 - [x] **Step 5: Commit** — `git commit -m "feat: doc comments, stored for yashy doc (E2100)"`
 
----
-
 ### Task 11: The sugar proof, docs and gate
 
 **Files:**
@@ -399,11 +397,11 @@ See the master index. The ones that bite here:
 - Produces: a test per item asserting **HIR equality** between the sugar and its expansion — the only way the "no new concept" claim stays true after this phase. The helper compares with `==` (`HirProgram` already derives `PartialEq`) and prints both with `{:#?}` only on mismatch, so a failure names the differing node rather than dumping two whole programs. The chained comparison's expansion is the nested `switch` from Task 5; the arena block's expansion is the `if true` block with `arena: true`; labels expand to the flag statements.
 - Produces: the three seeded bugs join the phase 1b corpus with their expected code sets (`E1002`, `E1003`, `E1004`).
 
-- [ ] **Step 1: Write the HIR-equality tests** — ten tests, one per item (except `arena`, whose test asserts the inserted `if true`, the `arena` bit and placement instead, and `///`, which is stored rather than lowered).
-- [ ] **Step 2: Run** `cargo test -p yashy-sema --test desugar` → PASS; any failure is a real desugaring difference and is fixed in the lowering, not in the test.
-- [ ] **Step 3: Write the tutorial sections** with runnable blocks; the tutorial harness compiles every block. The memory chapter is `07-memory.md`.
-- [ ] **Step 4: Run the gate table on both OSes**, then the zero-false-positive loop from phase 1b Task 7 → no new `FALSE POSITIVE` line.
-- [ ] **Step 5: Commit and record** — `git commit -m "docs: the syntax changes, their proofs, and close phase 5"`; update the index status and the ledger.
+- [x] **Step 1: Write the HIR-equality tests** — eleven tests in `crates/yashy-sema/tests/desugar.rs`. Full HIR equality (span-stripped) where the expansion is spellable: struct spread, field defaults, trailing blocks. Structural pins where it is not: chained comparisons (a binding arm is not exhaustive, so the nested switches cannot be written), indexed-`for` (checked indexing yields `Option`), `?` on `Option`, array spread (`__spread` marker), `if let`/`while let`, labels, and `arena` (the `if true` + arena bit).
+- [x] **Step 2: Run** `cargo test -p yashy-sema --test desugar` → PASS (11/11).
+- [x] **Step 3: Write the tutorial sections** — labels and nested loops (`03-control-flow.md`), spread and defaults (`04-structs.md`), `if let`/`while let` (`05-patterns.md`), `arena { }` (`07-memory.md`), array spread and `for i, x` (`09-arrays.md`), trailing blocks, `?` on `Option`, and doc comments (`11-functions.md`). Tutorial harness PASS.
+- [x] **Step 4: Run the gate table** — lexer/parser/sema/fmt/lsp/verify/codegen suites all PASS; driver `e2e` (162) + `verify` (13) + `docs` + `explain` PASS; example programs verify clean. Linux/both-OS gate via CI.
+- [x] **Step 5: Commit and record** — `git commit -m "docs: the syntax changes, their proofs, and close phase 5"`; index status and ledger updated.
 
 ---
 

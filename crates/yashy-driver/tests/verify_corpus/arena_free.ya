@@ -1,0 +1,5 @@
+// An arena value freed individually inside its block.
+// Expected: E1004 on the `free`.
+fn main() {
+    arena { let buf = alloc(16); buf.free(); }
+}

@@ -17,6 +17,12 @@
 - [AGENTS.md](AGENTS.md): repository layout, commands, the diagnostic workflow, and rules for coding agents.
 - [Release notes template](docs/release-notes-template.md): targets, checksums, requirements, and known gaps.
 
+## Syntax
+
+- Declarations write the type first: `let int x = 5;`, `fn add(int a, int b) -> int` (the name-first spelling is `E0109`).
+- Sugar desugars to existing HIR: `if let` / `while let`, `?` on `Option`, trailing blocks with inferred closure parameters, struct and array spread (`..base`), chained comparisons, `for i, x in xs`, default field values, `arena { }` blocks, and labeled `break` / `continue`.
+- `///` doc comments document the item below them and are stored for `yashy doc`; they are not attributes.
+
 ## Diagnostics
 
 - `yashy verify <file.ya> [--json]` proves soundness: every linear value is released on every path, and every `requires`, `ensures` and loop `invariant` is discharged. `build` and `run` verify by default; `--no-verify` is a loud, stamped escape hatch.

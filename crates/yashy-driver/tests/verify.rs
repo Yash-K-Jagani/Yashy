@@ -315,6 +315,12 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     // A pointer shared with a callee and returned to its owner. Escape analysis
     // keeps it on the heap, and the verifier still sees exactly one free.
     ("escape_shared", 0, &[]),
+    // Phase 5's ownership-touching sugar. The spread moves its operand whole
+    // (E1002 on a later use), and an `arena { }` block both refuses an escape
+    // (E1003) and an individual free (E1004).
+    ("spread_partial_move", 1, &["E1002"]),
+    ("arena_escape", 1, &["E1003"]),
+    ("arena_free", 1, &["E1004"]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

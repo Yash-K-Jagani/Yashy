@@ -148,7 +148,9 @@ pub fn exports(modules: &[Module]) -> Exports {
 /// namespace.
 fn declared_name(item: &Item) -> Option<&str> {
     match item {
-        Item::Public { item, .. } | Item::Effect { item, .. } => declared_name(item),
+        Item::Public { item, .. } | Item::Effect { item, .. } | Item::Documented { item, .. } => {
+            declared_name(item)
+        }
         Item::Fn { name, .. }
         | Item::ConstFn { name, .. }
         | Item::Struct { name, .. }

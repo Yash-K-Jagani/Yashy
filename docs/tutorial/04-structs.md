@@ -269,11 +269,56 @@ In practice: a struct of numbers and booleans is copied freely. A struct that
 holds a string owns that string, and every copy of the struct owns it too. A
 struct that holds an array points at an array somebody else owns.
 
+## Building from an existing value
+
+A literal may take the fields it does not name from another value with
+`..base`, written last. `Point { x: 9, ..base }` takes `y` from `base`; the
+explicit fields win. This is how a copy with one field changed is written
+without naming every field.
+
+```yashy
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() {
+    const base = Point { x: 1, y: 2 };
+    const moved = Point { x: 9, ..base };
+    print(moved.x, moved.y);
+    // => 9 2
+}
+```
+
+The spread *moves* `base` as a whole, even the field it overrides: using
+`base` afterwards is `E1002`. Copying the fields instead would free a field
+that owns something twice, so the move is the only sound rule.
+
+A field may also carry a default, and then it may be left out of the literal.
+Precedence is explicit field, then spread, then default:
+
+```yashy
+struct Config {
+    retries: int = 3,
+    name: string,
+}
+
+fn main() {
+    const c = Config { name: "x" };
+    print(c.retries, c.name);
+    // => 3 x
+}
+```
+
+The default must be a literal or a `const` name (`E0102` otherwise): it is
+checked once against the field's type where it is declared, not at every
+construction site.
+
 ## Common mistakes
 
 - **Leaving out a field.** `Point { x: 1 }` reports
-  ``error: missing field `y` in struct `Point` ``. Every field needs a value;
-  there are no defaults.
+  ``error: missing field `y` in struct `Point` ``. Every field needs a value
+  unless a spread or a default supplies it.
 - **Naming a field that does not exist.** `Point { x: 1, y: 2, z: 3 }` reports
   ``error: unknown field `z` in struct `Point` ``. Check the declaration.
 - **Assigning a field of a `const`.** `p.x = 9` on a `const p` reports

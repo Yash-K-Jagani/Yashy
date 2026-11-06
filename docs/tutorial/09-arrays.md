@@ -182,6 +182,46 @@ The element type is part of the array type, so `[]int` and `[]string` are
 different types and an array cannot change element type. The element type is
 written in the literal, and `[]int {}` is the empty array of `int`.
 
+## Spread and indexed loops
+
+A slice literal may splice another slice in with `..xs`, anywhere in the
+list. `[0, ..xs, 4]` is a new array whose elements are the prefix, every
+element of `xs`, then the suffix. Like a struct spread, the operand is moved
+as a whole: using `xs` afterwards is `E1002`.
+
+```yashy
+fn main() {
+    let rest = []int { 1, 2 };
+    let xs = []int { 0, ..rest, 4 };
+    for x in xs {
+        print(x);
+    }
+    // => 0
+    // => 1
+    // => 2
+    // => 4
+    xs.free();
+}
+```
+
+To walk an array with its index, write `for i, x in xs`. It is a range loop
+over the length read once at loop entry — unlike `for x in xs`, a `push`
+inside the body does not extend the loop — and each body starts by reading
+element `i` into `x`, with the bounds check already proved away.
+
+```yashy
+fn main() {
+    let xs = []int { 7, 8, 9 };
+    for i, x in xs {
+        print(i, x);
+    }
+    // => 0 7
+    // => 1 8
+    // => 2 9
+    xs.free();
+}
+```
+
 ## Fixed arrays and views
 
 `[T; N]` is an array whose length is part of its type. The elements live in the

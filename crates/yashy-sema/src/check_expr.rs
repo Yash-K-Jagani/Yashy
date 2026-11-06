@@ -77,6 +77,8 @@ fn unwrap_public(item: &Item) -> &Item {
     match item {
         Item::Public { item, .. } => unwrap_public(item),
         Item::Effect { item, .. } => unwrap_public(item),
+        // A doc block documents the item inside it; visibility looks through.
+        Item::Documented { item, .. } => unwrap_public(item),
         other => other,
     }
 }

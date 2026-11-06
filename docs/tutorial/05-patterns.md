@@ -264,6 +264,60 @@ fn main() {
 }
 ```
 
+## `if let` and `while let`
+
+When only one arm of a two-variant match needs a block of statements, a
+`switch` cannot hold them: an arm's body is one expression. `if let` tests a
+pattern and runs a block when it matches:
+
+```yashy
+fn show(Option[int] value) -> int {
+    if let Some(n) = value {
+        return n;
+    }
+    return 0 - 1;
+}
+
+fn main() {
+    print(show(Some(7)));
+    print(show(None));
+    // => 7
+    // => -1
+}
+```
+
+The payload binds only inside the `then` block: it is not visible in the
+`else` block, and not visible after the statement. `while let` is the same
+test as a loop condition, re-evaluated every pass:
+
+```yashy
+fn next(int n) -> Option[int] {
+    if n == 0 {
+        return None;
+    }
+    return Some(n - 1);
+}
+
+fn main() {
+    let total = 0;
+    let n = 3;
+    while let Some(v) = next(n) {
+        total = total + v;
+        n = v;
+    }
+    print(total);
+    // => 3
+}
+```
+
+`next(3)` is `Some(2)`, so the body adds 2 and counts down from there; the
+loop ends when the value reaches `None`.
+
+The pattern must be able to fail. `if let x = 1` matches every value, so the
+test is fiction and the checker reports it (`E0603`) with the fix: use `let`.
+The pattern grammar is the same one `switch` uses, so variant, struct and
+tuple patterns all work here too.
+
 ## Patterns at a glance
 
 | Pattern | Used for | Binds | Example |

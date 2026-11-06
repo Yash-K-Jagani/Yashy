@@ -732,6 +732,7 @@ impl Db {
                 let item = match item {
                     Item::Public { item, .. } => item.as_ref(),
                     Item::Effect { item, .. } => item.as_ref(),
+                    Item::Documented { item, .. } => item.as_ref(),
                     item => item,
                 };
                 match item {

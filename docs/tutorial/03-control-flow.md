@@ -53,6 +53,35 @@ fn main() {
 `for n in 0..5` walks the half-open range 0, 1, 2, 3, 4. The same form walks an
 array element by element (chapter 9).
 
+## Nested loops
+
+A loop is a statement like any other, so a loop may be written inside another
+loop's body: nested loops. The inner loop runs to completion for every pass
+of the outer one.
+
+```yashy
+fn main() {
+    for i in 0..3 {
+        for j in 0..3 {
+            print(i, j);
+        }
+    }
+    // => 0 0
+    // => 0 1
+    // => 0 2
+    // => 1 0
+    // => 1 1
+    // => 1 2
+    // => 2 0
+    // => 2 1
+    // => 2 2
+}
+```
+
+Nesting adds no new scope rule: each loop's variable lives in its own body,
+and a `break` or `continue` still belongs to the innermost enclosing loop —
+which is what labels (below) reach past.
+
 The half-open range is not an arbitrary choice. It makes `0..xs.len()` the
 complete set of valid indices, and it makes the length of `a..b` equal to
 `b - a` without a `+ 1` to forget. An inverted range such as `3..1` is empty;
@@ -66,18 +95,54 @@ it is not an error and it does not count down.
 | `while cond { ... }` | Tests before each pass. | A false condition runs the body zero times. |
 | `while true { ... }` | Repeats until a `break`. | There is no `loop` keyword. |
 | `for n in start..end { ... }` | Walks `start` to `end - 1`. | Bounds are `int`; the binding is immutable. |
-| `break` | Leaves the innermost loop. | A loop inside a loop needs its own flag or `return`. |
-| `continue` | Starts the next pass. | The loop's update still happens for a `for` range. |
+| `break` | Leaves the innermost loop. | `break name;` leaves the loop labelled `name` instead. |
+| `continue` | Starts the next pass. | `continue name;` re-tests the loop labelled `name`. |
 | `switch value { ... }` | Chooses an arm by shape. | Chapter 5 covers the patterns. |
 
 The loop variable of a `for` range is a `const` binding. `for i in 0..3 { i += 1; }`
 reports ``error: cannot assign to `i`, which is immutable``. If a loop needs a
 counter it can change, declare a `let` before the loop and update that.
 
-`break` and `continue` belong to the innermost enclosing loop. There is no
-label syntax, so a loop that must stop an outer loop sets a `let` flag and
-tests it, or returns from the function. This is a deliberate limit: labels are
-another name to invent and another scope to get wrong.
+`break` and `continue` belong to the innermost enclosing loop by default. A
+loop that must stop an outer loop carries a label: write `name:` before the
+loop and jump to it with `break name;` or `continue name;`. The label is
+visible only inside its own loop's body, and two nested loops may not share
+one — `break outer;` inside an inner `outer:` loop would be ambiguous, so it
+is an error (`E0605`). A jump that names no enclosing label is `E0604`.
+
+```yashy
+fn main() {
+    outer: for i in 0..3 {
+        for j in 0..3 {
+            if j == 1 {
+                break outer;
+            }
+        }
+        print("unreachable");
+    }
+    print("out");
+    // => out
+
+    let visited = 0;
+    outer: for i in 0..3 {
+        visited = visited + 1;
+        for j in 0..2 {
+            if j == 0 {
+                continue outer;
+            }
+        }
+        print("unreachable");
+    }
+    print(visited);
+    // => 3
+}
+```
+
+`continue outer;` skips the rest of the outer body and re-tests the outer
+loop, exactly as `break` leaves it. A label never changes an unlabelled
+`break`: it still leaves the innermost loop only. And a `defer` inside the
+inner loop runs when a labelled jump fires, because the jump only ever emits
+a real `break` or `continue` under the hood.
 
 ## `switch` in statement position
 
