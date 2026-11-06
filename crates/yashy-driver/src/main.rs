@@ -1599,7 +1599,7 @@ fn init(args: &[String]) -> ExitCode {
         ),
         (
             "main.ya",
-            "fn main() {\n    println(\"Hello, Yashy!\");\n}\n".to_string(),
+            "fn main() {\n    print(\"Hello, Yashy!\");\n}\n".to_string(),
         ),
         (
             "tests/smoke.ya",

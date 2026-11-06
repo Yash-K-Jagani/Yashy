@@ -97,7 +97,7 @@ fn a_bound_string_is_released_at_scope_exit_not_by_the_read() {
         .find("call void @yashy_str_release")
         .expect("a scope-exit release");
     let last_read = ir_text
-        .find("call void @yashy_print_str")
+        .find("call void @yashy_print_line_str")
         .expect("the binding is read");
     assert!(
         last_read < release,

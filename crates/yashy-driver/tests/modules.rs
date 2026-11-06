@@ -94,7 +94,7 @@ fn a_dotted_path_resolves_to_a_nested_file() {
     write(
         &dir,
         "main.ya",
-        "import lib.util;\nfn main() { print(seven()); print(\"\\n\"); }\n",
+        "import lib.util;\nfn main() { print(seven()); }\n",
     );
     write(&dir, "lib/util.ya", "pub fn seven() -> int { return 7; }\n");
 
@@ -113,7 +113,7 @@ fn a_module_directory_containing_mod_ot_is_found() {
     write(
         &dir,
         "main.ya",
-        "import pkg.nested;\nfn main() { print(three()); print(\"\\n\"); }\n",
+        "import pkg.nested;\nfn main() { print(three()); }\n",
     );
     write(&dir, "pkg/nested/mod.ya", "pub fn three() -> int { return 3; }\n");
 
@@ -216,7 +216,7 @@ fn importing_the_same_module_from_two_files_defines_it_once() {
         &dir,
         "main.ya",
         "import a;\nimport b;\n\
-         fn main() { print(from_a() + from_b()); print(\"\\n\"); }\n",
+         fn main() { print(from_a() + from_b()); }\n",
     );
     write(
         &dir,
@@ -276,7 +276,7 @@ fn yashy_path_overrides_the_default_root() {
     write(
         &dir,
         "main.ya",
-        "import vendor.helper;\nfn main() { print(helper()); print(\"\\n\"); }\n",
+        "import vendor.helper;\nfn main() { print(helper()); }\n",
     );
     write(&dir, "external/vendor/helper.ya", "pub fn helper() -> int { return 9; }\n");
     let search = dir.join("external");

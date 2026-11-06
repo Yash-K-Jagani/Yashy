@@ -252,10 +252,10 @@ br label %bb15_end
 bb15_end:
 %t35 = load i1, ptr %slot20
 store i1 %t35, ptr %slot21
-call void @yashy_print_str(i8* @.str.6)
+call void @yashy_print_line_str(i8* @.str.6)
 %t36 = call i8* @yashy_str_from_i64(i64 1)
-call void @yashy_print_str(i8* %t36)
+call void @yashy_print_line_str(i8* %t36)
 call void @yashy_str_release(i8* %t36)
 %t37 = call i8* @yashy_str_from_f64(double 1.0)
-call void @yashy_print_str(i8* %t37)
+call void @yashy_print_line_str(i8* %t37)
 call void @yashy_str_release(i8* %t37)

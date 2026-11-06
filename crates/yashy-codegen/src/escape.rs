@@ -71,6 +71,15 @@ mod tests {
                 yashy_sema::HirStmt::Expr(expr, ..) => find(expr),
                 yashy_sema::HirStmt::Assign { value, .. } => find(value),
                 yashy_sema::HirStmt::Return(Some(expr), _) => find(expr),
+                yashy_sema::HirStmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => then_block.stmts.iter().find_map(find_stmt).or_else(|| {
+                    else_block
+                        .as_ref()
+                        .and_then(|block| block.stmts.iter().find_map(find_stmt))
+                }),
                 _ => None,
             }
         }
@@ -101,10 +110,7 @@ mod tests {
 
     #[test]
     fn a_dynamic_allocation_bound_in_a_block_uses_its_arena() {
-        let f = function(
-            "fn f(int n) { let p = alloc(n); p[0] = 1; p.free(); }",
-            "f",
-        );
+        let f = function("fn f(int n) { let p = alloc(n); p[0] = 1; p.free(); }", "f");
         let facts = ProofFacts::empty();
         assert!(matches!(
             classify(&f, &facts).get(&site(&f)),
@@ -166,12 +172,14 @@ mod tests {
     #[test]
     fn an_allocation_inside_an_arena_block_uses_the_block_arena() {
         let f = function(
-            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } }",
+            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } return 0; }",
             "f",
         );
         let facts = ProofFacts::empty();
         assert!(
-            classify(&f, &facts).values().any(|placement| matches!(placement, Placement::Arena(_))),
+            classify(&f, &facts)
+                .values()
+                .any(|placement| matches!(placement, Placement::Arena(_))),
             "every allocation inside the block must use its arena"
         );
         let findings = crate::escape::arena_findings(&f, &facts);
@@ -185,7 +193,10 @@ mod tests {
     fn an_arena_value_returned_is_reported_and_stays_on_the_heap() {
         use crate::escape::{arena_findings, ArenaFindingKind};
 
-        let f = function("fn f() -> *mut int { arena { let p = alloc(8); return p; } }", "f");
+        let f = function(
+            "fn f() -> *mut int { arena { let p = alloc(8); return p; } return alloc(8); }",
+            "f",
+        );
         let facts = ProofFacts::empty();
         assert_eq!(classify(&f, &facts).get(&site(&f)), Some(&Placement::Heap));
         let findings = arena_findings(&f, &facts);
@@ -224,7 +235,7 @@ mod tests {
         use crate::escape::arena_findings;
 
         let f = function(
-            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } }",
+            "fn f() -> int { arena { let p = alloc(8); p[0] = 1; return p[0]; } return 0; }",
             "f",
         );
         let facts = ProofFacts::empty();
@@ -234,12 +245,14 @@ mod tests {
     #[test]
     fn a_break_out_of_an_arena_still_releases_it() {
         let f = function(
-            "fn f() -> int { let total = 0; for i in 0..3 { arena { let p = alloc(8); p[0] = i; if i == 1 { break; } total = total + p[0]; } } total }",
+            "fn f() -> int { let total = 0; for i in 0..3 { arena { let p = alloc(8); p[0] = i; if i == 1 { break; } total = total + p[0]; } } return total; }",
             "f",
         );
         let facts = ProofFacts::empty();
         assert!(
-            classify(&f, &facts).values().any(|placement| matches!(placement, Placement::Arena(_))),
+            classify(&f, &facts)
+                .values()
+                .any(|placement| matches!(placement, Placement::Arena(_))),
             "the arena must allocate so its block exit can release it"
         );
         let findings = crate::escape::arena_findings(&f, &facts);

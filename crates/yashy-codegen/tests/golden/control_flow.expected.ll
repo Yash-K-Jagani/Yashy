@@ -131,12 +131,12 @@ store { i8, i64 } %arg1, ptr %slot1
 br i1 %t0, label %bb0_then, label %bb1_else
 bb0_then:
 %t1 = call i8* @yashy_str_from_i64(i64 1)
-call void @yashy_print_str(i8* %t1)
+call void @yashy_print_line_str(i8* %t1)
 call void @yashy_str_release(i8* %t1)
 br label %bb2_merge
 bb1_else:
 %t2 = call i8* @yashy_str_from_i64(i64 2)
-call void @yashy_print_str(i8* %t2)
+call void @yashy_print_line_str(i8* %t2)
 call void @yashy_str_release(i8* %t2)
 br label %bb2_merge
 bb2_merge:
@@ -181,13 +181,13 @@ br i1 %t13, label %bb14_body, label %bb16_done
 bb14_body:
 %t14 = load i64, ptr %slot4
 %t15 = call i8* @yashy_str_from_i64(i64 %t14)
-call void @yashy_print_str(i8* %t15)
+call void @yashy_print_line_str(i8* %t15)
 call void @yashy_str_release(i8* %t15)
 br label %bb15_inc
 bb15_inc:
 %t16 = load i64, ptr %slot4
 %t17 = call i8* @yashy_str_from_i64(i64 %t16)
-call void @yashy_print_str(i8* %t17)
+call void @yashy_print_line_str(i8* %t17)
 call void @yashy_str_release(i8* %t17)
 br label %bb13_cond
 bb16_done:
@@ -197,20 +197,20 @@ bb16_done:
 br i1 %t20, label %bb18_arm, label %bb19_arm
 bb18_arm:
 %t21 = call i8* @yashy_str_from_i64(i64 0)
-call void @yashy_print_str(i8* %t21)
+call void @yashy_print_line_str(i8* %t21)
 call void @yashy_str_release(i8* %t21)
 br label %bb17_result
 bb19_arm:
 %t22 = call i8* @yashy_str_from_i64(i64 1)
-call void @yashy_print_str(i8* %t22)
+call void @yashy_print_line_str(i8* %t22)
 call void @yashy_str_release(i8* %t22)
 br label %bb17_result
 bb17_result:
 %t23 = call i8* @yashy_str_from_i64(i64 5)
-call void @yashy_print_str(i8* %t23)
+call void @yashy_print_line_str(i8* %t23)
 call void @yashy_str_release(i8* %t23)
 %t24 = call i8* @yashy_str_from_i64(i64 4)
-call void @yashy_print_str(i8* %t24)
+call void @yashy_print_line_str(i8* %t24)
 call void @yashy_str_release(i8* %t24)
 ret i64 0
 }

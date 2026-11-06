@@ -15,11 +15,9 @@ Bounds are clamped, so a wrong index gives an empty string rather than a fault.
 fn main() {
     const greeting = "Hello, " + "Yashy!";
     print(greeting.len());
-    print();
     // => 13
 
     print(greeting.slice(0, 5));
-    print();
     // => Hello
 
     print("${greeting} again");
@@ -65,11 +63,7 @@ fn main() {
     buf[1] = 'b';
     buf[2] = 'c';
     buf[3] = 'd';
-    print(buf[0]);
-    print(buf[1]);
-    print(buf[2]);
-    print(buf[3]);
-    print();
+    print("${buf[0]}${buf[1]}${buf[2]}${buf[3]}");
     buf.free();
     // => abcd
 }
@@ -85,12 +79,10 @@ import io;
 
 fn verify([]char bytes) {
     print(bytes.len());
-    print();
     switch bytes[0] {
         case Some(first) { print(first) }
         case None { print('?') }
     }
-    print();
     bytes.free();
 }
 
@@ -200,11 +192,9 @@ fn main() {
     let s = "  Yashy,yashy  ";
 
     print(s.trim());
-    print();
     // => Yashy,yashy
 
     print(s.len());
-    print();
     // => 15
 
     if s.is_empty() {
@@ -215,19 +205,15 @@ fn main() {
     // => not empty
 
     print(s.byte_at(2));
-    print();
     // => Y
 
     print(show(s.get(2)));
-    print();
     // => 89
 
     print(show(s.get(99)));
-    print();
     // => -1
 
     print(s.slice(2, 7));
-    print();
     // => Yashy
 
     if s.contains("yashy") {
@@ -246,32 +232,26 @@ fn main() {
     // => ends with spaces
 
     print(show(s.index_of("yashy")));
-    print();
     // => 8
 
     let upper = s.to_upper();
     print(upper.trim());
-    print();
     // => YASHY,YASHY
 
     let replaced = s.replace("yashy", "seal");
     print(replaced.trim());
-    print();
     // => Yashy,seal
 
     let dash = "-";
     print(dash.repeat(3));
-    print();
     // => ---
 
     let csv = "a,b,c";
     let parts = csv.split(",");
     print(parts.len());
-    print();
     // => 3
     for part in parts {
         print(part);
-        print();
         // => a
         // => b
         // => c
@@ -281,11 +261,9 @@ fn main() {
     let text = "one\r\ntwo\n";
     let lines = text.lines();
     print(lines.len());
-    print();
     // => 2
     for line in lines {
         print(line);
-        print();
         // => one
         // => two
     }
@@ -334,7 +312,7 @@ fn main() {
     print("${[1, 2, 3]:?}");
     // => [1, 2, 3]
 
-    print("${"a\nb":?}\n");
+    print("${"a\nb":?}");
     // => "a\nb"
 }
 ```

@@ -216,7 +216,7 @@ fn fib(int n) -> int {
 }
 
 fn main() {
-    println(fib(10));
+    print(fib(10));
 }
 ```
 
@@ -247,14 +247,14 @@ fn manhattan(Point p) -> int {
 
 fn main() {
     const p = Point { y: 4, x: 3 };
-    println(manhattan(p));
+    print(manhattan(p));
 
     // A field write is a read-modify-write of the whole value, so `y` survives
     // it; `q.x += 1` is the same statement with the field read on the right.
     let q = p;
     q.x = 10;
     q.y += 1;
-    println(q.x + q.y);
+    print(q.x + q.y);
 }
 ```
 
@@ -285,7 +285,7 @@ fn main() {
     for i in 0..4 {
         buf[i] = i * 2;
     }
-    println(buf[0] + buf[3]);   // 6
+    print(buf[0] + buf[3]);   // 6
 }
 ```
 
@@ -302,7 +302,7 @@ fn main() {
     first[0] = 20;
     second[0] = 22;
 
-    println(first[0] + second[0]);
+    print(first[0] + second[0]);
     arena_free_all(arena);
 }
 ```
@@ -331,17 +331,17 @@ fn label(string name) -> string {
 
 fn main() {
     const greeting = "Hello, " + "Yashy!";
-    println(greeting);
-    println("length = " + str_from_i64(greeting.len()));
-    println(label("x"));
+    print(greeting);
+    print("length = " + str_from_i64(greeting.len()));
+    print(label("x"));
     if greeting == "Hello, Yashy!" {
-        println("equal");
+        print("equal");
     }
     let padded = "  Yashy  ";
-    println(padded.trim());
+    print(padded.trim());
     let csv = "a,b";
     let parts = csv.split(",");
-    println(parts.len());
+    print(parts.len());
     parts.free();
 }
 ```
@@ -381,7 +381,7 @@ fn main() {
         }
         total = total + number(text_of(line));
     }
-    println(total);
+    print(total);
 }
 ```
 
@@ -397,9 +397,9 @@ struct Point {
 
 fn main() {
     const point = Point { x: 3, y: 4 };
-    println("${point:?}");
-    println("${[1, 2, 3]:?}");
-    println("${"a\nb":?}");
+    print("${point:?}");
+    print("${[1, 2, 3]:?}");
+    print("${"a\nb":?}");
 }
 ```
 
@@ -419,13 +419,13 @@ Point { x: 3, y: 4 }
 // questions with three different answers.
 fn main() {
     let big = 9223372036854775807;      // the largest int
-    println(wrapping_add(big, 1));      // wraps:  -9223372036854775808
-    println(saturating_add(big, 1));    // clamps:  9223372036854775807
+    print(wrapping_add(big, 1));      // wraps:  -9223372036854775808
+    print(saturating_add(big, 1));    // clamps:  9223372036854775807
     switch checked_add(big, 1) {        // reports: the caller decides
         case Some(v) { print(v) }
         case None { print("no answer") }
     }
-    println();
+    print();
 }
 ```
 
@@ -463,9 +463,9 @@ fn main() {
     counts.insert("yashy", 2);
     counts.insert("river", 1);
     counts.insert("yashy", 3);
-    println(counts.len());
+    print(counts.len());
 
-    println(switch counts.get("yashy") {
+    print(switch counts.get("yashy") {
         case Some(n) { str_from_i64(n) }
         case None { "missing" }
     });
@@ -495,10 +495,10 @@ fn main() {
     let []string keys = counts.keys();
     let []int values = counts.values();
 
-    println(keys.len());
-    println(values.len());
+    print(keys.len());
+    print(values.len());
     if counts.contains_key("yashy") {
-        println("yashy is there");
+        print("yashy is there");
     }
 
     keys.free();
@@ -530,8 +530,8 @@ fn secret() -> int { return 13; }      // this module's own
 import lib;
 
 fn main() {
-    println(seven());   // fine: `seven` is `pub`
-    println(secret());  // error: `secret` is private to module `lib`
+    print(seven());   // fine: `seven` is `pub`
+    print(secret());  // error: `secret` is private to module `lib`
 }
 ```
 
@@ -561,7 +561,7 @@ fn main() {
         case Some(n) { print(n); }
         case None { print("closed"); }
     }
-    println();
+    print();
     thread_join(t);
     outbox.free();
     inbox.free();

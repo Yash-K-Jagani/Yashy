@@ -242,7 +242,7 @@ fn a_closure_releases_its_environment() {
     let output = build_and_run("closures");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(
-        stdout, "15\nhello\n",
+        stdout, "15\nhello\n22\n",
         "the program prints its witnesses before exiting:\n{stdout}"
     );
     assert_no_leaks("closures", &output);

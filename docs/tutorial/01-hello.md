@@ -21,7 +21,6 @@ fn greeting(string name) -> string {
 fn main() {
     // A comment the compiler ignores.
     print(greeting("Yashy"));
-    print();
     // => Hello, Yashy!
 }
 ```

@@ -37,7 +37,6 @@ fn main() {
     thread_join(handle);
     results.free();
     print(total);
-    print();
     // => 14
 }
 ```

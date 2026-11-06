@@ -25,7 +25,6 @@ fn apply(fn(int) -> int f, int x) -> int {
 
 fn main() {
     print(apply(square, 7));
-    print();
     // => 49
 }
 ```
@@ -53,12 +52,10 @@ fn double(int x) -> int {
 fn main() {
     const f = square;
     print(f(4));
-    print();
     // => 16
 
     const g = double;
     print(g(4));
-    print();
     // => 8
 }
 ```
@@ -80,12 +77,10 @@ fn apply(fn(int) -> int f, int x) -> int {
 
 fn main() {
     print(apply(|int x| -> int { return x + 1; }, 41));
-    print();
     // => 42
 
     const double = |int x| -> int { return x * 2; };
     print(double(20));
-    print();
     // => 40
 }
 ```
@@ -129,7 +124,6 @@ fn adder(int n) -> fn(int) -> int {
 fn main() {
     const add5 = adder(5);
     print(add5(10));
-    print();
     // => 15
 }
 ```
@@ -150,7 +144,6 @@ fn greeter(string greeting) -> fn() -> string {
 fn main() {
     const greet = greeter("hello");
     print(greet());
-    print();
     // => hello
 }
 ```
@@ -203,15 +196,12 @@ fn square(int x) -> int {
 
 fn main() {
     print(identity(7));
-    print();
     // => 7
 
     print(identity("seven"));
-    print();
     // => seven
 
     print(apply_twice(square, 3));
-    print();
     // => 81
 }
 ```
@@ -287,7 +277,6 @@ fn main() {
     let doubled = xs.map(|int x| -> int { return x * 2; });
     for x in doubled {
         print(x);
-        print();
     }
     // => 2
     // => 4
@@ -297,13 +286,11 @@ fn main() {
     let big = xs.filter(|int x| -> bool { return x > 2; });
     for x in big {
         print(x);
-        print();
     }
     // => 3
     big.free();
 
     print(xs.fold(0, |int acc, int x| -> int { return acc + x; }));
-    print();
     // => 6
 
     xs.free();
@@ -333,7 +320,6 @@ const fn square(int n) -> int {
 fn main() {
     const table = square(9);
     print(table);
-    print();
     // => 81
 }
 ```
@@ -362,12 +348,10 @@ const fn square(int n) -> int {
 fn main() {
     const tenth = fib(10);
     print(tenth);
-    print();
     // => 55
 
     const bigger = max_of(square(3), 10);
     print(bigger);
-    print();
     // => 10
 }
 ```

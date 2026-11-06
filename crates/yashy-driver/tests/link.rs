@@ -183,7 +183,7 @@ fn main() {
     assert!(output.status.success(), "the math program must exit 0");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "1.4142135623730951",
+        "1.4142135623730951\n",
         "the same program must print the same bytes on every platform"
     );
 }

@@ -861,7 +861,7 @@ mod tests {
         let source = "fn main() { let xs = []int { 1, 2, 3 }; \
                       const view = xs[0..2]; \
                       print(view.len()); \
-                      println(\"\"); }";
+                      print(); }";
         let report = verify_source(source);
         assert_eq!(codes(&report), vec!["E1000"]);
         assert!(
@@ -886,7 +886,7 @@ mod tests {
                       let sum = 0; \
                       for value in mid { sum = sum + value; } \
                       print(sum); \
-                      println(\"\"); }";
+                      print(); }";
         assert_eq!(verify_source(source).error_count(), 0);
     }
 }

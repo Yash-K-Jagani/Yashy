@@ -1211,7 +1211,13 @@ fn clear_profiles(dir: &Path, entry_name: &str) -> Result<(), Vec<Diagnostic>> {
 /// for. A non-zero exit still writes counters, but a profile from a failing
 /// run would optimize paths the program cannot complete, so it is refused.
 fn run_training_program(exe: &Path, entry_name: &str) -> Result<(), Vec<Diagnostic>> {
-    let output = Command::new(exe).output().map_err(|error| {
+    // A build names its output relative to the source, so `main.ya` yields
+    // `main.pgo-instrumented.exe`. Spawning a bare file name searches `PATH`,
+    // not the working directory, so the binary this build just wrote would be
+    // reported as missing. Naming it absolutely keeps the child's working
+    // directory unchanged while making the file visible.
+    let exe = std::path::absolute(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let output = Command::new(&exe).output().map_err(|error| {
         vec![toolchain_diagnostic(
             entry_name,
             format!(

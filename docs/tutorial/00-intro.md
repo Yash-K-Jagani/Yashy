@@ -67,7 +67,7 @@ fn main() {
 ```
 
 `main` takes no arguments and returns nothing, or returns an `int` that becomes
-the process exit status. `println` is a builtin: it is in scope in every
+the process exit status. `print` is a builtin: it is in scope in every
 file, imported or not, so the first example needs no `import`.
 
 ## The commands

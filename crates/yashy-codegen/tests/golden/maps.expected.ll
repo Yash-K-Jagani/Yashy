@@ -173,7 +173,7 @@ store { i8, i64 } %t14, ptr %slot10
 store i64 %t16, ptr %slot11
 %t17 = load i64, ptr %slot11
 %t18 = call i8* @yashy_str_from_i64(i64 %t17)
-call void @yashy_print_str(i8* %t18)
+call void @yashy_print_line_str(i8* %t18)
 call void @yashy_str_release(i8* %t18)
 call void @yashy_print_line_str(i8* @.str.2)
 %t19 = load i8*, ptr %slot0

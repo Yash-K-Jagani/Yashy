@@ -124,7 +124,7 @@ entry:
 store i64 %arg0, ptr %slot0
 %t0 = load i64, ptr %slot0
 %t1 = call i8* @yashy_str_from_i64(i64 %t0)
-call void @yashy_print_str(i8* %t1)
+call void @yashy_print_line_str(i8* %t1)
 call void @yashy_str_release_atomic(i8* %t1)
 ret void
 }
@@ -158,7 +158,7 @@ store i64 1, ptr %slot2
 br i1 %t11, label %bb0_then, label %bb1_else
 bb0_then:
 %t12 = call i8* @yashy_str_from_i64(i64 1)
-call void @yashy_print_str(i8* %t12)
+call void @yashy_print_line_str(i8* %t12)
 call void @yashy_str_release_atomic(i8* %t12)
 br label %bb2_merge
 bb1_else:
@@ -186,12 +186,12 @@ bb4_arm:
 store i64 %t26, ptr %slot4
 %t27 = load i64, ptr %slot4
 %t28 = call i8* @yashy_str_from_i64(i64 %t27)
-call void @yashy_print_str(i8* %t28)
+call void @yashy_print_line_str(i8* %t28)
 call void @yashy_str_release_atomic(i8* %t28)
 br label %bb3_result
 bb5_arm:
 %t29 = call i8* @yashy_str_from_i64(i64 0)
-call void @yashy_print_str(i8* %t29)
+call void @yashy_print_line_str(i8* %t29)
 call void @yashy_str_release_atomic(i8* %t29)
 br label %bb3_result
 bb3_result:

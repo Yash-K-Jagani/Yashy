@@ -6,5 +6,5 @@ fn unwrap_or_zero(o: Option[int]) -> int {
 }
 
 fn main() {
-    println(unwrap_or_zero(Some(42)));
+    print(unwrap_or_zero(Some(42)));
 }

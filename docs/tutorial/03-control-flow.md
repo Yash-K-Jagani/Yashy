@@ -36,7 +36,6 @@ fn main() {
         sum += n;
     }
     print(sum);
-    print();
     // => 7
 
     let count = 0;
@@ -47,7 +46,6 @@ fn main() {
         }
     }
     print(count);
-    print();
     // => 3
 }
 ```

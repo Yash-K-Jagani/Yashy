@@ -1586,7 +1586,7 @@ fn a_map_has_no_text_form() {
 fn print_str_names_its_replacement() {
     assert_error(
         "fn main() { print_str(\"x\"); }",
-        "`print_str` was replaced: use `println` (or `print`)",
+        "`print_str` was replaced: use `print`",
     );
     assert_error("fn main() { print_i64(1); }", "`print_i64` was replaced");
     assert_error("fn main() { print_f64(1.0); }", "`print_f64` was replaced");

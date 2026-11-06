@@ -48,9 +48,10 @@ fn a_value_used_inside_the_block_is_accepted() {
 #[test]
 fn an_arena_value_returned_is_e1003() {
     // The arena value is returned; the verifier rejects the escape. The
-    // checker reports the tail return as missing, so only the verifier code
-    // is pinned.
-    let source = "fn f() -> *mut int { arena { let buf = alloc(16); return buf; } } fn main() { }";
+    // function needs a top-level `return` as well, because the checker's
+    // missing-return rule does not look through an `arena` block.
+    let source =
+        "fn f() -> *mut int { arena { let buf = alloc(16); return buf; } return alloc(16); } fn main() { }";
     let report = verify_source(source);
     assert!(
         report

@@ -35,9 +35,7 @@ fn main() {
     const ready = true;
 
     print("total = ${total}");
-    print("half of total = ");
-    print((total as float * ratio) as int);
-    print();
+    print("half of total =", (total as float * ratio) as int);
     print("ready = ${ready}");
     // => total = 22
     // => half of total = 11
@@ -94,18 +92,7 @@ fn main() {
     const flags = 0b1010;
     const mask = 0b0110;
     const negative = 0 - 16;
-    print(flags & mask);
-    print(" ");
-    print(flags | mask);
-    print(" ");
-    print(flags ^ mask);
-    print(" ");
-    print(~flags);
-    print(" ");
-    print(1 << 4);
-    print(" ");
-    print(negative >> 2);
-    print();
+    print(flags & mask, flags | mask, flags ^ mask, ~flags, 1 << 4, negative >> 2);
     // => 2 14 12 -11 16 -4
 }
 ```
@@ -123,7 +110,6 @@ shifts, `+ -`, `* / %`. The bitwise levels sit between `&&` and equality, so
 ```yashy
 fn main() {
     print(1 | 2 ^ 3 & 4);
-    print();
     // => 3
 }
 ```
@@ -151,20 +137,16 @@ writes the character, not the number.
 ```yashy
 fn main() {
     const letter = 'A';
-    print(letter);
-    print(letter.to_int());
-    print();
+    print("${letter}${letter.to_int()}");
     // => A65
 
     const code = 97;
     const lower = code.to_char();
     print(lower.to_string());
-    print();
     // => a
 
     const word = "cat";
     print(word.byte_at(1));
-    print();
     // => a
 }
 ```
@@ -184,14 +166,7 @@ base or with separators. All four of these are the same number:
 
 ```yashy
 fn main() {
-    print(1_000_000);
-    print(" ");
-    print(0xFF);
-    print(" ");
-    print(0b1010);
-    print(" ");
-    print(0o777);
-    print();
+    print(1_000_000, 0xFF, 0b1010, 0o777);
     // => 1000000 255 10 511
 }
 ```

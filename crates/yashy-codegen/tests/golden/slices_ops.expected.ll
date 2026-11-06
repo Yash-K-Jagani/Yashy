@@ -215,7 +215,7 @@ call void @yashy_panic_overflow(i8* @.str.0, i64 %t37, i64 %t38, i8* @.str.1, i6
 unreachable
 bb7_ok:
 %t42 = call i8* @yashy_str_from_i64(i64 %t40)
-call void @yashy_print_str(i8* %t42)
+call void @yashy_print_line_str(i8* %t42)
 call void @yashy_str_release(i8* %t42)
 call void @yashy_print_line_str(i8* @.str.2)
 %t43 = load { i8*, i64, i64 }, ptr %slot0

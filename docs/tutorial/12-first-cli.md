@@ -198,12 +198,7 @@ fn report(string text) {
         words = words + count_words(line);
     }
 
-    print(count);
-    print(" ");
-    print(words);
-    print(" ");
-    print(text.len());
-    print("");
+    print(count, words, text.len());
 
     lines.free();
 }
@@ -291,7 +286,6 @@ fn count_words(string line) -> int {
 
 fn main() {
     print(count_words("hello world"));
-    print();
     // => 2
 }
 ```

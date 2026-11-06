@@ -29,19 +29,14 @@ fn manhattan(Point p) -> int {
 
 fn main() {
     const p = Point { y: 4, x: 3 };
-    print(p.x);
-    print(" ");
-    print(p.y);
-    print();
+    print(p.x, p.y);
     // => 3 4
 
     const line = Line { from: Point { x: 1, y: 2 }, to: p };
     print(line.from.x + line.to.y);
-    print();
     // => 5
 
     print(manhattan(line.from));
-    print();
     // => 3
 }
 ```
@@ -81,7 +76,6 @@ impl Point {
 fn main() {
     const p = Point { x: 2, y: 3 };
     print(p.sum());
-    print();
     // => 5
 }
 ```
@@ -114,7 +108,6 @@ impl Shape {
 fn main() {
     const circle = Shape.Circle(4);
     print(circle.area());
-    print();
     // => 48
 }
 ```
@@ -141,11 +134,9 @@ object Counter {
 fn main() {
     const counter = Counter { value: 3 };
     print(counter.get());
-    print();
     // => 3
 
     print(counter.add(4).get());
-    print();
     // => 7
 }
 ```
@@ -172,7 +163,6 @@ object Counter {
 
 fn main() {
     print(Counter.new(3).get());
-    print();
     // => 3
 }
 ```
@@ -206,7 +196,6 @@ fn main() {
     c.bump();
     c.bump();
     print(c.get());
-    print();
     // => 2
 }
 ```
@@ -266,7 +255,6 @@ struct Named {
 fn main() {
     const named = Named { name: "yas" + "hy", count: 2 };
     print(named.name);
-    print();
     // => yashy
 }
 ```

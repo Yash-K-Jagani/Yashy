@@ -51,7 +51,6 @@ fn run_forwards_user_arguments_after_the_separator() {
         "fn main() {\n\
          \x20   let argv = args();\n\
          \x20   print(argv.len());\n\
-         \x20   print(\"\");\n\
          \x20   for value in argv { print(value); }\n\
          \x20   argv.free();\n\
          }\n",

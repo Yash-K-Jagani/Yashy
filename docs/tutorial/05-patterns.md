@@ -34,14 +34,11 @@ fn divide(int a, int b) -> Result[int, string] {
 
 fn main() {
     print(describe(Some(5)));
-    print();
     print(describe(None));
-    print();
     print(switch divide(10, 2) {
         case Ok(v) { str_from_i64(v) }
         case Err(e) { "error: " + e }
     });
-    print();
     // => some 5
     // => none
     // => 5
@@ -74,7 +71,7 @@ fn classify(int n) -> string {
 }
 
 fn main() {
-    print(classify(0) + " " + classify(1) + " " + classify(9) + "\n");
+    print(classify(0), classify(1), classify(9));
     // => zero one many
 }
 ```
@@ -109,11 +106,8 @@ fn main() {
     const rect = Shape.Rect { w: 3.0, h: 4.0 };
     const point = Shape.Point;
     print(area(circle));
-    print();
     print(area(rect));
-    print();
     print(area(point));
-    print();
     // => 12
     // => 12
     // => 0
@@ -156,10 +150,10 @@ fn describe(Shape shape) -> string {
 }
 
 fn main() {
-    print(describe(Shape.Circle(20.0)) + "\n");
-    print(describe(Shape.Circle(2.0)) + "\n");
-    print(describe(Shape.Rect { w: 3.0, h: 3.0 }) + "\n");
-    print(describe(Shape.Rect { w: 3.0, h: 4.0 }) + "\n");
+    print(describe(Shape.Circle(20.0)));
+    print(describe(Shape.Circle(2.0)));
+    print(describe(Shape.Rect { w: 3.0, h: 3.0 }));
+    print(describe(Shape.Rect { w: 3.0, h: 4.0 }));
     // => big circle
     // => small circle
     // => square
@@ -186,11 +180,8 @@ fn bucket(int n) -> int {
 
 fn main() {
     print(bucket(0));
-    print();
     print(bucket(0 - 5));
-    print();
     print(bucket(5));
-    print();
     // => 100
     // => 200
     // => 300
@@ -226,14 +217,11 @@ fn main() {
     const pair = min_max(9, 4);
     const (low, high) = pair;
     print(low);
-    print();
     print(high);
-    print();
 
     let (first, _) = min_max(2, 7);
     first = first + 1;
     print(first);
-    print();
     // => 4
     // => 9
     // => 3
@@ -252,7 +240,6 @@ fn main() {
     const (x, rest) = pair;
     const (y, z) = rest;
     print(x + y + z);
-    print();
     // => 6
 }
 ```
@@ -273,7 +260,6 @@ fn main() {
     const pair = (1, 2);
     const (a, _) = pair;
     print(a);
-    print();
     // => 1
 }
 ```

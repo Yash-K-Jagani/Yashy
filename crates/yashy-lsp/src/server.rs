@@ -514,8 +514,7 @@ fn severity(severity: yashy_common::Severity) -> i64 {
 /// path.
 fn builtin_signature(name: &str) -> Option<&'static str> {
     Some(match name {
-        "print" => "fn print(value)",
-        "println" => "fn println(value)",
+        "print" => "fn print(...) -> void",
         "alloc" => "fn alloc(int count) -> *mut int",
         "len" => "fn len(value) -> int",
         "str_from_i64" => "fn str_from_i64(int value) -> string",
