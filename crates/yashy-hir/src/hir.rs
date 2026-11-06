@@ -174,6 +174,8 @@ pub struct HirParam {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirImport {
     pub path: Vec<String>,
+    /// The `as` alias, when the import renames the module it brings in.
+    pub alias: Option<String>,
     pub span: Span,
     /// The file the import was written in.
     pub file: FileId,

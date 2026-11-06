@@ -3021,8 +3021,9 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })])
             }
-            Item::Import { path, span, .. } => Some(vec![HirItem::Import(HirImport {
+            Item::Import { path, alias, span } => Some(vec![HirItem::Import(HirImport {
                 path: path.clone(),
+                alias: alias.clone(),
                 span: *span,
                 file: self.file,
             })]),

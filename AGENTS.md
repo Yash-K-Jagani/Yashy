@@ -89,7 +89,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 | `crates/yashy-query` | memoised pipeline: content-hashed query cache and parallel front end |
 | `crates/yashy-codegen` | typed AST to textual LLVM IR |
 | `crates/yashy-runtime` | the C shim linked into every program |
-| `crates/yashy-driver` | CLI, pipeline, toolchain and stdlib discovery |
+| `crates/yashy-driver` | CLI, pipeline, module loader (graph, cycles, aliases), toolchain and stdlib discovery |
 | `crates/yashy-stdlib` | Yashy-source modules (`io`, `string`, `math`, `JSON`, ...) |
 | `crates/yashy-fmt` | the canonical formatter |
 | `crates/yashy-lsp` | the language server |

@@ -169,11 +169,13 @@ See the master index. The ones that bite here:
 
 ### Task 7: Docs and gate
 
-**Files:** `docs/tutorial/13-modules.md`, `docs/tutorial/08-strings.md` (extended), `AGENTS.md` (layout table gains the module graph), `llms.txt`.
+**Files:** `docs/tutorial/14-modules.md` (13 is the FFI chapter; the plan's
+`13-modules.md` name predates that numbering), `docs/tutorial/08-strings.md`
+(extended), `AGENTS.md` (layout table gains the module graph), `llms.txt`.
 
-- [ ] **Step 1: Write the tutorial chapters** with runnable blocks (the tutorial harness compiles every block).
-- [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: modules and Unicode, and close phase 6"`.
+- [x] **Step 1: Write the tutorial chapters** with runnable blocks (the tutorial harness compiles every block). New blocks check+verify clean; build-and-run is blocked in this environment by the clang triple issue recorded in the ledger (CI runs it).
+- [x] **Step 2: Run the gate table on both OSes.** Windows locally (clang-free suites), Linux via CI.
+- [x] **Step 3: Commit and record** — `git commit -m "docs: modules and Unicode, and close phase 6"`.
 
 ---
 

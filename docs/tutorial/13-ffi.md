@@ -159,5 +159,5 @@ for a variadic call, spells the whole function type at the call site. The
 layout queries read the same `repr(C)` layout the emitter uses, so the numbers a
 program prints and the offsets its IR writes cannot drift apart.
 
-Continue to the [CLI reference](../cli.md), or go back to
-[12-first-cli](12-first-cli.md) for the project-shaped path.
+Continue to [14-modules](14-modules.md) for splitting a program across
+files, or to the [CLI reference](../cli.md) for the commands themselves.

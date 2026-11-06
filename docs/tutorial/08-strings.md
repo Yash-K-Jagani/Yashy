@@ -4,6 +4,8 @@
 
 - What a `string` stores, and why `len()` counts bytes rather than characters.
 - Which operations exist: `+`, `==`, the string methods, and interpolation.
+- How to count and slice by grapheme cluster (`graphemes`, `char_at`,
+  `substring`) when the text is not ASCII.
 - Why a `string` can be copied while an array or a pointer cannot.
 - Where the implementation still leaks or dangles a string reference.
 
@@ -48,6 +50,53 @@ becomes the length, and an inverted range such as `s.slice(2, 1)` is empty.
 Out-of-range `byte_at` returns `'\0'` for the same reason: a bad index has an
 answer, so there is no panic path. `get` is the checked alternative: it returns
 `Option[int]`, with `None` outside `0..len`.
+
+## Graphemes: counting what a person sees
+
+Bytes are not what a reader counts. In `"é"` the accent is two bytes in one
+grapheme cluster; a flag emoji is two code points in one cluster; a family
+emoji joined by zero-width joiners is four in one. `graphemes()` counts
+clusters, `char_at(i)` returns the cluster at `i`, and `substring(start,
+end)` returns a fresh string over the clusters in `[start, end)`. A byte
+index and a grapheme index are different functions, never overloads of one
+name: `len()` keeps counting bytes, so `examples/wordcount` counts what it
+always counted.
+
+```yashy
+fn main() {
+    let e_acute = "é";
+    print(e_acute.len());
+    print(e_acute.graphemes());
+    print(e_acute.char_at(0));
+    // => 2
+    // => 1
+    // => é
+
+    let flag = "🇺🇸";
+    print(flag.graphemes());
+    print(flag.char_at(0));
+    // => 1
+    // => 🇺🇸
+
+    let word = "aé🇺🇸b";
+    print(word.graphemes());
+    print(word.substring(1, 3));
+    print(word.substring(0, 99));
+    print(word.substring(2, 2));
+    // => 4
+    // => é🇺🇸
+    // => aé🇺🇸b
+    // =>
+}
+```
+
+`substring` never splits a cluster and clamps its range to the string, the
+same way `slice` clamps byte ranges: `substring(2, 2)` is empty and
+`substring(3, 1)` is empty. `char_at` is the one grapheme operation that
+faults: an index outside `0..graphemes()` is a runtime fault, never a silent
+truncation. When the verifier can see the length — a literal, or a string
+whose `graphemes()` result it tracks — an out-of-range `char_at` is `E1200`
+at compile time instead.
 
 ## Byte buffers
 
@@ -154,6 +203,9 @@ are equal. Ordering is not provided: `<` on strings is a type error.
 | `s.byte_at(i)` | `char` | Byte as a character, or `'\0'` when out of range. |
 | `s.get(i)` | `Option[int]` | Byte value, or `None` when out of range. |
 | `s.slice(start, end)` | `string` | New string over `[start, end)`, clamped. |
+| `s.graphemes()` | `int` | Number of grapheme clusters, not bytes. |
+| `s.char_at(i)` | `string` | The cluster at `i`; out of range faults at run time. |
+| `s.substring(start, end)` | `string` | New string over the clusters in `[start, end)`, clamped. |
 | `s.contains(needle)` | `bool` | Whether `needle` occurs at least once. |
 | `s.starts_with(prefix)` | `bool` | Byte-prefix test. |
 | `s.ends_with(suffix)` | `bool` | Byte-suffix test. |
@@ -346,7 +398,8 @@ structs, enums, tuples and arrays have a debug form
   or compare `a.len()` and `b.len()` when length is the question.
 - **Assuming `len()` counts characters.** The length of `"héllo"` is `6`, and
   slicing at a byte offset can split a character. No diagnostic is produced;
-  the program simply sees bytes.
+  the program simply sees bytes. Use `graphemes()` when the question is
+  about what a person sees, and `char_at` / `substring` to index by cluster.
 - **Chaining methods.** `s.trim().len()` is not supported yet. Bind
   `let trimmed = s.trim();` and then call `trimmed.len()`.
 - **Calling a method on a literal.** `"x".len()` is parsed as a zero-argument

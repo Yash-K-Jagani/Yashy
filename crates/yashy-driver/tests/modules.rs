@@ -397,6 +397,63 @@ fn check_accepts_a_multi_file_program_without_building_it() {
 }
 
 #[test]
+fn an_import_used_only_through_its_alias_is_not_unused() {
+    let dir = work_dir("alias-used");
+    write(
+        &dir,
+        "main.ya",
+        "import lib.vendor as v;\nfn main() { print(v.helper()); }\n",
+    );
+    write(&dir, "lib/vendor.ya", "pub fn helper() -> int { return 9; }\n");
+
+    let mut command = Command::new(yashy());
+    command
+        .arg("check")
+        .arg(dir.join("main.ya"))
+        .env_remove("YASHY_PATH");
+    let output = command
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    assert!(
+        output.status.success(),
+        "`check` must succeed:\n{}",
+        stderr_of(&output)
+    );
+    assert!(
+        !stderr_of(&output).contains("E2001"),
+        "a use through the alias must count as a use, not warn E2001:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
+fn a_truly_unused_import_still_warns() {
+    let dir = work_dir("alias-unused");
+    write(
+        &dir,
+        "main.ya",
+        "import lib.vendor as v;\nfn main() { print(3); }\n",
+    );
+    write(&dir, "lib/vendor.ya", "pub fn helper() -> int { return 9; }\n");
+
+    let mut command = Command::new(yashy());
+    command
+        .arg("check")
+        .arg(dir.join("main.ya"))
+        .env_remove("YASHY_PATH");
+    let output = command
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    assert!(
+        stderr_of(&output).contains("E2001"),
+        "an aliased import nothing reads must still warn E2001:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
 fn an_error_in_a_module_names_the_module_not_the_entry_point() {
     let dir = work_dir("module-error");
     write(

@@ -34,9 +34,11 @@ pub fn check(program: &HirProgram, exports: &Exports, out: &mut Vec<Diagnostic>)
     for item in &program.items {
         match item {
             HirItem::Import(import) => {
-                // Track the import path's last component as the name.
-                if let Some(name) = import.path.last() {
-                    imports.push((name.clone(), import.file, import.span));
+                // Track the name the module is known by here: the `as`
+                // alias when there is one, else the path's last component.
+                let name = import.alias.clone().or_else(|| import.path.last().cloned());
+                if let Some(name) = name {
+                    imports.push((name, import.file, import.span));
                 }
             }
             HirItem::Fn(function) => {

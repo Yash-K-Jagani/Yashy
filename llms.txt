@@ -6,8 +6,10 @@
 
 - [Quickstart](docs/quickstart.md): install LLVM and Yashy, run `yashy doctor`, create a project, run it, and test it.
 - [Your first CLI](docs/tutorial/12-first-cli.md): the project-shaped path, from install to a tested release binary.
-- [Language tutorial](docs/tutorial/00-intro.md): fourteen chapters; every `yashy` block is compiled and run by the test suite.
+- [Language tutorial](docs/tutorial/00-intro.md): fifteen chapters; every `yashy` block is compiled and run by the test suite.
 - [The C boundary](docs/tutorial/13-ffi.md): `extern` declarations, `link_name`, variadic calls, and the `repr(C)` layout `sizeof`, `alignof` and `offsetof` read.
+- [Modules](docs/tutorial/14-modules.md): `import`, `pub` visibility (`E0801`), aliases, and import cycles (`E0802`).
+- [Strings](docs/tutorial/08-strings.md): bytes versus grapheme clusters — `len()` keeps counting bytes; `graphemes()`, `char_at()` and `substring()` count and slice by cluster.
 
 ## Reference
 
