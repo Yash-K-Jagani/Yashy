@@ -38,7 +38,7 @@ use crate::error::TypeError;
 use crate::exhaustive::missing_cases;
 use crate::hir::*;
 use crate::ownership::{linearity_of, Linearity, Ownership};
-use crate::scope::{Binding, Scope};
+use crate::scope::{Binding, Scope, Visibility};
 use crate::ty::{Mutability, Type, TypeKind};
 
 /// Debug formatting (`${value:?}`), which synthesizes one printer per type.
@@ -823,6 +823,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: Span::new(0, 0),
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 },
             );
         }
@@ -1534,8 +1535,9 @@ impl<'src> Checker<'src> {
             return;
         }
         let module = self.module_name(origin.file);
-        self.error(
+        self.error_code(
             span,
+            codes::PRIVATE_ITEM,
             format!("`{name}` is private to module `{module}`"),
         );
     }
@@ -1560,8 +1562,9 @@ impl<'src> Checker<'src> {
             return;
         }
         let module = self.module_name(sig.origin.file);
-        self.error(
+        self.error_code(
             span,
+            codes::PRIVATE_ITEM,
             format!("field `{field}` of `{struct_name}` is private to module `{module}`"),
         );
     }
@@ -1653,6 +1656,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: *span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
@@ -1732,6 +1736,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: *span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
@@ -1823,6 +1828,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: *span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
@@ -1883,6 +1889,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: *span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
@@ -1953,6 +1960,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Const,
                         span: decl.span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     };
                     if let Err(e) = self.scope.declare(decl.name.clone(), binding) {
                         self.report(e);
@@ -2468,6 +2476,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: param.span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 },
             );
         }
@@ -2492,6 +2501,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 },
             );
             let checked = self.check_contracts(ensures);
@@ -3142,6 +3152,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Const,
                         span: param.span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     },
                 );
             }
@@ -3661,6 +3672,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Const,
                         span: *span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     },
                 ) {
                     self.report(e);
@@ -3719,6 +3731,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Var,
                         span: *span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     },
                 ) {
                     self.report(e);
@@ -3782,6 +3795,7 @@ impl<'src> Checker<'src> {
                                     mutability,
                                     span: *span,
                                     ownership: Ownership::Live,
+                                    visibility: Visibility::Private,
                                 },
                             ) {
                                 self.report(error);
@@ -4128,6 +4142,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Const,
                         span: *span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     },
                 );
                 self.push_loop_label(label, *span);
@@ -4214,6 +4229,7 @@ impl<'src> Checker<'src> {
                             mutability: Mutability::Const,
                             span: *span,
                             ownership: Ownership::Live,
+                            visibility: Visibility::Private,
                         },
                     );
                     let _ = self.scope.declare(
@@ -4223,6 +4239,7 @@ impl<'src> Checker<'src> {
                             mutability: Mutability::Const,
                             span: *span,
                             ownership: Ownership::Live,
+                            visibility: Visibility::Private,
                         },
                     );
                     self.iteration_borrows.push(binding);
@@ -4303,6 +4320,7 @@ impl<'src> Checker<'src> {
                         mutability: Mutability::Const,
                         span: *span,
                         ownership: Ownership::Live,
+                        visibility: Visibility::Private,
                     },
                 );
                 self.iteration_borrows.push(binding);
@@ -4661,6 +4679,7 @@ impl<'src> Checker<'src> {
                     mutability,
                     span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 },
             )?;
         }
@@ -6502,6 +6521,7 @@ impl<'src> Checker<'src> {
                     mutability: Mutability::Const,
                     span: param.span,
                     ownership: Ownership::Live,
+                    visibility: Visibility::Private,
                 },
             );
         }

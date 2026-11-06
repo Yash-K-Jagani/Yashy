@@ -12,6 +12,17 @@ use yashy_common::{codes, Span};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+/// Whether a name may be used outside the module that declares it.
+///
+/// A module's items are private unless marked `pub`; a local binding is
+/// always private, because it does not exist outside its function at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Visibility {
+    #[default]
+    Private,
+    Pub,
+}
+
 /// A bound name and what is known about its type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {
@@ -22,6 +33,10 @@ pub struct Binding {
     /// flipped to `Moved` by [`Scope::move_out`]. Only meaningful for linear
     /// types, but tracked for every binding so the state is uniform.
     pub ownership: Ownership,
+    /// Whether another module may name this binding. Locals are always
+    /// `Private`; the field exists so item bindings record the same fact in
+    /// one shape.
+    pub visibility: Visibility,
 }
 
 /// One level of the scope stack.

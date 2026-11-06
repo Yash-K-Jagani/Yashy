@@ -49,6 +49,17 @@ fn assert_rejected(modules: &[(&str, &str)], needle: &str) {
     }
 }
 
+/// Assert the rejection is `E0801`, the private-item code.
+fn assert_e0801(modules: &[(&str, &str)]) {
+    match check(modules) {
+        Ok(_) => panic!("expected E0801"),
+        Err(diagnostics) => assert!(
+            diagnostics.iter().any(|d| d.code.as_deref() == Some("E0801")),
+            "expected E0801, got {diagnostics:?}"
+        ),
+    }
+}
+
 #[test]
 fn a_public_function_is_usable_from_another_module() {
     check(&[
@@ -67,6 +78,21 @@ fn a_private_function_is_not_usable_from_another_module() {
         ],
         "`seven` is private to module `lib`",
     );
+    assert_e0801(&[
+        ("main.ya", "import lib;\nfn main() { print(seven()); }\n"),
+        ("lib.ya", "fn seven() -> int { return 7; }\n"),
+    ]);
+}
+
+#[test]
+fn a_private_field_is_e0801_too() {
+    assert_e0801(&[
+        (
+            "main.ya",
+            "import lib;\nfn main() { let p = Point { x: 1, y: 2 }; print(p.x); }\n",
+        ),
+        ("lib.ya", "pub struct Point { x: int, pub y: int }\n"),
+    ]);
 }
 
 #[test]
