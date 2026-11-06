@@ -254,6 +254,14 @@ fn an_indexed_loop_round_trips() {
 }
 
 #[test]
+fn a_labeled_loop_round_trips() {
+    let source = "fn main() {\n    outer: for i in 0..3 {\n        for j in 0..3 {\n            break outer;\n        }\n    }\n}\n";
+    let formatted = format(source);
+    assert_eq!(formatted, source);
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+}
+
+#[test]
 fn a_field_default_round_trips() {
     let source = "struct Config {\n    retries: int = 3,\n    name: string,\n}\n";
     let formatted = format(source);

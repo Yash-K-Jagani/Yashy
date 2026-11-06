@@ -46,6 +46,8 @@ the declaration or import involved when that is not obvious.
 | [E0500](errors/E0500.md) | moved value |
 | [E0600](errors/E0600.md) | non-exhaustive match |
 | [E0603](errors/E0603.md) | `if let` pattern always matches |
+| [E0604](errors/E0604.md) | unknown loop label |
+| [E0605](errors/E0605.md) | duplicate loop label |
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E0900](errors/E0900.md) | duplicate extern symbol |
 | [E0901](errors/E0901.md) | malformed extern declaration |

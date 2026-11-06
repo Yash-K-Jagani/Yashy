@@ -41,7 +41,7 @@
 //!     span: Span::new(4, 9),
 //! };
 //! let program = Program { items: Vec::new() };
-//! let _ = (cond, program, Stmt::Break(Span::new(0, 0)));
+//! let _ = (cond, program, Stmt::Break(None, Span::new(0, 0)));
 //! ```
 //!
 //! The example is deliberately trivial -- building a tree by hand is what
@@ -482,8 +482,8 @@ impl Stmt {
             | Stmt::ForIn { span, .. }
             | Stmt::ForC { span, .. }
             | Stmt::Switch { span, .. }
-            | Stmt::Break(span)
-            | Stmt::Continue(span)
+            | Stmt::Break(_, span)
+            | Stmt::Continue(_, span)
             | Stmt::Defer { span, .. }
             | Stmt::Arena { span, .. } => *span,
             Stmt::Invariant(contract) => contract.span,
@@ -614,6 +614,8 @@ pub enum Stmt {
         pattern: Pattern,
         value: Expr,
         body: Block,
+        /// The label written `name:` before the loop, if any.
+        label: Option<String>,
         span: Span,
     },
     /// `for i in 0..10 { .. }`
@@ -632,6 +634,8 @@ pub enum Stmt {
         start: Expr,
         end: Expr,
         body: Block,
+        /// The label written `name:` before the loop, if any.
+        label: Option<String>,
         span: Span,
     },
     /// `for x in slice { .. }` -- every element of a slice, in order.
@@ -648,6 +652,8 @@ pub enum Stmt {
         index: Option<String>,
         iterable: Expr,
         body: Block,
+        /// The label written `name:` before the loop, if any.
+        label: Option<String>,
         span: Span,
     },
     /// `for i := 0; i < 10; step(i) { .. }`
@@ -669,6 +675,8 @@ pub enum Stmt {
         cond: Option<Expr>,
         update: Option<Expr>,
         body: Block,
+        /// The label written `name:` before the loop, if any.
+        label: Option<String>,
         span: Span,
     },
     /// `switch subject { case .. { .. } default { .. } }`
@@ -678,9 +686,9 @@ pub enum Stmt {
         span: Span,
     },
     /// `break;` -- leaves the innermost loop or `switch`.
-    Break(Span),
+    Break(Option<String>, Span),
     /// `continue;`
-    Continue(Span),
+    Continue(Option<String>, Span),
     /// `defer { .. }` -- always a braced block, never an expression.
     Defer { body: Block, span: Span },
     /// `arena { .. }` -- one arena for the block, released at block exit.

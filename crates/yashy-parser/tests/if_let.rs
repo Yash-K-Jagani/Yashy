@@ -140,6 +140,7 @@ fn while_let_parses_a_variant_pattern_a_value_and_a_body() {
             pattern,
             value,
             body,
+            label,
             span,
         } => {
             assert!(
@@ -152,7 +153,7 @@ fn while_let_parses_a_variant_pattern_a_value_and_a_body() {
                 "{pattern:?}"
             );
             assert!(matches!(value, Expr::Call { .. }), "{value:?}");
-            assert_eq!(body.stmts.len(), 1);
+            assert!(label.is_none());
             assert_eq!(source_of(&source, span), stmt);
         }
         other => panic!("expected a `while let`, got {other:?}"),

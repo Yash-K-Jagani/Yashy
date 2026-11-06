@@ -256,6 +256,7 @@ fn full_block(spans: &mut Spans) -> Block {
             },
             value: Expr::Ident(vec!["next".to_string()], spans.take()),
             body: empty_block(spans.take()),
+            label: None,
             span: spans.take(),
         },
         // Stmt::ForRange
@@ -264,6 +265,7 @@ fn full_block(spans: &mut Spans) -> Block {
             start: int(0, spans.take()),
             end: int(10, spans.take()),
             body: empty_block(spans.take()),
+            label: None,
             span: spans.take(),
         },
         // Stmt::ForC, all three of whose parts are optional and here all set
@@ -287,6 +289,7 @@ fn full_block(spans: &mut Spans) -> Block {
                 span: spans.take(),
             }),
             body: empty_block(spans.take()),
+            label: None,
             span: spans.take(),
         },
         // Stmt::Switch, with one arm of every pattern kind
@@ -296,9 +299,9 @@ fn full_block(spans: &mut Spans) -> Block {
             span: spans.take(),
         },
         // Stmt::Break
-        Stmt::Break(spans.take()),
+        Stmt::Break(None, spans.take()),
         // Stmt::Continue
-        Stmt::Continue(spans.take()),
+        Stmt::Continue(None, spans.take()),
         // Stmt::Defer
         Stmt::Defer {
             body: empty_block(spans.take()),
@@ -1315,9 +1318,10 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 pattern: Pattern::Wildcard(here()),
                 value: int(0, here()),
                 body: empty_block(here()),
+                label: None,
                 span: here(),
             },
-            &["WhileLet", "pattern", "value", "body", "span"],
+            &["WhileLet", "pattern", "value", "body", "label", "span"],
             &["IfLet", "ForRange", "Switch", "Defer"],
         ),
         case(
@@ -1327,9 +1331,10 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 start: int(0, here()),
                 end: int(1, here()),
                 body: empty_block(here()),
+                label: None,
                 span: here(),
             },
-            &["ForRange", "name", "start", "end", "body", "span"],
+            &["ForRange", "name", "start", "end", "body", "label", "span"],
             &[
                 "Const", "Return", "If", "ForC", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
@@ -1342,9 +1347,10 @@ fn debug_names_every_stmt_variant_and_its_fields() {
                 cond: None,
                 update: None,
                 body: empty_block(here()),
+                label: None,
                 span: here(),
             },
-            &["ForC", "init", "cond", "update", "body", "span"],
+            &["ForC", "init", "cond", "update", "body", "label", "span"],
             &[
                 "Const", "Return", "If", "ForRange", "Switch", "Break", "Continue", "Defer",
                 "Assign", "Binary", "Call",
@@ -1373,13 +1379,13 @@ fn debug_names_every_stmt_variant_and_its_fields() {
         ),
         case(
             "Stmt::Break",
-            Stmt::Break(here()),
+            Stmt::Break(None, here()),
             &["Break", "start", "end"],
             &["Continue", "Return", "Defer"],
         ),
         case(
             "Stmt::Continue",
-            Stmt::Continue(here()),
+            Stmt::Continue(None, here()),
             &["Continue", "start", "end"],
             &["Break", "Return", "Defer"],
         ),

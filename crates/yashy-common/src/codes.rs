@@ -64,6 +64,10 @@ pub const MOVED_VALUE: &str = "E0500";
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
 /// An `if let` or `while let` pattern matches every value of its type.
 pub const IRREFUTABLE_IF_LET: &str = "E0603";
+/// `break` or `continue` names a label no enclosing loop has.
+pub const UNKNOWN_LABEL: &str = "E0604";
+/// Two nested loops carry the same label.
+pub const DUPLICATE_LABEL: &str = "E0605";
 /// A call passes the wrong number of arguments.
 pub const WRONG_ARGUMENT_COUNT: &str = "E0700";
 /// Two things claim the same linker symbol: two `extern` declarations that
@@ -232,6 +236,18 @@ pub const CODES: &[Code] = &[
         title: "`if let` pattern always matches",
         summary: "An `if let` or `while let` pattern matches every value of its type, so the branch or loop exit can never run.",
         page: include_str!("../../../docs/errors/E0603.md"),
+    },
+    Code {
+        id: UNKNOWN_LABEL,
+        title: "unknown loop label",
+        summary: "`break` or `continue` names a label that no enclosing loop carries.",
+        page: include_str!("../../../docs/errors/E0604.md"),
+    },
+    Code {
+        id: DUPLICATE_LABEL,
+        title: "duplicate loop label",
+        summary: "Two loops nested inside each other carry the same label.",
+        page: include_str!("../../../docs/errors/E0605.md"),
     },
     Code {
         id: WRONG_ARGUMENT_COUNT,

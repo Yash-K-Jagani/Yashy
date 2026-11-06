@@ -588,6 +588,15 @@ pub struct Checker<'src> {    scope: Scope,
     /// not -- it is handed IR text and a path, and no map -- so they are
     /// resolved here and travel in the tree.
     sm: &'src SourceMap,
+    /// The labels of the loops enclosing the statement being checked,
+    /// innermost last. `None` is an unlabeled loop (the variable type is
+    /// `None`: it never appears in source, only in the model).
+    loop_labels: Vec<Option<String>>,
+    /// Labels whose flags have been written into the HIR, innermost last.
+    /// A `break L` from two loops deep writes its flag, so an enclosing loop
+    /// knows to check the flag at the end of its body even before the
+    /// `break` itself has been lowered.
+    labeled_loops: Vec<String>,
 }
 
 impl<'src> Checker<'src> {
@@ -846,6 +855,8 @@ impl<'src> Checker<'src> {
             const_fns: ConstFns::new(),
             item_origins: HashMap::new(),
             sm,
+            loop_labels: Vec::new(),
+            labeled_loops: Vec::new(),
         }
     }
 
@@ -3190,7 +3201,23 @@ impl<'src> Checker<'src> {
                 seen_statement = true;
             }
             let checked = self.check_stmt(stmt, ret)?;
+            let is_loop = matches!(
+                stmt,
+                Stmt::ForRange { .. }
+                    | Stmt::ForIn { .. }
+                    | Stmt::ForC { .. }
+                    | Stmt::WhileLet { .. }
+            );
             stmts.push(checked);
+            // A labeled jump inside the loop just checked sets a flag and
+            // breaks out of it. Propagate the flag immediately, here in the
+            // enclosing body, so statements after the inner loop do not run
+            // on the jump's iteration. The body-end checks in `wrap_loop`
+            // stay as the backstop for jumps in trailing position.
+            if is_loop && !self.labeled_loops.is_empty() {
+                let span = stmt.span();
+                stmts.extend(self.propagation_checks(span));
+            }
         }
         self.scope.pop();
         Some(HirBlock {
@@ -3198,6 +3225,289 @@ impl<'src> Checker<'src> {
             span: block.span,
             arena: false,
         })
+    }
+
+    /// Lower `break L` / `continue L` (Task 9): flags, not new HIR.
+    ///
+    /// A labeled jump is `__brk_L = true; break;` (or `__cont_L`), built from
+    /// the same statements a hand-written program would have. The flags are
+    /// mutable `let` bindings (`Var`), never `const`.
+    fn flag_bool(_flag: &str, value: bool, span: Span) -> HirExpr {
+        HirExpr::Literal(
+            Literal::Bool(value),
+            span,
+            prim(TypeKind::Bool),
+        )
+    }
+
+    fn flag_decl(label: &str, is_break: bool, span: Span) -> HirStmt {
+        let flag = if is_break {
+            format!("__brk_{label}")
+        } else {
+            format!("__cont_{label}")
+        };
+        HirStmt::Var {
+            name: flag,
+            ty: None,
+            init: Self::flag_bool(
+                "",
+                false,
+                span,
+            ),
+            mutability: Mutability::Var,
+            span,
+        }
+    }
+
+    /// The flag a labeled jump sets, named by its label.
+    fn flag_name(label: &str, is_break: bool) -> String {
+        if is_break {
+            format!("__brk_{label}")
+        } else {
+            format!("__cont_{label}")
+        }
+    }
+
+    /// `flag = true;` -- the write half of a labeled jump.
+    fn flag_set(label: &str, is_break: bool, span: Span) -> HirStmt {
+        HirStmt::Assign {
+            name: Self::flag_name(label, is_break),
+            value: Self::flag_bool("", true, span),
+            ty: prim(TypeKind::Bool),
+            release_previous: false,
+            span,
+        }
+    }
+
+    /// `if flag { break; }` -- an intervening loop's propagation check.
+    fn flag_check_break(label: &str, is_break: bool, span: Span) -> HirStmt {
+        HirStmt::If {
+            init: None,
+            cond: HirExpr::Ident(
+                vec![Self::flag_name(label, is_break)],
+                span,
+                prim(TypeKind::Bool),
+            ),
+            then_block: HirBlock {
+                stmts: vec![HirStmt::Break(span)],
+                span,
+                arena: false,
+            },
+            else_block: None,
+            span,
+        }
+    }
+
+    /// `if __cont_L { __cont_L = false; continue; }` -- the labeled loop's tail.
+    fn labeled_continue_tail(label: &str, span: Span) -> HirStmt {
+        let flag = Self::flag_name(label, false);
+        HirStmt::If {
+            init: None,
+            cond: HirExpr::Ident(vec![flag.clone()], span, prim(TypeKind::Bool)),
+            then_block: HirBlock {
+                stmts: vec![
+                    HirStmt::Assign {
+                        name: flag,
+                        value: Self::flag_bool("", false, span),
+                        ty: prim(TypeKind::Bool),
+                        release_previous: false,
+                        span,
+                    },
+                    HirStmt::Continue(span),
+                ],
+                span,
+                arena: false,
+            },
+            else_block: None,
+            span,
+        }
+    }
+
+    /// The checks emitted after a loop statement inside a labeled loop's
+    /// body: for every enclosing label, `if __brk_L { break; }` and the
+    /// `continue` propagation (`break` for an outer label, reset-and-`continue`
+    /// for the label of the loop whose body this is).
+    fn propagation_checks(&self, span: Span) -> Vec<HirStmt> {
+        let mut checks = Vec::new();
+        for label in &self.labeled_loops {
+            checks.push(Self::flag_check_break(label, true, span));
+            if self.loop_labels.last().and_then(|l| l.as_ref()) == Some(label) {
+                checks.push(Self::labeled_continue_tail(label, span));
+            } else {
+                checks.push(Self::flag_check_break(label, false, span));
+            }
+        }
+        checks
+    }
+
+    /// The flag a labeled loop statement is wrapped in: the loop itself
+    /// carries the propagation checks, and when the loop is labeled the
+    /// two flag bindings live in enclosing `if true` inits. Unlabeled
+    /// loops (label `None`) produce just the loop with the outer labels'
+    /// checks appended.
+    fn wrap_loop(&mut self, label: &Option<String>, loop_stmt: HirStmt, span: Span) -> HirStmt {
+        let mut with_checks = match &loop_stmt {
+            HirStmt::ForRange { body, .. } => body.stmts.clone(),
+            HirStmt::ForIn { body, .. } => body.stmts.clone(),
+            HirStmt::ForC { body, .. } => body.stmts.clone(),
+            _ => Vec::new(),
+        };
+        for outer in self.labeled_loops.iter() {
+            if Some(outer) == label.as_ref() {
+                continue;
+            }
+            with_checks.push(Self::flag_check_break(outer, true, span));
+        }
+        for outer in self.labeled_loops.iter() {
+            if Some(outer) == label.as_ref() {
+                continue;
+            }
+            with_checks.push(Self::flag_check_break(outer, false, span));
+        }
+        if let Some(label) = label {
+            with_checks.push(Self::flag_check_break(label, true, span));
+            with_checks.push(Self::labeled_continue_tail(label, span));
+        }
+        // Rebuild the loop with the augmented body.
+        let loop_stmt = match loop_stmt {
+            HirStmt::ForRange { name, start, end, body, span } => HirStmt::ForRange {
+                name,
+                start,
+                end,
+                body: HirBlock {
+                    stmts: with_checks,
+                    span: body.span,
+                    arena: body.arena,
+                },
+                span,
+            },
+            HirStmt::ForIn { name, iterable, body, span } => HirStmt::ForIn {
+                name,
+                iterable,
+                body: HirBlock {
+                    stmts: with_checks,
+                    span: body.span,
+                    arena: body.arena,
+                },
+                span,
+            },
+            HirStmt::ForC { init, cond, update, body, span } => HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body: HirBlock {
+                    stmts: with_checks,
+                    span: body.span,
+                    arena: body.arena,
+                },
+                span,
+            },
+            other => other,
+        };
+        match label {
+            None => loop_stmt,
+            Some(label) => {
+                let inner = HirStmt::If {
+                    init: Some(Box::new(Self::flag_decl(label, false, span))),
+                    cond: HirExpr::Literal(Literal::Bool(true), span, prim(TypeKind::Bool)),
+                    then_block: HirBlock {
+                        stmts: vec![loop_stmt],
+                        span,
+                        arena: false,
+                    },
+                    else_block: None,
+                    span,
+                };
+                HirStmt::If {
+                    init: Some(Box::new(Self::flag_decl(label, true, span))),
+                    cond: HirExpr::Literal(Literal::Bool(true), span, prim(TypeKind::Bool)),
+                    then_block: HirBlock {
+                        stmts: vec![inner],
+                        span,
+                        arena: false,
+                    },
+                    else_block: None,
+                    span,
+                }
+            }
+        }
+    }
+
+    /// Lower a labeled `break L` / `continue L` to
+    /// `if (flag = true) { break; }` -- the write and the real break in
+    /// one statement, so `check_stmt` keeps its single-statement shape.
+    /// Depth 0 (the label is on the innermost loop) is a plain jump.
+    fn labeled_jump(&mut self, label: &str, is_break: bool, span: Span) -> Option<HirStmt> {
+        let Some(depth) = self
+            .loop_labels
+            .iter()
+            .rev()
+            .position(|l| l.as_deref() == Some(label))
+        else {
+            let in_scope: Vec<String> = self
+                .loop_labels
+                .iter()
+                .flatten()
+                .map(|l| format!("`{l}`"))
+                .collect();
+            let message = if in_scope.is_empty() {
+                format!("no enclosing loop is labeled `{label}`")
+            } else {
+                format!(
+                    "no enclosing loop is labeled `{label}`; the labels in scope are: {}",
+                    in_scope.join(", ")
+                )
+            };
+            self.error_code(span, codes::UNKNOWN_LABEL, message);
+            return None;
+        };
+        // Depth 0 (the label is on the innermost loop) is a plain jump: a
+        // real `break` already leaves that loop, and a real `continue`
+        // already re-tests it. The flag form would exit it instead.
+        if depth == 0 {
+            return Some(if is_break {
+                HirStmt::Break(span)
+            } else {
+                HirStmt::Continue(span)
+            });
+        }
+        let assign = Self::flag_set(label, is_break, span);
+        let break_stmt = if is_break {
+            HirStmt::Break(span)
+        } else {
+            HirStmt::Break(span) // continue lowers to a real break too
+        };
+        Some(HirStmt::If {
+            init: Some(Box::new(assign)),
+            cond: HirExpr::Literal(Literal::Bool(true), span, prim(TypeKind::Bool)),
+            then_block: HirBlock {
+                stmts: vec![break_stmt],
+                span,
+                arena: false,
+            },
+            else_block: None,
+            span,
+        })
+    }
+
+    /// Push a loop label, reporting `E0605` for a duplicate.
+    fn push_loop_label(&mut self, label: &Option<String>, span: Span) {
+        if let Some(label) = label {
+            if self.loop_labels.iter().any(|l| l.as_deref() == Some(label.as_str())) {
+                self.error_code(
+                    span,
+                    codes::DUPLICATE_LABEL,
+                    format!("the label `{label}` is already in scope"),
+                );
+            }
+            self.loop_labels.push(Some(label.clone()));
+        } else {
+            self.loop_labels.push(None);
+        }
+    }
+
+    fn pop_loop_label(&mut self) {
+        self.loop_labels.pop();
     }
 
     /// Fold a `const` initializer that calls a `const fn` into the value the
@@ -3762,13 +4072,30 @@ impl<'src> Checker<'src> {
                 pattern,
                 value,
                 body,
+                label,
                 span,
-            } => self.check_while_let(pattern, value, body, *span, ret),
+            } => {
+                self.push_loop_label(label, *span);
+                if label.is_some() {
+                    // Register for propagation even before the body is read.
+                    self.labeled_loops.push(label.clone().unwrap());
+                }
+                let out = self.check_while_let(pattern, value, body, *span, ret);
+                self.pop_loop_label();
+                if label.is_some() {
+                    self.labeled_loops.pop();
+                }
+                match out {
+                    Some(loop_stmt) => Some(self.wrap_loop(label, loop_stmt, *span)),
+                    None => None,
+                }
+            }
             Stmt::ForRange {
                 name,
                 start,
                 end,
                 body,
+                label,
                 span,
             } => {
                 let start_expr = self.check_expr(start)?;
@@ -3795,21 +4122,31 @@ impl<'src> Checker<'src> {
                         ownership: Ownership::Live,
                     },
                 );
+                self.push_loop_label(label, *span);
+                if label.is_some() {
+                    self.labeled_loops.push(label.clone().unwrap());
+                }
                 let body = self.check_block_with_ret(body, ret)?;
+                self.pop_loop_label();
+                if label.is_some() {
+                    self.labeled_loops.pop();
+                }
                 self.scope.pop();
-                Some(HirStmt::ForRange {
+                let loop_stmt = HirStmt::ForRange {
                     name: name.clone(),
                     start: start_expr,
                     end: end_expr,
                     body,
                     span: *span,
-                })
+                };
+                Some(self.wrap_loop(label, loop_stmt, *span))
             }
             Stmt::ForIn {
                 name,
                 index,
                 iterable,
                 body,
+                label,
                 span,
             } => {
                 let binding = match iterable {
@@ -3881,7 +4218,15 @@ impl<'src> Checker<'src> {
                         },
                     );
                     self.iteration_borrows.push(binding);
+                    self.push_loop_label(label, *span);
+                    if label.is_some() {
+                        self.labeled_loops.push(label.clone().unwrap());
+                    }
                     let body = self.check_block_with_ret(body, ret);
+                    self.pop_loop_label();
+                    if label.is_some() {
+                        self.labeled_loops.pop();
+                    }
                     self.iteration_borrows.pop();
                     self.scope.pop();
                     let body = body?;
@@ -3903,7 +4248,7 @@ impl<'src> Checker<'src> {
                     };
                     let mut stmts = vec![read];
                     stmts.extend(body.stmts);
-                    return Some(HirStmt::ForRange {
+                    let loop_stmt = HirStmt::ForRange {
                         name: index.clone(),
                         start: HirExpr::Literal(
                             yashy_hir::hir::Literal::I64(0),
@@ -3939,7 +4284,8 @@ impl<'src> Checker<'src> {
                             arena: false,
                         },
                         span: *span,
-                    });
+                    };
+                    return Some(self.wrap_loop(label, loop_stmt, *span));
                 }
                 self.scope.push();
                 let _ = self.scope.declare(
@@ -3952,22 +4298,32 @@ impl<'src> Checker<'src> {
                     },
                 );
                 self.iteration_borrows.push(binding);
+                self.push_loop_label(label, *span);
+                if label.is_some() {
+                    self.labeled_loops.push(label.clone().unwrap());
+                }
                 let body = self.check_block_with_ret(body, ret);
+                self.pop_loop_label();
+                if label.is_some() {
+                    self.labeled_loops.pop();
+                }
                 self.iteration_borrows.pop();
                 self.scope.pop();
                 let body = body?;
-                Some(HirStmt::ForIn {
+                let loop_stmt = HirStmt::ForIn {
                     name: name.clone(),
                     iterable: iterable_expr,
                     body,
                     span: *span,
-                })
+                };
+                Some(self.wrap_loop(label, loop_stmt, *span))
             }
             Stmt::ForC {
                 init,
                 cond,
                 update,
                 body,
+                label,
                 span,
             } => {
                 let init = init
@@ -3984,22 +4340,37 @@ impl<'src> Checker<'src> {
                     }
                 }
                 let update_expr = update.as_ref().and_then(|u| self.check_expr(u));
+                self.push_loop_label(label, *span);
+                if label.is_some() {
+                    self.labeled_loops.push(label.clone().unwrap());
+                }
                 let body = self.check_block_with_ret(body, ret)?;
-                Some(HirStmt::ForC {
+                self.pop_loop_label();
+                if label.is_some() {
+                    self.labeled_loops.pop();
+                }
+                let loop_stmt = HirStmt::ForC {
                     init,
                     cond: cond_expr,
                     update: update_expr,
                     body,
                     span: *span,
-                })
+                };
+                Some(self.wrap_loop(label, loop_stmt, *span))
             }
             Stmt::Switch {
                 subject,
                 arms,
                 span,
             } => self.check_switch_stmt(subject, arms, *span),
-            Stmt::Break(span) => Some(HirStmt::Break(*span)),
-            Stmt::Continue(span) => Some(HirStmt::Continue(*span)),
+            Stmt::Break(label, span) => match label {
+                None => Some(HirStmt::Break(*span)),
+                Some(label) => self.labeled_jump(label, true, *span),
+            },
+            Stmt::Continue(label, span) => match label {
+                None => Some(HirStmt::Continue(*span)),
+                Some(label) => self.labeled_jump(label, false, *span),
+            },
             Stmt::Defer { body, span } => {
                 let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::Defer { body, span: *span })

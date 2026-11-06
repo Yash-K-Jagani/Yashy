@@ -349,12 +349,13 @@ See the master index. The ones that bite here:
   The cost is one boolean test per iteration of each intervening loop, and the plan accepts it: the alternative — a label on `HirStmt::Break` — is a new HIR concept, and phase 5's whole claim is that it adds none. The optimizer in phase 4 removes the test when the flag is provably false at that point.
 - Produces: `defer` still runs on every path, because the lowering only ever emits a real `break`/`continue` — the arena and cleanup tests are the regression proof.
 - Produces: an unlabelled `break` keeps its meaning exactly (innermost loop, through a `switch`), and the existing `loop_exit.ya` test is unchanged.
+- Produces: a loop without a label has `label: None`. The unlabelled-loop form is the existing grammar; the labeled form adds `Some(name)`. In the plan's tests, `None` is the variable type (i.e. the absence of a label); it never appears in Yashy source, only in the parser/checker model as `Option<String>`.
 
-- [ ] **Step 1: Write the failing tests** — `break outer` from two loops deep exits both; `continue outer` skips the rest of the inner loop and re-tests the outer; a label on a `while` works; `break nope` is `E0604` with the in-scope labels; nested `L:` is `E0605`; a `defer` inside the inner loop runs when `break outer` fires; an unlabelled `break` in the same program still exits only the inner loop; the HIR of the sugar equals the HIR of the hand-written flags.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the parser accepts `Ident Colon` only when the next token is `For` or `While`, which is decided by one token of lookahead and cannot misfire in a declaration; resolution walks the loop stack, which already exists for `break`/`continue` checking; the lowering runs in `check_expr` beside the existing `break` handling so there is one place that knows what "innermost loop" means.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: labeled break and continue, lowered to flags (E0604, E0605)"`
+- [x] **Step 1: Write the failing tests** — `break outer` from two loops deep exits both; `continue outer` skips the rest of the inner loop and re-tests the outer; a label on a `while` works; `break nope` is `E0604` with the in-scope labels; nested `L:` is `E0605`; a `defer` inside the inner loop runs when `break outer` fires; an unlabelled `break` in the same program still exits only the inner loop; the HIR of the sugar equals the HIR of the hand-written flags.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the parser accepts `Ident Colon` only when the next token is `For` or `While`, which is decided by one token of lookahead and cannot misfire in a declaration; resolution walks the loop stack, which already exists for `break`/`continue` checking; the lowering runs in `check_expr` beside the existing `break` handling so there is one place that knows what "innermost loop" means. Two corrections while building: `continue L` on the innermost loop is a plain `continue` (the flag form would exit it), and the propagation check is emitted after the inner loop statement in the enclosing body, not only at the body end, so statements after the inner loop do not run on the jump's iteration.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: labeled break and continue, lowered to flags (E0604, E0605)"`
 
 ---
 

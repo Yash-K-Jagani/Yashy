@@ -1,0 +1,81 @@
+// Labeled `break` and `continue`: `break outer` leaves both loops, and
+// `continue outer` skips the rest of the inner loop body and re-tests the
+// outer one. An unlabelled `break` still leaves only the innermost loop,
+// and a `defer` inside the inner loop runs on the labeled exit path.
+//
+// Ownership: every `body` allocation built in a loop body is freed on the
+// path that leaves the iteration, including the labeled `break` path.
+
+fn main() {
+    // `break outer` from two loops deep exits both: without the label the
+    // inner `break` would run for every outer iteration and print 3 lines.
+    let hits = 0;
+    outer: for i in 0..3 {
+        for j in 0..3 {
+            hits = hits + 1;
+            if j == 1 {
+                break outer;
+            }
+        }
+        print("unreachable");
+    }
+    print(hits);
+
+    // `continue outer` skips the print after the inner loop and the rest of
+    // the outer body, then advances the outer loop.
+    let visited = 0;
+    let skipped = 0;
+    outer: for i in 0..3 {
+        visited = visited + 1;
+        for j in 0..2 {
+            if j == 0 {
+                continue outer;
+            }
+            print("unreachable");
+        }
+        skipped = skipped + 1;
+        print("unreachable");
+    }
+    print(visited);
+    print(skipped);
+
+    // A label on `while` works the same way.
+    let n = 0;
+    outer: while n < 3 {
+        n = n + 1;
+        for j in 0..3 {
+            if j == 2 {
+                break outer;
+            }
+        }
+    }
+    print(n);
+
+    // An unlabelled `break` in the same program still exits only the inner
+    // loop: the outer loop runs all three times.
+    let inner_only = 0;
+    for i in 0..3 {
+        for j in 0..3 {
+            if j == 1 {
+                break;
+            }
+            inner_only = inner_only + 1;
+        }
+    }
+    print(inner_only);
+
+    // A `defer` inside the inner loop runs when `break outer` fires: the
+    // deferred release is what frees `body`, so a missed `defer` would leak
+    // instead of printing `freed`.
+    let released = false;
+    outer: for i in 0..2 {
+        for j in 0..2 {
+            let body = alloc(16);
+            defer { body.free(); released = true; }
+            if j == 0 {
+                break outer;
+            }
+        }
+    }
+    print(released);
+}

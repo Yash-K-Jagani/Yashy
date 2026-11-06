@@ -377,6 +377,18 @@ fn chained_comparisons_evaluate_each_operand_once() {
 }
 
 #[test]
+fn labeled_break_and_continue_exit_the_labeled_loop() {
+    // `break outer` from two loops deep exits both (hits is 2, not 3 lines
+    // per outer iteration); `continue outer` visits 3 outer iterations
+    // without ever reaching the statement after the inner loop; a label on
+    // `while` works; an unlabelled `break` still exits only the inner loop
+    // (3, not 1); and the `defer` in the inner body runs on the labeled
+    // exit path.
+    let output = build_and_run("labeled_loops");
+    assert_eq!(stdout_of(&output), "2\n3\n0\n1\n3\ntrue\n");
+}
+
+#[test]
 fn bitwise_operators_print_their_values() {
     // Every operator, the arithmetic/logical split on `>>`, and the precedence
     // that makes `1 << 3 | 1` nine rather than sixteen.

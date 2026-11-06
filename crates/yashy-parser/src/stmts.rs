@@ -44,6 +44,22 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        // `name: for` / `name: while` -- a labeled loop. Statement position
+        // only: an identifier followed by `:` is unambiguous here because a
+        // type precedes a name in a declaration (Task 0), so no declaration
+        // starts this way.
+        if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {
+            let label = self.identifier()?;
+            let _ = self.expect(TokenKind::Colon)?;
+            return match self.peek() {
+                TokenKind::For => self.parse_for_labeled(Some(label.0)),
+                TokenKind::While => self.parse_while_labeled(Some(label.0)),
+                _ => Err(self.error(
+                    self.peek_span(),
+                    "a label may only precede `for` or `while`",
+                )),
+            };
+        }
         match self.peek() {
             TokenKind::Const => self.parse_const(),
             // The keyword still lexes as one so that the refusal can name it.
@@ -339,6 +355,10 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_for(&mut self) -> Result<Stmt, ParseError> {
+        self.parse_for_labeled(None)
+    }
+
+    fn parse_for_labeled(&mut self, label: Option<String>) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::For)?;
         // Range form: for <ident> in <expr> .. <expr> { }
         // Slice form: for <ident> in <expr> { } -- the head is the same up to
@@ -361,6 +381,7 @@ impl<'src> Parser<'src> {
                 index: Some(index),
                 iterable,
                 body,
+                label,
                 span: cover(kw.span, body_span),
             });
         }
@@ -376,6 +397,7 @@ impl<'src> Parser<'src> {
                     index: None,
                     iterable: first,
                     body,
+                    label,
                     span: cover(kw.span, body_span),
                 });
             }
@@ -388,6 +410,7 @@ impl<'src> Parser<'src> {
                 start: first,
                 end,
                 body,
+                label,
                 span: cover(kw.span, body_span),
             });
         }
@@ -422,6 +445,7 @@ impl<'src> Parser<'src> {
             cond,
             update,
             body,
+            label,
             span: cover(kw.span, body_span),
         })
     }
@@ -436,9 +460,13 @@ impl<'src> Parser<'src> {
     /// top, where a reader looks for it. The AST is unchanged: the range form
     /// and the C form already carry every loop the backend knows how to lower.
     fn parse_while(&mut self) -> Result<Stmt, ParseError> {
+        self.parse_while_labeled(None)
+    }
+
+    fn parse_while_labeled(&mut self, label: Option<String>) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::While)?;
         if self.check(TokenKind::Let) {
-            return self.parse_while_let(kw.span);
+            return self.parse_while_let(kw.span, label);
         }
         let cond = self.without_block_arg(|p| p.parse_expr())?;
         let body = self.parse_loop_body()?;
@@ -448,6 +476,7 @@ impl<'src> Parser<'src> {
             cond: Some(cond),
             update: None,
             body,
+            label,
             span: cover(kw.span, body_span),
         })
     }
@@ -458,7 +487,7 @@ impl<'src> Parser<'src> {
     /// `it.next()` advances the loop. The body is parsed by
     /// [`Self::parse_loop_body`], so `invariant` clauses keep working: the
     /// pattern's bindings are in scope by the time the checker reads them.
-    fn parse_while_let(&mut self, kw: Span) -> Result<Stmt, ParseError> {
+    fn parse_while_let(&mut self, kw: Span, label: Option<String>) -> Result<Stmt, ParseError> {
         let _ = self.expect(TokenKind::Let)?;
         let pattern = self.parse_pattern()?;
         self.expect(TokenKind::Eq)?;
@@ -469,6 +498,7 @@ impl<'src> Parser<'src> {
             pattern,
             value,
             body,
+            label,
             span: cover(kw, body_span),
         })
     }
@@ -676,14 +706,24 @@ impl<'src> Parser<'src> {
 
     fn parse_break(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Break)?;
+        let label = if self.check(TokenKind::Ident) {
+            Some(self.identifier()?.0)
+        } else {
+            None
+        };
         let semi = self.expect(TokenKind::Semi)?;
-        Ok(Stmt::Break(cover(kw.span, semi.span)))
+        Ok(Stmt::Break(label, cover(kw.span, semi.span)))
     }
 
     fn parse_continue(&mut self) -> Result<Stmt, ParseError> {
         let kw = self.expect(TokenKind::Continue)?;
+        let label = if self.check(TokenKind::Ident) {
+            Some(self.identifier()?.0)
+        } else {
+            None
+        };
         let semi = self.expect(TokenKind::Semi)?;
-        Ok(Stmt::Continue(cover(kw.span, semi.span)))
+        Ok(Stmt::Continue(label, cover(kw.span, semi.span)))
     }
 
     fn parse_defer(&mut self) -> Result<Stmt, ParseError> {

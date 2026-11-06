@@ -1287,6 +1287,7 @@ fn while_is_the_condition_only_for_loop() {
         cond,
         update,
         body: loop_body,
+        label,
         span,
     } = &body.stmts[0]
     else {
