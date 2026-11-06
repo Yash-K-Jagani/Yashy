@@ -259,16 +259,24 @@ fn an_option_question_mark_in_a_plain_function_is_e0301() {
 #[test]
 fn a_diagnostic_without_a_code_is_allowed_and_counted() {
     let (_, diags) = check("fn main() {\n    const x = 1;\n    const x = 2;\n}\n");
-    assert!(
-        !diags.is_empty(),
-        "a duplicate definition is still an error"
+    let mut duplicate = diags
+        .into_iter()
+        .find(|diagnostic| diagnostic.message.contains("duplicate definition"))
+        .expect("a duplicate definition is still an error");
+    assert_eq!(
+        duplicate.code,
+        Some(codes::UNKNOWN_NAME),
+        "the duplicate definition carries the code assigned where it is built"
     );
+    // The bag counts what has no code, and an uncoded diagnostic is allowed.
+    // Clear the code on a real diagnostic rather than inventing one, so the
+    // test exercises the same shapes the pipeline produces.
+    duplicate.code = None;
     let mut bag = DiagnosticBag::new();
-    for diagnostic in diags {
-        bag.push(diagnostic);
-    }
-    assert!(
-        bag.uncoded_count() >= 1,
-        "the duplicate definition has no R1 code, so it must count as uncoded"
+    bag.push(duplicate);
+    assert_eq!(
+        bag.uncoded_count(),
+        1,
+        "a diagnostic without an R1 code is counted as uncoded"
     );
 }
