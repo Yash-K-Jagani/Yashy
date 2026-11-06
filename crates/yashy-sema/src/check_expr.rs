@@ -506,6 +506,11 @@ pub struct Checker<'src> {    scope: Scope,
     /// `assert` turn a span into a position with, and it moves from module to
     /// module as [`Checker::check_modules`] walks the graph.
     file: FileId,
+    /// Import aliases per module: this file's `import std.io as io;` maps
+    /// `io` to the module named by the path's last segment (`io`). An alias
+    /// renames the name a module is known by in this file; the items
+    /// themselves still live in the one shared namespace.
+    aliases: Vec<(FileId, HashMap<String, String>)>,
     /// Whether this is a release build, in which a `debug_assert` compiles away.
     ///
     /// The only build-mode decision the checker makes. It cannot be made later:
@@ -845,6 +850,7 @@ impl<'src> Checker<'src> {
             variadic_externs: HashSet::new(),
             errors: Vec::new(),
             file,
+            aliases: Vec::new(),
             release: options.release,
             uses_threads: false,
             in_const_init: false,
@@ -1313,6 +1319,16 @@ impl<'src> Checker<'src> {
         for (file, ast) in modules {
             self.file = *file;
             self.declare_items(&ast.items);
+            let mut module_aliases: HashMap<String, String> = HashMap::new();
+            for item in &ast.items {
+                if let Item::Import { path, alias, .. } = item {
+                    if let Some(target) = path.last() {
+                        let name = alias.clone().unwrap_or_else(|| target.clone());
+                        module_aliases.insert(name, target.clone());
+                    }
+                }
+            }
+            self.aliases.push((*file, module_aliases));
         }
         self.check_symbol_collisions();
         let mut items = Vec::new();
@@ -3005,7 +3021,7 @@ impl<'src> Checker<'src> {
                     span: *span,
                 })])
             }
-            Item::Import { path, span } => Some(vec![HirItem::Import(HirImport {
+            Item::Import { path, span, .. } => Some(vec![HirItem::Import(HirImport {
                 path: path.clone(),
                 span: *span,
                 file: self.file,
@@ -8128,6 +8144,47 @@ impl<'src> Checker<'src> {
                 if callee.len() >= 2 {
                     if let Some(constructed) = self.check_enum_call(callee, args, *span) {
                         return constructed;
+                    }
+                }
+                // An aliased module path: `io.print(..)` where `io` is this
+                // file's alias for the module named by the import path's last
+                // segment. The head must not be a local binding (that would be
+                // a receiver method, handled below). Resolve the tail as an
+                // ordinary unqualified call after the visibility check for
+                // the target module.
+                if callee.len() == 2
+                    && self.scope.resolve(&callee[0]).is_none()
+                {
+                    let aliased = self
+                        .aliases
+                        .iter()
+                        .find(|(file, _)| *file == self.file)
+                        .and_then(|(_, table)| table.get(&callee[0]).cloned());
+                    if let Some(target_module) = aliased {
+                        let name = callee[1].clone();
+                        if let Some(origin) = self.item_origins.get(&name).copied() {
+                            if self.module_name(origin.file) != target_module {
+                                self.error_code(
+                                    *span,
+                                    codes::UNKNOWN_NAME,
+                                    format!(
+                                        "`{name}` is not declared in module `{target_module}`"
+                                    ),
+                                );
+                                return None;
+                            }
+                            self.check_visibility(&name, *span);
+                        }
+                        if self.errors.iter().any(|(_, e)| e.span == *span) {
+                            return None;
+                        }
+                        let single = Expr::Call {
+                            callee: vec![name],
+                            args: args.clone(),
+                            unsafe_call: *unsafe_call,
+                            span: *span,
+                        };
+                        return self.check_expr(&single);
                     }
                 }
                 // A method receiver has to be a local binding. The parser keeps

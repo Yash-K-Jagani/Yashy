@@ -71,7 +71,8 @@ impl Scope {
             return Err(TypeError::new(
                 binding.span,
                 format!("duplicate definition of `{name}`"),
-            ));
+            )
+            .with_code(codes::UNKNOWN_NAME));
         }
         current.bindings.insert(name, binding);
         Ok(())

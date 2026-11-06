@@ -113,7 +113,7 @@ fn parses_import_struct_enum_and_fn() {
 
     // import std.io;
     match &program.items[0] {
-        Item::Import { path, span } => {
+        Item::Import { path, span, .. } => {
             assert_eq!(path, &vec!["std".to_string(), "io".to_string()]);
             assert_eq!(
                 *span,
@@ -219,7 +219,7 @@ fn parses_dotted_import_path() {
     let program = parse_ok("import crypto.sha256;");
     assert_eq!(program.items.len(), 1);
     match &program.items[0] {
-        Item::Import { path, span } => {
+        Item::Import { path, span, .. } => {
             assert_eq!(path, &vec!["crypto".to_string(), "sha256".to_string()]);
             assert_eq!(
                 *span,

@@ -457,7 +457,7 @@ impl SourceLoader<'_> {
         // a word in a comment or string can never be mistaken for an import.
         let imports = scan_imports(&tokens, self.sources.file(file));
 
-        for (segments, span) in imports {
+        for (segments, alias, span) in imports {
             let spec = segments.join(".");
             let target = match resolve_import(&spec, Some(path), &self.roots) {
                 Ok(target) => target,
@@ -484,7 +484,7 @@ impl SourceLoader<'_> {
                 &target,
                 target_source,
                 Some((file, span)),
-                segments.last().cloned(),
+                alias.or_else(|| segments.last().cloned()),
             ) {
                 return Err(self.abandon(identity, diagnostics));
             }
@@ -604,7 +604,7 @@ fn identity_of(path: &Path) -> PathBuf {
 /// stream that does not match that shape is left alone, so the parser reports
 /// the syntax error instead of discovery inventing a module that was never
 /// named.
-fn scan_imports(tokens: &[Token], source: &str) -> Vec<(Vec<String>, Span)> {
+fn scan_imports(tokens: &[Token], source: &str) -> Vec<(Vec<String>, Option<String>, Span)> {
     let mut imports = Vec::new();
     let mut index = 0;
     while index < tokens.len() {
@@ -638,8 +638,24 @@ fn scan_imports(tokens: &[Token], source: &str) -> Vec<(Vec<String>, Span)> {
                 .map_or(false, |token| token.kind == TokenKind::Semi)
         {
             let span = Span::new(tokens[start].span.start, tokens[index].span.end);
-            imports.push((path, span));
+            imports.push((path, None, span));
             index += 1;
+        } else if complete
+            && tokens
+                .get(index)
+                .map_or(false, |token| token.kind == TokenKind::As)
+        {
+            index += 1;
+            if let Some(alias) = import_segment(tokens, &mut index, source) {
+                if tokens
+                    .get(index)
+                    .map_or(false, |token| token.kind == TokenKind::Semi)
+                {
+                    let span = Span::new(tokens[start].span.start, tokens[index].span.end);
+                    imports.push((path, Some(alias), span));
+                    index += 1;
+                }
+            }
         }
     }
     imports

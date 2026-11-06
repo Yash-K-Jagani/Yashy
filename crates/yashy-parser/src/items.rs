@@ -298,9 +298,15 @@ impl<'src> Parser<'src> {
         while self.eat(TokenKind::Dot) {
             path.push(self.import_segment()?);
         }
+        let alias = if self.eat(TokenKind::As) {
+            Some(self.import_segment()?)
+        } else {
+            None
+        };
         let semicolon = self.expect(TokenKind::Semi)?;
         Ok(Item::Import {
             path,
+            alias,
             span: cover(keyword.span, semicolon.span),
         })
     }

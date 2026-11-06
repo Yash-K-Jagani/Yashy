@@ -291,6 +291,29 @@ fn importing_the_same_module_from_two_files_defines_it_once() {
 }
 
 #[test]
+fn an_aliased_import_renames_the_module() {
+    let dir = work_dir("alias");
+    write(
+        &dir,
+        "main.ya",
+        "import lib.vendor as v;\nfn main() { print(v.helper()); print(helper()); }\n",
+    );
+    write(
+        &dir,
+        "lib/vendor.ya",
+        "pub fn helper() -> int { return 9; }\n",
+    );
+
+    let output = build(&dir, &dir.join("main.ya"), None);
+    assert!(
+        output.status.success(),
+        "both the aliased and the unqualified name must resolve:\n{}",
+        stderr_of(&output)
+    );
+    assert_eq!(stdout_of(&run(&exe(&dir))), "9\n9\n");
+}
+
+#[test]
 fn a_name_defined_in_two_modules_is_an_ambiguity_error() {
     let dir = work_dir("ambiguous");
     write(

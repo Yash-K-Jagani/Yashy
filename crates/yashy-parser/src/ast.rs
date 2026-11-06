@@ -79,8 +79,13 @@ pub enum ReprKind {
 /// A top-level declaration.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
-    /// `import std.io;` -- a dotted path, one [`String`] per segment.
-    Import { path: Vec<String>, span: Span },
+    /// `import std.io;` -- a dotted path, one [`String`] per segment, with an
+    /// optional `as alias` renaming the name this module is known by here.
+    Import {
+        path: Vec<String>,
+        alias: Option<String>,
+        span: Span,
+    },
     /// `pub fn f() { ... }` -- an item another module may use.
     ///
     /// The modifier wraps the item it applies to rather than being a field on

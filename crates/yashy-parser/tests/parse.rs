@@ -79,6 +79,7 @@ fn full_program(spans: &mut Spans) -> Program {
         // Item::Import
         Item::Import {
             path: vec!["std".to_string(), "io".to_string()],
+            alias: None,
             span: spans.take(),
         },
         // Item::Struct, with a FieldDef.
@@ -580,6 +581,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             "Item::Import",
             Item::Import {
                 path: vec!["a".to_string()],
+                alias: None,
                 span: here(),
             },
             &["Import", "path", "span", "start", "end"],
@@ -648,6 +650,7 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             Item::Public {
                 item: Box::new(Item::Import {
                     path: vec!["a".to_string()],
+                    alias: None,
                     span: here(),
                 }),
                 span: here(),
@@ -1979,6 +1982,7 @@ fn clone_is_deep_so_editing_a_clone_leaves_the_original_alone() {
     let mut edited = copy.clone();
     edited.items.push(Item::Import {
         path: vec!["extra".to_string()],
+        alias: None,
         span: Span::SYNTHETIC,
     });
 
@@ -1999,6 +2003,7 @@ fn clone_is_deep_so_editing_a_clone_leaves_the_original_alone() {
     // And the other way round: editing the original must not reach the clone.
     program.items.push(Item::Import {
         path: vec!["also-extra".to_string()],
+        alias: None,
         span: Span::SYNTHETIC,
     });
     assert_eq!(
