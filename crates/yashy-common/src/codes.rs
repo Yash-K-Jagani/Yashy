@@ -90,6 +90,8 @@ pub const PARTIAL_MOVE: &str = "E1002";
 pub const CONTRACT: &str = "E1100";
 /// Checked integer arithmetic is provably out of range.
 pub const OVERFLOW: &str = "E1201";
+/// A grapheme index is provably out of range.
+pub const GRAPHEME_OOB: &str = "E1200";
 /// A declared effect is exceeded by the body.
 pub const EFFECT: &str = "E1300";
 /// An unsafe call outside an unsafe function.
@@ -386,6 +388,12 @@ pub const CODES: &[Code] = &[
         title: "private item used from another module",
         summary: "A non-`pub` item or field is used outside its module.",
         page: include_str!("../../../docs/errors/E0801.md"),
+    },
+    Code {
+        id: GRAPHEME_OOB,
+        title: "grapheme index out of range",
+        summary: "A `char_at` index is provably outside the string's cluster count.",
+        page: include_str!("../../../docs/errors/E1200.md"),
     },
 ];
 

@@ -383,6 +383,17 @@ fn doc_comments_do_not_change_program_output() {
 }
 
 #[test]
+fn grapheme_strings_count_and_slice_by_cluster() {
+    // `"é"` is 2 bytes but 1 cluster; a flag is 1 cluster from 2 code points;
+    // a ZWJ family is 1 cluster; `substring` clamps and never splits.
+    let output = build_and_run("unicode");
+    assert_eq!(
+        stdout_of(&output),
+        "2\n1\né\n3\n1\né\n1\n🇺🇸\n1\n4\né🇺🇸\naé🇺🇸b\n\n\n"
+    );
+}
+
+#[test]
 fn labeled_break_and_continue_exit_the_labeled_loop() {
     // `break outer` from two loops deep exits both (hits is 2, not 3 lines
     // per outer iteration); `continue outer` visits 3 outer iterations

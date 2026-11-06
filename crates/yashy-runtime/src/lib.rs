@@ -322,6 +322,28 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// The grapheme cluster count of `s` (UAX #29 extended segmentation).
+    /// Null is zero.
+    pub fn yashy_str_grapheme_count(s: *const YashyStr) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// The cluster at grapheme `index` as a fresh owned string, or null when
+    /// `index` is out of range.
+    pub fn yashy_str_grapheme_at(s: *const YashyStr, index: c_longlong) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// The clusters in `[start, end)` as a fresh owned string, clamped to the
+    /// string. A cluster is never split.
+    pub fn yashy_str_grapheme_slice(
+        s: *const YashyStr,
+        start: c_longlong,
+        end: c_longlong,
+    ) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
     /// A fresh owned string holding `a` followed by `b`. Neither operand is
     /// modified, and the result's refcount is 1: the caller owns it.
     pub fn yashy_str_concat(a: *const YashyStr, b: *const YashyStr) -> *mut YashyStr;

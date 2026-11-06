@@ -764,6 +764,152 @@ impl Env {
     }
 }
 
+/// The grapheme cluster count of a string expression, when the domain knows
+/// it: a literal, or a binding whose length was written down as a cluster
+/// count (see `str_graphemes` in the contracts walk).
+///
+/// The counter mirrors the runtime's UAX #29 segmentation for the classes
+/// that matter to proofs — combining marks, ZWJ emoji sequences,
+/// regional-indicator pairs, Hangul syllables, CR/LF. A mark outside the
+/// listed ranges splits a cluster, which over-counts: the sound direction,
+/// because `E1200` then fires less often, never falsely.
+pub fn grapheme_count_of(
+    expr: &yashy_hir::hir::HirExpr,
+    env: &Env,
+) -> Option<i64> {
+    use yashy_hir::hir::{HirExpr, Literal};
+    match expr {
+        HirExpr::Literal(Literal::Str(text), ..) => Some(count_graphemes(&text.value)),
+        HirExpr::Ident(path, ..) => match path.as_slice() {
+            [name] => env.length(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Count grapheme clusters in `text` (see [`grapheme_count_of`]).
+pub fn count_graphemes_public(text: &str) -> i64 {
+    count_graphemes(text)
+}
+
+fn count_graphemes(text: &str) -> i64 {
+    let mut count = 0i64;
+    let mut prev: Option<char> = None;
+    let mut ri_run = 0i64;
+    let mut prev_pict_extend = false;
+    for ch in text.chars() {
+        let join = match prev {
+            None => false,
+            Some(p) => {
+                if p == '\r' && ch == '\n' {
+                    true
+                } else if p == '\r'
+                    || p == '\n'
+                    || is_control(ch)
+                    || ch == '\r'
+                    || ch == '\n'
+                {
+                    false
+                } else if is_extend(ch) || ch == '\u{200D}' || is_spacing_mark(ch) {
+                    true
+                } else if is_hangul_join(p, ch) {
+                    true
+                } else if p == '\u{200D}'
+                    && is_extended_pictographic(ch)
+                    && prev_pict_extend
+                {
+                    true
+                } else if is_regional_indicator(p)
+                    && is_regional_indicator(ch)
+                    && ri_run % 2 == 1
+                {
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+        if !join {
+            count += 1;
+            ri_run = if is_regional_indicator(ch) { 1 } else { 0 };
+        } else if is_regional_indicator(ch) {
+            ri_run += 1;
+        }
+        prev_pict_extend = is_extended_pictographic(ch) || (is_extend(ch) && prev_pict_extend);
+        prev = Some(ch);
+    }
+    count
+}
+
+fn is_extend(ch: char) -> bool {
+    let cp = ch as u32;
+    matches!(cp,
+        0x0300..=0x036F | 0x0483..=0x0489 | 0x0591..=0x05C7 | 0x0610..=0x061A |
+        0x064B..=0x0670 | 0x06D6..=0x06ED | 0x0711 | 0x0730..=0x074A |
+        0x07EB..=0x07F3 | 0x0816..=0x082D | 0x0859..=0x089F | 0x08CA..=0x0902 |
+        0x093A | 0x093C | 0x0941..=0x0948 | 0x094D | 0x0951..=0x0957 |
+        0x0962..=0x0963 | 0x0981 | 0x09BC | 0x09C1..=0x09C4 | 0x09CD |
+        0x09E2..=0x09E3 | 0x0A01..=0x0A02 | 0x0A3C | 0x0A41..=0x0A42 |
+        0x0A47..=0x0A48 | 0x0A4B..=0x0A4D | 0x0A51 | 0x0A70..=0x0A71 |
+        0x0A75 | 0x0A81..=0x0A82 | 0x0ABC | 0x0AC1..=0x0AC5 | 0x0AC7..=0x0AC8 |
+        0x0ACD | 0x0AE2..=0x0AE3 | 0x0B01 | 0x0B3C | 0x0B3F | 0x0B41..=0x0B44 |
+        0x0B4D | 0x0B56 | 0x0B62..=0x0B63 | 0x0B82 | 0x0BC0 | 0x0BCD |
+        0x0C00..=0x0C04 | 0x0C3C | 0x0C3E..=0x0C40 | 0x0C46..=0x0C48 |
+        0x0C4A..=0x0C4D | 0x0C55..=0x0C56 | 0x0C62..=0x0C63 | 0x0C81 |
+        0x0CBC | 0x0CBF | 0x0CC6 | 0x0CCC..=0x0CCD | 0x0CE2..=0x0CE3 |
+        0x0D00..=0x0D01 | 0x0D3B..=0x0D3C | 0x0D41..=0x0D44 | 0x0D4D |
+        0x0D62..=0x0D63 | 0x0D81 | 0x0DCA | 0x0DD2..=0x0DD4 | 0x0DD6 |
+        0x0E31 | 0x0E34..=0x0E3A | 0x0E47..=0x0E4E | 0x0EB1 | 0x0EB4..=0x0EBC |
+        0x0EC8..=0x0ECE | 0x0F18..=0x0F19 | 0x0F35 | 0x0F37 | 0x0F39 |
+        0x0F71..=0x0F7E | 0x0F80..=0x0F84 | 0x0F86..=0x0F87 |
+        0x1AB0..=0x1ABE | 0x1B00..=0x1B03 | 0x1CD0..=0x1CE0 |
+        0x1DC0..=0x1DFF | 0x20D0..=0x20F0 | 0x2CEF..=0x2CF1 | 0x2DE0..=0x2DFF |
+        0x302A..=0x302D | 0x3099..=0x309A | 0xA66F | 0xA670..=0xA672 |
+        0xA674..=0xA67D | 0xA69E..=0xA69F | 0xFE00..=0xFE0F | 0xFE20..=0xFE2F |
+        0xFF9E..=0xFF9F | 0x1F3FB..=0x1F3FF | 0xE0020..=0xE007F |
+        0xE0100..=0xE01EF | 0x180B..=0x180D | 0x200C)
+}
+
+fn is_spacing_mark(ch: char) -> bool {
+    let cp = ch as u32;
+    matches!(cp, 0x0903 | 0x093B | 0x093E..=0x0940 | 0x0949..=0x094C | 0x094E..=0x094F |
+        0x0982..=0x0983 | 0x09BF..=0x09C0 | 0x09C7..=0x09C8 | 0x09CB..=0x09CC |
+        0x0A03 | 0x0A3E..=0x0A40 | 0x0A83 | 0x0ABE..=0x0AC0 | 0x0AC9 | 0x0ACB..=0x0ACC |
+        0x0B02..=0x0B03 | 0x0B40 | 0x0B47..=0x0B48 | 0x0B4B..=0x0B4C | 0x0BBF |
+        0x0BC1..=0x0BC2 | 0x0BC6..=0x0BC8 | 0x0BCA..=0x0BCC | 0x0C01..=0x0C03 |
+        0x0C41..=0x0C44 | 0x0C82..=0x0C83 | 0x0CBE | 0x0CC1 | 0x0CC3..=0x0CC4 |
+        0x0CF3 | 0x0D02..=0x0D03 | 0x0D3F..=0x0D40 | 0x0D46..=0x0D48 |
+        0x0D82..=0x0D83 | 0x0DD0..=0x0DD1 | 0x0DD8..=0x0DDE | 0x0DF2..=0x0DF3 |
+        0x0E33 | 0x0EB3 | 0x0F3E..=0x0F3F | 0x0F7F | 0x1031 | 0x103B..=0x103C |
+        0x1056..=0x1057 | 0x1084 | 0x17B6 | 0x17BE..=0x17C5 | 0x17C7..=0x17C8)
+}
+
+fn is_control(ch: char) -> bool {
+    let cp = ch as u32;
+    cp < 0x20 || (0x7F..=0x9F).contains(&cp) || cp == 0x00AD
+}
+
+fn is_regional_indicator(ch: char) -> bool {
+    (0x1F1E6..=0x1F1FF).contains(&(ch as u32))
+}
+
+fn is_extended_pictographic(ch: char) -> bool {
+    let cp = ch as u32;
+    cp >= 0x1F000 || (0x203C..=0x3299).contains(&cp) && cp != 0x00A9 && cp != 0x00AE
+}
+
+fn is_hangul_join(p: char, ch: char) -> bool {
+    let l = |c: char| (0x1100..=0x115F).contains(&(c as u32)) || (0xA960..=0xA97C).contains(&(c as u32));
+    let v = |c: char| (0x1160..=0x11A7).contains(&(c as u32)) || (0xD7B0..=0xD7C6).contains(&(c as u32));
+    let t = |c: char| (0x11A8..=0x11FF).contains(&(c as u32)) || (0xD7CB..=0xD7FB).contains(&(c as u32));
+    let lv = |c: char| (0xAC00..=0xD7A3).contains(&(c as u32)) && (c as u32 - 0xAC00) % 28 == 0;
+    let lvt = |c: char| (0xAC00..=0xD7A3).contains(&(c as u32)) && (c as u32 - 0xAC00) % 28 != 0;
+    (l(p) && (l(ch) || v(ch) || lv(ch) || lvt(ch)))
+        || ((lv(p) || v(p)) && (v(ch) || t(ch)))
+        || ((lvt(p) || t(p)) && t(ch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -821,6 +821,9 @@ impl Module {
         // front like the rest of the string set.
         out.push_str("declare i8* @yashy_str_debug(i8*)\n");
         out.push_str("declare i1 @yashy_str_eq(i8*, i8*)\n");
+        out.push_str("declare i64 @yashy_str_grapheme_count(i8*)\n");
+        out.push_str("declare i8* @yashy_str_grapheme_at(i8*, i64)\n");
+        out.push_str("declare i8* @yashy_str_grapheme_slice(i8*, i64, i64)\n");
         out.push_str("declare i64 @yashy_str_get(i8*, i64, ptr)\n");
         out.push_str("declare i64 @yashy_str_index_of(i8*, i8*)\n");
         out.push_str("declare i1 @yashy_str_contains(i8*, i8*)\n");

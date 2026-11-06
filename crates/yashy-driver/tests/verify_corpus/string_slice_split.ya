@@ -1,0 +1,8 @@
+// A substring range cannot split a cluster, so there is nothing to prove
+// here: the runtime clamps. This program is accepted as-is.
+// Expected: no diagnostics.
+fn main() {
+    let word = "aé🇺🇸b";
+    print(word.substring(1, 3));
+    print(word.substring(0, 99));
+}

@@ -736,12 +736,37 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 let values: Vec<Value> = args.iter().map(|arg| self.eval(arg, env)).collect();
                 if is_len(callee) {
                     return match args.first() {
-                        Some(arg) => self
-                            .length_of(arg, env)
+                        Some(arg) => {
+                            let slice_like = matches!(
+                                expr_ty(arg).kind,
+                                TypeKind::Slice(_) | TypeKind::FixedArray(_, _) | TypeKind::View(_)
+                            );
+                            let known = if let HirExpr::Literal(Literal::Str(text), ..) = arg {
+                                Some(text.value.len() as i64)
+                            } else if slice_like {
+                                self.length_of(arg, env)
+                            } else {
+                                None
+                            };
+                            known.map(Value::exact).unwrap_or_else(Value::top)
+                        }
+                        None => Value::top(),
+                    };
+                }
+                if callee.len() == 1 && callee[0] == "str_graphemes" {
+                    return match args.first() {
+                        Some(arg) => crate::domain::grapheme_count_of(arg, env)
                             .map(Value::exact)
                             .unwrap_or_else(Value::top),
                         None => Value::top(),
                     };
+                }
+                if callee.len() == 1 && callee[0] == "str_grapheme_at" {
+                    if let [base, index] = args.as_slice() {
+                        let position = self.eval(index, env);
+                        self.check_grapheme_index(base, *span, position, env);
+                    }
+                    return Value::top();
                 }
                 self.check_call(callee, *span, args, &values, env);
                 // A callee shares a slice's header, so a length it knew is no
@@ -1001,6 +1026,13 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             HirExpr::SliceLit { elements, .. } | HirExpr::FixedArrayLit { elements, .. } => {
                 i64::try_from(elements.len()).ok()
             }
+            // A string literal's tracked length is its cluster count, for
+            // `grapheme_count_of`; `len()` on a string is bytes and is
+            // answered separately in the `len` arm below, so the two never
+            // share this value.
+            HirExpr::Literal(Literal::Str(text), ..) => {
+                Some(crate::domain::count_graphemes_public(&text.value))
+            }
             HirExpr::Ident(path, ..) => match path.as_slice() {
                 [name] => env.length(name),
                 _ => None,
@@ -1074,6 +1106,38 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             span: expr_span(expr),
             established,
         });
+    }
+
+    /// Prove, or reject, one `char_at` index against the cluster count.
+    ///
+    /// Unlike an array index, which answers `None`, a grapheme index out of
+    /// range faults at run time, so a *proven* violation is a compile error
+    /// (`E1200`). A maybe-violation keeps its fault and reports nothing: only
+    /// certainty is an error.
+    fn check_grapheme_index(&mut self, base: &HirExpr, span: Span, position: Value, env: &Env) {
+        if self.quiet {
+            return;
+        }
+        let Some(length) = crate::domain::grapheme_count_of(base, env) else {
+            return;
+        };
+        if bounds::check(length, position.interval) == bounds::Bounds::OutOfRange {
+            let index = position.interval.lo;
+            if !self.quiet {
+                self.out.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        self.file,
+                        span,
+                        format!(
+                            "grapheme index {index} is out of range for a string with {length} clusters"
+                        ),
+                    )
+                    .with_code(codes::GRAPHEME_OOB)
+                    .with_label("the index can never reach a cluster"),
+                );
+            }
+        }
     }
 
     /// Record, or reject, one checked integer operation.

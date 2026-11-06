@@ -234,6 +234,15 @@ void yashy_env_release(void *env);
 long long yashy_str_len(const yashy_str *s);
 long long yashy_str_byte_at(const yashy_str *s, long long index);
 yashy_str *yashy_str_concat(const yashy_str *a, const yashy_str *b);
+
+/* Grapheme clusters (UAX #29 extended): `yashy_str_grapheme_count` counts
+ * clusters; `yashy_str_grapheme_at` returns the cluster at an index or NULL
+ * when out of range; `yashy_str_grapheme_slice` returns the clusters in a
+ * clamped range. All results are owned. */
+long long yashy_str_grapheme_count(const yashy_str *s);
+yashy_str *yashy_str_grapheme_at(const yashy_str *s, long long index);
+yashy_str *yashy_str_grapheme_slice(const yashy_str *s, long long start_index,
+                                    long long end_index);
 /* Appends `b` to `a`. When `a` is uniquely owned and has capacity, it is
  * extended in place and returned; otherwise a new string is built, `a` is
  * released, and the new string is returned. The caller hands its reference to

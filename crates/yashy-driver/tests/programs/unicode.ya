@@ -1,0 +1,51 @@
+// Grapheme-aware strings: a string's `len()` counts bytes, `graphemes()`
+// counts clusters, and `char_at` / `substring` index by cluster. Every line
+// is a claim: a precomposed accent is one cluster in two bytes, a flag emoji
+// (two code points) is one cluster, a family emoji joined by ZWJ is one
+// cluster, and `substring` never splits a cluster.
+
+// Ownership: every `char_at` / `substring` result is an owned string;
+// frees below follow the values they were built from.
+fn main() {
+    let e_acute = "é";
+    print(e_acute.len());
+    print(e_acute.graphemes());
+    print(e_acute.char_at(0));
+    // => 2
+    // => 1
+    // => é
+
+    // "e" + combining acute: two code points, one cluster.
+    let combining = "é";
+    print(combining.len());
+    print(combining.graphemes());
+    print(combining.char_at(0));
+    // => 3
+    // => 1
+    // => é
+
+    // A flag: two regional indicators, one cluster.
+    let flag = "🇺🇸";
+    print(flag.graphemes());
+    print(flag.char_at(0));
+    // => 1
+    // => 🇺🇸
+
+    // A family: four emoji joined by ZWJ, one cluster.
+    let family = "👨‍👩‍👧‍👦";
+    print(family.graphemes());
+    // => 1
+
+    // substring by cluster, clamped to the string.
+    let word = "aé🇺🇸b";
+    print(word.graphemes());
+    print(word.substring(1, 3));
+    print(word.substring(0, 99));
+    print(word.substring(2, 2));
+    print(word.substring(3, 1));
+    // => 4
+    // => é🇺🇸
+    // => aé🇺🇸b
+    // =>
+    // =>
+}

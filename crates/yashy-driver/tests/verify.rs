@@ -321,6 +321,8 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("spread_partial_move", 1, &["E1002"]),
     ("arena_escape", 1, &["E1003"]),
     ("arena_free", 1, &["E1004"]),
+    ("string_oob", 1, &["E1200"]),
+    ("string_slice_split", 0, &[]),
 ];
 
 /// The `code` values in a schema-v1 report, in order.

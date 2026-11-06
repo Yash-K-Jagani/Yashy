@@ -157,6 +157,94 @@ fn unit() -> GenValue {
     }
 }
 
+/// Lower `graphemes(s)`: the grapheme cluster count of a string.
+///
+/// Unlike `len` (bytes), this scans the string with UAX #29 segmentation, so
+/// `"é"` (one code point, two bytes) counts 1 and a flag emoji counts 1.
+/// The string is read and nothing is kept, so a temporary is consumed.
+pub fn gen_str_graphemes(ctx: &mut FnCtx<'_>, args: &[yashy_sema::HirExpr]) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let count = ctx.tmp();
+    ctx.push(format!(
+        "{count} = call i64 @yashy_str_grapheme_count(i8* {value})"
+    ));
+    ctx.release_owned(&value);
+    GenValue {
+        value: count,
+        ty: TypeKind::I64,
+    }
+}
+
+/// Lower `char_at(s, i)`: the whole grapheme cluster at `i`.
+///
+/// An index out of range is a fault (the verifier proves it where it can;
+/// otherwise the program panics with a position), never a silent truncation.
+/// The result is a fresh owned string.
+pub fn gen_str_grapheme_at(ctx: &mut FnCtx<'_>, args: &[yashy_sema::HirExpr]) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let index = args
+        .get(1)
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "0".to_string());
+    let cluster = ctx.tmp();
+    ctx.push(format!(
+        "{cluster} = call i8* @yashy_str_grapheme_at(i8* {value}, i64 {index})"
+    ));
+    ctx.release_owned(&value);
+    ctx.mark_owned(&cluster, RefKind::Str);
+    GenValue {
+        value: cluster,
+        ty: TypeKind::Str,
+    }
+}
+
+/// Lower `substring(s, start, end)`: the clusters in `[start, end)`.
+///
+/// Ranges are grapheme indices and clamp to the string; a cluster is never
+/// split. The result is a fresh owned string.
+pub fn gen_str_grapheme_slice(ctx: &mut FnCtx<'_>, args: &[yashy_sema::HirExpr]) -> GenValue {
+    let value = args
+        .first()
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "null".to_string());
+    let start = args
+        .get(1)
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "0".to_string());
+    let end = args
+        .get(2)
+        .map(|a| crate::expr_gen::gen_expr(ctx, a))
+        .filter(|v| !v.value.is_empty())
+        .map(|v| v.value)
+        .unwrap_or_else(|| "0".to_string());
+    let sliced = ctx.tmp();
+    ctx.push(format!(
+        "{sliced} = call i8* @yashy_str_grapheme_slice(i8* {value}, i64 {start}, i64 {end})"
+    ));
+    ctx.release_owned(&value);
+    ctx.mark_owned(&sliced, RefKind::Str);
+    GenValue {
+        value: sliced,
+        ty: TypeKind::Str,
+    }
+}
+
 /// Lower `str_get(s, i) -> Option[i64]`: the byte at `i`, or `None` out of
 /// range. The runtime writes the byte through an out slot because `Option`
 /// needs a payload even on the `None` path.

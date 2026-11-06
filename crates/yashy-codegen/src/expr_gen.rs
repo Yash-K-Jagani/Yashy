@@ -1920,6 +1920,9 @@ fn gen_call(
             }
         }
         "byte_at" => crate::strings::gen_str_byte_at(ctx, args),
+        "str_graphemes" => crate::strings::gen_str_graphemes(ctx, args),
+        "str_grapheme_at" => crate::strings::gen_str_grapheme_at(ctx, args),
+        "str_grapheme_slice" => crate::strings::gen_str_grapheme_slice(ctx, args),
         "str_get" => crate::strings::gen_str_get(ctx, args, ty),
         "str_index_of" => crate::strings::gen_str_index_of(ctx, args, ty),
         "str_split" => crate::strings::gen_str_split(ctx, args, ty),

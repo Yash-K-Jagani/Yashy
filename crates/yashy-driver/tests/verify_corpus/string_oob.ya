@@ -1,0 +1,6 @@
+// A grapheme index provably past the cluster count.
+// Expected: E1200 on the index.
+fn main() {
+    let word = "abc";
+    print(word.char_at(5));
+}

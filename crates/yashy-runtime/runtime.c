@@ -2866,3 +2866,274 @@ void yashy_chan_free(yashy_chan *chan) {
     free(chan);
 }
 
+/* ---- Grapheme clusters (UAX #29, extended) ---------------------------- */
+
+#include "src/grapheme_data.h"
+
+enum gcb_class {
+    CLS_OTHER = 0,
+    CLS_PREPEND,
+    CLS_CONTROL,
+    CLS_CR,
+    CLS_LF,
+    CLS_EXTEND,
+    CLS_ZWJ,
+    CLS_RI,
+    CLS_SPACING,
+    CLS_L,
+    CLS_V,
+    CLS_T,
+    CLS_LV,
+    CLS_LVT,
+    CLS_EXT_PICT,
+};
+
+static int gcb_in_ranges(const struct gcb_range *ranges, int count, unsigned cp) {
+    int lo = 0, hi = count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (cp < ranges[mid].lo)
+            hi = mid - 1;
+        else if (cp > ranges[mid].hi)
+            lo = mid + 1;
+        else
+            return 1;
+    }
+    return 0;
+}
+
+static enum gcb_class gcb_classify(unsigned cp) {
+    if (gcb_in_ranges(GCB_CR, GCB_CR_count, cp)) return CLS_CR;
+    if (gcb_in_ranges(GCB_LF, GCB_LF_count, cp)) return CLS_LF;
+    if (gcb_in_ranges(GCB_PREPEND, GCB_PREPEND_count, cp)) return CLS_PREPEND;
+    if (gcb_in_ranges(GCB_CONTROL, GCB_CONTROL_count, cp)) return CLS_CONTROL;
+    if (gcb_in_ranges(GCB_EXTEND, GCB_EXTEND_count, cp)) return CLS_EXTEND;
+    if (gcb_in_ranges(GCB_ZWJ, GCB_ZWJ_count, cp)) return CLS_ZWJ;
+    if (gcb_in_ranges(GCB_RI, GCB_RI_count, cp)) return CLS_RI;
+    if (gcb_in_ranges(GCB_SPACING, GCB_SPACING_count, cp)) return CLS_SPACING;
+    if (gcb_in_ranges(GCB_L, GCB_L_count, cp)) return CLS_L;
+    if (gcb_in_ranges(GCB_V, GCB_V_count, cp)) return CLS_V;
+    if (gcb_in_ranges(GCB_T, GCB_T_count, cp)) return CLS_T;
+    if (gcb_in_ranges(GCB_LV, GCB_LV_count, cp)) return CLS_LV;
+    if (gcb_in_ranges(GCB_LVT, GCB_LVT_count, cp)) return CLS_LVT;
+    if (gcb_in_ranges(GCB_EXT_PICT, GCB_EXT_PICT_count, cp)) return CLS_EXT_PICT;
+    return CLS_OTHER;
+}
+
+/* Decodes one code point at `bytes[pos..len)`. Invalid sequences yield the
+ * lead byte alone, so the caller always makes progress. */
+static int gcb_decode(const unsigned char *bytes, size_t len, size_t pos, unsigned *cp) {
+    unsigned char b0 = bytes[pos];
+    if (b0 < 0x80) {
+        *cp = b0;
+        return 1;
+    }
+    int width;
+    unsigned value;
+    if ((b0 & 0xE0u) == 0xC0u) { width = 2; value = b0 & 0x1Fu; }
+    else if ((b0 & 0xF0u) == 0xE0u) { width = 3; value = b0 & 0x0Fu; }
+    else if ((b0 & 0xF8u) == 0xF0u) { width = 4; value = b0 & 0x07u; }
+    else {
+        *cp = b0;
+        return 1;
+    }
+    if (pos + (size_t)width > len) {
+        *cp = b0;
+        return 1;
+    }
+    for (int i = 1; i < width; i++) {
+        unsigned char b = bytes[pos + (size_t)i];
+        if ((b & 0xC0u) != 0x80u) {
+            *cp = b0;
+            return 1;
+        }
+        value = (value << 6) | (b & 0x3Fu);
+    }
+    if ((width == 2 && value < 0x80u) ||
+        (width == 3 && value < 0x800u) ||
+        (width == 4 && (value < 0x10000u || value > 0x10FFFFu)) ||
+        (value >= 0xD800u && value <= 0xDFFFu)) {
+        *cp = b0;
+        return 1;
+    }
+    *cp = value;
+    return width;
+}
+
+struct gcb_segmenter {
+    const unsigned char *bytes;
+    size_t len;
+    size_t pos;
+    enum gcb_class prev_class;
+    int ri_run;
+    int pict_extend_run;
+    int prev_is_pict;
+    /* The pictographic-plus-Extend run seen before a ZWJ, which GB11 looks
+     * back over. Stored separately because the ZWJ itself is neither. */
+    int zwj_pict_run;
+};
+
+/* GB9c (Indic consonant joining) is not implemented: the `Link` property is
+ * derived data the property file does not carry. */
+static size_t gcb_next_cluster(struct gcb_segmenter *s, size_t *start_out) {
+    if (s->pos >= s->len)
+        return 0;
+    size_t start = s->pos;
+    *start_out = start;
+    unsigned cp;
+    int width = gcb_decode(s->bytes, s->len, s->pos, &cp);
+    s->pos += (size_t)width;
+    enum gcb_class cls = gcb_classify(cp);
+    s->prev_class = cls;
+    s->ri_run = cls == CLS_RI ? 1 : 0;
+    s->prev_is_pict = cls == CLS_EXT_PICT;
+    s->pict_extend_run = 0;
+    s->zwj_pict_run = 0;
+
+    while (s->pos < s->len) {
+        size_t next_pos = s->pos;
+        unsigned next_cp;
+        width = gcb_decode(s->bytes, s->len, s->pos, &next_cp);
+        enum gcb_class next = gcb_classify(next_cp);
+        int no_break = 0;
+
+        if (s->prev_class == CLS_CR && next == CLS_LF)
+            no_break = 1;
+        else if (s->prev_class == CLS_CONTROL || s->prev_class == CLS_CR ||
+                 s->prev_class == CLS_LF)
+            no_break = 0;
+        else if (next == CLS_CONTROL || next == CLS_CR || next == CLS_LF)
+            no_break = 0;
+        else if (s->prev_class == CLS_L &&
+                 (next == CLS_L || next == CLS_V || next == CLS_LV ||
+                  next == CLS_LVT))
+            no_break = 1;
+        else if ((s->prev_class == CLS_LV || s->prev_class == CLS_V) &&
+                 (next == CLS_V || next == CLS_T))
+            no_break = 1;
+        else if ((s->prev_class == CLS_LVT || s->prev_class == CLS_T) &&
+                 next == CLS_T)
+            no_break = 1;
+        else if (next == CLS_EXTEND || next == CLS_ZWJ)
+            no_break = 1;
+        else if (next == CLS_SPACING)
+            no_break = 1;
+        else if (s->prev_class == CLS_PREPEND)
+            no_break = 1;
+        else if (s->prev_class == CLS_ZWJ && next == CLS_EXT_PICT &&
+                 s->zwj_pict_run)
+            no_break = 1;
+        else if (s->prev_class == CLS_RI && next == CLS_RI && (s->ri_run % 2 == 1))
+            no_break = 1;
+
+        if (!no_break)
+            break;
+
+        s->pos = next_pos + (size_t)width;
+        if (next == CLS_ZWJ) {
+            /* GB11 looks back over Extend* and the pictographic before
+             * this ZWJ; record that run now, because the ZWJ itself is
+             * neither and would erase it. */
+            s->zwj_pict_run = s->prev_is_pict || s->pict_extend_run > 0;
+        }
+        if (next == CLS_EXT_PICT) {
+            s->prev_is_pict = 1;
+            s->pict_extend_run = 0;
+        } else if (next == CLS_EXTEND) {
+            s->pict_extend_run += 1;
+            s->prev_is_pict = 0;
+        } else {
+            s->prev_is_pict = 0;
+            s->pict_extend_run = 0;
+        }
+        s->prev_class = next;
+        s->ri_run = next == CLS_RI ? s->ri_run + 1 : 0;
+    }
+    return s->pos - start;
+}
+
+static yashy_str *gcb_new_string(const char *bytes, size_t len) {
+    yashy_str *out = (yashy_str *)malloc(sizeof(yashy_str));
+    if (out == NULL)
+        return NULL;
+    out->refcount = 1;
+    out->len = (long long)len;
+    out->cap = (long long)len;
+    out->data = (char *)malloc(len + 1);
+    if (out->data == NULL) {
+        free(out);
+        return NULL;
+    }
+    if (len > 0)
+        memcpy(out->data, bytes, len);
+    out->data[len] = '\0';
+    yashy_count_add(&yashy_live_allocations, 1);
+    return out;
+}
+
+long long yashy_str_grapheme_count(const yashy_str *s) {
+    if (s == NULL)
+        return 0;
+    struct gcb_segmenter seg = { (const unsigned char *)s->data, (size_t)s->len, 0, CLS_OTHER, 0, 0, 0, 0 };
+    long long count = 0;
+    size_t start = 0;
+    while (gcb_next_cluster(&seg, &start) > 0)
+        count += 1;
+    return count;
+}
+
+/* The cluster at grapheme index `index`, or NULL when out of range. */
+yashy_str *yashy_str_grapheme_at(const yashy_str *s, long long index) {
+    if (s == NULL)
+        return NULL;
+    struct gcb_segmenter seg = { (const unsigned char *)s->data, (size_t)s->len, 0, CLS_OTHER, 0, 0, 0, 0 };
+    long long count = 0;
+    size_t start = 0;
+    while (gcb_next_cluster(&seg, &start) > 0) {
+        if (count == index)
+            return gcb_new_string(s->data + start, seg.pos - start);
+        count += 1;
+    }
+    /* A grapheme index out of range is a fault, not a value: the verifier
+     * proves the index where it can (E1200) and the program panics
+     * otherwise. No position is available at this layer, so the message
+     * names the index and the cluster count. */
+    fflush(stdout);
+    fprintf(stderr, "panic: grapheme index %lld out of range (string has %lld clusters)\n",
+            index, count);
+    fflush(stderr);
+    exit(1);
+}
+
+/* The clusters in `[start, end)`, clamped to the string. A cluster is never
+ * split: an end past the string stops at the string's end. */
+yashy_str *yashy_str_grapheme_slice(const yashy_str *s, long long start_index,
+                                    long long end_index) {
+    if (s == NULL)
+        return gcb_new_string("", 0);
+    /* Ranges clamp like the byte slice: a negative start is 0, an end past
+     * the string is the string's end. */
+    if (start_index < 0)
+        start_index = 0;
+    if (end_index <= start_index)
+        return gcb_new_string("", 0);
+    struct gcb_segmenter seg = { (const unsigned char *)s->data, (size_t)s->len, 0, CLS_OTHER, 0, 0, 0, 0 };
+    long long count = 0;
+    size_t slice_start = 0, slice_end = 0;
+    size_t start = 0;
+    while (gcb_next_cluster(&seg, &start) > 0) {
+        if (count == start_index)
+            slice_start = start;
+        if (count == end_index) {
+            slice_end = start;
+            break;
+        }
+        count += 1;
+    }
+    if (count < end_index)
+        slice_end = seg.pos;
+    if (slice_end <= slice_start)
+        return gcb_new_string("", 0);
+    return gcb_new_string(s->data + slice_start, slice_end - slice_start);
+}
+

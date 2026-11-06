@@ -5,6 +5,12 @@
 // binding. The wrappers this module used to export were removed in M12 so
 // there is one spelling per operation. What remains is `concat`, a named
 // spelling for `+` that reads well in a pipeline of stdlib helpers.
+//
+// Graphemes (Phase 6) are methods too, on the same binding:
+// `graphemes()` counts clusters, `char_at(i)` returns the cluster at `i`,
+// and `substring(start, end)` returns the clusters in a clamped range.
+// `len()` keeps counting bytes; a byte index and a grapheme index are
+// different functions, never overloads of one name.
 
 // Ownership: a fresh string is returned; neither argument is consumed.
 pub fn concat(string left, string right) -> string {

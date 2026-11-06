@@ -5743,10 +5743,10 @@ impl<'src> Checker<'src> {
         }
         let arity = match method {
             "len" | "is_empty" | "trim" | "trim_start" | "trim_end" | "to_upper" | "to_lower"
-            | "lines" | "parse_i64" | "parse_f64" => 0,
+            | "lines" | "parse_i64" | "parse_f64" | "graphemes" => 0,
             "byte_at" | "get" | "contains" | "starts_with" | "ends_with" | "index_of"
-            | "repeat" | "split" => 1,
-            "slice" | "replace" => 2,
+            | "repeat" | "split" | "char_at" => 1,
+            "slice" | "replace" | "substring" => 2,
             _ => return None,
         };
         if args.len() != arity {
@@ -5800,6 +5800,51 @@ impl<'src> Checker<'src> {
                 };
                 Some(Some(HirExpr::Call {
                     callee: vec!["str_slice".to_string()],
+                    args: vec![receiver_checked, start, end],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::Str),
+                }))
+            }
+            "graphemes" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["str_graphemes".to_string()],
+                    args: vec![receiver_checked],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::I64),
+                }))
+            }
+            "char_at" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                let Some(index) = self.check_i64_argument(&args[0]) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["str_grapheme_at".to_string()],
+                    args: vec![receiver_checked, index],
+                    unsafe_call: false,
+                    span,
+                    ty: prim(TypeKind::Str),
+                }))
+            }
+            "substring" => {
+                let Some(receiver_checked) = self.check_expr(&receiver_expr()) else {
+                    return Some(None);
+                };
+                let Some(start) = self.check_i64_argument(&args[0]) else {
+                    return Some(None);
+                };
+                let Some(end) = self.check_i64_argument(&args[1]) else {
+                    return Some(None);
+                };
+                Some(Some(HirExpr::Call {
+                    callee: vec!["str_grapheme_slice".to_string()],
                     args: vec![receiver_checked, start, end],
                     unsafe_call: false,
                     span,

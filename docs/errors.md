@@ -51,6 +51,7 @@ the declaration or import involved when that is not obvious.
 | [E0700](errors/E0700.md) | wrong argument count |
 | [E0801](errors/E0801.md) | private item used from another module |
 | [E0802](errors/E0802.md) | import cycle |
+| [E1200](errors/E1200.md) | grapheme index out of range |
 | [E0900](errors/E0900.md) | duplicate extern symbol |
 | [E0901](errors/E0901.md) | malformed extern declaration |
 | [E0902](errors/E0902.md) | misplaced variadic marker |
