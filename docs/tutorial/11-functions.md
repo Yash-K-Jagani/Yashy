@@ -3,6 +3,7 @@
 ## What you will learn
 
 - How to write a function type: `fn(int) -> int`.
+- How to name call arguments and give a parameter a default value.
 - How to hand a function to another function and call it there.
 - How to keep a function in a binding and call it through the binding.
 - How to write one function that works for more than one type.
@@ -386,6 +387,55 @@ the new array is freed on its own. The element type may change: `map` through
 the callback takes the accumulator and the element, and returns the next
 accumulator. The accumulator's type is the type of the value `fold` starts
 from, so `xs.fold(0, ...)` folds into an `int`.
+
+## Named and default arguments
+
+A call may name its arguments: `f(b: 2, a: 1)` fills `b` with `2` and `a`
+with `1`, in whatever order the reader finds clearest. Named arguments never
+reach the backend: the checker resolves them to positional arguments in
+parameter order, so `f(b: 2, a: 1)` and `f(1, 2)` compile to the same call.
+A positional argument may come before named ones, but never after: after the
+first named argument, every argument is named, so there is never a question
+about which parameter a bare value fills. A name that is not a parameter of
+the callee is `E0701`, and a parameter given twice — `f(a: 1, a: 2)` or
+`f(1, a: 2)` — is `E0702`.
+
+```yashy
+fn greet(string name, int times) -> string {
+    return name;
+}
+
+fn main() {
+    print(greet(times: 2, name: "hi"));
+    print(greet("hi", times: 2));
+    // => hi
+    // => hi
+}
+```
+
+A parameter may also declare a default: `int b = 2`. A call that omits it
+fills the slot with the default, exactly as if the caller had written it.
+A default must be a literal or a `const` name — the same rule a struct
+field default follows, reported with the same code (`E0102`) — because it is
+evaluated where the function is declared, not where it is called; it may not
+call a function or name a parameter. That rule is also what makes the
+default safe for the callee's effects: it runs with the callee, at the
+callee's effect level.
+
+```yashy
+fn add(int a, int b = 10) -> int {
+    return a + b;
+}
+
+fn main() {
+    print(add(1));
+    print(add(1, 5));
+    print(add(a: 1, b: 5));
+    // => 11
+    // => 6
+    // => 6
+}
+```
 
 ## A function the compiler runs
 

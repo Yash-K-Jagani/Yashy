@@ -50,11 +50,11 @@ See the master index. The ones that bite here:
   ```
 - Produces: `E0602` — a range pattern whose bounds are not both `int` or both `char`, or whose `lo > hi`.
 
-- [ ] **Step 1: Write the failing tests** — `case 1 | 2 | 3 => {}` parses to one `Or` with three alternatives; `case 0..10 => {}` and `case 'a'..='z' => {}` parse; `case x if x > 0 => {}` puts the guard on the arm and not inside the pattern; `case 1.0..2.0` is `E0602`; the formatter round-trips every form byte-identically.
-- [ ] **Step 2: Run and watch them fail** — `cargo test -p yashy-parser patterns` → FAIL.
-- [ ] **Step 3: Implement** — or-patterns are right-associative and flatten into one `Or` node; ranges bind nothing; the guard is parsed by `parse_expr` after the `if` keyword that already exists in the grammar for `if` statements, so no new keyword is added. `|` must be checked for conflict with the bitwise-or operator the expression grammar already has: in pattern position the parser expects a pattern, so the ambiguity is positional and needs a test, not a new token.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-fmt` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(parser): or-patterns, range patterns and arm guards"`
+- [x] **Step 1: Write the failing tests** — `case 1 | 2 | 3 => {}` parses to one `Or` with three alternatives; `case 0..10 => {}` and `case 'a'..='z' => {}` parse; `case x if x > 0 => {}` puts the guard on the arm and not inside the pattern; `case 1.0..2.0` is `E0602`; the formatter round-trips every form byte-identically.
+- [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-parser patterns` → FAIL.
+- [x] **Step 3: Implement** — or-patterns are right-associative and flatten into one `Or` node; ranges bind nothing; the guard is parsed by `parse_expr` after the `if` keyword that already exists in the grammar for `if` statements, so no new keyword is added. `|` must be checked for conflict with the bitwise-or operator the expression grammar already has: in pattern position the parser expects a pattern, so the ambiguity is positional and needs a test, not a new token.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-fmt` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(parser): or-patterns, range patterns and arm guards"`
 
 ---
 
@@ -69,11 +69,11 @@ See the master index. The ones that bite here:
 - Produces: `let Point { x, y } = p;`, `let (a, _) = pair;`, `for Point { x, .. } in points { }` — one `Pattern` in binding position, everywhere a binding is introduced.
 - Keeps: the tuple form `let (a, b) = pair;` parses to the same node as before, so no program changes.
 
-- [ ] **Step 1: Write the failing tests** — struct destructuring in `let`, nested `let Pair { left: Point { x, .. }, .. }`, wildcard in a tuple, `for` over a slice with a struct pattern, and an irrefutable-pattern check: `let Some(x) = opt;` is `E0100` (a refutable pattern in an irrefutable position) with the fix "use `switch`".
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the checker walks the pattern against the initialiser's type, binding each name in the enclosing scope with the same rules `Stmt::Let` uses today. The codegen path is the existing `Destructure` lowering generalised: a struct pattern becomes field extracts, a nested pattern recurses.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: destructure structs and nested patterns in let, const and for"`
+- [x] **Step 1: Write the failing tests** — struct destructuring in `let`, nested `let Pair { left: Point { x, .. }, .. }`, wildcard in a tuple, `for` over a slice with a struct pattern, and an irrefutable-pattern check: `let Some(x) = opt;` is `E0100` (a refutable pattern in an irrefutable position) with the fix "use `switch`".
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the checker walks the pattern against the initialiser's type, binding each name in the enclosing scope with the same rules `Stmt::Let` uses today. The codegen path is the existing `Destructure` lowering generalised: a struct pattern becomes field extracts, a nested pattern recurses.
+- [x] **Step 4: Run** `cargo test -p yashy-sema -p yashy-codegen -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: destructure structs and nested patterns in let, const and for"`
 
 ---
 
@@ -88,7 +88,7 @@ See the master index. The ones that bite here:
 - Produces: `pub fn reachable_arms(enum_name, variants, arms, has_default) -> Vec<bool>` for Task 4.
 - Produces: `E0600` now also names the *witness* — the shape no arm covers, e.g. `Point { x: _, y: _ }` — not only the variant name.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -112,10 +112,10 @@ fn nested_payloads_are_checked_column_by_column() {
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail** — `cargo test -p yashy-hir exhaustive` → FAIL.
-- [ ] **Step 3: Implement** — the standard usefulness algorithm: `U(matrix, vector)` returns whether the vector is useful; a switch is exhaustive when the wildcard row is not useful against the arm matrix. Guards are handled by treating a guarded arm as *not contributing* to the matrix for the exhaustiveness question (it contributes to reachability, which is Task 4's job, with a comment saying so). Range patterns are expanded per-variant only for enums whose payload is `int`/`char` and only for the ranges present, so the matrix stays finite; a range over a non-enumerable type is rejected earlier by `E0602`.
-- [ ] **Step 4: Run** `cargo test -p yashy-hir -p yashy-verify -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): exhaustiveness over or-, range- and nested patterns"`
+- [x] **Step 2: Run and watch them fail** — `cargo test -p yashy-hir exhaustive` → FAIL.
+- [x] **Step 3: Implement** — the standard usefulness algorithm: `U(matrix, vector)` returns whether the vector is useful; a switch is exhaustive when the wildcard row is not useful against the arm matrix. Guards are handled by treating a guarded arm as *not contributing* to the matrix for the exhaustiveness question (it contributes to reachability, which is Task 4's job, with a comment saying so). Range patterns are expanded per-variant only for enums whose payload is `int`/`char` and only for the ranges present, so the matrix stays finite; a range over a non-enumerable type is rejected earlier by `E0602`.
+- [x] **Step 4: Run** `cargo test -p yashy-hir -p yashy-verify -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): exhaustiveness over or-, range- and nested patterns"`
 
 ---
 
@@ -128,11 +128,11 @@ fn nested_payloads_are_checked_column_by_column() {
 **Interfaces:**
 - Produces: `E0601` on an arm no value can reach, with the earlier arm that covers it named in the label.
 
-- [ ] **Step 1: Write the failing tests** — `case _ => {}` followed by `case Red => {}` reports the second; `case 0..=10` followed by `case 5` reports `5`; a guarded arm is reachable even when an earlier arm covers its pattern (the guard may fail, so the arm is not dead).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — walk arms in order, asking `usefulness` against the matrix of the arms before it; a `false` answer is `E0601`. This is a warning-grade mistake in every other language and an error here: dead code in a `switch` is almost always a copy-paste bug in the pattern, and the verifier's job is to say so.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): reject unreachable switch arms (E0601)"`
+- [x] **Step 1: Write the failing tests** — `case _ => {}` followed by `case Red => {}` reports the second; `case 0..=10` followed by `case 5` reports `5`; a guarded arm is reachable even when an earlier arm covers its pattern (the guard may fail, so the arm is not dead).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — walk arms in order, asking `usefulness` against the matrix of the arms before it; a `false` answer is `E0601`. This is a warning-grade mistake in every other language and an error here: dead code in a `switch` is almost always a copy-paste bug in the pattern, and the verifier's job is to say so.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): reject unreachable switch arms (E0601)"`
 
 ---
 
@@ -147,7 +147,7 @@ fn nested_payloads_are_checked_column_by_column() {
 - Produces: `E1002` when an or-pattern's alternatives do not bind the same linear names, and when one alternative moves a value the other does not.
 - Produces: `E1001` (defer) unchanged; a `defer` inside a pattern arm still releases at scope exit.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -166,10 +166,10 @@ fn a_move_in_one_alternative_and_not_the_other_is_rejected() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — bind each alternative into a scratch scope, then require identical linear binding sets and identical post-state per name; disagreement is `E1002` naming the name and the two alternatives' states. Non-linear bindings may differ freely, because they own nothing.
-- [ ] **Step 4: Run** `cargo test -p yashy-verify` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): ownership through or- and nested patterns (E1002)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — bind each alternative into a scratch scope, then require identical linear binding sets and identical post-state per name; disagreement is `E1002` naming the name and the two alternatives' states. Non-linear bindings may differ freely, because they own nothing.
+- [x] **Step 4: Run** `cargo test -p yashy-verify` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): ownership through or- and nested patterns (E1002)"`
 
 ---
 
@@ -185,7 +185,7 @@ fn a_move_in_one_alternative_and_not_the_other_is_rejected() {
 - Produces: the HIR call is **positional**; defaults are inserted at resolution, so no later pass learns about named arguments.
 - Produces: `E0701` unknown name or positional-after-named; `E0702` a parameter given twice; **`E0102`** (the code phase 5 introduced for field defaults) for a default that is not a literal or a `const` name. One rule, one code: `is_const_default` is a single function that both a field declaration and a parameter declaration call, so the two default sites cannot drift apart.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -214,10 +214,10 @@ fn a_default_that_calls_a_function_is_rejected() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — resolution builds a `Vec<Option<Expr>>` of parameter slots, fills from named and positional in source order (evaluating each expression once, left to right, into a temporary in the HIR so a default and an explicit argument keep their relative order), then checks every slot is filled or has a default. `E0702` is checked by slot, not by name, so `f(a: 1, a: 2)` and `f(1, a: 2)` both report it.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: named and default arguments resolved at the call site"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — resolution builds a `Vec<Option<Expr>>` of parameter slots, fills from named and positional in source order (evaluating each expression once, left to right, into a temporary in the HIR so a default and an explicit argument keep their relative order), then checks every slot is filled or has a default. `E0702` is checked by slot, not by name, so `f(a: 1, a: 2)` and `f(1, a: 2)` both report it.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: named and default arguments resolved at the call site"`
 
 ---
 
@@ -232,11 +232,11 @@ fn a_default_that_calls_a_function_is_rejected() {
 - Produces: a contract may name any parameter, including one the caller passed by name; the diagnostic names the parameter, never the position.
 - Produces: `E1300` when a default expression is `io` even though the function is `pure` (the default runs inside the callee, so its effect is the callee's).
 
-- [ ] **Step 1: Write the failing tests** — a contract referring to `b` when the caller wrote `f(b: 1, a: 2)` still proves; a `pure fn` with a default calling `println` is `E1300`; the three seeded bugs land in the corpus with their expected code sets.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — because resolution already produced positional HIR, contract checking needs no change beyond confirming parameter names survive on `HirFn.params`; the effect change is one line in the default-insertion path.
-- [ ] **Step 4: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): contracts and effects across named and default arguments"`
+- [x] **Step 1: Write the failing tests** — a contract referring to `b` when the caller wrote `f(b: 1, a: 2)` still proves; a `pure fn` with a default calling `println` is `E1300`; the three seeded bugs land in the corpus with their expected code sets.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — because resolution already produced positional HIR, contract checking needs no change beyond confirming parameter names survive on `HirFn.params`; the effect change is one line in the default-insertion path.
+- [x] **Step 4: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): contracts and effects across named and default arguments"`
 
 ---
 
@@ -244,9 +244,9 @@ fn a_default_that_calls_a_function_is_rejected() {
 
 **Files:** `docs/tutorial/05-patterns.md` (rewritten with guards, or, ranges, nested), `docs/tutorial/11-functions.md` (named/default section), `docs/errors/{E0102,E0601,E0602,E0701,E0702,E1002}.md`, `AGENTS.md` (identity section: patterns are irrefutable in binding position).
 
-- [ ] **Step 1: Write the chapters** with runnable blocks; the tutorial harness compiles every block.
-- [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: patterns and named arguments, and close phase 7"`; update the index status and the ledger.
+- [x] **Step 1: Write the chapters** with runnable blocks; the tutorial harness compiles every block.
+- [x] **Step 2: Run the gate table on both OSes.**
+- [x] **Step 3: Commit and record** — `git commit -m "docs: patterns and named arguments, and close phase 7"`; update the index status and the ledger.
 
 ---
 

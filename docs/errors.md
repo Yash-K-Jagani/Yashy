@@ -45,10 +45,14 @@ the declaration or import involved when that is not obvious.
 | [E0400](errors/E0400.md) | const reassignment |
 | [E0500](errors/E0500.md) | moved value |
 | [E0600](errors/E0600.md) | non-exhaustive match |
+| [E0601](errors/E0601.md) | unreachable switch arm |
+| [E0602](errors/E0602.md) | invalid range pattern |
 | [E0603](errors/E0603.md) | `if let` pattern always matches |
 | [E0604](errors/E0604.md) | unknown loop label |
 | [E0605](errors/E0605.md) | duplicate loop label |
 | [E0700](errors/E0700.md) | wrong argument count |
+| [E0701](errors/E0701.md) | unknown named argument |
+| [E0702](errors/E0702.md) | duplicate argument |
 | [E0801](errors/E0801.md) | private item used from another module |
 | [E0802](errors/E0802.md) | import cycle |
 | [E1200](errors/E1200.md) | grapheme index out of range |

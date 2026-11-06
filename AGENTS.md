@@ -103,10 +103,19 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **Keep the language's identity.** No garbage collector, borrow checker,
   exceptions, implicit coercion, operator overloading, class inheritance, or
   power-user procedural macros.
+- **Patterns are irrefutable in binding position.** A pattern in `let`,
+  `const` and `for` must match every value of its type; a refutable pattern
+  there is `E0100` with the fix "use `switch`". In `switch`, every
+  alternative of an or-pattern binds the same names with the same types
+  (`E1002` otherwise), and a struct pattern writes `field: binding`, never
+  the shorthand.
 - **Sugar desugars; it does not add HIR.** Phase 5's forms (`if let`,
   `?` on `Option`, trailing blocks, spread, chained comparisons, `for i, x`,
-  field defaults, `arena { }`, labels) lower into HIR that already exists —
-  `crates/yashy-sema/tests/desugar.rs` is the proof. The two recorded
+  field defaults, `arena { }`, labels) and phase 7's (or/range/nested
+  patterns, patterns in binding position, named and default arguments) lower
+  into HIR that already exists — `crates/yashy-sema/tests/desugar.rs` is the
+  proof. Named arguments reach the HIR positional; defaults are inserted at
+  resolution. The two recorded
   exceptions are `HirStmt::IfLet` (two blocks, which a `switch` arm cannot
   hold) and `HirBlock::arena` (one placement bit). `///` is documentation,
   not an attribute: it is stored on the item for `yashy doc` and interpreted

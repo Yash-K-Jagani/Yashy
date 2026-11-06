@@ -8,6 +8,8 @@
 - How to write and match the three kinds of enum variant.
 - How a guard adds a condition to an arm, and why it cannot replace a
   `default`.
+- How or-patterns, range patterns, and nested patterns widen what one arm
+  can say, and how a pattern can bind in `let` and `for`.
 - How a tuple carries several values at once, and how destructuring unpacks
   one into separate bindings.
 
@@ -318,6 +320,86 @@ test is fiction and the checker reports it (`E0603`) with the fix: use `let`.
 The pattern grammar is the same one `switch` uses, so variant, struct and
 tuple patterns all work here too.
 
+## Alternatives, ranges, and nesting
+
+An arm may offer several shapes with `|`: the arm matches when any of them
+does. Every alternative must bind the same names with the same types —
+`case Red | Green(n)` is an error because `n` exists on one side only — so
+the body can read those names no matter which alternative matched:
+
+```yashy
+enum Color {
+    Red,
+    Green(int),
+    Blue,
+}
+
+fn code(Color c) -> int {
+    return switch c {
+        case Red | Blue { 0 }
+        case Green(n) { n }
+    };
+}
+
+fn main() {
+    print(code(Color.Red));
+    print(code(Color.Green(7)));
+    print(code(Color.Blue));
+    // => 0
+    // => 7
+    // => 0
+}
+```
+
+A range pattern matches an interval of `int` or `char` values, `0..10`
+(exclusive at the end) or `0..=10` (inclusive). A range is a pattern, never
+a comparison, and a range over `float` is rejected at parse time (`E0602`),
+because there is no decidable membership story for it here:
+
+```yashy
+fn grade(int n) -> string {
+    return switch n {
+        case 0..=1 { "low" }
+        case 2..=9 { "mid" }
+        default { "high" }
+    };
+}
+
+fn main() {
+    print(grade(0));
+    print(grade(5));
+    print(grade(42));
+    // => low
+    // => mid
+    // => high
+}
+```
+
+Patterns nest anywhere a value can appear. A tuple payload is matched with
+a tuple pattern, `case Pair((x, y))`, and a struct field's value can itself
+be matched by a nested pattern, `case Outer { inner: Inner { v: v }, .. }` —
+the `..` skips the fields the pattern does not name. Exhaustiveness is
+checked column by column through the nesting, so a missing nested shape is
+reported with its shape, not just its variant: `A(Some(1))` and `B` leave
+`A(None)` and `A(Some(_))` missing.
+
+An arm that no value can reach is an error (`E0601`): arms are tried in
+order, so `case _` before `case Red` makes the second arm dead, and dead
+code in a `switch` is almost always a copy-paste bug in the pattern. A
+guarded arm is never dead, because the guard may fail.
+
+## Patterns in binding position
+
+Wherever a binding is introduced, a pattern may stand instead of a plain
+name — `let Point { x: x, y: y } = p;`, `const (a, _) = pair;`,
+`for Point { x: x, .. } in points { ... }`. The pattern must be irrefutable:
+there is no branch to run when it misses, so `let Some(x) = opt;` is an
+error (`E0100`) telling you to use `switch`. The names the pattern binds
+become bindings in the enclosing block, with the mutability the keyword
+names, exactly as a plain `let` or `const` would. A struct pattern names
+the struct whose fields it binds and must write every field or end with
+`..`; a tuple pattern's arity must match the tuple's.
+
 ## Patterns at a glance
 
 | Pattern | Used for | Binds | Example |
@@ -330,7 +412,12 @@ tuple patterns all work here too.
 | `case Point` | A variant with no payload. | Nothing. | `Shape` |
 | `case 0` / `default` | Literal arms. | Nothing; `default` is required. | `int`, `float`, `bool`, `string` |
 | `case Circle(r) if r > 10.0` | An arm with a guard. | `r`, then the guard is checked. | Any pattern |
+| `case Red | Blue` | Alternatives: any one matching suffices. | The same names on every side. | Any pattern |
+| `case 0..=1` | A range of `int` or `char`. | Nothing. | `int`, `char` |
+| `case Pair((x, y))` | A nested tuple pattern. | `x` and `y`, through the payload. | A tuple payload |
+| `case Outer { inner: Inner { v: v }, .. }` | A nested struct pattern. | `v`, through the field. | A struct payload |
 | `const (a, b) = pair` | Destructuring statement. | Each name, by position; `_` skips. | A tuple value |
+| `let Point { x: x, y: y } = p` | A pattern in binding position. | `x` and `y`. | A struct value |
 
 The `field: binding` spelling is not optional shorthand. `case Rect { w, h }`
 is a parse error at the comma, because the parser is looking for `:` after the
