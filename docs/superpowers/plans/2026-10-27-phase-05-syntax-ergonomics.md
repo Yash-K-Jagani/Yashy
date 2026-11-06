@@ -386,22 +386,6 @@ See the master index. The ones that bite here:
 
 ---
 
-### Task 13: `print` is the only output, Python-style
-
-**Files:**
-- Modify: `crates/yashy-sema/src/check_expr.rs` (`print` variadic, newline-terminated; `println` removed with a migration error), all tracked `.ya` programs, `docs/`, and Rust test fixtures.
-
-**Interfaces:**
-- Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
-
-- [x] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates. Landed as `7d9059c`.
-- [x] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`. Landed as `7d9059c`.
-
-> Task 12 (variadic `println`) is not listed separately: Task 13 superseded it
-> in the same phase — `println` first became the preferred form (`b111708`),
-> then was removed when `print` took over its job (`7d9059c`). Only the final
-> state is a deliverable.
-
 ### Task 11: The sugar proof, docs and gate
 
 **Files:**
@@ -420,6 +404,24 @@ See the master index. The ones that bite here:
 - [ ] **Step 3: Write the tutorial sections** with runnable blocks; the tutorial harness compiles every block. The memory chapter is `07-memory.md`.
 - [ ] **Step 4: Run the gate table on both OSes**, then the zero-false-positive loop from phase 1b Task 7 → no new `FALSE POSITIVE` line.
 - [ ] **Step 5: Commit and record** — `git commit -m "docs: the syntax changes, their proofs, and close phase 5"`; update the index status and the ledger.
+
+---
+
+### Task 13: `print` is the only output, Python-style
+
+**Files:**
+- Modify: `crates/yashy-sema/src/check_expr.rs` (`print` variadic, newline-terminated; `println` removed with a migration error), all tracked `.ya` programs, `docs/`, and Rust test fixtures.
+
+**Interfaces:**
+- Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
+
+- [x] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates. Landed as `7d9059c`.
+- [x] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`. Landed as `7d9059c`.
+
+> Task 12 (variadic `println`) is not listed separately: Task 13 superseded it
+> in the same phase — `println` first became the preferred form (`b111708`),
+> then was removed when `print` took over its job (`7d9059c`). Only the final
+> state is a deliverable.
 
 ---
 
