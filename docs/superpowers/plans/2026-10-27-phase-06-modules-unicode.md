@@ -129,12 +129,12 @@ See the master index. The ones that bite here:
 
 ### Task 5: The Unicode conformance suite
 
-> Deferred from the main run: the shell was wedged, so the vendored
-> `GraphemeBreakTest.txt` download could not be staged. The runtime suite
-> (`crates/yashy-runtime/tests/grapheme.rs`) covers the implemented rules;
-> the full conformance file lands with the download. The harness location
-> moves from the driver's suite to the runtime's, because `count` is a C
-> entry point the runtime tests already call directly.
+> The harness lives in the runtime's suite
+> (`crates/yashy-runtime/tests/grapheme_conformance.rs`), not the driver's,
+> because `count` is a C entry point the runtime tests already call
+> directly. The vendored Unicode 18.0.0 file is pinned at
+> `crates/yashy-runtime/tests/data/GraphemeBreakTest.txt`; the 26 GB9c
+> (`[9.3]`) cases are excluded by rule citation with the count pinned.
 
 **Files:**
 - Create: `crates/yashy-runtime/tests/data/GraphemeBreakTest.txt` (vendored, pinned, with its version in a header comment)
@@ -143,10 +143,10 @@ See the master index. The ones that bite here:
 **Interfaces:**
 - Produces: a test that runs every line of the conformance file through `yashy_str_grapheme_count` and asserts the expected cluster count.
 
-- [ ] **Step 1: Write the harness** — parse `÷`/`×` notation, skip comments, and assert on every case.
-- [ ] **Step 2: Run it** — expect failures; each is a missing break rule.
-- [ ] **Step 3: Fix the scanner** until the file passes, or record the exact rule set implemented in the test's header and assert only those rules. A partial implementation is allowed; an unstated partial implementation is not.
-- [ ] **Step 4: Commit** — `git commit -m "test(string): run the vendored Unicode grapheme conformance suite"`
+- [x] **Step 1: Write the harness** — parse `÷`/`×` notation, skip comments, and assert on every case.
+- [x] **Step 2: Run it** — expect failures; each is a missing break rule.
+- [x] **Step 3: Fix the scanner** until the file passes, or record the exact rule set implemented in the test's header and assert only those rules. A partial implementation is allowed; an unstated partial implementation is not. Landed: 827/853 cases assert; the 26 failures are exactly the lines citing rule `[9.3]` (GB9c Indic conjunct joining), excluded by that citation with the count pinned at 26 so a rule-set change is visible.
+- [x] **Step 4: Commit** — `git commit -m "test(string): run the vendored Unicode grapheme conformance suite"`
 
 ---
 
@@ -183,7 +183,7 @@ See the master index. The ones that bite here:
 |---|---|---|
 | Large-project import test | `cargo test -p yashy-driver --test modules` | 50-module fixture resolves, cycles rejected once |
 | Visibility | `cargo test -p yashy-sema` | private cross-module use rejected |
-| Unicode conformance | `cargo test -p yashy-driver --test unicode_conformance` | every vendored case passes or is explicitly excluded |
+| Unicode conformance | `cargo test -p yashy-runtime --test grapheme_conformance` | every vendored case passes or is explicitly excluded |
 | Bytes unchanged | `cargo test -p yashy-driver --test examples` | `wordcount` still counts bytes identically |
 | Verifier coverage | the zero-false-positive loop | no new false positive on strings |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
