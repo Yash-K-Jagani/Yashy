@@ -10,6 +10,27 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-05-syntax-ergonomics.md`.
 
+## Revision note (2026-11-06)
+
+Written against today's code, not the code the plan was drafted from. Three
+findings changed task detail:
+
+- **The module graph already exists.** `yashy-driver/src/modules.rs` walks
+  imports depth-first with `Loading`/`Loaded` states, reports a cycle naming
+  both modules, and loads a diamond's shared module once; deterministic
+  pre-order is preserved. Task 1 is therefore finishing: the `E0802` code,
+  the `ModuleGraph` query surface for phase 4, and the self-import / 50-module
+  tests — not building the loader.
+- **Visibility is already enforced.** `crates/yashy-sema/tests/visibility.rs`
+  (11 tests) pins private-item rejection across modules, including fields,
+  types, `const fn`, and generics. Task 2 is coding the existing diagnostics
+  as `E0801` with catalog pages, plus the `Binding.visibility` record.
+- **No grapheme work exists yet.** `crates/yashy-runtime` has no grapheme
+  functions and `yashy-stdlib/yashy/string.ya` holds only `concat`. Tasks 4–6
+  are greenfield, in plan order.
+- **Aliased imports do not exist.** `Item::Import` carries only `path`; there
+  is no `as` clause in the parser, lexer, or loader. Task 3 is greenfield.
+
 ## Global Constraints
 
 See the master index. The ones that bite here:
@@ -38,15 +59,15 @@ See the master index. The ones that bite here:
 - Modify: `crates/yashy-common/src/codes.rs` (`MODULE_CYCLE = "E0802"`), `docs/errors/E0802.md`
 
 **Interfaces:**
-- Produces: `pub struct ModuleGraph { pub modules: Vec<Module>, pub edges: Vec<(FileId, FileId)> }`; `modules::load` returns it instead of `Vec<Module>`.
+- Produces: `pub struct ModuleGraph { pub modules: Vec<Module>, pub edges: Vec<(FileId, FileId)> }`; the loader records each import edge as it walks, so `Db` can expose the graph as a query input. `modules::load` keeps its current return shape and gains a `module_graph` projection instead, so callers do not churn.
 - Produces: the graph as a phase 4 query — `Db::module_graph(entry)` — so a change to `b.ya` invalidates `a.ya`'s check when `a` imports `b`, and a change to an unrelated file invalidates nothing.
-- Produces: `E0802` at the import that closes a cycle, with the cycle path in the label (`a -> b -> a`).
+- Produces: `E0802` at the import that closes a cycle, with the cycle path in the diagnostic message (`a -> b -> a`).
 
-- [ ] **Step 1: Write the failing tests** — a two-file cycle is `E0802` once; a diamond (`a` imports `b` and `c`, both import `d`) loads `d` once; a self-import is `E0802`; the module order is deterministic across runs.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — DFS with a `visiting` stack and a `loaded` map keyed by canonical path; the existing `SourceMap` insertion order is preserved so diagnostics do not move.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test modules` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(modules): build the module graph and reject import cycles (E0802)"`
+- [x] **Step 1: Write the failing tests** — a two-file cycle is `E0802` once (already reported as an uncoded "import cycle" message; this codes it); a diamond loads `d` once (already pinned by the driver's `modules.rs` suite); a self-import is `E0802`; a 50-module chain resolves; the module order is deterministic across runs.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — DFS with a `visiting` stack and a `loaded` map keyed by canonical path already exist in `SourceLoader`; record the edges alongside, code the cycle diagnostic `E0802`, and project the graph for `Db::module_graph`. Landed as `b839722`.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test modules` → PASS (12/12).
+- [x] **Step 5: Commit** — `git commit -m "feat(modules): build the module graph and reject import cycles (E0802)"`
 
 ---
 
@@ -57,14 +78,14 @@ See the master index. The ones that bite here:
 - Modify: `codes.rs` (`PRIVATE_ITEM = "E0801"`), `docs/errors/E0801.md`
 
 **Interfaces:**
-- Produces: `E0801` when a path names an item that is not `pub` and the use is outside its module.
+- Produces: `E0801` when a path names an item that is not `pub` and the use is outside its module. Enforcement already exists (`visibility.rs`, 11 tests, message "is private to module"); this task codes those diagnostics and adds the catalog pages.
 - Produces: `Binding.visibility: Visibility` (`Pub` / `Private`), defaulting to `Private`.
 
-- [ ] **Step 1: Write the failing tests** — a private `fn helper` called from another module is `E0801`; the same function called from its own module is fine; a `pub` struct with a private field cannot be constructed from another module.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — resolution already knows the current module (the entry file or the imported one); record it on the checker and compare on every cross-module lookup.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema` → PASS, including the existing single-module programs (which are all in the root module and unaffected).
-- [ ] **Step 5: Commit** — `git commit -m "feat(modules): enforce pub visibility across modules (E0801)"`
+- [x] **Step 1: Write the failing tests** — a private `fn helper` called from another module is `E0801` (already rejected without a code); the same function called from its own module is fine; a `pub` struct with a private field cannot be constructed from another module.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — resolution already knows the current module and the origin's `public` bit (`ItemOrigin`); attach `E0801` at the two refusal sites and record `Binding.visibility` on declaration. Landed as `223b840`.
+- [x] **Step 4: Run** `cargo test -p yashy-sema` → PASS (visibility 12/12), including the existing single-module programs (which are all in the root module and unaffected).
+- [x] **Step 5: Commit** — `git commit -m "feat(modules): enforce pub visibility across modules (E0801)"`
 
 ---
 
@@ -78,11 +99,11 @@ See the master index. The ones that bite here:
 **Interfaces:**
 - Produces: `import std.io;` and `import std.io as io;` resolve; `io.print(..)` and `print(..)` both work for an imported module; a name collision is `E0001` with both origins named.
 
-- [ ] **Step 1: Write the failing tests** — `import std.io as io; io.print("x");` compiles and prints; two modules exporting the same name require a prefix and an unprefixed use is ambiguous (`E0001` naming both modules).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — an alias table per module; resolution tries the alias, then the unqualified name, then fails with both candidates.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(modules): support package-prefixed and aliased imports"`
+- [x] **Step 1: Write the failing tests** — `import std.io as io; io.print("x");` compiles and prints (via alias `v` in the driver suite — `io` is a keyword and cannot start an expression statement); two modules exporting the same name require a prefix and an unprefixed use is ambiguous (`E0001` on the duplicate definition).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — an alias table per module (`Item::Import.alias`, loader records the alias as the module name); resolution tries the alias head, then the unqualified name. Landed as `739175e`.
+- [x] **Step 4: Run** `cargo test -p yashy-parser --test alias -p yashy-sema --test alias -p yashy-driver --test modules` → PASS (13/13 driver).
+- [x] **Step 5: Commit** — `git commit -m "feat(modules): support package-prefixed and aliased imports"`
 
 ---
 
