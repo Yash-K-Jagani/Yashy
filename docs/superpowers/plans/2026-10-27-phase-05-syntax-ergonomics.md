@@ -295,7 +295,7 @@ See the master index. The ones that bite here:
 - Produces: `E1003` when an arena-placed value escapes (returned, assigned to a binding declared outside, stored in a struct that outlives the block, or captured by `thread_spawn`), naming the value and the boundary; `E1004` when `.free()` or an explicit refcount release is applied to one, with the fix "the block releases it".
 - Produces: nesting is legal; the inner block uses its own arena and the outer one is untouched.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
   ```rust
   #[test]
@@ -319,10 +319,10 @@ See the master index. The ones that bite here:
   }
   ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — move `classify_sites` and its types to `yashy-hir/src/escape.rs`, leaving `yashy-codegen/src/escape.rs` as `pub use yashy_hir::escape::*;`. Add `arena: bool` to `HirBlock` (the seven construction sites are in `check_expr.rs` and `check_expr/debug.rs`). In `escape.rs`, a site inside an arena block is `Placement::Arena(ArenaId::of_block(block))`, and an escape that crosses the arena block is recorded for the verifier. The verifier pass walks the same HIR, reports `E1003` for a recorded crossing and `E1004` for a free of a binding whose placement is `Arena`. The checker's `Stmt::Arena` lowering is the `if true` block above; it also inserts nothing else, because the block already owns its release.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-verify -p yashy-driver --test e2e arena` and the leak suite → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: arena blocks with escape and free proofs (E1003, E1004)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — move `classify_sites` and its types to `yashy-hir/src/escape.rs`, leaving `yashy-codegen/src/escape.rs` as `pub use yashy_hir::escape::*;`. Add `arena: bool` to `HirBlock` (the seven construction sites are in `check_expr.rs` and `check_expr/debug.rs`). In `escape.rs`, a site inside an arena block is `Placement::Arena(ArenaId::of_block(block))`, and an escape that crosses the arena block is recorded for the verifier. The verifier pass walks the same HIR, reports `E1003` for a recorded crossing and `E1004` for a free of a binding whose placement is `Arena`. The checker's `Stmt::Arena` lowering is the `if true` block above; it also inserts nothing else, because the block already owns its release. Landed in `da52782` "added everything"; arena tests green (`yashy-verify --test arena` 4/4, `yashy-codegen --test escape` 11/11).
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-verify -p yashy-driver --test e2e arena` and the leak suite → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: arena blocks with escape and free proofs (E1003, E1004)"`. Landed as `da52782`; this task's test fixes ride in `7d9059c`.
 
 ---
 
@@ -405,8 +405,8 @@ See the master index. The ones that bite here:
 **Interfaces:**
 - Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
 
-- [ ] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates.
-- [ ] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`.
+- [x] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates. Landed as `7d9059c`.
+- [x] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`. Landed as `7d9059c`.
 
 ---
 
