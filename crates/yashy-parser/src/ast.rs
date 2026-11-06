@@ -759,12 +759,34 @@ pub enum Pattern {
     StructVariant {
         path: Vec<String>,
         fields: Vec<(String, Pattern, Span)>,
+        /// The `..` rest marker: fields not written are wildcards.
+        rest: bool,
         span: Span,
     },
     /// A name that binds the whole matched value.
     Binding { name: String, span: Span },
     /// A literal to compare against.
     Literal(Literal, Span),
+    /// `Red | Green` -- matches when any alternative matches.
+    ///
+    /// Alternatives are flattened into one node and bind the same names with
+    /// the same types; an arm's body sees those names whichever alternative
+    /// matched. `span` covers the whole list.
+    Or {
+        alternatives: Vec<Pattern>,
+        span: Span,
+    },
+    /// `0..10` or `'a'..='z'` -- an integer or character interval.
+    ///
+    /// Both bounds are the same kind, and `lo <= hi`; the parser rejects
+    /// anything else as [`E0602`]. A range binds nothing: it is a test, not a
+    /// destructuring form.
+    Range {
+        lo: Literal,
+        hi: Literal,
+        inclusive: bool,
+        span: Span,
+    },
 }
 
 /// A literal, carrying its value rather than the text it was written as.

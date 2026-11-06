@@ -62,6 +62,8 @@ pub const CONST_REASSIGNMENT: &str = "E0400";
 pub const MOVED_VALUE: &str = "E0500";
 /// A `switch` does not cover every case.
 pub const NON_EXHAUSTIVE_MATCH: &str = "E0600";
+/// A range pattern's bounds are not both `int` or both `char`, or `lo > hi`.
+pub const BAD_RANGE_PATTERN: &str = "E0602";
 /// An `if let` or `while let` pattern matches every value of its type.
 pub const IRREFUTABLE_IF_LET: &str = "E0603";
 /// `break` or `continue` names a label no enclosing loop has.
@@ -238,6 +240,12 @@ pub const CODES: &[Code] = &[
         title: "non-exhaustive match",
         summary: "A `switch` does not cover every case.",
         page: include_str!("../../../docs/errors/E0600.md"),
+    },
+    Code {
+        id: BAD_RANGE_PATTERN,
+        title: "invalid range pattern",
+        summary: "A range pattern's bounds are not both `int` or both `char`, or its start is greater than its end.",
+        page: include_str!("../../../docs/errors/E0602.md"),
     },
     Code {
         id: IRREFUTABLE_IF_LET,

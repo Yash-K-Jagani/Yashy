@@ -25,10 +25,12 @@ use crate::ir::repr_type;
 pub struct VariantRepr {
     /// The variant's source name, which is what a pattern spells.
     pub name: String,
-    /// The payload fields in source order: `(field name, LLVM repr)`. The name
-    /// is `None` for a positional field and `Some` for a named one, which is
-    /// what lets a `case Rect { w, h }` pattern find its field.
-    pub fields: Vec<(Option<String>, String)>,
+    /// The payload fields in source order: `(field name, type)`. The name is
+    /// `None` for a positional field and `Some` for a named one, which is what
+    /// lets a `case Rect { w, h }` pattern find its field. The type is kept,
+    /// not only its representation, because a nested pattern asks what the
+    /// payload *is* -- `A(Some(1))` has to know the field is an `Option`.
+    pub fields: Vec<(Option<String>, TypeKind)>,
 }
 
 /// A user-declared enum, as the backend needs it.
@@ -442,8 +444,8 @@ impl Module {
         }
         let mut fields = vec![if repr_c { "i32" } else { "i8" }.to_string()];
         for variant in &variants {
-            for (_, repr) in &variant.fields {
-                fields.push(repr.clone());
+            for (_, ty) in &variant.fields {
+                fields.push(repr_type(ty));
             }
         }
         self.define_named_type(&format!("%enum.{name}"), fields);

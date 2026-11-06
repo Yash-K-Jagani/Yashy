@@ -57,6 +57,93 @@ pub fn check_pattern(
             }
             Ok(HirPattern::Literal(lit.clone(), *span))
         }
+        Pattern::Range {
+            lo,
+            hi,
+            inclusive,
+            span,
+        } => {
+            // A range names an interval of `int` or `char`, so the subject must
+            // be the same scalar type. `1..2` against a `string` is not a
+            // comparison in disguise; E0602 says so at parse time for the
+            // bounds and here for the subject.
+            let bound_ty = match lo {
+                yashy_parser::ast::Literal::I64(_) => TypeKind::I64,
+                yashy_parser::ast::Literal::Char(_) => TypeKind::Char,
+                _ => {
+                    return Err(invalid_range(
+                        *span,
+                        "a range pattern needs two `int` bounds or two `char` bounds",
+                    ));
+                }
+            };
+            if !matches!(scrutinee.kind, TypeKind::I64 | TypeKind::Char)
+                || scrutinee.kind != bound_ty
+            {
+                return Err(invalid_range(
+                    *span,
+                    format!(
+                        "a range pattern is an interval of `int` or `char`, not `{scrutinee}`"
+                    ),
+                ));
+            }
+            Ok(HirPattern::Range {
+                lo: lo.clone(),
+                hi: hi.clone(),
+                inclusive: *inclusive,
+                ty: scrutinee.clone(),
+                span: *span,
+            })
+        }
+        Pattern::Or {
+            alternatives,
+            span,
+        } => {
+            if alternatives.is_empty() {
+                return Err(TypeError::new(*span, "an or-pattern needs an alternative"));
+            }
+            let mut first: Option<(HirPattern, Vec<(String, Type, Mutability, Span)>)> = None;
+            for alternative in alternatives {
+                let mut scratch = Vec::new();
+                let checked =
+                    check_pattern(alternative, scrutinee, &mut scratch, variants, resolve)?;
+                match &first {
+                    None => first = Some((checked, scratch)),
+                    Some((_, expected)) => {
+                        if !same_bindings(expected, &scratch) {
+                            return Err(TypeError::new(
+                                *span,
+                                "every alternative of an or-pattern must bind the same names \
+                                 with the same types",
+                            )
+                            .with_code(codes::PARTIAL_MOVE));
+                        }
+                    }
+                }
+            }
+            match first {
+                Some((_checked, bindings)) => {
+                    out_bindings.extend(bindings);
+                    Ok(HirPattern::Or {
+                        alternatives: alternatives
+                            .iter()
+                            .map(|alternative| {
+                                let mut scratch = Vec::new();
+                                check_pattern(
+                                    alternative,
+                                    scrutinee,
+                                    &mut scratch,
+                                    variants,
+                                    resolve,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        span: *span,
+                    })
+                }
+                None => Err(TypeError::new(*span, "an or-pattern needs an alternative")),
+            }
+        }
         Pattern::UnitVariant { path, span } => {
             check_unit_variant(path, scrutinee, variants, *span)?;
             Ok(HirPattern::UnitVariant {
@@ -65,14 +152,6 @@ pub fn check_pattern(
             })
         }
         Pattern::TupleVariant { path, args, span } => {
-            // The backend binds a variant pattern's payload but does not test a
-            // sub-pattern inside it: `Err(NotFound)` would test only the outer
-            // tag and then bind nothing, so the arm would match every error.
-            // Rejecting the nested pattern is the honest answer; a two-level
-            // `switch` says the same thing and is checked.
-            for sub in args {
-                reject_nested_pattern(sub)?;
-            }
             let payloads = tuple_payloads(path, args.len(), scrutinee, variants, resolve, *span)?;
             let mut hir_args = Vec::with_capacity(args.len());
             for (sub, payload_ty) in args.iter().zip(payloads.iter()) {
@@ -90,9 +169,15 @@ pub fn check_pattern(
                 span: *span,
             })
         }
-        Pattern::StructVariant { path, fields, span } => check_struct_variant(
+        Pattern::StructVariant {
             path,
             fields,
+            rest,
+            span,
+        } => check_struct_variant(
+            path,
+            fields,
+            *rest,
             scrutinee,
             out_bindings,
             variants,
@@ -107,36 +192,24 @@ fn variant_name(path: &[String]) -> String {
     path.last().cloned().unwrap_or_default()
 }
 
-/// Reject a sub-pattern the backend would silently ignore.
-///
-/// A variant pattern's payload is bound when the sub-pattern is a `Binding`
-/// (`Err(e)`) or discarded when it is `_`. Anything else -- a literal, or a
-/// nested variant -- is checked here but not lowered: `patterns.rs` only
-/// extracts the payload and binds a name, so `Err(NotFound)` would compile to
-/// "matches every error". A two-level `switch` says the same thing and every
-/// level is tested, so the fix is named in the message rather than the
-/// program silently doing the wrong thing.
-fn reject_nested_pattern(pattern: &Pattern) -> Result<(), TypeError> {
-    match pattern {
-        Pattern::Wildcard(_) | Pattern::Binding { .. } => Ok(()),
-        other => Err(TypeError::new(
-            pattern_span(other),
-            "a nested pattern is not supported yet; bind the payload and switch \
-             on it, or write `_`",
-        )),
-    }
+/// A range-pattern diagnostic carrying E0602.
+fn invalid_range(span: Span, message: impl Into<String>) -> TypeError {
+    TypeError::new(span, message).with_code(codes::BAD_RANGE_PATTERN)
 }
 
-/// The span a pattern was written at.
-fn pattern_span(pattern: &Pattern) -> Span {
-    match pattern {
-        Pattern::Wildcard(span)
-        | Pattern::UnitVariant { span, .. }
-        | Pattern::TupleVariant { span, .. }
-        | Pattern::StructVariant { span, .. }
-        | Pattern::Binding { span, .. }
-        | Pattern::Literal(_, span) => *span,
+/// Two alternatives bind the same names with the same types.
+fn same_bindings(
+    left: &[(String, Type, Mutability, Span)],
+    right: &[(String, Type, Mutability, Span)],
+) -> bool {
+    if left.len() != right.len() {
+        return false;
     }
+    left.iter().all(|(name, ty, _, _)| {
+        right
+            .iter()
+            .any(|(other, other_ty, _, _)| other == name && other_ty.eq_ignoring_span(ty))
+    })
 }
 
 /// A unit-variant pattern names a payload-less variant of the scrutinee.
@@ -252,6 +325,7 @@ fn tuple_payloads(
 fn check_struct_variant(
     path: &[String],
     fields: &[(String, Pattern, Span)],
+    rest: bool,
     scrutinee: &Type,
     out_bindings: &mut Vec<(String, Type, Mutability, Span)>,
     variants: &dyn Fn(&str) -> Option<Vec<VariantDef>>,
@@ -300,17 +374,36 @@ fn check_struct_variant(
             ));
         }
     };
-    if fields.len() != declared.len() {
-        return Err(TypeError::new(
-            span,
-            format!("expected {} fields, got {}", declared.len(), fields.len()),
-        ));
+    if fields.len() != declared.len() && !rest {
+        let missing: Vec<String> = declared
+            .iter()
+            .map(|(name, _)| name.clone())
+            .filter(|name| !fields.iter().any(|(written, _, _)| written == name))
+            .collect();
+        let mut message = if missing.is_empty() {
+            // More fields than the variant declares is caught by the loop
+            // below as an unknown field.
+            format!("expected {} fields, got {}", declared.len(), fields.len())
+        } else {
+            format!(
+                "this pattern misses field{} {} of variant `{name}`",
+                if missing.len() == 1 { "" } else { "s" },
+                missing
+                    .iter()
+                    .map(|field| format!("`{field}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        if !missing.is_empty() {
+            message.push_str("; write it or add `..`");
+        }
+        return Err(TypeError::new(span, message));
     }
     let mut hir_fields = Vec::with_capacity(fields.len());
     for (fname, sub, fspan) in fields {
         match declared.iter().find(|(n, _)| n == fname) {
             Some((_, fty)) => {
-                reject_nested_pattern(sub)?;
                 let checked = check_pattern(sub, fty, out_bindings, variants, resolve)?;
                 hir_fields.push((fname.clone(), checked, *fspan));
             }
@@ -332,6 +425,7 @@ fn check_struct_variant(
     Ok(HirPattern::StructVariant {
         path: path.to_vec(),
         fields: hir_fields,
+        rest,
         span,
     })
 }
@@ -344,6 +438,8 @@ pub fn hir_pattern_span(pattern: &HirPattern) -> Span {
         | HirPattern::TupleVariant { span, .. }
         | HirPattern::StructVariant { span, .. }
         | HirPattern::Binding { span, .. }
+        | HirPattern::Or { span, .. }
+        | HirPattern::Range { span, .. }
         | HirPattern::Literal(_, span) => *span,
     }
 }
@@ -372,7 +468,12 @@ pub fn is_irrefutable(
 ) -> bool {
     match pattern {
         HirPattern::Wildcard(_) | HirPattern::Binding { .. } => true,
-        HirPattern::Literal(..) => false,
+        HirPattern::Literal(..) | HirPattern::Range { .. } => false,
+        // An or-pattern matches everything when one alternative does: the arm
+        // still has a way to accept any value.
+        HirPattern::Or { alternatives, .. } => alternatives
+            .iter()
+            .any(|alternative| is_irrefutable(alternative, subject, variants, resolve)),
         HirPattern::UnitVariant { path, .. }
         | HirPattern::TupleVariant { path, .. }
         | HirPattern::StructVariant { path, .. } => {

@@ -350,6 +350,7 @@ fn full_arms(spans: &mut Spans) -> Vec<SwitchArm> {
             pattern: Pattern::StructVariant {
                 path: vec!["RGB".to_string()],
                 fields: vec![("red".to_string(), literal_pattern(spans), spans.take())],
+                rest: false,
                 span: spans.take(),
             },
             guard: None,
@@ -1451,9 +1452,10 @@ fn debug_names_every_pattern_variant_and_its_fields() {
             Pattern::StructVariant {
                 path: vec!["RGB".to_string()],
                 fields: Vec::new(),
+                rest: false,
                 span: here(),
             },
-            &["StructVariant", "path", "fields", "span"],
+            &["StructVariant", "path", "fields", "rest", "span"],
             &["Wildcard", "UnitVariant", "TupleVariant", "Binding"],
         ),
         case(
@@ -1777,13 +1779,14 @@ fn struct_variant_field_names_are_reachable_and_checked() {
             },
             field_span,
         )],
+        rest: false,
         span: variant_span,
     };
 
     assert_eq!(
         format!("{pattern:?}"),
         format!(
-            "StructVariant {{ path: [\"RGB\"], fields: [(\"red\", Binding {{ name: \"r\", span: {binding_span:?} }}, {field_span:?})], span: {variant_span:?} }}"
+            "StructVariant {{ path: [\"RGB\"], fields: [(\"red\", Binding {{ name: \"r\", span: {binding_span:?} }}, {field_span:?})], rest: false, span: {variant_span:?} }}"
         )
     );
 }

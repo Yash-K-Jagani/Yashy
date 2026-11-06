@@ -81,6 +81,9 @@ struct Printer<'a> {
     /// a comment is a gap, and the tokens on either side still have to be
     /// spaced as if it were not there.
     prev: Option<TokenKind>,
+    /// The token before `prev`, for the one pair whose spacing depends on two
+    /// tokens: `..=` is written as one operator, with no air after it.
+    prev_prev: Option<TokenKind>,
     /// The `{` just printed is immediately followed by `}`.
     compact_brace: bool,
     /// A contract clause has been printed and its body brace is still to come.
@@ -112,6 +115,7 @@ impl<'a> Printer<'a> {
             indent: 0,
             line_break: Break::None,
             prev: None,
+            prev_prev: None,
             compact_brace: false,
             in_clause: false,
             in_lambda_bars: false,
@@ -284,6 +288,7 @@ impl<'a> Printer<'a> {
                 self.out.push_str(body);
             }
             self.line_break = Break::Line;
+            self.prev_prev = self.prev;
             self.prev = Some(token.kind);
             return;
         }
@@ -366,6 +371,9 @@ impl<'a> Printer<'a> {
                     !lambda_bar || lambda_bar_opens
                 } else if prev == TokenKind::Pipe {
                     !(self.prev_lambda_bar && self.prev_lambda_bar_opens)
+                } else if prev == TokenKind::Eq && self.prev_prev == Some(TokenKind::DotDot) {
+                    // The second half of `..=`: it binds to its upper bound.
+                    false
                 } else {
                     needs_space(prev, token.kind)
                 };
@@ -398,6 +406,7 @@ impl<'a> Printer<'a> {
                 self.line_break = Break::None;
             }
         }
+        self.prev_prev = self.prev;
         self.prev = Some(token.kind);
         self.prev_lambda_bar = lambda_bar;
         self.prev_lambda_bar_opens = lambda_bar_opens;
@@ -460,6 +469,10 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
         return true;
     }
     if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon) {
+        return false;
+    }
+    // `..=` is one operator; the `=` half binds to the `..`.
+    if cur == Eq && prev == DotDot {
         return false;
     }
     if matches!(prev, Colon | Comma) {

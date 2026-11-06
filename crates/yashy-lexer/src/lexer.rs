@@ -311,9 +311,10 @@ impl<'src> Lexer<'src> {
             // `123abc`, `1_`, `1e10`: a letter or a separator where the number
             // should have ended. A separator between digits was consumed above.
             Some(byte) if is_ident_continue(byte) => true,
-            // `1.2.3`: a second dot after a float. A dot after an *integer* is
-            // `DotDot` or a bare `Dot`, which are both real tokens.
-            Some(b'.') if is_float => true,
+            // `1.2.3`: a second dot after a float, unless it starts a range
+            // (`1.0..2.0` is a float, `..`, a float -- the parser rejects the
+            // range pattern as E0602; the lexer must not call it malformed).
+            Some(b'.') if is_float && peek_at(bytes, self.pos, 1) != Some(b'.') => true,
             _ => false,
         };
         if malformed {

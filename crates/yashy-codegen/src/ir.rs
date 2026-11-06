@@ -309,13 +309,13 @@ mod tests {
             },
             VariantRepr {
                 name: "One".to_string(),
-                fields: vec![(None, "i64".to_string())],
+                fields: vec![(None, TypeKind::I64)],
             },
             VariantRepr {
                 name: "Pair".to_string(),
                 fields: vec![
-                    (Some("left".to_string()), "i64".to_string()),
-                    (Some("right".to_string()), "i64".to_string()),
+                    (Some("left".to_string()), TypeKind::I64),
+                    (Some("right".to_string()), TypeKind::I64),
                 ],
             },
         ]
@@ -337,7 +337,7 @@ mod tests {
         let mut four = declared;
         four.push(VariantRepr {
             name: "Last".to_string(),
-            fields: vec![(None, "i8".to_string())],
+            fields: vec![(None, TypeKind::CUInt(8))],
         });
         assert_eq!(variant_tag(&ty, "Last", Some(&four)), Some(3));
         assert_eq!(variant_payload_index(&ty, "Last", Some(&four)), Some(4));

@@ -587,7 +587,33 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// One pattern, including `|`-separated alternatives.
+    ///
+    /// `|` is the expression grammar's bitwise-or too, but the two never meet:
+    /// a pattern position expects a pattern, and no pattern contains a bitwise
+    /// expression. So the separator needs no new token.
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let first = self.parse_pattern_primary()?;
+        if !self.check(TokenKind::Pipe) {
+            return Ok(first);
+        }
+        let mut alternatives = vec![first];
+        while self.eat(TokenKind::Pipe) {
+            alternatives.push(self.parse_pattern_primary()?);
+        }
+        let span = crate::exprs::pattern_span(&alternatives[0]);
+        let end = alternatives
+            .last()
+            .map(crate::exprs::pattern_span)
+            .unwrap_or(span);
+        Ok(Pattern::Or {
+            alternatives,
+            span: cover(span, end),
+        })
+    }
+
+    /// A pattern with no `|` at its top level.
+    fn parse_pattern_primary(&mut self) -> Result<Pattern, ParseError> {
         // Wildcard
         if self.check(TokenKind::Ident) {
             let (name, span) = self.identifier()?;
@@ -626,9 +652,11 @@ impl<'src> Parser<'src> {
                 let open = self.expect(TokenKind::LBrace)?;
                 let _ = self.push_open(TokenKind::LBrace, open.span)?;
                 let mut fields = Vec::new();
+                let mut rest = false;
                 while !self.check(TokenKind::RBrace) && !self.at_eof() {
                     if self.eat(TokenKind::DotDot) {
-                        // rest pattern; ignore
+                        // `Point { x, .. }`: every field not written matches.
+                        rest = true;
                         break;
                     }
                     let (fname, fspan) = self.identifier()?;
@@ -644,6 +672,7 @@ impl<'src> Parser<'src> {
                 return Ok(Pattern::StructVariant {
                     path: vec![name],
                     fields,
+                    rest,
                     span: cover(span, close.span),
                 });
             }
@@ -672,11 +701,22 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::I64) {
             let tok = self.advance();
             let val = self.integer_literal(tok.span)?;
-            return Ok(Pattern::Literal(Literal::I64(val), tok.span));
+            return self.finish_literal_pattern(Literal::I64(val), tok.span);
         }
         if self.check(TokenKind::F64) {
             let tok = self.advance();
             let val = self.float_literal(tok.span)?;
+            // A float is a pattern, but never a range bound. The `.` of a
+            // range is the `..` token, so `1.0..2.0` reaches here with the
+            // float already read; reject it as E0602 rather than leave `..`
+            // for the arm body and report a puzzling token.
+            if self.check(TokenKind::DotDot) {
+                let end = self.advance();
+                return Err(crate::error::invalid_range_pattern(
+                    cover(tok.span, end.span),
+                    "a range pattern needs two `int` bounds or two `char` bounds, not floats",
+                ));
+            }
             return Ok(Pattern::Literal(Literal::F64(val), tok.span));
         }
         if self.check(TokenKind::True) {
@@ -686,6 +726,11 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::False) {
             let tok = self.advance();
             return Ok(Pattern::Literal(Literal::Bool(false), tok.span));
+        }
+        if self.check(TokenKind::Char) {
+            let tok = self.advance();
+            let val = self.char_literal(tok.span)?;
+            return self.finish_literal_pattern(Literal::Char(val), tok.span);
         }
         if self.check(TokenKind::Str) {
             let tok = self.advance();
@@ -710,6 +755,63 @@ impl<'src> Parser<'src> {
             return Ok(Pattern::Literal(Literal::Str(lit), tok.span));
         }
         Err(self.expected_error(TokenKind::Ident))
+    }
+
+    /// A literal, or a range whose lower bound it is.
+    fn finish_literal_pattern(
+        &mut self,
+        lo: Literal,
+        lo_span: yashy_common::Span,
+    ) -> Result<Pattern, ParseError> {
+        if !self.check(TokenKind::DotDot) {
+            return Ok(Pattern::Literal(lo, lo_span));
+        }
+        let dot = self.advance();
+        let inclusive = self.eat(TokenKind::Eq);
+        let (hi, hi_span) = match self.peek() {
+            TokenKind::I64 => {
+                let tok = self.advance();
+                (Literal::I64(self.integer_literal(tok.span)?), tok.span)
+            }
+            TokenKind::Char => {
+                let tok = self.advance();
+                (Literal::Char(self.char_literal(tok.span)?), tok.span)
+            }
+            _ => {
+                return Err(crate::error::invalid_range_pattern(
+                    cover(lo_span, dot.span),
+                    "a range pattern needs two `int` bounds or two `char` bounds",
+                ));
+            }
+        };
+        let span = cover(lo_span, hi_span);
+        match (&lo, &hi) {
+            (Literal::I64(start), Literal::I64(end)) if start > end => {
+                return Err(crate::error::invalid_range_pattern(
+                    span,
+                    format!("this range starts at {start} and ends at {end}: write the lower bound first"),
+                ));
+            }
+            (Literal::Char(start), Literal::Char(end)) if start > end => {
+                return Err(crate::error::invalid_range_pattern(
+                    span,
+                    "this range starts above its end: write the lower bound first",
+                ));
+            }
+            (Literal::I64(_), Literal::I64(_)) | (Literal::Char(_), Literal::Char(_)) => {}
+            _ => {
+                return Err(crate::error::invalid_range_pattern(
+                    span,
+                    "a range pattern needs two `int` bounds or two `char` bounds",
+                ));
+            }
+        }
+        Ok(Pattern::Range {
+            lo,
+            hi,
+            inclusive,
+            span,
+        })
     }
 
     fn parse_break(&mut self) -> Result<Stmt, ParseError> {

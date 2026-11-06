@@ -353,6 +353,7 @@ impl Checker<'_> {
             HirPattern::StructVariant {
                 path,
                 fields: names,
+                rest: false,
                 span,
             }
         } else {

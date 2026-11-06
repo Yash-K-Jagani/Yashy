@@ -332,6 +332,30 @@ fn if_let_and_while_let_keep_their_keyword_spacing() {
 }
 
 #[test]
+fn or_patterns_ranges_and_rest_spacing_round_trip() {
+    // `|` in pattern position is the alternative separator and keeps air on
+    // both sides; `..` binds tightly and `..=` is one operator.
+    let source = "fn main() {\n    switch n {\n        case 1 | 2 | 3 {\n            0\n        }\n        case 0..10 {\n            1\n        }\n        case 'a'..='z' {\n            2\n        }\n        default {\n            4\n        }\n    }\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), source, "formatting must be idempotent");
+    let struct_pattern = "fn main() { switch n { case Point { x: 1, .. } { 3 } default { 4 } } }";
+    let formatted = format(struct_pattern);
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+    assert_eq!(tokens_of(struct_pattern), tokens_of(&formatted));
+    assert!(
+        formatted.contains("x: 1, .."),
+        "the rest marker lost its spacing:\n{formatted}"
+    );
+    let formatted = format(
+        "fn main() { switch n { case 1|2 { 0 } case 0 .. = 9 { 1 } default { 2 } } }",
+    );
+    assert!(
+        formatted.contains("1 | 2") && formatted.contains("0..=9"),
+        "pattern operators were spaced incorrectly:\n{formatted}"
+    );
+}
+
+#[test]
 fn an_unparseable_file_is_reported_and_left_unmodified() {
     let source = "fn main( {\n";
     let diagnostics = yashy_fmt::format(source).expect_err("bad input must be reported");

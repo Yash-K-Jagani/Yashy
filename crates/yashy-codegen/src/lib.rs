@@ -235,7 +235,7 @@ fn emit(
                         fields: v
                             .fields
                             .iter()
-                            .map(|f| (f.name.clone(), repr_type(&f.ty.kind)))
+                            .map(|f| (f.name.clone(), f.ty.kind.clone()))
                             .collect(),
                     })
                     .collect();

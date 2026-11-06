@@ -335,12 +335,13 @@ fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
             args: args.iter().map(to_ast_pattern).collect(),
             span: *span,
         },
-        HirPattern::StructVariant { path, fields, span } => Pattern::StructVariant {
+        HirPattern::StructVariant { path, fields, rest, span } => Pattern::StructVariant {
             path: path.clone(),
             fields: fields
                 .iter()
                 .map(|(name, pattern, span)| (name.clone(), to_ast_pattern(pattern), *span))
                 .collect(),
+            rest: *rest,
             span: *span,
         },
         HirPattern::Binding { name, span, .. } => Pattern::Binding {
@@ -348,5 +349,24 @@ fn to_ast_pattern(pattern: &HirPattern) -> Pattern {
             span: *span,
         },
         HirPattern::Literal(literal, span) => Pattern::Literal(literal.clone(), *span),
+        HirPattern::Range {
+            lo,
+            hi,
+            inclusive,
+            span,
+            ..
+        } => Pattern::Range {
+            lo: lo.clone(),
+            hi: hi.clone(),
+            inclusive: *inclusive,
+            span: *span,
+        },
+        HirPattern::Or {
+            alternatives,
+            span,
+        } => Pattern::Or {
+            alternatives: alternatives.iter().map(to_ast_pattern).collect(),
+            span: *span,
+        },
     }
 }

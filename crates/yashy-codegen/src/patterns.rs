@@ -21,9 +21,15 @@
 //! two terminators in one block, which LLVM rejects. Testing first and
 //! lowering bodies afterwards keeps every block's terminator unique.
 //!
-//! An arm with no tag test (a `default`, a wildcard, or a bare binding) is the
+//! An arm with no test (a `default`, a wildcard, or a bare binding) is the
 //! chain's fall-through: the first such arm is the block the tests bottom out
 //! in.
+//!
+//! A pattern is a boolean question, not a single tag comparison: a nested
+//! payload (`A(Some(1))`) ands one comparison per column, an or-pattern ors
+//! its alternatives, and a range compares both ends. Binding is separate
+//! because an or-pattern has to bind through the alternative that matched;
+//! [`bind_pattern`] emits that little dispatch when it meets one.
 //!
 //! # No input makes this module panic
 //!
@@ -39,104 +45,265 @@ use crate::expr_gen::{gen_expr, gen_literal, has_string_payload, retain_payload,
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
 use crate::stmt_gen::Flow;
 
-/// What one arm tests, when it tests anything.
-///
-/// A variant arm tests the scrutinee's tag; a literal arm compares the
-/// scrutinee itself. They are one enum rather than two parallel tables so an
-/// arm can never get a tag test and a literal test at once.
-enum Test {
-    Tag(u8),
-    Literal(Literal),
-    /// A guard on a pattern that matches everything.
-    ///
-    /// A bare `case _ if c` has no tag to test and still has two ways to go:
-    /// the guard says yes, or the search continues. Giving it a place in the
-    /// chain -- a block that branches straight to the arm -- is what keeps the
-    /// arm at its source position instead of turning it into the chain's
-    /// fall-through, where nothing after it could be tried.
-    Always,
-}
-
-/// The test an arm performs, or `None` for an arm that matches everything and
-/// has no guard.
-fn test_for(ctx: &FnCtx<'_>, arm: &HirSwitchArm, subject: &TypeKind) -> Option<Test> {
-    if arm.is_default {
-        return arm.guard.as_ref().map(|_| Test::Always);
-    }
-    match test_for_pattern(ctx, &arm.pattern, subject) {
-        Some(test) => Some(test),
-        // A wildcard or a binding matches everything, so normally it is the
-        // fall-through. A guard changes that: the arm can decline the value,
-        // and the arms after it still have to be tried.
-        None if arm.guard.is_some() => Some(Test::Always),
-        None => None,
+/// If a pattern can fail, its test is a boolean expression; when it cannot,
+/// the arm is a fall-through unless a guard gives it a decision to make.
+fn needs_test(pattern: &HirPattern) -> bool {
+    match pattern {
+        HirPattern::Wildcard(_) | HirPattern::Binding { .. } => false,
+        // An or-pattern matches everything when one alternative does.
+        HirPattern::Or { alternatives, .. } => alternatives.iter().all(needs_test),
+        HirPattern::UnitVariant { .. }
+        | HirPattern::TupleVariant { .. }
+        | HirPattern::StructVariant { .. }
+        | HirPattern::Literal(..)
+        | HirPattern::Range { .. } => true,
     }
 }
 
-/// The test one pattern performs against a subject, ignoring guards.
-///
-/// Shared by `switch` arms and `if let`: a pattern is tested the same way
-/// wherever it appears, and the only difference between the two forms is what
-/// happens on a match.
-fn test_for_pattern(ctx: &FnCtx<'_>, pattern: &HirPattern, subject: &TypeKind) -> Option<Test> {
-    if let HirPattern::Literal(literal, _) = pattern {
-        return Some(Test::Literal(literal.clone()));
-    }
-    let user = ctx.module.enum_variants(subject);
-    pattern_variant_name(pattern)
-        .and_then(|name| variant_tag(subject, name, user))
-        .map(Test::Tag)
-}
-
-/// Emit the instructions for one test, returning the computed `i1` value.
-///
-/// Each branch allocates its temps in the order the pinned goldens record: the
-/// tag extraction first, then the comparison. `Always` allocates nothing --
-/// there is no question to ask -- and answers `None`.
-fn emit_test(ctx: &mut FnCtx<'_>, subject: &GenValue, test: &Test) -> Option<String> {
-    match test {
-        Test::Tag(tag) => {
-            let subject_repr = repr_type(&subject.ty);
-            let tag_type = ctx.module.tag_type(&subject.ty);
-            let tag_field = ctx.tmp();
-            ctx.push(format!(
-                "{tag_field} = extractvalue {subject_repr} {}, 0",
-                subject.value
-            ));
-            let is_match = ctx.tmp();
-            // The compared operand is a bare integer: modern LLVM has no
-            // typed constants, so `i8 0` here is a parse error ("expected
-            // value token").
-            ctx.push(format!(
-                "{is_match} = icmp eq {tag_type} {tag_field}, {tag}"
-            ));
-            Some(is_match)
-        }
-        Test::Literal(literal) => {
-            let value = gen_literal(ctx, literal, &subject.ty);
-            let is_match = ctx.tmp();
-            if matches!(subject.ty, TypeKind::Str) {
-                ctx.push(format!(
-                    "{is_match} = call i1 @yashy_str_eq(i8* {}, i8* {})",
-                    subject.value, value.value
-                ));
-            } else if matches!(subject.ty, TypeKind::F64) {
-                ctx.push(format!(
-                    "{is_match} = fcmp oeq double {}, {}",
-                    subject.value, value.value
-                ));
-            } else {
-                ctx.push(format!(
-                    "{is_match} = icmp eq {} {}, {}",
-                    repr_type(&subject.ty),
-                    subject.value,
-                    value.value
-                ));
+/// Emit the instructions for `pattern` against `subject`, returning the
+/// computed `i1` value, or `None` when the pattern matches everything.
+fn emit_pattern_test(
+    ctx: &mut FnCtx<'_>,
+    pattern: &HirPattern,
+    subject: &GenValue,
+) -> Option<String> {
+    match pattern {
+        HirPattern::Wildcard(_) | HirPattern::Binding { .. } => None,
+        HirPattern::Literal(literal, _) => Some(emit_literal_test(ctx, literal, subject)),
+        HirPattern::Range {
+            lo,
+            hi,
+            inclusive,
+            ..
+        } => Some(emit_range_test(ctx, lo, hi, *inclusive, subject)),
+        HirPattern::UnitVariant { .. } => emit_tag_test(ctx, pattern, subject),
+        HirPattern::TupleVariant { args, .. } => {
+            let mut conditions = Vec::new();
+            if let Some(tag) = emit_tag_test(ctx, pattern, subject) {
+                conditions.push(tag);
             }
-            Some(is_match)
+            let fields = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            if let Some(start) = start {
+                for (index, arg) in args.iter().enumerate() {
+                    if !needs_test(arg) {
+                        continue;
+                    }
+                    let Some((_, field_ty)) = fields.get(index) else {
+                        continue;
+                    };
+                    let payload = extract_field(ctx, subject, start + index as u32);
+                    let value = GenValue {
+                        value: payload,
+                        ty: field_ty.clone(),
+                    };
+                    if let Some(condition) = emit_pattern_test(ctx, arg, &value) {
+                        conditions.push(condition);
+                    }
+                }
+            }
+            and_all(ctx, conditions)
         }
-        Test::Always => None,
+        HirPattern::StructVariant { fields, .. } => {
+            let mut conditions = Vec::new();
+            if let Some(tag) = emit_tag_test(ctx, pattern, subject) {
+                conditions.push(tag);
+            }
+            let declared = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            if let Some(start) = start {
+                for (field_name, subpattern, _) in fields {
+                    if !needs_test(subpattern) {
+                        continue;
+                    }
+                    let Some(offset) = declared
+                        .iter()
+                        .position(|(name, _)| name.as_deref() == Some(field_name.as_str()))
+                    else {
+                        continue;
+                    };
+                    let Some((_, field_ty)) = declared.get(offset) else {
+                        continue;
+                    };
+                    let payload = extract_field(ctx, subject, start + offset as u32);
+                    let value = GenValue {
+                        value: payload,
+                        ty: field_ty.clone(),
+                    };
+                    if let Some(condition) = emit_pattern_test(ctx, subpattern, &value) {
+                        conditions.push(condition);
+                    }
+                }
+            }
+            and_all(ctx, conditions)
+        }
+        HirPattern::Or { alternatives, .. } => {
+            let mut conditions = Vec::new();
+            for alternative in alternatives {
+                match emit_pattern_test(ctx, alternative, subject) {
+                    Some(condition) => conditions.push(condition),
+                    None => return None,
+                }
+            }
+            or_all(ctx, conditions)
+        }
     }
+}
+
+fn emit_tag_test(
+    ctx: &mut FnCtx<'_>,
+    pattern: &HirPattern,
+    subject: &GenValue,
+) -> Option<String> {
+    let user = ctx.module.enum_variants(&subject.ty);
+    let name = pattern_variant_name(pattern)?;
+    let tag = variant_tag(&subject.ty, name, user)?;
+    let subject_repr = repr_type(&subject.ty);
+    let tag_type = ctx.module.tag_type(&subject.ty);
+    let tag_field = ctx.tmp();
+    ctx.push(format!(
+        "{tag_field} = extractvalue {subject_repr} {}, 0",
+        subject.value
+    ));
+    let is_match = ctx.tmp();
+    ctx.push(format!(
+        "{is_match} = icmp eq {tag_type} {tag_field}, {tag}"
+    ));
+    Some(is_match)
+}
+
+fn emit_literal_test(ctx: &mut FnCtx<'_>, literal: &Literal, subject: &GenValue) -> String {
+    let value = gen_literal(ctx, literal, &subject.ty);
+    let is_match = ctx.tmp();
+    if matches!(subject.ty, TypeKind::Str) {
+        ctx.push(format!(
+            "{is_match} = call i1 @yashy_str_eq(i8* {}, i8* {})",
+            subject.value, value.value
+        ));
+    } else if matches!(subject.ty, TypeKind::F64) {
+        ctx.push(format!(
+            "{is_match} = fcmp oeq double {}, {}",
+            subject.value, value.value
+        ));
+    } else {
+        ctx.push(format!(
+            "{is_match} = icmp eq {} {}, {}",
+            repr_type(&subject.ty),
+            subject.value,
+            value.value
+        ));
+    }
+    is_match
+}
+
+fn emit_range_test(
+    ctx: &mut FnCtx<'_>,
+    lo: &Literal,
+    hi: &Literal,
+    inclusive: bool,
+    subject: &GenValue,
+) -> String {
+    let lo_value = gen_literal(ctx, lo, &subject.ty);
+    let hi_value = gen_literal(ctx, hi, &subject.ty);
+    let repr = repr_type(&subject.ty);
+    // A `char` is an unsigned byte; an `int` is signed. Choosing the compare
+    // here keeps `'\u{80}'..` from being read as negative.
+    let unsigned = matches!(subject.ty, TypeKind::Char | TypeKind::CUInt(_));
+    let lower_op = if unsigned { "uge" } else { "sge" };
+    let upper_op = match (unsigned, inclusive) {
+        (true, true) => "ule",
+        (true, false) => "ult",
+        (false, true) => "sle",
+        (false, false) => "slt",
+    };
+    let at_least = ctx.tmp();
+    ctx.push(format!(
+        "{at_least} = icmp {lower_op} {repr} {}, {}",
+        subject.value, lo_value.value
+    ));
+    let at_most = ctx.tmp();
+    ctx.push(format!(
+        "{at_most} = icmp {upper_op} {repr} {}, {}",
+        subject.value, hi_value.value
+    ));
+    let is_match = ctx.tmp();
+    ctx.push(format!("{is_match} = and i1 {at_least}, {at_most}"));
+    is_match
+}
+
+fn and_all(ctx: &mut FnCtx<'_>, conditions: Vec<String>) -> Option<String> {
+    let mut iter = conditions.into_iter();
+    let mut acc = iter.next()?;
+    for condition in iter {
+        let next = ctx.tmp();
+        ctx.push(format!("{next} = and i1 {acc}, {condition}"));
+        acc = next;
+    }
+    Some(acc)
+}
+
+fn or_all(ctx: &mut FnCtx<'_>, conditions: Vec<String>) -> Option<String> {
+    let mut iter = conditions.into_iter();
+    let mut acc = iter.next()?;
+    for condition in iter {
+        let next = ctx.tmp();
+        ctx.push(format!("{next} = or i1 {acc}, {condition}"));
+        acc = next;
+    }
+    Some(acc)
+}
+
+/// Extract one field of the subject aggregate.
+fn extract_field(ctx: &mut FnCtx<'_>, subject: &GenValue, index: u32) -> String {
+    let payload = ctx.tmp();
+    ctx.push(format!(
+        "{payload} = extractvalue {} {}, {index}",
+        repr_type(&subject.ty),
+        subject.value
+    ));
+    payload
+}
+
+/// The payload fields of the variant a pattern names, in declaration order.
+fn payload_fields(
+    ctx: &FnCtx<'_>,
+    subject_ty: &TypeKind,
+    pattern: &HirPattern,
+) -> Vec<(Option<String>, TypeKind)> {
+    let Some(name) = pattern_variant_name(pattern) else {
+        return Vec::new();
+    };
+    match subject_ty {
+        TypeKind::Option(inner) => {
+            if name == "Some" {
+                vec![(None, (**inner).kind.clone())]
+            } else {
+                Vec::new()
+            }
+        }
+        TypeKind::Result(ok, err) => {
+            if name == "Ok" {
+                vec![(None, (**ok).kind.clone())]
+            } else if name == "Err" {
+                vec![(None, (**err).kind.clone())]
+            } else {
+                Vec::new()
+            }
+        }
+        TypeKind::Enum(_) => ctx
+            .module
+            .enum_variants(subject_ty)
+            .and_then(|variants| variants.iter().find(|variant| variant.name == name))
+            .map(|variant| variant.fields.clone())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn payload_start(ctx: &FnCtx<'_>, subject_ty: &TypeKind, pattern: &HirPattern) -> Option<u32> {
+    let name = pattern_variant_name(pattern)?;
+    let user = ctx.module.enum_variants(subject_ty);
+    variant_payload_index(subject_ty, name, user)
 }
 
 /// Lower a `switch` on `subject` against `arms`. Returns the name of the
@@ -157,9 +324,15 @@ pub fn gen_match(
     };
     let result_done = ctx.alloc_label_base() + "_result";
 
-    let tests: Vec<Option<Test>> = arms
+    let tested: Vec<bool> = arms
         .iter()
-        .map(|arm| test_for(ctx, arm, &subject.ty))
+        .map(|arm| {
+            if arm.is_default {
+                arm.guard.is_some()
+            } else {
+                needs_test(&arm.pattern) || arm.guard.is_some()
+            }
+        })
         .collect();
     let arm_labels: Vec<String> = arms
         .iter()
@@ -169,7 +342,7 @@ pub fn gen_match(
         .iter()
         .map(|_| ctx.alloc_label_base() + "_test")
         .collect();
-    let fallthrough = tests.iter().position(|test| test.is_none());
+    let fallthrough = tested.iter().position(|test| !test);
 
     // Phase 1: the test chain. The first test lands in the current block; each
     // later one opens the block the previous test branched to.
@@ -180,26 +353,28 @@ pub fn gen_match(
     // that did not match, which is exactly the semantics Yashy gives it.
     let mut fail_targets: Vec<Option<String>> = vec![None; arms.len()];
     let mut opened = false;
-    for (index, test) in tests.iter().enumerate() {
-        let Some(test) = test else { continue };
+    for (index, arm) in arms.iter().enumerate() {
+        if !tested[index] {
+            continue;
+        }
         if opened {
             ctx.push(format!("{}:", test_labels[index]));
         }
         opened = true;
 
-        // Each branch allocates its temps in the order the pinned goldens
-        // record: the tag extraction first, then the comparison. `Always`
-        // allocates nothing -- there is no question to ask.
-        let is_match = emit_test(ctx, subject, test);
-
-        let next = next_test(&tests, index)
+        let condition = if arm.is_default {
+            None
+        } else {
+            emit_pattern_test(ctx, &arm.pattern, subject)
+        };
+        let next = next_test(&tested, index)
             .map(|next| test_labels[next].clone())
             .or_else(|| fallthrough.map(|arm| arm_labels[arm].clone()))
             .unwrap_or_else(|| result_done.clone());
         fail_targets[index] = Some(next.clone());
-        match is_match {
-            Some(is_match) => ctx.push(format!(
-                "br i1 {is_match}, label %{}, label %{next}",
+        match condition {
+            Some(condition) => ctx.push(format!(
+                "br i1 {condition}, label %{}, label %{next}",
                 arm_labels[index]
             )),
             None => ctx.push(format!("br label %{}", arm_labels[index])),
@@ -272,12 +447,12 @@ pub fn gen_match(
 }
 
 /// The index of the next arm that tests anything, after `from`.
-fn next_test(tests: &[Option<Test>], from: usize) -> Option<usize> {
-    tests
+fn next_test(tested: &[bool], from: usize) -> Option<usize> {
+    tested
         .iter()
         .enumerate()
         .skip(from + 1)
-        .find(|(_, test)| test.is_some())
+        .find(|(_, test)| **test)
         .map(|(index, _)| index)
 }
 
@@ -305,7 +480,17 @@ fn pattern_names(pattern: &HirPattern, out: &mut Vec<String>) {
                 pattern_names(sub, out);
             }
         }
-        HirPattern::Wildcard(_) | HirPattern::UnitVariant { .. } | HirPattern::Literal(..) => {}
+        HirPattern::Or { alternatives, .. } => {
+            // Every alternative binds the same names by the checker's rule, so
+            // one of them is the complete list.
+            if let Some(first) = alternatives.first() {
+                pattern_names(first, out);
+            }
+        }
+        HirPattern::Wildcard(_)
+        | HirPattern::UnitVariant { .. }
+        | HirPattern::Literal(..)
+        | HirPattern::Range { .. } => {}
     }
 }
 
@@ -333,16 +518,10 @@ pub fn gen_if_let(
     let else_label = ctx.alloc_label_base() + "_else";
     let merge_label = ctx.alloc_label_base() + "_merge";
 
-    match test_for_pattern(ctx, pattern, &subject.ty) {
-        Some(test) => match emit_test(ctx, &subject, &test) {
-            Some(is_match) => ctx.push(format!(
-                "br i1 {is_match}, label %{then_label}, label %{else_label}"
-            )),
-            // `Always` is what a guarded `switch` arm asks for; an `if let`
-            // pattern has no guard, so this is unreachable and the branch is
-            // written as an unconditional one.
-            None => ctx.push(format!("br label %{then_label}")),
-        },
+    match emit_pattern_test(ctx, pattern, &subject) {
+        Some(condition) => ctx.push(format!(
+            "br i1 {condition}, label %{then_label}, label %{else_label}"
+        )),
         // A wildcard or a binding matches everything. The checker rejects the
         // form as E0603, so no valid program reaches here; taking the `then`
         // branch keeps the module well formed if one somehow does.
@@ -402,6 +581,11 @@ pub fn gen_if_let(
 /// `TupleVariant` arms extract the payload field(s) per
 /// [`variant_payload_index`].
 ///
+/// An `Or` pattern has to know which alternative matched, because that decides
+/// where its payload lives. It emits a small test chain over its alternatives
+/// and binds inside the matching block, then continues at a join label. Every
+/// other form is straight-line.
+///
 /// A binding is a **borrow**: the slot holds the subject's pointer, and the
 /// subject outlives every arm (it is released after the merge point, or not at
 /// all when it belongs to a parameter). Only a value that escapes the arm -- the
@@ -414,25 +598,23 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
         HirPattern::Binding { name, ty, .. } => {
             bind_value(ctx, name, &subject.value, &ty.kind);
         }
+        HirPattern::Or { alternatives, .. } => bind_or(ctx, subject, alternatives),
         HirPattern::TupleVariant { args, .. } => {
-            let start = pattern_variant_name(pattern).and_then(|name| {
-                let user = ctx.module.enum_variants(&subject.ty);
-                variant_payload_index(&subject.ty, name, user)
-            });
-            let subject_repr = repr_type(&subject.ty);
+            let fields = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            let Some(start) = start else {
+                return;
+            };
             for (offset, arg) in args.iter().enumerate() {
-                let index = match start {
-                    Some(start) => start + offset as u32,
-                    None => continue,
+                let Some((_, field_ty)) = fields.get(offset) else {
+                    continue;
                 };
-                let payload = ctx.tmp();
-                ctx.push(format!(
-                    "{payload} = extractvalue {subject_repr} {}, {index}",
-                    subject.value
-                ));
-                if let HirPattern::Binding { name, ty, .. } = arg {
-                    bind_value(ctx, name, &payload, &ty.kind);
-                }
+                let payload = extract_field(ctx, subject, start + offset as u32);
+                let value = GenValue {
+                    value: payload,
+                    ty: field_ty.clone(),
+                };
+                bind_pattern(ctx, &value, arg);
             }
         }
         HirPattern::UnitVariant { .. } => {} // no payload
@@ -440,49 +622,60 @@ pub fn bind_pattern(ctx: &mut FnCtx<'_>, subject: &GenValue, pattern: &HirPatter
             // A named payload is flattened into the enum's aggregate in source
             // order, so a field's index is its position in its own variant
             // plus the fields every earlier variant contributed.
-            let Some(variant_name) = pattern_variant_name(pattern) else {
+            let declared = payload_fields(ctx, &subject.ty, pattern);
+            let start = payload_start(ctx, &subject.ty, pattern);
+            let Some(start) = start else {
                 return;
             };
-            let Some(variants) = ctx
-                .module
-                .enum_variants(&subject.ty)
-                .map(<[_]>::to_vec)
-            else {
-                return;
-            };
-            let mut start = 1u32;
-            let mut declared_fields = None;
-            for declared in &variants {
-                if declared.name == variant_name {
-                    declared_fields = Some(declared.fields.clone());
-                    break;
-                }
-                start += declared.fields.len() as u32;
-            }
-            let Some(declared_fields) = declared_fields else {
-                return;
-            };
-            let subject_repr = repr_type(&subject.ty);
             for (field_name, subpattern, _) in fields {
-                let Some(offset) = declared_fields
+                let Some(offset) = declared
                     .iter()
                     .position(|(name, _)| name.as_deref() == Some(field_name.as_str()))
                 else {
                     continue;
                 };
-                let payload = ctx.tmp();
-                ctx.push(format!(
-                    "{payload} = extractvalue {subject_repr} {}, {}",
-                    subject.value,
-                    start + offset as u32
-                ));
-                if let HirPattern::Binding { name, ty, .. } = subpattern {
-                    bind_value(ctx, name, &payload, &ty.kind);
-                }
+                let Some((_, field_ty)) = declared.get(offset) else {
+                    continue;
+                };
+                let payload = extract_field(ctx, subject, start + offset as u32);
+                let value = GenValue {
+                    value: payload,
+                    ty: field_ty.clone(),
+                };
+                bind_pattern(ctx, &value, subpattern);
             }
         }
-        HirPattern::Literal(_, _) => {} // literal arms bind nothing
+        HirPattern::Literal(_, _) | HirPattern::Range { .. } => {} // bind nothing
     }
+}
+
+/// Bind an or-pattern through the alternative that matched.
+fn bind_or(ctx: &mut FnCtx<'_>, subject: &GenValue, alternatives: &[HirPattern]) {
+    if alternatives.is_empty() {
+        return;
+    }
+    let join = ctx.alloc_label_base() + "_or_join";
+    for (index, alternative) in alternatives.iter().enumerate() {
+        let last = index + 1 == alternatives.len();
+        if last {
+            bind_pattern(ctx, subject, alternative);
+            ctx.push(format!("br label %{join}"));
+            break;
+        }
+        let hit = ctx.alloc_label_base() + "_or_hit";
+        let miss = ctx.alloc_label_base() + "_or_miss";
+        match emit_pattern_test(ctx, alternative, subject) {
+            Some(condition) => {
+                ctx.push(format!("br i1 {condition}, label %{hit}, label %{miss}"))
+            }
+            None => ctx.push(format!("br label %{hit}")),
+        }
+        ctx.push(format!("{hit}:"));
+        bind_pattern(ctx, subject, alternative);
+        ctx.push(format!("br label %{join}"));
+        ctx.push(format!("{miss}:"));
+    }
+    ctx.push(format!("{join}:"));
 }
 
 /// Store `value` in a fresh slot bound to `name`.

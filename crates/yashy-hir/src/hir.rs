@@ -464,6 +464,8 @@ pub enum HirPattern {
     StructVariant {
         path: Vec<String>,
         fields: Vec<(String, HirPattern, Span)>,
+        /// The `..` rest marker: fields not written are wildcards.
+        rest: bool,
         span: Span,
     },
     Binding {
@@ -473,6 +475,25 @@ pub enum HirPattern {
         span: Span,
     },
     Literal(Literal, Span),
+    /// `Red | Green` -- matches when any alternative matches.
+    ///
+    /// Every alternative binds the same names with the same types, so the
+    /// arm's body has one set of bindings whichever alternative matched.
+    Or {
+        alternatives: Vec<HirPattern>,
+        span: Span,
+    },
+    /// `0..10` or `'a'..='z'` -- an integer or character interval.
+    ///
+    /// The checker resolved the subject type, so `ty` says whether the
+    /// comparison is signed (`int`) or unsigned (`char`).
+    Range {
+        lo: Literal,
+        hi: Literal,
+        inclusive: bool,
+        ty: Type,
+        span: Span,
+    },
 }
 
 /// Where a runtime fault inside an expression reports itself from.

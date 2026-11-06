@@ -127,6 +127,15 @@ pub fn import_needs_a_path(span: Span) -> ParseError {
     ParseError::new(span, "this `import` has no path: write `import std.io;`")
 }
 
+/// A range pattern whose bounds are not a comparable pair of the same kind.
+///
+/// A range is a total test, so it needs an ordered domain with exact
+/// membership: integers and characters, never floats. The message names the
+/// rule rather than the token, because the reader wrote a range on purpose.
+pub fn invalid_range_pattern(span: Span, message: impl Into<String>) -> ParseError {
+    ParseError::new(span, message).with_code(yashy_common::codes::BAD_RANGE_PATTERN)
+}
+
 /// A `struct` with nothing in it.
 ///
 /// Named, because the fix is to add a field to *this* struct and a reader who

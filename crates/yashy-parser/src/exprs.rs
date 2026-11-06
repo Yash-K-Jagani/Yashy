@@ -1033,6 +1033,8 @@ pub(crate) fn pattern_span(p: &crate::ast::Pattern) -> Span {
         Pattern::StructVariant { span, .. } => *span,
         Pattern::Binding { span, .. } => *span,
         Pattern::Literal(_, s) => *s,
+        Pattern::Or { span, .. } => *span,
+        Pattern::Range { span, .. } => *span,
     }
 }
 

@@ -35,7 +35,7 @@ use yashy_parser::ast::{
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
 use crate::const_eval::{self, ConstFn, ConstFns, Missing};
 use crate::error::TypeError;
-use crate::exhaustive::missing_cases;
+use crate::exhaustive::missing_cases_with;
 use crate::hir::*;
 use crate::ownership::{linearity_of, Linearity, Ownership};
 use crate::scope::{Binding, Scope, Visibility};
@@ -4801,7 +4801,17 @@ impl<'src> Checker<'src> {
             .filter(|arm| arm.guard.is_none())
             .map(|arm| arm.pattern.clone())
             .collect();
-        let missing = missing_cases(enum_name, variants, &patterns, has_default);
+        let missing = {
+            let root = variants.to_vec();
+            let lookup = |name: &str| {
+                if name == enum_name {
+                    Some(root.clone())
+                } else {
+                    self.enums.get(name).map(|sig| sig.variants.clone())
+                }
+            };
+            missing_cases_with(enum_name, variants, &patterns, has_default, &lookup)
+        };
         if missing.is_empty() {
             Some(())
         } else {

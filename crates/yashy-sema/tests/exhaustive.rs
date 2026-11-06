@@ -61,6 +61,7 @@ fn struct_variant(path: &str) -> Pattern {
     Pattern::StructVariant {
         path: vec![path.to_string()],
         fields: vec![("w".to_string(), Pattern::Wildcard(span()), span())],
+        rest: false,
         span: span(),
     }
 }
