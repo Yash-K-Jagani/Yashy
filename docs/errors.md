@@ -67,6 +67,7 @@ the declaration or import involved when that is not obvious.
 | [E2001](errors/E2001.md) | unused import |
 | [E2002](errors/E2002.md) | unreachable code |
 | [E2003](errors/E2003.md) | unused parameter |
+| [E2100](errors/E2100.md) | doc comment with no item |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.

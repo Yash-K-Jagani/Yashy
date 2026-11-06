@@ -254,6 +254,24 @@ fn an_indexed_loop_round_trips() {
 }
 
 #[test]
+fn a_doc_comment_round_trips_and_normalizes_its_space() {
+    let source = "/// Adds two numbers.\nfn add(int a, int b) -> int {\n    return a + b;\n}\n";
+    let formatted = format(source);
+    assert_eq!(formatted, source);
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+    // `///no space` normalizes to `/// no space`.
+    assert_eq!(
+        format("///Docs.\nfn f() {}\n"),
+        "/// Docs.\nfn f() {}\n"
+    );
+    // `////` is an ordinary comment and stays as written.
+    assert_eq!(
+        format("//// Not docs.\nfn f() {}\n"),
+        "//// Not docs.\nfn f() {}\n"
+    );
+}
+
+#[test]
 fn a_labeled_loop_round_trips() {
     let source = "fn main() {\n    outer: for i in 0..3 {\n        for j in 0..3 {\n            break outer;\n        }\n    }\n}\n";
     let formatted = format(source);

@@ -185,7 +185,30 @@ fn hover_on_a_builtin_shows_its_signature() {
         .and_then(Value::as_str)
         .expect("the hover carries markup");
     assert!(value.contains("fn print"), "the name is shown: {value}");
-    assert!(value.contains("value"), "the parameter is shown: {value}");
+    assert!(value.contains("void"), "the return type is shown: {value}");
+}
+
+#[test]
+fn hover_on_a_documented_function_shows_its_doc_block() {
+    let uri = test_uri("hover_doc.ya");
+    let messages = vec![
+        did_open(
+            &uri,
+            "/// Adds two numbers.\nfn add(int a, int b) -> int {\n    return a + b;\n}\n\nfn main() {\n    print(add(1, 2));\n}\n",
+        ),
+        request(2, "textDocument/hover", at(&uri, 6, 12)),
+    ];
+    let replies = run(messages);
+    let hover = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .expect("the hover request gets a reply");
+    let value = hover
+        .get_path(&["result", "contents", "value"])
+        .and_then(Value::as_str)
+        .expect("the hover carries markup");
+    assert!(value.contains("Adds two numbers"), "the doc text is shown: {value}");
+    assert!(value.contains("fn add"), "the signature is shown: {value}");
 }
 
 #[test]

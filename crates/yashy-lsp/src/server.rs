@@ -526,7 +526,8 @@ fn builtin_signature(name: &str) -> Option<&'static str> {
 }
 
 /// The source text of `fn <word>` up to its body, for a hover on a user
-/// function.
+/// function. A doc block above the function is included, so the hover reads
+/// as the documentation followed by the signature.
 fn user_signature(text: &str, word: &str) -> Option<String> {
     let mut from = 0;
     while let Some(found) = text.get(from..)?.find("fn ") {
@@ -539,11 +540,43 @@ fn user_signature(text: &str, word: &str) -> Option<String> {
         if name == word {
             let end = text.get(start..)?.find('{').map(|at| start + at)?;
             let signature = text.get(start..end)?.split_whitespace().collect::<Vec<_>>().join(" ");
-            return Some(signature);
+            let docs = doc_lines_above(text, start);
+            return Some(if docs.is_empty() {
+                signature
+            } else {
+                format!("{}\n\n{signature}", docs.join("\n"))
+            });
         }
         from = start + 3;
     }
     None
+}
+
+/// The doc lines directly above `at`, nearest last: consecutive lines whose
+/// trimmed text starts with `///` (but not `////`).
+fn doc_lines_above(text: &str, at: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cursor = at;
+    while cursor > 0 {
+        // The line that ends just before `cursor`.
+        let before = match text.get(..cursor.saturating_sub(1)) {
+            Some(before) => before,
+            None => break,
+        };
+        let line_start = before.rfind('\n').map(|at| at + 1).unwrap_or(0);
+        let line = match before.get(line_start..) {
+            Some(line) => line.trim(),
+            None => break,
+        };
+        if line.starts_with("///") && !line.starts_with("////") {
+            lines.push(line.to_string());
+            cursor = line_start;
+        } else {
+            break;
+        }
+    }
+    lines.reverse();
+    lines
 }
 
 /// The byte span of the identifier `word` in a `fn` declaration.

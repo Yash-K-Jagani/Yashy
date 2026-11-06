@@ -44,6 +44,14 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        // A doc comment documents an item, not a statement: inside a body
+        // there is no item to attach it to.
+        if self.peek_raw() == TokenKind::DocComment {
+            return Err(crate::error::doc_comment_misplaced(
+                self.peek_raw_span(),
+                "a statement",
+            ));
+        }
         // `name: for` / `name: while` -- a labeled loop. Statement position
         // only: an identifier followed by `:` is unambiguous here because a
         // type precedes a name in a declaration (Task 0), so no declaration

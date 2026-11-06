@@ -393,12 +393,15 @@ impl Db {
         let item = match item {
             Item::Public { item, .. } => item.as_ref(),
             Item::Effect { item, .. } => item.as_ref(),
+            // A doc block is not part of the signature: changing a comment
+            // must not bust the cache.
+            Item::Documented { item, .. } => item.as_ref(),
             item => item,
         };
         match item {
             // The wrappers were unwrapped above; a nested wrapper is not
             // legal source, so it contributes nothing.
-            Item::Public { .. } | Item::Effect { .. } => {}
+            Item::Public { .. } | Item::Effect { .. } | Item::Documented { .. } => {}
             Item::Import { path, .. } => {
                 *state = combine(*state, hash_str(&path.join(".")));
             }

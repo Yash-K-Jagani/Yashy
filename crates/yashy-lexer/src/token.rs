@@ -772,6 +772,12 @@ pub enum TokenKind {
     /// [`char_literal_value`].
     Char,
 
+    /// A doc comment: `///` up to the end of the line. Unlike an ordinary
+    /// `//` comment, which is trivia and never becomes a token, a doc comment
+    /// is a token: the parser attaches a run of them to the item that follows.
+    /// `////` (four slashes) is an ordinary comment, not a doc comment.
+    DocComment,
+
     /// The end of the file. Always the last token.
     Eof,
 }
@@ -981,6 +987,7 @@ impl TokenKind {
             TokenKind::F64 => Naming::Class("a float literal"),
             TokenKind::Str => Naming::Class("a string literal"),
             TokenKind::Char => Naming::Class("a character literal"),
+            TokenKind::DocComment => Naming::Class("a doc comment"),
             TokenKind::Eof => Naming::Class("end of file"),
         }
     }

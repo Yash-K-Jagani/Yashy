@@ -108,6 +108,8 @@ pub const UNUSED_IMPORT: &str = "E2001";
 pub const UNREACHABLE_CODE: &str = "E2002";
 /// A function parameter is never read.
 pub const UNUSED_PARAMETER: &str = "E2003";
+/// A doc comment is written where no item follows.
+pub const DOC_COMMENT_MISPLACED: &str = "E2100";
 
 /// Every R1 code, in catalog order.
 pub const CODES: &[Code] = &[
@@ -362,6 +364,12 @@ pub const CODES: &[Code] = &[
         title: "unused parameter",
         summary: "A function parameter is never read.",
         page: include_str!("../../../docs/errors/E2003.md"),
+    },
+    Code {
+        id: DOC_COMMENT_MISPLACED,
+        title: "doc comment with no item",
+        summary: "A `///` doc comment must sit above an item, not a statement or the end of the file.",
+        page: include_str!("../../../docs/errors/E2100.md"),
     },
 ];
 

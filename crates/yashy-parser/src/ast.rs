@@ -105,6 +105,17 @@ pub enum Item {
         /// The span of the modifier keyword.
         span: Span,
     },
+    /// A documented item: a run of `///` lines above an item, stored as text
+    /// for [`yashy doc`](https://yashy.dev) to read later. Like `pub`, the
+    /// doc block wraps the item rather than being a field on every kind.
+    Documented {
+        /// The doc lines, each with the leading `/// ` stripped.
+        docs: Vec<String>,
+        /// The item the doc block attaches to.
+        item: Box<Item>,
+        /// The span of the first doc line.
+        span: Span,
+    },
     /// `struct P { x: f64 }`
     Struct {
         name: String,

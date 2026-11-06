@@ -378,38 +378,21 @@ See the master index. The ones that bite here:
 - Produces: the formatter preserves the block byte-for-byte except for normalising `///` + no space to `/// `; `////` stays an ordinary comment and never attaches.
 - Produces: the LSP hovers the doc block (a one-line change to the hover handler, which already has the item's span).
 
-- [ ] **Step 1: Write the failing tests** — a doc block above `pub fn` is stored and round-trips through the formatter; two blocks separated by a blank line attach only the second; `///` before a `let` is `E2100`; `////` is not a doc comment; `///` at end of file is `E2100`; the LSP hover for a documented function returns the text; a doc comment does not change the program's output.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lexer's comment branch checks the third `/` before falling through to `//`; the parser's item loop collects a leading run into one wrapper and unwraps it when it dispatches on the item kind; the formatter prints `docs` before the item's own text. The AST change is one variant, so every `match` on `Item` gains one arm — the compiler finds them all.
-- [ ] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-lsp -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: doc comments, stored for yashy doc (E2100)"`
+- [x] **Step 1: Write the failing tests** — a doc block above `pub fn` is stored and round-trips through the formatter; two blocks separated by a blank line attach only the second; `///` before a `let` is `E2100`; `////` is not a doc comment; `///` at end of file is `E2100`; the LSP hover for a documented function returns the text; a doc comment does not change the program's output.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lexer's comment branch checks the third `/` before falling through to `//`; the parser's item loop collects a leading run into one wrapper and unwraps it when it dispatches on the item kind; the formatter prints `docs` before the item's own text. The AST change is one variant, so every `match` on `Item` gains one arm — the compiler finds them all. Deviation from the sketch: `TokenKind::DocComment` is a unit variant (every token carries its text in its span, and `TokenKind` is `Copy`), and the stored lines are `Vec<String>` rather than `Vec<StringLit>`; the parser cursor skips doc tokens everywhere except the item loop, which reads them raw.
+- [x] **Step 4: Run** `cargo test -p yashy-lexer -p yashy-parser -p yashy-sema -p yashy-fmt -p yashy-lsp -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: doc comments, stored for yashy doc (E2100)"`
 
 ---
 
-### Task 12: `println` is the main, preferred output
-
-**Files:**
-- Modify: `crates/yashy-sema/src/check_expr.rs` (variadic `println`), create `crates/yashy-sema/tests/println.rs`
-- Modify: `docs/tutorial/01-hello.md`
-
-**Interfaces:**
-- Produces: `print(a, b, c)` converts each argument to text and joins them with one space, then writes a newline. `print()` prints an empty line. `print` stays as the single-argument, no-newline form for text that must continue on the same line; `println` is the preferred way to write output.
-
-- [x] **Step 1: Tests + implement** — variadic `println` in the checker (join with `BinOp::Add` over `" "` separators into `print_line_str`); sema tests for many types, empty, single, and unprintable refusal; docs updated.
-- [x] **Step 2: Commit** — `git commit -m "feat: println is the main, variadic output"` (see below).
-
-### Task 13: `print` is the only output, Python-style
-
-**Files:**
-- Modify: `crates/yashy-sema/src/check_expr.rs` (`print` variadic, newline-terminated; `println` removed with a migration error), all tracked `.ya` programs, `docs/`, and Rust test fixtures.
-
-**Interfaces:**
-- Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
-
-- [x] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates. Landed as `7d9059c`.
-- [x] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`. Landed as `7d9059c`.
-
----
+> **Removed from this plan (2026-11-06).** Two tasks formerly numbered 12 and
+> 13 (variadic `println`, then `print` as the only output) were deleted from
+> this plan: the spec's Phase 5 list (type-first, the eight forms, labels, doc
+> comments) contains no output-function change, so they were out-of-scope work
+> that happened to land during the phase (`b111708`, `7d9059c`). The code
+> stays; the tasks are not Phase 5 deliverables. What already ships in this
+> phase, ahead of the plan, is listed in "What already ships" above.
 
 ### Task 11: The sugar proof, docs and gate
 

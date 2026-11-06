@@ -266,6 +266,27 @@ impl<'a> Printer<'a> {
     /// it.
     fn token(&mut self, token: &Token, next: Option<TokenKind>, struct_lit: bool) {
         let text = &self.src[token.span.start as usize..token.span.end as usize];
+        if token.kind == TokenKind::DocComment {
+            // A doc comment always stands on its own line, above the item it
+            // documents, with one space after the slashes.
+            self.raise(Break::Line);
+            if self.out.is_empty() {
+                // The first line of the file owes no break before it.
+                self.line_break = Break::None;
+            }
+            self.write_break();
+            let body = text.strip_prefix("///").unwrap_or(text).trim_end();
+            let body = body.strip_prefix(' ').unwrap_or(body);
+            if body.is_empty() {
+                self.out.push_str("///");
+            } else {
+                self.out.push_str("/// ");
+                self.out.push_str(body);
+            }
+            self.line_break = Break::Line;
+            self.prev = Some(token.kind);
+            return;
+        }
         // `|` is two things. Between the bars of a lambda it is the closing
         // delimiter; anywhere an expression may begin it opens one; and after
         // an operand it is bitwise or. The token stream alone cannot tell the

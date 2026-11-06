@@ -1,0 +1,12 @@
+// Doc comments are stored, not interpreted: this program's output is the
+// same with the doc blocks as without them.
+
+/// Adds two numbers.
+fn add(int a, int b) -> int {
+    return a + b;
+}
+
+/// The point where the demo starts.
+fn main() {
+    print(add(1, 2));
+}

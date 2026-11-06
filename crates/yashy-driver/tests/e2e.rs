@@ -377,6 +377,12 @@ fn chained_comparisons_evaluate_each_operand_once() {
 }
 
 #[test]
+fn doc_comments_do_not_change_program_output() {
+    let output = build_and_run("doc_comments");
+    assert_eq!(stdout_of(&output), "3\n");
+}
+
+#[test]
 fn labeled_break_and_continue_exit_the_labeled_loop() {
     // `break outer` from two loops deep exits both (hits is 2, not 3 lines
     // per outer iteration); `continue outer` visits 3 outer iterations

@@ -69,7 +69,9 @@ fn item_kind(item: &Item) -> &'static str {
         // The wrapper cases are looked through before this is asked, so these
         // are unreachable in practice; naming the wrapped shape is still more
         // useful than "an item".
-        Item::Public { item, .. } | Item::Effect { item, .. } => item_kind(item),
+        Item::Public { item, .. } | Item::Effect { item, .. } | Item::Documented { item, .. } => {
+            item_kind(item)
+        }
         Item::Struct { .. } | Item::Enum { .. } | Item::Object { .. } => "a type",
     }
 }
@@ -77,10 +79,68 @@ fn item_kind(item: &Item) -> &'static str {
 impl<'src> Parser<'src> {
     /// Parses one item, dispatching on its first token.
     ///
+    /// A run of `///` doc lines above the item is collected first and wraps
+    /// it in [`Item::Documented`]; the wrapper nests in either order with
+    /// `pub` and the effect modifiers, because each of them calls back into
+    /// this function.
+    ///
     /// # Errors
     ///
-    /// A [`ParseError`] for a token that cannot begin an item.
+    /// A [`ParseError`] for a token that cannot begin an item, or
+    /// [`error::doc_comment_misplaced`] when a doc run is followed by the
+    /// end of the file instead of an item.
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
+        let (docs, docs_span) = self.collect_doc_lines();
+        if self.at_eof() {
+            if let Some(span) = docs_span {
+                return Err(error::doc_comment_misplaced(span, "the end of the file"));
+            }
+        }
+        let item = self.parse_item_inner()?;
+        match docs_span {
+            Some(span) => Ok(Item::Documented {
+                docs,
+                item: Box::new(item),
+                span,
+            }),
+            None => Ok(item),
+        }
+    }
+
+    /// Collects the run of doc lines at the cursor, returning their texts
+    /// (leading `/// ` stripped) and the first line's span.
+    ///
+    /// Only the last block of a run separated by blank lines attaches: a
+    /// blank line ends a block, so `/// first` blank `/// second` above an
+    /// item documents that item with `second` alone. The earlier block has
+    /// no item of its own and is dropped.
+    fn collect_doc_lines(&mut self) -> (Vec<String>, Option<Span>) {
+        let mut docs: Vec<String> = Vec::new();
+        let mut first_span = None;
+        let mut previous_end = None;
+        while self.peek_raw() == TokenKind::DocComment {
+            let token = self.advance_raw();
+            if let Some(end) = previous_end {
+                let gap = self
+                    .text(Span::new(end, token.span.start))
+                    .unwrap_or_default();
+                if gap.contains("\n\n") || gap.contains("\r\n\r\n") {
+                    docs.clear();
+                    first_span = None;
+                }
+            }
+            previous_end = Some(token.span.end);
+            if first_span.is_none() {
+                first_span = Some(token.span);
+            }
+            let raw = self.text(token.span).unwrap_or_default();
+            let line = raw.strip_prefix("///").unwrap_or(&raw);
+            docs.push(line.strip_prefix(' ').unwrap_or(line).to_string());
+        }
+        (docs, first_span)
+    }
+
+    fn parse_item_inner(&mut self) -> Result<Item, ParseError> {
         // A stray `link_name` at item position is the clause without a
         // declaration to attach to. Reporting the rule is more useful than
         // "expected an item", and it is the same mistake as `link_name` on a

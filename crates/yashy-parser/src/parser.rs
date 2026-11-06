@@ -205,6 +205,22 @@ impl<'src> Parser<'src> {
 
     // -- the cursor ---------------------------------------------------------
 
+    /// The next significant token at or after `from`: the first token that is
+    /// not a doc comment. Doc comments are significant only to the item loop
+    /// that collects them; every other question the parser asks skips them.
+    fn significant_from(&self, from: usize) -> Option<(usize, Token)> {
+        let mut index = from;
+        loop {
+            match self.tokens.get(index) {
+                Some(token) if token.kind == TokenKind::DocComment => {
+                    index = index.saturating_add(1);
+                }
+                Some(token) => return Some((index, *token)),
+                None => return None,
+            }
+        }
+    }
+
     /// The kind of the next token, or `Eof` once the stream has run out.
     pub fn peek(&self) -> TokenKind {
         self.peek_token().kind
@@ -217,8 +233,36 @@ impl<'src> Parser<'src> {
     /// stream built by the lexer always ends with a real `Eof`, so this path is
     /// for a caller that built one by hand.
     pub fn peek_token(&self) -> Token {
+        match self.significant_from(self.pos) {
+            Some((_, token)) => token,
+            None => self.end_of_file(),
+        }
+    }
+
+    /// The span of the raw next token, doc comments included.
+    pub fn peek_raw_span(&self) -> Span {
         match self.tokens.get(self.pos) {
-            Some(token) => *token,
+            Some(token) => token.span,
+            None => self.end_of_file().span,
+        }
+    }
+
+    /// The raw next token, doc comments included. Only the item loop asks
+    /// this; everything else reads through [`Self::peek`], which skips them.
+    pub fn peek_raw(&self) -> TokenKind {
+        match self.tokens.get(self.pos) {
+            Some(token) => token.kind,
+            None => TokenKind::Eof,
+        }
+    }
+
+    /// Consumes a raw doc-comment token. Only the item loop calls this.
+    pub fn advance_raw(&mut self) -> Token {
+        match self.tokens.get(self.pos) {
+            Some(token) => {
+                self.pos = self.pos.saturating_add(1);
+                *token
+            }
             None => self.end_of_file(),
         }
     }
@@ -234,20 +278,14 @@ impl<'src> Parser<'src> {
         self.peek() == kind
     }
 
-    /// The kind of the token after the next one.
+    /// The kind of the token after the next one, skipping doc comments.
     pub fn peek_second(&self) -> TokenKind {
-        match self.tokens.get(self.pos.saturating_add(1)) {
-            Some(t) => t.kind,
-            None => TokenKind::Eof,
-        }
+        self.significant_kind(1)
     }
 
-    /// The kind of the token three positions ahead.
+    /// The kind of the token three positions ahead, skipping doc comments.
     pub fn peek_third(&self) -> TokenKind {
-        match self.tokens.get(self.pos.saturating_add(2)) {
-            Some(t) => t.kind,
-            None => TokenKind::Eof,
-        }
+        self.significant_kind(2)
     }
 
     /// The kind of the token `offset` positions ahead of the next one.
@@ -259,9 +297,25 @@ impl<'src> Parser<'src> {
     /// start with `(`; only the token after the matching `)` distinguishes
     /// them.
     pub fn peek_nth(&self, offset: usize) -> TokenKind {
-        match self.tokens.get(self.pos.saturating_add(offset)) {
-            Some(t) => t.kind,
-            None => TokenKind::Eof,
+        self.significant_kind(offset)
+    }
+
+    /// The `offset`-th significant token from the cursor (0 is the next
+    /// token), or `Eof` past the end.
+    fn significant_kind(&self, offset: usize) -> TokenKind {
+        let mut remaining = offset;
+        let mut index = self.pos;
+        loop {
+            match self.significant_from(index) {
+                Some((i, token)) => {
+                    if remaining == 0 {
+                        return token.kind;
+                    }
+                    remaining = remaining.saturating_sub(1);
+                    index = i.saturating_add(1);
+                }
+                None => return TokenKind::Eof,
+            }
         }
     }
 
@@ -290,10 +344,10 @@ impl<'src> Parser<'src> {
     /// moving the position. A cursor that ran off the end must not keep running:
     /// a loop that calls `advance` until it sees `Eof` would then spin forever.
     pub fn advance(&mut self) -> Token {
-        match self.tokens.get(self.pos) {
-            Some(token) => {
-                self.pos = self.pos.saturating_add(1);
-                *token
+        match self.significant_from(self.pos) {
+            Some((index, token)) => {
+                self.pos = index.saturating_add(1);
+                token
             }
             None => self.end_of_file(),
         }
@@ -302,13 +356,18 @@ impl<'src> Parser<'src> {
     /// The span of the last token consumed, or the synthetic span if none has
     /// been.
     pub fn previous_span(&self) -> Span {
-        match self
-            .pos
-            .checked_sub(1)
-            .and_then(|before| self.tokens.get(before))
-        {
-            Some(token) => token.span,
-            None => Span::SYNTHETIC,
+        let mut index = self.pos;
+        loop {
+            match index.checked_sub(1) {
+                Some(before) => match self.tokens.get(before) {
+                    Some(token) if token.kind == TokenKind::DocComment => {
+                        index = before;
+                    }
+                    Some(token) => return token.span,
+                    None => return Span::SYNTHETIC,
+                },
+                None => return Span::SYNTHETIC,
+            }
         }
     }
 
@@ -545,7 +604,7 @@ impl<'src> Parser<'src> {
         let mut items = Vec::new();
         let mut diags = DiagnosticBag::new();
 
-        while !self.at_eof() {
+        while !self.at_eof() || self.peek_raw() == TokenKind::DocComment {
             let before = self.pos;
             let depth = self.open_depth();
             match self.parse_item() {

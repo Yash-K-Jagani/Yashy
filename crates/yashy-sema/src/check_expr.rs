@@ -1600,6 +1600,9 @@ impl<'src> Checker<'src> {
         match item {
             Item::Public { item, .. } => self.declare_item(item, public),
             Item::Effect { item, .. } => self.declare_item(item, public),
+            // A doc block documents the item inside it; the item declares
+            // as usual.
+            Item::Documented { item, .. } => self.declare_item(item, public),
             Item::Fn {
                 name,
                 type_params,
@@ -2884,6 +2887,9 @@ impl<'src> Checker<'src> {
             // checked as usual. The visibility was settled in the declaration
             // pass, where the item's name was recorded.
             Item::Public { item, .. } => self.check_item(item),
+            // A doc block is stored, not checked: the item inside checks as
+            // usual, and `yashy doc` reads the text later.
+            Item::Documented { item, .. } => self.check_item(item),
             Item::Effect { effect, item, .. } => {
                 // Check the inner item, then stamp the declared effect onto
                 // the resulting HirFn.

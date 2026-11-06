@@ -280,6 +280,19 @@ pub fn unknown_repr(span: Span, name: &str) -> ParseError {
     .with_code(yashy_common::codes::REPR_NOT_ALLOWED)
 }
 
+/// A doc comment written where no item follows.
+///
+/// Reported at the first doc line, with the catalog code that explains the
+/// rule: the comment is stored for the item below it, and a statement or the
+/// end of the file is not an item.
+pub fn doc_comment_misplaced(span: Span, what: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("a doc comment must sit above an item, not {what}"),
+    )
+    .with_code(yashy_common::codes::DOC_COMMENT_MISPLACED)
+}
+
 /// A token that cannot begin an item.
 pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(

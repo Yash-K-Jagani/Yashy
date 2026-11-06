@@ -127,7 +127,14 @@ impl<'src> Lexer<'src> {
             };
             match first {
                 byte if is_space(byte) => self.pos = self.pos.saturating_add(1),
-                b'/' if peek_at(bytes, self.pos, 1) == Some(b'/') => self.skip_line_comment(),
+                b'/' if peek_at(bytes, self.pos, 1) == Some(b'/') => {
+                    if is_doc_comment(bytes, self.pos) {
+                        // A doc comment is a token, not trivia: leave the
+                        // cursor on it for `scan_token` to emit.
+                        return Ok(());
+                    }
+                    self.skip_line_comment()
+                }
                 b'/' if peek_at(bytes, self.pos, 1) == Some(b'*') => self.skip_block_comment()?,
                 _ => return Ok(()),
             }
@@ -217,6 +224,12 @@ impl<'src> Lexer<'src> {
         };
 
         match first {
+            b'/' if is_doc_comment(bytes, self.pos) => {
+                // A doc comment runs to the end of the line, like any `//`
+                // comment, but it is emitted as a token rather than skipped.
+                self.skip_line_comment();
+                Ok(Some(TokenKind::DocComment))
+            }
             b'"' => {
                 self.scan_string()?;
                 Ok(Some(TokenKind::Str))
@@ -710,6 +723,15 @@ fn peek_at(bytes: &[u8], at: usize, ahead: usize) -> Option<u8> {
     bytes.get(at.saturating_add(ahead)).copied()
 }
 
+/// Whether the source at `at` opens a doc comment: `///` that is not
+/// `////`. A fourth slash makes it an ordinary comment.
+fn is_doc_comment(bytes: &[u8], at: usize) -> bool {
+    peek(bytes, at) == Some(b'/')
+        && peek_at(bytes, at, 1) == Some(b'/')
+        && peek_at(bytes, at, 2) == Some(b'/')
+        && peek_at(bytes, at, 3) != Some(b'/')
+}
+
 /// A byte offset as the `u32` a [`Span`] holds, saturating.
 fn to_offset(offset: usize) -> u32 {
     u32::try_from(offset).unwrap_or(u32::MAX)
@@ -864,6 +886,27 @@ mod tests {
         );
         assert_eq!(crlf[1].span, Span::new(3, 4), "the `2` is at byte 3 once the `\\r` is counted");
         assert_eq!(lf[1].span, Span::new(2, 3));
+    }
+
+    #[test]
+    fn a_doc_comment_is_a_token_and_four_slashes_is_not() {
+        assert_eq!(lex("/// hi\nfn f() {}"), vec![
+            Token { kind: TokenKind::DocComment, span: Span::new(0, 6) },
+            Token { kind: TokenKind::Fn, span: Span::new(7, 9) },
+            Token { kind: TokenKind::Ident, span: Span::new(10, 11) },
+            Token { kind: TokenKind::LParen, span: Span::new(11, 12) },
+            Token { kind: TokenKind::RParen, span: Span::new(12, 13) },
+            Token { kind: TokenKind::LBrace, span: Span::new(14, 15) },
+            Token { kind: TokenKind::RBrace, span: Span::new(15, 16) },
+            Token { kind: TokenKind::Eof, span: Span::new(16, 16) },
+        ]);
+        // `////` is an ordinary comment: trivia, no token.
+        assert_eq!(lex("//// hi\n1"), vec![
+            Token { kind: TokenKind::I64, span: Span::new(8, 9) },
+            Token { kind: TokenKind::Eof, span: Span::new(9, 9) },
+        ]);
+        // An ordinary `//` comment stays trivia too.
+        assert_eq!(lex("// hi\n1").len(), 2);
     }
 
     #[test]
