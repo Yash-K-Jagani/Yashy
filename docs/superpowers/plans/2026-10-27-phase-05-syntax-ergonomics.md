@@ -386,13 +386,21 @@ See the master index. The ones that bite here:
 
 ---
 
-> **Removed from this plan (2026-11-06).** Two tasks formerly numbered 12 and
-> 13 (variadic `println`, then `print` as the only output) were deleted from
-> this plan: the spec's Phase 5 list (type-first, the eight forms, labels, doc
-> comments) contains no output-function change, so they were out-of-scope work
-> that happened to land during the phase (`b111708`, `7d9059c`). The code
-> stays; the tasks are not Phase 5 deliverables. What already ships in this
-> phase, ahead of the plan, is listed in "What already ships" above.
+### Task 13: `print` is the only output, Python-style
+
+**Files:**
+- Modify: `crates/yashy-sema/src/check_expr.rs` (`print` variadic, newline-terminated; `println` removed with a migration error), all tracked `.ya` programs, `docs/`, and Rust test fixtures.
+
+**Interfaces:**
+- Produces: `print(a, b, c)` converts each argument to text, joins with one space, writes a newline — Python's `print`. `print()` writes an empty line. `println` is removed; using it is a diagnostic naming `print`.
+
+- [x] **Step 1: Migrate and test** — checker, tree migration (`print(` → `print(`, `print(x); print("");` pairs collapse, multi-print sequences become variadic calls), sema/e2e/tutorial gates. Landed as `7d9059c`.
+- [x] **Step 2: Commit** — `git commit -m "feat: print is the only output, println removed"`. Landed as `7d9059c`.
+
+> Task 12 (variadic `println`) is not listed separately: Task 13 superseded it
+> in the same phase — `println` first became the preferred form (`b111708`),
+> then was removed when `print` took over its job (`7d9059c`). Only the final
+> state is a deliverable.
 
 ### Task 11: The sugar proof, docs and gate
 
