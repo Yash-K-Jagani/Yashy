@@ -291,7 +291,7 @@ fn a_user_declared_generic_trait_is_e1511() {
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — the lexer adds `::` as one token (not two `:`); the parser, in expression position, turns `Ident :: Ident` into `TypePath` and refuses a third segment. Resolution looks the type up in the same table method calls use, then asks the impl table for a function with that name and no receiver. Codegen emits the same mangled name the impl block already produces for a receiver-less function, so there is one symbol per `(type, name)` and no second naming scheme.
 - [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: associated functions called through a type path (E1506-E1508)"`
+- [x] **Step 5: Commit** — `git commit -m "feat: associated functions called through a type path (E1506-E1508)"`
 
 ---
 
