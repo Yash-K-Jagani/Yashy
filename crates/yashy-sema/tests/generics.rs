@@ -75,6 +75,37 @@ fn a_maybe_matches_exhaustively_at_each_instantiation() {
 }
 
 #[test]
+fn a_generic_enum_constructs_and_matches() {
+    let hir = check_source(
+        "enum Maybe[T] { Nothing, Just(T) }\n\
+         fn f() -> int {\n\
+             let Maybe[int] m = Maybe.Just(2);\n\
+             return switch m { case Nothing { 0 } case Just(x) { x } };\n\
+         }",
+    )
+    .expect("Maybe[int] constructs from its payload");
+    let emitted = emitted_types(&hir);
+    assert_eq!(
+        emitted.iter().filter(|name| name.as_str() == "Maybe_i64").count(),
+        1,
+        "one Maybe_i64 definition, got {emitted:?}"
+    );
+}
+
+#[test]
+fn a_generic_enum_that_cannot_infer_its_argument_is_refused() {
+    let diags = check_source(
+        "enum Either[T, U] { Left(T), Right(U) }\n\
+         fn f() -> int { let Either[int, string] e = Either.Left(1); return 0; }",
+    )
+    .expect_err("the payload does not determine every argument");
+    assert!(
+        diags.iter().any(|d| d.message.contains("cannot infer type argument")),
+        "the diagnostic names the uninferred parameter: {diags:?}"
+    );
+}
+
+#[test]
 fn a_missing_arm_of_a_generic_enum_is_e0600() {
     assert_code(
         "enum Maybe[T] { Nothing, Just(T) }\n\

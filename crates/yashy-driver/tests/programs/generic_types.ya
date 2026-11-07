@@ -11,8 +11,20 @@ struct Entry[K, V] {
     value: V,
 }
 
+enum Maybe[T] {
+    Nothing,
+    Just(T),
+}
+
 fn first[T](Pair[T] p) -> T {
     return p.first;
+}
+
+fn payload(Maybe[int] m) -> int {
+    return switch m {
+        case Nothing { 0 }
+        case Just(x) { x }
+    };
 }
 
 fn main() {
@@ -34,4 +46,7 @@ fn main() {
 
     // A generic type inside a generic function: one monomorph per T.
     print(first(Pair { first: 7, second: 8 }));
+
+    // A generic enum: the payload infers the argument tuple.
+    print(payload(Maybe.Just(9)));
 }

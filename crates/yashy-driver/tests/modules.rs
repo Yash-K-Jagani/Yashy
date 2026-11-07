@@ -454,6 +454,48 @@ fn a_truly_unused_import_still_warns() {
 }
 
 #[test]
+fn an_import_used_only_by_a_trait_impl_is_not_unused() {
+    let dir = work_dir("trait-impl-used");
+    write(
+        &dir,
+        "main.ya",
+        "import iter;\n\n\
+         struct Countdown { n: int }\n\n\
+         impl Iterator for Countdown {\n\
+             fn next(self: *mut Self) -> Option[int] {\n\
+                 if self[0].n <= 0 { return None; }\n\
+                 self[0].n = self[0].n - 1;\n\
+                 return Some(self[0].n);\n\
+             }\n\
+         }\n\n\
+         fn main() {\n\
+             let cd = Countdown { n: 1 };\n\
+             for y in cd { print(y); }\n\
+         }\n",
+    );
+
+    let mut command = Command::new(yashy());
+    command
+        .arg("check")
+        .arg(dir.join("main.ya"))
+        .env_remove("YASHY_PATH");
+    let output = command
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    assert!(
+        output.status.success(),
+        "`check` must succeed:\n{}",
+        stderr_of(&output)
+    );
+    assert!(
+        !stderr_of(&output).contains("E2001"),
+        "the trait named by `impl Iterator` reads the `iter` import:\n{}",
+        stderr_of(&output)
+    );
+}
+
+#[test]
 fn an_error_in_a_module_names_the_module_not_the_entry_point() {
     let dir = work_dir("module-error");
     write(

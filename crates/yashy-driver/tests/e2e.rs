@@ -619,7 +619,7 @@ fn an_object_declaration_carries_its_methods() {
 #[test]
 fn generic_types_construct_and_read_one_monomorph_each() {
     let output = build_and_run("generic_types");
-    assert_eq!(stdout_of(&output), "3\na\nb\nk\n3\nv\n7\n");
+    assert_eq!(stdout_of(&output), "3\na\nb\nk\n3\nv\n7\n9\n");
 }
 
 #[test]

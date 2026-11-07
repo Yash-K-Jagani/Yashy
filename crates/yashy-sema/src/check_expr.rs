@@ -6831,7 +6831,13 @@ impl<'src> Checker<'src> {
         span: Span,
     ) -> Option<Option<HirExpr>> {
         let (enum_name, variant_name) = split_enum_path(callee)?;
-        let sig = self.enums.get(&enum_name)?.clone();
+        // A generic enum is a scheme, not a type: `Maybe.Just(2)` has to
+        // infer the argument tuple from the payload before the concrete
+        // variant exists. A name that is neither an enum nor a scheme falls
+        // through to the ordinary call path.
+        let Some(sig) = self.enums.get(&enum_name).cloned() else {
+            return self.check_scheme_enum_call(args, span, &enum_name, &variant_name);
+        };
         let variant = sig
             .variants
             .iter()
@@ -6902,6 +6908,116 @@ impl<'src> Checker<'src> {
             span,
             ty: Type {
                 kind: TypeKind::Enum(enum_name),
+                span,
+            },
+        }))
+    }
+
+    /// `Maybe.Just(2)` for a generic enum: infer the type arguments from the
+    /// payload values, intern the monomorph, and construct under its mangled
+    /// name.
+    ///
+    /// The literal carries no type arguments of its own, so each variant
+    /// field's declared type is unified against the value written. Every
+    /// parameter must be inferred this way: a variant with no payload cannot
+    /// be constructed without an expected type, which this call does not have.
+    fn check_scheme_enum_call(
+        &mut self,
+        args: &[Expr],
+        span: Span,
+        enum_name: &str,
+        variant_name: &str,
+    ) -> Option<Option<HirExpr>> {
+        let scheme = self.enum_schemes.get(enum_name)?.clone();
+        // The enum is an item: private to its module unless `pub`.
+        self.check_visibility(enum_name, span);
+        let variant = scheme
+            .variants
+            .iter()
+            .find(|variant| variant.name == variant_name)?
+            .clone();
+        if variant
+            .fields
+            .iter()
+            .any(|field| matches!(field, VariantField::Named { .. }))
+        {
+            self.error(
+                span,
+                format!(
+                    "cannot construct the named-field variant `{variant_name}` of the \
+                     generic enum `{enum_name}` yet: its type arguments are inferred from \
+                     positional payloads, or write a function that returns `{enum_name}[..]`"
+                ),
+            );
+            return Some(None);
+        }
+        if variant.fields.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "variant `{variant_name}` of `{enum_name}` takes {} field{}, found {}",
+                    variant.fields.len(),
+                    if variant.fields.len() == 1 { "" } else { "s" },
+                    args.len()
+                ),
+            );
+            return Some(None);
+        }
+        let mut subst: HashMap<String, Type> = HashMap::new();
+        let mut checked = Vec::with_capacity(args.len());
+        for (arg, field) in args.iter().zip(variant.fields.iter()) {
+            let value = self.check_expr(arg)?;
+            let _ = self.unify_type(
+                field.ty(),
+                &scheme.type_params,
+                &mut subst,
+                &expr_ty(&value),
+            );
+            // A payload of linear type takes ownership, exactly as it does in
+            // the concrete construction path.
+            if matches!(linearity_of(&expr_ty(&value).kind), Linearity::Linear) {
+                if let Expr::Ident(path, arg_span) = arg {
+                    let name = path.last().cloned().unwrap_or_default();
+                    if let Err(error) = self.move_out(&name, *arg_span) {
+                        self.report(error);
+                    }
+                }
+            }
+            checked.push(value);
+        }
+        let mut ordered = Vec::with_capacity(scheme.type_params.len());
+        for param in &scheme.type_params {
+            match subst.get(&param.name) {
+                Some(concrete) => ordered.push(concrete.clone()),
+                None => {
+                    self.error(
+                        span,
+                        format!("cannot infer type argument for `{}`", param.name),
+                    );
+                    return Some(None);
+                }
+            }
+        }
+        self.check_type_args_bounds(&scheme.type_params, &ordered, span, enum_name);
+        // `intern_monomorph` substitutes the arguments into the variant
+        // definitions, so the inferred tuple is written back as syntax. The
+        // resulting types are already concrete, which is what the monomorph
+        // stores.
+        let arg_exprs: Vec<TypeExpr> = ordered.iter().map(type_to_expr).collect();
+        let mangled = mangled_generic_name(enum_name, &ordered);
+        self.intern_monomorph(enum_name, &scheme.type_params, &arg_exprs, ordered, span);
+        if !self.enums.contains_key(&mangled) {
+            return Some(None);
+        }
+        Some(Some(HirExpr::Call {
+            // Code generation matches the path's head against the value's
+            // enum type, so the head is the monomorph's mangled name.
+            callee: vec![mangled.clone(), variant_name.to_string()],
+            args: checked,
+            unsafe_call: false,
+            span,
+            ty: Type {
+                kind: TypeKind::Enum(mangled),
                 span,
             },
         }))

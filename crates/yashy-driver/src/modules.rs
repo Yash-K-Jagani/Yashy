@@ -167,7 +167,8 @@ fn declared_name(item: &Item) -> Option<&str> {
         | Item::ConstFn { name, .. }
         | Item::Struct { name, .. }
         | Item::Enum { name, .. }
-        | Item::Object { name, .. } => Some(name),
+        | Item::Object { name, .. }
+        | Item::Trait { name, .. } => Some(name),
         _ => None,
     }
 }

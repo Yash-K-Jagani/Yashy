@@ -28,6 +28,11 @@ pub type Exports = std::collections::BTreeMap<String, std::collections::BTreeSet
 pub fn check(program: &HirProgram, exports: &Exports, out: &mut Vec<Diagnostic>) {
     // Collect all identifiers that are read anywhere in the program.
     let mut reads: HashSet<String> = HashSet::new();
+    // Trait names are read by `impl Trait for Type`, but the HIR keeps them in
+    // the method symbols rather than in a body. They are a separate set from
+    // `reads` so a local binding that happens to share a trait's name is still
+    // checked for E2000.
+    let mut trait_uses: HashSet<String> = HashSet::new();
     let mut imports: Vec<(String, FileId, Span)> = Vec::new();
 
     // First pass: collect imports and reads.
@@ -43,6 +48,9 @@ pub fn check(program: &HirProgram, exports: &Exports, out: &mut Vec<Diagnostic>)
             }
             HirItem::Fn(function) => {
                 collect_reads_in_fn(function, &mut reads);
+                if let Some(trait_name) = trait_in_method_symbol(&function.name) {
+                    trait_uses.insert(trait_name.to_string());
+                }
             }
             _ => {}
         }
@@ -58,9 +66,14 @@ pub fn check(program: &HirProgram, exports: &Exports, out: &mut Vec<Diagnostic>)
         }
         // A module may be used through its names rather than through its own
         // name: `import wc_words;` then `count_words(..)`. The import is used
-        // when any name that module declares is read.
+        // when any name that module declares is read. A trait is read by an
+        // `impl` header, which leaves it only in the method symbol, so
+        // `trait_uses` answers the same question for those.
         if let Some(declared) = exports.get(name) {
-            if declared.iter().any(|declared| reads.contains(declared)) {
+            if declared
+                .iter()
+                .any(|declared| reads.contains(declared) || trait_uses.contains(declared))
+            {
                 continue;
             }
         }
@@ -93,6 +106,24 @@ fn collect_reads_in_fn(function: &HirFn, reads: &mut HashSet<String>) {
     for clause in function.requires.iter().chain(function.ensures.iter()) {
         collect_reads_in_expr(&clause.expr, reads);
     }
+}
+
+/// The trait named by a trait method's HIR symbol.
+///
+/// An inherent method is `Type.method`; a trait method is `Type.Trait.method`.
+/// The middle component is the trait the `impl` header named, and it is the
+/// only place the HIR still remembers it: the requirement set itself has no
+/// runtime item. A symbol that is not exactly three non-empty components is
+/// not a trait method, and answers `None`.
+fn trait_in_method_symbol(name: &str) -> Option<&str> {
+    let mut parts = name.split('.');
+    let type_name = parts.next()?;
+    let trait_name = parts.next()?;
+    let method = parts.next()?;
+    if type_name.is_empty() || trait_name.is_empty() || method.is_empty() || parts.next().is_some() {
+        return None;
+    }
+    Some(trait_name)
 }
 
 fn collect_reads_in_block(block: &HirBlock, reads: &mut HashSet<String>) {
@@ -353,3 +384,30 @@ fn stmt_span(stmt: &HirStmt) -> Span {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::trait_in_method_symbol;
+
+    #[test]
+    fn inherent_methods_name_no_trait() {
+        assert_eq!(trait_in_method_symbol("Point.get"), None);
+        assert_eq!(trait_in_method_symbol("Pair_i64.get"), None);
+    }
+
+    #[test]
+    fn trait_methods_name_their_trait() {
+        assert_eq!(trait_in_method_symbol("Point.Show.show"), Some("Show"));
+        assert_eq!(trait_in_method_symbol("Pair_i64.Show.show"), Some("Show"));
+        assert_eq!(
+            trait_in_method_symbol("Countdown.Iterator.next"),
+            Some("Iterator")
+        );
+    }
+
+    #[test]
+    fn free_functions_name_no_trait() {
+        assert_eq!(trait_in_method_symbol("main"), None);
+        assert_eq!(trait_in_method_symbol("identity_i64"), None);
+        assert_eq!(trait_in_method_symbol("a.b.c.d"), None);
+    }
+}
