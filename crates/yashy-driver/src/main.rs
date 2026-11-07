@@ -107,8 +107,26 @@ usage:
                the assumptions the proof rests on; never changes the exit code
   --json       print a stable machine-readable report (check, verify, test, explain, doctor)";
 
+/// The stack the front end runs on; the parser owns the requirement because
+/// [`yashy_parser::MAX_NESTING_DEPTH`] is only meaningful on a stack this large.
+const FRONT_END_STACK_BYTES: usize = yashy_parser::FRONT_END_STACK_BYTES;
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
+    let worker_args = args.clone();
+    match std::thread::Builder::new()
+        .name("yashy".to_string())
+        .stack_size(FRONT_END_STACK_BYTES)
+        .spawn(move || dispatch(&worker_args))
+    {
+        Ok(worker) => worker.join().unwrap_or_else(|_| exit_code(EXIT_INTERNAL)),
+        // If the thread cannot be created the command still runs, on whatever
+        // stack the process already has.
+        Err(_) => dispatch(&args),
+    }
+}
+
+fn dispatch(args: &[String]) -> ExitCode {
     let Some(command) = args.first().map(String::as_str) else {
         eprintln!("error: no command given\n{USAGE}");
         return exit_code(EXIT_USAGE);

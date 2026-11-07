@@ -17,7 +17,7 @@ use yashy_parser::ast::{
     BinOp, Expr, FieldDef, InterpFormat, InterpPart, Item, Literal, Pattern, Program, ReprKind,
     Stmt, TypeExpr, UnOp, VariantField,
 };
-use yashy_parser::{Parser, MAX_NESTING_DEPTH};
+use yashy_parser::{Parser, FRONT_END_STACK_BYTES, MAX_NESTING_DEPTH};
 
 // -- helpers ---------------------------------------------------------------
 
@@ -91,6 +91,23 @@ fn parse_err(src: &str) -> Vec<Diagnostic> {
             diags
         }
     }
+}
+
+/// Parses `src` on the stack the driver gives the front end.
+///
+/// The depth bound [`MAX_NESTING_DEPTH`] is only meaningful on a stack that can
+/// hold that many debug-build frames; libtest's default thread aborts below it.
+/// The deep-nesting tests use this so they measure the compiler's contract
+/// rather than the harness's stack.
+fn parse_err_on_front_end_stack(src: &str) -> Vec<Diagnostic> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(FRONT_END_STACK_BYTES)
+            .spawn_scoped(scope, || parse_err(src))
+            .expect("the test can reserve the front end's stack")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
 }
 
 /// Every diagnostic in `diags`, as one string, for substring assertions.
@@ -1142,13 +1159,12 @@ fn deeply_nested_delimiters_hit_the_depth_limit_rather_than_the_stack() {
     // input overflows the stack and takes the process down; `MAX_NESTING_DEPTH`
     // is what turns it into a diagnostic instead.
     //
-    // This test used to run the parse on a thread with an 8 MiB stack, on the
-    // stated grounds that the parser was iterative and had nothing to overflow.
-    // Task 14 measured the opposite: `yashy check` on 130 nested parentheses
-    // died with STATUS_STACK_OVERFLOW on the default 1 MiB main-thread stack.
-    // The thread is gone deliberately. Running on the ordinary test stack is
-    // what makes this test evidence that the bound protects the *machine* stack
-    // rather than that a large-enough thread hides the problem.
+    // The parse runs on the stack the driver gives the front end, not on
+    // libtest's default thread. The bound of 48 is only meaningful on a stack
+    // that can hold 48 levels of a debug build; the OS main thread (1 MiB on
+    // Windows) and libtest's thread both abort below that, which is exactly why
+    // the driver reserves `FRONT_END_STACK_BYTES`. This test has to use the
+    // same stack, or it measures the harness rather than the compiler.
     let mut src = String::from("fn f() { (");
     for _ in 0..200 {
         src.push('(');
@@ -1159,7 +1175,7 @@ fn deeply_nested_delimiters_hit_the_depth_limit_rather_than_the_stack() {
     }
     src.push_str(") ; }");
 
-    let diags = parse_err(&src);
+    let diags = parse_err_on_front_end_stack(&src);
     let message = all_messages(&diags);
     assert!(
         message.contains("nested"),
@@ -1734,7 +1750,7 @@ fn interpolations_nested_past_the_limit_are_a_diagnostic_not_a_deeper_stack() {
     for _ in 0..MAX_NESTING_DEPTH.saturating_add(8) {
         expr = format!("\"${{{expr}}}\"");
     }
-    let diags = parse_err(&format!("fn f() {{ const s = {expr}; }}"));
+    let diags = parse_err_on_front_end_stack(&format!("fn f() {{ const s = {expr}; }}"));
     assert!(
         all_messages(&diags).contains("nested"),
         "deep interpolation must be a nesting diagnostic, got {}",

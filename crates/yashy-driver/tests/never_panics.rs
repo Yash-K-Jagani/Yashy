@@ -23,11 +23,16 @@
 //! "no panic". Without the parser's depth limit they abort the process, which
 //! no test can survive and no `catch_unwind` can report.
 
+use std::fs;
+use std::process::Command;
+
 use yashy_codegen::{emit_program, CodegenOptions};
 use yashy_common::SourceMap;
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::check_program;
+
+mod common;
 
 /// Run the whole front end over `src`. `true` when it compiled cleanly.
 ///
@@ -54,6 +59,27 @@ fn run_pipeline(src: &str) -> bool {
         &yashy_common::ProofFacts::empty(),
     );
     true
+}
+
+/// How much stack the compiler gives its front end; the requirement lives in
+/// `yashy-parser`, which owns the nesting bound it makes safe.
+const FRONT_END_STACK_BYTES: usize = yashy_parser::FRONT_END_STACK_BYTES;
+
+/// Run `body` on a thread with the stack the compiler's front end gets.
+///
+/// Libtest runs each test on a thread whose stack is smaller than the
+/// driver's, and these tests feed the parser's nesting bound itself. Without
+/// this, a pass would prove that the harness survives the input, not that the
+/// compiler does.
+fn on_front_end_stack(body: impl FnOnce() + Send) {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(FRONT_END_STACK_BYTES)
+            .spawn_scoped(scope, body)
+            .expect("the test can reserve the front end's stack")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    });
 }
 
 /// The malformed inputs, each with a name for the failure message.
@@ -263,6 +289,10 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
 
 #[test]
 fn no_input_makes_the_compiler_panic() {
+    on_front_end_stack(no_input_makes_the_compiler_panic_inner);
+}
+
+fn no_input_makes_the_compiler_panic_inner() {
     let cases = malformed_inputs();
     // A panic message per case would bury the interesting output; the failure
     // message below names the offender instead.
@@ -323,9 +353,13 @@ fn assert_nesting_diagnostic(what: &str, src: &str) {
 
 #[test]
 fn deeply_nested_input_is_a_diagnostic_not_a_stack_overflow() {
-    // Each of these recurses once per delimiter in the parser. Run to the
-    // machine's actual limit they overflow the stack, which aborts the process:
-    // this test existing at all is the proof that the bound is low enough.
+    on_front_end_stack(deeply_nested_input_is_a_diagnostic_not_a_stack_overflow_inner);
+}
+
+fn deeply_nested_input_is_a_diagnostic_not_a_stack_overflow_inner() {
+    // The parser's bound keeps the recursion finite; the explicit 32 MiB stack
+    // (the driver's, mirrored by `on_front_end_stack`) is what makes 48 frames
+    // safe to reach. Without either half the process aborts uncatchably.
     let opens = "(".repeat(5_000);
     let closes = ")".repeat(5_000);
     assert_nesting_diagnostic(
@@ -357,7 +391,47 @@ fn deeply_nested_input_is_a_diagnostic_not_a_stack_overflow() {
 }
 
 #[test]
+fn the_cli_reports_deep_nesting_instead_of_aborting() {
+    // The tests above run in-process on `on_front_end_stack`; this one drives
+    // the real binary, so the driver's own reservation is part of what passes.
+    // Before it existed, `yashy check` on a file this shape died with
+    // STATUS_STACK_OVERFLOW on the 1 MiB main-thread stack.
+    let dir = std::env::temp_dir().join(format!("yashy-never-panics-{}", std::process::id()));
+    fs::create_dir_all(&dir).expect("the test directory must be creatable");
+    let path = dir.join("deep.ya");
+    let depth = 5_000;
+    let source = format!(
+        "fn main() {{ const x = {}1{}; }}",
+        "(".repeat(depth),
+        ")".repeat(depth)
+    );
+    fs::write(&path, source).expect("the test file must be writable");
+
+    let output = Command::new(common::yashy())
+        .arg("check")
+        .arg(&path)
+        .output()
+        .expect("the yashy CLI must be runnable");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "deep nesting must be a compile error, not an abort:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("nested more than"),
+        "the diagnostic must name the nesting limit:\n{stderr}"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn nesting_to_the_limit_still_parses() {
+    on_front_end_stack(nesting_to_the_limit_still_parses_inner);
+}
+
+fn nesting_to_the_limit_still_parses_inner() {
     // The bound must not reject an expression a person could plausibly write.
     // Sixteen levels of explicit grouping in one arithmetic expression is
     // already unreasonable; it has to compile.
@@ -427,6 +501,10 @@ const TEMPLATES: &[&str] = &[
 
 #[test]
 fn pseudo_random_input_does_not_panic() {
+    on_front_end_stack(pseudo_random_input_does_not_panic_inner);
+}
+
+fn pseudo_random_input_does_not_panic_inner() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
 

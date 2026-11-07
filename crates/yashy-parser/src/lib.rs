@@ -62,4 +62,4 @@ pub mod types;
 
 pub use ast::*;
 pub use error::ParseError;
-pub use parser::{Parser, MAX_NESTING_DEPTH};
+pub use parser::{Parser, FRONT_END_STACK_BYTES, MAX_NESTING_DEPTH};
