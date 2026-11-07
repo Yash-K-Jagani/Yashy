@@ -358,6 +358,11 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     // on the same path (E1401).
     ("trait_hidden_io", 1, &["E1300"]),
     ("iterator_after_done", 1, &["E1401"]),
+    // The four excluded forms, each with its named code.
+    ("inherit", 1, &["E1512"]),
+    ("drop_hook", 1, &["E1513"]),
+    ("trait_state", 1, &["E1514"]),
+    ("operator_overload", 1, &["E1515"]),
 ];
 /// The `code` values in a schema-v1 report, in order.
 ///

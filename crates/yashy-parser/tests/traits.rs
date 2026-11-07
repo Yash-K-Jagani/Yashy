@@ -129,7 +129,10 @@ fn a_type_path_gets_both_of_its_names() {
     };
     match expr {
         Expr::TypePathCall {
-            type_name, name, args, ..
+            type_name,
+            name,
+            args,
+            ..
         } => {
             assert_eq!(type_name, "Point");
             assert_eq!(name, "new");
@@ -151,10 +154,7 @@ fn a_third_segment_on_a_type_path_is_a_parse_error() {
 #[test]
 fn type_parameters_carry_bounds() {
     let program = parse_ok("fn f[T: Show, U: Show + Display](T x, U y) -> T { return x; }");
-    let Item::Fn {
-        type_params, ..
-    } = &program.items[0]
-    else {
+    let Item::Fn { type_params, .. } = &program.items[0] else {
         panic!("expected a function item");
     };
     assert_eq!(type_params.len(), 2);
@@ -193,6 +193,24 @@ fn pub_inside_a_function_is_a_parse_error() {
 }
 
 #[test]
+fn an_object_with_a_parent_is_e1512() {
+    let diags = parse_err("object Dog : Animal { name: string }");
+    assert!(
+        diags.iter().any(|d| d.code == Some("E1512")),
+        "expected E1512, got {diags:?}"
+    );
+}
+
+#[test]
+fn a_trait_with_a_field_is_e1514() {
+    let diags = parse_err("trait T { x: int }");
+    assert!(
+        diags.iter().any(|d| d.code == Some("E1514")),
+        "expected E1514, got {diags:?}"
+    );
+}
+
+#[test]
 fn an_array_comprehension_parses_with_its_filter() {
     let program = parse_ok("fn f() -> []int { return [x * 2 for x in xs if x > 0]; }");
     let Item::Fn { body, .. } = &program.items[0] else {
@@ -202,7 +220,9 @@ fn an_array_comprehension_parses_with_its_filter() {
         panic!("expected a return expression");
     };
     match expr {
-        Expr::ArrayComp { pattern, filter, .. } => {
+        Expr::ArrayComp {
+            pattern, filter, ..
+        } => {
             assert!(matches!(pattern, Pattern::Binding { name, .. } if name == "x"));
             assert!(filter.is_some());
         }

@@ -1,0 +1,11 @@
+// E1513: there is no Drop; release is defer and .free().
+struct Counter { n: int }
+
+impl Drop for Counter {
+    fn drop(self: *mut Self) { self[0].n = 0; }
+}
+
+fn main() {
+    let c = Counter { n: 1 };
+    print(c.n);
+}

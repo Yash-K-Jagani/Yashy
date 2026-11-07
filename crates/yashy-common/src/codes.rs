@@ -140,6 +140,15 @@ pub const WRONG_TYPE_ARG_COUNT: &str = "E1509";
 pub const UNUSED_TYPE_PARAMETER: &str = "E1510";
 /// A user trait carries type parameters.
 pub const GENERIC_TRAIT: &str = "E1511";
+/// An `object` writes a parent type: inheritance is not in the language.
+pub const INHERITANCE: &str = "E1512";
+/// An `impl Drop for T` block: there is no `Drop`.
+pub const DROP_TRAIT: &str = "E1513";
+/// A trait declares a field: traits are requirement sets with no state.
+pub const TRAIT_STATE: &str = "E1514";
+/// An operator is applied to a type with a same-named method: operators
+/// cannot be overloaded.
+pub const OPERATOR_OVERLOAD: &str = "E1515";
 /// A statement cannot be reached.
 pub const UNREACHABLE_CODE: &str = "E2002";
 /// A function parameter is never read.
@@ -482,6 +491,30 @@ pub const CODES: &[Code] = &[
         title: "generic trait outside the standard library",
         summary: "A user trait may not carry type parameters; that spelling is reserved for the standard library's iterator protocol.",
         page: include_str!("../../../docs/errors/E1511.md"),
+    },
+    Code {
+        id: INHERITANCE,
+        title: "inheritance is not in the language",
+        summary: "An `object` may not name a parent type; compose with an explicit field instead.",
+        page: include_str!("../../../docs/errors/E1512.md"),
+    },
+    Code {
+        id: DROP_TRAIT,
+        title: "there is no Drop",
+        summary: "Release is `defer` and `.free()`, never a drop hook.",
+        page: include_str!("../../../docs/errors/E1513.md"),
+    },
+    Code {
+        id: TRAIT_STATE,
+        title: "a trait has no fields",
+        summary: "A trait is a requirement set with no state; declare the field on a struct or object instead.",
+        page: include_str!("../../../docs/errors/E1514.md"),
+    },
+    Code {
+        id: OPERATOR_OVERLOAD,
+        title: "operators cannot be overloaded",
+        summary: "An operator is only defined for built-in types; call the method `a.add(b)` instead.",
+        page: include_str!("../../../docs/errors/E1515.md"),
     },
     Code {
         id: UNUSED_IMPORT,

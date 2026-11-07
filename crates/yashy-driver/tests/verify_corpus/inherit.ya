@@ -1,0 +1,6 @@
+// E1512: an object names a parent type; there is no inheritance.
+object Dog : Animal { name: string }
+
+fn main() {
+    print(0);
+}

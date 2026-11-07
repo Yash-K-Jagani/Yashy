@@ -428,6 +428,9 @@ impl<'src> Parser<'src> {
     fn parse_object(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Object)?;
         let (name, _name_span) = self.identifier()?;
+        if self.check(TokenKind::Colon) {
+            return Err(error::inheritance_not_supported(self.peek_span(), &name));
+        }
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -481,6 +484,9 @@ impl<'src> Parser<'src> {
 
         let mut methods = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            if !self.check(TokenKind::Fn) && !self.check(TokenKind::Pub) {
+                return Err(error::trait_has_no_fields(self.peek_span()));
+            }
             methods.push(self.parse_trait_method()?);
         }
         let close = self.expect(TokenKind::RBrace)?;

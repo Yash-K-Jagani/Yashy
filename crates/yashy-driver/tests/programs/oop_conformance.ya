@@ -1,0 +1,64 @@
+// The OOP conformance program: every rule of the object model in one
+// transcript. An object with mixed visibility, an inherent impl, a trait
+// impl, a bound, an associated constructor, a mutating receiver, a defer
+// release, and an iterator consumed by for.
+//
+// Expected output:
+//   2
+//   show:2
+//   2
+//   5
+
+import iter;
+
+trait Show { fn show(self) -> string; }
+
+object Counter {
+    pub value: int,
+    secret: int,
+    fn new(int start) -> Counter {
+        return Counter { value: start, secret: start * 10 };
+    },
+    fn get(self) -> int {
+        return self.value;
+    },
+    fn bump(self: *mut Counter) {
+        self[0].value = self[0].value + 1;
+    },
+}
+
+impl Show for Counter {
+    fn show(self) -> string {
+        return "show:${self.value}";
+    }
+}
+
+struct Countdown { n: int }
+
+impl Iterator for Countdown {
+    fn next(self: *mut Self) -> Option[int] {
+        if self[0].n <= 0 { return None; }
+        self[0].n = self[0].n - 1;
+        return Some(self[0].n);
+    }
+}
+
+fn describe[T: Show](T x) -> string {
+    return x.show();
+}
+
+fn main() {
+    let c = Counter.new(1);
+    c.bump();
+    print(c.get());
+    print(describe(c));
+    let xs = []int { 1, 2 };
+    print(xs.len());
+    defer { xs.free(); }
+    let total = 0;
+    let cd = Countdown { n: 3 };
+    for y in cd {
+        total = total + y;
+    }
+    print(total);
+}

@@ -5,8 +5,8 @@
 //! pair of (trait, type) may have only one impl. These tests pin the codes
 //! `E1500`–`E1502` and `E1511` and the emitted `Type.Trait.method` symbol.
 
-use yashy_common::{Diagnostic, SourceMap};
 use yashy_common::codes;
+use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
@@ -37,9 +37,49 @@ fn assert_code(src: &str, code: &'static str) -> Vec<Diagnostic> {
     assert!(
         code_of(&diags, code),
         "expected {code}, got {:?}",
-        diags.iter().map(|d| (d.code, &d.message)).collect::<Vec<_>>()
+        diags
+            .iter()
+            .map(|d| (d.code, &d.message))
+            .collect::<Vec<_>>()
     );
     diags
+}
+
+#[test]
+fn impl_drop_is_e1513() {
+    let diags = check_source(
+        "struct Counter { n: int }\n\
+         impl Drop for Counter { fn drop(self: *mut Self) { self[0].n = 0; } }",
+    )
+    .expect_err("there is no Drop");
+    assert!(
+        diags.iter().any(|d| d.code == Some(codes::DROP_TRAIT)),
+        "expected E1513, got {:?}",
+        diags
+            .iter()
+            .map(|d| (d.code, &d.message))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn an_operator_on_a_type_with_a_same_named_method_is_e1515() {
+    let diags = check_source(
+        "struct V { n: int }\n\
+         impl V { fn add(self, V other) -> V { return V { n: self.n + other.n }; } }\n\
+         fn f() { let a = V { n: 1 }; let b = V { n: 2 }; let c = a + b; print(c.n); }",
+    )
+    .expect_err("operators cannot be overloaded");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == Some(codes::OPERATOR_OVERLOAD)),
+        "expected E1515, got {:?}",
+        diags
+            .iter()
+            .map(|d| (d.code, &d.message))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -51,7 +91,9 @@ fn two_impls_of_one_trait_for_one_type_conflict() {
          impl Show for Point { fn show(self) -> string { return \"b\"; } }",
         codes::CONFLICTING_IMPL,
     );
-    assert!(diags.iter().all(|d| d.code == Some(codes::CONFLICTING_IMPL)));
+    assert!(diags
+        .iter()
+        .all(|d| d.code == Some(codes::CONFLICTING_IMPL)));
 }
 
 #[test]
@@ -63,7 +105,9 @@ fn an_impl_missing_a_method_is_rejected() {
         codes::INCOMPLETE_IMPL,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("missing `fn short(self) -> string`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("missing `fn short(self) -> string`")),
         "the diagnostic names the missing method and its signature: {diags:?}"
     );
 }
@@ -77,7 +121,9 @@ fn an_impl_with_a_method_the_trait_does_not_declare_is_rejected() {
         codes::INCOMPLETE_IMPL,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("declares no `extra`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("declares no `extra`")),
         "the diagnostic names the extra method: {diags:?}"
     );
 }
@@ -91,8 +137,11 @@ fn a_method_with_the_wrong_receiver_kind_is_rejected() {
         codes::INCOMPLETE_IMPL,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("impl has `fn show(self: *mut Point) -> string`")
-            && d.message.contains("trait requires `fn show(self) -> string`")),
+        diags.iter().any(|d| d
+            .message
+            .contains("impl has `fn show(self: *mut Point) -> string`")
+            && d.message
+                .contains("trait requires `fn show(self) -> string`")),
         "the diagnostic prints both signatures: {diags:?}"
     );
 }
@@ -130,9 +179,14 @@ fn a_correct_impl_checks_and_emits_the_trait_symbol() {
     )
     .expect("a complete impl must check");
     assert!(
-        hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")),
+        hir.items
+            .iter()
+            .any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")),
         "the method is emitted as Point.Show.show: {:?}",
-        hir.items.iter().map(|i| format!("{i:?}")).collect::<Vec<_>>()
+        hir.items
+            .iter()
+            .map(|i| format!("{i:?}"))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -176,7 +230,9 @@ fn two_traits_providing_one_method_is_e1504() {
         codes::AMBIGUOUS_METHOD,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("`Debug2`") && d.message.contains("`Show`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("`Debug2`") && d.message.contains("`Show`")),
         "the diagnostic names both traits: {diags:?}"
     );
 }
@@ -190,7 +246,9 @@ fn a_trait_method_on_a_type_without_the_impl_is_e1503() {
         codes::UNSATISFIED_BOUND,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("`Show`") && d.message.contains("`Secret`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("`Show`") && d.message.contains("`Secret`")),
         "the diagnostic names the trait and the type: {diags:?}"
     );
 }
@@ -227,7 +285,9 @@ fn an_associated_function_impl_checks() {
     )
     .expect("an associated function impl must check");
     assert!(
-        hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Factory.make")),
+        hir.items
+            .iter()
+            .any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Factory.make")),
         "the method is emitted as Point.Factory.make"
     );
 }
@@ -251,8 +311,14 @@ fn an_inherent_impl_still_checks_alongside_a_trait_impl() {
          impl Show for Point { fn show(self) -> string { return \"a\"; } }",
     )
     .expect("an inherent impl and a trait impl must coexist");
-    assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.sum")));
-    assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")));
+    assert!(hir
+        .items
+        .iter()
+        .any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.sum")));
+    assert!(hir
+        .items
+        .iter()
+        .any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")));
 }
 
 #[test]
@@ -265,7 +331,9 @@ fn a_bound_is_enforced_at_the_call_site() {
         codes::UNSATISFIED_BOUND,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("`Secret` does not implement `Show`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("`Secret` does not implement `Show`")),
         "the diagnostic names the type and the trait: {diags:?}"
     );
 }
@@ -381,7 +449,9 @@ fn an_associated_function_called_on_a_value_is_e1507() {
         codes::ASSOC_THROUGH_VALUE,
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("`Point::origin()`")),
+        diags
+            .iter()
+            .any(|d| d.message.contains("`Point::origin()`")),
         "the diagnostic names the type-path spelling: {diags:?}"
     );
 }

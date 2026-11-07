@@ -75,8 +75,7 @@ impl ParseError {
     /// understood the source or it did not, and a warning about a source that
     /// did not parse would be a warning about a file nobody will compile.
     pub fn to_diagnostic(&self, file: FileId) -> Diagnostic {
-        let diagnostic =
-            Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
+        let diagnostic = Diagnostic::new(Severity::Error, file, self.span, self.message.clone());
         match self.code {
             Some(code) => diagnostic.with_code(code),
             None => diagnostic,
@@ -178,6 +177,24 @@ pub fn trait_method_takes_trait_visibility(span: Span) -> ParseError {
     )
 }
 
+/// An `object` wrote a parent type: `object Dog : Animal`.
+pub fn inheritance_not_supported(span: Span, name: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("`{name}` cannot extend another type: there is no inheritance; hold it in a field instead"),
+    )
+    .with_code(yashy_common::codes::INHERITANCE)
+}
+
+/// A `trait` wrote a field instead of a method signature.
+pub fn trait_has_no_fields(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "a trait has no fields: declare the field on a struct or object instead",
+    )
+    .with_code(yashy_common::codes::TRAIT_STATE)
+}
+
 /// A variant written with an empty payload: `A()` or `A {}`.
 ///
 /// A variant with no fields is spelled `A`, so an empty pair of delimiters
@@ -185,7 +202,9 @@ pub fn trait_method_takes_trait_visibility(span: Span) -> ParseError {
 pub fn variant_needs_a_field(span: Span, enum_name: &str, variant_name: &str) -> ParseError {
     ParseError::new(
         span,
-        format!("variant `{variant_name}` of enum `{enum_name}` must have at least one named field"),
+        format!(
+            "variant `{variant_name}` of enum `{enum_name}` must have at least one named field"
+        ),
     )
 }
 
@@ -207,10 +226,7 @@ pub fn extern_declaration_needs_unsafe(span: Span) -> ParseError {
 /// A block that declares nothing links nothing and was almost certainly
 /// unfinished; accepting it would leave the reader believing the FFI was set up.
 pub fn extern_block_needs_a_declaration(span: Span) -> ParseError {
-    ParseError::new(
-        span,
-        "an `extern` block must declare at least one function",
-    )
+    ParseError::new(span, "an `extern` block must declare at least one function")
 }
 
 /// `link_name` written anywhere but on a declaration inside an `extern` block.
@@ -331,7 +347,6 @@ pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
         span,
         format!(
             "expected an item: `import`, `struct`, `enum`, `fn`, or `extern`, found {}",
-
             found.describe()
         ),
     )

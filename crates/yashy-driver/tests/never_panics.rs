@@ -47,7 +47,12 @@ fn run_pipeline(src: &str) -> bool {
     let Ok(hir) = check_program(&program, &sources, file) else {
         return false;
     };
-    let _ = emit_program(&hir, "fuzz.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty());
+    let _ = emit_program(
+        &hir,
+        "fuzz.ya",
+        CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
+    );
     true
 }
 
@@ -68,6 +73,11 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
         ("lone import keyword", "import".to_string()),
         ("lone extern keyword", "extern".to_string()),
         ("lone switch keyword", "switch".to_string()),
+        // The four excluded object-model forms: diagnostics, not panics.
+        ("inheritance", "object Dog : Animal { name: string }".to_string()),
+        ("drop hook", "struct C { n: int } impl Drop for C { fn drop(self: *mut Self) { } }".to_string()),
+        ("trait state", "trait T { x: int }".to_string()),
+        ("operator overload", "struct V { n: int } impl V { fn add(self, V o) -> V { return self; } } fn main() { let a = V { n: 1 }; let b = V { n: 2 }; let c = a + b; }".to_string()),
         ("fn with no body", "fn main()".to_string()),
         ("truncated parameter list", "fn main(".to_string()),
         ("truncated body", "fn main() {".to_string()),

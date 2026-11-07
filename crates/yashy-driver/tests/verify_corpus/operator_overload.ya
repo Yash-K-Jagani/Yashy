@@ -1,0 +1,15 @@
+// E1515: operators cannot be overloaded; call a.add(b) instead.
+struct V { n: int }
+
+impl V {
+    fn add(self, V other) -> V {
+        return V { n: self.n + other.n };
+    }
+}
+
+fn main() {
+    let a = V { n: 1 };
+    let b = V { n: 2 };
+    let c = a + b;
+    print(c.n);
+}

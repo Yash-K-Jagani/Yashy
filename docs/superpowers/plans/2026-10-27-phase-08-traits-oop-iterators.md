@@ -420,11 +420,11 @@ fn a_user_declared_generic_trait_is_e1511() {
   - `operator_overload.ya` (`a + b` on a type with an `add` method) → `E1515` from the checker, naming the method call `a.add(b)` as the replacement.
 - Produces: the excluded programs are part of the never-panics corpus too — they must produce a diagnostic, not a Rust panic.
 
-- [ ] **Step 1: Write the conformance program** with the transcript in a comment, then run it and paste the actual output into the e2e test's expectation.
-- [ ] **Step 2: Write the four excluded programs** and add their expected code sets to `verify.rs`; run them and confirm the codes are the ones named above.
-- [ ] **Step 3: Fix what the conformance program finds.** A rule that is only true in the spec shows up here as a compile error or a wrong transcript, and the fix belongs in the phase's earlier tasks, not in the program.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test verify --test e2e --test never_panics` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "test: the OOP conformance program and the four excluded forms"`
+- [x] **Step 1: Write the conformance program** with the transcript in a comment, then run it and paste the actual output into the e2e test's expectation.
+- [x] **Step 2: Write the four excluded programs** and add their expected code sets to `verify.rs`; run them and confirm the codes are the ones named above.
+- [x] **Step 3: Fix what the conformance program finds.** A rule that is only true in the spec shows up here as a compile error or a wrong transcript, and the fix belongs in the phase's earlier tasks, not in the program.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test verify --test e2e --test never_panics` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "test: the OOP conformance program and the four excluded forms"`
 
 ---
 

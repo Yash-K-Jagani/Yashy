@@ -82,6 +82,10 @@ the declaration or import involved when that is not obvious.
 | [E1509](errors/E1509.md) | wrong number of type arguments |
 | [E1510](errors/E1510.md) | unused type parameter |
 | [E1511](errors/E1511.md) | generic trait outside the standard library |
+| [E1512](errors/E1512.md) | inheritance is not in the language |
+| [E1513](errors/E1513.md) | there is no Drop |
+| [E1514](errors/E1514.md) | a trait has no fields |
+| [E1515](errors/E1515.md) | operators cannot be overloaded |
 | [E2000](errors/E2000.md) | unused binding |
 | [E2001](errors/E2001.md) | unused import |
 | [E2002](errors/E2002.md) | unreachable code |

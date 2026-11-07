@@ -362,12 +362,18 @@ fn type_eq_with_self(expected: &Type, actual: &Type, self_ty: &Type) -> bool {
             }
             (TypeKind::Func(ep, er), TypeKind::Func(ap, ar)) => {
                 ep.len() == ap.len()
-                    && ep.iter().zip(ap.iter()).all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
+                    && ep
+                        .iter()
+                        .zip(ap.iter())
+                        .all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
                     && kind_eq(&er.kind, &ar.kind, self_ty)
             }
             (TypeKind::Tuple(et), TypeKind::Tuple(at)) => {
                 et.len() == at.len()
-                    && et.iter().zip(at.iter()).all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
+                    && et
+                        .iter()
+                        .zip(at.iter())
+                        .all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
             }
             _ => expected == actual,
         }
@@ -532,16 +538,16 @@ fn collect_type_names(ty: &TypeExpr, out: &mut Vec<String>) {
 /// scheme.
 fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr {
     match ty {
-        TypeExpr::Name(name, span)
-            if subst.iter().any(|(param, _)| param == name) =>
-        {
-            subst
-                .iter()
-                .find(|(param, _)| param == name)
-                .map(|(_, arg)| arg.clone())
-                .unwrap_or_else(|| TypeExpr::Name(name.clone(), *span))
-        }
-        TypeExpr::Ptr { kind, pointee, span } => TypeExpr::Ptr {
+        TypeExpr::Name(name, span) if subst.iter().any(|(param, _)| param == name) => subst
+            .iter()
+            .find(|(param, _)| param == name)
+            .map(|(_, arg)| arg.clone())
+            .unwrap_or_else(|| TypeExpr::Name(name.clone(), *span)),
+        TypeExpr::Ptr {
+            kind,
+            pointee,
+            span,
+        } => TypeExpr::Ptr {
             kind: *kind,
             pointee: Box::new(substitute_type_expr(pointee, subst)),
             span: *span,
@@ -551,22 +557,18 @@ fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr
             *length,
             *span,
         ),
-        TypeExpr::View(element, span) => TypeExpr::View(
-            Box::new(substitute_type_expr(element, subst)),
-            *span,
-        ),
-        TypeExpr::Slice(element, span) => TypeExpr::Slice(
-            Box::new(substitute_type_expr(element, subst)),
-            *span,
-        ),
-        TypeExpr::Option(inner, span) => TypeExpr::Option(
-            Box::new(substitute_type_expr(inner, subst)),
-            *span,
-        ),
-        TypeExpr::Channel(element, span) => TypeExpr::Channel(
-            Box::new(substitute_type_expr(element, subst)),
-            *span,
-        ),
+        TypeExpr::View(element, span) => {
+            TypeExpr::View(Box::new(substitute_type_expr(element, subst)), *span)
+        }
+        TypeExpr::Slice(element, span) => {
+            TypeExpr::Slice(Box::new(substitute_type_expr(element, subst)), *span)
+        }
+        TypeExpr::Option(inner, span) => {
+            TypeExpr::Option(Box::new(substitute_type_expr(inner, subst)), *span)
+        }
+        TypeExpr::Channel(element, span) => {
+            TypeExpr::Channel(Box::new(substitute_type_expr(element, subst)), *span)
+        }
         TypeExpr::Result(ok, err, span) => TypeExpr::Result(
             Box::new(substitute_type_expr(ok, subst)),
             Box::new(substitute_type_expr(err, subst)),
@@ -586,12 +588,18 @@ fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr
             span: *span,
         },
         TypeExpr::Tuple(items, span) => TypeExpr::Tuple(
-            items.iter().map(|item| substitute_type_expr(item, subst)).collect(),
+            items
+                .iter()
+                .map(|item| substitute_type_expr(item, subst))
+                .collect(),
             *span,
         ),
         TypeExpr::Generic { name, args, span } => TypeExpr::Generic {
             name: name.clone(),
-            args: args.iter().map(|arg| substitute_type_expr(arg, subst)).collect(),
+            args: args
+                .iter()
+                .map(|arg| substitute_type_expr(arg, subst))
+                .collect(),
             span: *span,
         },
         TypeExpr::Unit(_) | TypeExpr::Name(_, _) => ty.clone(),
@@ -1863,9 +1871,7 @@ impl<'src> Checker<'src> {
     fn is_public_item(item: &Item) -> bool {
         match item {
             Item::Public { .. } => true,
-            Item::Effect { item, .. } | Item::Documented { item, .. } => {
-                Self::is_public_item(item)
-            }
+            Item::Effect { item, .. } | Item::Documented { item, .. } => Self::is_public_item(item),
             _ => false,
         }
     }
@@ -1996,16 +2002,13 @@ impl<'src> Checker<'src> {
                 }
             }
         } else {
-        // Completeness: exactly the trait's methods, with exactly its
-        // signatures.
-        for expected in &trait_sig.methods {
-            match impl_sigs
-                .iter()
-                .find(|(sig, _)| sig.name == expected.name)
-            {
-                Some((got, method_span)) => {
-                    if !same_method_signature(expected, got, receiver_ty) {
-                        self.error_code(
+            // Completeness: exactly the trait's methods, with exactly its
+            // signatures.
+            for expected in &trait_sig.methods {
+                match impl_sigs.iter().find(|(sig, _)| sig.name == expected.name) {
+                    Some((got, method_span)) => {
+                        if !same_method_signature(expected, got, receiver_ty) {
+                            self.error_code(
                             *method_span,
                             codes::INCOMPLETE_IMPL,
                             format!(
@@ -2016,20 +2019,20 @@ impl<'src> Checker<'src> {
                                 describe_method(expected, type_name),
                             ),
                         );
+                        }
+                    }
+                    None => {
+                        self.error_code(
+                            span,
+                            codes::INCOMPLETE_IMPL,
+                            format!(
+                                "`{type_name}` does not implement `{trait_name}`: missing `{}`",
+                                describe_method(expected, type_name),
+                            ),
+                        );
                     }
                 }
-                None => {
-                    self.error_code(
-                        span,
-                        codes::INCOMPLETE_IMPL,
-                        format!(
-                            "`{type_name}` does not implement `{trait_name}`: missing `{}`",
-                            describe_method(expected, type_name),
-                        ),
-                    );
-                }
             }
-        }
         } // end non-Iterator completeness
         let mut emitted = Vec::new();
         for (sig, method_span) in &impl_sigs {
@@ -2080,10 +2083,9 @@ impl<'src> Checker<'src> {
                     continue;
                 }
                 let satisfies = match &concrete.kind {
-                    TypeKind::Struct(type_name) | TypeKind::Enum(type_name) => {
-                        self.trait_impls
-                            .contains_key(&(bound.clone(), type_name.clone()))
-                    }
+                    TypeKind::Struct(type_name) | TypeKind::Enum(type_name) => self
+                        .trait_impls
+                        .contains_key(&(bound.clone(), type_name.clone())),
                     _ => false,
                 };
                 if !satisfies {
@@ -2331,7 +2333,11 @@ impl<'src> Checker<'src> {
         let names = std::mem::take(&mut self.instantiated_types);
         for mangled in names {
             if let Some(sig) = self.structs.get(&mangled).cloned() {
-                let scheme_name = self.monomorph_schemes.get(&mangled).cloned().unwrap_or_default();
+                let scheme_name = self
+                    .monomorph_schemes
+                    .get(&mangled)
+                    .cloned()
+                    .unwrap_or_default();
                 let scheme_span = self
                     .struct_schemes
                     .get(&scheme_name)
@@ -2354,15 +2360,15 @@ impl<'src> Checker<'src> {
                             span: *fspan,
                         })
                         .collect(),
-                    repr: if sig.repr_c {
-                        Some(ReprKind::C)
-                    } else {
-                        None
-                    },
+                    repr: if sig.repr_c { Some(ReprKind::C) } else { None },
                     span: scheme_span,
                 }));
             } else if let Some(sig) = self.enums.get(&mangled).cloned() {
-                let scheme_name = self.monomorph_schemes.get(&mangled).cloned().unwrap_or_default();
+                let scheme_name = self
+                    .monomorph_schemes
+                    .get(&mangled)
+                    .cloned()
+                    .unwrap_or_default();
                 let scheme_span = self
                     .enum_schemes
                     .get(&scheme_name)
@@ -2395,11 +2401,7 @@ impl<'src> Checker<'src> {
                             span: variant.span,
                         })
                         .collect(),
-                    repr: if sig.repr_c {
-                        Some(ReprKind::C)
-                    } else {
-                        None
-                    },
+                    repr: if sig.repr_c { Some(ReprKind::C) } else { None },
                     span: scheme_span,
                 }));
             }
@@ -2459,17 +2461,14 @@ impl<'src> Checker<'src> {
             for (mname, symbol) in &impl_.methods {
                 if mname == method {
                     if let Some(sig) = self.methods.get(symbol) {
-                        impls
-                            .push((trait_name.clone(), symbol.clone(), sig.clone()));
+                        impls.push((trait_name.clone(), symbol.clone(), sig.clone()));
                     }
                 }
             }
         }
         let fitting: Vec<&(String, String, MethodSig)> = impls
             .iter()
-            .filter(|(_, _, sig)| {
-                sig.has_self && sig.params.len().saturating_sub(1) == own_args
-            })
+            .filter(|(_, _, sig)| sig.has_self && sig.params.len().saturating_sub(1) == own_args)
             .collect();
         if fitting.len() == 1 {
             let (_, symbol, sig) = fitting[0].clone();
@@ -2481,10 +2480,7 @@ impl<'src> Checker<'src> {
                 .map(|(trait_name, _, _)| format!("`{trait_name}`"))
                 .collect::<Vec<_>>()
                 .join(" and ");
-            let (first, second) = (
-                &fitting[0].0,
-                &fitting[1].0,
-            );
+            let (first, second) = (&fitting[0].0, &fitting[1].0);
             self.error_code(
                 span,
                 codes::AMBIGUOUS_METHOD,
@@ -2621,21 +2617,12 @@ impl<'src> Checker<'src> {
     }
 
     /// The `E1503` message for a method no bound in force provides.
-    fn missing_bound_message(
-        &self,
-        entry: &BoundBinding,
-        type_name: &str,
-        method: &str,
-    ) -> String {
+    fn missing_bound_message(&self, entry: &BoundBinding, type_name: &str, method: &str) -> String {
         for ((trait_name, ty), impl_) in &self.trait_impls {
             if ty.as_str() != type_name {
                 continue;
             }
-            if impl_
-                .methods
-                .iter()
-                .any(|(name, _)| name == method)
-            {
+            if impl_.methods.iter().any(|(name, _)| name == method) {
                 return format!(
                     "`{method}` needs `{}`: `{trait_name}` is not one of its bounds",
                     entry.param,
@@ -2725,7 +2712,10 @@ impl<'src> Checker<'src> {
             {
                 self.error(
                     param.span,
-                    format!("type parameter `{}` shadows a type of the same name", param.name),
+                    format!(
+                        "type parameter `{}` shadows a type of the same name",
+                        param.name
+                    ),
                 );
             }
             // A bound names a trait: one the program does not declare cannot
@@ -2949,13 +2939,15 @@ impl<'src> Checker<'src> {
                     return;
                 };
                 if let Some(trait_name) = trait_name {
-                    self.declare_trait_impl(
-                        trait_name,
-                        type_name,
-                        methods,
-                        &receiver_ty,
-                        *span,
-                    );
+                    if trait_name == "Drop" {
+                        self.error_code(
+                            *span,
+                            codes::DROP_TRAIT,
+                            "there is no `Drop`: release with `defer` and `.free()` instead",
+                        );
+                        return;
+                    }
+                    self.declare_trait_impl(trait_name, type_name, methods, &receiver_ty, *span);
                     return;
                 }
                 for method in methods {
@@ -3379,7 +3371,10 @@ impl<'src> Checker<'src> {
                         false, // a trait method takes the trait's visibility
                         method.span,
                     );
-                    if sigs.iter().any(|existing: &MethodSig| existing.name == sig.name) {
+                    if sigs
+                        .iter()
+                        .any(|existing: &MethodSig| existing.name == sig.name)
+                    {
                         self.error(
                             method.span,
                             format!(
@@ -4133,7 +4128,10 @@ impl<'src> Checker<'src> {
             match subst.get(&param.name) {
                 Some(concrete) => ordered.push(concrete.clone()),
                 None => {
-                    self.error(span, format!("cannot infer type parameter `{}`", param.name));
+                    self.error(
+                        span,
+                        format!("cannot infer type parameter `{}`", param.name),
+                    );
                     return None;
                 }
             }
@@ -4221,11 +4219,9 @@ impl<'src> Checker<'src> {
                         (Some(scheme), Some(arg_tys))
                             if scheme == name && args.len() == arg_tys.len() =>
                         {
-                            args.iter()
-                                .zip(arg_tys.iter())
-                                .all(|(declared, concrete)| {
-                                    self.unify_type(declared, params, subst, concrete)
-                                })
+                            args.iter().zip(arg_tys.iter()).all(|(declared, concrete)| {
+                                self.unify_type(declared, params, subst, concrete)
+                            })
                         }
                         _ => false,
                     }
@@ -4425,7 +4421,10 @@ impl<'src> Checker<'src> {
                     let TypeExpr::Name(tp_name, _) = &param.ty else {
                         return None;
                     };
-                    let index = generic.type_params.iter().position(|p| &p.name == tp_name)?;
+                    let index = generic
+                        .type_params
+                        .iter()
+                        .position(|p| &p.name == tp_name)?;
                     Some(BoundBinding {
                         name: param.name.clone(),
                         param: generic.type_params[index].name.clone(),
@@ -4719,9 +4718,7 @@ impl<'src> Checker<'src> {
                             found = *effect;
                             current = item;
                         }
-                        Item::Public { item, .. } | Item::Documented { item, .. } => {
-                            current = item
-                        }
+                        Item::Public { item, .. } | Item::Documented { item, .. } => current = item,
                         _ => break,
                     }
                 }
@@ -4875,7 +4872,7 @@ impl<'src> Checker<'src> {
         Some(HirBlock {
             stmts,
             span: block.span,
-        arena: false,
+            arena: false,
         })
     }
 
@@ -5948,7 +5945,8 @@ impl<'src> Checker<'src> {
                 body,
                 label,
                 span,
-            } => {                let init = init
+            } => {
+                let init = init
                     .as_ref()
                     .and_then(|s| self.check_stmt(s, ret))
                     .map(Box::new);
@@ -6133,13 +6131,14 @@ impl<'src> Checker<'src> {
             self.error_code(
                 span,
                 codes::TYPE_MISMATCH,
-                format!(
-                    "`for {index}, x` needs an indexed iterable, found `{iterable_ty}`"
-                ),
+                format!("`for {index}, x` needs an indexed iterable, found `{iterable_ty}`"),
             );
             return None;
         }
-        let impl_ = match self.trait_impls.get(&("Iterator".to_string(), type_name.to_string())) {
+        let impl_ = match self
+            .trait_impls
+            .get(&("Iterator".to_string(), type_name.to_string()))
+        {
             Some(impl_) => impl_.clone(),
             None => {
                 self.error_code(
@@ -6245,7 +6244,9 @@ impl<'src> Checker<'src> {
             span,
         };
         let loop_stmt = match loop_stmt {
-            HirStmt::ForC { cond, update, body, .. } => HirStmt::ForC {
+            HirStmt::ForC {
+                cond, update, body, ..
+            } => HirStmt::ForC {
                 init: Some(Box::new(init)),
                 cond,
                 update,
@@ -7245,9 +7246,11 @@ impl<'src> Checker<'src> {
     ) -> Option<HirExpr> {
         let mangled = format!("{type_name}.{method}");
         let Some(sig) = self.methods.get(&mangled).cloned() else {
-            let mut error =
-                TypeError::new(span, format!("`{type_name}` has no associated function `{method}`"))
-                    .with_code(codes::UNKNOWN_ASSOCIATED_FN);
+            let mut error = TypeError::new(
+                span,
+                format!("`{type_name}` has no associated function `{method}`"),
+            )
+            .with_code(codes::UNKNOWN_ASSOCIATED_FN);
             let candidates = self
                 .methods
                 .keys()
@@ -7370,8 +7373,11 @@ impl<'src> Checker<'src> {
                 if mname == method {
                     if let Some(sig) = self.methods.get(symbol) {
                         if !sig.has_self {
-                            candidates
-                                .push((Some(trait_name.clone()), symbol.clone(), sig.clone()));
+                            candidates.push((
+                                Some(trait_name.clone()),
+                                symbol.clone(),
+                                sig.clone(),
+                            ));
                         }
                     }
                 }
@@ -7381,15 +7387,14 @@ impl<'src> Checker<'src> {
             1 => {
                 let (_, symbol, sig) = candidates.into_iter().next().unwrap();
                 self.finish_static_call(type_name, symbol, &sig, args, span)
-            }            0 => {
+            }
+            0 => {
                 if let Some(sig) = &inherent {
                     if sig.has_self {
                         self.error_code(
                             span,
                             codes::METHOD_THROUGH_TYPE,
-                            format!(
-                                "`{method}` is a method; call it on a value: `p.{method}()`"
-                            ),
+                            format!("`{method}` is a method; call it on a value: `p.{method}()`"),
                         );
                         return None;
                     }
@@ -7427,9 +7432,7 @@ impl<'src> Checker<'src> {
                         trait_name
                             .as_deref()
                             .map(|t| format!("`{t}::{method}(x)`"))
-                            .unwrap_or_else(|| {
-                                format!("`{type_name}::{method}(x)`")
-                            })
+                            .unwrap_or_else(|| format!("`{type_name}::{method}(x)`"))
                     })
                     .collect::<Vec<_>>()
                     .join(" or ");
@@ -7471,14 +7474,14 @@ impl<'src> Checker<'src> {
                 self.error_code(
                     span,
                     codes::UNSATISFIED_BOUND,
-                    format!(
-                        "a receiver of `{receiver_ty}` does not implement `{trait_name}`"
-                    ),
+                    format!("a receiver of `{receiver_ty}` does not implement `{trait_name}`"),
                 );
                 return None;
             }
         };
-        let impl_ = match self.trait_impls.get(&(trait_name.to_string(), receiver_type.clone()))
+        let impl_ = match self
+            .trait_impls
+            .get(&(trait_name.to_string(), receiver_type.clone()))
         {
             Some(impl_) => impl_.clone(),
             None => {
@@ -7494,7 +7497,11 @@ impl<'src> Checker<'src> {
                 return None;
             }
         };
-        let symbol = impl_.methods.iter().find(|(m, _)| m == method).map(|(_, s)| s.clone());
+        let symbol = impl_
+            .methods
+            .iter()
+            .find(|(m, _)| m == method)
+            .map(|(_, s)| s.clone());
         let Some(symbol) = symbol else {
             self.error_code(
                 span,
@@ -8815,12 +8822,8 @@ impl<'src> Checker<'src> {
                 let Some(field) = scheme.fields.iter().find(|f| &f.name == fname) else {
                     continue;
                 };
-                let _ = self.unify_type(
-                    &field.ty,
-                    &scheme.type_params,
-                    &mut subst,
-                    &expr_ty(value),
-                );
+                let _ =
+                    self.unify_type(&field.ty, &scheme.type_params, &mut subst, &expr_ty(value));
             }
         }
         let mut ordered = Vec::with_capacity(self.struct_schemes[name].type_params.len());
@@ -8888,13 +8891,8 @@ impl<'src> Checker<'src> {
             }
         }
         let _ = path;
-        let hir_fields = self.fill_struct_fields(
-            &mangled,
-            &sig,
-            &written,
-            spread_checked.as_ref(),
-            span,
-        );
+        let hir_fields =
+            self.fill_struct_fields(&mangled, &sig, &written, spread_checked.as_ref(), span);
         Some(HirExpr::StructLit {
             path: vec![mangled.clone()],
             fields: hir_fields,
@@ -10388,6 +10386,36 @@ impl<'src> Checker<'src> {
                         })
                     }
                     Err(message) => {
+                        // Operators cannot be overloaded: `a + b` on a
+                        // type with an `add` method is E1515, not the
+                        // generic operand error.
+                        let op_method = match op {
+                            BinOp::Add => "add",
+                            BinOp::Sub => "sub",
+                            BinOp::Mul => "mul",
+                            BinOp::Div => "div",
+                            BinOp::Rem => "rem",
+                            _ => "",
+                        };
+                        if !op_method.is_empty() {
+                            if let TypeKind::Struct(name) | TypeKind::Enum(name) = &lhs_ty.kind {
+                                let has_method = self.methods.keys().any(|symbol| {
+                                    symbol.starts_with(&format!("{name}."))
+                                        && symbol.ends_with(&format!(".{op_method}"))
+                                });
+                                if has_method {
+                                    self.error_code(
+                                        *span,
+                                        codes::OPERATOR_OVERLOAD,
+                                        format!(
+                                            "`{}` is not defined for `{name}`: call the method `a.{op_method}(b)` instead",
+                                            binop_symbol(*op)
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
                         match op {
                             BinOp::BitAnd
                             | BinOp::BitOr
@@ -10617,7 +10645,11 @@ impl<'src> Checker<'src> {
                 let arg_vals: Vec<Expr> = args.iter().map(|a| a.value.clone()).collect();
                 self.check_type_path_call(type_name, name, &arg_vals, *span)
             }
-            Expr::TypePath { type_name, name, span } => {
+            Expr::TypePath {
+                type_name,
+                name,
+                span,
+            } => {
                 // An associated function as a value is not formed in v1:
                 // only the call through it is supported.
                 let _ = type_name;

@@ -499,7 +499,9 @@ fn getcwd_reports_the_directory_the_program_started_in() {
     assert_eq!(lines.next(), Some("cwd ok"));
     let reported = PathBuf::from(lines.next().expect("the path line"));
     assert_eq!(
-        reported.canonicalize().expect("the reported path must exist"),
+        reported
+            .canonicalize()
+            .expect("the reported path must exist"),
         dir.canonicalize().expect("the work directory must exist"),
         "getcwd must report the directory the process started in"
     );
@@ -669,10 +671,7 @@ fn fixed_arrays_and_views() {
     // `[i64; 3]` lives in the frame, indexing answers `Option`, and a range
     // makes a borrowed view whose bounds are clamped.
     let output = build_and_run("fixed_arrays");
-    assert_eq!(
-        stdout_of(&output),
-        "3\n2\n-1\n1\n3\n2\n3\n6\n3\n0\n8\n50\n"
-    );
+    assert_eq!(stdout_of(&output), "3\n2\n-1\n1\n3\n2\n3\n6\n3\n0\n8\n50\n");
 }
 
 #[test]
@@ -861,9 +860,14 @@ fn a_type_error_produces_a_caret_diagnostic_and_exit_1() {
         "a type error is a compile error"
     );
     let stderr = stderr_of(&compile);
-    assert!(stderr.contains("error:"), "expected an `error:` line:\n{stderr}");
     assert!(
-        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        stderr.contains("error:"),
+        "expected an `error:` line:\n{stderr}"
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
         "expected a caret line underlining the offending expression:\n{stderr}"
     );
 }
@@ -884,7 +888,11 @@ fn a_float_bitwise_operand_is_e0103() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "a float bitwise operand is an error");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a float bitwise operand is an error"
+    );
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("error[E0103]"),
@@ -912,7 +920,11 @@ fn mixed_bitwise_operands_are_e0104() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "mixed integer widths are an error");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "mixed integer widths are an error"
+    );
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("error[E0104]"),
@@ -940,7 +952,11 @@ fn a_compound_bitwise_assignment_to_a_const_is_e0400() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "a const cannot be reassigned");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a const cannot be reassigned"
+    );
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("error[E0400]"),
@@ -953,10 +969,7 @@ fn checked_shifts_print_their_values() {
     // `1 << 63` is the sign bit, a literal count is proven at compile time, and
     // the guarded count is proven from the interval domain.
     let output = build_and_run("shift_checked");
-    assert_eq!(
-        stdout_of(&output),
-        "-9223372036854775808\n8\n8\n"
-    );
+    assert_eq!(stdout_of(&output), "-9223372036854775808\n8\n8\n");
 }
 
 #[test]
@@ -1042,11 +1055,7 @@ fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
     // program cannot pass in one build mode and fail in another.
     let dir = work_dir("shift-const");
     let source = dir.join("shift.ya");
-    fs::write(
-        &source,
-        "fn main() {\n    const int BAD = 1 << 64;\n}\n",
-    )
-    .expect("write shift.ya");
+    fs::write(&source, "fn main() {\n    const int BAD = 1 << 64;\n}\n").expect("write shift.ya");
 
     let output = Command::new(yashy())
         .arg("check")
@@ -1054,7 +1063,11 @@ fn a_constant_shift_out_of_range_is_e0105_at_compile_time() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(output.status.code(), Some(1), "a constant shift out of range is an error");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a constant shift out of range is an error"
+    );
     let stderr = stderr_of(&output);
     assert!(
         stderr.contains("error[E0105]"),
@@ -1172,7 +1185,9 @@ fn a_catalogued_error_prints_its_code() {
         "the code must be part of the rendered diagnostic:\n{stderr}"
     );
     assert!(
-        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        stderr
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
         "the coded diagnostic still needs its caret:\n{stderr}"
     );
     assert!(
@@ -1197,7 +1212,9 @@ fn var_is_reported_with_a_caret() {
     let stderr = stderr_of(&compile);
     assert!(stderr.contains("`var` was removed: use `let`"), "{stderr}");
     assert!(
-        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        stderr
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
         "expected a caret under `var`:\n{stderr}"
     );
 }
@@ -1287,14 +1304,15 @@ fn the_help_text_names_yashy_and_the_ya_extension() {
     assert!(stdout.contains("yashy build <file.ya>"), "help:\n{stdout}");
     // The old name is spelled here on purpose: this assertion is the regression
     // guard, so it must keep naming the thing it forbids.
-    assert!(!stdout.contains("otter"), "the old name survives:\n{stdout}");
+    assert!(
+        !stdout.contains("otter"),
+        "the old name survives:\n{stdout}"
+    );
 }
 
 #[test]
 fn no_command_is_a_usage_error() {
-    let output = Command::new(yashy())
-        .output()
-        .expect("run the yashy CLI");
+    let output = Command::new(yashy()).output().expect("run the yashy CLI");
 
     assert_eq!(
         output.status.code(),
@@ -1573,10 +1591,7 @@ fn native_optimization_does_not_change_what_the_program_prints() {
     let dir = work_dir("native");
     let source = programs_dir().join("floats.ya");
 
-    let builds = [
-        ("portable", None),
-        ("native", Some("--native")),
-    ];
+    let builds = [("portable", None), ("native", Some("--native"))];
     let mut outputs = Vec::new();
     for (label, flag) in builds {
         let exe = dir.join(format!("floats-{label}{}", std::env::consts::EXE_SUFFIX));
@@ -1695,10 +1710,7 @@ fn a_unit_main_exits_zero_even_when_its_last_call_returns_nonzero() {
         "fn main() {\n    if \"a\" == \"a\" {\n        print(\"equal\");\n    }\n}\n",
     )
     .expect("write entry_exit_status.ya");
-    let exe = dir.join(format!(
-        "entry_exit_status{}",
-        std::env::consts::EXE_SUFFIX
-    ));
+    let exe = dir.join(format!("entry_exit_status{}", std::env::consts::EXE_SUFFIX));
     let compile = Command::new(yashy())
         .arg("build")
         .arg(&source)
@@ -1745,7 +1757,11 @@ fn a_program_can_read_its_input() {
     );
 
     let empty = run_with_input(&exe, "");
-    assert_eq!(stdout_of(&empty), "0\n", "end of input is `None`, not an empty line");
+    assert_eq!(
+        stdout_of(&empty),
+        "0\n",
+        "end of input is `None`, not an empty line"
+    );
 }
 
 #[test]
@@ -1982,14 +1998,20 @@ fn a_double_free_is_a_compile_error_with_a_caret() {
         .output()
         .expect("run the yashy CLI");
 
-    assert_eq!(compile.status.code(), Some(1), "a double free is a compile error");
+    assert_eq!(
+        compile.status.code(),
+        Some(1),
+        "a double free is a compile error"
+    );
     let stderr = stderr_of(&compile);
     assert!(
         stderr.contains("already been moved"),
         "the diagnostic must explain that the binding was spent:\n{stderr}"
     );
     assert!(
-        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        stderr
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
         "expected a caret underlining the second use:\n{stderr}"
     );
 }
@@ -2010,11 +2032,8 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
     let public = dir.join("public.ya");
     // The call is unqualified: Yashy's modules share one root scope, so the
     // name is the one the library declared.
-    fs::write(
-        &public,
-        "import vis_lib;\nfn main() { print(seven()); }\n",
-    )
-    .expect("write public.ya");
+    fs::write(&public, "import vis_lib;\nfn main() { print(seven()); }\n")
+        .expect("write public.ya");
     let exe = dir.join(format!("public{}", std::env::consts::EXE_SUFFIX));
     let compile = Command::new(yashy())
         .arg("build")
@@ -2054,7 +2073,9 @@ fn a_public_item_is_usable_from_another_module_and_a_private_one_is_not() {
         "the diagnostic must name the item and the module:\n{stderr}"
     );
     assert!(
-        stderr.lines().any(|line| line.trim_start().starts_with('^')),
+        stderr
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
         "expected a caret underlining the use:\n{stderr}"
     );
 }
@@ -2073,7 +2094,11 @@ fn a_panic_prints_its_message_and_the_position_it_was_written_at() {
         stderr_of(&compile)
     );
     let output = run(&exe);
-    assert_eq!(stdout_of(&output), "10\n", "the line printed before the panic");
+    assert_eq!(
+        stdout_of(&output),
+        "10\n",
+        "the line printed before the panic"
+    );
     assert_eq!(
         output.status.code(),
         Some(1),
@@ -2100,11 +2125,8 @@ fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
     // literal and the caret sits under it, and nothing is emitted.
     let dir = work_dir("huge-literal");
     let source = dir.join("huge_literal.ya");
-    fs::write(
-        &source,
-        "fn main() {\n    print(9223372036854775808);\n}\n",
-    )
-    .expect("write huge_literal.ya");
+    fs::write(&source, "fn main() {\n    print(9223372036854775808);\n}\n")
+        .expect("write huge_literal.ya");
 
     let exe = dir.join(format!("huge_literal{}", std::env::consts::EXE_SUFFIX));
     let compile = Command::new(yashy())
@@ -2137,7 +2159,9 @@ fn an_integer_literal_that_does_not_fit_is_a_compile_error_with_a_caret() {
     let column = |line: &str| line.len() - line.trim_start().len();
     assert_eq!(
         column(carets),
-        source_line.find("9223372036854775808").unwrap_or(usize::MAX),
+        source_line
+            .find("9223372036854775808")
+            .unwrap_or(usize::MAX),
         "the caret must start under the first digit:\n{stderr}"
     );
     assert_eq!(
@@ -2206,7 +2230,12 @@ fn compile_and_run_with(name: &str, source: &str, flags: &[&str]) -> Output {
     fs::write(&file, source).expect("writing the test program");
     let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
     let mut command = Command::new(yashy());
-    command.arg("build").arg(&file).arg("-o").arg(&exe).args(flags);
+    command
+        .arg("build")
+        .arg(&file)
+        .arg("-o")
+        .arg(&exe)
+        .args(flags);
     let compile = command.output().expect("run the yashy CLI");
     assert!(
         compile.status.success(),
@@ -2239,10 +2268,7 @@ fn os_exit_ends_the_process_with_the_status_it_names() {
 
 #[test]
 fn os_exit_accepts_zero() {
-    let output = compile_and_run(
-        "exit-zero",
-        "fn main() { os.exit(0); }\n",
-    );
+    let output = compile_and_run("exit-zero", "fn main() { os.exit(0); }\n");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -2251,10 +2277,7 @@ fn a_returned_i64_becomes_the_exit_status() {
     // `main` may return nothing or `i64`, which is the process status. The
     // `i32` the specification names is the C `main`'s type; Yashy has no `i32`,
     // so `i64` is the spelling, truncated to the width the operating system reads.
-    let output = compile_and_run(
-        "exit-return",
-        "fn main() -> int { return 3; }\n",
-    );
+    let output = compile_and_run("exit-return", "fn main() -> int { return 3; }\n");
     assert_eq!(output.status.code(), Some(3));
 }
 
@@ -2425,9 +2448,7 @@ fn dividing_the_smallest_i64_by_minus_one_is_an_overflow() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
     assert!(
-        stderr.contains(
-            "panic: integer overflow: -9223372036854775808 / -1"
-        ),
+        stderr.contains("panic: integer overflow: -9223372036854775808 / -1"),
         "the division that has no answer must say so:\n{stderr}"
     );
 }
@@ -2835,11 +2856,7 @@ fn assert_eq_reports_both_values_and_assert_ne_does_too() {
 fn a_comparison_assertion_prints_floats_and_strings_as_text() {
     let output = compile_and_run(
         "assert-types-fail",
-        concat!(
-            "fn main() {\n",
-            "    assert_eq(1.5, 2.5);\n",
-            "}\n"
-        ),
+        concat!("fn main() {\n", "    assert_eq(1.5, 2.5);\n", "}\n"),
     );
     assert_eq!(output.status.code(), Some(1));
     assert!(
@@ -2904,9 +2921,9 @@ fn a_release_build_compiles_debug_asserts_away_and_keeps_asserts() {
         "fn main() {\n",
         "    print(\"start\");\n",
         "    let n = 0;\n",
-        "    debug_assert(n > 0);\n",   // false, and dropped by --release
+        "    debug_assert(n > 0);\n", // false, and dropped by --release
         "    print(\"checked\");\n",
-        "    assert(n == 0);\n",         // true, and kept by both
+        "    assert(n == 0);\n", // true, and kept by both
         "    print(\"done\");\n",
         "}\n"
     );
@@ -3588,7 +3605,19 @@ fn iterators_cover_builtins_and_the_protocol() {
     // lowerings, then a user `Iterator` impl yielding 2, 1, 0, then a
     // filtered array comprehension and a map comprehension.
     let output = build_and_run("iterators");
-    assert_eq!(stdout_of(&output), "1\n2\n3\n0\n1\n2\n1\n0\n4\n6\n8\n2\n1\n");
+    assert_eq!(
+        stdout_of(&output),
+        "1\n2\n3\n0\n1\n2\n1\n0\n4\n6\n8\n2\n1\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn oop_conformance_program_proves_the_rules_compose() {
+    // `oop_conformance.ya`: object + inherent + trait + bound +
+    // associated constructor + mutator + defer + iterator, one transcript.
+    let output = build_and_run("oop_conformance");
+    assert_eq!(stdout_of(&output), "2\nshow:2\n2\n3\n");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -3769,7 +3798,6 @@ fn the_concurrent_programs_are_deterministic_across_ten_runs() {
     }
 }
 
-
 // --- M8: the formatter's command line ---------------------------------------------
 
 #[test]
@@ -3780,8 +3808,7 @@ fn fmt_rewrites_a_file_in_place_and_refuses_a_broken_one() {
     let dir = work_dir("fmt-cli");
 
     let messy = dir.join("messy.ya");
-    fs::write(&messy, "fn  main( ){print(\"hi\") ;}\n")
-        .expect("the test file must be writable");
+    fs::write(&messy, "fn  main( ){print(\"hi\") ;}\n").expect("the test file must be writable");
     let output = Command::new(yashy())
         .arg("fmt")
         .arg("-w")
@@ -3827,7 +3854,10 @@ fn an_i64_annotation_is_reported_with_a_caret() {
         .expect("run check");
     assert_eq!(output.status.code(), Some(1));
     let stderr = stderr_of(&output);
-    assert!(stderr.contains("`i64` is spelled `int` in Yashy"), "{stderr}");
+    assert!(
+        stderr.contains("`i64` is spelled `int` in Yashy"),
+        "{stderr}"
+    );
     assert!(stderr.contains('^'), "expected a caret:\n{stderr}");
 }
 #[test]
@@ -3836,8 +3866,11 @@ fn a_misspelled_name_gets_a_did_you_mean_label() {
     // diagnostic struct: the reader sees it under the caret.
     let dir = work_dir("did-you-mean");
     let source = dir.join("typo.ya");
-    fs::write(&source, "fn main() {\n    let count = 1;\n    print(cuont);\n}\n")
-        .expect("write typo.ya");
+    fs::write(
+        &source,
+        "fn main() {\n    let count = 1;\n    print(cuont);\n}\n",
+    )
+    .expect("write typo.ya");
 
     let output = Command::new(yashy())
         .arg("check")
@@ -3948,10 +3981,7 @@ fn byte_buffers_round_trip_a_megabyte_through_a_file() {
     );
 
     let path = dir.join("payload.bin");
-    let output = run_with_args(
-        &exe,
-        &[path.to_str().expect("the temp path is UTF-8")],
-    );
+    let output = run_with_args(&exe, &[path.to_str().expect("the temp path is UTF-8")]);
     assert_eq!(
         stdout_of(&output),
         "abcd\nsaved\n1048576\n0\nmissing\n",
@@ -4043,7 +4073,12 @@ fn writing_bytes_to_a_directory_reports_not_a_file() {
     );
 
     let output = run(&exe);
-    assert_eq!(stdout_of(&output), "not a file\n", "stderr:\n{}", stderr_of(&output));
+    assert_eq!(
+        stdout_of(&output),
+        "not a file\n",
+        "stderr:\n{}",
+        stderr_of(&output)
+    );
 }
 
 #[test]

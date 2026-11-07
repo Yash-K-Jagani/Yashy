@@ -1,0 +1,6 @@
+// E1514: a trait has no fields; state belongs to a struct.
+trait T { x: int }
+
+fn main() {
+    print(0);
+}
