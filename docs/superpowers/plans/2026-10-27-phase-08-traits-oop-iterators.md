@@ -353,11 +353,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: an array comprehension lowers to `let mut out = []; for x in xs { if cond { out.push(expr); } } out`; a map comprehension to the same with `out.insert(k, v)`.
 - Produces: the lowered form is the HIR, so the verifier proves the loop and the push like any other.
 
-- [ ] **Step 1: Write the failing tests** — a filtered comprehension matches the equivalent loop's output; a comprehension over a map yields insertion order; nesting two comprehensions works; a `break` inside a comprehension is a parse error (the construct has no body to break out of).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — parse to a dedicated AST node, lower in sema (not in codegen) so exactly one implementation exists. The `out` binding is linear and the lowered loop releases it on every path, which the verifier checks.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: array and map comprehensions"`
+- [x] **Step 1: Write the failing tests** — a filtered comprehension matches the equivalent loop's output; a comprehension over a map yields insertion order; nesting two comprehensions works; a `break` inside a comprehension is a parse error (the construct has no body to break out of).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — parse to a dedicated AST node, lower in sema (not in codegen) so exactly one implementation exists. The `out` binding is linear and the lowered loop releases it on every path, which the verifier checks.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: array and map comprehensions"`
 
 ---
 

@@ -1005,6 +1005,32 @@ pub enum Expr {
         elements: Vec<Expr>,
         span: Span,
     },
+    /// `[x * 2 for x in xs if x > 0]` -- an array comprehension.
+    ///
+    /// The `expr` is the element produced for each value the `pattern`
+    /// binds over the `iterable`; `filter`, when written, keeps only the
+    /// values the condition accepts. The checker lowers it to a builder
+    /// loop: an empty `[]T`, a `for` over the iterable, and a `push` per
+    /// value the filter accepts.
+    ArrayComp {
+        expr: Box<Expr>,
+        pattern: Pattern,
+        iterable: Box<Expr>,
+        filter: Option<Box<Expr>>,
+        span: Span,
+    },
+    /// `{k: v for x in xs}` -- a map comprehension.
+    ///
+    /// Like [`Expr::ArrayComp`], but each accepted value inserts a
+    /// `key -> value` pair into the built map, in the iterable's order.
+    MapComp {
+        key: Box<Expr>,
+        value: Box<Expr>,
+        pattern: Pattern,
+        iterable: Box<Expr>,
+        filter: Option<Box<Expr>>,
+        span: Span,
+    },
     /// `(1, "a")` — a tuple literal.
     ///
     /// `(e)` is grouping, not a one-element tuple: the parser only builds this

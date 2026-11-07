@@ -296,6 +296,19 @@ struct TraitSig {
     type_params: Vec<String>,
 }
 
+/// A comprehension's synthesized builder function, checked after the
+/// program's own items, like a generic instantiation.
+#[derive(Clone, Debug)]
+struct CompJob {
+    name: String,
+    params: Vec<Param>,
+    param_tys: Vec<Type>,
+    ret_ty: Type,
+    body: Block,
+    span: Span,
+    file: FileId,
+}
+
 /// One `impl Trait for Type` block that passed the coherence check.
 #[derive(Clone, Debug)]
 struct TraitImpl {
@@ -878,6 +891,10 @@ pub struct Checker<'src> {
     /// `:?` use gets one printer, and a printer that contains itself does not
     /// ask for a second body while the first is being built.
     debug_printer_names: HashSet<String>,
+    /// Comprehension builder functions waiting to be checked, like generic
+    /// instantiations: a comprehension lowers to a synthesized function
+    /// whose body is an ordinary builder loop.
+    pending_comps: Vec<CompJob>,
     /// The `const fn`s the program declares, by name.
     ///
     /// A `const fn` has no run-time existence: it is evaluated by the
@@ -1179,6 +1196,7 @@ impl<'src> Checker<'src> {
             iteration_borrows: Vec::new(),
             closures: Vec::new(),
             debug_printers: Vec::new(),
+            pending_comps: Vec::new(),
             debug_printer_names: HashSet::new(),
             const_fns: ConstFns::new(),
             item_origins: HashMap::new(),
@@ -1663,6 +1681,23 @@ impl<'src> Checker<'src> {
         // asked for. This has to follow every module: a generic body may call
         // anything the program declares.
         self.instantiate_generics(&mut items);
+        // Comprehension builders, like generic instantiations: checking one
+        // may queue another (a nested comprehension), so drain until empty.
+        while let Some(job) = self.pending_comps.pop() {
+            self.file = job.file;
+            if let Some(hir) = self.check_fn_body(
+                &job.name,
+                &job.params,
+                &job.param_tys,
+                &job.ret_ty,
+                &[],
+                &[],
+                &job.body,
+                job.span,
+            ) {
+                items.push(HirItem::Fn(hir));
+            }
+        }
         // The monomorphised generic types, so code generation emits one
         // definition per monomorph: it reads named types from the HIR, and a
         // monomorph that only a pattern or a field mentions would otherwise
@@ -4738,7 +4773,7 @@ impl<'src> Checker<'src> {
         Some(HirBlock {
             stmts,
             span: block.span,
-            arena: false,
+        arena: false,
         })
     }
 
@@ -11707,7 +11742,293 @@ impl<'src> Checker<'src> {
                 body,
                 span,
             } => self.check_lambda(params, ret, body, *span, None),
+            Expr::ArrayComp {
+                expr,
+                pattern,
+                iterable,
+                filter,
+                span,
+            } => {
+                let (checked_iterable, iter_ty, element) =
+                    self.check_comp_iterable(iterable, *span)?;
+                self.check_comp_body(
+                    true,
+                    None,
+                    expr,
+                    pattern,
+                    checked_iterable,
+                    iter_ty,
+                    filter.as_deref(),
+                    element,
+                    *span,
+                )
+            }
+            Expr::MapComp {
+                key,
+                value,
+                pattern,
+                iterable,
+                filter,
+                span,
+            } => {
+                let (checked_iterable, iter_ty, element) =
+                    self.check_comp_iterable(iterable, *span)?;
+                self.check_comp_body(
+                    false,
+                    Some((key, value)),
+                    value,
+                    pattern,
+                    checked_iterable,
+                    iter_ty,
+                    filter.as_deref(),
+                    element,
+                    *span,
+                )
+            }
         }
+    }
+
+    /// Check a comprehension's iterable and return its checked form, its
+    /// type, and the element type it yields.
+    fn check_comp_iterable(
+        &mut self,
+        iterable: &Expr,
+        span: Span,
+    ) -> Option<(HirExpr, Type, Type)> {
+        let checked = self.check_expr(iterable)?;
+        let ty = expr_ty(&checked);
+        let element = match &ty.kind {
+            TypeKind::Slice(element)
+            | TypeKind::FixedArray(element, _)
+            | TypeKind::View(element) => Some((**element).clone()),
+            TypeKind::Struct(name) | TypeKind::Enum(name) => {
+                match self
+                    .trait_impls
+                    .get(&("Iterator".to_string(), name.clone()))
+                    .and_then(|impl_| {
+                        impl_
+                            .methods
+                            .iter()
+                            .find(|(m, _)| m == "next")
+                            .map(|(_, s)| s.clone())
+                    })
+                    .and_then(|symbol| self.methods.get(&symbol).cloned())
+                {
+                    Some(sig) => match &sig.ret.kind {
+                        TypeKind::Option(inner) => Some((**inner).clone()),
+                        _ => {
+                            self.error_code(
+                                span,
+                                codes::UNSATISFIED_BOUND,
+                                format!(
+                                    "`{ty}`'s `next` is not `fn next(self: *mut Self) -> Option[T]` as `Iterator` requires"
+                                ),
+                            );
+                            None
+                        }
+                    },
+                    None => {
+                        self.error_code(
+                            span,
+                            codes::UNSATISFIED_BOUND,
+                            format!(
+                                "`{ty}` does not implement `Iterator` required by comprehension{}",
+                                self.impl_needs_line(&ty, "Iterator"),
+                            ),
+                        );
+                        None
+                    }
+                }
+            }
+            _ => {
+                self.error_code(
+                    span,
+                    codes::TYPE_MISMATCH,
+                    format!("a comprehension over `{ty}` needs an array-like iterable"),
+                );
+                None
+            }
+        }?;
+        Some((checked, ty, element))
+    }
+
+    /// Check a comprehension's element expressions in the pattern's scope.
+    fn check_comp_body(
+        &mut self,
+        array: bool,
+        pair: Option<(&Expr, &Expr)>,
+        expr: &Expr,
+        pattern: &Pattern,
+        checked_iterable: HirExpr,
+        iter_ty: Type,
+        filter: Option<&Expr>,
+        element: Type,
+        span: Span,
+    ) -> Option<HirExpr> {
+        // Check the produced expressions with the pattern's names in scope,
+        // the way a loop body would see them.
+        self.scope.push();
+        let _ = self.check_binding_pattern(pattern, &element, Mutability::Const);
+        let out_ty = if array {
+            let checked = self.check_expr(expr)?;
+            let elem_ty = expr_ty(&checked);
+            if let Some(filter) = filter {
+                let checked_filter = self.check_expr(filter)?;
+                if !expr_ty(&checked_filter).eq_ignoring_span(&prim(TypeKind::Bool)) {
+                    self.mismatch(
+                        expr_span(&checked_filter),
+                        &prim(TypeKind::Bool),
+                        &expr_ty(&checked_filter),
+                    );
+                }
+            }
+            Type {
+                kind: TypeKind::Slice(Box::new(elem_ty)),
+                span,
+            }
+        } else {
+            let (key, value) = pair.expect("a map comprehension carries key and value");
+            let checked_key = self.check_expr(key)?;
+            let checked_value = self.check_expr(value)?;
+            if let Some(filter) = filter {
+                let checked_filter = self.check_expr(filter)?;
+                if !expr_ty(&checked_filter).eq_ignoring_span(&prim(TypeKind::Bool)) {
+                    self.mismatch(
+                        expr_span(&checked_filter),
+                        &prim(TypeKind::Bool),
+                        &expr_ty(&checked_filter),
+                    );
+                }
+            }
+            Type {
+                kind: TypeKind::Map(
+                    Box::new(expr_ty(&checked_key)),
+                    Box::new(expr_ty(&checked_value)),
+                ),
+                span,
+            }
+        };
+        self.scope.pop();
+        let elem_ty = match &out_ty.kind {
+            TypeKind::Slice(element) => (**element).clone(),
+            _ => element.clone(),
+        };
+        // Build the builder function: `__comp_N(__xs: IterTy) -> OutTy`.
+        let name = format!("__comp_{}_{}", self.file.index(), span.start);
+        let param_name = "__xs".to_string();
+        let out_name = "__out".to_string();
+        let param_ty_expr = type_to_expr(&iter_ty);
+        let out_ty_expr = type_to_expr(&out_ty);
+        let out_decl = if array {
+            Stmt::Let {
+                name: out_name.clone(),
+                ty: Some(out_ty_expr.clone()),
+                init: Expr::SliceLit {
+                    elem: Some(Box::new(type_to_expr(&elem_ty))),
+                    elements: Vec::new(),
+                    span,
+                },
+                span,
+            }
+        } else {
+            Stmt::Let {
+                name: out_name.clone(),
+                ty: Some(out_ty_expr.clone()),
+                init: Expr::Call {
+                    callee: vec!["map_new".to_string()],
+                    args: Vec::new(),
+                    unsafe_call: false,
+                    span,
+                },
+                span,
+            }
+        };
+        let push = if array {
+            Expr::Call {
+                callee: vec![out_name.clone(), "push".to_string()],
+                args: vec![CallArg {
+                    name: None,
+                    value: expr.clone(),
+                    span,
+                }],
+                unsafe_call: false,
+                span,
+            }
+        } else {
+            let (key, value) = pair.expect("a map comprehension carries key and value");
+            Expr::Call {
+                callee: vec![out_name.clone(), "insert".to_string()],
+                args: vec![
+                    CallArg {
+                        name: None,
+                        value: key.clone(),
+                        span,
+                    },
+                    CallArg {
+                        name: None,
+                        value: value.clone(),
+                        span,
+                    },
+                ],
+                unsafe_call: false,
+                span,
+            }
+        };
+        let loop_body = match filter {
+            Some(cond) => Block {
+                stmts: vec![Stmt::If {
+                    init: None,
+                    cond: cond.clone(),
+                    then_block: Block {
+                        stmts: vec![Stmt::Expr(push, span)],
+                        span,
+                    },
+                    else_block: None,
+                    span,
+                }],
+                span,
+            },
+            None => Block {
+                stmts: vec![Stmt::Expr(push, span)],
+                span,
+            },
+        };
+        let body = Block {
+            stmts: vec![
+                out_decl,
+                Stmt::ForIn {
+                    pattern: pattern.clone(),
+                    index: None,
+                    iterable: Expr::Ident(vec![param_name.clone()], span),
+                    body: loop_body,
+                    label: None,
+                    span,
+                },
+                Stmt::Return(Some(Expr::Ident(vec![out_name], span)), span),
+            ],
+            span,
+        };
+        self.pending_comps.push(CompJob {
+            name: name.clone(),
+            params: vec![Param {
+                name: param_name,
+                ty: param_ty_expr,
+                span,
+                default: None,
+            }],
+            param_tys: vec![iter_ty],
+            ret_ty: out_ty.clone(),
+            body,
+            span,
+            file: self.file,
+        });
+        Some(HirExpr::Call {
+            callee: vec![name],
+            args: vec![checked_iterable],
+            unsafe_call: false,
+            span,
+            ty: out_ty,
+        })
     }
 
     /// Check a call whose callee is a captured function value.

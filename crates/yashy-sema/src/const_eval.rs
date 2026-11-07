@@ -638,6 +638,8 @@ fn expression_kind(expr: &Expr) -> &'static str {
         Expr::Lambda { .. } => "a lambda",
         Expr::TypePath { .. } => "a type path",
         Expr::TypePathCall { .. } => "a type-path call",
+        Expr::ArrayComp { .. } => "a comprehension",
+        Expr::MapComp { .. } => "a comprehension",
     }
 }
 
@@ -665,7 +667,9 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::MethodCall { span, .. }
         | Expr::Lambda { span, .. }
         | Expr::TypePath { span, .. }
-        | Expr::TypePathCall { span, .. } => *span,
+        | Expr::TypePathCall { span, .. }
+        | Expr::ArrayComp { span, .. }
+        | Expr::MapComp { span, .. } => *span,
     }
 }
 
@@ -736,6 +740,32 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         Expr::TypePath { .. } => false,
         Expr::TypePathCall { args, .. } => {
             args.iter().any(|arg| mentions_const_fn(&arg.value, consts))
+        }
+        Expr::ArrayComp {
+            expr,
+            iterable,
+            filter,
+            ..
+        } => {
+            mentions_const_fn(expr, consts)
+                || mentions_const_fn(iterable, consts)
+                || filter
+                    .as_deref()
+                    .is_some_and(|f| mentions_const_fn(f, consts))
+        }
+        Expr::MapComp {
+            key,
+            value,
+            iterable,
+            filter,
+            ..
+        } => {
+            mentions_const_fn(key, consts)
+                || mentions_const_fn(value, consts)
+                || mentions_const_fn(iterable, consts)
+                || filter
+                    .as_deref()
+                    .is_some_and(|f| mentions_const_fn(f, consts))
         }
     }
 }

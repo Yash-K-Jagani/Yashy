@@ -8,7 +8,7 @@
 
 use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Expr, Item, Stmt, TypeExpr};
+use yashy_parser::ast::{Expr, Item, Pattern, Stmt, TypeExpr};
 use yashy_parser::Parser;
 
 fn parse_src(src: &str) -> Result<yashy_parser::ast::Program, Vec<Diagnostic>> {
@@ -189,5 +189,44 @@ fn pub_inside_a_function_is_a_parse_error() {
     assert!(
         messages(&diags).contains("marks items and members, not locals"),
         "the refusal names the rule, got {diags:?}"
+    );
+}
+
+#[test]
+fn an_array_comprehension_parses_with_its_filter() {
+    let program = parse_ok("fn f() -> []int { return [x * 2 for x in xs if x > 0]; }");
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected a function item");
+    };
+    let Stmt::Return(Some(expr), _) = &body.stmts[0] else {
+        panic!("expected a return expression");
+    };
+    match expr {
+        Expr::ArrayComp { pattern, filter, .. } => {
+            assert!(matches!(pattern, Pattern::Binding { name, .. } if name == "x"));
+            assert!(filter.is_some());
+        }
+        other => panic!("expected an array comprehension, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_map_comprehension_parses_with_key_and_value() {
+    let program = parse_ok("fn f() -> map[string]int { return {k: v for (k, v) in xs}; }");
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected a function item");
+    };
+    let Stmt::Return(Some(expr), _) = &body.stmts[0] else {
+        panic!("expected a return expression");
+    };
+    assert!(matches!(expr, Expr::MapComp { .. }), "got {expr:?}");
+}
+
+#[test]
+fn a_break_inside_a_comprehension_is_a_parse_error() {
+    let diags = parse_err("fn f() -> []int { return [x for x in xs break]; }");
+    assert!(
+        messages(&diags).contains("expected `]`"),
+        "a body keyword where the close belongs is refused, got {diags:?}"
     );
 }

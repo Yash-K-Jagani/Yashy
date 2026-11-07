@@ -34,4 +34,24 @@ fn main() {
     for y in c {
         print(y);
     }
+
+    // A filtered array comprehension matches the equivalent loop.
+    let ys = []int { 1, 2, 3, 4 };
+    let doubled = [x * 2 for x in ys if x > 1];
+    for v in doubled {
+        print(v);
+    }
+    doubled.free();
+    ys.free();
+
+    // A map comprehension yields insertion order.
+    let names = []string { "a", "b" };
+    let counts = {k: 1 for k in names};
+    print(counts.len());
+    switch counts.get("a") {
+        case Some(v) { print(v); }
+        case None { print("none"); }
+    }
+    counts.free();
+    names.free();
 }

@@ -241,6 +241,15 @@ fn a_type_path_call_round_trips() {
 }
 
 #[test]
+fn comprehensions_round_trip() {
+    // The comprehension's brackets bind like a literal's, and `for`/`in`
+    // take ordinary word spacing.
+    let source = "fn f() -> []int {\n    let xs = []int {\n        1, 2, 3\n    };\n    return [x * 2 for x in xs if x > 1];\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), format(source));
+}
+
+#[test]
 fn a_pub_method_round_trips_inside_a_type() {
     // `pub` is a modifier word in front of a member, the same shape as in
     // front of an item.

@@ -426,6 +426,40 @@ impl<'src> Parser<'src> {
         })
     }
 
+    /// The tail of an array comprehension: `for <pattern> in <iterable>
+    /// [if <filter>] ]`, with the element expression already read.
+    ///
+    /// A `break` (or any other keyword) where the filter or the closing
+    /// bracket belongs is a parse error for the same reason a body cannot
+    /// appear here at all: a comprehension has no body to break out of.
+    fn parse_comp_tail(
+        &mut self,
+        array: bool,
+        expr: Expr,
+        open_span: Span,
+    ) -> Result<Expr, ParseError> {
+        debug_assert!(array);
+        self.expect(TokenKind::For)?;
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenKind::In)?;
+        let iterable = self.without_block_arg(|p| p.parse_expr())?;
+        let filter = if self.check(TokenKind::If) {
+            self.advance();
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+        let close = self.expect(TokenKind::RBracket)?;
+        self.close_open(TokenKind::RBracket);
+        Ok(Expr::ArrayComp {
+            expr: Box::new(expr),
+            pattern,
+            iterable: Box::new(iterable),
+            filter,
+            span: cover(open_span, close.span),
+        })
+    }
+
     fn parse_postfix(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
         expr = self.parse_postfix_rest(expr)?;
@@ -657,8 +691,56 @@ impl<'src> Parser<'src> {
                         span: cover(open.span, close.span),
                     });
                 }
-                let mut elements = Vec::new();
-                let mut has_spread = false;
+                // A comprehension: `[expr for pattern in iterable if filter]`.
+                // It is told apart from a literal by the `for` after the
+                // first element, so the first element is read before the
+                // comma loop decides.
+                let first = self.parse_slice_element()?;
+                if let SliceElement::Value(expr) = first {
+                    if self.check(TokenKind::For) {
+                        return self.parse_comp_tail(true, expr, open.span);
+                    }
+                    // Not a comprehension: put the element back and let the
+                    // ordinary literal loop read it. A comma after the first
+                    // element is what continues the list; without one the
+                    // brackets close.
+                    let mut elements = vec![SliceElement::Value(expr)];
+                    let mut has_spread = false;
+                    if self.eat(TokenKind::Comma) {
+                        while !self.check(TokenKind::RBracket) && !self.at_eof() {
+                        let element = self.parse_slice_element()?;
+                        if matches!(element, SliceElement::Spread(_)) {
+                            has_spread = true;
+                        }
+                        elements.push(element);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                        }
+                    }
+                    let close = self.expect(TokenKind::RBracket)?;
+                    self.close_open(TokenKind::RBracket);
+                    if has_spread {
+                        return Ok(Expr::SliceLit {
+                            elem: None,
+                            elements,
+                            span: cover(open.span, close.span),
+                        });
+                    }
+                    let mut values = Vec::new();
+                    for element in elements {
+                        match element {
+                            SliceElement::Value(value) => values.push(value),
+                            SliceElement::Spread(_) => unreachable!("no spread in a fixed array"),
+                        }
+                    }
+                    return Ok(Expr::FixedArrayLit {
+                        elements: values,
+                        span: cover(open.span, close.span),
+                    });
+                }
+                let mut elements = vec![first];
+                let mut has_spread = matches!(elements[0], SliceElement::Spread(_));
                 while !self.check(TokenKind::RBracket) && !self.at_eof() {
                     let element = self.parse_slice_element()?;
                     if matches!(element, SliceElement::Spread(_)) {
@@ -689,6 +771,42 @@ impl<'src> Parser<'src> {
                 }
                 Ok(Expr::FixedArrayLit {
                     elements: values,
+                    span: cover(open.span, close.span),
+                })
+            }
+            TokenKind::LBrace => {
+                // `{k: v for x in xs}` -- a map comprehension. A brace in
+                // expression position is only ever this: a struct literal
+                // always follows a name.
+                let open = self.expect(TokenKind::LBrace)?;
+                let _ = self.push_open(TokenKind::LBrace, open.span)?;
+                let key = self.parse_expr()?;
+                self.expect(TokenKind::Colon)?;
+                let value = self.parse_expr()?;
+                if !self.check(TokenKind::For) {
+                    return Err(self.error(
+                        self.peek_span(),
+                        "a `{` expression is a map comprehension: write `{k: v for x in xs}`",
+                    ));
+                }
+                self.expect(TokenKind::For)?;
+                let pattern = self.parse_pattern()?;
+                self.expect(TokenKind::In)?;
+                let iterable = self.without_block_arg(|p| p.parse_expr())?;
+                let filter = if self.check(TokenKind::If) {
+                    self.advance();
+                    Some(Box::new(self.parse_expr()?))
+                } else {
+                    None
+                };
+                let close = self.expect(TokenKind::RBrace)?;
+                self.close_open(TokenKind::RBrace);
+                Ok(Expr::MapComp {
+                    key: Box::new(key),
+                    value: Box::new(value),
+                    pattern,
+                    iterable: Box::new(iterable),
+                    filter,
                     span: cover(open.span, close.span),
                 })
             }
@@ -1271,6 +1389,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::MethodCall { span, .. } => *span,
         Expr::Lambda { span, .. } => *span,
         Expr::TypePath { span, .. } | Expr::TypePathCall { span, .. } => *span,
+        Expr::ArrayComp { span, .. } | Expr::MapComp { span, .. } => *span,
     }
 }
 
