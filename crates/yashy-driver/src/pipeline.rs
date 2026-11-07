@@ -39,6 +39,7 @@ use yashy_codegen::{
     check_main_exists, emit_program, host_target_triple, promotion_counts, CodegenOptions,
 };
 use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
+use yashy_expand::expand_tokens;
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_runtime::{
@@ -600,8 +601,14 @@ pub fn compile_to_binary(
     let file = sources.add_file(entry_name, source.to_string());
 
     let tokens = Lexer::with_file(source, file).tokenize()?;
-    let mut parser = Parser::new(tokens, &sources, file);
+    let mut parser = Parser::new(tokens.clone(), &sources, file);
     let program = parser.parse_program()?;
+    let (expanded, _map) = expand_tokens(&program.items, &sources, file, &tokens);
+    let tokens = match expanded {
+        Ok(tokens) => tokens,
+        Err(diagnostic) => return Err(vec![diagnostic]),
+    };
+    let program = Parser::new(tokens, &sources, file).parse_program()?;
     let hir = check_program_with(
         &program,
         &sources,
@@ -765,6 +772,22 @@ pub fn load_and_check_exports_timed(
     }
     if let Some((_, diagnostics)) = first_failure {
         return Err(diagnostics);
+    }
+
+    // Expansion is the pipeline stage before checking: every module's
+    // declarations are read first, then its token stream is expanded and
+    // re-parsed, so the checker and verifier only ever see ordinary syntax.
+    for (index, module) in modules.iter_mut().enumerate() {
+        let tokens = &module_sources[index].tokens;
+        let (expanded, _map) = expand_tokens(&module.program.items, sources, module.file, tokens);
+        let tokens = match expanded {
+            Ok(tokens) => tokens,
+            Err(diagnostic) => return Err(vec![diagnostic]),
+        };
+        let program = Parser::new(tokens, sources, module.file)
+            .parse_program()
+            .map_err(|diagnostics| diagnostics)?;
+        module.program = program;
     }
 
     let exports = modules::exports(&modules);

@@ -172,6 +172,27 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
+## `yashy expand <file.ya> [--json]`
+
+Prints the fully expanded program: every macro invocation is replaced by its
+arm's tokens, in source order. The command expands and formats; it does not
+type-check or verify, and its exit code is only about whether expansion and
+formatting succeeded (`0` success, `1` a macro or parse diagnostic, `2` for a
+usage error).
+
+```text
+yashy expand main.ya
+yashy expand --json main.ya
+```
+
+`--json` prints `{"schema_version":1,"tool":"yashy","expansions":[...]}`, one
+entry per invocation, with `macro`, `arm_span`, `invocation_span` and
+`output_tokens`.
+
+`check`, `build`, `run`, `test` and `verify` all expand before anything else,
+so a program written with a shorthand is checked and compiled as the ordinary
+syntax it expands to. `--emit-ir` shows IR from expanded code, as it must.
+
 ## `yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]`
 
 Runs the front half of the pipeline and then the verifier: the pass that proves

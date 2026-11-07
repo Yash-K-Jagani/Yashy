@@ -8,6 +8,7 @@
 //! yashy explain <code> [--json]
 //! yashy init [path]
 //! yashy doctor [--json]
+//! yashy expand <file.ya> [--json]
 //! yashy fmt [-w] <files...>
 //! yashy version
 //! ```
@@ -64,6 +65,7 @@ usage:
   yashy explain <code> [--json]
   yashy init [path]
   yashy doctor [--json]
+  yashy expand <file.ya> [--json]
   yashy fmt [-w] <files...>
   yashy version
 
@@ -75,6 +77,7 @@ usage:
   explain print the long-form page for an error code
   init    create a new Yashy project
   doctor  check the compiler's toolchain and standard library
+  expand  print the fully expanded program, without checking it
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -150,6 +153,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "explain" => explain(rest),
         "init" => init(rest),
         "doctor" => doctor(rest),
+        "expand" => expand(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -2674,6 +2678,133 @@ fn unknown_cpu(value: &str) -> String {
         "`{value}` is not a CPU target; use one of: {}",
         names.join(", ")
     )
+}
+
+/// `yashy expand <file.ya> [--json]`.
+///
+/// Prints the fully expanded program after every macro has been replaced, and
+/// stops before checking: this command is for reading what a macro produces.
+fn expand(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `expand`")),
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`expand` needs a source file");
+    };
+    let source = match read_source_with(&input, EXIT_USAGE) {
+        Ok(source) => source,
+        Err(code) => return code,
+    };
+    let mut sources = SourceMap::new();
+    let file = sources.add_file(input.to_string_lossy(), source);
+    let source_text = sources.file(file).to_string();
+
+    let tokens = match yashy_lexer::Lexer::with_file(&source_text, file).tokenize() {
+        Ok(tokens) => tokens,
+        Err(diagnostics) => {
+            for diagnostic in diagnostics {
+                eprint!("{}", sources.render(&diagnostic));
+            }
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+    let program = match yashy_parser::Parser::new(tokens.clone(), &sources, file).parse_program() {
+        Ok(program) => program,
+        Err(diagnostics) => {
+            for diagnostic in diagnostics {
+                eprint!("{}", sources.render(&diagnostic));
+            }
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+    let (expanded, map) = yashy_expand::expand_tokens(&program.items, &sources, file, &tokens);
+    let expanded = match expanded {
+        Ok(tokens) => tokens,
+        Err(diagnostic) => {
+            eprint!("{}", sources.render(&diagnostic));
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+
+    if json {
+        print_expand_json(&sources, file, &map);
+        return exit_code(EXIT_OK);
+    }
+
+    let rendered = render_tokens(&expanded, &sources, file);
+    match yashy_fmt::format(&rendered) {
+        Ok(text) => {
+            print!("{text}");
+            exit_code(EXIT_OK)
+        }
+        Err(diagnostics) => {
+            for diagnostic in diagnostics {
+                eprint!("{}", sources.render(&diagnostic));
+            }
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
+}
+
+fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {
+    let mut report = Json::object();
+    report.set("schema_version", Json::number(1));
+    report.set("tool", Json::string("yashy"));
+    report.set(
+        "expansions",
+        Json::array(
+            map.records
+                .iter()
+                .map(|record| {
+                    let mut entry = Json::object();
+                    entry.set("macro", Json::string(&record.macro_name));
+                    entry.set("arm_span", span_json(sources, file, record.arm_span));
+                    entry.set("invocation_span", span_json(sources, file, record.invocation_span));
+                    entry.set("output_tokens", Json::number(record.output_tokens as i64));
+                    entry
+                })
+                .collect(),
+        ),
+    );
+    println!("{}", report.render());
+}
+
+fn render_tokens(tokens: &[yashy_lexer::Token], sources: &SourceMap, file: FileId) -> String {
+    let mut out = String::new();
+    for token in tokens {
+        if token.kind == yashy_lexer::TokenKind::Eof {
+            continue;
+        }
+        let text = match token.kind {
+            yashy_lexer::TokenKind::Ident
+            | yashy_lexer::TokenKind::I64
+            | yashy_lexer::TokenKind::F64
+            | yashy_lexer::TokenKind::Str
+            | yashy_lexer::TokenKind::Char
+            | yashy_lexer::TokenKind::DocComment => sources.snippet(file, token.span).to_string(),
+            _ => token.kind.spelling().unwrap_or("").to_string(),
+        };
+        if text.is_empty() {
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push(' ');
+        }
+        out.push_str(&text);
+    }
+    out.push('\n');
+    out
 }
 
 fn usage_error(message: &str) -> ExitCode {
