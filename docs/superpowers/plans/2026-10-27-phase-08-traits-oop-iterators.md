@@ -445,9 +445,9 @@ fn a_user_declared_generic_trait_is_e1511() {
 
 **Files:** `docs/tutorial/15-traits.md` (new, "Traits and objects", covering §3.1 rule by rule and the iterator protocol), `docs/tutorial/04-structs.md` (generic structs and enums), `docs/tutorial/09-arrays.md` (comprehensions), `docs/tutorial/14-modules.md` (link to the new chapter), `docs/errors/{E0801,E1500..E1515}.md`, `AGENTS.md` (identity: static dispatch only; no inheritance; no `Drop`; associated functions are not methods; a generic type is a scheme, not a template; the written cap), `llms.txt`.
 
-- [ ] **Step 1: Write the chapters** with runnable blocks, including the conformance program from Task 12 as the worked example.
-- [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: traits, the object model, iterators and comprehensions, and close phase 8"`.
+- [x] **Step 1: Write the chapters** with runnable blocks, including the conformance program from Task 12 as the worked example.
+- [x] **Step 2: Run the gate table on both OSes.** Windows locally; Linux via CI (the same rule phases 6 and 7 recorded).
+- [x] **Step 3: Commit and record** — `git commit -m "docs: traits, the object model, iterators and comprehensions, and close phase 8"`.
 
 ---
 

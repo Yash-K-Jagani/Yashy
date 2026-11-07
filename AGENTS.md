@@ -126,6 +126,12 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   receivers are `self` or `self: *mut T`; associated functions are `Type::name`
   and are not methods. There is no `Drop`: release is `defer` and `.free()`.
   A trait never gains fields, a type never gains a parent.
+- **Generic types are schemes, not templates.** `Pair[T]` is a scheme and
+  `Pair[int]` is one monomorphic type; a generic function is instantiated
+  per substitution, capped at 64 per function and 4096 per program (`E1505`).
+  `Iterator[T]` is the one compiler-known generic trait; user generic traits
+  are `E1511`. The excluded forms are named in writing: inheritance `E1512`,
+  `Drop` `E1513`, trait fields `E1514`, operator overloading `E1515`.
 - **Optimization is a phase, not a habit.** Do not add a backend trick, an
   attribute or an `inline` keyword to make one benchmark faster. The optimizer
   spends what the verifier proved (phase 4); a pass is registered in the pass

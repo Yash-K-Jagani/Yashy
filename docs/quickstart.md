@@ -89,7 +89,7 @@ no test macros; a test is an ordinary program with a `main`.
 
 - [Your first CLI](tutorial/12-first-cli.md): a two-module stdin filter, tests,
   and a release build.
-- [The language tutorial](tutorial/00-intro.md): fourteen chapters, every example
+- [The language tutorial](tutorial/00-intro.md): sixteen chapters, every example
   compiled and run by the test suite.
 - [`examples/`](../examples): `hello`, `wordcount`, and `json-report`, each a
   complete project.

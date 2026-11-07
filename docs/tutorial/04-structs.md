@@ -366,4 +366,47 @@ field's offset and a `store` — there is no aggregate to load and rebuild. That
 is also why the call site has to pass a binding: the pointer is the local's own
 storage, and a temporary has none.
 
+## Generic structs and enums
+
+A struct or enum may be a scheme: `struct Pair[T] { first: T, second: T }`
+is not a type yet, but `Pair[int]` is. Each argument tuple is one
+monomorphic type, emitted once. `Pair[int]` written twice is one type;
+`Pair[int]` and `Pair[string]` are two. A type parameter no field or
+variant payload uses is `E1510`.
+
+```yashy
+struct Pair[T] {
+    first: T,
+    second: T,
+}
+
+fn main() {
+    let p = Pair { first: 1, second: 2 };
+    print(p.first + p.second);
+    // => 3
+}
+```
+
+An enum's arguments are inferred from the payload: `Maybe.Just(2)` is a
+`Maybe[int]`, and a `switch` over it covers each variant exactly once.
+
+```yashy
+enum Maybe[T] {
+    Nothing,
+    Just(T),
+}
+
+fn main() {
+    let Maybe[int] m = Maybe.Just(2);
+    print(switch m {
+        case Nothing { 0 }
+        case Just(x) { x }
+    });
+    // => 2
+}
+```
+
+The full object model — traits, bounds, associated functions — is in
+[15-traits](15-traits.md).
+
 Continue to [05-patterns](05-patterns.md).

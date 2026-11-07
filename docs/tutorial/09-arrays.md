@@ -433,4 +433,25 @@ clamps both bounds with `select`s and computes the pointer with `mul` and
 `getelementptr`, and never touches the source's header. Neither form calls the
 allocator, which is why neither has a `free`.
 
+## Comprehensions
+
+An array comprehension builds an array by looping: `[x * 2 for x in xs if
+x > 1]` keeps the values that pass the filter and maps each one. A map
+comprehension `{k: v for x in xs}` inserts each pair in order. Both lower
+to an ordinary builder loop, so the verifier proves them like any loop.
+
+```yashy
+fn main() {
+    let xs = []int { 1, 2, 3, 4 };
+    let doubled = [x * 2 for x in xs if x > 1];
+    for v in doubled {
+        print(v);
+    }
+    // => 4
+    // => 6
+    // => 8
+    doubled.free();
+}
+```
+
 Continue to [10-concurrency](10-concurrency.md).

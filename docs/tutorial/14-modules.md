@@ -205,4 +205,7 @@ with enforced visibility, rather than a new naming syntax, is enough.
    the cycle path starts and ends at the same file and that it is reported
    once. Hint: break it by moving the shared item to a third module.
 
+For traits, the object model, iterators and comprehensions, see
+[15-traits](15-traits.md).
+
 Continue to the [CLI reference](../cli.md).
