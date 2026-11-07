@@ -15,7 +15,7 @@
 
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
 use yashy_hir::exhaustive::{
-    missing_witnesses, reachable_arms, Pattern, TypeExpr, VariantDef, VariantField,
+    covering_arm, missing_witnesses, reachable_arms, Pattern, TypeExpr, VariantDef, VariantField,
 };
 use yashy_hir::hir::{
     expr_ty, HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
@@ -315,8 +315,18 @@ fn check_switch(
         .collect();
     let guards: Vec<bool> = arms.iter().map(|arm| arm.guard.is_some()).collect();
     let reachable = reachable_arms(&enum_name, &variants, &all_patterns, false, &guards);
-    for (arm, is_reachable) in arms.iter().zip(reachable.iter()) {
+    for (index, (arm, is_reachable)) in arms.iter().zip(reachable.iter()).enumerate() {
         if !is_reachable {
+            let label =
+                match covering_arm(&enum_name, &variants, &all_patterns, false, &guards, index) {
+                    Some(earlier) => format!(
+                        "this arm can never match; the earlier arm `{}` already covers it",
+                        render_pattern(&all_patterns[earlier])
+                    ),
+                    None => {
+                        "this arm can never match; an earlier arm already covers it".to_string()
+                    }
+                };
             out.push(
                 Diagnostic::new(
                     Severity::Error,
@@ -325,9 +335,48 @@ fn check_switch(
                     "unreachable switch arm; an earlier arm already covers it".to_string(),
                 )
                 .with_code(codes::UNREACHABLE_ARM)
-                .with_label("this arm can never match"),
+                .with_label(label),
             );
         }
+    }
+}
+
+/// A short source spelling of a pattern, for naming the arm that covers a
+/// dead one in an `E0601` label. Only the shape is needed, never its span.
+fn render_pattern(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Wildcard(_) => "_".to_string(),
+        Pattern::Binding { name, .. } => name.clone(),
+        Pattern::Literal(literal, _) => format!("{literal:?}"),
+        Pattern::UnitVariant { path, .. } => path.last().cloned().unwrap_or_default(),
+        Pattern::TupleVariant { path, args, .. } => format!(
+            "{}({})",
+            path.last().map(String::as_str).unwrap_or_default(),
+            args.iter()
+                .map(render_pattern)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Pattern::StructVariant { path, .. } => format!(
+            "{} {{ .. }}",
+            path.last().map(String::as_str).unwrap_or_default()
+        ),
+        Pattern::Tuple { elements, .. } => format!(
+            "({})",
+            elements
+                .iter()
+                .map(render_pattern)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Pattern::Or { alternatives, .. } => alternatives
+            .iter()
+            .map(render_pattern)
+            .collect::<Vec<_>>()
+            .join(" | "),
+        Pattern::Range {
+            lo, hi, inclusive, ..
+        } => format!("{lo:?}..{}{hi:?}", if *inclusive { "=" } else { "" }),
     }
 }
 

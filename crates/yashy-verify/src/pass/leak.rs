@@ -418,6 +418,37 @@ impl LeakPass<'_> {
             self.walk(&arm.body);
             falling.push(self.frames.clone());
         }
+        // E1002 at the merge: a linear binding that is released on some arms
+        // and not others has no defined state after the switch -- using it
+        // may be a use-after-free, and not using it may leak. Ownership is
+        // explicit, so the program must release it on every arm or on none,
+        // exactly as an or-pattern must bind on every alternative.
+        for (depth, frame) in entry.iter().enumerate() {
+            for binding in frame {
+                if binding.released {
+                    continue;
+                }
+                let states: Vec<bool> = falling
+                    .iter()
+                    .map(|state| {
+                        state
+                            .get(depth)
+                            .and_then(|frame| {
+                                frame
+                                    .iter()
+                                    .find(|b| b.name == binding.name && b.span == binding.span)
+                            })
+                            .map(|b| b.released)
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                if states.iter().any(|released| *released)
+                    && !states.iter().all(|released| *released)
+                {
+                    self.partial_move(&binding.name, binding.span);
+                }
+            }
+        }
         match intersect(&falling) {
             Some(state) => self.frames = state,
             None => self.frames = entry,
@@ -635,6 +666,24 @@ impl LeakPass<'_> {
         for (name, span, borrowed) in live {
             self.report(&name, span, borrowed);
         }
+    }
+
+    /// Report a linear value whose state differs across switch arms.
+    fn partial_move(&mut self, name: &str, span: Span) {
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!("linear value `{name}` is released on only some switch arms"),
+            )
+            .with_label("its state after the switch depends on the arm taken")
+            .with_note(format!(
+                "release `{name}` on every arm, or on none; a value released on one arm \
+                 and not another is a partial move"
+            ))
+            .with_code(codes::PARTIAL_MOVE),
+        );
     }
 
     /// Report one live value at the point it is abandoned.
@@ -888,5 +937,33 @@ mod tests {
                       print(sum); \
                       print(); }";
         assert_eq!(verify_source(source).error_count(), 0);
+    }
+
+    #[test]
+    fn a_move_in_one_switch_arm_and_not_the_other_is_e1002_at_the_merge() {
+        // The binding is released on one arm and live on the other, so its
+        // state after the switch is undefined: a partial move.
+        let source = "enum Opt { Some(int), None } \
+                      fn main() { let buf = alloc(1); let o = Opt.None; \
+                      switch o { case Some(n) { buf.free() } case None { print(0) } } }";
+        let report = verify_source(source);
+        assert!(
+            codes(&report).contains(&"E1002"),
+            "E1002 at the merge, got {:?}",
+            codes(&report)
+        );
+    }
+
+    #[test]
+    fn a_move_on_every_switch_arm_is_not_a_partial_move() {
+        let source = "enum Opt { Some(int), None } \
+                      fn main() { let buf = alloc(1); let o = Opt.None; \
+                      switch o { case Some(n) { buf.free() } case None { buf.free() } } }";
+        let report = verify_source(source);
+        assert!(
+            !codes(&report).contains(&"E1002"),
+            "released on every arm is fine, got {:?}",
+            codes(&report)
+        );
     }
 }

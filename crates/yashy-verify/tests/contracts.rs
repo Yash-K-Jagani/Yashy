@@ -230,3 +230,28 @@ fn a_program_without_contracts_has_no_contract_diagnostics() {
         .diagnostics
         .is_empty());
 }
+
+// -- named and default arguments (phase 7) ---------------------------------
+
+#[test]
+fn a_contract_still_proves_when_the_caller_passes_by_name() {
+    // Resolution produces positional HIR, so the contract on `b` sees the
+    // value the caller wrote as `b: 1` and proves as usual.
+    let source = "fn add(int a, int b) -> int requires b > 0 { return a + b; } fn main() { let x = add(b: 1, a: 2); }";
+    assert!(verify_source(source).diagnostics.is_empty());
+}
+
+#[test]
+fn a_default_filled_argument_still_proves_its_contract() {
+    let source = "fn add(int a, int b = 5) -> int requires b > 0 { return a + b; } fn main() { let x = add(1); }";
+    assert!(verify_source(source).diagnostics.is_empty());
+}
+
+#[test]
+fn a_pure_function_with_an_io_default_never_reaches_the_effect_pass() {
+    // A default must be a literal or a `const` name (E0102), so an `io`
+    // default is refused at the declaration: the effect question cannot
+    // arise, and the code is E0102 rather than E1300.
+    let source = "pure fn f(string s = g()) -> string { return s; } fn g() -> string { return \"x\"; } fn main() { }";
+    assert_eq!(codes(&verify_source(source)), vec!["E0102"]);
+}

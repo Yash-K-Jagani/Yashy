@@ -191,6 +191,44 @@ pub fn reachable_arms(
     reachable_arms_with(enum_name, variants, arms, has_default, guards, &lookup)
 }
 
+/// The earliest earlier unguarded arm that alone covers arm `index`, if one
+/// exists. Used to name the covering arm in an `E0601` diagnostic. A cover
+/// that only holds cumulatively (two arms together) has no single coverer
+/// and returns `None`.
+pub fn covering_arm(
+    enum_name: &str,
+    variants: &[VariantDef],
+    arms: &[Pattern],
+    has_default: bool,
+    guards: &[bool],
+    index: usize,
+) -> Option<usize> {
+    if has_default || index >= arms.len() || guards.get(index).copied().unwrap_or(false) {
+        return None;
+    }
+    let root = variants.to_vec();
+    let lookup = move |name: &str| {
+        if name == enum_name {
+            Some(root.clone())
+        } else {
+            None
+        }
+    };
+    let ctx = Ctx { lookup: &lookup };
+    let ty = Ty::Enum(enum_name.to_string());
+    let target = ctx.pat_of(&arms[index], &ty);
+    for earlier_index in 0..index {
+        if guards.get(earlier_index).copied().unwrap_or(false) {
+            continue;
+        }
+        let earlier = ctx.pat_of(&arms[earlier_index], &ty);
+        if !is_useful(&[vec![earlier]], &[target.clone()], &[ty.clone()], &ctx) {
+            return Some(earlier_index);
+        }
+    }
+    None
+}
+
 /// [`reachable_arms`] with a resolver for enum payload types.
 pub fn reachable_arms_with(
     enum_name: &str,

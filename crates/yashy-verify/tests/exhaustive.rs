@@ -125,6 +125,40 @@ fn a_guarded_arm_does_not_cover_its_variant() {
         .is_empty());
 }
 
+#[test]
+fn an_unreachable_arm_names_the_arm_that_covers_it() {
+    let source = "enum Color { Red, Green } fn f(Color c) -> int { return switch c { case _ { 1 } case Red { 2 } }; } fn main() { }";
+    let report = verify(&checked(source), &VerifyOptions::default());
+    assert_eq!(codes(&report), vec!["E0601"]);
+    assert!(
+        report.diagnostics[0]
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("_"),
+        "the covering arm is named in the label: {:?}",
+        report.diagnostics[0].label
+    );
+}
+
+#[test]
+fn a_guarded_arm_is_not_unreachable() {
+    let source = "enum Color { Red, Green } fn f(Color c) -> int { return switch c { case _ { 1 } case Red if true { 2 } case Green { 3 } }; } fn main() { }";
+    let report = verify(&checked(source), &VerifyOptions::default());
+    // Only the unguarded `Green` (third arm) is dead; the guarded `Red`
+    // is reachable even after the wildcard.
+    assert_eq!(codes(&report), vec!["E0601"]);
+    assert!(
+        report.diagnostics[0]
+            .label
+            .as_deref()
+            .unwrap_or_default()
+            .contains("this arm can never match"),
+        "{:?}",
+        report.diagnostics[0].label
+    );
+}
+
 fn switch_arms(hir: &mut HirProgram) -> &mut Vec<yashy_hir::hir::HirSwitchArm> {
     let function = hir
         .items
