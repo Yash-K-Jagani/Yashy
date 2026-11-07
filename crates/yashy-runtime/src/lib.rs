@@ -54,8 +54,20 @@ pub const HASHMAP_C_SOURCE: &str = include_str!("../hashmap.c");
 /// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
 pub const RUNTIME_HEADER: &str = include_str!("../include/yashy_runtime.h");
 
+/// The generated Unicode tables `runtime.c` includes as `src/grapheme_data.h`.
+///
+/// The driver writes the runtime sources into the build directory before
+/// compiling them, so the header has to travel with the `.c` files. Leaving it
+/// behind works only while a cached object exists; the first cache miss would
+/// fail with a missing include.
+pub const GRAPHEME_DATA_HEADER: &str = include_str!("../src/grapheme_data.h");
+
 /// The header's file name, which `runtime.c`'s `#include` has to match.
 pub const RUNTIME_HEADER_NAME: &str = "yashy_runtime.h";
+
+/// The path `runtime.c` includes the Unicode tables at, relative to the build
+/// directory the driver writes the runtime into.
+pub const GRAPHEME_DATA_HEADER_PATH: &str = "src/grapheme_data.h";
 
 /// The source file's file name, used when the driver writes it to disk.
 pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";

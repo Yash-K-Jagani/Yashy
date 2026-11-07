@@ -42,8 +42,8 @@ use yashy_common::{Diagnostic, FileId, Severity, SourceMap, Span};
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_runtime::{
-    HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
-    RUNTIME_SOURCE_NAME,
+    GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH, HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME,
+    RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
@@ -348,6 +348,9 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
     fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
     fnv1a(&mut state, RUNTIME_HEADER.as_bytes());
+    // The Unicode tables are compiled into the runtime object too, so a table
+    // change has to invalidate it rather than leave a stale object behind.
+    fnv1a(&mut state, GRAPHEME_DATA_HEADER.as_bytes());
     fnv1a(&mut state, triple.as_bytes());
     fnv1a(&mut state, opt.flag().as_bytes());
     fnv1a(&mut state, tool.to_string_lossy().as_bytes());
@@ -961,6 +964,15 @@ pub fn compile_hir_timed(
         RUNTIME_HEADER.as_bytes(),
         entry_name,
     )?;
+    // `runtime.c` includes the Unicode tables at `src/grapheme_data.h`, so the
+    // directory the include names has to exist beside the sources. Skipping
+    // this only shows up when the runtime cache misses, which is why it hid
+    // behind a warm cache.
+    let grapheme_path = runtime_dir.join(GRAPHEME_DATA_HEADER_PATH);
+    if let Some(parent) = grapheme_path.parent() {
+        ensure_dir(parent, entry_name)?;
+    }
+    write_or_report(&grapheme_path, GRAPHEME_DATA_HEADER.as_bytes(), entry_name)?;
 
     let target = host_target_triple();
 

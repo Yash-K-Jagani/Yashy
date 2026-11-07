@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=runtime.c");
     println!("cargo:rerun-if-changed=hashmap.c");
     println!("cargo:rerun-if-changed=include/yashy_runtime.h");
+    println!("cargo:rerun-if-changed=src/grapheme_data.h");
 
     // `tests/threads.rs` compiles `tests/threads.c` at test time with `cc`,
     // which expects the environment a build script gets. Cargo sets `TARGET`

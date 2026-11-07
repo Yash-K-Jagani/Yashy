@@ -187,3 +187,39 @@ fn main() {
         "the same program must print the same bytes on every platform"
     );
 }
+
+#[test]
+fn a_cold_runtime_cache_still_builds() {
+    // The driver writes the runtime C sources into `.yashy/` and compiles them
+    // beside the output whenever the object cache misses. `runtime.c` includes
+    // the generated Unicode tables, so that directory has to carry the header
+    // too. A warm cache hides a missing header: this build points the cache at
+    // an empty directory so the fallback path is the one under test.
+    let dir = common::work_dir("cold-runtime-cache");
+    let cache = dir.join("cold-cache");
+    let source = dir.join("hello.ya");
+    fs::write(&source, "fn main() {\n    print(\"cold cache\");\n}\n")
+        .expect("the fixture must be writable");
+
+    let exe = dir.join(format!("hello{}", std::env::consts::EXE_SUFFIX));
+    let built = Command::new(common::yashy())
+        .env("YASHY_CACHE_DIR", &cache)
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        built.status.success(),
+        "a build with no cached runtime object must still succeed:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    // The runtime was written beside the output for this build; the Unicode
+    // header `runtime.c` includes must have travelled with it.
+    let runtime_dir = dir.join("hello.yashy");
+    assert!(
+        runtime_dir.join("src").join("grapheme_data.h").is_file(),
+        "the fallback build writes the Unicode header beside runtime.c"
+    );
+}

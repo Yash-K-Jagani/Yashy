@@ -594,6 +594,24 @@ fn non_exhaustive_switch_on_enum_is_an_error_listing_missing_cases() {
 }
 
 #[test]
+fn a_guarded_arm_does_not_cover_its_variant() {
+    // The guard can be false, so `Red` is still missing. This pins Review
+    // Focus 1 of the phase: a guarded arm is removed before exhaustiveness is
+    // asked, rather than counted as covering its pattern.
+    assert_error(
+        "enum C { Red, Green, Blue } fn f(C c) -> int { return switch c { case Red if 1 > 0 { 0 } case Green { 1 } case Blue { 2 } }; }",
+        "missing case `Red`",
+    );
+    // The same arms without the guard are exhaustive, which proves the guard
+    // is what left `Red` uncovered.
+    check_source(
+        "enum C { Red, Green, Blue } fn f(C c) -> int { return switch c { case Red { 0 } case Green { 1 } case Blue { 2 } }; }",
+    )
+    .0
+    .expect("unguarded arms cover every variant");
+}
+
+#[test]
 fn all_arms_must_yield_the_same_type() {
     assert_error(
         "enum C { Red, Green } fn f(C c) -> int { return switch c { case Red { 0 } case Green { 1.0 } }; }",

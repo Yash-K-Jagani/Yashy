@@ -82,6 +82,7 @@ See the master index. The ones that bite here:
 **Files:**
 - Modify: `crates/yashy-hir/src/exhaustive.rs` (replace `missing_cases` internals; keep the signature, add `usefulness` for Task 4)
 - Modify: `crates/yashy-verify/src/pass/exhaustive.rs`
+- Test: `crates/yashy-sema/tests/exhaustive.rs` (the shape tests live beside the existing `missing_cases` tests; `yashy-sema` re-exports the module, so this exercises `yashy-hir::exhaustive` directly)
 
 **Interfaces:**
 - Produces: `pub fn missing_cases(enum_name, variants, arms, has_default) -> Vec<String>` still returning variant names (so existing diagnostics and tests keep working), implemented over a matrix of pattern columns.
@@ -231,6 +232,7 @@ fn a_default_that_calls_a_function_is_rejected() {
 **Interfaces:**
 - Produces: a contract may name any parameter, including one the caller passed by name; the diagnostic names the parameter, never the position.
 - Produces: `E1300` when a default expression is `io` even though the function is `pure` (the default runs inside the callee, so its effect is the callee's).
+  - **Recorded deviation (2026-11-07):** Task 6 restricts a default to a literal or a `const` name and rejects a default that calls any function with `E0102`. That leaves no default expression that can carry an `io` effect, so the `E1300` case is unreachable by construction. The implementation keeps the stricter, single rule (`E0102`) rather than adding a second way to write a default; the `io`-default test lands as `E0102` in `crates/yashy-sema/tests/named_args.rs` and `crates/yashy-verify/tests/contracts.rs`.
 
 - [x] **Step 1: Write the failing tests** — a contract referring to `b` when the caller wrote `f(b: 1, a: 2)` still proves; a `pure fn` with a default calling `println` is `E1300`; the three seeded bugs land in the corpus with their expected code sets.
 - [x] **Step 2: Watch them fail.**
@@ -254,7 +256,7 @@ fn a_default_that_calls_a_function_is_rejected() {
 
 | Gate | Command | Passes when |
 |---|---|---|
-| Exhaustiveness still proven | `cargo test -p yashy-hir -p yashy-verify exhaustive` | or/range/guard/nested cases pass; a guarded arm never counts as covering |
+| Exhaustiveness still proven | `cargo test -p yashy-sema -p yashy-verify --test exhaustive` | or/range/guard/nested cases pass; a guarded arm never counts as covering |
 | Every pattern form has ownership rules | `cargo test -p yashy-verify` | partial-move corpus 100% caught |
 | Named arguments are positional in the HIR | `cargo test -p yashy-sema` | two spellings produce equal HIR |
 | No evaluation reordering | `cargo test -p yashy-driver --test e2e` | side-effect order is source order |
