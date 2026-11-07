@@ -374,15 +374,26 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// `impl Point { fn sum(self) -> i64 { ... } }`
+    /// `impl Point { fn sum(self) -> i64 { ... } }` or
+    /// `impl Show for Point { fn show(self) -> string { ... } }`
     ///
     /// The block holds ordinary function items. The type the methods belong
     /// to is named once, and each method's first parameter is the receiver:
     /// `self` is written without a type, because the block already says what
     /// the receiver is.
+    ///
+    /// A trait impl writes the trait first: `impl Trait for Type`. The `for`
+    /// after the first name is what tells the two apart; a type name cannot be
+    /// `for`, because it is a keyword.
     fn parse_impl(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Impl)?;
-        let (type_name, _) = self.identifier()?;
+        let (first, _) = self.identifier()?;
+        let (trait_name, type_name) = if self.eat(TokenKind::For) {
+            let (type_name, _) = self.identifier()?;
+            (Some(first), type_name)
+        } else {
+            (None, first)
+        };
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -395,6 +406,7 @@ impl<'src> Parser<'src> {
 
         Ok(Item::Impl {
             type_name,
+            trait_name,
             methods,
             span: cover(keyword.span, close.span),
         })

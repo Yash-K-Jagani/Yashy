@@ -147,6 +147,9 @@ pub enum Item {
     Impl {
         /// The type the methods belong to.
         type_name: String,
+        /// `impl Trait for Type { .. }` names the trait the block implements;
+        /// `None` is an inherent impl.
+        trait_name: Option<String>,
         /// The methods, each an [`Item::Fn`].
         methods: Vec<Item>,
         span: Span,

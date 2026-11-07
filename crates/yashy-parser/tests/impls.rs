@@ -74,6 +74,34 @@ fn an_impl_block_may_hold_several_methods() {
 }
 
 #[test]
+fn a_trait_impl_names_its_trait_and_its_type() {
+    let items = items_of(
+        "impl Show for Point { fn show(self) -> string { return \"p\"; } }",
+    );
+    let Item::Impl {
+        trait_name, type_name, ..
+    } = &items[0]
+    else {
+        panic!("the program has a trait impl block");
+    };
+    assert_eq!(trait_name.as_deref(), Some("Show"));
+    assert_eq!(type_name, "Point");
+}
+
+#[test]
+fn an_inherent_impl_names_no_trait() {
+    let items = items_of("impl Point { fn sum(self) -> int { return 1; } }");
+    let Item::Impl {
+        trait_name, type_name, ..
+    } = &items[0]
+    else {
+        panic!("the program has an impl block");
+    };
+    assert_eq!(trait_name.as_deref(), None);
+    assert_eq!(type_name, "Point");
+}
+
+#[test]
 fn an_object_holds_its_fields_and_its_methods() {
     let items = items_of(
         "object Counter { value: int, fn get(self) -> int { return self.value; } }",

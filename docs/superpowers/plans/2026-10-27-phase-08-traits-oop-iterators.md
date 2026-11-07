@@ -160,7 +160,7 @@ coherence question the cap closes.
 - Produces: a user trait declaration with `type_params` is `E1511`; the stdlib's `Iterator` is allowed only when the declaration's file is `iter.ya` in the stdlib (the driver marks stdlib files on the `FileId`).
 - Produces: a method declaration inside a trait with no receiver is an associated function; the trait table records `has_self` and `receiver_is_pointer` exactly as `method_signature` does for an inherent method.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -189,10 +189,10 @@ fn a_user_declared_generic_trait_is_e1511() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — collect impls first, reject duplicates (`E1501`), then for each impl compare the method set and receiver kinds against the trait (`E1502`), then check bodies. An impl of a trait that does not exist is `E1500` with the nearest trait names suggested. Trait methods are registered in a table keyed by `(trait, type, method)`; the call path (Task 5) resolves a value receiver to `Type.method` first and to `Type.Trait.method` second.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: check trait impls for coherence and completeness (E1500-E1502, E1511)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — collect impls first, reject duplicates (`E1501`), then for each impl compare the method set and receiver kinds against the trait (`E1502`), then check bodies. An impl of a trait that does not exist is `E1500` with the nearest trait names suggested. Trait methods are registered in a table keyed by `(trait, type, method)`; the call path (Task 5) resolves a value receiver to `Type.method` first and to `Type.Trait.method` second.
+- [x] **Step 4: Run** `cargo test -p yashy-sema` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: check trait impls for coherence and completeness (E1500-E1502, E1511)"`
 
 ---
 

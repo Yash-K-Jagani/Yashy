@@ -70,6 +70,10 @@ the declaration or import involved when that is not obvious.
 | [E1400](errors/E1400.md) | double close |
 | [E1401](errors/E1401.md) | use after close |
 | [E1402](errors/E1402.md) | race |
+| [E1500](errors/E1500.md) | unknown trait |
+| [E1501](errors/E1501.md) | conflicting trait impl |
+| [E1502](errors/E1502.md) | incomplete trait impl |
+| [E1511](errors/E1511.md) | generic trait outside the standard library |
 | [E2000](errors/E2000.md) | unused binding |
 | [E2001](errors/E2001.md) | unused import |
 | [E2002](errors/E2002.md) | unreachable code |

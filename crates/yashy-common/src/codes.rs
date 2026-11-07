@@ -115,6 +115,14 @@ pub const RACE: &str = "E1402";
 pub const UNUSED_BINDING: &str = "E2000";
 /// An `import` is never used.
 pub const UNUSED_IMPORT: &str = "E2001";
+/// `impl Trait for Type` names a trait that is not declared.
+pub const UNKNOWN_TRAIT: &str = "E1500";
+/// Two impls of one trait for one type.
+pub const CONFLICTING_IMPL: &str = "E1501";
+/// An impl does not provide exactly the methods its trait declares.
+pub const INCOMPLETE_IMPL: &str = "E1502";
+/// A user trait carries type parameters.
+pub const GENERIC_TRAIT: &str = "E1511";
 /// A statement cannot be reached.
 pub const UNREACHABLE_CODE: &str = "E2002";
 /// A function parameter is never read.
@@ -385,6 +393,30 @@ pub const CODES: &[Code] = &[
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
         page: include_str!("../../../docs/errors/E2000.md"),
+    },
+    Code {
+        id: UNKNOWN_TRAIT,
+        title: "unknown trait",
+        summary: "`impl Trait for Type` names a trait that is not declared.",
+        page: include_str!("../../../docs/errors/E1500.md"),
+    },
+    Code {
+        id: CONFLICTING_IMPL,
+        title: "conflicting trait impl",
+        summary: "One trait has one implementation per type; a second one is refused.",
+        page: include_str!("../../../docs/errors/E1501.md"),
+    },
+    Code {
+        id: INCOMPLETE_IMPL,
+        title: "incomplete trait impl",
+        summary: "An `impl Trait for Type` does not provide exactly the methods its trait declares, with matching signatures.",
+        page: include_str!("../../../docs/errors/E1502.md"),
+    },
+    Code {
+        id: GENERIC_TRAIT,
+        title: "generic trait outside the standard library",
+        summary: "A user trait may not carry type parameters; that spelling is reserved for the standard library's iterator protocol.",
+        page: include_str!("../../../docs/errors/E1511.md"),
     },
     Code {
         id: UNUSED_IMPORT,

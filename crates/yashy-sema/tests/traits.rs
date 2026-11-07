@@ -1,0 +1,174 @@
+//! Trait impls: coherence and completeness.
+//!
+//! A trait is a requirement set (Task 1); an `impl Trait for Type` block
+//! must provide exactly its methods, with exactly their signatures, and one
+//! pair of (trait, type) may have only one impl. These tests pin the codes
+//! `E1500`–`E1502` and `E1511` and the emitted `Type.Trait.method` symbol.
+
+use yashy_common::{Diagnostic, SourceMap};
+use yashy_common::codes;
+use yashy_lexer::Lexer;
+use yashy_parser::Parser;
+use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
+
+/// Lex, parse and check `source` as a single file.
+fn check_source(src: &str) -> Result<HirProgram, Vec<Diagnostic>> {
+    let mut sm = SourceMap::new();
+    let file = sm.add_file("test.ya", src.to_string());
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("lexer should never panic");
+    let mut parser = Parser::new(tokens, &sm, file);
+    let ast = parser
+        .parse_program()
+        .expect("parser should never panic on these inputs");
+    check_program_with(&ast, &sm, file, CheckOptions::default())
+}
+
+/// The `code` of the first diagnostic carrying one, if any.
+fn code_of(diags: &[Diagnostic], code: &'static str) -> bool {
+    diags.iter().any(|d| d.code == Some(code))
+}
+
+/// Assert that `src` fails with `code`, and return the diagnostics.
+fn assert_code(src: &str, code: &'static str) -> Vec<Diagnostic> {
+    let result = check_source(src);
+    let diags = result.expect_err("the program must be rejected");
+    assert!(
+        code_of(&diags, code),
+        "expected {code}, got {:?}",
+        diags.iter().map(|d| (d.code, &d.message)).collect::<Vec<_>>()
+    );
+    diags
+}
+
+#[test]
+fn two_impls_of_one_trait_for_one_type_conflict() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"a\"; } }\n\
+         impl Show for Point { fn show(self) -> string { return \"b\"; } }",
+        codes::CONFLICTING_IMPL,
+    );
+    assert!(diags.iter().all(|d| d.code == Some(codes::CONFLICTING_IMPL)));
+}
+
+#[test]
+fn an_impl_missing_a_method_is_rejected() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; fn short(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"a\"; } }",
+        codes::INCOMPLETE_IMPL,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("missing `fn short(self) -> string`")),
+        "the diagnostic names the missing method and its signature: {diags:?}"
+    );
+}
+
+#[test]
+fn an_impl_with_a_method_the_trait_does_not_declare_is_rejected() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"a\"; } fn extra(self) -> int { return 1; } }",
+        codes::INCOMPLETE_IMPL,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("declares no `extra`")),
+        "the diagnostic names the extra method: {diags:?}"
+    );
+}
+
+#[test]
+fn a_method_with_the_wrong_receiver_kind_is_rejected() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self: *mut Point) -> string { return \"a\"; } }",
+        codes::INCOMPLETE_IMPL,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("impl has `fn show(self: *mut Point) -> string`")
+            && d.message.contains("trait requires `fn show(self) -> string`")),
+        "the diagnostic prints both signatures: {diags:?}"
+    );
+}
+
+#[test]
+fn a_user_declared_generic_trait_is_e1511() {
+    assert_code(
+        "trait Pair[T] { fn first(self) -> T; }",
+        codes::GENERIC_TRAIT,
+    );
+}
+
+#[test]
+fn an_impl_of_an_unknown_trait_is_e1500() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Shw for Point { fn show(self) -> string { return \"a\"; } }",
+        codes::UNKNOWN_TRAIT,
+    );
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.label.as_deref() == Some("did you mean `Show`?")),
+        "the diagnostic suggests the nearest trait: {diags:?}"
+    );
+}
+
+#[test]
+fn a_correct_impl_checks_and_emits_the_trait_symbol() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"a\"; } }",
+    )
+    .expect("a complete impl must check");
+    assert!(
+        hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")),
+        "the method is emitted as Point.Show.show: {:?}",
+        hir.items.iter().map(|i| format!("{i:?}")).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn an_associated_function_impl_checks() {
+    let hir = check_source(
+        "trait Factory { fn make() -> int; }\n\
+         struct Point { x: int }\n\
+         impl Factory for Point { fn make() -> int { return 1; } }",
+    )
+    .expect("an associated function impl must check");
+    assert!(
+        hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Factory.make")),
+        "the method is emitted as Point.Factory.make"
+    );
+}
+
+#[test]
+fn a_pointer_receiver_impl_checks() {
+    check_source(
+        "trait Counter { fn inc(self: *mut Self); }\n\
+         struct Point { x: int }\n\
+         impl Counter for Point { fn inc(self: *mut Point) { } }",
+    )
+    .expect("a matching pointer receiver must check");
+}
+
+#[test]
+fn an_inherent_impl_still_checks_alongside_a_trait_impl() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Point { fn sum(self) -> int { return self.x; } }\n\
+         impl Show for Point { fn show(self) -> string { return \"a\"; } }",
+    )
+    .expect("an inherent impl and a trait impl must coexist");
+    assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.sum")));
+    assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")));
+}

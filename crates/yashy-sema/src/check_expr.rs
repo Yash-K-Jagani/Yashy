@@ -22,7 +22,7 @@
 //! fallible lookup returns `Result` or `Option`; every error becomes a
 //! [`TypeError`], and every [`TypeError`] becomes a [`yashy_common::Diagnostic`].
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use yashy_common::{codes, Diagnostic, FileId, SourceMap, Span};
 use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
@@ -231,6 +231,104 @@ struct MethodSig {
     /// called on must therefore be a mutable `let`, and it must be a binding:
     /// there is no address of a temporary.
     receiver_is_pointer: bool,
+}
+
+/// A trait declaration: the requirement set `impl`s are checked against.
+///
+/// The methods are already resolved, with the placeholder
+/// `TypeKind::Struct("Self")` wherever the trait wrote `Self`: a trait has no
+/// implementing type yet, and resolving where the trait is declared keeps
+/// errors about its signatures in the trait's own file.
+#[derive(Clone, Debug)]
+struct TraitSig {
+    methods: Vec<MethodSig>,
+}
+
+/// One `impl Trait for Type` block that passed the coherence check.
+#[derive(Clone, Debug)]
+struct TraitImpl {
+    /// (method name, emitted `HirFn` symbol) per method, in the impl's order.
+    methods: Vec<(String, String)>,
+    span: Span,
+}
+
+/// Whether two types agree, with `Struct("Self")` in `expected` standing for
+/// `self_ty`.
+///
+/// A trait's method signatures are resolved where the trait is declared, and
+/// there `Self` names no concrete type yet. An impl's signatures resolve with
+/// `Self` already the implementing type. This compares the two spellings apart
+/// from that one placeholder, structurally, ignoring spans.
+fn type_eq_with_self(expected: &Type, actual: &Type, self_ty: &Type) -> bool {
+    fn kind_eq(expected: &TypeKind, actual: &TypeKind, self_ty: &TypeKind) -> bool {
+        if let TypeKind::Struct(name) = expected {
+            if name == "Self" {
+                return kind_eq(self_ty, actual, self_ty);
+            }
+        }
+        match (expected, actual) {
+            (TypeKind::Option(e), TypeKind::Option(a)) => kind_eq(&e.kind, &a.kind, self_ty),
+            (TypeKind::Result(eo, ee), TypeKind::Result(ao, ae)) => {
+                kind_eq(&eo.kind, &ao.kind, self_ty) && kind_eq(&ee.kind, &ae.kind, self_ty)
+            }
+            (TypeKind::FixedArray(e, n), TypeKind::FixedArray(a, m)) => {
+                n == m && kind_eq(&e.kind, &a.kind, self_ty)
+            }
+            (TypeKind::View(e), TypeKind::View(a))
+            | (TypeKind::Slice(e), TypeKind::Slice(a))
+            | (TypeKind::Channel(e), TypeKind::Channel(a))
+            | (TypeKind::Ptr(e), TypeKind::Ptr(a))
+            | (TypeKind::CPtr(e), TypeKind::CPtr(a)) => kind_eq(&e.kind, &a.kind, self_ty),
+            (TypeKind::Map(ek, ev), TypeKind::Map(ak, av)) => {
+                kind_eq(&ek.kind, &ak.kind, self_ty) && kind_eq(&ev.kind, &av.kind, self_ty)
+            }
+            (TypeKind::Func(ep, er), TypeKind::Func(ap, ar)) => {
+                ep.len() == ap.len()
+                    && ep.iter().zip(ap.iter()).all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
+                    && kind_eq(&er.kind, &ar.kind, self_ty)
+            }
+            (TypeKind::Tuple(et), TypeKind::Tuple(at)) => {
+                et.len() == at.len()
+                    && et.iter().zip(at.iter()).all(|(e, a)| kind_eq(&e.kind, &a.kind, self_ty))
+            }
+            _ => expected == actual,
+        }
+    }
+    kind_eq(&expected.kind, &actual.kind, &self_ty.kind)
+}
+
+/// Whether an impl method's signature is the one its trait declares: same
+/// receiver kind, same parameters, same return, apart from `Self`.
+fn same_method_signature(expected: &MethodSig, got: &MethodSig, self_ty: &Type) -> bool {
+    expected.has_self == got.has_self
+        && expected.receiver_is_pointer == got.receiver_is_pointer
+        && expected.params.len() == got.params.len()
+        && expected
+            .params
+            .iter()
+            .zip(got.params.iter())
+            .all(|(e, a)| type_eq_with_self(e, a, self_ty))
+        && type_eq_with_self(&expected.ret, &got.ret, self_ty)
+}
+
+/// A method signature as source text: `fn show(self) -> string`.
+fn describe_method(sig: &MethodSig, type_name: &str) -> String {
+    let mut params = Vec::new();
+    if sig.has_self {
+        if sig.receiver_is_pointer {
+            params.push(format!("self: *mut {type_name}"));
+        } else {
+            params.push("self".to_string());
+        }
+        for ty in sig.params.iter().skip(1) {
+            params.push(format!("{ty}"));
+        }
+    } else {
+        for ty in &sig.params {
+            params.push(format!("{ty}"));
+        }
+    }
+    format!("fn {}({}) -> {}", sig.name, params.join(", "), sig.ret)
 }
 
 /// The LLVM symbol a generic function has at one substitution.
@@ -487,6 +585,12 @@ pub struct Checker<'src> {
     /// the same shape a function's is; what is different is where it is
     /// called from and that it is found by the type rather than by the name.
     methods: HashMap<String, MethodSig>,
+    /// The traits declared in the program, by name: the requirement sets
+    /// `impl Trait for Type` blocks are checked against.
+    traits: BTreeMap<String, TraitSig>,
+    /// The trait impls accepted, keyed by (trait, type). Coherence is one
+    /// impl per pair, so the key is also the duplicate test.
+    trait_impls: BTreeMap<(String, String), TraitImpl>,
     /// The type a method's `self` has, while its body is being checked.
     ///
     /// `Self` in a method's signature or body means the type the `impl` block
@@ -859,6 +963,8 @@ impl<'src> Checker<'src> {
             active_generics: Vec::new(),
             borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
+            traits: BTreeMap::new(),
+            trait_impls: BTreeMap::new(),
             self_type: None,
             fn_ret: None,
             externs: HashSet::new(),
@@ -1477,6 +1583,141 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// Check one `impl Trait for Type` block: coherence, then completeness.
+    ///
+    /// Coherence is per (trait, type) pair and is decided before any body is
+    /// checked (bodies are checked in pass 2): a second impl for a pair is
+    /// `E1501` at the header, and a method set that does not match the trait
+    /// is `E1502`. The impl's methods are registered under `Type.Trait.method`,
+    /// beside the inherent `Type.method` spelling, so a call resolves to one
+    /// concrete `HirFn` either way.
+    fn declare_trait_impl(
+        &mut self,
+        trait_name: &str,
+        type_name: &str,
+        methods: &[Item],
+        receiver_ty: &Type,
+        span: Span,
+    ) {
+        let Some(trait_sig) = self.traits.get(trait_name).cloned() else {
+            let mut err = TypeError::new(span, format!("no trait named `{trait_name}`"));
+            if let Some(suggestion) =
+                yashy_common::closest(trait_name, self.traits.keys().map(String::as_str))
+            {
+                err = err.with_label(format!("did you mean `{suggestion}`?"));
+            }
+            self.errors
+                .push((self.file, err.with_code(codes::UNKNOWN_TRAIT)));
+            return;
+        };
+        if self
+            .trait_impls
+            .contains_key(&(trait_name.to_string(), type_name.to_string()))
+        {
+            self.error_code(
+                span,
+                codes::CONFLICTING_IMPL,
+                format!(
+                    "`{type_name}` already implements `{trait_name}`: one trait has one impl per type"
+                ),
+            );
+            return;
+        }
+        // The impl's own methods, resolved with `Self` the implementing type,
+        // the same way an inherent impl's are.
+        let outer_self_type = self.self_type.replace(receiver_ty.clone());
+        let mut impl_sigs: Vec<(MethodSig, Span)> = Vec::new();
+        for method in methods {
+            let Item::Fn {
+                name,
+                type_params,
+                params,
+                ret,
+                body: _,
+                requires: _,
+                ensures: _,
+                span: method_span,
+            } = unwrap_public(method)
+            else {
+                self.error(span, "an `impl` block holds only methods");
+                continue;
+            };
+            if !type_params.is_empty() {
+                self.error(*method_span, "a method cannot have type parameters yet");
+                continue;
+            }
+            impl_sigs.push((
+                self.method_signature(type_name, name, params, ret, receiver_ty, *method_span),
+                *method_span,
+            ));
+        }
+        self.self_type = outer_self_type;
+        // Completeness: exactly the trait's methods, with exactly its
+        // signatures.
+        for expected in &trait_sig.methods {
+            match impl_sigs
+                .iter()
+                .find(|(sig, _)| sig.name == expected.name)
+            {
+                Some((got, method_span)) => {
+                    if !same_method_signature(expected, got, receiver_ty) {
+                        self.error_code(
+                            *method_span,
+                            codes::INCOMPLETE_IMPL,
+                            format!(
+                                "`{type_name}`'s `{}` does not match `{trait_name}`: impl has `{}`, \
+                                 trait requires `{}`",
+                                expected.name,
+                                describe_method(got, type_name),
+                                describe_method(expected, type_name),
+                            ),
+                        );
+                    }
+                }
+                None => {
+                    self.error_code(
+                        span,
+                        codes::INCOMPLETE_IMPL,
+                        format!(
+                            "`{type_name}` does not implement `{trait_name}`: missing `{}`",
+                            describe_method(expected, type_name),
+                        ),
+                    );
+                }
+            }
+        }
+        let mut emitted = Vec::new();
+        for (sig, method_span) in &impl_sigs {
+            if !trait_sig.methods.iter().any(|e| e.name == sig.name) {
+                self.error_code(
+                    *method_span,
+                    codes::INCOMPLETE_IMPL,
+                    format!(
+                        "`{type_name}` implements `{trait_name}` but `{trait_name}` declares no `{}`",
+                        sig.name,
+                    ),
+                );
+            }
+            let symbol = format!("{type_name}.{trait_name}.{}", sig.name);
+            if let Some(previous) = self.methods.insert(symbol.clone(), sig.clone()) {
+                if previous.name == sig.name {
+                    self.error(
+                        *method_span,
+                        format!("`{type_name}` already has a method named `{}`", sig.name),
+                    );
+                }
+            }
+            emitted.push((sig.name.clone(), symbol));
+        }
+        self.trait_impls.insert(
+            (trait_name.to_string(), type_name.to_string()),
+            TraitImpl {
+                methods: emitted,
+                span,
+            },
+        );
+    }
+
     /// Record a generic function's declaration.
     ///
     /// The function is not bound in the root scope: a generic function is not
@@ -1718,6 +1959,7 @@ impl<'src> Checker<'src> {
             }
             Item::Impl {
                 type_name,
+                trait_name,
                 methods,
                 span,
             } => {
@@ -1728,6 +1970,16 @@ impl<'src> Checker<'src> {
                     );
                     return;
                 };
+                if let Some(trait_name) = trait_name {
+                    self.declare_trait_impl(
+                        trait_name,
+                        type_name,
+                        methods,
+                        &receiver_ty,
+                        *span,
+                    );
+                    return;
+                }
                 for method in methods {
                     let Item::Fn {
                         name,
@@ -2018,10 +2270,63 @@ impl<'src> Checker<'src> {
                 }
             }
             Item::Import { .. } => {}
-            Item::Trait { .. } => {
-                // Task 2 records the requirement set (name, signatures,
-                // coherence) here. Declaring the syntax is Task 1's job, and a
-                // trait has no run-time value or type to put in scope.
+            Item::Trait {
+                name,
+                type_params,
+                methods,
+                span,
+            } => {
+                if !type_params.is_empty() && self.module_name(self.file) != "iter" {
+                    self.error_code(
+                        *span,
+                        codes::GENERIC_TRAIT,
+                        format!(
+                            "`{name}` is a generic trait: type parameters on traits are reserved \
+                             for the standard library's iterator protocol (`iter.ya`)"
+                        ),
+                    );
+                }
+                if self.traits.contains_key(name) {
+                    self.error(*span, format!("duplicate trait `{name}`"));
+                    return;
+                }
+                // The methods are resolved where the trait is declared, with
+                // `Self` the placeholder a trait has no implementing type for
+                // yet, so errors about a signature point at the trait's own
+                // file rather than at some later impl's.
+                let placeholder = Type {
+                    kind: TypeKind::Struct("Self".to_string()),
+                    span: *span,
+                };
+                let outer_self_type = self.self_type.replace(placeholder.clone());
+                let mut sigs = Vec::with_capacity(methods.len());
+                for method in methods {
+                    let sig = self.method_signature(
+                        name,
+                        &method.name,
+                        &method.params,
+                        &method.ret,
+                        &placeholder,
+                        method.span,
+                    );
+                    if sigs.iter().any(|existing: &MethodSig| existing.name == sig.name) {
+                        self.error(
+                            method.span,
+                            format!(
+                                "trait `{name}` declares a method named `{}` twice",
+                                sig.name
+                            ),
+                        );
+                        continue;
+                    }
+                    sigs.push(sig);
+                }
+                self.self_type = outer_self_type;
+                self.traits.insert(
+                    name.clone(),
+                    TraitSig { methods: sigs },
+                );
+                self.record_origin(name, public);
             }
             Item::ConstFn {
                 name,
@@ -3087,9 +3392,10 @@ impl<'src> Checker<'src> {
             })]),
             Item::Impl {
                 type_name,
+                trait_name,
                 methods,
                 span: _,
-            } => self.check_impl_methods(type_name, methods),
+            } => self.check_impl_methods(type_name, trait_name.as_deref(), methods),
             Item::ConstFn { name, .. } => {
                 // The body is checked here and the function is *not* emitted:
                 // a `const fn` exists only to be computed by the compiler, so
@@ -3121,7 +3427,7 @@ impl<'src> Checker<'src> {
                     repr: *repr,
                     span: *span,
                 })];
-                if let Some(methods) = self.check_impl_methods(name, methods) {
+                if let Some(methods) = self.check_impl_methods(name, None, methods) {
                     items.extend(methods);
                 }
                 Some(items)
@@ -3134,8 +3440,16 @@ impl<'src> Checker<'src> {
     /// Each method is an ordinary function with a receiver: its first
     /// parameter is the receiver, and `Self` inside it is the type the block
     /// is for. The name the backend emits is the mangled `Type.method`, which
-    /// is what the call site resolves to.
-    fn check_impl_methods(&mut self, type_name: &str, methods: &[Item]) -> Option<Vec<HirItem>> {
+    /// is what the call site resolves to. A trait impl emits
+    /// `Type.Trait.method` instead, so the trait method a call resolves to is
+    /// one concrete `HirFn` and the ownership and effect passes see that impl
+    /// and nothing else.
+    fn check_impl_methods(
+        &mut self,
+        type_name: &str,
+        trait_name: Option<&str>,
+        methods: &[Item],
+    ) -> Option<Vec<HirItem>> {
         let Some(receiver_ty) = self.declared_type(type_name) else {
             return None;
         };
@@ -3197,7 +3511,10 @@ impl<'src> Checker<'src> {
                 self.error(*span, "missing return");
             }
             items.push(HirItem::Fn(HirFn {
-                name: format!("{type_name}.{name}"),
+                name: match trait_name {
+                    Some(trait_name) => format!("{type_name}.{trait_name}.{name}"),
+                    None => format!("{type_name}.{name}"),
+                },
                 params: params
                     .iter()
                     .zip(sig.params.iter())

@@ -518,9 +518,15 @@ impl Db {
                 }
             }
             Item::Impl {
-                type_name, methods, ..
+                type_name,
+                trait_name,
+                methods,
+                ..
             } => {
                 *state = combine(*state, hash_str(type_name));
+                if let Some(trait_name) = trait_name {
+                    *state = combine(*state, hash_str(trait_name));
+                }
                 for m in methods {
                     self.hash_item_signature(state, m);
                 }
