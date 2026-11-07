@@ -12,7 +12,11 @@
 //! [`hygiene::ScopeSet`] on every identifier token, rather than by renaming,
 //! so the printed form stays the one the user wrote.
 
+pub mod fragment;
 pub mod hygiene;
+pub mod r#match;
 pub mod tt;
 
+pub use fragment::FragmentKind;
+pub use r#match::{matches, Bindings, MatchFailure};
 pub use tt::{Delim, TokenTree, TreeError, MAX_TREE_DEPTH};

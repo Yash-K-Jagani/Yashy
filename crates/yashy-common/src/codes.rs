@@ -149,6 +149,10 @@ pub const TRAIT_STATE: &str = "E1514";
 /// An operator is applied to a type with a same-named method: operators
 /// cannot be overloaded.
 pub const OPERATOR_OVERLOAD: &str = "E1515";
+/// A macro invocation matches no declared arm.
+pub const MACRO_NO_MATCH: &str = "E1600";
+/// A macro metavariable is malformed or names a fragment kind the input is not.
+pub const MACRO_FRAGMENT: &str = "E1602";
 /// A statement cannot be reached.
 pub const UNREACHABLE_CODE: &str = "E2002";
 /// A function parameter is never read.
@@ -515,6 +519,18 @@ pub const CODES: &[Code] = &[
         title: "operators cannot be overloaded",
         summary: "An operator is only defined for built-in types; call the method `a.add(b)` instead.",
         page: include_str!("../../../docs/errors/E1515.md"),
+    },
+    Code {
+        id: MACRO_NO_MATCH,
+        title: "macro invocation matches no arm",
+        summary: "A macro invocation names the macro but matches none of its arms.",
+        page: include_str!("../../../docs/errors/E1600.md"),
+    },
+    Code {
+        id: MACRO_FRAGMENT,
+        title: "macro metavariable kind mismatch",
+        summary: "A macro metavariable is malformed or names a fragment kind the input is not.",
+        page: include_str!("../../../docs/errors/E1602.md"),
     },
     Code {
         id: UNUSED_IMPORT,

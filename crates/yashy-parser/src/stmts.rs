@@ -616,7 +616,10 @@ impl<'src> Parser<'src> {
     /// `|` is the expression grammar's bitwise-or too, but the two never meet:
     /// a pattern position expects a pattern, and no pattern contains a bitwise
     /// expression. So the separator needs no new token.
-    pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+    ///
+    /// This is public for the macro expander: a `$name:pat` fragment is
+    /// validated by re-reading the matched tokens as a pattern.
+    pub fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         let first = self.parse_pattern_primary()?;
         if !self.check(TokenKind::Pipe) {
             return Ok(first);
