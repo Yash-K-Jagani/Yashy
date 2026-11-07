@@ -63,10 +63,7 @@ fn position(line: i64, character: i64) -> Value {
 
 fn at(uri: &str, line: i64, character: i64) -> Value {
     object([
-        (
-            "textDocument",
-            object([("uri", string(uri))]),
-        ),
+        ("textDocument", object([("uri", string(uri))])),
         ("position", position(line, character)),
     ])
 }
@@ -105,9 +102,9 @@ fn parse_replies(output: &[u8]) -> Vec<Value> {
 }
 
 fn publish(replies: &[Value]) -> Option<&Value> {
-    replies
-        .iter()
-        .find(|reply| reply.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics"))
+    replies.iter().find(|reply| {
+        reply.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics")
+    })
 }
 
 fn test_uri(name: &str) -> String {
@@ -152,8 +149,7 @@ fn fixing_the_error_clears_the_diagnostic() {
     let published: Vec<&Value> = replies
         .iter()
         .filter(|reply| {
-            reply.get("method").and_then(Value::as_str)
-                == Some("textDocument/publishDiagnostics")
+            reply.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics")
         })
         .collect();
     assert_eq!(published.len(), 2, "one publish per change");
@@ -207,7 +203,10 @@ fn hover_on_a_documented_function_shows_its_doc_block() {
         .get_path(&["result", "contents", "value"])
         .and_then(Value::as_str)
         .expect("the hover carries markup");
-    assert!(value.contains("Adds two numbers"), "the doc text is shown: {value}");
+    assert!(
+        value.contains("Adds two numbers"),
+        "the doc text is shown: {value}"
+    );
     assert!(value.contains("fn add"), "the signature is shown: {value}");
 }
 
@@ -216,11 +215,8 @@ fn definition_jumps_to_a_function_in_another_file() {
     let dir = std::env::temp_dir().join(format!("yashy-lsp-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("the test directory must be creatable");
     let helper = dir.join("helper.ya");
-    std::fs::write(
-        &helper,
-        "fn double(int x) -> int {\n    return x * 2;\n}\n",
-    )
-    .expect("the helper module must be writable");
+    std::fs::write(&helper, "fn double(int x) -> int {\n    return x * 2;\n}\n")
+        .expect("the helper module must be writable");
     let main_path = dir.join("definition_main.ya");
     let main_text = "import helper;\n\nfn main() {\n    print(double(21));\n}\n";
     std::fs::write(&main_path, main_text).expect("the entry module must be writable");
@@ -261,7 +257,11 @@ fn semantic_tokens_cover_keywords_types_and_functions() {
     let messages = vec![
         request(1, "initialize", object([("capabilities", object([]))])),
         did_open(&uri, text),
-        request(2, "textDocument/semanticTokens/full", object([("textDocument", object([("uri", string(&uri))]))])),
+        request(
+            2,
+            "textDocument/semanticTokens/full",
+            object([("textDocument", object([("uri", string(&uri))]))]),
+        ),
     ];
     let replies = run(messages);
     let initialize = replies
@@ -269,7 +269,13 @@ fn semantic_tokens_cover_keywords_types_and_functions() {
         .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(1))
         .expect("the initialize reply");
     let legend = initialize
-        .get_path(&["result", "capabilities", "semanticTokensProvider", "legend", "tokenTypes"])
+        .get_path(&[
+            "result",
+            "capabilities",
+            "semanticTokensProvider",
+            "legend",
+            "tokenTypes",
+        ])
         .and_then(Value::as_array)
         .expect("the legend is advertised");
     assert_eq!(legend.len(), 6, "six token types");
@@ -318,6 +324,118 @@ fn the_server_survives_a_file_that_does_not_parse() {
         hover.get("result").is_some(),
         "the hover reply has a result field, even when it is null"
     );
+}
+
+fn completion_labels(replies: &[Value], id: i64) -> Vec<String> {
+    let reply = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(id))
+        .expect("the completion reply");
+    let items = reply
+        .get_path(&["result", "items"])
+        .and_then(Value::as_array)
+        .expect("the reply carries items");
+    items
+        .iter()
+        .filter_map(|item| {
+            item.get("label")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+#[test]
+fn completion_after_a_type_lists_associated_functions_but_no_methods() {
+    let uri = test_uri("completion_assoc.ya");
+    let text = "\
+struct Point { x: int }\n\
+impl Point {\n\
+    fn new(int x) -> Point { return Point { x: x }; }\n\
+    fn origin() -> Point { return Point { x: 0 }; }\n\
+    fn get(self) -> int { return self.x; }\n\
+}\n\
+fn main() { let p = Point::(); }\n";
+    let messages = vec![
+        did_open(&uri, text),
+        // Cursor right after `Point::` on the last line (line 6, col 27).
+        request(2, "textDocument/completion", at(&uri, 6, 27)),
+    ];
+    let labels = completion_labels(&run(messages), 2);
+    assert!(labels.contains(&"new".to_string()), "{labels:?}");
+    assert!(labels.contains(&"origin".to_string()), "{labels:?}");
+    assert!(
+        !labels.contains(&"get".to_string()),
+        "a receiver method is not associated: {labels:?}"
+    );
+}
+
+#[test]
+fn completion_inside_a_trait_impl_offers_only_unimplemented_methods() {
+    let uri = test_uri("completion_impl.ya");
+    let text = "trait Show { fn show(self) -> string; fn short(self) -> string; }\nstruct Point { x: int }\nimpl Show for Point {\n    fn show(self) -> string { return \"s\"; }\n    \n}\n";
+    let messages = vec![
+        did_open(&uri, text),
+        // Cursor on the blank line inside the impl (line 4, col 4).
+        request(2, "textDocument/completion", at(&uri, 4, 4)),
+    ];
+    let labels = completion_labels(&run(messages), 2);
+    assert_eq!(
+        labels,
+        vec!["short".to_string()],
+        "only the missing method: {labels:?}"
+    );
+}
+
+#[test]
+fn definition_on_a_trait_call_lands_on_the_impl() {
+    let uri = test_uri("definition_impl.ya");
+    let text = "\
+trait Show { fn show(self) -> string; }\n\
+struct Point { x: int }\n\
+impl Show for Point { fn show(self) -> string { return \"s\"; } }\n\
+fn main() { let p = Point { x: 1 }; print(p.show()); }\n";
+    let messages = vec![
+        did_open(&uri, text),
+        // Cursor on `show` in `p.show()` (line 3, col 44).
+        request(2, "textDocument/definition", at(&uri, 3, 44)),
+    ];
+    let replies = run(messages);
+    let definition = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .expect("the definition reply");
+    let line = definition
+        .get_path(&["result", "range", "start", "line"])
+        .and_then(Value::as_i64)
+        .expect("the location has a range");
+    assert_eq!(line, 2, "the jump lands on the impl (line 3, 0-based 2)");
+}
+
+#[test]
+fn definition_on_a_bound_call_lands_on_the_trait() {
+    let uri = test_uri("definition_bound.ya");
+    let text = "\
+trait Show { fn show(self) -> string; }\n\
+struct Point { x: int }\n\
+impl Show for Point { fn show(self) -> string { return \"s\"; } }\n\
+fn describe[T: Show](T x) -> string { return x.show(); }\n\
+fn main() { let p = Point { x: 1 }; print(describe(p)); }\n";
+    let messages = vec![
+        did_open(&uri, text),
+        // Cursor on `show` in `x.show()` inside the bounded fn (line 3, col 48).
+        request(2, "textDocument/definition", at(&uri, 3, 48)),
+    ];
+    let replies = run(messages);
+    let definition = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .expect("the definition reply");
+    let line = definition
+        .get_path(&["result", "range", "start", "line"])
+        .and_then(Value::as_i64)
+        .expect("the location has a range");
+    assert_eq!(line, 0, "a bound call lands on the trait requirement");
 }
 
 #[test]

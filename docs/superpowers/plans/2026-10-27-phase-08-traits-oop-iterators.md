@@ -435,9 +435,9 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Modify: `crates/yashy-fmt/src/lib.rs` (impl, trait and object formatting; `pub` on members)
 - Modify: `docs/tutorial/04-structs.md` (point at the object model chapter)
 
-- [ ] **Step 1: Write the LSP test** — completion inside an impl body offers only the trait's unimplemented methods; definition on a trait-bound call lands on the trait method, not an impl (there is no single impl to land on); completion after `Point::` lists `new` and `origin` but not `get`.
-- [ ] **Step 2: Run** `cargo test -p yashy-lsp -p yashy-fmt` → PASS.
-- [ ] **Step 3: Commit** — `git commit -m "feat(lsp): trait-aware completion and definition"`
+- [x] **Step 1: Write the LSP test** — completion inside an impl body offers only the trait's unimplemented methods; definition on a trait-bound call lands on the trait method, not an impl (there is no single impl to land on); completion after `Point::` lists `new` and `origin` but not `get`.
+- [x] **Step 2: Run** `cargo test -p yashy-lsp -p yashy-fmt` → PASS.
+- [x] **Step 3: Commit** — `git commit -m "feat(lsp): trait-aware completion and definition"`
 
 ---
 
