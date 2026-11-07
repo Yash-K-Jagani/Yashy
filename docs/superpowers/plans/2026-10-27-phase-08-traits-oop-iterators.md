@@ -260,11 +260,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Keeps: inherent dispatch as today's `"Type.method"` lookup; a trait candidate comes from `TraitTable[(trait, type)]`, and its call symbol is `Type.Trait.method`. There is one method table per kind, not a merged one, so a trait impl cannot silently replace an inherent method.
 - Produces: `Show::show(x)` as the qualified spelling in Task 6: an associated-call form whose resolution is restricted to the named trait, not a new dispatch path.
 
-- [ ] **Step 1: Write the failing tests** — an inherent method shadows a trait method silently; two traits in scope both providing `show` is `E1504`; a trait method on a value whose type has no impl is `E1503`. The qualified call is tested in Task 6.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — collect candidates, filter by arity and receiver, then apply the order above. Ambiguity is reported, never resolved by import order.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: resolve methods inherent, then trait, then bound (E1504)"`
+- [x] **Step 1: Write the failing tests** — an inherent method shadows a trait method silently; two traits in scope both providing `show` is `E1504`; a trait method on a value whose type has no impl is `E1503`. The qualified call is tested in Task 6.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — collect candidates, filter by arity and receiver, then apply the order above. Ambiguity is reported, never resolved by import order.
+- [x] **Step 4: Run** `cargo test -p yashy-sema -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: resolve methods inherent, then trait, then bound (E1504)"`
 
 ---
 
