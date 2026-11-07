@@ -126,6 +126,12 @@ pub const INCOMPLETE_IMPL: &str = "E1502";
 pub const UNSATISFIED_BOUND: &str = "E1503";
 /// A method name is provided by two trait impls for one type.
 pub const AMBIGUOUS_METHOD: &str = "E1504";
+/// A type path names a method that needs a receiver.
+pub const METHOD_THROUGH_TYPE: &str = "E1506";
+/// A method calling an associated function through a value.
+pub const ASSOC_THROUGH_VALUE: &str = "E1507";
+/// A type path names a function the type does not declare.
+pub const UNKNOWN_ASSOCIATED_FN: &str = "E1508";
 /// A generic type is used with the wrong number of type arguments.
 pub const WRONG_TYPE_ARG_COUNT: &str = "E1509";
 /// A declared type parameter is used by no field or payload.
@@ -432,6 +438,24 @@ pub const CODES: &[Code] = &[
         title: "ambiguous method",
         summary: "Two trait impls for one type provide the same method, so the call has two targets.",
         page: include_str!("../../../docs/errors/E1504.md"),
+    },
+    Code {
+        id: METHOD_THROUGH_TYPE,
+        title: "method called through a type",
+        summary: "A type path names a method that needs a receiver; call it on a value.",
+        page: include_str!("../../../docs/errors/E1506.md"),
+    },
+    Code {
+        id: ASSOC_THROUGH_VALUE,
+        title: "associated function called through a value",
+        summary: "An associated function has no receiver; call it through the type.",
+        page: include_str!("../../../docs/errors/E1507.md"),
+    },
+    Code {
+        id: UNKNOWN_ASSOCIATED_FN,
+        title: "unknown associated function",
+        summary: "A type path names a function the type does not declare.",
+        page: include_str!("../../../docs/errors/E1508.md"),
     },
     Code {
         id: WRONG_TYPE_ARG_COUNT,

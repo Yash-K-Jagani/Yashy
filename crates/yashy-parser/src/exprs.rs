@@ -367,6 +367,65 @@ impl<'src> Parser<'src> {
         Ok(expr)
     }
 
+    /// `Point::new(1, 2)` or `Show::show(p)`: a type path.
+    ///
+    /// The base of the path is a single identifier: a dotted base would make
+    /// the path a third segment, and `::` takes exactly two names -- a type
+    /// or a trait, and the function it selects. A third `::` is refused
+    /// where it is written. The call's arguments are parsed here because the
+    /// node they belong to is the path itself; the node produced is
+    /// [`Expr::TypePathCall`]. A bare path with no argument list is the
+    /// [`Expr::TypePath`] value node.
+    fn parse_type_path(&mut self, expr: Expr) -> Result<Expr, ParseError> {
+        let type_name = match &expr {
+            Expr::Ident(path, _) if path.len() == 1 => path[0].clone(),
+            _ => {
+                return Err(self.error(
+                    expr_span(&expr),
+                    "a type path names a type and a function: write `Point::new(x)`",
+                ));
+            }
+        };
+        let type_span = expr_span(&expr);
+        self.expect(TokenKind::ColonColon)?;
+        let (name, name_span) = self.identifier()?;
+        let span = cover(type_span, name_span);
+        if self.check(TokenKind::ColonColon) {
+            return Err(self.error(
+                self.peek_span(),
+                "a type path has two names: a type and a function",
+            ));
+        }
+        if !self.check(TokenKind::LParen) {
+            return Ok(Expr::TypePath {
+                type_name,
+                name,
+                span,
+            });
+        }
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let mut args = self.parse_call_args()?;
+        let close = self.expect(TokenKind::RParen)?;
+        self.close_open(TokenKind::RParen);
+        let mut span = cover(type_span, close.span);
+        if self.has_trailing_block() {
+            let lambda = self.parse_trailing_lambda()?;
+            span = cover(span, expr_span(&lambda));
+            args.push(CallArg {
+                name: None,
+                value: lambda,
+                span,
+            });
+        }
+        Ok(Expr::TypePathCall {
+            type_name,
+            name,
+            args,
+            span,
+        })
+    }
+
     fn parse_postfix(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
         expr = self.parse_postfix_rest(expr)?;
@@ -382,6 +441,10 @@ impl<'src> Parser<'src> {
                     expr: Box::new(expr),
                     span,
                 };
+                continue;
+            }
+            if self.check(TokenKind::ColonColon) {
+                expr = self.parse_type_path(expr)?;
                 continue;
             }
             if self.check(TokenKind::Dot) {
@@ -1207,6 +1270,7 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::SwitchExpr { span, .. } => *span,
         Expr::MethodCall { span, .. } => *span,
         Expr::Lambda { span, .. } => *span,
+        Expr::TypePath { span, .. } | Expr::TypePathCall { span, .. } => *span,
     }
 }
 

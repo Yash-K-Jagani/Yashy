@@ -287,10 +287,10 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: `self` inside an associated function is an ordinary unresolved name (`E0001`), because there is no receiver to bind — not a panic and not a special diagnostic.
 - Produces: a trait may declare an associated function (no receiver); its call is still `Type::name(..)`, resolved from the impl, so there is no `Trait::name` path in v1.
 
-- [ ] **Step 1: Write the failing tests** — `Point::new(1, 2)` parses, type-checks and runs; the dot spelling still runs and produces the same output; `Point::new` and `fn new` in the same module both resolve; `Point::get()` is `E1506`; `p.origin()` is `E1507`; `Point::missing()` is `E1508` with suggestions; `Show::show(x)` resolves the Task 5 ambiguity; `self` inside an associated function is `E0001`; a three-segment path (`a::b::c`) is a parse error (qualified names are not a module path in 1.0); the formatter round-trips `::`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lexer adds `::` as one token (not two `:`); the parser, in expression position, turns `Ident :: Ident` into `TypePath` and refuses a third segment. Resolution looks the type up in the same table method calls use, then asks the impl table for a function with that name and no receiver. Codegen emits the same mangled name the impl block already produces for a receiver-less function, so there is one symbol per `(type, name)` and no second naming scheme.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
+- [x] **Step 1: Write the failing tests** — `Point::new(1, 2)` parses, type-checks and runs; the dot spelling still runs and produces the same output; `Point::new` and `fn new` in the same module both resolve; `Point::get()` is `E1506`; `p.origin()` is `E1507`; `Point::missing()` is `E1508` with suggestions; `Show::show(x)` resolves the Task 5 ambiguity; `self` inside an associated function is `E0001`; a three-segment path (`a::b::c`) is a parse error (qualified names are not a module path in 1.0); the formatter round-trips `::`.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lexer adds `::` as one token (not two `:`); the parser, in expression position, turns `Ident :: Ident` into `TypePath` and refuses a third segment. Resolution looks the type up in the same table method calls use, then asks the impl table for a function with that name and no receiver. Codegen emits the same mangled name the impl block already produces for a receiver-less function, so there is one symbol per `(type, name)` and no second naming scheme.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e` → PASS.
 - [ ] **Step 5: Commit** — `git commit -m "feat: associated functions called through a type path (E1506-E1508)"`
 
 ---

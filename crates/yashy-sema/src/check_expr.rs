@@ -6797,16 +6797,28 @@ impl<'src> Checker<'src> {
     ) -> Option<HirExpr> {
         let mangled = format!("{type_name}.{method}");
         let Some(sig) = self.methods.get(&mangled).cloned() else {
-            self.error(span, format!("no method `{method}` on `{type_name}`"));
+            let mut error =
+                TypeError::new(span, format!("`{type_name}` has no associated function `{method}`"))
+                    .with_code(codes::UNKNOWN_ASSOCIATED_FN);
+            let candidates = self
+                .methods
+                .keys()
+                .filter_map(|key| key.strip_prefix(&format!("{type_name}.")))
+                .filter(|name| !name.contains('.'));
+            if let Some(suggestion) = yashy_common::closest(method, candidates) {
+                error = error.with_label(format!("did you mean `{suggestion}`?"));
+            }
+            self.errors.push((self.file, error));
             return None;
         };
         // The type is an item, so it is private to the module that declares
         // it unless it is `pub`.
         self.check_visibility(type_name, span);
         if sig.has_self {
-            self.error(
+            self.error_code(
                 span,
-                format!("`{type_name}.{method}` is a method and needs a receiver"),
+                codes::METHOD_THROUGH_TYPE,
+                format!("`{method}` is a method; call it on a value: `p.{method}()`"),
             );
             return None;
         }
@@ -6834,6 +6846,326 @@ impl<'src> Checker<'src> {
         }
         Some(HirExpr::Call {
             callee: vec![mangled],
+            args: arg_exprs,
+            unsafe_call: false,
+            span,
+            ty: sig.ret.clone(),
+        })
+    }
+
+    /// Resolve `name::method(args)`: an associated call on a type, or a
+    /// method call qualified by a trait.
+    ///
+    /// If `name` is a declared type, the call is an associated call on that
+    /// type: the inherent impl and the trait impls in scope are candidates,
+    /// filtered to those without a receiver, and ambiguity is `E1504` as
+    /// everywhere else. A candidate that takes a receiver is `E1506`; no
+    /// candidate is `E1508` with suggestions. If `name` is a declared trait,
+    /// it qualifies a receiver call: the first argument is the receiver, and
+    /// the impl is `TraitTable[(trait, receiver type)]`'s method.
+    fn check_type_path_call(
+        &mut self,
+        base: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        // The type form first: `Point::new(args)`.
+        if self.structs.contains_key(base) || self.enums.contains_key(base) {
+            return self.check_associated_call(base, method, args, span);
+        }
+        // The trait form: `Show::show(x)` qualifies a receiver call.
+        if self.traits.contains_key(base) {
+            return self.check_qualified_trait_call(base, method, args, span);
+        }
+        let mut error = TypeError::new(
+            span,
+            format!("no associated function `{method}` on `{base}`"),
+        )
+        .with_code(codes::UNKNOWN_ASSOCIATED_FN);
+        let candidates = self
+            .structs
+            .keys()
+            .chain(self.enums.keys())
+            .map(String::as_str);
+        if let Some(suggestion) = yashy_common::closest(base, candidates) {
+            error = error.with_label(format!("did you mean `{suggestion}`?"));
+        }
+        self.errors.push((self.file, error));
+        None
+    }
+
+    /// Check `Type::method(args)`: an associated call on a named type.
+    fn check_associated_call(
+        &mut self,
+        type_name: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        let inherent_key = format!("{type_name}.{method}");
+        let inherent = self.methods.get(&inherent_key).cloned();
+        // Candidates are the associated functions: inherent or one trait's
+        // impl, without a receiver.
+        let mut candidates: Vec<(Option<String>, String, MethodSig)> = Vec::new();
+        if let Some(sig) = &inherent {
+            if !sig.has_self {
+                candidates.push((None, inherent_key.clone(), sig.clone()));
+            }
+        }
+        for ((trait_name, ty), impl_) in &self.trait_impls {
+            if ty != type_name {
+                continue;
+            }
+            for (mname, symbol) in &impl_.methods {
+                if mname == method {
+                    if let Some(sig) = self.methods.get(symbol) {
+                        if !sig.has_self {
+                            candidates
+                                .push((Some(trait_name.clone()), symbol.clone(), sig.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        match candidates.len() {
+            1 => {
+                let (_, symbol, sig) = candidates.into_iter().next().unwrap();
+                self.finish_static_call(type_name, symbol, &sig, args, span)
+            }
+            0 => {
+                if let Some(sig) = &inherent {
+                    if sig.has_self {
+                        self.error_code(
+                            span,
+                            codes::METHOD_THROUGH_TYPE,
+                            format!(
+                                "`{method}` is a method; call it on a value: `p.{method}()`"
+                            ),
+                        );
+                        return None;
+                    }
+                }
+                let mut error = TypeError::new(
+                    span,
+                    format!("`{type_name}` has no associated function `{method}`"),
+                )
+                .with_code(codes::UNKNOWN_ASSOCIATED_FN);
+                let assoc_names = self
+                    .methods
+                    .keys()
+                    .filter_map(|key| key.strip_prefix(&format!("{type_name}.")))
+                    .filter(|name| !name.contains('.'));
+                if let Some(suggestion) = yashy_common::closest(method, assoc_names) {
+                    error = error.with_label(format!("did you mean `{suggestion}`?"));
+                }
+                self.errors.push((self.file, error));
+                None
+            }
+            _ => {
+                let names = candidates
+                    .iter()
+                    .map(|(trait_name, _, _)| {
+                        trait_name
+                            .as_deref()
+                            .map(|t| format!("`{t}`"))
+                            .unwrap_or_else(|| "`Self`".to_string())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" and ");
+                let hints = candidates
+                    .iter()
+                    .map(|(trait_name, _, _)| {
+                        trait_name
+                            .as_deref()
+                            .map(|t| format!("`{t}::{method}(x)`"))
+                            .unwrap_or_else(|| {
+                                format!("`{type_name}::{method}(x)`")
+                            })
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" or ");
+                self.error_code(
+                    span,
+                    codes::AMBIGUOUS_METHOD,
+                    format!(
+                        "`{method}` is ambiguous on `{type_name}`: both {names} provide it \
+                         (qualify with {hints} once `::` is available)"
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// Check `Trait::method(x, args)`: a method call restricted to a trait.
+    fn check_qualified_trait_call(
+        &mut self,
+        trait_name: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        // The trait is an item too, and so is the receiver that provides it.
+        self.check_visibility(trait_name, span);
+        let Some((receiver_expr, rest)) = args.split_first() else {
+            self.error(
+                span,
+                format!("`{trait_name}::{method}` needs a receiver value first"),
+            );
+            return None;
+        };
+        let receiver_checked = self.check_expr(receiver_expr)?;
+        let receiver_ty = expr_ty(&receiver_checked);
+        let receiver_type = match &receiver_ty.kind {
+            TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
+            _ => {
+                self.error_code(
+                    span,
+                    codes::UNSATISFIED_BOUND,
+                    format!(
+                        "a receiver of `{receiver_ty}` does not implement `{trait_name}`"
+                    ),
+                );
+                return None;
+            }
+        };
+        let impl_ = match self.trait_impls.get(&(trait_name.to_string(), receiver_type.clone()))
+        {
+            Some(impl_) => impl_.clone(),
+            None => {
+                self.error_code(
+                    span,
+                    codes::UNSATISFIED_BOUND,
+                    format!(
+                        "`{receiver_type}` does not implement `{trait_name}` required by \
+                         `{trait_name}::{method}`{}",
+                        self.impl_needs_line(&receiver_ty, trait_name),
+                    ),
+                );
+                return None;
+            }
+        };
+        let symbol = impl_.methods.iter().find(|(m, _)| m == method).map(|(_, s)| s.clone());
+        let Some(symbol) = symbol else {
+            self.error_code(
+                span,
+                codes::UNKNOWN_ASSOCIATED_FN,
+                format!("`{trait_name}` declares no `{method}`"),
+            );
+            return None;
+        };
+        let sig = self.methods.get(&symbol).cloned()?;
+        self.check_visibility(&receiver_type, span);
+        if !sig.has_self {
+            self.error_code(
+                span,
+                codes::ASSOC_THROUGH_VALUE,
+                format!(
+                    "`{method}` is an associated function; call it as `{receiver_type}::{method}()`"
+                ),
+            );
+            return None;
+        }
+        let own = sig.params.len().saturating_sub(1);
+        if own != rest.len() {
+            self.error(
+                span,
+                format!(
+                    "`{method}` takes {own} argument{}",
+                    if own == 1 { "" } else { "s" }
+                ),
+            );
+            return None;
+        }
+        // The receiver is a method receiver: by value, or by address for a
+        // pointer receiver.
+        let receiver_checked = if sig.receiver_is_pointer {
+            let HirExpr::Ident(path, _, _) = &receiver_checked else {
+                self.error(
+                    span,
+                    format!("`{method}` needs a mutable object binding as the receiver"),
+                );
+                return None;
+            };
+            let name = path.last().cloned().unwrap_or_default();
+            let mutable = self
+                .scope
+                .resolve(&name)
+                .map(|binding| binding.mutability.is_mutable())
+                .unwrap_or(false);
+            if !mutable {
+                self.error(span, format!("`{method}` needs a mutable object binding"));
+                return None;
+            }
+            HirExpr::AddrOf {
+                name,
+                span,
+                ty: Type {
+                    kind: TypeKind::Ptr(Box::new(receiver_ty.clone())),
+                    span,
+                },
+            }
+        } else {
+            receiver_checked
+        };
+        let mut arg_exprs = Vec::with_capacity(rest.len() + 1);
+        arg_exprs.push(receiver_checked);
+        for (arg, param) in rest.iter().zip(sig.params.iter().skip(1)) {
+            let checked = self.check_expr_with_expected(arg, param)?;
+            if !fits(param, &expr_ty(&checked)) {
+                self.error(
+                    expr_span(&checked),
+                    format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                );
+            }
+            arg_exprs.push(checked);
+        }
+        Some(HirExpr::Call {
+            callee: vec![symbol],
+            args: arg_exprs,
+            unsafe_call: false,
+            span,
+            ty: sig.ret.clone(),
+        })
+    }
+
+    /// The finish shared by the associated and static paths: arguments
+    /// against an ordinary function signature, and the emitted call.
+    fn finish_static_call(
+        &mut self,
+        type_name: &str,
+        symbol: String,
+        sig: &MethodSig,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<HirExpr> {
+        self.check_visibility(type_name, span);
+        if sig.params.len() != args.len() {
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} argument{}",
+                    sig.name,
+                    sig.params.len(),
+                    if sig.params.len() == 1 { "" } else { "s" }
+                ),
+            );
+            return None;
+        }
+        let mut arg_exprs = Vec::with_capacity(args.len());
+        for (arg, param) in args.iter().zip(sig.params.iter()) {
+            let checked = self.check_expr_with_expected(arg, param)?;
+            if !fits(param, &expr_ty(&checked)) {
+                self.error(
+                    expr_span(&checked),
+                    format!("expected `{param}`, found `{}`", expr_ty(&checked)),
+                );
+            }
+            arg_exprs.push(checked);
+        }
+        Some(HirExpr::Call {
+            callee: vec![symbol],
             args: arg_exprs,
             unsafe_call: false,
             span,
@@ -6990,11 +7322,11 @@ impl<'src> Checker<'src> {
         if !sig.has_self {
             // A method with no `self` is a static one: it belongs to the type,
             // not to a value of it.
-            self.error(
+            self.error_code(
                 span,
+                codes::ASSOC_THROUGH_VALUE,
                 format!(
-                    "`{method}` is a static method of `{}` and needs the type, not a value",
-                    sig.type_name
+                    "`{method}` is an associated function; call it as `{type_name}::{method}()`"
                 ),
             );
             return Some(None);
@@ -9818,6 +10150,31 @@ impl<'src> Checker<'src> {
                         None
                     }
                 }
+            }
+            Expr::TypePathCall {
+                type_name,
+                name,
+                args,
+                span,
+            } => {
+                // `Point::new(1, 2)` or `Show::show(p)` (`p`, `Show`):
+                // resolved like an associated call, or a qualified receiver
+                // call, through the one impl table the method call uses.
+                let arg_vals: Vec<Expr> = args.iter().map(|a| a.value.clone()).collect();
+                self.check_type_path_call(type_name, name, &arg_vals, *span)
+            }
+            Expr::TypePath { type_name, name, span } => {
+                // An associated function as a value is not formed in v1:
+                // only the call through it is supported.
+                let _ = type_name;
+                self.error(
+                    *span,
+                    format!(
+                        "`{type_name}::{name}` is an associated function: call it in \
+                         parentheses"
+                    ),
+                );
+                None
             }
             Expr::Call {
                 callee,

@@ -495,11 +495,15 @@ fn needs_space(prev: TokenKind, cur: TokenKind, bracket_welds: bool) -> bool {
     if cur == DotDot && prev == Comma {
         return true;
     }
-    if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon) {
+    if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon | ColonColon) {
         return false;
     }
     // `..=` is one operator; the `=` half binds to the `..`.
     if cur == Eq && prev == DotDot {
+        return false;
+    }
+    // A type path binds its name onto both halves: `Point::new`.
+    if prev == ColonColon {
         return false;
     }
     if matches!(prev, Colon | Comma) {

@@ -339,3 +339,90 @@ fn a_bound_on_an_unknown_trait_is_e1500() {
         "the diagnostic suggests the nearest trait: {diags:?}"
     );
 }
+
+#[test]
+fn a_type_path_call_checks_via_the_same_mangled_name_as_a_dot() {
+    let hir = check_source(
+        "struct Point { x: int, y: int }\n\
+         impl Point { fn new(int x, int y) -> Point { return Point { x: x, y: y }; } }\n\
+         fn f() -> Point { return Point::new(1, 2); }\n\
+         fn g() -> Point { return Point.new(1, 2); }",
+    )
+    .expect("both spellings check");
+    let callee_of = |name: &str| -> String {
+        hir.items
+            .iter()
+            .find_map(|item| match item {
+                HirItem::Fn(f) if f.name == name => Some(format!("{:?}", f.body)),
+                _ => None,
+            })
+            .expect("the function under test")
+    };
+    assert!(callee_of("f").contains("\"Point.new\""));
+    assert!(callee_of("g").contains("\"Point.new\""));
+}
+
+#[test]
+fn a_method_called_through_a_type_path_is_e1506() {
+    assert_code(
+        "struct Point { x: int }\n\
+         impl Point { fn get(self) -> int { return self.x; } }\n\
+         fn f() -> int { return Point::get(); }",
+        codes::METHOD_THROUGH_TYPE,
+    );
+}
+
+#[test]
+fn an_associated_function_called_on_a_value_is_e1507() {
+    let diags = assert_code(
+        "struct Point { x: int, y: int }\n\
+         impl Point { fn origin() -> Point { return Point { x: 0, y: 0 }; } }\n\
+         fn f(Point p) -> Point { return p.origin(); }",
+        codes::ASSOC_THROUGH_VALUE,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("`Point::origin()`")),
+        "the diagnostic names the type-path spelling: {diags:?}"
+    );
+}
+
+#[test]
+fn an_unknown_associated_function_is_e1508() {
+    let diags = assert_code(
+        "struct Point { x: int, y: int }\n\
+         impl Point { fn origin() -> Point { return Point { x: 0, y: 0 }; } }\n\
+         fn f() -> Point { return Point::origin2(); }",
+        codes::UNKNOWN_ASSOCIATED_FN,
+    );
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.label.as_deref() == Some("did you mean `origin`?")),
+        "the diagnostic suggests the nearest associated function: {diags:?}"
+    );
+}
+
+#[test]
+fn a_qualified_trait_call_names_the_impl_symbol() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         trait Debug2 { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"s\"; } }\n\
+         impl Debug2 for Point { fn show(self) -> string { return \"d\"; } }\n\
+         fn f(Point p) -> string { return Show::show(p); }",
+    )
+    .expect("a qualified call disambiguates");
+    let caller = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(format!("{:?}", f.body)),
+            _ => None,
+        })
+        .expect("fn f");
+    assert!(
+        caller.contains("Point.Show.show") && !caller.contains("Point.Debug2.show"),
+        "the Show impl is the target: {caller}"
+    );
+}

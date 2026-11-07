@@ -706,6 +706,9 @@ pub enum TokenKind {
     Comma,
     Semi,
     Colon,
+    /// `::`: one token, not two colons. `Point::new` is one type-path, and
+    /// lexing the two colons apart would make it look like two statements.
+    ColonColon,
     ColonEq,
     Dot,
     DotDot,
@@ -946,6 +949,8 @@ impl TokenKind {
             TokenKind::Comma => Naming::Fixed(","),
             TokenKind::Semi => Naming::Fixed(";"),
             TokenKind::Colon => Naming::Fixed(":"),
+            // `::` -- the type path: `Point::new`.
+            TokenKind::ColonColon => Naming::Fixed("::"),
             TokenKind::ColonEq => Naming::Fixed(":="),
             TokenKind::Dot => Naming::Fixed("."),
             TokenKind::DotDot => Naming::Fixed(".."),

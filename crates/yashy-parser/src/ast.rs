@@ -1058,6 +1058,32 @@ pub enum Expr {
         arms: Vec<SwitchArm>,
         span: Span,
     },
+    /// `Type::name` as a value: an associated function named by a type path.
+    ///
+    /// The two-level name the parser wrote, recorded because both halves
+    /// matter: the checker resolves the first through the type or trait
+    /// tables and the second through the impl the first selects. A bare
+    /// path is a function value; with an argument list it is the
+    /// [`Expr::TypePathCall`] node instead, so this one never carries
+    /// arguments.
+    TypePath {
+        type_name: String,
+        name: String,
+        span: Span,
+    },
+    /// `Type::name(args)`: a call through a type path.
+    ///
+    /// The two-level name is resolved by the checker through the same impl
+    /// tables the method call uses, and the call lowers to the impl's own
+    /// `HirExpr::Call` -- there is no second dispatch path at codegen.
+    /// `args` is the call's argument list, without a receiver: a receiver
+    /// call through a qualified name writes it as the first argument.
+    TypePathCall {
+        type_name: String,
+        name: String,
+        args: Vec<CallArg>,
+        span: Span,
+    },
     /// `value.method(args)` where the receiver is a value rather than a name.
     ///
     /// A call on a name or a field chain is a path call, and the parser keeps

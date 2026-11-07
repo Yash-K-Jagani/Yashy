@@ -75,6 +75,9 @@ the declaration or import involved when that is not obvious.
 | [E1502](errors/E1502.md) | incomplete trait impl |
 | [E1503](errors/E1503.md) | unsatisfied bound |
 | [E1504](errors/E1504.md) | ambiguous method |
+| [E1506](errors/E1506.md) | method called through a type |
+| [E1507](errors/E1507.md) | associated function called through a value |
+| [E1508](errors/E1508.md) | unknown associated function |
 | [E1509](errors/E1509.md) | wrong number of type arguments |
 | [E1510](errors/E1510.md) | unused type parameter |
 | [E1511](errors/E1511.md) | generic trait outside the standard library |

@@ -101,7 +101,7 @@ fn a_static_method_needs_the_type_and_not_a_value() {
         "struct Point { x: int } \
          impl Point { fn origin() -> Point { return Point { x: 0 }; } } \
          fn main() { const p = Point { x: 1 }; const q = p.origin(); }",
-        "is a static method of `Point` and needs the type, not a value",
+        "is an associated function; call it as `Point::origin()`",
     );
 }
 
@@ -141,7 +141,7 @@ fn a_method_called_on_the_type_needs_a_receiver() {
     assert_error(
         "object Counter { value: int, fn get(self) -> int { return self.value; } } \
          fn main() { const n = Counter.get(); }",
-        "`Counter.get` is a method and needs a receiver",
+        "`get` is a method; call it on a value",
     );
 }
 
@@ -160,7 +160,7 @@ fn a_method_that_is_not_there_on_the_type_is_reported() {
     assert_error(
         "object Counter { value: int } \
          fn main() { const c = Counter.missing(); }",
-        "no method `missing` on `Counter`",
+        "`Counter` has no associated function `missing`",
     );
 }
 

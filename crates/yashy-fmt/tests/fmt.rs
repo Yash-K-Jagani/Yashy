@@ -232,6 +232,15 @@ fn generic_declaration_and_use_round_trip() {
 }
 
 #[test]
+fn a_type_path_call_round_trips() {
+    // `::` binds both halves with no air around it, and the trailing block
+    // still attaches the way a dotted call's does.
+    let source = "fn f() -> Point {\n    return Point::new(1, 2);\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), format(source));
+}
+
+#[test]
 fn a_trailing_block_argument_formats_as_a_block() {
     // The trailing block is a lambda in the last argument position: its brace
     // stays with the call, its body indents beneath it, and the closing brace

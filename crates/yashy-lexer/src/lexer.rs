@@ -628,6 +628,7 @@ fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, 
             }
         }
         (b':', Some(b'=')) => (2, K::ColonEq),
+        (b':', Some(b':')) => (2, K::ColonColon),
         (b'&', Some(b'&')) => (2, K::AndAnd),
         (b'|', Some(b'|')) => (2, K::OrOr),
         (b'&', Some(b'=')) => (2, K::AmpEq),
@@ -1072,7 +1073,7 @@ mod tests {
         for kind in [
             TokenKind::LParen, TokenKind::RParen, TokenKind::LBrace, TokenKind::RBrace,
             TokenKind::LBracket, TokenKind::RBracket, TokenKind::Comma, TokenKind::Semi,
-            TokenKind::Colon, TokenKind::ColonEq, TokenKind::Dot, TokenKind::DotDot,
+            TokenKind::Colon, TokenKind::ColonColon, TokenKind::ColonEq, TokenKind::Dot, TokenKind::DotDot,
             TokenKind::DotDotDot,
             TokenKind::Arrow, TokenKind::At, TokenKind::Question, TokenKind::Plus,
             TokenKind::Minus, TokenKind::Star, TokenKind::Slash, TokenKind::Percent,

@@ -621,6 +621,12 @@ fn generic_types_construct_and_read_one_monomorph_each() {
 }
 
 #[test]
+fn associated_functions_through_both_type_path_spellings() {
+    let output = build_and_run("associated_fns");
+    assert_eq!(stdout_of(&output), "3\n7\nshow\n");
+}
+
+#[test]
 fn a_static_method_is_called_on_the_type() {
     let output = build_and_run("object_new");
     assert_eq!(stdout_of(&output), "3\n");

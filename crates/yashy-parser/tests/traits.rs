@@ -8,7 +8,7 @@
 
 use yashy_common::{Diagnostic, SourceMap};
 use yashy_lexer::Lexer;
-use yashy_parser::ast::{Item, TypeExpr};
+use yashy_parser::ast::{Expr, Item, Stmt, TypeExpr};
 use yashy_parser::Parser;
 
 fn parse_src(src: &str) -> Result<yashy_parser::ast::Program, Vec<Diagnostic>> {
@@ -116,6 +116,36 @@ fn pub_trait_wraps_the_trait() {
         }
         other => panic!("expected a public wrapper, got {other:?}"),
     }
+}
+
+#[test]
+fn a_type_path_gets_both_of_its_names() {
+    let program = parse_ok("fn f() -> Point { return Point::new(1, 2); }");
+    let Item::Fn { body, .. } = &program.items[0] else {
+        panic!("expected a function item");
+    };
+    let Stmt::Return(Some(expr), _) = &body.stmts[0] else {
+        panic!("expected a return expression");
+    };
+    match expr {
+        Expr::TypePathCall {
+            type_name, name, args, ..
+        } => {
+            assert_eq!(type_name, "Point");
+            assert_eq!(name, "new");
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected a type-path call, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_third_segment_on_a_type_path_is_a_parse_error() {
+    let diags = parse_err("fn f() -> int { return a::b::c; }");
+    assert!(
+        messages(&diags).contains("a type path has two names"),
+        "the diagnostic says where `::` stops, got {diags:?}"
+    );
 }
 
 #[test]

@@ -636,6 +636,8 @@ fn expression_kind(expr: &Expr) -> &'static str {
         Expr::SwitchExpr { .. } => "a `switch`",
         Expr::MethodCall { .. } => "a method call",
         Expr::Lambda { .. } => "a lambda",
+        Expr::TypePath { .. } => "a type path",
+        Expr::TypePathCall { .. } => "a type-path call",
     }
 }
 
@@ -661,7 +663,9 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Try { span, .. }
         | Expr::SwitchExpr { span, .. }
         | Expr::MethodCall { span, .. }
-        | Expr::Lambda { span, .. } => *span,
+        | Expr::Lambda { span, .. }
+        | Expr::TypePath { span, .. }
+        | Expr::TypePathCall { span, .. } => *span,
     }
 }
 
@@ -729,6 +733,10 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         }
         Expr::Lambda { .. } => false,
         Expr::MethodCall { .. } => false,
+        Expr::TypePath { .. } => false,
+        Expr::TypePathCall { args, .. } => {
+            args.iter().any(|arg| mentions_const_fn(&arg.value, consts))
+        }
     }
 }
 
