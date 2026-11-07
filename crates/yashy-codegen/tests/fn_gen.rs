@@ -128,44 +128,47 @@ fn three_clause_for_lowers_to_a_counted_loop() {
 
 #[test]
 fn break_and_continue_branch_to_the_loop_labels() {
-    let ir_text = ir_of(
-        "fn f() { for i in 0..10 { if i == 3 { break; } if i == 5 { continue; } } }",
-    );
+    let ir_text =
+        ir_of("fn f() { for i in 0..10 { if i == 3 { break; } if i == 5 { continue; } } }");
     // Both targets exist as labels, and at least one branch names each.
     assert!(ir_text.contains("_done:"), "loop exit label:\n{ir_text}");
-    assert!(ir_text.contains("_inc:"), "loop increment label:\n{ir_text}");
     assert!(
-        ir_text.lines().any(|l| l.contains("br label %") && l.contains("_done")),
+        ir_text.contains("_inc:"),
+        "loop increment label:\n{ir_text}"
+    );
+    assert!(
+        ir_text
+            .lines()
+            .any(|l| l.contains("br label %") && l.contains("_done")),
         "`break` branches to the exit:\n{ir_text}"
     );
     assert!(
-        ir_text.lines().any(|l| l.contains("br label %") && l.contains("_inc")),
+        ir_text
+            .lines()
+            .any(|l| l.contains("br label %") && l.contains("_inc")),
         "`continue` branches to the increment:\n{ir_text}"
     );
 }
 
 #[test]
 fn defer_emits_in_reverse_order_before_return() {
-    let ir_text = ir_of(
-        "fn f() { print(1); defer { print(2); } defer { print(3); } return; }",
-    );
+    let ir_text = ir_of("fn f() { print(1); defer { print(2); } defer { print(3); } return; }");
     let three = ir_text
         .find("call i8* @yashy_str_from_i64(i64 3)")
         .expect("the second defer must be emitted");
     let two = ir_text
         .find("call i8* @yashy_str_from_i64(i64 2)")
         .expect("the first defer must be emitted");
-    assert!(
-        three < two,
-        "defers run last registered first:\n{ir_text}"
-    );
+    assert!(three < two, "defers run last registered first:\n{ir_text}");
 }
 
 #[test]
 fn defer_runs_on_the_return_path_only_once() {
     let ir_text = ir_of("fn f() { defer { print(7); } return; }");
     assert_eq!(
-        ir_text.matches("call i8* @yashy_str_from_i64(i64 7)").count(),
+        ir_text
+            .matches("call i8* @yashy_str_from_i64(i64 7)")
+            .count(),
         1,
         "the deferred body runs exactly once:\n{ir_text}"
     );
@@ -173,11 +176,11 @@ fn defer_runs_on_the_return_path_only_once() {
 
 #[test]
 fn nested_scope_defer_does_not_leak_to_the_outer_scope() {
-    let ir_text = ir_of(
-        "fn f() { for i in 0..1 { defer { print(9); } } return; }",
-    );
+    let ir_text = ir_of("fn f() { for i in 0..1 { defer { print(9); } } return; }");
     assert_eq!(
-        ir_text.matches("call i8* @yashy_str_from_i64(i64 9)").count(),
+        ir_text
+            .matches("call i8* @yashy_str_from_i64(i64 9)")
+            .count(),
         1,
         "a body defer fires at the body's exit, not the function's:\n{ir_text}"
     );
@@ -208,9 +211,7 @@ fn a_function_that_cannot_return_is_refused() {
         .tokenize()
         .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sm, file);
-    let ast = parser
-        .parse_program()
-        .expect("the program must parse");
+    let ast = parser.parse_program().expect("the program must parse");
     assert!(
         check_program(&ast, &sm, file).is_err(),
         "a function that returns nothing on one path is refused"
@@ -258,9 +259,8 @@ fn assignment_stores_into_the_bindings_own_slot() {
 #[test]
 fn assignment_inside_a_loop_body_accumulates() {
     // The reason the statement exists: a loop body that keeps a running total.
-    let ir_text = ir_of(
-        "fn f() -> int { let sum = 0; for i in 0..10 { sum = sum + i; } return sum; }",
-    );
+    let ir_text =
+        ir_of("fn f() -> int { let sum = 0; for i in 0..10 { sum = sum + i; } return sum; }");
     assert!(
         ir_text.contains("add i64"),
         "expected the accumulation to be computed:\n{ir_text}"
@@ -402,7 +402,10 @@ fn golden_dir() -> PathBuf {
 
 /// True when `UPDATE_GOLDEN=1` asks for the `.expected.ll` file to be rewritten.
 fn updating_goldens() -> bool {
-    matches!(std::env::var("UPDATE_GOLDEN").as_deref(), Ok("1") | Ok("true"))
+    matches!(
+        std::env::var("UPDATE_GOLDEN").as_deref(),
+        Ok("1") | Ok("true")
+    )
 }
 
 /// Read a golden file with line endings normalised to `\n`.
@@ -472,5 +475,24 @@ fn golden_panic_matches_the_pinned_contract() {
         actual, expected,
         "generated IR drifted from the pinned contract; \
          rerun with UPDATE_GOLDEN=1 only after checking the diff"
+    );
+}
+
+#[test]
+fn named_arguments_evaluate_in_source_order() {
+    // `f(b: second(), a: first())`: the values must be computed in the
+    // order the reader wrote them (second, then first), even though the
+    // call itself takes its arguments in parameter order.
+    let ir = ir_of(
+        "fn first() -> int { return 1; } \
+         fn second() -> int { return 2; } \
+         fn f(int a, int b) -> int { return a + b; } \
+         fn main() { let x = f(b: second(), a: first()); print(x); }",
+    );
+    let second_call = ir.find("call i64 @second").expect("second() is called");
+    let first_call = ir.find("call i64 @first").expect("first() is called");
+    assert!(
+        second_call < first_call,
+        "second() (named first in the source) is evaluated before first():\n{ir}"
     );
 }

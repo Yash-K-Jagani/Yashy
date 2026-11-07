@@ -55,7 +55,8 @@ use std::collections::{HashMap, HashSet};
 use yashy_common::Span;
 use yashy_parser::ast::Literal;
 use yashy_sema::{
-    expr_ty, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, Type, TypeKind, UnOp,
+    expr_ty, hir::expr_span, BinOp, CaptureSource, FaultSite, HirCapture, HirExpr, HirFn, Type,
+    TypeKind, UnOp,
 };
 
 use crate::escape::{AllocSite, ArenaId, Placement, Site};
@@ -1016,13 +1017,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
                         // A direct element read (`for i, x in xs`): the index
                         // is in range by construction, so the payload is the
                         // answer.
-                        return crate::slices::gen_index_direct(
-                            ctx,
-                            base,
-                            index,
-                            &ty.kind,
-                            proven,
-                        );
+                        return crate::slices::gen_index_direct(ctx, base, index, &ty.kind, proven);
                     }
                     if !proven {
                         ctx.module.note(
@@ -2067,7 +2062,7 @@ fn gen_call(
             // rather than the expression tree. The checker has already put the
             // declaration in scope under this name.
             if let Some(decl) = ctx.module.extern_decl(&name).cloned() {
-                let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
+                let lowered = gen_args_source_order(ctx, args);
                 if ctx.module.reporting() {
                     ctx.module.note(
                         OptKind::NotInlined,
@@ -2111,7 +2106,13 @@ fn gen_call(
                 | "str_debug_char" | "str_slice" | "str_debug" => {
                     gen_borrowed_call(ctx, &format!("yashy_{name}"), args, ty)
                 }
-                _ => gen_borrowed_call(ctx, &name, args, ty),
+                _ => {
+                    // Named arguments may arrive out of order in the source;
+                    // their side effects still run in source order, while the
+                    // call itself stays positional.
+                    let lowered = gen_args_source_order(ctx, args);
+                    gen_borrowed_call_lowered(ctx, &name, &lowered, ty)
+                }
             }
         }
     }
@@ -2442,8 +2443,43 @@ fn gen_borrowed_call(
     ty: &TypeKind,
 ) -> GenValue {
     let lowered: Vec<GenValue> = args.iter().map(|a| gen_expr(ctx, a)).collect();
-    let value = gen_lowered_call(ctx, symbol, &lowered, ty);
-    for argument in &lowered {
+    gen_borrowed_call_lowered(ctx, symbol, &lowered, ty)
+}
+
+/// Evaluate call arguments in source order, returning the values in HIR
+/// (parameter) order.
+///
+/// The HIR call is positional, so named arguments resolved out of order
+/// arrive reversed relative to the source. Evaluating them in HIR order
+/// would run their side effects in parameter order rather than the order
+/// the reader wrote (phase 7 review focus 4). The order key is the
+/// argument's span: user-written arguments ascend left to right, and any
+/// synthesized argument (a `const` default) has no side effects, so its
+/// placement is unobservable. The sort is stable, so equal spans keep
+/// their HIR order.
+fn gen_args_source_order(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> Vec<GenValue> {
+    let mut order: Vec<usize> = (0..args.len()).collect();
+    order.sort_by_key(|&index| expr_span(&args[index]).start);
+    let blank = GenValue {
+        value: String::new(),
+        ty: TypeKind::Unit,
+    };
+    let mut lowered = vec![blank; args.len()];
+    for &index in &order {
+        lowered[index] = gen_expr(ctx, &args[index]);
+    }
+    lowered
+}
+
+/// The call that [`gen_borrowed_call`] emits, over values already lowered.
+fn gen_borrowed_call_lowered(
+    ctx: &mut FnCtx<'_>,
+    symbol: &str,
+    lowered: &[GenValue],
+    ty: &TypeKind,
+) -> GenValue {
+    let value = gen_lowered_call(ctx, symbol, lowered, ty);
+    for argument in lowered.iter() {
         ctx.release_owned(&argument.value);
     }
     if matches!(ty, TypeKind::Str) {
