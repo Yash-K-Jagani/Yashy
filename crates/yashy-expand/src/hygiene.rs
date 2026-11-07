@@ -116,4 +116,47 @@ mod tests {
     fn the_mark_is_part_of_the_resolved_form() {
         assert_eq!(fresh_ident("tmp", 7), "tmp#7");
     }
+
+    #[test]
+    fn a_template_local_does_not_capture_a_caller_local() {
+        // `macro swap(a, b) { let tmp = $a; ... }` called where the caller
+        // already has a `tmp`: the template local carries the definition
+        // scope, the caller's `tmp` carries the caller's, and neither
+        // resolves to the other.
+        let definition = ScopeSet::single(0);
+        let caller = ScopeSet::single(1);
+        let template_tmp = ScopeSet::single(2) | definition;
+        let caller_tmp = caller;
+
+        assert!(resolves(caller_tmp, caller));
+        assert!(!resolves(caller_tmp, template_tmp));
+        assert!(!resolves(template_tmp, caller));
+    }
+
+    #[test]
+    fn a_caller_expression_keeps_resolving_in_the_caller() {
+        // `macro call_it(f) { $f(); }` invoked as `call_it(g)` where the caller
+        // has a local `g`: the substituted identifier keeps the caller's
+        // scope, so it resolves to the local, not to a top-level `g` in the
+        // definition scope.
+        let caller = ScopeSet::single(3);
+        let definition = ScopeSet::single(4);
+        let caller_g = caller;
+        let definition_g = definition;
+
+        assert!(resolves(caller_g, caller));
+        assert!(!resolves(definition_g, caller));
+    }
+
+    #[test]
+    fn two_expansions_of_one_macro_get_different_marks() {
+        let mut counter = MarkCounter::new();
+        let first = ScopeSet::single(counter.next());
+        let second = ScopeSet::single(counter.next());
+
+        assert_ne!(first, second);
+        assert!(resolves(first, first));
+        assert!(!resolves(first, second));
+        assert!(!resolves(second, first));
+    }
 }
