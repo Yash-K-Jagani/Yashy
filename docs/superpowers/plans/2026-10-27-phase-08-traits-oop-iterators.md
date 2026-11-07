@@ -394,11 +394,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: `E1401` when an iterator is used after `next` returned `None` on the same path (a terminal state, because the protocol does not promise resurrection). The check is path-sensitive and keyed on the concrete `Type.Iterator.next` callee; a call not preceded by a `None` observation is not diagnosed.
 - Produces: trait-call ownership is the *impl's* rule, looked up from the concrete callee's signature, not a default.
 
-- [ ] **Step 1: Write the failing tests** — a `pure` caller of a trait with an `io` impl is `E1300`; declaring the trait `pure` and writing an `io` impl is `E1300` at the impl; `it.next()` after `None` is `E1401`; a `next()` after `None` on a different branch is not diagnosed (no false positive); the two seeded bugs join the corpus.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — because Task 3 emits concrete trait-call symbols per instantiation, the effect and ownership passes need no join: they already walk each `HirExpr::Call`'s callee and its `HirFn` signature. The iterator terminal state is one rule in the typestate table keyed on the callee, reusing the file/mutex state machinery. Phase 2's fixpoint runs over the whole program, so traits add edges, not a second pass.
-- [ ] **Step 4: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
-- [ ] **Step 5: Commit** — `git commit -m "feat(verify): effects, ownership and typestate through traits"`
+- [x] **Step 1: Write the failing tests** — a `pure` caller of a trait with an `io` impl is `E1300`; declaring the trait `pure` and writing an `io` impl is `E1300` at the impl; `it.next()` after `None` is `E1401`; a `next()` after `None` on a different branch is not diagnosed (no false positive); the two seeded bugs join the corpus.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — because Task 3 emits concrete trait-call symbols per instantiation, the effect and ownership passes need no join: they already walk each `HirExpr::Call`'s callee and its `HirFn` signature. The iterator terminal state is one rule in the typestate table keyed on the callee, reusing the file/mutex state machinery. Phase 2's fixpoint runs over the whole program, so traits add edges, not a second pass.
+- [x] **Step 4: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
+- [x] **Step 5: Commit** — `git commit -m "feat(verify): effects, ownership and typestate through traits"`
 
 ---
 

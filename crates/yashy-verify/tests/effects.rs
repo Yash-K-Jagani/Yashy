@@ -60,6 +60,39 @@ fn a_pure_function_calling_an_io_function_is_rejected() {
 }
 
 #[test]
+fn a_pure_caller_of_a_trait_with_an_io_impl_is_rejected() {
+    // The trait call resolves to the one concrete impl, so the effect
+    // pass sees that impl's `print` and the `pure` caller breaks E1300.
+    let source = "\
+trait Show { fn show(self) -> string; }\n\
+struct P { n: int }\n\
+impl Show for P { fn show(self) -> string { print(self.n); return \"x\"; } }\n\
+pure fn f() { let p = P { n: 1 }; p.show(); }\n\
+fn main() { }";
+    assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
+}
+
+#[test]
+fn a_pure_trait_with_an_io_impl_is_rejected_at_the_impl() {
+    let source = "\
+pure trait Show { fn show(self) -> string; }\n\
+struct P { n: int }\n\
+impl Show for P { fn show(self) -> string { print(self.n); return \"x\"; } }\n\
+fn main() { }";
+    assert_eq!(codes(&verify_source(source)), vec!["E1300"]);
+}
+
+#[test]
+fn a_pure_trait_with_a_pure_impl_is_accepted() {
+    let source = "\
+pure trait Show { fn show(self) -> string; }\n\
+struct P { n: int }\n\
+impl Show for P { fn show(self) -> string { return \"x\"; } }\n\
+fn main() { }";
+    assert!(verify_source(source).diagnostics.is_empty());
+}
+
+#[test]
 fn mutual_recursion_terminates_and_propagates() {
     let source = "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { print(\"x\"); a(n); } fn main() { }";
     let report = verify_source(source);

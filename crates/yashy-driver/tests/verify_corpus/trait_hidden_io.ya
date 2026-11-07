@@ -1,0 +1,20 @@
+// E1300: a pure caller of a trait method whose one impl is io.
+trait Show { fn show(self) -> string; }
+
+struct P { n: int }
+
+impl Show for P {
+    fn show(self) -> string {
+        print(self.n);
+        return "x";
+    }
+}
+
+pure fn f() {
+    let p = P { n: 1 };
+    p.show();
+}
+
+fn main() {
+    print(0);
+}

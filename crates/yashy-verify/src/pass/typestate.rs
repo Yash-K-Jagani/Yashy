@@ -10,7 +10,9 @@
 
 use crate::typestate::ResourceState as State;
 use yashy_common::{codes, Diagnostic, FileId, Severity, Span};
-use yashy_hir::hir::{HirBlock, HirExpr, HirFn, HirItem, HirProgram, HirStmt, HirSwitchArm};
+use yashy_hir::hir::{
+    HirBlock, HirExpr, HirFn, HirItem, HirPattern, HirProgram, HirStmt, HirSwitchArm,
+};
 
 /// Run the typestate pass over `program`, pushing diagnostics into `out`.
 pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
@@ -41,6 +43,15 @@ struct Binding {
     /// Whether this binding is a tracked resource. Non-resource bindings are
     /// ignored.
     tracked: bool,
+    /// An iterator is `Open` until a `next` that returned `None` is
+    /// observed on this path, `Closed` after it. `iter_closed` means
+    /// definitely closed: closed on every path that reaches here (the
+    /// merge is an intersection, unlike resources where any terminal
+    /// path wins).
+    iter_closed: bool,
+    /// When this binding holds the result of `next()` on the named
+    /// iterator, matching it against `None` closes that iterator.
+    iter_src: Option<String>,
 }
 
 type Scope = Vec<Binding>;
@@ -105,6 +116,21 @@ impl TypestatePass<'_> {
                             span: *span,
                             state,
                             tracked: true,
+                            iter_closed: false,
+                            iter_src: None,
+                        });
+                    }
+                } else if let Some(src) = self.iterator_source(init) {
+                    // `let x = it.next()`: matching `x` against `None`
+                    // later closes `it`.
+                    if let Some(frame) = self.frames.last_mut() {
+                        frame.push(Binding {
+                            name: name.clone(),
+                            span: *span,
+                            state: State::Open,
+                            tracked: false,
+                            iter_closed: false,
+                            iter_src: Some(src),
                         });
                     }
                 }
@@ -127,6 +153,8 @@ impl TypestatePass<'_> {
                                 span: *span,
                                 state,
                                 tracked: true,
+                                iter_closed: false,
+                                iter_src: None,
                             });
                         }
                     }
@@ -231,10 +259,12 @@ impl TypestatePass<'_> {
             }
             HirStmt::Switch { subject, arms, .. } => {
                 self.walk(subject);
-                self.switch_arms(arms)
+                let source = self.iterator_source(subject);
+                self.switch_arms_with_source(arms, source.as_deref())
             }
             HirStmt::IfLet {
                 subject,
+                pattern,
                 then_block,
                 else_block,
                 ..
@@ -242,6 +272,17 @@ impl TypestatePass<'_> {
                 // A pattern binds a fresh value; a resource it carries is
                 // tracked from where it is used, as a `switch` arm's is.
                 self.walk(subject);
+                // `if let Some(x) = it.next()`: the then path saw `Some`
+                // (still open), the else path saw `None` (closed); a
+                // `None` pattern is the mirror image.
+                if let Some(source) = self.iterator_source(subject) {
+                    if pattern_is_some(pattern) {
+                        return self.branch_iter(then_block, else_block.as_ref(), false, true, &source);
+                    }
+                    if pattern_is_none(pattern) {
+                        return self.branch_iter(then_block, else_block.as_ref(), true, false, &source);
+                    }
+                }
                 self.branch(then_block, else_block.as_ref())
             }
             HirStmt::Break(_) => false,
@@ -284,7 +325,26 @@ impl TypestatePass<'_> {
                 self.walk(rhs);
             }
             HirExpr::Unary { operand, .. } => self.walk(operand),
-            HirExpr::Call { callee, args, .. } => {
+            HirExpr::Call { callee, args, span, .. } => {
+                // An `Iterator::next` call: the receiver is `Open` until a
+                // `None` is observed, `Closed` after it (terminal: the
+                // protocol does not promise resurrection).
+                if is_iterator_next(callee) {
+                    if let Some(name) = args.first().and_then(receiver_name) {
+                        self.ensure_iter_binding(&name, *span);
+                        let closed = self
+                            .find(&name)
+                            .map(|binding| binding.iter_closed)
+                            .unwrap_or(false);
+                        if closed {
+                            self.report_iter_after_done(&name, *span);
+                        }
+                    }
+                    for arg in args {
+                        self.walk(arg);
+                    }
+                    return;
+                }
                 // Determine if this is a state-changing transition.
                 let transition = transition_for(callee);
                 // Walk args, but for the resource arg of a transition, handle state.
@@ -421,7 +481,7 @@ impl TypestatePass<'_> {
         self.frames = entry;
     }
 
-    fn switch_arms(&mut self, arms: &[HirSwitchArm]) -> bool {
+    fn switch_arms_with_source(&mut self, arms: &[HirSwitchArm], source: Option<&str>) -> bool {
         if arms.is_empty() {
             return true;
         }
@@ -429,6 +489,12 @@ impl TypestatePass<'_> {
         let mut falling: Vec<StateFrames> = Vec::with_capacity(arms.len());
         for arm in arms {
             self.frames = entry.clone();
+            // A `None` arm observed the iterator's end on this path.
+            if let Some(source) = source {
+                if pattern_is_none(&arm.pattern) {
+                    self.mark_iter_closed(source);
+                }
+            }
             if let Some(guard) = &arm.guard {
                 self.walk(guard);
             }
@@ -438,6 +504,94 @@ impl TypestatePass<'_> {
         let merged = merge_states(&falling, self.out, self.file);
         self.frames = merged;
         true
+    }
+
+    /// Like [`Self::branch`], but one side observed `it.next()` ending:
+    /// `close_then`/`close_else` say which side saw `None`.
+    fn branch_iter(
+        &mut self,
+        then_block: &HirBlock,
+        else_block: Option<&HirBlock>,
+        close_then: bool,
+        close_else: bool,
+        source: &str,
+    ) -> bool {
+        let entry = self.frames.clone();
+        let mut falling: Vec<StateFrames> = Vec::new();
+        if close_then {
+            self.mark_iter_closed(source);
+        }
+        if self.block(then_block) {
+            falling.push(self.frames.clone());
+        }
+        self.frames = entry.clone();
+        if close_else {
+            self.mark_iter_closed(source);
+        }
+        match else_block {
+            Some(block) => {
+                if self.block(block) {
+                    falling.push(self.frames.clone());
+                }
+            }
+            None => falling.push(self.frames.clone()),
+        }
+        if falling.is_empty() {
+            self.frames = entry;
+            return false;
+        }
+        let merged = merge_states(&falling, self.out, self.file);
+        self.frames = merged;
+        true
+    }
+
+    /// The iterator a `next()` result flows from: the receiver of a
+    /// direct `it.next()`, or the iterator a binding holding such a
+    /// result was bound from.
+    fn iterator_source(&self, expr: &HirExpr) -> Option<String> {
+        match expr {
+            HirExpr::Call { callee, args, .. } if is_iterator_next(callee) => {
+                args.first().and_then(receiver_name)
+            }
+            HirExpr::Ident(path, ..) if path.len() == 1 => self
+                .find(path.first().unwrap())
+                .and_then(|binding| binding.iter_src.clone()),
+            _ => None,
+        }
+    }
+
+    fn ensure_iter_binding(&mut self, name: &str, span: Span) {
+        if self.find(name).is_none() {
+            if let Some(frame) = self.frames.last_mut() {
+                let _ = span;
+                frame.push(Binding {
+                    name: name.to_string(),
+                    span,
+                    state: State::Open,
+                    tracked: true,
+                    iter_closed: false,
+                    iter_src: None,
+                });
+            }
+        }
+    }
+
+    fn mark_iter_closed(&mut self, name: &str) {
+        if let Some(binding) = self.find_mut(name) {
+            binding.iter_closed = true;
+        }
+    }
+
+    fn report_iter_after_done(&mut self, name: &str, span: Span) {
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!("`{name}` is used after its iterator returned `None`"),
+            )
+            .with_code(codes::USE_AFTER_CLOSE),
+        );
     }
 
     fn find(&self, name: &str) -> Option<&Binding> {
@@ -479,6 +633,29 @@ impl TypestatePass<'_> {
             .with_code(codes::USE_AFTER_CLOSE),
         );
     }
+}
+
+/// Whether a callee is a concrete `Type.Iterator.next` symbol.
+fn is_iterator_next(callee: &[String]) -> bool {
+    callee.len() == 1 && callee[0].contains(".Iterator.next")
+}
+
+/// The binding a call's receiver names: `&it` for a pointer receiver, or
+/// a bare `it` for a by-value one.
+fn receiver_name(arg: &HirExpr) -> Option<String> {
+    match arg {
+        HirExpr::AddrOf { name, .. } => Some(name.clone()),
+        HirExpr::Ident(path, ..) if path.len() == 1 => path.first().cloned(),
+        _ => None,
+    }
+}
+
+fn pattern_is_some(pattern: &HirPattern) -> bool {
+    matches!(pattern, HirPattern::TupleVariant { path, .. } if path.last().map(|s| s.as_str()) == Some("Some"))
+}
+
+fn pattern_is_none(pattern: &HirPattern) -> bool {
+    matches!(pattern, HirPattern::UnitVariant { path, .. } if path.last().map(|s| s.as_str()) == Some("None"))
 }
 
 fn resource_state_of_init(expr: &HirExpr) -> Option<State> {
@@ -557,11 +734,30 @@ fn merge_states(states: &[StateFrames], out: &mut Vec<Diagnostic>, file: FileId)
                     state_set[0]
                 }
             };
+            // An iterator is definitely closed only when every falling
+            // path closed it: a `None` on one branch is not a `None` on
+            // the other, and diagnosing the join would be a false
+            // positive. `iter_src` survives the merge from any path.
+            let mut iter_closed = true;
+            let mut iter_src: Option<String> = None;
+            for s in states {
+                if scope_idx < s.len() && bind_idx < s[scope_idx].len() {
+                    let other = &s[scope_idx][bind_idx];
+                    iter_closed = iter_closed && other.iter_closed;
+                    if iter_src.is_none() {
+                        iter_src = other.iter_src.clone();
+                    }
+                } else {
+                    iter_closed = false;
+                }
+            }
             merged_scope.push(Binding {
                 name,
                 span,
                 state: merged_state,
                 tracked,
+                iter_closed,
+                iter_src,
             });
         }
         merged.push(merged_scope);

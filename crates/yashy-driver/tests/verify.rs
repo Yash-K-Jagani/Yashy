@@ -353,6 +353,11 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     // (E1509) and the unused parameter (E1510).
     ("generic_type_arity", 1, &["E1509"]),
     ("generic_type_unused_param", 1, &["E1510"]),
+    // Phase 8's verifier-through-traits rules: a pure caller of an io
+    // impl (E1300, through the concrete callee) and next() after None
+    // on the same path (E1401).
+    ("trait_hidden_io", 1, &["E1300"]),
+    ("iterator_after_done", 1, &["E1401"]),
 ];
 /// The `code` values in a schema-v1 report, in order.
 ///

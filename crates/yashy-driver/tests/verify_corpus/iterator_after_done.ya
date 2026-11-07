@@ -1,0 +1,21 @@
+// E1401: next() after the iterator returned None on the same path.
+trait Iterator { fn next(self: *mut Self) -> Option[int]; }
+
+struct Counter { n: int }
+
+impl Iterator for Counter {
+    fn next(self: *mut Self) -> Option[int] {
+        if self[0].n <= 0 { return None; }
+        self[0].n = self[0].n - 1;
+        return Some(self[0].n);
+    }
+}
+
+fn main() {
+    let c = Counter { n: 1 };
+    print(c.n);
+    if let None = c.next() {
+        if let Some(z) = c.next() { print(z); }
+    }
+    print(0);
+}

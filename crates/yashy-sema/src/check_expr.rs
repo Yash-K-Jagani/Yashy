@@ -304,6 +304,10 @@ struct TraitSig {
     /// The trait's own type parameters, in declaration order. Only the
     /// stdlib's `Iterator[T]` carries any; user generic traits are `E1511`.
     type_params: Vec<String>,
+    /// The effect the trait was declared with (`pure trait`), stamped onto
+    /// every impl body as its declared effect so an `io` impl is `E1300`
+    /// at the impl, in the verifier.
+    declared: yashy_common::DeclaredEffect,
 }
 
 /// A comprehension's synthesized builder function, checked after the
@@ -2831,8 +2835,16 @@ impl<'src> Checker<'src> {
                 // declared as usual, and marked as one another module may use.
                 Item::Public { item, .. } => self.declare_item(item, true),
                 // `pure`/`io`/`unsafe` are modifiers like `pub`: the item
-                // inside is declared as usual.
-                Item::Effect { item, .. } => self.declare_item(item, false),
+                // inside is declared as usual. A `pure trait` keeps its
+                // effect on the trait itself, so impls inherit it.
+                Item::Effect { effect, item, .. } => {
+                    self.declare_item(item, false);
+                    if let Item::Trait { name, .. } = (**item).clone() {
+                        if let Some(sig) = self.traits.get_mut(&name) {
+                            sig.declared = *effect;
+                        }
+                    }
+                }
                 other => self.declare_item(other, false),
             }
         }
@@ -3386,6 +3398,7 @@ impl<'src> Checker<'src> {
                     TraitSig {
                         methods: sigs,
                         type_params: type_params.iter().map(|p| p.name.clone()).collect(),
+                        declared: yashy_common::DeclaredEffect::Inferred,
                     },
                 );
                 self.record_origin(name, public);
@@ -4695,6 +4708,32 @@ impl<'src> Checker<'src> {
         };
         let mut items = Vec::new();
         for method in methods {
+            // The method's own effect wrapper (`pure fn` in the impl), else
+            // the trait's (`pure trait`), else inferred.
+            let method_declared = {
+                let mut current = method;
+                let mut found = yashy_common::DeclaredEffect::Inferred;
+                loop {
+                    match current {
+                        Item::Effect { effect, item, .. } => {
+                            found = *effect;
+                            current = item;
+                        }
+                        Item::Public { item, .. } | Item::Documented { item, .. } => {
+                            current = item
+                        }
+                        _ => break,
+                    }
+                }
+                if found == yashy_common::DeclaredEffect::Inferred {
+                    if let Some(t) = trait_name {
+                        if let Some(sig) = self.traits.get(t) {
+                            found = sig.declared;
+                        }
+                    }
+                }
+                found
+            };
             let Item::Fn {
                 name,
                 type_params,
@@ -4778,7 +4817,9 @@ impl<'src> Checker<'src> {
                 ensures: Vec::new(),
                 captures: Vec::new(),
                 effect: yashy_common::Effect::PURE,
-                declared: yashy_common::DeclaredEffect::Inferred,
+                // A `pure trait`'s impls are declared `pure`, so an `io`
+                // impl body is `E1300` at the impl in the verifier.
+                declared: method_declared,
                 file: self.file,
                 span: *span,
             }));
