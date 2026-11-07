@@ -114,6 +114,7 @@ enum Kind {
     Compile,
     Binary,
     Runtime,
+    Count,
 }
 
 fn kind_of(row: &str) -> Option<Kind> {
@@ -123,6 +124,10 @@ fn kind_of(row: &str) -> Option<Kind> {
         Some(Kind::Binary)
     } else if row.ends_with("_run_ms") {
         Some(Kind::Runtime)
+    } else if row == "instantiation_count" {
+        // Generic instantiations are a compile-time cost: a pass that
+        // instantiates more is held to the compile threshold.
+        Some(Kind::Count)
     } else {
         None
     }
@@ -182,7 +187,7 @@ impl Thresholds {
     pub fn for_row(&self, row: &str) -> Option<f64> {
         self.per_row.get(row).copied().or_else(|| {
             kind_of(row).map(|kind| match kind {
-                Kind::Compile => self.compile,
+                Kind::Compile | Kind::Count => self.compile,
                 Kind::Binary => self.binary,
                 Kind::Runtime => self.runtime,
             })
@@ -712,6 +717,20 @@ fib_run_ms=50.0
             "yashy-bench-{}-{name}-{n}.bench",
             std::process::id()
         ))
+    }
+
+    #[test]
+    #[test]
+    fn instantiation_count_is_a_gate_row() {
+        let parsed = measurement("instantiation_count=10\n");
+        assert_eq!(parsed.gate_rows(), vec!["instantiation_count"]);
+        assert_eq!(
+            Thresholds::default().for_row("instantiation_count"),
+            Some(DEFAULT_COMPILE_PCT)
+        );
+        let current = measurement("instantiation_count=13\n");
+        let results = compare(&parsed, &current, &Thresholds::default());
+        assert_eq!(row(&results, "instantiation_count").verdict, Verdict::Fail);
     }
 
     #[test]

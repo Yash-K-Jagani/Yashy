@@ -373,11 +373,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: `MAX_INSTANTIATIONS_PER_FN = 64`, `MAX_INSTANTIATIONS_TOTAL = 4096`, both named constants with the reason in a comment.
 - Produces: identical substitutions reuse one symbol (already true); `--timings` reports `instantiations=N`; exceeding a cap is `E1505` naming the generic function and the two call sites that pushed it over.
 
-- [ ] **Step 1: Write the failing tests** — 64 distinct instantiations of one generic function pass, 65 is `E1505`; the same substitution from 100 call sites is one instantiation; `--timings` reports the count.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the cache key is `(fn name, Vec<Type>)`; the cap is checked on insert, so the diagnostic fires at the call site that exceeded it. The budget is a *correctness* device as much as a speed one: unbounded monomorphisation is how compile times become unbounded, and the language would rather reject than hang.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema -p yashy-bench` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: cap and count monomorphisation (E1505)"`
+- [x] **Step 1: Write the failing tests** — 64 distinct instantiations of one generic function pass, 65 is `E1505`; the same substitution from 100 call sites is one instantiation; `--timings` reports the count.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the cache key is `(fn name, Vec<Type>)`; the cap is checked on insert, so the diagnostic fires at the call site that exceeded it. The budget is a *correctness* device as much as a speed one: unbounded monomorphisation is how compile times become unbounded, and the language would rather reject than hang.
+- [x] **Step 4: Run** `cargo test -p yashy-sema -p yashy-bench` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: cap and count monomorphisation (E1505)"`
 
 ---
 

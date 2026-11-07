@@ -44,6 +44,16 @@ use crate::ty::{Mutability, Type, TypeKind};
 /// Debug formatting (`${value:?}`), which synthesizes one printer per type.
 mod debug;
 
+/// The most distinct substitutions one generic function may be
+/// instantiated at. Past it the program is rejected rather than compiled:
+/// unbounded monomorphisation is how compile times become unbounded, and
+/// the language would rather reject than hang.
+pub const MAX_INSTANTIATIONS_PER_FN: usize = 64;
+
+/// The most instantiations one program may hold across all generic
+/// functions, for the same reason at program scale.
+pub const MAX_INSTANTIATIONS_TOTAL: usize = 4096;
+
 /// A declared struct: its fields, in declaration order.
 #[derive(Clone, Debug)]
 struct StructSig {
@@ -750,6 +760,16 @@ pub struct Checker<'src> {
     /// Mangled names already queued or emitted, so one substitution is checked
     /// once however many calls find it.
     instantiated: HashSet<String>,
+    /// Instantiations per generic function, for the budget.
+    ///
+    /// [`MAX_INSTANTIATIONS_PER_FN`] bounds one function; the total bounds
+    /// the program. Both are correctness devices as much as speed ones:
+    /// unbounded monomorphisation makes compile times unbounded, and the
+    /// language would rather reject than hang.
+    fn_instantiations: HashMap<String, usize>,
+    /// The call site that most recently pushed a function's count up, so a
+    /// budget error can name both sites that pushed it over.
+    fn_instantiation_site: HashMap<String, Span>,
     /// The instantiations currently being checked, innermost last.
     ///
     /// A call to a generic from inside its own instantiation is ordinary
@@ -1169,6 +1189,8 @@ impl<'src> Checker<'src> {
             bound_context: Vec::new(),
             pending_generics: Vec::new(),
             instantiated: HashSet::new(),
+            fn_instantiations: HashMap::new(),
+            fn_instantiation_site: HashMap::new(),
             active_generics: Vec::new(),
             borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
@@ -1710,6 +1732,7 @@ impl<'src> Checker<'src> {
         if self.errors.is_empty() {
             Ok(HirProgram {
                 items,
+                instantiations: self.instantiated.len() + self.type_monomorphs.len(),
                 uses_threads: self.uses_threads,
             })
         } else {
@@ -4312,6 +4335,44 @@ impl<'src> Checker<'src> {
                 return mangled;
             }
         }
+        // The budget, checked on insert so the diagnostic fires at the call
+        // site that exceeded it.
+        let count = self.fn_instantiations.get(name).copied().unwrap_or(0) + 1;
+        if count > MAX_INSTANTIATIONS_PER_FN {
+            let first = self.fn_instantiation_site.get(name).copied();
+            let mut error = TypeError::new(
+                span,
+                format!(
+                    "`{name}` was instantiated {count} times: the budget is \
+                     {MAX_INSTANTIATIONS_PER_FN} instantiations per function"
+                ),
+            )
+            .with_code(codes::INSTANTIATION_BUDGET);
+            if let Some(first) = first {
+                let a = self.sm.locate(self.file, first);
+                let b = self.sm.locate(self.file, span);
+                error = error.with_label(format!(
+                    "the first instantiation was at {}:{}, this one at {}:{}",
+                    a.line, a.col, b.line, b.col,
+                ));
+            }
+            self.errors.push((self.file, error));
+            return mangled;
+        }
+        if self.instantiated.len() + 1 > MAX_INSTANTIATIONS_TOTAL {
+            self.error_code(
+                span,
+                codes::INSTANTIATION_BUDGET,
+                format!(
+                    "the program was instantiated {} times: the budget is \
+                     {MAX_INSTANTIATIONS_TOTAL} instantiations in total",
+                    self.instantiated.len() + 1,
+                ),
+            );
+            return mangled;
+        }
+        self.fn_instantiations.insert(name.to_string(), count);
+        self.fn_instantiation_site.insert(name.to_string(), span);
         self.instantiated.insert(mangled.clone());
         self.pending_generics.push(Instantiation {
             name: name.to_string(),

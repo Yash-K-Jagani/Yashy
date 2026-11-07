@@ -93,6 +93,11 @@ pub enum TimingRow {
         /// Which stage just finished.
         stage: &'static str,
     },
+    /// How many generic instantiations the program holds.
+    Instantiations {
+        /// Distinct generic substitutions plus monomorphised types.
+        count: usize,
+    },
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
@@ -807,6 +812,11 @@ pub fn load_and_check_exports_timed(
     })?;
     if stats.hits + stats.misses > 0 {
         timings.push(TimingRow::Query(stats));
+    }
+    if hir.instantiations > 0 {
+        timings.push(TimingRow::Instantiations {
+            count: hir.instantiations,
+        });
     }
     Ok((hir, exports))
 }

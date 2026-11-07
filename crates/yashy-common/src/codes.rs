@@ -126,6 +126,8 @@ pub const INCOMPLETE_IMPL: &str = "E1502";
 pub const UNSATISFIED_BOUND: &str = "E1503";
 /// A method name is provided by two trait impls for one type.
 pub const AMBIGUOUS_METHOD: &str = "E1504";
+/// A generic function or program is instantiated past its budget.
+pub const INSTANTIATION_BUDGET: &str = "E1505";
 /// A type path names a method that needs a receiver.
 pub const METHOD_THROUGH_TYPE: &str = "E1506";
 /// A method calling an associated function through a value.
@@ -438,6 +440,12 @@ pub const CODES: &[Code] = &[
         title: "ambiguous method",
         summary: "Two trait impls for one type provide the same method, so the call has two targets.",
         page: include_str!("../../../docs/errors/E1504.md"),
+    },
+    Code {
+        id: INSTANTIATION_BUDGET,
+        title: "instantiation budget exceeded",
+        summary: "A generic function or program is instantiated past its budget.",
+        page: include_str!("../../../docs/errors/E1505.md"),
     },
     Code {
         id: METHOD_THROUGH_TYPE,

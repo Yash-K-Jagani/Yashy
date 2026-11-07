@@ -191,6 +191,29 @@ fn timings_go_to_stderr_and_the_json_report_and_never_to_stdout() {
     assert!(!json.contains("\"phase\": \"link\""), "{json}");
 }
 
+#[test]
+fn timings_report_the_instantiation_count() {
+    let dir = work_dir("timings-instantiations");
+    write(
+        &dir,
+        "main.ya",
+        "fn id[T](T x) -> T { return x; }\nfn f() -> int { return id(1) + id(2); }\n",
+    );
+    let output = run(&dir, &["check", "--timings", "main.ya"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let report = stderr(&output);
+    assert!(
+        report.contains("instantiations=1"),
+        "one substitution, one instantiation:\n{report}"
+    );
+
+    let json = run(&dir, &["check", "--json", "--timings", "main.ya"]);
+    let out = stdout(&json);
+    assert_eq!(json.status.code(), Some(0), "{out}");
+    assert!(out.contains("\"phase\": \"monomorphise\""), "{out}");
+    assert!(out.contains("\"instantiations\": 1"), "{out}");
+}
+
 /// `test --timings` reports the suite once, not once per test: five lines per
 /// test would be unreadable at a hundred tests, and the question is where the
 /// run's wall time went.

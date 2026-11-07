@@ -20,6 +20,10 @@ pub use yashy_parser::ast::ReprKind;
 #[derive(Clone, Debug, PartialEq)]
 pub struct HirProgram {
     pub items: Vec<HirItem>,
+    /// How many generic instantiations the program holds: distinct generic
+    /// substitutions plus monomorphised generic types. Reported by
+    /// `--timings` as `instantiations=N`.
+    pub instantiations: usize,
     /// Whether the program contains a `thread_spawn` call.
     ///
     /// The backend reads this to choose the atomic string refcount pair. It is

@@ -14,7 +14,10 @@ pub use yashy_hir::{exhaustive, hir, ty};
 /// The ownership rules are the verifier's; `yashy-sema` only asks them.
 pub use yashy_verify::ownership;
 
-pub use check_expr::{check_modules_with, check_program, check_program_with, CheckOptions};
+pub use check_expr::{
+    check_modules_with, check_program, check_program_with, CheckOptions,
+    MAX_INSTANTIATIONS_PER_FN, MAX_INSTANTIATIONS_TOTAL,
+};
 pub use check_pat::check_pattern;
 pub use const_eval::{ConstFn, ConstValue};
 pub use error::TypeError;

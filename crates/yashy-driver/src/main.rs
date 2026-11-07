@@ -1330,6 +1330,10 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("phase", Json::string("pgo"));
                             entry.set("stage", Json::string(*stage));
                         }
+                        TimingRow::Instantiations { count } => {
+                            entry.set("phase", Json::string("monomorphise"));
+                            entry.set("instantiations", Json::number(*count as i64));
+                        }
                     }
                     entry
                 })
@@ -1413,6 +1417,13 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                     total.push(timing.clone());
                 }
             }
+            TimingRow::Instantiations { count } => match total.iter_mut().find_map(|seen| match seen {
+                TimingRow::Instantiations { count } => Some(count),
+                _ => None,
+            }) {
+                Some(seen) => *seen = (*seen).max(*count),
+                None => total.push(timing.clone()),
+            },
         }
     }
 }
@@ -1439,6 +1450,7 @@ fn report_timings(timings: &[TimingRow]) {
             }
             TimingRow::Lto { mode } => eprintln!("lto={mode}"),
             TimingRow::Pgo { stage } => eprintln!("pgo={stage}"),
+            TimingRow::Instantiations { count } => eprintln!("instantiations={count}"),
         }
     }
 }

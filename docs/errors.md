@@ -75,6 +75,7 @@ the declaration or import involved when that is not obvious.
 | [E1502](errors/E1502.md) | incomplete trait impl |
 | [E1503](errors/E1503.md) | unsatisfied bound |
 | [E1504](errors/E1504.md) | ambiguous method |
+| [E1505](errors/E1505.md) | instantiation budget exceeded |
 | [E1506](errors/E1506.md) | method called through a type |
 | [E1507](errors/E1507.md) | associated function called through a value |
 | [E1508](errors/E1508.md) | unknown associated function |
