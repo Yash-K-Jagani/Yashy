@@ -74,6 +74,8 @@ the declaration or import involved when that is not obvious.
 | [E1501](errors/E1501.md) | conflicting trait impl |
 | [E1502](errors/E1502.md) | incomplete trait impl |
 | [E1503](errors/E1503.md) | unsatisfied bound |
+| [E1509](errors/E1509.md) | wrong number of type arguments |
+| [E1510](errors/E1510.md) | unused type parameter |
 | [E1511](errors/E1511.md) | generic trait outside the standard library |
 | [E2000](errors/E2000.md) | unused binding |
 | [E2001](errors/E2001.md) | unused import |

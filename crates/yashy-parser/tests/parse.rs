@@ -85,6 +85,7 @@ fn full_program(spans: &mut Spans) -> Program {
         // Item::Struct, with a FieldDef.
         Item::Struct {
             name: "P".to_string(),
+            type_params: Vec::new(),
             fields: vec![FieldDef {
                 name: "x".to_string(),
                 ty: TypeExpr::Name("float".to_string(), spans.take()),
@@ -99,6 +100,7 @@ fn full_program(spans: &mut Spans) -> Program {
         // and one carrying a named one -- the two shapes of payload.
         Item::Enum {
             name: "C".to_string(),
+            type_params: Vec::new(),
             variants: vec![
                 VariantDef {
                     name: "Red".to_string(),
@@ -606,22 +608,24 @@ fn debug_names_every_item_type_variant_and_its_fields() {
             "Item::Struct",
             Item::Struct {
                 name: "S".to_string(),
+                type_params: Vec::new(),
                 fields: Vec::new(),
                 repr: None,
                 span: here(),
             },
-            &["Struct", "name", "fields", "repr", "span"],
+            &["Struct", "name", "type_params", "fields", "repr", "span"],
             &["Import", "Enum", "Fn", "Extern"],
         ),
         case(
             "Item::Enum",
             Item::Enum {
                 name: "E".to_string(),
+                type_params: Vec::new(),
                 variants: Vec::new(),
                 repr: None,
                 span: here(),
             },
-            &["Enum", "name", "variants", "repr", "span"],
+            &["Enum", "name", "type_params", "variants", "repr", "span"],
             &["Import", "Struct", "Fn", "Extern"],
         ),
         case(

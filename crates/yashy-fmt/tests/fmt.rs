@@ -223,6 +223,15 @@ fn a_trait_prints_each_signature_on_its_own_line() {
 }
 
 #[test]
+fn generic_declaration_and_use_round_trip() {
+    // Type parameters, bounds and uses are tokens: the formatter keeps their
+    // spacing stable and reaches a fixed point on the second pass.
+    let source = "struct Pair[T] {\n    first: T,\n    second: T\n}\n\nfn f(Pair[int] p) -> int {\n    return 0;\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), format(source));
+}
+
+#[test]
 fn a_trailing_block_argument_formats_as_a_block() {
     // The trailing block is a lambda in the last argument position: its brace
     // stays with the call, its body indents beneath it, and the closing brace

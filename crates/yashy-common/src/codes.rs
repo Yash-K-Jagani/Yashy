@@ -124,6 +124,10 @@ pub const INCOMPLETE_IMPL: &str = "E1502";
 /// An argument type does not satisfy a type parameter's bound, or a method
 /// on a type parameter is not provided by any of its bounds.
 pub const UNSATISFIED_BOUND: &str = "E1503";
+/// A generic type is used with the wrong number of type arguments.
+pub const WRONG_TYPE_ARG_COUNT: &str = "E1509";
+/// A declared type parameter is used by no field or payload.
+pub const UNUSED_TYPE_PARAMETER: &str = "E1510";
 /// A user trait carries type parameters.
 pub const GENERIC_TRAIT: &str = "E1511";
 /// A statement cannot be reached.
@@ -420,6 +424,18 @@ pub const CODES: &[Code] = &[
         title: "unsatisfied bound",
         summary: "An argument type does not implement a type parameter's bound, or a method on a type parameter is not provided by any of its bounds.",
         page: include_str!("../../../docs/errors/E1503.md"),
+    },
+    Code {
+        id: WRONG_TYPE_ARG_COUNT,
+        title: "wrong number of type arguments",
+        summary: "A generic type is written with a different number of type arguments than it declares, or with none.",
+        page: include_str!("../../../docs/errors/E1509.md"),
+    },
+    Code {
+        id: UNUSED_TYPE_PARAMETER,
+        title: "unused type parameter",
+        summary: "A generic type declares a type parameter that no field or variant payload uses.",
+        page: include_str!("../../../docs/errors/E1510.md"),
     },
     Code {
         id: GENERIC_TRAIT,

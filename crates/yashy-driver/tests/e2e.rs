@@ -615,6 +615,12 @@ fn an_object_declaration_carries_its_methods() {
 }
 
 #[test]
+fn generic_types_construct_and_read_one_monomorph_each() {
+    let output = build_and_run("generic_types");
+    assert_eq!(stdout_of(&output), "3\na\nb\nk\n3\nv\n7\n");
+}
+
+#[test]
 fn a_static_method_is_called_on_the_type() {
     let output = build_and_run("object_new");
     assert_eq!(stdout_of(&output), "3\n");

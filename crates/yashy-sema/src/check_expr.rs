@@ -111,6 +111,33 @@ struct EnumSig {
     repr_c: bool,
 }
 
+/// A generic struct: its fields unresolved, mentions of its type parameters
+/// still in them.
+///
+/// A generic type is a scheme: it has no layout until its type arguments
+/// pick one out. Instantiating it at `Pair[i64]` produces one monomorphic
+/// object type per argument tuple, interned under the mangled name in
+/// `structs`, and every existing rule -- layout, ownership, code generation
+/// -- applies to the monomorph unchanged.
+#[derive(Clone, Debug)]
+struct StructScheme {
+    /// The type parameters, in declaration order, with their bounds.
+    type_params: Vec<TypeParam>,
+    fields: Vec<yashy_parser::ast::FieldDef>,
+    repr_c: bool,
+    origin: ItemOrigin,
+    span: Span,
+}
+
+/// A generic enum, as [`StructScheme`] is for structs.
+#[derive(Clone, Debug)]
+struct EnumScheme {
+    type_params: Vec<TypeParam>,
+    variants: Vec<VariantDef>,
+    repr_c: bool,
+    span: Span,
+}
+
 /// The checker's declaration tables, seen through [`Decls`].
 ///
 /// The layout walk cannot see the program, so the checker hands it the two
@@ -424,6 +451,117 @@ fn mangled_type_name(ty: &Type) -> String {
     }
 }
 
+/// The type names a type expression mentions: a generic's base and its
+/// arguments included, so an unused-parameter check sees the `T` inside
+/// `Pair[T]`.
+fn collect_type_names(ty: &TypeExpr, out: &mut Vec<String>) {
+    match ty {
+        TypeExpr::Name(name, _) => out.push(name.clone()),
+        TypeExpr::Generic { name, args, .. } => {
+            out.push(name.clone());
+            for arg in args {
+                collect_type_names(arg, out);
+            }
+        }
+        TypeExpr::Ptr { pointee, .. }
+        | TypeExpr::FixedArray(pointee, _, _)
+        | TypeExpr::View(pointee, _)
+        | TypeExpr::Slice(pointee, _)
+        | TypeExpr::Option(pointee, _)
+        | TypeExpr::Channel(pointee, _) => collect_type_names(pointee, out),
+        TypeExpr::Result(ok, err, _) | TypeExpr::Map(ok, err, _) => {
+            collect_type_names(ok, out);
+            collect_type_names(err, out);
+        }
+        TypeExpr::Fn { params, ret, .. } => {
+            for param in params {
+                collect_type_names(param, out);
+            }
+            collect_type_names(ret, out);
+        }
+        TypeExpr::Tuple(items, _) => {
+            for item in items {
+                collect_type_names(item, out);
+            }
+        }
+        TypeExpr::Unit(_) => {}
+    }
+}
+
+/// Replace the type parameters in a type expression with the arguments of
+/// the instantiation it belongs to, by name.
+///
+/// Used to store a monomorph enum's variants in terms of its arguments, so
+/// a pattern resolves its payloads against the monomorph rather than the
+/// scheme.
+fn substitute_type_expr(ty: &TypeExpr, subst: &[(String, TypeExpr)]) -> TypeExpr {
+    match ty {
+        TypeExpr::Name(name, span)
+            if subst.iter().any(|(param, _)| param == name) =>
+        {
+            subst
+                .iter()
+                .find(|(param, _)| param == name)
+                .map(|(_, arg)| arg.clone())
+                .unwrap_or_else(|| TypeExpr::Name(name.clone(), *span))
+        }
+        TypeExpr::Ptr { kind, pointee, span } => TypeExpr::Ptr {
+            kind: *kind,
+            pointee: Box::new(substitute_type_expr(pointee, subst)),
+            span: *span,
+        },
+        TypeExpr::FixedArray(element, length, span) => TypeExpr::FixedArray(
+            Box::new(substitute_type_expr(element, subst)),
+            *length,
+            *span,
+        ),
+        TypeExpr::View(element, span) => TypeExpr::View(
+            Box::new(substitute_type_expr(element, subst)),
+            *span,
+        ),
+        TypeExpr::Slice(element, span) => TypeExpr::Slice(
+            Box::new(substitute_type_expr(element, subst)),
+            *span,
+        ),
+        TypeExpr::Option(inner, span) => TypeExpr::Option(
+            Box::new(substitute_type_expr(inner, subst)),
+            *span,
+        ),
+        TypeExpr::Channel(element, span) => TypeExpr::Channel(
+            Box::new(substitute_type_expr(element, subst)),
+            *span,
+        ),
+        TypeExpr::Result(ok, err, span) => TypeExpr::Result(
+            Box::new(substitute_type_expr(ok, subst)),
+            Box::new(substitute_type_expr(err, subst)),
+            *span,
+        ),
+        TypeExpr::Map(key, value, span) => TypeExpr::Map(
+            Box::new(substitute_type_expr(key, subst)),
+            Box::new(substitute_type_expr(value, subst)),
+            *span,
+        ),
+        TypeExpr::Fn { params, ret, span } => TypeExpr::Fn {
+            params: params
+                .iter()
+                .map(|param| substitute_type_expr(param, subst))
+                .collect(),
+            ret: Box::new(substitute_type_expr(ret, subst)),
+            span: *span,
+        },
+        TypeExpr::Tuple(items, span) => TypeExpr::Tuple(
+            items.iter().map(|item| substitute_type_expr(item, subst)).collect(),
+            *span,
+        ),
+        TypeExpr::Generic { name, args, span } => TypeExpr::Generic {
+            name: name.clone(),
+            args: args.iter().map(|arg| substitute_type_expr(arg, subst)).collect(),
+            span: *span,
+        },
+        TypeExpr::Unit(_) | TypeExpr::Name(_, _) => ty.clone(),
+    }
+}
+
 /// How a declared type is written, for a diagnostic.
 ///
 /// The checker's own [`Type`] describes the same thing, but a message about an
@@ -454,6 +592,10 @@ fn type_expr_name(ty: &TypeExpr) -> String {
         TypeExpr::Tuple(items, _) => {
             let items: Vec<String> = items.iter().map(type_expr_name).collect();
             format!("({})", items.join(", "))
+        }
+        TypeExpr::Generic { name, args, .. } => {
+            let args: Vec<String> = args.iter().map(type_expr_name).collect();
+            format!("{name}[{}]", args.join(", "))
         }
         TypeExpr::Unit(_) => "void".to_string(),
     }
@@ -607,6 +749,24 @@ pub struct Checker<'src> {
     /// the same shape a function's is; what is different is where it is
     /// called from and that it is found by the type rather than by the name.
     methods: HashMap<String, MethodSig>,
+    /// The generic structs, by declared name.
+    struct_schemes: HashMap<String, StructScheme>,
+    /// The generic enums, by declared name.
+    enum_schemes: HashMap<String, EnumScheme>,
+    /// Monomorphised generic types: mangled name to (scheme name, type
+    /// arguments). One entry per argument tuple, so one type per tuple --
+    /// never one per use site.
+    type_monomorphs: HashMap<String, Vec<Type>>,
+    /// Mangled name to the scheme it was instantiated from, so a monomorph
+    /// can be told from its scheme at a unification site.
+    monomorph_schemes: HashMap<String, String>,
+    /// The monomorphs currently being interned, outermost last. A type that
+    /// names itself in one of its own fields (`struct Node { next: Node }`)
+    /// instantiates forever without this guard.
+    instantiating: Vec<String>,
+    /// The monomorphised types, in first-use order, so the HIR emits one
+    /// definition per monomorph after everything is checked.
+    instantiated_types: Vec<String>,
     /// The traits declared in the program, by name: the requirement sets
     /// `impl Trait for Type` blocks are checked against.
     traits: BTreeMap<String, TraitSig>,
@@ -986,6 +1146,12 @@ impl<'src> Checker<'src> {
             active_generics: Vec::new(),
             borrowed_bindings: Vec::new(),
             methods: HashMap::new(),
+            struct_schemes: HashMap::new(),
+            enum_schemes: HashMap::new(),
+            type_monomorphs: HashMap::new(),
+            monomorph_schemes: HashMap::new(),
+            instantiating: Vec::new(),
+            instantiated_types: Vec::new(),
             traits: BTreeMap::new(),
             trait_impls: BTreeMap::new(),
             self_type: None,
@@ -1488,6 +1654,11 @@ impl<'src> Checker<'src> {
         // asked for. This has to follow every module: a generic body may call
         // anything the program declares.
         self.instantiate_generics(&mut items);
+        // The monomorphised generic types, so code generation emits one
+        // definition per monomorph: it reads named types from the HIR, and a
+        // monomorph that only a pattern or a field mentions would otherwise
+        // never be defined.
+        items.extend(self.monomorph_items());
         // The printers are ordinary functions with synthesized bodies. They are
         // appended after every generic body has been checked, because a generic
         // instantiation is one of the places a `${value:?}` part can appear.
@@ -1738,6 +1909,353 @@ impl<'src> Checker<'src> {
         );
     }
 
+    /// Check every bound of every type parameter against the argument types.
+    ///
+    /// A miss is `E1503` naming the type, the trait and where the impl
+    /// belongs; a bound on an undeclared trait was already reported where the
+    /// parameter was declared. `required_by` is what the message names as
+    /// the thing demanding the bound: the function for a call, the generic
+    /// type for an instantiation.
+    fn check_type_args_bounds(
+        &mut self,
+        params: &[TypeParam],
+        arg_tys: &[Type],
+        span: Span,
+        required_by: &str,
+    ) {
+        for (param, concrete) in params.iter().zip(arg_tys.iter()) {
+            for bound in &param.bounds {
+                if !self.traits.contains_key(bound) {
+                    continue;
+                }
+                let satisfies = match &concrete.kind {
+                    TypeKind::Struct(type_name) | TypeKind::Enum(type_name) => {
+                        self.trait_impls
+                            .contains_key(&(bound.clone(), type_name.clone()))
+                    }
+                    _ => false,
+                };
+                if !satisfies {
+                    self.error_code(
+                        span,
+                        codes::UNSATISFIED_BOUND,
+                        format!(
+                            "`{concrete}` does not implement `{bound}` required by \
+                             `{required_by}`{}",
+                            self.impl_needs_line(concrete, bound),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Intern every valid generic type in a type expression.
+    ///
+    /// Resolution itself is pure (it cannot intern), so the reporting
+    /// wrappers walk the tree first. Each `Name[args..]` whose name is a
+    /// declared generic type and whose arity matches is bounds-checked and
+    /// interned once per argument tuple. Anything else is left for the pure
+    /// resolution to report once, at the use site.
+    fn intern_generics_in(&mut self, ty: &TypeExpr) {
+        match ty {
+            TypeExpr::Generic { name, args, span } => {
+                self.intern_generic(name, args, *span);
+            }
+            TypeExpr::Ptr { pointee, .. }
+            | TypeExpr::FixedArray(pointee, _, _)
+            | TypeExpr::View(pointee, _)
+            | TypeExpr::Slice(pointee, _)
+            | TypeExpr::Option(pointee, _)
+            | TypeExpr::Channel(pointee, _) => self.intern_generics_in(pointee),
+            TypeExpr::Result(ok, err, _) | TypeExpr::Map(ok, err, _) => {
+                self.intern_generics_in(ok);
+                self.intern_generics_in(err);
+            }
+            TypeExpr::Tuple(items, _) => {
+                for item in items {
+                    self.intern_generics_in(item);
+                }
+            }
+            TypeExpr::Fn { params, ret, .. } => {
+                for param in params {
+                    self.intern_generics_in(param);
+                }
+                self.intern_generics_in(ret);
+            }
+            _ => {}
+        }
+    }
+
+    /// Bounds-check and intern one generic use, `Name[args..]`.
+    fn intern_generic(&mut self, name: &str, args: &[TypeExpr], span: Span) {
+        let params: Vec<TypeParam> = if let Some(scheme) = self.struct_schemes.get(name) {
+            scheme.type_params.clone()
+        } else if let Some(scheme) = self.enum_schemes.get(name) {
+            scheme.type_params.clone()
+        } else {
+            return;
+        };
+        if args.len() != params.len() {
+            return;
+        }
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for arg in args {
+            // Deeper generics first, so their monomorphs exist before the
+            // fields of this one resolve through them.
+            self.intern_generics_in(arg);
+            match self.resolve_type(arg) {
+                Ok(ty) => arg_tys.push(ty),
+                // The pure resolution reports this once; nothing to intern.
+                Err(_) => return,
+            }
+        }
+        // Bounds fire at every use, whether or not the monomorph is new.
+        self.check_type_args_bounds(&params, &arg_tys, span, name);
+        self.intern_monomorph(name, &params, args, arg_tys, span);
+    }
+
+    /// Intern one monomorph: resolve the scheme's fields with the arguments
+    /// substituted, and record the argument tuple.
+    ///
+    /// One monomorphic type per argument tuple, named by the same mangled
+    /// name generic functions use, and emitted once (see
+    /// `instantiated_types`). The recursion guard is what keeps a type
+    /// naming itself in its own fields from instantiating forever.
+    fn intern_monomorph(
+        &mut self,
+        name: &str,
+        params: &[TypeParam],
+        args: &[TypeExpr],
+        arg_tys: Vec<Type>,
+        span: Span,
+    ) {
+        let mangled = mangled_generic_name(name, &arg_tys);
+        self.monomorph_schemes
+            .insert(mangled.clone(), name.to_string());
+        self.type_monomorphs
+            .insert(mangled.clone(), arg_tys.clone());
+        let is_struct = self.struct_schemes.contains_key(name);
+        if (is_struct && self.structs.contains_key(&mangled))
+            || (!is_struct && self.enums.contains_key(&mangled))
+        {
+            return;
+        }
+        if self.instantiating.contains(&mangled) {
+            self.error(
+                span,
+                format!(
+                    "`{name}` names itself in its own fields: a recursive type needs a pointer"
+                ),
+            );
+            return;
+        }
+        self.instantiating.push(mangled.clone());
+        let origin_file = self
+            .item_origins
+            .get(name)
+            .map(|origin| origin.file)
+            .unwrap_or(self.file);
+        let outer_file = std::mem::replace(&mut self.file, origin_file);
+        let outer_subst = std::mem::replace(
+            &mut self.type_subst,
+            params
+                .iter()
+                .zip(arg_tys.iter())
+                .map(|(param, arg)| (param.name.clone(), arg.clone()))
+                .collect(),
+        );
+        if is_struct {
+            let scheme = self.struct_schemes[name].clone();
+            let allow_c = scheme.repr_c;
+            let mut field_tys = Vec::with_capacity(scheme.fields.len());
+            for field in &scheme.fields {
+                let ty = self.resolve_or_report_field(&field.ty, field.span, allow_c);
+                if matches!(ty.kind, TypeKind::Func(_, _)) {
+                    self.error(field.span, "a struct field cannot have a function type yet");
+                }
+                field_tys.push((field.name.clone(), ty));
+            }
+            let field_public: Vec<bool> = scheme.fields.iter().map(|f| f.public).collect();
+            let defaults: Vec<Option<HirExpr>> = scheme
+                .fields
+                .iter()
+                .zip(field_tys.iter())
+                .map(|(field, (_, ty))| match &field.default {
+                    Some(default) => self.check_field_default(default, ty, field.span),
+                    None => None,
+                })
+                .collect();
+            self.structs.insert(
+                mangled.clone(),
+                StructSig {
+                    fields: field_tys,
+                    field_public,
+                    defaults,
+                    repr_c: scheme.repr_c,
+                    origin: scheme.origin,
+                },
+            );
+        } else {
+            let scheme = self.enum_schemes[name].clone();
+            let allow_c = scheme.repr_c;
+            let mut payloads = Vec::with_capacity(scheme.variants.len());
+            for variant in &scheme.variants {
+                if scheme.repr_c && !variant.fields.is_empty() {
+                    self.error_code(
+                        variant.span,
+                        codes::REPR_NOT_ALLOWED,
+                        format!(
+                            "`repr(C)` needs a fieldless `enum`: variant `{}` of `{name}` has a payload",
+                            variant.name
+                        ),
+                    );
+                }
+                let mut field_tys = Vec::with_capacity(variant.fields.len());
+                for field in &variant.fields {
+                    let ty = self.resolve_or_report_field(field.ty(), field.span(), allow_c);
+                    if matches!(ty.kind, TypeKind::Func(_, _)) {
+                        self.error(
+                            field.span(),
+                            "an enum field cannot have a function type yet",
+                        );
+                    }
+                    field_tys.push(ty.kind);
+                }
+                payloads.push(field_tys);
+            }
+            // The variants stored on the monomorph have the arguments
+            // substituted in, so patterns resolve their payloads against
+            // the monomorph rather than the scheme.
+            let subst_exprs: Vec<(String, TypeExpr)> = params
+                .iter()
+                .zip(args.iter())
+                .map(|(param, arg)| (param.name.clone(), arg.clone()))
+                .collect();
+            let variants: Vec<VariantDef> = scheme
+                .variants
+                .iter()
+                .map(|variant| VariantDef {
+                    name: variant.name.clone(),
+                    fields: variant
+                        .fields
+                        .iter()
+                        .map(|field| match field {
+                            VariantField::Positional { ty, .. } => VariantField::Positional {
+                                ty: substitute_type_expr(ty, &subst_exprs),
+                                span: field.span(),
+                            },
+                            VariantField::Named { name, ty, span } => VariantField::Named {
+                                name: name.clone(),
+                                ty: substitute_type_expr(ty, &subst_exprs),
+                                span: *span,
+                            },
+                        })
+                        .collect(),
+                    span: variant.span,
+                })
+                .collect();
+            self.enums.insert(
+                mangled.clone(),
+                EnumSig {
+                    variants,
+                    payloads,
+                    repr_c: scheme.repr_c,
+                },
+            );
+        }
+        self.type_subst = outer_subst;
+        self.file = outer_file;
+        self.instantiating.pop();
+        self.instantiated_types.push(mangled);
+    }
+
+    /// The monomorphs interned this check, after everything is checked.
+    ///
+    /// The checker emits them itself: code generation reads named types from
+    /// the HIR, and a monomorph that only a pattern or a field mentions
+    /// would otherwise never be defined.
+    fn monomorph_items(&mut self) -> Vec<HirItem> {
+        let mut out = Vec::new();
+        let names = std::mem::take(&mut self.instantiated_types);
+        for mangled in names {
+            if let Some(sig) = self.structs.get(&mangled).cloned() {
+                let scheme_name = self.monomorph_schemes.get(&mangled).cloned().unwrap_or_default();
+                let scheme_span = self
+                    .struct_schemes
+                    .get(&scheme_name)
+                    .map(|scheme| scheme.span)
+                    .unwrap_or(Span::new(0, 0));
+                let field_spans: Vec<Span> = self
+                    .struct_schemes
+                    .get(&scheme_name)
+                    .map(|scheme| scheme.fields.iter().map(|f| f.span).collect())
+                    .unwrap_or_else(|| sig.fields.iter().map(|_| scheme_span).collect());
+                out.push(HirItem::Struct(HirStruct {
+                    name: mangled.clone(),
+                    fields: sig
+                        .fields
+                        .iter()
+                        .zip(field_spans.iter())
+                        .map(|((fname, fty), fspan)| HirFieldDef {
+                            name: fname.clone(),
+                            ty: fty.clone(),
+                            span: *fspan,
+                        })
+                        .collect(),
+                    repr: if sig.repr_c {
+                        Some(ReprKind::C)
+                    } else {
+                        None
+                    },
+                    span: scheme_span,
+                }));
+            } else if let Some(sig) = self.enums.get(&mangled).cloned() {
+                let scheme_name = self.monomorph_schemes.get(&mangled).cloned().unwrap_or_default();
+                let scheme_span = self
+                    .enum_schemes
+                    .get(&scheme_name)
+                    .map(|scheme| scheme.span)
+                    .unwrap_or(Span::new(0, 0));
+                out.push(HirItem::Enum(HirEnum {
+                    name: mangled.clone(),
+                    variants: sig
+                        .variants
+                        .iter()
+                        .zip(sig.payloads.iter())
+                        .map(|(variant, payload)| HirVariantDef {
+                            name: variant.name.clone(),
+                            fields: variant
+                                .fields
+                                .iter()
+                                .zip(payload.iter())
+                                .map(|(field, ty)| HirVariantField {
+                                    name: match field {
+                                        VariantField::Positional { .. } => None,
+                                        VariantField::Named { name, .. } => Some(name.clone()),
+                                    },
+                                    ty: Type {
+                                        kind: ty.clone(),
+                                        span: field.span(),
+                                    },
+                                    span: field.span(),
+                                })
+                                .collect(),
+                            span: variant.span,
+                        })
+                        .collect(),
+                    repr: if sig.repr_c {
+                        Some(ReprKind::C)
+                    } else {
+                        None
+                    },
+                    span: scheme_span,
+                }));
+            }
+        }
+        out
+    }
+
     /// Where an impl of `bound` for `concrete` would belong, for a bound
     /// diagnostic. A named type's impl belongs beside the type's declaration;
     /// a primitive has no module to name.
@@ -1858,6 +2376,29 @@ impl<'src> Checker<'src> {
         )
     }
 
+    /// Report a bound naming a trait the program does not declare.
+    ///
+    /// Checked where the parameter is written, not at each instantiation: the
+    /// mistake is in the declaration, and repeating it at every call would
+    /// bury it.
+    fn check_generic_bounds(&mut self, param: &TypeParam) {
+        for bound in &param.bounds {
+            if !self.traits.contains_key(bound) {
+                let mut err = TypeError::new(
+                    param.span,
+                    format!("no trait named `{bound}` to bound `{}` on", param.name),
+                );
+                if let Some(suggestion) =
+                    yashy_common::closest(bound, self.traits.keys().map(String::as_str))
+                {
+                    err = err.with_label(format!("did you mean `{suggestion}`?"));
+                }
+                self.errors
+                    .push((self.file, err.with_code(codes::UNKNOWN_TRAIT)));
+            }
+        }
+    }
+
     /// Record a generic function's declaration.
     ///
     /// The function is not bound in the root scope: a generic function is not
@@ -1908,21 +2449,7 @@ impl<'src> Checker<'src> {
             // A bound names a trait: one the program does not declare cannot
             // be implemented, so it is `E1500` where it is written rather than
             // `E1503` at every call.
-            for bound in &param.bounds {
-                if !self.traits.contains_key(bound) {
-                    let mut err = TypeError::new(
-                        param.span,
-                        format!("no trait named `{bound}` to bound `{}` on", param.name),
-                    );
-                    if let Some(suggestion) =
-                        yashy_common::closest(bound, self.traits.keys().map(String::as_str))
-                    {
-                        err = err.with_label(format!("did you mean `{suggestion}`?"));
-                    }
-                    self.errors
-                        .push((self.file, err.with_code(codes::UNKNOWN_TRAIT)));
-                }
-            }
+            self.check_generic_bounds(param);
         }
         self.generics.insert(
             name.to_string(),
@@ -2274,6 +2801,7 @@ impl<'src> Checker<'src> {
             }
             Item::Struct {
                 name,
+                type_params,
                 fields,
                 repr,
                 span,
@@ -2290,6 +2818,42 @@ impl<'src> Checker<'src> {
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
+                }
+                if !type_params.is_empty() {
+                    // A generic struct is a scheme: its field types mention
+                    // the parameters, so they resolve per instantiation, not
+                    // once here. What is checked at the declaration is what
+                    // does not depend on the arguments: every parameter used
+                    // (E1510), and every bound naming a declared trait.
+                    for param in type_params {
+                        if !fields.iter().any(|f| {
+                            let mut mentioned = Vec::new();
+                            collect_type_names(&f.ty, &mut mentioned);
+                            mentioned.iter().any(|n| n == &param.name)
+                        }) {
+                            self.error_code(
+                                param.span,
+                                codes::UNUSED_TYPE_PARAMETER,
+                                format!(
+                                    "`{name}` declares type parameter `{}`, but no field or variant payload uses it",
+                                    param.name,
+                                ),
+                            );
+                        }
+                        self.check_generic_bounds(param);
+                    }
+                    self.struct_schemes.insert(
+                        name.clone(),
+                        StructScheme {
+                            type_params: type_params.clone(),
+                            fields: fields.clone(),
+                            repr_c: repr.is_some(),
+                            origin: self.origin(public),
+                            span: *span,
+                        },
+                    );
+                    self.record_origin(name, public);
+                    return;
                 }
                 // `repr(C)` is a promise about memory, so its fields are the
                 // bytes C will read: they may be spelled with C's type names,
@@ -2332,6 +2896,7 @@ impl<'src> Checker<'src> {
             }
             Item::Enum {
                 name,
+                type_params,
                 variants,
                 repr,
                 span,
@@ -2348,6 +2913,39 @@ impl<'src> Checker<'src> {
                 };
                 if let Err(e) = self.scope.declare(name.clone(), binding) {
                     self.report(e);
+                }
+                if !type_params.is_empty() {
+                    // A generic enum is a scheme like a generic struct.
+                    for param in type_params {
+                        if !variants.iter().any(|variant| {
+                            variant.fields.iter().any(|field| {
+                                let mut mentioned = Vec::new();
+                                collect_type_names(field.ty(), &mut mentioned);
+                                mentioned.iter().any(|n| n == &param.name)
+                            })
+                        }) {
+                            self.error_code(
+                                param.span,
+                                codes::UNUSED_TYPE_PARAMETER,
+                                format!(
+                                    "`{name}` declares type parameter `{}`, but no field or variant payload uses it",
+                                    param.name,
+                                ),
+                            );
+                        }
+                        self.check_generic_bounds(param);
+                    }
+                    self.enum_schemes.insert(
+                        name.clone(),
+                        EnumScheme {
+                            type_params: type_params.clone(),
+                            variants: variants.clone(),
+                            repr_c: repr.is_some(),
+                            span: *span,
+                        },
+                    );
+                    self.record_origin(name, public);
+                    return;
                 }
                 let allow_c = repr.is_some();
                 let mut payloads = Vec::with_capacity(variants.len());
@@ -2548,6 +3146,7 @@ impl<'src> Checker<'src> {
         allow_c: bool,
         is_return: bool,
     ) -> Type {
+        self.intern_generics_in(ty);
         match self.resolve_type_in(ty, allow_c) {
             Ok(resolved) => {
                 if is_return || !self.refuse_void_value(ty, &resolved) {
@@ -2577,6 +3176,7 @@ impl<'src> Checker<'src> {
     /// position. Use [`CheckCtx::resolve_or_report_return`] for a return
     /// annotation.
     fn resolve_or_report(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
+        self.intern_generics_in(ty);
         match self.resolve_type(ty) {
             Ok(resolved) => {
                 // A named type is an item too, so it is private to the module
@@ -2610,6 +3210,7 @@ impl<'src> Checker<'src> {
         fallback_span: Span,
         allow_c: bool,
     ) -> Type {
+        self.intern_generics_in(ty);
         if !allow_c {
             return self.resolve_or_report(ty, fallback_span);
         }
@@ -2653,6 +3254,7 @@ impl<'src> Checker<'src> {
     /// The return position is the one place `void` is legal, so this is
     /// [`CheckCtx::resolve_or_report`] without the void refusal.
     fn resolve_or_report_return(&mut self, ty: &TypeExpr, fallback_span: Span) -> Type {
+        self.intern_generics_in(ty);
         match self.resolve_type(ty) {
             Ok(resolved) => {
                 if let TypeExpr::Name(name, span) = ty {
@@ -2676,6 +3278,57 @@ impl<'src> Checker<'src> {
     /// [`CheckCtx::resolve_type_in`] with `allow_c` set.
     fn resolve_type(&self, ty: &TypeExpr) -> Result<Type, TypeError> {
         self.resolve_type_in(ty, false)
+    }
+
+    /// The monomorph kind and type parameters for `name[args..]`, checking
+    /// scheme and arity and resolving the arguments.
+    ///
+    /// Pure: interning, bounds and field resolution happen in
+    /// [`Self::intern_generics_in`], which the reporting wrappers run before
+    /// delegating here, so a shape error surfaces exactly once.
+    fn generic_kind(
+        &self,
+        name: &str,
+        args: &[TypeExpr],
+        span: Span,
+    ) -> Result<(TypeKind, Vec<TypeParam>), TypeError> {
+        let (params, is_enum) = if let Some(scheme) = self.struct_schemes.get(name) {
+            (scheme.type_params.clone(), false)
+        } else if let Some(scheme) = self.enum_schemes.get(name) {
+            (scheme.type_params.clone(), true)
+        } else if self.structs.contains_key(name) || self.enums.contains_key(name) {
+            return Err(TypeError::new(
+                span,
+                format!("`{name}` is not generic: it takes no type arguments"),
+            )
+            .with_code(codes::WRONG_TYPE_ARG_COUNT));
+        } else {
+            return Err(TypeError::new(span, format!("cannot find type `{name}`"))
+                .with_code(codes::UNKNOWN_TYPE));
+        };
+        if args.len() != params.len() {
+            return Err(TypeError::new(
+                span,
+                format!(
+                    "`{name}` declares {} type parameter{}, given {}",
+                    params.len(),
+                    if params.len() == 1 { "" } else { "s" },
+                    args.len(),
+                ),
+            )
+            .with_code(codes::WRONG_TYPE_ARG_COUNT));
+        }
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for arg in args {
+            arg_tys.push(self.resolve_type_in(arg, false)?);
+        }
+        let mangled = mangled_generic_name(name, &arg_tys);
+        let kind = if is_enum {
+            TypeKind::Enum(mangled)
+        } else {
+            TypeKind::Struct(mangled)
+        };
+        Ok((kind, params))
     }
 
     /// Resolve a type expression, optionally allowing the C spellings.
@@ -2755,6 +3408,27 @@ impl<'src> Checker<'src> {
                         ))
                     }
                     _ => {
+                        // A generic type used bare is an arity error, not an
+                        // unknown type: the name is known, the count is wrong.
+                        let generic_size = self
+                            .struct_schemes
+                            .get(name)
+                            .map(|scheme| scheme.type_params.len())
+                            .or_else(|| {
+                                self.enum_schemes
+                                    .get(name)
+                                    .map(|scheme| scheme.type_params.len())
+                            });
+                        if let Some(declared) = generic_size {
+                            return Err(TypeError::new(
+                                *span,
+                                format!(
+                                    "`{name}` declares {declared} type parameter{}, given 0",
+                                    if declared == 1 { "" } else { "s" },
+                                ),
+                            )
+                            .with_code(codes::WRONG_TYPE_ARG_COUNT));
+                        }
                         if let Some(kind) = TypeKind::from_c_spelling(name) {
                             Some(kind)
                         } else if self.structs.contains_key(name) {
@@ -2777,6 +3451,10 @@ impl<'src> Checker<'src> {
                         Err(error)
                     }
                 }
+            }
+            TypeExpr::Generic { name, args, span } => {
+                let (kind, _params) = self.generic_kind(name, args, *span)?;
+                Ok(Type { kind, span: *span })
             }
             TypeExpr::Option(inner, span) => {
                 let inner = self.resolve_type_in(inner, allow_c)?;
@@ -3147,32 +3825,7 @@ impl<'src> Checker<'src> {
         // Bounds are checked here, at the call site, never inside the body:
         // the argument type must implement each bound, and a miss is `E1503`
         // naming the type, the trait and where the impl belongs.
-        for (param, concrete) in generic.type_params.iter().zip(ordered.iter()) {
-            for bound in &param.bounds {
-                // An undeclared bound was already reported as `E1500` where the
-                // function was declared.
-                if !self.traits.contains_key(bound) {
-                    continue;
-                }
-                let satisfies = match &concrete.kind {
-                    TypeKind::Struct(type_name) | TypeKind::Enum(type_name) => {
-                        self.trait_impls
-                            .contains_key(&(bound.clone(), type_name.clone()))
-                    }
-                    _ => false,
-                };
-                if !satisfies {
-                    self.error_code(
-                        span,
-                        codes::UNSATISFIED_BOUND,
-                        format!(
-                            "`{concrete}` does not implement `{bound}` required by `{name}`{}",
-                            self.impl_needs_line(concrete, bound),
-                        ),
-                    );
-                }
-            }
-        }
+        self.check_type_args_bounds(&generic.type_params, &ordered, span, name);
         // Resolve the signature at the inferred substitution. The map is
         // installed only for the duration of the lookup: nothing outside a
         // generic body should see `T`.
@@ -3230,7 +3883,7 @@ impl<'src> Checker<'src> {
         actual: &Type,
     ) -> bool {
         match declared {
-            TypeExpr::Name(name, _) if params.iter().any(|param| param.name == *name) => {
+            TypeExpr::Name(name, _) if params.iter().any(|type_param| type_param.name == *name) => {
                 match subst.get(name) {
                     Some(bound) => bound.eq_ignoring_span(actual),
                     None => {
@@ -3239,6 +3892,30 @@ impl<'src> Checker<'src> {
                     }
                 }
             }
+            // A generic use unifies against a monomorph by its recorded
+            // arguments: `Pair[T]` against `Pair[i64]` binds `T` to `i64`.
+            // Anything else -- a different scheme, a concrete type -- does
+            // not unify.
+            TypeExpr::Generic { name, args, .. } => match &actual.kind {
+                TypeKind::Struct(mangled) | TypeKind::Enum(mangled) => {
+                    match (
+                        self.monomorph_schemes.get(mangled),
+                        self.type_monomorphs.get(mangled),
+                    ) {
+                        (Some(scheme), Some(arg_tys))
+                            if scheme == name && args.len() == arg_tys.len() =>
+                        {
+                            args.iter()
+                                .zip(arg_tys.iter())
+                                .all(|(declared, concrete)| {
+                                    self.unify_type(declared, params, subst, concrete)
+                                })
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
             // Anything that is not a type parameter is a concrete type, and it
             // has to equal what the argument is.
             TypeExpr::Name(_, _) => self
@@ -3490,10 +4167,17 @@ impl<'src> Checker<'src> {
             }
             Item::Struct {
                 name,
+                type_params,
                 fields,
                 repr,
                 span,
             } => {
+                // A generic struct is a scheme: it emits nothing, and its
+                // monomorphs are emitted where the instantiations are
+                // collected at the end of the check.
+                if !type_params.is_empty() {
+                    return None;
+                }
                 let sig = self.structs.get(name).cloned()?;
                 Some(vec![HirItem::Struct(HirStruct {
                     name: name.clone(),
@@ -3512,10 +4196,15 @@ impl<'src> Checker<'src> {
             }
             Item::Enum {
                 name,
+                type_params,
                 variants,
                 repr,
                 span,
             } => {
+                // A generic enum is a scheme like a generic struct.
+                if !type_params.is_empty() {
+                    return None;
+                }
                 // The payload types were resolved in pass 1 and kept in the
                 // signature, so the lowering reads them rather than resolving
                 // a second time: a second pass would report the same unknown
@@ -4176,6 +4865,9 @@ impl<'src> Checker<'src> {
                 // leaves a constructor with nothing to infer from — `const x:
                 // Option[i64] = None;` was reported as an ambiguous `None`
                 // rather than typed by its own annotation.
+                if let Some(annotation) = ty {
+                    self.intern_generics_in(annotation);
+                }
                 let declared = match ty {
                     Some(annotation) => match self.resolve_type(annotation) {
                         Ok(declared) => {
@@ -4250,6 +4942,9 @@ impl<'src> Checker<'src> {
             } => {
                 // Same ordering as `Stmt::Const` above: the annotation is the
                 // initializer's expected type.
+                if let Some(annotation) = ty {
+                    self.intern_generics_in(annotation);
+                }
                 let declared = match ty {
                     Some(annotation) => match self.resolve_type(annotation) {
                         Ok(declared) => {
@@ -7144,6 +7839,156 @@ impl<'src> Checker<'src> {
         Some(out)
     }
 
+    /// Check a struct literal over a generic type: `Pair { first: 1, ... }`.
+    ///
+    /// The literal carries no type arguments of its own, so the arguments
+    /// come from the written field values: each field's declared type is
+    /// unified against the value written (or against the spread's
+    /// monomorph, when there is one). From there the literal follows the
+    /// concrete path against the interned monomorph.
+    fn check_scheme_struct_lit(
+        &mut self,
+        name: &str,
+        path: &[String],
+        fields: &[(String, Expr, Span)],
+        spread: &Option<Box<Expr>>,
+        span: Span,
+    ) -> Option<HirExpr> {
+        // The scheme is an item: it is private to its module unless `pub`.
+        self.check_visibility(name, span);
+        // Every value the literal wrote is checked; the unification below
+        // reads the checked types.
+        let mut written: Vec<(String, HirExpr, Span)> = Vec::new();
+        for (fname, value, fspan) in fields {
+            let value = self.check_expr(value)?;
+            written.push((fname.clone(), value, *fspan));
+        }
+        let spread_checked = match spread {
+            Some(operand) => {
+                let checked = self.check_expr(operand)?;
+                let is_ours = matches!(&expr_ty(&checked).kind, TypeKind::Struct(mangled)
+                    if self.monomorph_schemes.get(mangled).map(String::as_str) == Some(name));
+                if !is_ours {
+                    self.mismatch_message(
+                        expr_span(&checked),
+                        format!("a spread for `{name}` must be a `{name}[..]` value"),
+                    );
+                    return None;
+                }
+                Some(checked)
+            }
+            None => None,
+        };
+        let mut subst: HashMap<String, Type> = HashMap::new();
+        if let Some(spread_value) = &spread_checked {
+            // A spread of another instantiation gives the arguments whole.
+            if let TypeKind::Struct(mangled) = &expr_ty(spread_value).kind {
+                if let Some(arg_tys) = self.type_monomorphs.get(mangled) {
+                    let arg_tys = arg_tys.clone();
+                    let params = self.struct_schemes[name].type_params.clone();
+                    for (param, ty) in params.iter().zip(arg_tys.iter()) {
+                        subst.insert(param.name.clone(), ty.clone());
+                    }
+                }
+            }
+        }
+        {
+            let scheme = self.struct_schemes[name].clone();
+            for (fname, value, _) in &written {
+                let Some(field) = scheme.fields.iter().find(|f| &f.name == fname) else {
+                    continue;
+                };
+                let _ = self.unify_type(
+                    &field.ty,
+                    &scheme.type_params,
+                    &mut subst,
+                    &expr_ty(value),
+                );
+            }
+        }
+        let mut ordered = Vec::with_capacity(self.struct_schemes[name].type_params.len());
+        for param in &self.struct_schemes[name].type_params {
+            match subst.get(&param.name) {
+                Some(concrete) => ordered.push(concrete.clone()),
+                None => {
+                    self.error(
+                        span,
+                        format!("cannot infer type argument for `{}`", param.name),
+                    );
+                    return None;
+                }
+            }
+        }
+        let mangled = mangled_generic_name(name, &ordered);
+        self.intern_monomorph(
+            name,
+            &self.struct_schemes[name].type_params.clone(),
+            &[],
+            ordered,
+            span,
+        );
+        let sig = match self.structs.get(&mangled).cloned() {
+            Some(sig) => sig,
+            None => return None,
+        };
+        let provided: Vec<&str> = written.iter().map(|(n, _, _)| n.as_str()).collect();
+        for (index, (fname, _)) in sig.fields.iter().enumerate() {
+            if !provided.contains(&fname.as_str())
+                && spread_checked.is_none()
+                && sig.defaults.get(index).map(|d| d.is_none()).unwrap_or(true)
+            {
+                self.error_code(
+                    span,
+                    codes::MISSING_FIELD,
+                    format!("missing field `{fname}` in struct `{name}`: it has no default"),
+                );
+            }
+        }
+        for (fname, _value, _) in &written {
+            if !sig.fields.iter().any(|(n, _)| n == fname) {
+                self.error_code(
+                    span,
+                    codes::UNKNOWN_FIELD,
+                    format!("unknown field `{fname}` in struct `{name}`"),
+                );
+            }
+        }
+        // Every written field has the type the monomorph declares for it:
+        // inference reads the fields, so a conflict here is the failure the
+        // unification anticipated.
+        for (fname, fty) in &sig.fields {
+            if let Some((_, value, _)) = written.iter().find(|(n, _, _)| n == fname) {
+                let value_ty = expr_ty(value);
+                if !fty.eq_ignoring_span(&value_ty) {
+                    self.mismatch_message(
+                        expr_span(value),
+                        format!("expected `{fty}`, found `{value_ty}`"),
+                    );
+                }
+                if let Some(index) = sig.fields.iter().position(|(n, _)| n == fname) {
+                    self.check_field_visibility(&mangled, fname, &sig, index, span);
+                }
+            }
+        }
+        let _ = path;
+        let hir_fields = self.fill_struct_fields(
+            &mangled,
+            &sig,
+            &written,
+            spread_checked.as_ref(),
+            span,
+        );
+        Some(HirExpr::StructLit {
+            path: vec![mangled.clone()],
+            fields: hir_fields,
+            span,
+            ty: Type {
+                kind: TypeKind::Struct(mangled),
+                span,
+            },
+        })
+    }
+
     /// Build a struct literal's fields in declaration order.
     ///
     /// Precedence has exactly one implementation: an explicit field wins,
@@ -9333,6 +10178,12 @@ impl<'src> Checker<'src> {
                     }
                 }
                 let name = path.last().cloned().unwrap_or_default();
+                // A struct literal naming a generic type infers its type
+                // arguments from the written field values: `Pair { first:
+                // 1, second: 2 }` is `Pair[i64]`.
+                if !self.structs.contains_key(&name) && self.struct_schemes.contains_key(&name) {
+                    return self.check_scheme_struct_lit(&name, path, fields, spread, *span);
+                }
                 let sig = self.structs.get(&name).cloned();
                 match sig {
                     Some(sig) => {
@@ -9467,6 +10318,9 @@ impl<'src> Checker<'src> {
             } => {
                 // The element type is written (`[]T {}`) or inferred from the
                 // first value or spread (`[0, ..xs, 4]`).
+                if let Some(ty) = elem {
+                    self.intern_generics_in(ty);
+                }
                 let written_elem = match elem {
                     Some(ty) => match self.resolve_type_in(ty, false) {
                         Ok(ty) => Some(ty),
@@ -11652,6 +12506,7 @@ fn type_expr_span(ty: &TypeExpr) -> Span {
         TypeExpr::Channel(_, span) => *span,
         TypeExpr::Fn { span, .. } => *span,
         TypeExpr::Tuple(_, span) => *span,
+        TypeExpr::Generic { span, .. } => *span,
         TypeExpr::Unit(span) => *span,
     }
 }

@@ -1224,6 +1224,7 @@ pub(crate) fn ty_span(ty: &TypeExpr) -> Span {
         TypeExpr::Channel(_, span) => *span,
         TypeExpr::Fn { span, .. } => *span,
         TypeExpr::Tuple(_, span) => *span,
+        TypeExpr::Generic { span, .. } => *span,
     }
 }
 

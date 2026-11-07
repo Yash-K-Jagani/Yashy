@@ -326,8 +326,11 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("pattern_partial_move", 1, &["E1002"]),
     ("unreachable_arm", 1, &["E0601"]),
     ("named_arg_unknown", 1, &["E0701"]),
+    // Phase 8's generic type rules: the wrong number of type arguments
+    // (E1509) and the unused parameter (E1510).
+    ("generic_type_arity", 1, &["E1509"]),
+    ("generic_type_unused_param", 1, &["E1510"]),
 ];
-
 /// The `code` values in a schema-v1 report, in order.
 ///
 /// A scan rather than a parser: the field is a fixed string in the schema and

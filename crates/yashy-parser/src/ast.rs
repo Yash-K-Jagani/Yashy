@@ -124,6 +124,10 @@ pub enum Item {
     /// `struct P { x: f64 }`
     Struct {
         name: String,
+        /// The type parameters of a generic struct, in the order written:
+        /// `struct Pair[T] { first: T }` declares `T` here. Empty for an
+        /// ordinary struct.
+        type_params: Vec<TypeParam>,
         fields: Vec<FieldDef>,
         /// The representation asked for by a `repr(..)` clause, when one was
         /// written.
@@ -133,6 +137,10 @@ pub enum Item {
     /// `enum C { Red, Green }`
     Enum {
         name: String,
+        /// The type parameters of a generic enum, in the order written:
+        /// `enum Maybe[T] { Nothing, Just(T) }` declares `T` here. Empty for
+        /// an ordinary enum.
+        type_params: Vec<TypeParam>,
         variants: Vec<VariantDef>,
         /// The representation asked for by a `repr(..)` clause, when one was
         /// written.
@@ -541,6 +549,18 @@ pub enum TypeExpr {
     Tuple(Vec<TypeExpr>, Span),
     /// A written `()`, which the checker rejects: the no-value type is spelled\n    /// `void`.
     Unit(Span),
+    /// A generic type used with its type arguments: `Pair[i64]`,
+    /// `Entry[string, i64]`.
+    ///
+    /// The name is the generic type's declared name, and the args are the
+    /// type expressions written between the brackets, in order. The built-in
+    /// generic spellings keep their dedicated variants (`Option`, `Result`,
+    /// `Channel`, `map`), so this is only for user-declared generic types.
+    Generic {
+        name: String,
+        args: Vec<TypeExpr>,
+        span: Span,
+    },
 }
 
 /// A braced sequence of statements, braces included in its span.

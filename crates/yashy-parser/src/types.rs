@@ -46,6 +46,7 @@ impl<'src> Parser<'src> {
     ///          | name                       -- `i64`, `f64`, `Point`, `pkg.Thing`
     ///          | `Option` `[` type `]`
     ///          | `Result` `[` type `,` type `]`
+    ///          | name `[` [type (`,` type)*] `]` -- `Pair[i64]`
     ///          | `*` [`mut` | `const`] type -- a pointer
     ///          | `fn` `(` [type (`,` type)*] `)` [`->` type]
     /// name    := ident (`.` ident)*
@@ -55,10 +56,9 @@ impl<'src> Parser<'src> {
     ///
     /// A [`ParseError`] at the offending token. `Option` and `Result` are
     /// recognised by name because they are the only generic spellings the
-    /// language has; a `[` after any other name is a diagnostic rather than a
-    /// guess, since Yashy has no generics (spec §4.6) and silently reading
-    /// `Vec[i64]` as a type named `Vec` would move the mistake into the type
-    /// checker, where it would be reported as something else entirely.
+    /// language has builtins for; any other name followed by `[` is a
+    /// [`TypeExpr::Generic`], and whether the name is a declared generic type
+    /// (and how many arguments it wants) is the checker's rule.
     pub fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
         match self.peek() {
             TokenKind::LParen => self.parse_paren_type(),
@@ -361,10 +361,30 @@ impl<'src> Parser<'src> {
                     cover(start, self.previous_span()),
                 ))
             }
-            other => Err(self.error(
-                self.peek_span(),
-                format!("`{other}` is not a generic type: Yashy has no generics"),
-            )),
+            // Any other `Name[type, ..]` is a generic type used with its type
+            // arguments: `Pair[i64]`. Whether the name is a declared generic
+            // type is the checker's rule; the parser only says the args are
+            // types. An empty list (`Pair[]`) parses too -- it is `E1509` in
+            // the checker, where the declared arity is known.
+            other => {
+                let open = self.expect(TokenKind::LBracket)?;
+                let _ = self.push_open(TokenKind::LBracket, open.span)?;
+                let mut args = Vec::new();
+                if !self.check(TokenKind::RBracket) {
+                    loop {
+                        args.push(self.parse_type_expr()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+                self.close_bracket()?;
+                Ok(TypeExpr::Generic {
+                    name: other.to_string(),
+                    args,
+                    span: cover(start, self.previous_span()),
+                })
+            }
         }
     }
 

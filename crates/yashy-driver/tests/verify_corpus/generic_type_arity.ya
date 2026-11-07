@@ -1,0 +1,8 @@
+// E1509: a generic type written with too many type arguments.
+struct Pair[T] { first: T, second: T }
+
+fn f(Pair[int, string] p) -> int { return 0; }
+
+fn main() {
+    print(0);
+}

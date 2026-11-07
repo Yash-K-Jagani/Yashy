@@ -105,6 +105,17 @@ struct Printer<'a> {
     prev_lambda_bar: bool,
     /// The previous token opened a lambda's bars rather than closing them.
     prev_lambda_bar_opens: bool,
+    /// The previous token was the word `map`, so an opening `[` opens a map
+    /// type: its `]` welds onto the value type that follows.
+    prev_is_map: bool,
+    /// Open brackets, with whether one's `]` welds onto the word after it.
+    ///
+    /// Only two shapes weld: the empty slice (`[]i64`) and the map
+    /// (`map[K]V`). Every other `]` -- `Option[int]`, `xs[i]`, a generic
+    /// use's close -- takes the ordinary space before the following word.
+    brackets: Vec<bool>,
+    /// Whether the previous token was a `]` that welds onto the current one.
+    prev_bracket_welds: bool,
 }
 
 impl<'a> Printer<'a> {
@@ -121,6 +132,9 @@ impl<'a> Printer<'a> {
             in_lambda_bars: false,
             prev_lambda_bar: false,
             prev_lambda_bar_opens: false,
+            prev_is_map: false,
+            brackets: Vec::new(),
+            prev_bracket_welds: false,
         }
     }
 
@@ -375,12 +389,23 @@ impl<'a> Printer<'a> {
                     // The second half of `..=`: it binds to its upper bound.
                     false
                 } else {
-                    needs_space(prev, token.kind)
+                    needs_space(prev, token.kind, self.prev_bracket_welds)
                 };
                 if !pointer_qualifier && space {
                     self.out.push(' ');
                 }
             }
+        }
+        // A `]` close records whether it welded: a map type's and the
+        // empty slice's `]` hold onto the word after them, while every
+        // other bracket's `]` takes the ordinary space.
+        if token.kind == TokenKind::LBracket {
+            self.brackets.push(self.prev_is_map);
+        } else if token.kind == TokenKind::RBracket {
+            // `[]T` closes its own opener: still a weld. The pop stays
+            // balanced either way, so the stack matches the input.
+            self.prev_bracket_welds =
+                self.prev == Some(TokenKind::LBracket) || self.brackets.pop().unwrap_or(false);
         }
         self.out.push_str(text);
         match token.kind {
@@ -406,6 +431,7 @@ impl<'a> Printer<'a> {
                 self.line_break = Break::None;
             }
         }
+        self.prev_is_map = token.kind == TokenKind::Ident && text == "map";
         self.prev_prev = self.prev;
         self.prev = Some(token.kind);
         self.prev_lambda_bar = lambda_bar;
@@ -457,12 +483,13 @@ fn top_level_or_line(indent: usize) -> Break {
 /// with one. The exceptions are the pairs that bind: no space before `;`, `,`,
 /// `)`, `]`, `.`, `:`, or `..`; none after `(`, `[`, `.`, `..`, or `!`; none
 /// before `(` or `[`, so a call and a subscript stay attached to their name;
-/// none after `]`, so `[]i64` and `map[K]V` print as written.
+/// and none after `]` only where the bracket welded (`[]i64`, `map[K]V`):
+/// a generic use's close (`Pair[int] p`) takes the ordinary space.
 ///
 /// The closer rule is checked before the separator rule, so a *trailing* comma
 /// keeps its closer attached: `(5,)` is the one-element tuple, and `(5, )`
 /// would be the separator rule leaking into a place where nothing separates.
-fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
+fn needs_space(prev: TokenKind, cur: TokenKind, bracket_welds: bool) -> bool {
     use TokenKind::*;
     // A spread after a comma is a separator, not a range: `, ..xs`.
     if cur == DotDot && prev == Comma {
@@ -486,9 +513,10 @@ fn needs_space(prev: TokenKind, cur: TokenKind) -> bool {
     if matches!(cur, LParen | LBracket) {
         return !matches!(prev, Ident | Repr | RParen | RBracket | Question);
     }
-    // `[]i64` and `map[K]V` print as written.
+    // `[]i64` and `map[K]V` print as written; every other `]` takes the
+    // ordinary space before the word after it.
     if matches!(prev, RBracket) && matches!(cur, Ident) {
-        return false;
+        return !bracket_welds;
     }
     // `{}` is one token pair, not two lines.
     if matches!((prev, cur), (LBrace, RBrace)) {

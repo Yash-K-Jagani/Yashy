@@ -1,0 +1,6 @@
+// E1510: a type parameter no field or payload uses.
+struct Wrapper[T] { n: int }
+
+fn main() {
+    print(0);
+}

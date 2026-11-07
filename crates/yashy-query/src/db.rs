@@ -101,6 +101,13 @@ fn type_expr_key(ty: &TypeExpr) -> u64 {
             }
             state
         }
+        Generic { name, args, .. } => {
+            let mut state = hash_str(&format!("{name}["));
+            for arg in args {
+                state = combine(state, type_expr_key(arg));
+            }
+            combine(state, hash_str("]"))
+        }
         Unit(_) => hash_str("void"),
     }
 }
@@ -445,9 +452,19 @@ impl Db {
                 *state = combine(*state, hash_str(&path.join(".")));
             }
             Item::Struct {
-                name, fields, repr, ..
+                name,
+                type_params,
+                fields,
+                repr,
+                ..
             } => {
                 *state = combine(*state, hash_str(name));
+                for p in type_params {
+                    *state = combine(*state, hash_str(&p.name));
+                    for bound in &p.bounds {
+                        *state = combine(*state, hash_str(bound));
+                    }
+                }
                 for f in fields {
                     *state = combine(*state, hash_str(&f.name));
                     *state = combine(*state, type_expr_key(&f.ty));
@@ -458,11 +475,18 @@ impl Db {
             }
             Item::Enum {
                 name,
+                type_params,
                 variants,
                 repr,
                 ..
             } => {
                 *state = combine(*state, hash_str(name));
+                for p in type_params {
+                    *state = combine(*state, hash_str(&p.name));
+                    for bound in &p.bounds {
+                        *state = combine(*state, hash_str(bound));
+                    }
+                }
                 for v in variants {
                     *state = combine(*state, hash_str(&v.name));
                     for f in &v.fields {
@@ -806,9 +830,19 @@ impl Db {
                 };
                 match item {
                     Item::Struct {
-                        name, fields, repr, ..
+                        name,
+                        type_params,
+                        fields,
+                        repr,
+                        ..
                     } if mentioned.contains(name.as_str()) => {
                         let mut state = hash_str(name);
+                        for p in type_params {
+                            state = combine(state, hash_str(&p.name));
+                            for bound in &p.bounds {
+                                state = combine(state, hash_str(bound));
+                            }
+                        }
                         for f in fields {
                             state = combine(state, hash_str(&f.name));
                             state = combine(state, type_expr_key(&f.ty));
@@ -820,11 +854,18 @@ impl Db {
                     }
                     Item::Enum {
                         name,
+                        type_params,
                         variants,
                         repr,
                         ..
                     } if mentioned.contains(name.as_str()) => {
                         let mut state = hash_str(name);
+                        for p in type_params {
+                            state = combine(state, hash_str(&p.name));
+                            for bound in &p.bounds {
+                                state = combine(state, hash_str(bound));
+                            }
+                        }
                         for v in variants {
                             state = combine(state, hash_str(&v.name));
                             for f in &v.fields {

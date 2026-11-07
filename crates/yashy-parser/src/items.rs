@@ -214,20 +214,27 @@ impl<'src> Parser<'src> {
     fn attach_repr(&mut self, item: Item, repr_span: Span) -> Result<Item, ParseError> {
         match item {
             Item::Struct {
-                name, fields, span, ..
+                name,
+                type_params,
+                fields,
+                span,
+                ..
             } => Ok(Item::Struct {
                 name,
+                type_params,
                 fields,
                 repr: Some(ReprKind::C),
                 span: cover(repr_span, span),
             }),
             Item::Enum {
                 name,
+                type_params,
                 variants,
                 span,
                 ..
             } => Ok(Item::Enum {
                 name,
+                type_params,
                 variants,
                 repr: Some(ReprKind::C),
                 span: cover(repr_span, span),
@@ -338,7 +345,7 @@ impl<'src> Parser<'src> {
         Ok(name)
     }
 
-    /// `struct P { x: f64, y: f64 }`
+    /// `struct P { x: f64, y: f64 }` or `struct Pair[T] { first: T }`
     ///
     /// At least one field is required. An empty struct is legal in plenty of
     /// languages and useless in every program that has one; since this parser is
@@ -347,6 +354,7 @@ impl<'src> Parser<'src> {
     fn parse_struct(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Struct)?;
         let (name, name_span) = self.identifier()?;
+        let type_params = self.parse_type_params()?;
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -368,6 +376,7 @@ impl<'src> Parser<'src> {
         }
         Ok(Item::Struct {
             name,
+            type_params,
             fields,
             repr: None,
             span: cover(keyword.span, close.span),
@@ -548,10 +557,11 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// `enum C { Red, Green }`
+    /// `enum C { Red, Green }` or `enum Maybe[T] { Nothing, Just(T) }`
     fn parse_enum(&mut self) -> Result<Item, ParseError> {
         let keyword = self.expect(TokenKind::Enum)?;
         let (name, name_span) = self.identifier()?;
+        let type_params = self.parse_type_params()?;
         let open = self.expect(TokenKind::LBrace)?;
         let _ = self.push_open(TokenKind::LBrace, open.span)?;
 
@@ -573,6 +583,7 @@ impl<'src> Parser<'src> {
         }
         Ok(Item::Enum {
             name,
+            type_params,
             variants,
             repr: None,
             span: cover(keyword.span, close.span),
@@ -1148,5 +1159,6 @@ fn ty_span(ty: &crate::ast::TypeExpr) -> Span {
         crate::ast::TypeExpr::Channel(_, span) => *span,
         crate::ast::TypeExpr::Fn { span, .. } => *span,
         crate::ast::TypeExpr::Tuple(_, span) => *span,
+        crate::ast::TypeExpr::Generic { span, .. } => *span,
     }
 }
