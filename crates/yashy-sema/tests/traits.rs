@@ -137,6 +137,88 @@ fn a_correct_impl_checks_and_emits_the_trait_symbol() {
 }
 
 #[test]
+fn an_inherent_method_shadows_a_trait_method() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Point { fn show(self) -> string { return \"inherent\"; } }\n\
+         impl Show for Point { fn show(self) -> string { return \"trait\"; } }\n\
+         fn f(Point p) -> string { return p.show(); }",
+    )
+    .expect("the inherent method wins silently");
+    let caller = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(format!("{:?}", f.body)),
+            _ => None,
+        })
+        .expect("fn f");
+    assert!(
+        caller.contains("Point.show"),
+        "the call resolves to the inherent method: {caller}"
+    );
+    assert!(
+        !caller.contains("Point.Show.show"),
+        "the trait impl is not the target: {caller}"
+    );
+}
+
+#[test]
+fn two_traits_providing_one_method_is_e1504() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         trait Debug2 { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"s\"; } }\n\
+         impl Debug2 for Point { fn show(self) -> string { return \"d\"; } }\n\
+         fn f(Point p) -> string { return p.show(); }",
+        codes::AMBIGUOUS_METHOD,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("`Debug2`") && d.message.contains("`Show`")),
+        "the diagnostic names both traits: {diags:?}"
+    );
+}
+
+#[test]
+fn a_trait_method_on_a_type_without_the_impl_is_e1503() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Secret { x: int }\n\
+         fn f(Secret s) -> string { return s.show(); }",
+        codes::UNSATISFIED_BOUND,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("`Show`") && d.message.contains("`Secret`")),
+        "the diagnostic names the trait and the type: {diags:?}"
+    );
+}
+
+#[test]
+fn a_single_trait_impl_is_the_target() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"s\"; } }\n\
+         fn f(Point p) -> string { return p.show(); }",
+    )
+    .expect("a single trait impl resolves");
+    let caller = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "f" => Some(format!("{:?}", f.body)),
+            _ => None,
+        })
+        .expect("fn f");
+    assert!(
+        caller.contains("Point.Show.show"),
+        "the call names the trait symbol: {caller}"
+    );
+}
+
+#[test]
 fn an_associated_function_impl_checks() {
     let hir = check_source(
         "trait Factory { fn make() -> int; }\n\

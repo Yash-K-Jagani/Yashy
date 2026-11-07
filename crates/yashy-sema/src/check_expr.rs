@@ -2271,6 +2271,137 @@ impl<'src> Checker<'src> {
         String::new()
     }
 
+    /// Resolve `method` on `type_name` by the fixed order: inherent impl,
+    /// then the single trait impl in scope, then -- at the call site -- a
+    /// bound on the receiver's type parameter.
+    ///
+    /// Candidates are filtered by arity and receiver before the order
+    /// applies, so a method at the wrong arity does not shadow one at the
+    /// right one. Two candidates at one level are `E1504`, reported, never
+    /// resolved by import order. A trait that declares the method but has no
+    /// impl for the type is `E1503`. The outer `Option` is `None` when the
+    /// type has no method of that name at any level (the caller falls
+    /// through to the builtin path); the inner is `None` when an error was
+    /// reported here.
+    fn resolve_method(
+        &mut self,
+        type_name: &str,
+        method: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Option<Option<(String, MethodSig)>> {
+        let own_args = args.len();
+        // Level 1: the inherent impl.
+        let inherent_key = format!("{type_name}.{method}");
+        let inherent = self.methods.get(&inherent_key).cloned();
+        if let Some(sig) = &inherent {
+            if sig.has_self && sig.params.len().saturating_sub(1) == own_args {
+                return Some(Some((inherent_key, sig.clone())));
+            }
+        }
+        // Level 2: trait impls for the type providing `method`.
+        let mut impls: Vec<(String, String, MethodSig)> = Vec::new();
+        for ((trait_name, ty), impl_) in &self.trait_impls {
+            if ty != type_name {
+                continue;
+            }
+            for (mname, symbol) in &impl_.methods {
+                if mname == method {
+                    if let Some(sig) = self.methods.get(symbol) {
+                        impls
+                            .push((trait_name.clone(), symbol.clone(), sig.clone()));
+                    }
+                }
+            }
+        }
+        let fitting: Vec<&(String, String, MethodSig)> = impls
+            .iter()
+            .filter(|(_, _, sig)| {
+                sig.has_self && sig.params.len().saturating_sub(1) == own_args
+            })
+            .collect();
+        if fitting.len() == 1 {
+            let (_, symbol, sig) = fitting[0].clone();
+            return Some(Some((symbol, sig)));
+        }
+        if fitting.len() > 1 {
+            let names = fitting
+                .iter()
+                .map(|(trait_name, _, _)| format!("`{trait_name}`"))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            let (first, second) = (
+                &fitting[0].0,
+                &fitting[1].0,
+            );
+            self.error_code(
+                span,
+                codes::AMBIGUOUS_METHOD,
+                format!(
+                    "`{method}` is ambiguous on `{type_name}`: both {names} provide it \
+                     (qualify with `{first}::{method}(x)` or `{second}::{method}(x)` \
+                     once `::` is available)"
+                ),
+            );
+            return Some(None);
+        }
+        // Nothing compatible: report from the highest level that had any.
+        if let Some(sig) = inherent {
+            // An arity or receiver error in the call path that follows.
+            return Some(Some((inherent_key, sig)));
+        }
+        if impls.len() == 1 {
+            let (_, symbol, sig) = impls.into_iter().next().unwrap();
+            return Some(Some((symbol, sig)));
+        }
+        if impls.len() > 1 {
+            let names = impls
+                .iter()
+                .map(|(trait_name, _, _)| format!("`{trait_name}`"))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            let (first, second) = (&impls[0].0, &impls[1].0);
+            self.error_code(
+                span,
+                codes::AMBIGUOUS_METHOD,
+                format!(
+                    "`{method}` is ambiguous on `{type_name}`: both {names} provide it \
+                     (qualify with `{first}::{method}(x)` or `{second}::{method}(x)` \
+                     once `::` is available)"
+                ),
+            );
+            return Some(None);
+        }
+        // A trait declares the method but the type does not implement it.
+        let declaring = self
+            .traits
+            .iter()
+            .filter(|(_, sig)| sig.methods.iter().any(|m| m.name == method))
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        if let Some(trait_name) = declaring.first() {
+            let concrete = Type {
+                kind: if self.enums.contains_key(type_name) {
+                    TypeKind::Enum(type_name.to_string())
+                } else {
+                    TypeKind::Struct(type_name.to_string())
+                },
+                span,
+            };
+            self.error_code(
+                span,
+                codes::UNSATISFIED_BOUND,
+                format!(
+                    "`{method}` is provided by `{trait_name}` but `{type_name}` does not \
+                     implement it{}",
+                    self.impl_needs_line(&concrete, trait_name),
+                ),
+            );
+            return Some(None);
+        }
+        None
+    }
+
     /// The bound-context entry a method receiver is bound to, if any.
     ///
     /// Only a receiver that names a parameter binding whose declared type is
@@ -6840,21 +6971,21 @@ impl<'src> Checker<'src> {
             TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
             _ => return None,
         };
-        // A receiver bound to a type parameter resolves through the bounds in
-        // force, never through the substituted concrete type's own methods:
-        // the call site guaranteed the bounds, and the body may rely on
-        // nothing beyond them.
+        // The order is inherent, then the single trait impl in scope, then
+        // the bound on a type parameter (handled around this call site).
+        // One candidate wins; two at one level is E1504, never a coin toss;
+        // nothing at all falls through to the builtin path.
         let (mangled, sig) = if let Some(entry) = self.bound_entry(&receiver_checked).cloned() {
             match self.bound_candidate(&entry, &type_name, method, span) {
                 Some(found) => found,
                 None => return Some(None),
             }
         } else {
-            let mangled = format!("{type_name}.{method}");
-            let Some(sig) = self.methods.get(&mangled).cloned() else {
-                return None;
-            };
-            (mangled, sig)
+            match self.resolve_method(&type_name, method, args, span) {
+                Some(Some(found)) => found,
+                Some(None) => return Some(None),
+                None => return None,
+            }
         };
         if !sig.has_self {
             // A method with no `self` is a static one: it belongs to the type,

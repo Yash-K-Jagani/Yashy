@@ -124,6 +124,8 @@ pub const INCOMPLETE_IMPL: &str = "E1502";
 /// An argument type does not satisfy a type parameter's bound, or a method
 /// on a type parameter is not provided by any of its bounds.
 pub const UNSATISFIED_BOUND: &str = "E1503";
+/// A method name is provided by two trait impls for one type.
+pub const AMBIGUOUS_METHOD: &str = "E1504";
 /// A generic type is used with the wrong number of type arguments.
 pub const WRONG_TYPE_ARG_COUNT: &str = "E1509";
 /// A declared type parameter is used by no field or payload.
@@ -424,6 +426,12 @@ pub const CODES: &[Code] = &[
         title: "unsatisfied bound",
         summary: "An argument type does not implement a type parameter's bound, or a method on a type parameter is not provided by any of its bounds.",
         page: include_str!("../../../docs/errors/E1503.md"),
+    },
+    Code {
+        id: AMBIGUOUS_METHOD,
+        title: "ambiguous method",
+        summary: "Two trait impls for one type provide the same method, so the call has two targets.",
+        page: include_str!("../../../docs/errors/E1504.md"),
     },
     Code {
         id: WRONG_TYPE_ARG_COUNT,
