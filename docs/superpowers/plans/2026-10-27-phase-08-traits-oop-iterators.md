@@ -209,11 +209,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: `E1503` at the call site when the argument type has no impl for a bound, naming the type, the trait and the file that would need the impl.
 - Produces: each instantiation is re-checked with the substitution in force (that is what `instantiate_generics` does today), so a trait call inside a generic body is lowered to the concrete impl symbol before codegen. The effect and ownership passes therefore see one call target per instantiation, not a symbolic trait call.
 
-- [ ] **Step 1: Write the failing tests** — a bound is enforced at the call site; a generic body may call only bound methods; an unbounded `T` cannot be printed; two instantiations produce two symbols, and a trait call in each names that type's impl; a bound on an unknown trait is `E1500`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `TypeParam` replaces the tuple everywhere; `GenericFn` gains `bounds: Vec<String>` per parameter; instantiation checks each argument type against each bound's `TraitTable` entry; inside the body, method lookup on a type parameter consults the bound set only. When `instantiate_generics` re-checks a body, `type_subst` turns the bound method's receiver into the concrete type inside that bound, and the call is emitted as that impl's symbol.
-- [ ] **Step 4: Run** `cargo test -p yashy-sema` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: generic bounds checked at the call site (E1503)"`
+- [x] **Step 1: Write the failing tests** — a bound is enforced at the call site; a generic body may call only bound methods; an unbounded `T` cannot be printed; two instantiations produce two symbols, and a trait call in each names that type's impl; a bound on an unknown trait is `E1500`.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `TypeParam` replaces the tuple everywhere; `GenericFn` gains `bounds: Vec<String>` per parameter; instantiation checks each argument type against each bound's `TraitTable` entry; inside the body, method lookup on a type parameter consults the bound set only. When `instantiate_generics` re-checks a body, `type_subst` turns the bound method's receiver into the concrete type inside that bound, and the call is emitted as that impl's symbol.
+- [x] **Step 4: Run** `cargo test -p yashy-sema` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: generic bounds checked at the call site (E1503)"`
 
 ---
 
@@ -241,11 +241,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: a type that names itself in a field list (`struct Node { next: Node }`, `struct Node[T] { next: Node[T] }`) is still rejected, because a type's name is not in scope inside its own fields. That behaviour is asserted by a test and **not changed here** — recursion through a pointer is the supported form and needs no new rule.
 - Produces: `Pair[i64]` and `Pair[string]` are distinct types with distinct layouts and distinct symbols; `Pair[i64]` written twice is one type, and the test asserts the IR contains one `%Pair$i64 = type` definition.
 
-- [ ] **Step 1: Write the failing tests** — `Pair[i64]` and `Entry[string, i64]` construct, read their fields and print; `Maybe[T]` matches exhaustively for each instantiation and a missing arm is still `E0600`; two instantiations of one scheme emit two types and one instantiation emits one; `Pair[i64, i64]` is `E1509` with both arities; a bare `Pair` is `E1509`; `struct Wrapper[T] { n: i64 }` is `E1510`; `Pair[T: Show]` with an unbounded argument type is `E1503`; `Pair[i64]` and `Pair[string]` do not unify; a generic type used inside a generic function (`fn first[T](p: Pair[T]) -> T`) monomorphises once per `T`; the formatter round-trips the declaration and the use.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `parse_type_expr` grows the `Name[type, ..]` case and emits `TypeExpr::Generic` for every name except the built-ins that already have a dedicated variant; `Struct`/`Enum` gain `type_params`; the item pass records a `TypeScheme` instead of a concrete type when the list is non-empty; `resolve_type` on `TypeExpr::Generic` looks the scheme up, checks arity (`E1509`), substitutes the arguments into the fields, and interns the result under `mangled_generic_name`; a non-generic name with type arguments is `E1509` too, and a generic name with none is `E1509`. The unused-parameter check (`E1510`) is one walk over the field types collecting the parameters actually mentioned. Codegen emits from the interned table, so a type used twice is declared once.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e --test verify` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: generic structs and enums, one monomorphisation per argument tuple (E1509, E1510)"`
+- [x] **Step 1: Write the failing tests** — `Pair[i64]` and `Entry[string, i64]` construct, read their fields and print; `Maybe[T]` matches exhaustively for each instantiation and a missing arm is still `E0600`; two instantiations of one scheme emit two types and one instantiation emits one; `Pair[i64, i64]` is `E1509` with both arities; a bare `Pair` is `E1509`; `struct Wrapper[T] { n: i64 }` is `E1510`; `Pair[T: Show]` with an unbounded argument type is `E1503`; `Pair[i64]` and `Pair[string]` do not unify; a generic type used inside a generic function (`fn first[T](p: Pair[T]) -> T`) monomorphises once per `T`; the formatter round-trips the declaration and the use.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `parse_type_expr` grows the `Name[type, ..]` case and emits `TypeExpr::Generic` for every name except the built-ins that already have a dedicated variant; `Struct`/`Enum` gain `type_params`; the item pass records a `TypeScheme` instead of a concrete type when the list is non-empty; `resolve_type` on `TypeExpr::Generic` looks the scheme up, checks arity (`E1509`), substitutes the arguments into the fields, and interns the result under `mangled_generic_name`; a non-generic name with type arguments is `E1509` too, and a generic name with none is `E1509`. The unused-parameter check (`E1510`) is one walk over the field types collecting the parameters actually mentioned. Codegen emits from the interned table, so a type used twice is declared once.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-codegen -p yashy-fmt -p yashy-driver --test e2e --test verify` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: generic structs and enums, one monomorphisation per argument tuple (E1509, E1510)"`
 
 ---
 
