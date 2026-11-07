@@ -151,8 +151,12 @@ pub const TRAIT_STATE: &str = "E1514";
 pub const OPERATOR_OVERLOAD: &str = "E1515";
 /// A macro invocation matches no declared arm.
 pub const MACRO_NO_MATCH: &str = "E1600";
+/// Macro expansion exceeds the depth or size cap.
+pub const MACRO_DEPTH: &str = "E1601";
 /// A macro metavariable is malformed or names a fragment kind the input is not.
 pub const MACRO_FRAGMENT: &str = "E1602";
+/// Two macros share a name, or a macro collides with a function.
+pub const MACRO_DUPLICATE: &str = "E1603";
 /// A statement cannot be reached.
 pub const UNREACHABLE_CODE: &str = "E2002";
 /// A function parameter is never read.
@@ -527,10 +531,22 @@ pub const CODES: &[Code] = &[
         page: include_str!("../../../docs/errors/E1600.md"),
     },
     Code {
+        id: MACRO_DEPTH,
+        title: "macro expansion limit exceeded",
+        summary: "Macro expansion exceeded the depth or size cap.",
+        page: include_str!("../../../docs/errors/E1601.md"),
+    },
+    Code {
         id: MACRO_FRAGMENT,
         title: "macro metavariable kind mismatch",
         summary: "A macro metavariable is malformed or names a fragment kind the input is not.",
         page: include_str!("../../../docs/errors/E1602.md"),
+    },
+    Code {
+        id: MACRO_DUPLICATE,
+        title: "duplicate macro name",
+        summary: "Two macros share a name, or a macro name collides with a function.",
+        page: include_str!("../../../docs/errors/E1603.md"),
     },
     Code {
         id: UNUSED_IMPORT,
