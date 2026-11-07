@@ -579,6 +579,19 @@ impl Db {
                     }
                 }
             }
+            Item::Macro { name, arms, .. } => {
+                // A macro is part of the file's interface: its arms decide
+                // what callers expand to, so changing one changes the file.
+                *state = combine(*state, hash_str(name));
+                for arm in arms {
+                    for tree in &arm.pattern {
+                        *state = combine(*state, hash_str(&format!("{:?}", tree.kind)));
+                    }
+                    for tree in &arm.replacement {
+                        *state = combine(*state, hash_str(&format!("{:?}", tree.kind)));
+                    }
+                }
+            }
             Item::Object {
                 name,
                 fields,

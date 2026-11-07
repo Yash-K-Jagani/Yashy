@@ -56,6 +56,7 @@ fn item_span(item: &Item) -> Span {
         | Item::Impl { span, .. }
         | Item::Object { span, .. }
         | Item::Trait { span, .. }
+        | Item::Macro { span, .. }
         | Item::ConstFn { span, .. } => *span,
     }
 }

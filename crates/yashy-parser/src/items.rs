@@ -75,6 +75,7 @@ fn item_kind(item: &Item) -> &'static str {
         }
         Item::Struct { .. } | Item::Enum { .. } | Item::Object { .. } => "a type",
         Item::Trait { .. } => "a trait",
+        Item::Macro { .. } => "a macro",
     }
 }
 
@@ -164,6 +165,7 @@ impl<'src> Parser<'src> {
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Object => self.parse_object(),
             TokenKind::Trait => self.parse_trait(),
+            TokenKind::Macro => self.parse_macro(),
             TokenKind::Extern => self.parse_extern(),
             // `repr(C)` in front of a type. The clause is read here and the
             // item behind it is an ordinary item, so the three type forms
@@ -497,6 +499,120 @@ impl<'src> Parser<'src> {
             type_params,
             methods,
             span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// `macro unless(cond, body) { $cond:expr => { .. } }`
+    ///
+    /// The declaration is a name and an order of arms. The arms' text is
+    /// collected as tokens, not parsed as syntax, because a pattern over
+    /// syntax is the thing being declared; the expander is the only reader.
+    fn parse_macro(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Macro)?;
+        let (name, _name_span) = self.identifier()?;
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+
+        let mut arms = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            arms.push(self.parse_macro_arm(&name)?);
+        }
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+
+        if arms.is_empty() {
+            return Err(error::macro_needs_an_arm(keyword.span, &name));
+        }
+        Ok(Item::Macro {
+            name,
+            arms,
+            span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// One macro arm, read as raw tokens up to and including its braced
+    /// replacement.
+    ///
+    /// The pattern is read one token at a time until the top-level `=>`, so a
+    /// pattern containing a nested `=>` inside parentheses is one pattern, not
+    /// two arms. The replacement is read up to its matching `}`, so nested
+    /// blocks are one replacement.
+    fn parse_macro_arm(&mut self, macro_name: &str) -> Result<crate::ast::MacroArm, ParseError> {
+        let mut pattern = Vec::new();
+        let mut depth = 0usize;
+
+        while !self.at_eof() {
+            let token = self.peek_token();
+            if token.kind == TokenKind::FatArrow && depth == 0 {
+                self.advance();
+                break;
+            }
+            if token.kind == TokenKind::RBrace && depth == 0 {
+                break;
+            }
+            if matches!(
+                token.kind,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace
+            ) {
+                if depth == 0 && token.kind == TokenKind::LBrace && pattern.is_empty() {
+                    return Err(error::macro_arm_needs_a_replacement(token.span, macro_name));
+                }
+                depth = depth.saturating_add(1);
+            } else if matches!(
+                token.kind,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace
+            ) {
+                depth = depth.saturating_sub(1);
+            }
+            pattern.push(self.advance());
+        }
+
+        let open = self.peek_token();
+        if open.kind != TokenKind::LBrace {
+            return Err(error::expected(TokenKind::LBrace, open.kind, open.span));
+        }
+        let arm_open = self.advance();
+        let _ = self.push_open(TokenKind::LBrace, arm_open.span)?;
+
+        let mut replacement = Vec::new();
+        let mut body_depth = 0usize;
+        while !self.at_eof() {
+            let token = self.advance();
+            if token.kind == TokenKind::RBrace && body_depth == 0 {
+                break;
+            }
+            if token.kind == TokenKind::LBrace {
+                body_depth = body_depth.saturating_add(1);
+            } else if token.kind == TokenKind::RBrace {
+                body_depth = body_depth.saturating_sub(1);
+            }
+            replacement.push(token);
+        }
+        self.close_open(TokenKind::RBrace);
+
+        if replacement.is_empty() {
+            return Err(error::macro_arm_needs_a_replacement(
+                arm_open.span,
+                macro_name,
+            ));
+        }
+
+        let span = pattern
+            .first()
+            .map(|first| {
+                cover(
+                    first.span,
+                    replacement
+                        .last()
+                        .map(|last| last.span)
+                        .unwrap_or(first.span),
+                )
+            })
+            .unwrap_or(arm_open.span);
+        Ok(crate::ast::MacroArm {
+            pattern,
+            replacement,
+            span,
         })
     }
 

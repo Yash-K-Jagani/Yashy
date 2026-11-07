@@ -614,6 +614,7 @@ fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, 
         (b'+', Some(b'=')) => (2, K::PlusEq),
         (b'-', Some(b'=')) => (2, K::MinusEq),
         (b'-', Some(b'>')) => (2, K::Arrow),
+        (b'=', Some(b'>')) => (2, K::FatArrow),
         (b'*', Some(b'=')) => (2, K::StarEq),
         (b'/', Some(b'=')) => (2, K::SlashEq),
         (b'%', Some(b'=')) => (2, K::PercentEq),
@@ -678,6 +679,7 @@ fn operator(first: u8, second: Option<u8>, third: Option<u8>) -> Option<(usize, 
         (b'@', _) => (1, K::At),
         (b'?', _) => (1, K::Question),
         (b'|', _) => (1, K::Pipe),
+        (b'$', _) => (1, K::Dollar),
 
         _ => return None,
     })
@@ -843,7 +845,7 @@ mod tests {
 
     #[test]
     fn an_unknown_byte_is_a_diagnostic() {
-        for src in ["#", "$", "`", "\\", "\u{1}"] {
+        for src in ["#", "`", "\\", "\u{1}"] {
             let d = first_error(src);
             assert!(d.message.starts_with("unexpected character"), "{src:?}: {}", d.message);
             assert_eq!(d.span.start, 0, "{src:?}");

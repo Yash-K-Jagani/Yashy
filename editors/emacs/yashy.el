@@ -8,7 +8,7 @@
 (defvar yashy-keywords
   '("fn" "struct" "enum" "const" "var" "let" "import" "extern" "unsafe" "pure" "io" "defer"
     "return" "break" "continue" "if" "else" "for" "while" "in" "switch"
-    "case" "default" "as" "move" "true" "false" "impl" "object" "trait" "pub"
+    "case" "default" "as" "move" "true" "false" "impl" "object" "trait" "macro" "pub"
     "requires" "ensures" "invariant" "repr")
   "Yashy keywords.")
 

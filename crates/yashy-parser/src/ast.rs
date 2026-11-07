@@ -182,6 +182,20 @@ pub enum Item {
         methods: Vec<TraitMethod>,
         span: Span,
     },
+    /// `macro unless(cond, body) { $cond:expr => { .. } }`
+    ///
+    /// A declarative macro: a name and arms, each arm a pattern over token
+    /// trees and a replacement. The arms are tokens, not AST, because a macro
+    /// is data about syntax; [`yashy_expand`](crate) turns them into the
+    /// ordinary syntax the checker reads.
+    Macro {
+        /// The macro's name, as written.
+        name: String,
+        /// The arms, in declaration order. The first arm whose pattern matches
+        /// an invocation is the one that expands it.
+        arms: Vec<MacroArm>,
+        span: Span,
+    },
     /// `object Counter { value: i64, fn get(self) -> i64 { ... } }`
     ///
     /// A type with its fields and its methods in one declaration. It is a
@@ -358,6 +372,21 @@ pub struct TraitMethod {
     /// `None` when the source wrote no `->`, which means the method returns
     /// unit.
     pub ret: Option<TypeExpr>,
+    pub span: Span,
+}
+
+/// One arm of a macro: a pattern and the replacement it expands to.
+///
+/// Both sides are token trees rather than AST, because the pattern describes
+/// syntax, and a replacement is spelled out token by token. The pieces are raw
+/// [`Token`]s for the same reason: a macro may contain text that is not valid
+/// Yashy until its metavariables are substituted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MacroArm {
+    /// The pattern trees, in order. A `$name:kind` is the only special leaf.
+    pub pattern: Vec<yashy_lexer::Token>,
+    /// The replacement trees.
+    pub replacement: Vec<yashy_lexer::Token>,
     pub span: Span,
 }
 

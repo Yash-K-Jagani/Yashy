@@ -60,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "yashy-codegen",
  "yashy-common",
+ "yashy-expand",
  "yashy-fmt",
  "yashy-lexer",
  "yashy-parser",
@@ -67,6 +68,16 @@ dependencies = [
  "yashy-runtime",
  "yashy-sema",
  "yashy-verify",
+]
+
+[[package]]
+name = "yashy-expand"
+version = "0.1.0"
+dependencies = [
+ "yashy-common",
+ "yashy-fmt",
+ "yashy-lexer",
+ "yashy-parser",
 ]
 
 [[package]]

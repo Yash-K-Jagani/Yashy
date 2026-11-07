@@ -631,6 +631,8 @@ pub enum TokenKind {
     Object,
     /// trait -- a requirement set: method signatures, never state or bodies.
     Trait,
+    /// macro -- a declarative rewrite rule: token pattern, replacement.
+    Macro,
     Const,
     Var,
     Let,
@@ -715,6 +717,10 @@ pub enum TokenKind {
     /// `...` -- the variadic marker in an `extern` declaration's parameters.
     DotDotDot,
     Arrow,
+    /// `=>`: the separator between a macro arm's pattern and replacement.
+    FatArrow,
+    /// `$`: the metavariable marker in a macro arm's pattern.
+    Dollar,
     At,
     Question,
     Plus,
@@ -800,11 +806,11 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 35] = [
+    pub const KEYWORDS: [&'static str; 36] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl", "object", "trait", "pub", "requires", "ensures",
-        "invariant", "repr",
+        "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires",
+        "ensures", "invariant", "repr",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -839,6 +845,7 @@ impl TokenKind {
             "impl" => TokenKind::Impl,
             "object" => TokenKind::Object,
             "trait" => TokenKind::Trait,
+            "macro" => TokenKind::Macro,
             "pub" => TokenKind::Pub,
             "requires" => TokenKind::Requires,
             "ensures" => TokenKind::Ensures,
@@ -882,6 +889,7 @@ impl TokenKind {
                 | TokenKind::Impl
                 | TokenKind::Object
                 | TokenKind::Trait
+                | TokenKind::Macro
                 | TokenKind::Pub
                 | TokenKind::Requires
                 | TokenKind::Ensures
@@ -911,6 +919,9 @@ impl TokenKind {
             TokenKind::Impl => Naming::Fixed("impl"),
             TokenKind::Object => Naming::Fixed("object"),
             TokenKind::Trait => Naming::Fixed("trait"),
+            TokenKind::Macro => Naming::Fixed("macro"),
+            TokenKind::FatArrow => Naming::Fixed("=>"),
+            TokenKind::Dollar => Naming::Fixed("$"),
             TokenKind::Const => Naming::Fixed("const"),
             TokenKind::Var => Naming::Fixed("var"),
             TokenKind::Let => Naming::Fixed("let"),
@@ -1045,7 +1056,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 35] = [
+    const KEYWORDS: [(&str, TokenKind); 36] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1076,6 +1087,7 @@ mod tests {
         ("impl", TokenKind::Impl),
         ("object", TokenKind::Object),
         ("trait", TokenKind::Trait),
+        ("macro", TokenKind::Macro),
         ("pub", TokenKind::Pub),
         ("requires", TokenKind::Requires),
         ("ensures", TokenKind::Ensures),
@@ -1160,6 +1172,7 @@ mod tests {
             TokenKind::DotDot,
             TokenKind::DotDotDot,
             TokenKind::Arrow,
+            TokenKind::FatArrow,
             TokenKind::At,
             TokenKind::Question,
             TokenKind::Plus,

@@ -3442,6 +3442,13 @@ impl<'src> Checker<'src> {
                 );
                 self.record_origin(name, public);
             }
+            Item::Macro { name, span, .. } => {
+                // A macro is declared so its name is reserved in the module:
+                // expansion needs the declaration to see it, and the checker
+                // must never see a call to it.
+                let _binding = name;
+                let _ = span;
+            }
         }
     }
     /// Resolve a type in a declaration, with the FFI edge's context rules.
@@ -4603,6 +4610,11 @@ impl<'src> Checker<'src> {
                 // A trait is a compile-time requirement set: it has no layout,
                 // no value and no symbol, so nothing is emitted for it. Its
                 // impls are lowered through their own `Item::Impl` blocks.
+                None
+            }
+            Item::Macro { .. } => {
+                // A macro is expanded before checking; if one reaches the
+                // checker the expander never ran, and there is no HIR for it.
                 None
             }
             Item::Extern {

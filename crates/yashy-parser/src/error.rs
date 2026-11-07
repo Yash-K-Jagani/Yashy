@@ -229,6 +229,28 @@ pub fn extern_block_needs_a_declaration(span: Span) -> ParseError {
     ParseError::new(span, "an `extern` block must declare at least one function")
 }
 
+/// A macro with no arms.
+///
+/// A declaration that matches nothing is a macro that never expands; the name
+/// would be a lie the reader has to discover by invoking it.
+pub fn macro_needs_an_arm(span: Span, name: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("macro `{name}` must declare at least one arm"),
+    )
+}
+
+/// A macro arm with no replacement.
+///
+/// An arm that produces nothing is allowed only when the author wants the call
+/// to disappear; that is spelled by an empty body and has to be a decision.
+pub fn macro_arm_needs_a_replacement(span: Span, name: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("the arm in macro `{name}` needs a replacement after `=>`"),
+    )
+}
+
 /// `link_name` written anywhere but on a declaration inside an `extern` block.
 ///
 /// The clause changes which linker symbol a declaration resolves to, so it means
