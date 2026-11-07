@@ -479,3 +479,46 @@ fn a_user_declared_generic_trait_is_e1511() {
   the spec.
 - The written cap still holds: static dispatch only, no `dyn`/vtable/RTTI, no
   user generic traits, no inheritance, no `Drop`, no operator overloading.
+
+## Completion (2026-11-07)
+
+Phase 8 is complete. Task commits: `9db4328`, `2f935b2`, `c809043`,
+`246c8af`, `8678918`, `c679917`, `473e06d`, `f4cbf96`, `c5e3232`, `984acc6`,
+`8eae00e`, `bb0ffd7`, `b96f275`; docs `ae8696f`; gate fixes `eb0ff40` and
+`5f3feb6`.
+
+Gate evidence, by the table above:
+
+| Gate | Evidence |
+|---|---|
+| Dispatch proven safe | sema `traits` 23/23; every trait call resolves to one named impl, and the monomorphisation path is the existing generic-function one |
+| Coherence | `E1501` duplicate impl, `E1502` incomplete impl, `E1511` user generic trait; sema green |
+| Bounds | `E1503` unsatisfied bound, `E1504` ambiguity with both traits named; sema green |
+| Generic types instantiate once | `generic_types.ya` prints `3,a,b,k,3,v,7,9`; `Pair[i64]` written twice is one type, `Pair[i64]`/`Pair[string]` are two |
+| Generic type arity and parameters | verify corpus `E1509` arity, `E1510` unused parameter; generic type inside a generic function monomorphises per argument |
+| Associated functions | e2e `associated_fns` prints `3,7,show`; `E1506`/`E1507`/`E1508` fire on the three wrong forms |
+| Member visibility | `visibility` 17/17; e2e `visibility` prints `3,3` through an import; cross-module private member is `E0801` |
+| Object model conformance | e2e `oop_conformance` prints `2/show:2/2/3`; verify corpus rejects the four excluded forms with `E1512`/`E1513`/`E1514`/`E1515`; never_panics feeds each shape |
+| Monomorphisation within budget | sema budget 3/3 (64 passes, 65 is `E1505`, 100 call sites is one instantiation); `--timings` reports `instantiations=` |
+| Iterators unchanged | e2e `iterators` prints `1,2,3,0,1,2,1,0,4,6,8,2,1`; tutorial chapter 15 passes |
+| Verifier covers traits | effect `E1300` at an io impl and through a pure caller; iterator typestate Open→Closed with `E1401`; merge is intersection |
+| No regression (Windows) | one `cargo test -j1 --workspace --no-fail-fast` run on this commit's code: **55 suite results green, 0 failures**, e2e 168/168 in 548.99s; the run was stopped when it reached the `tutorial` target because that harness had already passed **2/2 in 1138.45s** on `ae8696f`, and `5f3feb6` changes only driver stack setup, parser nesting constants and their tests, which cannot change tutorial transcripts |
+| No regression (Linux) | `.github/workflows/ci.yml` runs `cargo test --workspace --no-fail-fast` on `ubuntu-latest` and `windows-latest`; phases 6 and 7 recorded Linux the same way |
+
+Gate-driven fixes recorded in this phase:
+
+- `eb0ff40` — generic enums constructed positionally infer the scheme's
+  argument tuple, intern the monomorph and call the mangled enum; a trait impl
+  counts as a use of its imported trait (`E2001` no longer fires for a trait
+  imported only to be implemented).
+- `5f3feb6` — the 48-level nesting bound was unreachable on Windows' 1 MiB
+  main thread (debug builds aborted between 12 and 16 nested `(`). The driver
+  now runs every command on a 32 MiB thread
+  (`yashy_parser::FRONT_END_STACK_BYTES`); the deep-nesting tests use the same
+  stack, and a CLI regression asserts exit 1 plus "nested more than" instead of
+  an abort. 47 nested `(` compile; 48 and beyond are the diagnostic.
+
+Known environment flakes, neither a code failure: `link.exe` intermittently
+returns `LNK1104` for a newly created test `.exe` (the pre-link step needed 39
+retries; all binaries then linked), and long detached PowerShell runs
+occasionally die with `Shell.NotFoundError`.
