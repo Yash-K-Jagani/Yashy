@@ -333,11 +333,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: a type with no `Iterator` impl is `E1503` at the `for`, naming the type and the missing `Iterator` impl.
 - Produces: because `next` takes `self: *mut Self`, the iterator binding is mutable and the ownership pass sees the receiver move. The loop body may not use the iterator again after the loop; that is ordinary ownership, not a new rule.
 
-- [ ] **Step 1: Write the failing test** — `iterators.ya` collects from an array, a range, a map and a string and asserts the exact sequence (built-in path); a user type with an `Iterator` impl is consumed by `for` and yields its sequence (protocol path); a type with no `Iterator` impl is `E1503` at the `for`.
-- [ ] **Step 2: Watch it fail.**
-- [ ] **Step 3: Implement** — resolve the iterable's type: built-ins enter the existing lowering; a user type looks up `TraitTable[(Iterator, Type)]`, requires `next` to return `Option[T]`, and synthesizes the `ForC` + `IfLet` shape with a fresh `it` binding and the concrete `Type.Iterator.next` symbol. The loop is checked through the same path as a hand-written `while let`, including label wrap and scope handling, so the verifier and codegen need no new loop node.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: the iterator protocol and a protocol-based for-in"`
+- [x] **Step 1: Write the failing test** — `iterators.ya` collects from an array, a range, a map and a string and asserts the exact sequence (built-in path); a user type with an `Iterator` impl is consumed by `for` and yields its sequence (protocol path); a type with no `Iterator` impl is `E1503` at the `for`.
+- [x] **Step 2: Watch it fail.**
+- [x] **Step 3: Implement** — resolve the iterable's type: built-ins enter the existing lowering; a user type looks up `TraitTable[(Iterator, Type)]`, requires `next` to return `Option[T]`, and synthesizes the `ForC` + `IfLet` shape with a fresh `it` binding and the concrete `Type.Iterator.next` symbol. The loop is checked through the same path as a hand-written `while let`, including label wrap and scope handling, so the verifier and codegen need no new loop node.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: the iterator protocol and a protocol-based for-in"`
 
 ---
 

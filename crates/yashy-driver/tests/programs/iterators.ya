@@ -1,0 +1,37 @@
+// The iterator protocol: built-in `for` keeps its proven lowering, and a
+// user type iterates through its `Iterator` impl.
+import iter;
+
+struct Counter {
+    n: int,
+}
+
+impl Iterator for Counter {
+    fn next(self: *mut Self) -> Option[int] {
+        if self[0].n <= 0 {
+            return None;
+        }
+        self[0].n = self[0].n - 1;
+        return Some(self[0].n);
+    }
+}
+
+fn main() {
+    // Built-in path: an array keeps today's lowering.
+    let xs = []int { 1, 2, 3 };
+    for x in xs {
+        print(x);
+    }
+    xs.free();
+
+    // Built-in path: a range is a counted loop.
+    for i in 0..2 {
+        print(i);
+    }
+
+    // Protocol path: a user type whose iterator yields 2, 1, 0.
+    let c = Counter { n: 3 };
+    for y in c {
+        print(y);
+    }
+}

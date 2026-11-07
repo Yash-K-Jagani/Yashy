@@ -1,0 +1,11 @@
+// The iterator protocol: the one generic trait the language has.
+//
+// `Iterator[T]` is compiler-known: user traits may not carry type
+// parameters (`E1511`), but this one is the exception because the `for`
+// loop over a user type lowers through it. A type implements it by
+// providing `next(self: *mut Self) -> Option[T]`, where `T` is the element
+// type. There is no `iter()` method in v1: the iterable is the iterator.
+
+pub trait Iterator[T] {
+    fn next(self: *mut Self) -> Option[T];
+}

@@ -611,10 +611,19 @@ fn a_trailing_comma_in_a_tuple_type_does_not_add_an_element() {
 
 #[test]
 fn a_type_the_parser_cannot_read_is_a_diagnostic() {
-    // Yashy has no generics, so `[` after any other name is a mistake worth
-    // naming rather than a silent reading.
-    let message = all_messages(&parse_err("struct S { x: Vec[int] }"));
-    assert!(message.contains("generics"), "{message}");
+    // `Name[...]` after any other name is a generic use: the parser reads
+    // it, and whether the name is a declared generic type (and how many
+    // arguments it wants) is the type checker's question.
+    match &parse_ok("struct S { x: Vec[int] }").items[0] {
+        Item::Struct { fields, .. } => match &fields[0].ty {
+            TypeExpr::Generic { name, args, .. } => {
+                assert_eq!(name, "Vec");
+                assert_eq!(args.len(), 1);
+            }
+            other => panic!("a generic use is a `Generic` type, got {other:?}"),
+        },
+        other => panic!("expected a struct, got {other:?}"),
+    }
     assert!(all_messages(&parse_err("struct S { x: Option[ }")).contains("Option"));
     assert!(
         all_messages(&parse_err("struct S { x: Result[int] }")).contains("two types"),

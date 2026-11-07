@@ -3583,6 +3583,15 @@ fn question_mark_on_an_option_returns_none_early() {
 }
 
 #[test]
+fn iterators_cover_builtins_and_the_protocol() {
+    // `iterators.ya` drains an array and a range through the built-in
+    // lowerings, then a user `Iterator` impl yielding 2, 1, 0.
+    let output = build_and_run("iterators");
+    assert_eq!(stdout_of(&output), "1\n2\n3\n0\n1\n2\n1\n0\n");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn maps_insert_overwrite_remove_and_measure() {
     // `maps.ya` inserts "apple" twice (the second value wins), removes "pear",
     // then asks for "pear" again: a removed key is indistinguishable from one

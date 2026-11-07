@@ -291,6 +291,9 @@ struct MethodSig {
 #[derive(Clone, Debug)]
 struct TraitSig {
     methods: Vec<MethodSig>,
+    /// The trait's own type parameters, in declaration order. Only the
+    /// stdlib's `Iterator[T]` carries any; user generic traits are `E1511`.
+    type_params: Vec<String>,
 }
 
 /// One `impl Trait for Type` block that passed the coherence check.
@@ -1737,7 +1740,13 @@ impl<'src> Checker<'src> {
                         pointee,
                         ..
                     } => {
-                        let pointee_ty = self.resolve_or_report(pointee, param.span);
+                        // `Self` as a pointee is the receiver type itself:
+                        // `self: *mut Self` in a trait impl, where no concrete
+                        // type is in scope yet.
+                        let pointee_ty = match pointee.as_ref() {
+                            TypeExpr::Name(written, _) if written == "Self" => receiver_ty.clone(),
+                            _ => self.resolve_or_report(pointee, param.span),
+                        };
                         if !pointee_ty.eq_ignoring_span(receiver_ty) {
                             self.error(
                                 param.span,
@@ -1876,6 +1885,55 @@ impl<'src> Checker<'src> {
             ));
         }
         self.self_type = outer_self_type;
+        // `Iterator[T]` is the one generic trait: its `T` is the element
+        // type, which each impl picks out with its own `Option[E]` return,
+        // so the declared signature cannot be compared literally. What is
+        // checked instead is the protocol shape: exactly one `next` with a
+        // pointer receiver returning `Option[E]`.
+        if trait_name == "Iterator" {
+            let impl_name = "next";
+            let missing = trait_sig.methods.iter().any(|e| e.name == impl_name)
+                && !impl_sigs.iter().any(|(sig, _)| sig.name == impl_name);
+            if missing {
+                self.error_code(
+                    span,
+                    codes::INCOMPLETE_IMPL,
+                    format!("`{type_name}` does not implement `Iterator`: missing `fn next(self: *mut Self) -> Option[T]`"),
+                );
+            }
+            for (sig, method_span) in &impl_sigs {
+                if sig.name != impl_name {
+                    self.error_code(
+                        *method_span,
+                        codes::INCOMPLETE_IMPL,
+                        format!(
+                            "`{type_name}` implements `Iterator` but `Iterator` declares no `{}`",
+                            sig.name,
+                        ),
+                    );
+                    continue;
+                }
+                if !sig.has_self || !sig.receiver_is_pointer {
+                    self.error_code(
+                        *method_span,
+                        codes::INCOMPLETE_IMPL,
+                        format!(
+                            "`{type_name}`'s `next` does not match `Iterator`: impl has `{}`, trait requires `fn next(self: *mut Self) -> Option[T]`",
+                            describe_method(sig, type_name),
+                        ),
+                    );
+                } else if !matches!(sig.ret.kind, TypeKind::Option(_)) {
+                    self.error_code(
+                        *method_span,
+                        codes::INCOMPLETE_IMPL,
+                        format!(
+                            "`{type_name}`'s `next` does not match `Iterator`: impl has `{}`, trait requires `fn next(self: *mut Self) -> Option[T]`",
+                            describe_method(sig, type_name),
+                        ),
+                    );
+                }
+            }
+        } else {
         // Completeness: exactly the trait's methods, with exactly its
         // signatures.
         for expected in &trait_sig.methods {
@@ -1910,6 +1968,7 @@ impl<'src> Checker<'src> {
                 }
             }
         }
+        } // end non-Iterator completeness
         let mut emitted = Vec::new();
         for (sig, method_span) in &impl_sigs {
             if !trait_sig.methods.iter().any(|e| e.name == sig.name) {
@@ -3221,6 +3280,24 @@ impl<'src> Checker<'src> {
                     span: *span,
                 };
                 let outer_self_type = self.self_type.replace(placeholder.clone());
+                // A generic trait's own parameters are in scope while its
+                // methods resolve: `T` in `Option[T]` stands for the element
+                // type, the same way `Self` stands for the implementing type.
+                let outer_subst = std::mem::replace(
+                    &mut self.type_subst,
+                    type_params
+                        .iter()
+                        .map(|param| {
+                            (
+                                param.name.clone(),
+                                Type {
+                                    kind: TypeKind::Struct(param.name.clone()),
+                                    span: *span,
+                                },
+                            )
+                        })
+                        .collect(),
+                );
                 let mut sigs = Vec::with_capacity(methods.len());
                 for method in methods {
                     let sig = self.method_signature(
@@ -3245,9 +3322,13 @@ impl<'src> Checker<'src> {
                     sigs.push(sig);
                 }
                 self.self_type = outer_self_type;
+                self.type_subst = outer_subst;
                 self.traits.insert(
                     name.clone(),
-                    TraitSig { methods: sigs },
+                    TraitSig {
+                        methods: sigs,
+                        type_params: type_params.iter().map(|p| p.name.clone()).collect(),
+                    },
                 );
                 self.record_origin(name, public);
             }
@@ -5563,6 +5644,25 @@ impl<'src> Checker<'src> {
                     TypeKind::Slice(element)
                     | TypeKind::FixedArray(element, _)
                     | TypeKind::View(element) => (**element).clone(),
+                    TypeKind::Struct(name) | TypeKind::Enum(name) => {
+                        return self.check_iterator_for_in(
+                            match iterable {
+                                Expr::Ident(path, _) if path.len() == 1 => {
+                                    Some(path.last().cloned().unwrap_or_default())
+                                }
+                                _ => None,
+                            },
+                            iterable_expr,
+                            &iterable_ty,
+                            name,
+                            pattern,
+                            index.as_deref(),
+                            body,
+                            ret,
+                            label,
+                            *span,
+                        );
+                    }
                     _ => {
                         if index.is_some() {
                             self.error_code(
@@ -5711,8 +5811,7 @@ impl<'src> Checker<'src> {
                 body,
                 label,
                 span,
-            } => {
-                let init = init
+            } => {                let init = init
                     .as_ref()
                     .and_then(|s| self.check_stmt(s, ret))
                     .map(Box::new);
@@ -5869,6 +5968,156 @@ impl<'src> Checker<'src> {
             else_block,
             span,
         })
+    }
+
+    /// Check `for <pattern> in <iterator> { .. }` over a user type.
+    ///
+    /// The iterable is the iterator: it is moved into a fresh mutable
+    /// binding and the loop lowers to exactly the shape a hand-written
+    /// `while let Some(x) = it.next() { body }` already takes -- a
+    /// [`HirStmt::ForC`] whose body is one [`HirStmt::IfLet`] with an
+    /// `else { break; }` -- so the verifier and the backend need no new
+    /// loop node. A type with no `Iterator` impl is `E1503` at the `for`.
+    #[allow(clippy::too_many_arguments)]
+    fn check_iterator_for_in(
+        &mut self,
+        _binding: Option<String>,
+        iterable_expr: HirExpr,
+        iterable_ty: &Type,
+        type_name: &str,
+        pattern: &Pattern,
+        index: Option<&str>,
+        body: &Block,
+        ret: &Type,
+        label: &Option<String>,
+        span: Span,
+    ) -> Option<HirStmt> {
+        if let Some(index) = index {
+            self.error_code(
+                span,
+                codes::TYPE_MISMATCH,
+                format!(
+                    "`for {index}, x` needs an indexed iterable, found `{iterable_ty}`"
+                ),
+            );
+            return None;
+        }
+        let impl_ = match self.trait_impls.get(&("Iterator".to_string(), type_name.to_string())) {
+            Some(impl_) => impl_.clone(),
+            None => {
+                self.error_code(
+                    span,
+                    codes::UNSATISFIED_BOUND,
+                    format!(
+                        "`{iterable_ty}` does not implement `Iterator` required by `for`{}",
+                        self.impl_needs_line(iterable_ty, "Iterator"),
+                    ),
+                );
+                return None;
+            }
+        };
+        let symbol = impl_
+            .methods
+            .iter()
+            .find(|(m, _)| m == "next")
+            .map(|(_, s)| s.clone());
+        let Some(symbol) = symbol else {
+            self.error_code(
+                span,
+                codes::UNSATISFIED_BOUND,
+                format!(
+                    "`{iterable_ty}` does not implement `Iterator` required by `for`{}",
+                    self.impl_needs_line(iterable_ty, "Iterator"),
+                ),
+            );
+            return None;
+        };
+        let sig = self.methods.get(&symbol).cloned()?;
+        self.check_visibility(type_name, span);
+        self.check_method_visibility(&sig, "next", span);
+        if !sig.has_self || !sig.receiver_is_pointer {
+            self.error_code(
+                span,
+                codes::UNSATISFIED_BOUND,
+                format!(
+                    "`{iterable_ty}`'s `next` is not `fn next(self: *mut Self) -> Option[T]` as `Iterator` requires"
+                ),
+            );
+            return None;
+        }
+        match &sig.ret.kind {
+            TypeKind::Option(_) => {}
+            _ => {
+                self.error_code(
+                    span,
+                    codes::UNSATISFIED_BOUND,
+                    format!(
+                        "`{iterable_ty}`'s `next` is not `fn next(self: *mut Self) -> Option[T]` as `Iterator` requires"
+                    ),
+                );
+                return None;
+            }
+        }
+        // The iterator moves into a fresh mutable binding, the same shape
+        // as the hand-written `let mut it = it;` the plan spells out.
+        let fresh = format!("__iterator_{}", span.start);
+        self.scope.push();
+        let moved = HirExpr::Move(Box::new(iterable_expr), span, iterable_ty.clone());
+        if let Err(e) = self.scope.declare(
+            fresh.clone(),
+            Binding {
+                ty: iterable_ty.clone(),
+                mutability: Mutability::Var,
+                span,
+                ownership: Ownership::Live,
+                visibility: Visibility::Private,
+            },
+        ) {
+            self.report(e);
+        }
+        // `while let Some(<pattern>) = it.next() { body }`, checked through
+        // the same path as a hand-written one, labels included.
+        self.push_loop_label(label, span);
+        if label.is_some() {
+            self.labeled_loops.push(label.clone().unwrap());
+        }
+        let some_pattern = Pattern::TupleVariant {
+            path: vec!["Some".to_string()],
+            args: vec![pattern.clone()],
+            span,
+        };
+        let next_value = Expr::Call {
+            callee: vec![fresh.clone(), "next".to_string()],
+            args: Vec::new(),
+            unsafe_call: false,
+            span,
+        };
+        let loop_stmt = self.check_while_let(&some_pattern, &next_value, body, span, ret);
+        self.pop_loop_label();
+        if label.is_some() {
+            self.labeled_loops.pop();
+        }
+        let loop_stmt = loop_stmt?;
+        self.scope.pop();
+        // Attach the moved iterator as the loop's init.
+        let init = HirStmt::Var {
+            name: fresh,
+            ty: Some(iterable_ty.clone()),
+            init: moved,
+            mutability: Mutability::Var,
+            span,
+        };
+        let loop_stmt = match loop_stmt {
+            HirStmt::ForC { cond, update, body, .. } => HirStmt::ForC {
+                init: Some(Box::new(init)),
+                cond,
+                update,
+                body,
+                span,
+            },
+            other => other,
+        };
+        Some(self.wrap_loop(label, loop_stmt, span))
     }
 
     /// Check `while let <pattern> = <value> { .. }`.
