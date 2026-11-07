@@ -310,11 +310,11 @@ fn a_user_declared_generic_trait_is_e1511() {
 - Produces: inside the declaring module, private members are reachable. Visibility is **module-scoped, not type-scoped**, so a sibling type's methods can use `secret` — the same rule phase 6 applies to items, not a second one.
 - Produces: `pub` on a local `const`/`var` is a parse error — visibility applies to items and members, never to locals.
 
-- [ ] **Step 1: Write the failing tests** — a public field and a public method are reachable across modules; a private field read across modules is `E0801` naming field, type and module (already passing); a private method called across modules is `E0801`; a sibling type in the same module may read the private field; a struct literal naming a private field from another module is `E0801` (already passing); `pub const x = 1;` inside a function is a parse error; a `pub` method round-trips through the formatter.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — `method_signature` gains a `public` bit from the `Item::Public` wrapper (the impl/object collection passes it), and the method-call paths (`check_static_method`, `check_user_method_on`) check it against `origin.file`. The struct-literal path is already covered by `check_field_visibility` at the literal site, so no change is needed there.
-- [ ] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: pub on fields and methods, private members behind E0801"`
+- [x] **Step 1: Write the failing tests** — a public field and a public method are reachable across modules; a private field read across modules is `E0801` naming field, type and module (already passing); a private method called across modules is `E0801`; a sibling type in the same module may read the private field; a struct literal naming a private field from another module is `E0801` (already passing); `pub const x = 1;` inside a function is a parse error; a `pub` method round-trips through the formatter.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — `method_signature` gains a `public` bit from the `Item::Public` wrapper (the impl/object collection passes it), and the method-call paths (`check_static_method`, `check_user_method_on`) check it against `origin.file`. The struct-literal path is already covered by `check_field_visibility` at the literal site, so no change is needed there.
+- [x] **Step 4: Run** `cargo test -p yashy-parser -p yashy-sema -p yashy-driver --test e2e` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: pub on fields and methods, private members behind E0801"`
 
 ---
 
