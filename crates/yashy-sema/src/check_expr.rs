@@ -29,7 +29,7 @@ use yashy_hir::layout::{self as type_layout, Decls, Layout, NamedType};
 use yashy_parser::ast::{
     BinOp, BindingKeyword, Block, CallArg, Contract, Expr, ExternDecl, InterpFormat, InterpPart,
     Item, LambdaParam, Literal, Param, Pattern, PtrKind, SliceElement, Stmt, StringLit, SwitchArm,
-    TypeExpr, VariantDef, VariantField,
+    TypeExpr, TypeParam, VariantDef, VariantField,
 };
 
 use crate::check_pat::{check_pattern, hir_pattern_span, is_irrefutable};
@@ -176,7 +176,7 @@ struct ExternSymbol {
 #[derive(Clone, Debug)]
 struct GenericFn {
     /// The type parameters, in the order written.
-    type_params: Vec<(String, Span)>,
+    type_params: Vec<TypeParam>,
     /// The parameters, whose annotations may mention a type parameter.
     params: Vec<Param>,
     /// The return annotation, if the source wrote one.
@@ -191,6 +191,22 @@ struct GenericFn {
     span: Span,
     /// The file the body came from, so its diagnostics name the right module.
     file: FileId,
+}
+
+/// One parameter binding whose declared type is a type parameter with
+/// bounds, while a generic body is being checked.
+///
+/// A method call on such a binding resolves through the bounds in force,
+/// never through the substituted concrete type's own methods: the call
+/// site guaranteed the bounds, and the body may rely on nothing more.
+#[derive(Clone, Debug)]
+struct BoundBinding {
+    /// The parameter's binding name.
+    name: String,
+    /// The type parameter the binding's declared type is.
+    param: String,
+    /// The bounds its type parameter carries.
+    bounds: Vec<String>,
 }
 
 /// One concrete substitution waiting to be checked.
@@ -249,7 +265,6 @@ struct TraitSig {
 struct TraitImpl {
     /// (method name, emitted `HirFn` symbol) per method, in the impl's order.
     methods: Vec<(String, String)>,
-    span: Span,
 }
 
 /// Whether two types agree, with `Struct("Self")` in `expected` standing for
@@ -559,6 +574,13 @@ pub struct Checker<'src> {
     /// types, which is what makes `T` mean the instantiation's type inside a
     /// generic body and nowhere else.
     type_subst: HashMap<String, Type>,
+    /// The parameter bindings whose type is a type parameter of the generic
+    /// function being checked, with the bounds in force.
+    ///
+    /// Only set while an instantiation's body is checked. Method calls on
+    /// these bindings resolve through the bounds, so the body may call only
+    /// what the bounds guarantee.
+    bound_context: Vec<BoundBinding>,
     /// Instantiations discovered but not yet checked.
     pending_generics: Vec<Instantiation>,
     /// Mangled names already queued or emitted, so one substitution is checked
@@ -958,6 +980,7 @@ impl<'src> Checker<'src> {
             fns: HashMap::new(),
             generics: HashMap::new(),
             type_subst: HashMap::new(),
+            bound_context: Vec::new(),
             pending_generics: Vec::new(),
             instantiated: HashSet::new(),
             active_generics: Vec::new(),
@@ -1711,11 +1734,128 @@ impl<'src> Checker<'src> {
         }
         self.trait_impls.insert(
             (trait_name.to_string(), type_name.to_string()),
-            TraitImpl {
-                methods: emitted,
-                span,
-            },
+            TraitImpl { methods: emitted },
         );
+    }
+
+    /// Where an impl of `bound` for `concrete` would belong, for a bound
+    /// diagnostic. A named type's impl belongs beside the type's declaration;
+    /// a primitive has no module to name.
+    fn impl_needs_line(&self, concrete: &Type, bound: &str) -> String {
+        if let TypeKind::Struct(name) | TypeKind::Enum(name) = &concrete.kind {
+            if let Some(origin) = self.item_origins.get(name) {
+                return format!(
+                    "; write `impl {bound} for {name}` in `{}`",
+                    self.module_name(origin.file)
+                );
+            }
+        }
+        String::new()
+    }
+
+    /// The bound-context entry a method receiver is bound to, if any.
+    ///
+    /// Only a receiver that names a parameter binding whose declared type is
+    /// the type parameter has one: the bounds apply to the parameter, not to
+    /// every value of the substituted type.
+    fn bound_entry(&self, receiver: &HirExpr) -> Option<&BoundBinding> {
+        let HirExpr::Ident(path, _, _) = receiver else {
+            return None;
+        };
+        let name = path.last()?;
+        self.bound_context.iter().find(|entry| entry.name == *name)
+    }
+
+    /// Resolve a method call on a type-parameter binding through the bounds
+    /// in force.
+    ///
+    /// Returns the `(symbol, signature)` to call, or `None` after reporting:
+    /// `E1503` when no bound provides the method — naming the missing bound,
+    /// which is the trait whose impl on the concrete type provides it when
+    /// there is one — and an ambiguity error when two bounds provide it.
+    fn bound_candidate(
+        &mut self,
+        entry: &BoundBinding,
+        type_name: &str,
+        method: &str,
+        span: Span,
+    ) -> Option<(String, MethodSig)> {
+        let mut candidates = Vec::new();
+        for bound in &entry.bounds {
+            let symbol = format!("{type_name}.{bound}.{method}");
+            if let Some(sig) = self.methods.get(&symbol) {
+                if sig.has_self {
+                    candidates.push((bound.clone(), symbol, sig.clone()));
+                }
+            }
+        }
+        match candidates.len() {
+            1 => {
+                let (_, symbol, sig) = candidates.into_iter().next().unwrap();
+                Some((symbol, sig))
+            }
+            0 => {
+                self.error_code(
+                    span,
+                    codes::UNSATISFIED_BOUND,
+                    self.missing_bound_message(entry, type_name, method),
+                );
+                None
+            }
+            _ => {
+                let names = candidates
+                    .iter()
+                    .map(|(bound, _, _)| format!("`{bound}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.error(
+                    span,
+                    format!(
+                        "`{method}` is provided by both {names} on `{type_name}`: \
+                         one call has one target"
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// The `E1503` message for a method no bound in force provides.
+    fn missing_bound_message(
+        &self,
+        entry: &BoundBinding,
+        type_name: &str,
+        method: &str,
+    ) -> String {
+        for ((trait_name, ty), impl_) in &self.trait_impls {
+            if ty.as_str() != type_name {
+                continue;
+            }
+            if impl_
+                .methods
+                .iter()
+                .any(|(name, _)| name == method)
+            {
+                return format!(
+                    "`{method}` needs `{}`: `{trait_name}` is not one of its bounds",
+                    entry.param,
+                );
+            }
+        }
+        let bounds = if entry.bounds.is_empty() {
+            "no bounds".to_string()
+        } else {
+            entry
+                .bounds
+                .iter()
+                .map(|bound| format!("`{bound}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!(
+            "`{method}` is not provided by `{}`'s bounds ({bounds})",
+            entry.param,
+        )
     }
 
     /// Record a generic function's declaration.
@@ -1726,7 +1866,7 @@ impl<'src> Checker<'src> {
     fn declare_generic(
         &mut self,
         name: &str,
-        type_params: &[(String, Span)],
+        type_params: &[TypeParam],
         params: &[Param],
         ret: &Option<TypeExpr>,
         requires: &[Contract],
@@ -1737,16 +1877,19 @@ impl<'src> Checker<'src> {
         if self.generics.contains_key(name) || self.scope.resolve(name).is_some() {
             self.error(span, format!("duplicate definition of `{name}`"));
         }
-        for (index, (param, param_span)) in type_params.iter().enumerate() {
+        for (index, param) in type_params.iter().enumerate() {
             if type_params[..index]
                 .iter()
-                .any(|(previous, _)| previous == param)
+                .any(|previous| previous.name == param.name)
             {
-                self.error(*param_span, format!("duplicate type parameter `{param}`"));
-            }
-            if param == "Self" {
                 self.error(
-                    *param_span,
+                    param.span,
+                    format!("duplicate type parameter `{}`", param.name),
+                );
+            }
+            if param.name == "Self" {
+                self.error(
+                    param.span,
                     "`Self` is not a type parameter name: it means the method's own type",
                 );
             }
@@ -1754,13 +1897,31 @@ impl<'src> Checker<'src> {
             // parameter that names one turns every mention of that type in the
             // body into something else. That is never what the author meant.
             if self
-                .resolve_type(&TypeExpr::Name(param.clone(), *param_span))
+                .resolve_type(&TypeExpr::Name(param.name.clone(), param.span))
                 .is_ok()
             {
                 self.error(
-                    *param_span,
-                    format!("type parameter `{param}` shadows a type of the same name"),
+                    param.span,
+                    format!("type parameter `{}` shadows a type of the same name", param.name),
                 );
+            }
+            // A bound names a trait: one the program does not declare cannot
+            // be implemented, so it is `E1500` where it is written rather than
+            // `E1503` at every call.
+            for bound in &param.bounds {
+                if !self.traits.contains_key(bound) {
+                    let mut err = TypeError::new(
+                        param.span,
+                        format!("no trait named `{bound}` to bound `{}` on", param.name),
+                    );
+                    if let Some(suggestion) =
+                        yashy_common::closest(bound, self.traits.keys().map(String::as_str))
+                    {
+                        err = err.with_label(format!("did you mean `{suggestion}`?"));
+                    }
+                    self.errors
+                        .push((self.file, err.with_code(codes::UNKNOWN_TRAIT)));
+                }
             }
         }
         self.generics.insert(
@@ -2974,12 +3135,41 @@ impl<'src> Checker<'src> {
         // Every type parameter has to be pinned down by an argument. One that
         // appears only in the return type, or nowhere at all, has no answer.
         let mut ordered = Vec::with_capacity(generic.type_params.len());
-        for (param, _) in &generic.type_params {
-            match subst.get(param) {
+        for param in &generic.type_params {
+            match subst.get(&param.name) {
                 Some(concrete) => ordered.push(concrete.clone()),
                 None => {
-                    self.error(span, format!("cannot infer type parameter `{param}`"));
+                    self.error(span, format!("cannot infer type parameter `{}`", param.name));
                     return None;
+                }
+            }
+        }
+        // Bounds are checked here, at the call site, never inside the body:
+        // the argument type must implement each bound, and a miss is `E1503`
+        // naming the type, the trait and where the impl belongs.
+        for (param, concrete) in generic.type_params.iter().zip(ordered.iter()) {
+            for bound in &param.bounds {
+                // An undeclared bound was already reported as `E1500` where the
+                // function was declared.
+                if !self.traits.contains_key(bound) {
+                    continue;
+                }
+                let satisfies = match &concrete.kind {
+                    TypeKind::Struct(type_name) | TypeKind::Enum(type_name) => {
+                        self.trait_impls
+                            .contains_key(&(bound.clone(), type_name.clone()))
+                    }
+                    _ => false,
+                };
+                if !satisfies {
+                    self.error_code(
+                        span,
+                        codes::UNSATISFIED_BOUND,
+                        format!(
+                            "`{concrete}` does not implement `{bound}` required by `{name}`{}",
+                            self.impl_needs_line(concrete, bound),
+                        ),
+                    );
                 }
             }
         }
@@ -2991,7 +3181,7 @@ impl<'src> Checker<'src> {
             .type_params
             .iter()
             .zip(ordered.iter())
-            .map(|((param, _), concrete)| (param.clone(), concrete.clone()))
+            .map(|(param, concrete)| (param.name.clone(), concrete.clone()))
             .collect();
         let param_tys: Vec<Type> = generic
             .params
@@ -3035,12 +3225,12 @@ impl<'src> Checker<'src> {
     fn unify_type(
         &self,
         declared: &TypeExpr,
-        params: &[(String, Span)],
+        params: &[TypeParam],
         subst: &mut HashMap<String, Type>,
         actual: &Type,
     ) -> bool {
         match declared {
-            TypeExpr::Name(name, _) if params.iter().any(|(param, _)| param == name) => {
+            TypeExpr::Name(name, _) if params.iter().any(|param| param.name == *name) => {
                 match subst.get(name) {
                     Some(bound) => bound.eq_ignoring_span(actual),
                     None => {
@@ -3192,8 +3382,27 @@ impl<'src> Checker<'src> {
                 .type_params
                 .iter()
                 .zip(job.subst.iter())
-                .map(|((param, _), concrete)| (param.clone(), concrete.clone()))
+                .map(|(param, concrete)| (param.name.clone(), concrete.clone()))
                 .collect();
+            // The parameter bindings whose declared type is a type parameter
+            // resolve through the bounds in force, so method calls on them
+            // may rely on nothing beyond those bounds.
+            let bound_context = generic
+                .params
+                .iter()
+                .filter_map(|param| {
+                    let TypeExpr::Name(tp_name, _) = &param.ty else {
+                        return None;
+                    };
+                    let index = generic.type_params.iter().position(|p| &p.name == tp_name)?;
+                    Some(BoundBinding {
+                        name: param.name.clone(),
+                        param: generic.type_params[index].name.clone(),
+                        bounds: generic.type_params[index].bounds.clone(),
+                    })
+                })
+                .collect();
+            let outer_bound_context = std::mem::replace(&mut self.bound_context, bound_context);
             let param_tys: Vec<Type> = generic
                 .params
                 .iter()
@@ -3218,6 +3427,7 @@ impl<'src> Checker<'src> {
             );
             self.active_generics.pop();
             self.type_subst.clear();
+            self.bound_context = outer_bound_context;
             if let Some(hir) = checked {
                 items.push(HirItem::Fn(hir));
             }
@@ -5935,9 +6145,21 @@ impl<'src> Checker<'src> {
             TypeKind::Struct(name) | TypeKind::Enum(name) => name.clone(),
             _ => return None,
         };
-        let mangled = format!("{type_name}.{method}");
-        let Some(sig) = self.methods.get(&mangled).cloned() else {
-            return None;
+        // A receiver bound to a type parameter resolves through the bounds in
+        // force, never through the substituted concrete type's own methods:
+        // the call site guaranteed the bounds, and the body may rely on
+        // nothing beyond them.
+        let (mangled, sig) = if let Some(entry) = self.bound_entry(&receiver_checked).cloned() {
+            match self.bound_candidate(&entry, &type_name, method, span) {
+                Some(found) => found,
+                None => return Some(None),
+            }
+        } else {
+            let mangled = format!("{type_name}.{method}");
+            let Some(sig) = self.methods.get(&mangled).cloned() else {
+                return None;
+            };
+            (mangled, sig)
         };
         if !sig.has_self {
             // A method with no `self` is a static one: it belongs to the type,

@@ -169,7 +169,7 @@ pub enum Item {
         /// The trait's name.
         name: String,
         /// The type parameters, in the order written.
-        type_params: Vec<(String, Span)>,
+        type_params: Vec<TypeParam>,
         /// The methods, in declaration order.
         methods: Vec<TraitMethod>,
         span: Span,
@@ -202,7 +202,7 @@ pub enum Item {
     /// checker replaces it with a concrete type at each call.
     Fn {
         name: String,
-        type_params: Vec<(String, Span)>,
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         ret: Option<TypeExpr>,
         /// `requires` clauses, in the order written. Empty for a function that
@@ -350,6 +350,21 @@ pub struct TraitMethod {
     /// `None` when the source wrote no `->`, which means the method returns
     /// unit.
     pub ret: Option<TypeExpr>,
+    pub span: Span,
+}
+
+/// One type parameter of a generic item: `T` or `T: Show`.
+///
+/// A bound is a trait name the checker requires the argument type to
+/// implement. Bounds are checked at the call site (`E1503`), never inside
+/// the generic body, so the body can be analyzed without knowing its
+/// instantiations. The parser records them; the checker judges them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeParam {
+    pub name: String,
+    /// The traits a value of this parameter's type must implement, in the
+    /// order written. Empty for an unbounded parameter.
+    pub bounds: Vec<String>,
     pub span: Span,
 }
 

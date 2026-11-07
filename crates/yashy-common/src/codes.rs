@@ -121,6 +121,9 @@ pub const UNKNOWN_TRAIT: &str = "E1500";
 pub const CONFLICTING_IMPL: &str = "E1501";
 /// An impl does not provide exactly the methods its trait declares.
 pub const INCOMPLETE_IMPL: &str = "E1502";
+/// An argument type does not satisfy a type parameter's bound, or a method
+/// on a type parameter is not provided by any of its bounds.
+pub const UNSATISFIED_BOUND: &str = "E1503";
 /// A user trait carries type parameters.
 pub const GENERIC_TRAIT: &str = "E1511";
 /// A statement cannot be reached.
@@ -411,6 +414,12 @@ pub const CODES: &[Code] = &[
         title: "incomplete trait impl",
         summary: "An `impl Trait for Type` does not provide exactly the methods its trait declares, with matching signatures.",
         page: include_str!("../../../docs/errors/E1502.md"),
+    },
+    Code {
+        id: UNSATISFIED_BOUND,
+        title: "unsatisfied bound",
+        summary: "An argument type does not implement a type parameter's bound, or a method on a type parameter is not provided by any of its bounds.",
+        page: include_str!("../../../docs/errors/E1503.md"),
     },
     Code {
         id: GENERIC_TRAIT,

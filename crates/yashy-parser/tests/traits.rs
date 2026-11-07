@@ -119,6 +119,25 @@ fn pub_trait_wraps_the_trait() {
 }
 
 #[test]
+fn type_parameters_carry_bounds() {
+    let program = parse_ok("fn f[T: Show, U: Show + Display](T x, U y) -> T { return x; }");
+    let Item::Fn {
+        type_params, ..
+    } = &program.items[0]
+    else {
+        panic!("expected a function item");
+    };
+    assert_eq!(type_params.len(), 2);
+    assert_eq!(type_params[0].name, "T");
+    assert_eq!(type_params[0].bounds, vec!["Show".to_string()]);
+    assert_eq!(type_params[1].name, "U");
+    assert_eq!(
+        type_params[1].bounds,
+        vec!["Show".to_string(), "Display".to_string()]
+    );
+}
+
+#[test]
 fn type_parameters_on_a_trait_parse() {
     let program = parse_ok("trait Iterator[T] { fn next(self: *mut Self) -> Option[T]; }");
     let Item::Trait {
@@ -130,6 +149,6 @@ fn type_parameters_on_a_trait_parse() {
         panic!("expected a trait item");
     };
     assert_eq!(type_params.len(), 1);
-    assert_eq!(type_params[0].0, "T");
+    assert_eq!(type_params[0].name, "T");
     assert!(matches!(&methods[0].params[0].ty, TypeExpr::Ptr { .. }));
 }

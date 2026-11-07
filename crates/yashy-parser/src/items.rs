@@ -50,8 +50,8 @@ use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
 use crate::ast::{
-    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TraitMethod, TypeExpr, VariantDef,
-    VariantField,
+    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TraitMethod, TypeExpr, TypeParam,
+    VariantDef, VariantField,
 };
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
@@ -808,16 +808,18 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// `[T, U]` -- the type parameters of a generic function, in order.
+    /// `[T, U]` or `[T: Show + Display, U]` -- the type parameters of a
+    /// generic item, in order, with their bounds.
     ///
     /// Empty when the name is followed by `(`, which is what makes the
     /// spelling optional without a second token of lookahead: a function's
     /// argument list is the only other thing that can follow its name.
     ///
+    /// A bound is a trait name after `:`; several bounds join with `+`.
     /// The names are parsed here and judged by the checker: a duplicate, a
-    /// name that shadows a declared type, and a method that writes one are
-    /// all its business, not the parser's.
-    fn parse_type_params(&mut self) -> Result<Vec<(String, Span)>, ParseError> {
+    /// name that shadows a declared type, and a bound on a trait the program
+    /// does not declare are all its business, not the parser's.
+    fn parse_type_params(&mut self) -> Result<Vec<TypeParam>, ParseError> {
         if !self.check(TokenKind::LBracket) {
             return Ok(Vec::new());
         }
@@ -825,8 +827,18 @@ impl<'src> Parser<'src> {
         let _ = self.push_open(TokenKind::LBracket, open.span)?;
         let mut params = Vec::new();
         loop {
-            let (name, span) = self.identifier()?;
-            params.push((name, span));
+            let (name, name_span) = self.identifier()?;
+            let (bounds, span) = if self.eat(TokenKind::Colon) {
+                let mut bounds = vec![self.identifier()?.0];
+                while self.eat(TokenKind::Plus) {
+                    bounds.push(self.identifier()?.0);
+                }
+                let span = cover(name_span, self.previous_span());
+                (bounds, span)
+            } else {
+                (Vec::new(), name_span)
+            };
+            params.push(TypeParam { name, bounds, span });
             if !self.eat(TokenKind::Comma) {
                 break;
             }

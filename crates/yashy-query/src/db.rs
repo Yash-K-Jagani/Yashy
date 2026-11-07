@@ -488,8 +488,11 @@ impl Db {
                 ..
             } => {
                 *state = combine(*state, hash_str(name));
-                for (p, _) in type_params {
-                    *state = combine(*state, hash_str(p));
+                for p in type_params {
+                    *state = combine(*state, hash_str(&p.name));
+                    for bound in &p.bounds {
+                        *state = combine(*state, hash_str(bound));
+                    }
                 }
                 for p in params {
                     *state = combine(*state, hash_str(&p.name));
@@ -538,8 +541,8 @@ impl Db {
                 ..
             } => {
                 *state = combine(*state, hash_str(name));
-                for (param, _) in type_params {
-                    *state = combine(*state, hash_str(param));
+                for param in type_params {
+                    *state = combine(*state, hash_str(&param.name));
                 }
                 for method in methods {
                     *state = combine(*state, hash_str(&method.name));

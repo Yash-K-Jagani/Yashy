@@ -172,3 +172,88 @@ fn an_inherent_impl_still_checks_alongside_a_trait_impl() {
     assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.sum")));
     assert!(hir.items.iter().any(|item| matches!(item, HirItem::Fn(f) if f.name == "Point.Show.show")));
 }
+
+#[test]
+fn a_bound_is_enforced_at_the_call_site() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Secret { x: int }\n\
+         fn show_it[T: Show](T x) -> string { return x.show(); }\n\
+         fn go() -> string { return show_it(Secret { x: 1 }); }",
+        codes::UNSATISFIED_BOUND,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("`Secret` does not implement `Show`")),
+        "the diagnostic names the type and the trait: {diags:?}"
+    );
+}
+
+#[test]
+fn an_unbounded_type_parameter_cannot_call_a_trait_method() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"p\"; } }\n\
+         fn show_it[T](T x) -> string { return x.show(); }\n\
+         fn go() -> string { return show_it(Point { x: 1 }); }",
+        codes::UNSATISFIED_BOUND,
+    );
+    assert!(
+        diags.iter().any(|d| d.message.contains("needs `T`")),
+        "the diagnostic names the missing bound: {diags:?}"
+    );
+}
+
+#[test]
+fn two_instantiations_produce_two_symbols_naming_their_impls() {
+    let hir = check_source(
+        "trait Show { fn show(self) -> string; }\n\
+         struct Point { x: int }\n\
+         struct Circle { r: int }\n\
+         impl Show for Point { fn show(self) -> string { return \"p\"; } }\n\
+         impl Show for Circle { fn show(self) -> string { return \"c\"; } }\n\
+         fn show_it[T: Show](T x) -> string { return x.show(); }\n\
+         fn a() -> string { return show_it(Point { x: 1 }); }\n\
+         fn b() -> string { return show_it(Circle { r: 2 }); }",
+    )
+    .expect("both instantiations must check");
+    let point_body = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "show_it_Point" => Some(format!("{f:?}")),
+            _ => None,
+        })
+        .expect("a show_it_Point instantiation");
+    assert!(
+        point_body.contains("Point.Show.show"),
+        "the Point instantiation calls Point's impl: {point_body}"
+    );
+    let circle_body = hir
+        .items
+        .iter()
+        .find_map(|item| match item {
+            HirItem::Fn(f) if f.name == "show_it_Circle" => Some(format!("{f:?}")),
+            _ => None,
+        })
+        .expect("a show_it_Circle instantiation");
+    assert!(
+        circle_body.contains("Circle.Show.show"),
+        "the Circle instantiation calls Circle's impl: {circle_body}"
+    );
+}
+
+#[test]
+fn a_bound_on_an_unknown_trait_is_e1500() {
+    let diags = assert_code(
+        "trait Show { fn show(self) -> string; }\n\
+         fn f[T: Shw](T x) -> T { return x; }",
+        codes::UNKNOWN_TRAIT,
+    );
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.label.as_deref() == Some("did you mean `Show`?")),
+        "the diagnostic suggests the nearest trait: {diags:?}"
+    );
+}
