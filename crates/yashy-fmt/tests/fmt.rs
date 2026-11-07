@@ -213,6 +213,16 @@ fn a_lambda_bars_bind_to_their_parameter_list() {
 }
 
 #[test]
+fn a_trait_prints_each_signature_on_its_own_line() {
+    // A trait is a brace block of signatures: each `fn .. ;` ends its line and
+    // the closing brace returns to the declaration's indent. The formatter
+    // must not need a second pass to reach this shape.
+    let source = "trait Shape {\n    fn area(self) -> float;\n    fn name(self) -> string;\n    fn sides(self) -> int;\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), format(source));
+}
+
+#[test]
 fn a_trailing_block_argument_formats_as_a_block() {
     // The trailing block is a lambda in the last argument position: its brace
     // stays with the call, its body indents beneath it, and the closing brace
@@ -353,6 +363,16 @@ fn or_patterns_ranges_and_rest_spacing_round_trip() {
         formatted.contains("1 | 2") && formatted.contains("0..=9"),
         "pattern operators were spaced incorrectly:\n{formatted}"
     );
+}
+
+#[test]
+fn an_arm_guard_round_trips() {
+    // The guard belongs to the arm, after the pattern and before the body
+    // brace. The formatter prints tokens, so the one thing to pin is that the
+    // `if` keeps the arm's spacing and the body still opens on its own line.
+    let source = "fn main() {\n    switch n {\n        case x if x > 0 {\n            1\n        }\n        default {\n            0\n        }\n    }\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), source, "formatting must be idempotent");
 }
 
 #[test]

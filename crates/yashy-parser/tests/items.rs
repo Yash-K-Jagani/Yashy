@@ -55,6 +55,7 @@ fn item_span(item: &Item) -> Span {
         | Item::Extern { span, .. }
         | Item::Impl { span, .. }
         | Item::Object { span, .. }
+        | Item::Trait { span, .. }
         | Item::ConstFn { span, .. } => *span,
     }
 }

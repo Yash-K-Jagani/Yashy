@@ -50,7 +50,8 @@ use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
 use crate::ast::{
-    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TypeExpr, VariantDef, VariantField,
+    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TraitMethod, TypeExpr, VariantDef,
+    VariantField,
 };
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
@@ -73,6 +74,7 @@ fn item_kind(item: &Item) -> &'static str {
             item_kind(item)
         }
         Item::Struct { .. } | Item::Enum { .. } | Item::Object { .. } => "a type",
+        Item::Trait { .. } => "a trait",
     }
 }
 
@@ -161,6 +163,7 @@ impl<'src> Parser<'src> {
             TokenKind::Const if self.peek_second() == TokenKind::Fn => self.parse_const_fn(),
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Object => self.parse_object(),
+            TokenKind::Trait => self.parse_trait(),
             TokenKind::Extern => self.parse_extern(),
             // `repr(C)` in front of a type. The clause is read here and the
             // item behind it is an ordinary item, so the three type forms
@@ -433,6 +436,76 @@ impl<'src> Parser<'src> {
             methods,
             repr: None,
             span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// `trait Show { fn show(self) -> string; }`
+    ///
+    /// A trait is a requirement set: one or more method signatures with no
+    /// bodies. Type parameters are accepted here so the stdlib's
+    /// `Iterator[T]` can be written; the checker rejects a user declaration
+    /// with parameters as `E1511`.
+    ///
+    /// The method set is read with a function's parameter grammar minus the
+    /// body. Two spellings are refused where they are written, because both
+    /// would otherwise mean something the language does not have: a body is a
+    /// default method, and `pub fn` inside a trait is per-method visibility
+    /// over a requirement set that is public or private as a whole.
+    fn parse_trait(&mut self) -> Result<Item, ParseError> {
+        let keyword = self.expect(TokenKind::Trait)?;
+        let (name, _name_span) = self.identifier()?;
+        let type_params = self.parse_type_params()?;
+        let open = self.expect(TokenKind::LBrace)?;
+        let _ = self.push_open(TokenKind::LBrace, open.span)?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.at_eof() {
+            methods.push(self.parse_trait_method()?);
+        }
+        let close = self.expect(TokenKind::RBrace)?;
+        self.close_open(TokenKind::RBrace);
+
+        Ok(Item::Trait {
+            name,
+            type_params,
+            methods,
+            span: cover(keyword.span, close.span),
+        })
+    }
+
+    /// One signature inside a trait: `fn show(self) -> string;`.
+    ///
+    /// The body check is before the body parse rather than after it: a `{`
+    /// here is the mistake, and reporting it at the brace points at the text
+    /// the reader has to delete. A `pub` is reported at the `pub`, because
+    /// that is the word that does not belong.
+    fn parse_trait_method(&mut self) -> Result<TraitMethod, ParseError> {
+        if self.check(TokenKind::Pub) && self.peek_second() == TokenKind::Fn {
+            return Err(error::trait_method_takes_trait_visibility(self.peek_span()));
+        }
+        let keyword = self.expect(TokenKind::Fn)?;
+        let (name, _) = self.identifier()?;
+
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let (params, _) = self.parse_params_after_open()?;
+        self.close_open(TokenKind::RParen);
+
+        let ret = if self.eat(TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        if self.check(TokenKind::LBrace) {
+            return Err(error::trait_method_has_no_body(self.peek_span()));
+        }
+        let semicolon = self.expect(TokenKind::Semi)?;
+        Ok(TraitMethod {
+            name,
+            params,
+            ret,
+            span: cover(keyword.span, semicolon.span),
         })
     }
 

@@ -629,6 +629,8 @@ pub enum TokenKind {
     Impl,
     /// object -- a type with its fields and its methods together.
     Object,
+    /// trait -- a requirement set: method signatures, never state or bodies.
+    Trait,
     Const,
     Var,
     Let,
@@ -795,10 +797,10 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 34] = [
+    pub const KEYWORDS: [&'static str; 35] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "defer",
         "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
-        "default", "as", "move", "true", "false", "impl", "object", "pub", "requires", "ensures",
+        "default", "as", "move", "true", "false", "impl", "object", "trait", "pub", "requires", "ensures",
         "invariant", "repr",
     ];
 
@@ -833,6 +835,7 @@ impl TokenKind {
             "false" => TokenKind::False,
             "impl" => TokenKind::Impl,
             "object" => TokenKind::Object,
+            "trait" => TokenKind::Trait,
             "pub" => TokenKind::Pub,
             "requires" => TokenKind::Requires,
             "ensures" => TokenKind::Ensures,
@@ -875,6 +878,7 @@ impl TokenKind {
                 | TokenKind::False
                 | TokenKind::Impl
                 | TokenKind::Object
+                | TokenKind::Trait
                 | TokenKind::Pub
                 | TokenKind::Requires
                 | TokenKind::Ensures
@@ -903,6 +907,7 @@ impl TokenKind {
             TokenKind::Enum => Naming::Fixed("enum"),
             TokenKind::Impl => Naming::Fixed("impl"),
             TokenKind::Object => Naming::Fixed("object"),
+            TokenKind::Trait => Naming::Fixed("trait"),
             TokenKind::Const => Naming::Fixed("const"),
             TokenKind::Var => Naming::Fixed("var"),
             TokenKind::Let => Naming::Fixed("let"),
@@ -1035,7 +1040,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 34] = [
+    const KEYWORDS: [(&str, TokenKind); 35] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1065,6 +1070,7 @@ mod tests {
         ("false", TokenKind::False),
         ("impl", TokenKind::Impl),
         ("object", TokenKind::Object),
+        ("trait", TokenKind::Trait),
         ("pub", TokenKind::Pub),
         ("requires", TokenKind::Requires),
         ("ensures", TokenKind::Ensures),

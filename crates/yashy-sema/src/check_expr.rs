@@ -2018,6 +2018,11 @@ impl<'src> Checker<'src> {
                 }
             }
             Item::Import { .. } => {}
+            Item::Trait { .. } => {
+                // Task 2 records the requirement set (name, signatures,
+                // coherence) here. Declaring the syntax is Task 1's job, and a
+                // trait has no run-time value or type to put in scope.
+            }
             Item::ConstFn {
                 name,
                 params,
@@ -3037,6 +3042,12 @@ impl<'src> Checker<'src> {
                 span: *span,
                 file: self.file,
             })]),
+            Item::Trait { .. } => {
+                // A trait is a compile-time requirement set: it has no layout,
+                // no value and no symbol, so nothing is emitted for it. Its
+                // impls are lowered through their own `Item::Impl` blocks.
+                None
+            }
             Item::Extern {
                 abi,
                 link,

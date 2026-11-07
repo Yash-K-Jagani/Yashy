@@ -155,6 +155,29 @@ pub fn enum_needs_a_variant(span: Span, name: &str) -> ParseError {
     )
 }
 
+/// A `fn` inside a `trait` wrote a body.
+///
+/// The language has no default methods (spec §3.1), so the body is not an
+/// implementation the checker could read: the shape has to be a signature.
+pub fn trait_method_has_no_body(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "a trait method has no body: write the implementation in an `impl Trait for Type` block",
+    )
+}
+
+/// A `pub fn` inside a `trait`.
+///
+/// Visibility belongs to the trait: a requirement set is public or private as
+/// a whole, and marking one requirement `pub` would promise something the
+/// trait declaration cannot keep.
+pub fn trait_method_takes_trait_visibility(span: Span) -> ParseError {
+    ParseError::new(
+        span,
+        "a trait method takes the trait's visibility: mark the trait `pub`, not its methods",
+    )
+}
+
 /// A variant written with an empty payload: `A()` or `A {}`.
 ///
 /// A variant with no fields is spelled `A`, so an empty pair of delimiters

@@ -525,6 +525,27 @@ impl Db {
                     self.hash_item_signature(state, m);
                 }
             }
+            Item::Trait {
+                name,
+                type_params,
+                methods,
+                ..
+            } => {
+                *state = combine(*state, hash_str(name));
+                for (param, _) in type_params {
+                    *state = combine(*state, hash_str(param));
+                }
+                for method in methods {
+                    *state = combine(*state, hash_str(&method.name));
+                    for p in &method.params {
+                        *state = combine(*state, hash_str(&p.name));
+                        *state = combine(*state, type_expr_key(&p.ty));
+                    }
+                    if let Some(r) = &method.ret {
+                        *state = combine(*state, type_expr_key(r));
+                    }
+                }
+            }
             Item::Object {
                 name,
                 fields,

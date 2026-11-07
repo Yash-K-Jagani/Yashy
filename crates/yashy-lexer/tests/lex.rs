@@ -337,6 +337,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("false", TokenKind::False),
     ("impl", TokenKind::Impl),
     ("object", TokenKind::Object),
+    ("trait", TokenKind::Trait),
     ("pub", TokenKind::Pub),
     ("requires", TokenKind::Requires),
     ("ensures", TokenKind::Ensures),

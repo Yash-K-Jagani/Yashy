@@ -151,6 +151,26 @@ pub enum Item {
         methods: Vec<Item>,
         span: Span,
     },
+    /// `trait Show { fn show(self) -> string; }`
+    ///
+    /// A requirement set: a name, optional type parameters, and the method
+    /// signatures every implementation must provide. The methods are
+    /// [`TraitMethod`]s, not [`Item::Fn`]s, because a trait method has no body
+    /// (the language has no default methods) and therefore no block to check.
+    ///
+    /// `type_params` is empty for every user trait in 1.0: only the stdlib's
+    /// `Iterator[T]` may carry parameters, and that rule is the checker's
+    /// ([`E1511`](https://yashy.dev/errors/E1511)). The parser accepts the
+    /// spelling so the stdlib can write it.
+    Trait {
+        /// The trait's name.
+        name: String,
+        /// The type parameters, in the order written.
+        type_params: Vec<(String, Span)>,
+        /// The methods, in declaration order.
+        methods: Vec<TraitMethod>,
+        span: Span,
+    },
     /// `object Counter { value: i64, fn get(self) -> i64 { ... } }`
     ///
     /// A type with its fields and its methods in one declaration. It is a
@@ -304,6 +324,29 @@ pub struct VariantDef {
     /// The variant's payload, in source order. Empty for a unit variant such
     /// as `Red`.
     pub fields: Vec<VariantField>,
+    pub span: Span,
+}
+
+/// One method signature inside a [`Item::Trait`].
+///
+/// A trait method is a declaration without a body: the implementation lives in
+/// an `impl Trait for Type` block, and a body written here is a parse error
+/// rather than a default method, because the language does not have default
+/// methods.
+///
+/// The parameters and return type have exactly a function's shape. Receiver
+/// detection is deliberately not done here: a first parameter named `self` (or
+/// written `self: *mut T`) is the receiver, and the checker is what reads that,
+/// as it already does for an inherent method.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraitMethod {
+    pub name: String,
+    /// The parameters, in source order. The first is the receiver when the
+    /// source wrote `self`.
+    pub params: Vec<Param>,
+    /// `None` when the source wrote no `->`, which means the method returns
+    /// unit.
+    pub ret: Option<TypeExpr>,
     pub span: Span,
 }
 
