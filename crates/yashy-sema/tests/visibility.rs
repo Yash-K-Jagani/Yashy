@@ -223,3 +223,79 @@ fn a_public_type_is_usable_from_another_module() {
     ])
     .expect("a `pub` type is another module's to name");
 }
+
+#[test]
+fn a_public_method_is_usable_from_another_module() {
+    check(&[
+        (
+            "main.ya",
+            "import lib;\nfn main() { let c = Counter { value: 1 }; print(c.get()); }\n",
+        ),
+        (
+            "lib.ya",
+            "pub object Counter { pub value: int, fn secret() -> int { return 1; }, \
+             pub fn get(self) -> int { return self.value; }, }\n",
+        ),
+    ])
+    .expect("a `pub fn` is another module's to call");
+}
+
+#[test]
+fn a_private_method_is_e0801_across_modules() {
+    assert_rejected(
+        &[
+            (
+                "main.ya",
+                "import lib;\nfn main() { let c = Counter { value: 1 }; print(c.secret()); }\n",
+            ),
+            (
+                "lib.ya",
+                "pub object Counter { pub value: int, fn secret() -> int { return 1; } }\n",
+            ),
+        ],
+        "method `secret`",
+    );
+}
+
+/// The label shape every private-method error has, so a sibling readable
+/// cross-module method and an unreadable one stay distinguishable.
+#[test]
+fn a_root_private_method_in_the_same_module_is_fine() {
+    check(&[(
+        "main.ya",
+        "object Counter { value: int, fn secret(self) -> int { return 1; }, }\n\
+         fn main() { let c = Counter { value: 1 }; print(c.secret()); }\n",
+    )])
+    .expect("a module may call its own private methods");
+}
+
+#[test]
+fn a_sibling_type_in_the_same_module_may_use_private_members() {
+    check(&[(
+        "main.ya",
+        "struct Point { secret: int }\n\
+         struct Probe { p: Point }\n\
+         impl Point { fn get(self) -> int { return self.secret; } }\n\
+         impl Probe { fn use_it(self) -> int { let q = self.p; return q.get(); } }\n\
+         fn main() { let pr = Probe { p: Point { secret: 3 } }; print(pr.use_it()); }\n",
+    )])
+    .expect("visibility is module-scoped, not type-scoped");
+}
+
+#[test]
+fn a_private_associated_function_is_e0801_across_modules() {
+    assert_rejected(
+        &[
+            (
+                "main.ya",
+                "import lib;\nfn main() { let c = Counter.new(3); print(c.value); }\n",
+            ),
+            (
+                "lib.ya",
+                "pub object Counter { value: int, \
+                 fn new(int start) -> Counter { return Counter { value: start }; } }\n",
+            ),
+        ],
+        "method `new`",
+    );
+}

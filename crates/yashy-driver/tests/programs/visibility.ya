@@ -1,0 +1,10 @@
+// Module visibility: a `pub` method of an imported type is callable, and a
+// `pub` field is readable. The private members are covered by the sema
+// visibility suite; this program runs the reachable half.
+import vis_lib;
+
+fn main() {
+    let c = Counter { value: 3 };
+    print(c.get());
+    print(c.value);
+}

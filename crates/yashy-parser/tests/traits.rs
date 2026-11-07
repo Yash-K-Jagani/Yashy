@@ -182,3 +182,12 @@ fn type_parameters_on_a_trait_parse() {
     assert_eq!(type_params[0].name, "T");
     assert!(matches!(&methods[0].params[0].ty, TypeExpr::Ptr { .. }));
 }
+
+#[test]
+fn pub_inside_a_function_is_a_parse_error() {
+    let diags = parse_err("fn main() { pub const x = 1; }");
+    assert!(
+        messages(&diags).contains("marks items and members, not locals"),
+        "the refusal names the rule, got {diags:?}"
+    );
+}

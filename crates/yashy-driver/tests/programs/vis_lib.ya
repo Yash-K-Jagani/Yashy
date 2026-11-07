@@ -1,0 +1,8 @@
+// The module whose members `visibility.ya` uses. Split out so the two
+// modules are the same graph the CLI checks at sema level.
+
+pub object Counter {
+    pub value: int,
+    fn secret() -> int { return 1; },
+    pub fn get(self) -> int { return self.value; },
+}

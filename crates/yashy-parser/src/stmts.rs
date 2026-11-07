@@ -77,6 +77,17 @@ impl<'src> Parser<'src> {
                 let span = self.peek_span();
                 Err(self.error(span, "`var` was removed: use `let`"))
             }
+            // `pub` is a module-level modifier, so it cannot open a
+            // statement: a local is declared by `let` or `const` alone.
+            // Refused here where it is written rather than reported as a
+            // generic "expected a statement".
+            TokenKind::Pub => {
+                let span = self.peek_span();
+                Err(self.error(
+                    span,
+                    "`pub` marks items and members, not locals: write the type first",
+                ))
+            }
             TokenKind::Let => self.parse_let(),
             TokenKind::Return => self.parse_return(),
             TokenKind::If => self.parse_if(),

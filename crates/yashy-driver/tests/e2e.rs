@@ -627,6 +627,12 @@ fn associated_functions_through_both_type_path_spellings() {
 }
 
 #[test]
+fn public_members_are_usable_from_an_importing_module() {
+    let output = build_and_run("visibility");
+    assert_eq!(stdout_of(&output), "3\n3\n");
+}
+
+#[test]
 fn a_static_method_is_called_on_the_type() {
     let output = build_and_run("object_new");
     assert_eq!(stdout_of(&output), "3\n");

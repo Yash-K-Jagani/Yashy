@@ -241,6 +241,15 @@ fn a_type_path_call_round_trips() {
 }
 
 #[test]
+fn a_pub_method_round_trips_inside_a_type() {
+    // `pub` is a modifier word in front of a member, the same shape as in
+    // front of an item.
+    let source = "object Counter {\n    pub value: int,\n    pub fn get(self) -> int {\n        return self.value;\n    }\n    ,\n}\n";
+    assert_eq!(format(source), source);
+    assert_eq!(format(&format(source)), format(source));
+}
+
+#[test]
 fn a_trailing_block_argument_formats_as_a_block() {
     // The trailing block is a lambda in the last argument position: its brace
     // stays with the call, its body indents beneath it, and the closing brace

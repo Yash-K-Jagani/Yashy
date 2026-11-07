@@ -274,6 +274,12 @@ struct MethodSig {
     /// called on must therefore be a mutable `let`, and it must be a binding:
     /// there is no address of a temporary.
     receiver_is_pointer: bool,
+    /// Where the method was declared, and whether it is `pub`.
+    ///
+    /// A method is private to the module that declares it unless it is
+    /// marked `pub`, the same rule an item follows. Visibility is checked
+    /// against this record at every call site.
+    origin: ItemOrigin,
 }
 
 /// A trait declaration: the requirement set `impl`s are checked against.
@@ -1707,6 +1713,7 @@ impl<'src> Checker<'src> {
         params: &[Param],
         ret: &Option<TypeExpr>,
         receiver_ty: &Type,
+        public: bool,
         span: Span,
     ) -> MethodSig {
         let has_self = params
@@ -1774,6 +1781,21 @@ impl<'src> Checker<'src> {
             ret: ret_ty,
             has_self,
             receiver_is_pointer,
+            origin: ItemOrigin {
+                file: self.file,
+                public,
+            },
+        }
+    }
+
+    /// Whether an item (or its wrapper chain) is marked `pub`.
+    fn is_public_item(item: &Item) -> bool {
+        match item {
+            Item::Public { .. } => true,
+            Item::Effect { item, .. } | Item::Documented { item, .. } => {
+                Self::is_public_item(item)
+            }
+            _ => false,
         }
     }
 
@@ -1841,7 +1863,15 @@ impl<'src> Checker<'src> {
                 continue;
             }
             impl_sigs.push((
-                self.method_signature(type_name, name, params, ret, receiver_ty, *method_span),
+                self.method_signature(
+                    type_name,
+                    name,
+                    params,
+                    ret,
+                    receiver_ty,
+                    Self::is_public_item(method),
+                    *method_span,
+                ),
                 *method_span,
             ));
         }
@@ -2824,6 +2854,7 @@ impl<'src> Checker<'src> {
                         params,
                         ret,
                         &receiver_ty,
+                        Self::is_public_item(method),
                         *method_span,
                     );
                     let mangled = format!("{type_name}.{name}");
@@ -2917,6 +2948,7 @@ impl<'src> Checker<'src> {
                         params,
                         ret,
                         &receiver_ty,
+                        Self::is_public_item(method),
                         *method_span,
                     );
                     let mangled = format!("{name}.{method_name}");
@@ -3197,6 +3229,7 @@ impl<'src> Checker<'src> {
                         &method.params,
                         &method.ret,
                         &placeholder,
+                        false, // a trait method takes the trait's visibility
                         method.span,
                     );
                     if sigs.iter().any(|existing: &MethodSig| existing.name == sig.name) {
@@ -4512,7 +4545,15 @@ impl<'src> Checker<'src> {
                     "a method cannot declare a contract yet: write it on a free function",
                 );
             }
-            let sig = self.method_signature(type_name, name, params, ret, &receiver_ty, *span);
+            let sig = self.method_signature(
+                type_name,
+                name,
+                params,
+                ret,
+                &receiver_ty,
+                Self::is_public_item(method),
+                *span,
+            );
             let ret_ty = sig.ret.clone();
             self.scope.push();
             for (param, param_ty) in params.iter().zip(sig.params.iter()) {
@@ -6196,6 +6237,27 @@ impl<'src> Checker<'src> {
         }
     }
 
+    /// Check a call of a private method from another module.
+    ///
+    /// Visibility is module-scoped, not type-scoped: the caller's module
+    /// comparing equal with the method's own module always passes, and a
+    /// `pub` method passes from anywhere. The message names the method, the
+    /// type and the module that hides it, as the field rule does.
+    fn check_method_visibility(&mut self, sig: &MethodSig, method: &str, span: Span) {
+        if sig.origin.file == self.file || sig.origin.public {
+            return;
+        }
+        let module = self.module_name(sig.origin.file);
+        self.error_code(
+            span,
+            codes::PRIVATE_ITEM,
+            format!(
+                "method `{method}` on `{}` is private to module `{module}`",
+                sig.type_name,
+            ),
+        );
+    }
+
     /// Run `missing_cases` over one variant list and report the missing names.
     fn check_missing(
         &mut self,
@@ -6814,6 +6876,7 @@ impl<'src> Checker<'src> {
         // The type is an item, so it is private to the module that declares
         // it unless it is `pub`.
         self.check_visibility(type_name, span);
+        self.check_method_visibility(&sig, method, span);
         if sig.has_self {
             self.error_code(
                 span,
@@ -6932,8 +6995,7 @@ impl<'src> Checker<'src> {
             1 => {
                 let (_, symbol, sig) = candidates.into_iter().next().unwrap();
                 self.finish_static_call(type_name, symbol, &sig, args, span)
-            }
-            0 => {
+            }            0 => {
                 if let Some(sig) = &inherent {
                     if sig.has_self {
                         self.error_code(
@@ -7057,6 +7119,10 @@ impl<'src> Checker<'src> {
         };
         let sig = self.methods.get(&symbol).cloned()?;
         self.check_visibility(&receiver_type, span);
+        // The method's own visibility, as one rule with every call: a
+        // private method of an impl in another module only reaches the
+        // qualified path from inside that module.
+        self.check_method_visibility(&sig, method, span);
         if !sig.has_self {
             self.error_code(
                 span,
@@ -7141,6 +7207,7 @@ impl<'src> Checker<'src> {
         span: Span,
     ) -> Option<HirExpr> {
         self.check_visibility(type_name, span);
+        self.check_method_visibility(sig, &sig.name, span);
         if sig.params.len() != args.len() {
             self.error(
                 span,
@@ -7319,6 +7386,7 @@ impl<'src> Checker<'src> {
                 None => return None,
             }
         };
+        self.check_method_visibility(&sig, method, span);
         if !sig.has_self {
             // A method with no `self` is a static one: it belongs to the type,
             // not to a value of it.
