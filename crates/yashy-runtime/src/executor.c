@@ -239,6 +239,29 @@ static int yax_queue_reserve(yashy_executor *ex, long long needed) {
     return 1;
 }
 
+/* Requeue a task that is still pending. Unlike a spawn, this is the same
+ * task again, so it must not count as a new outstanding one. */
+static int yax_requeue(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
+    yax_lock_acquire(&ex->lock);
+    if (ex->shutdown) {
+        yax_lock_release(&ex->lock);
+        return -1;
+    }
+    if (!yax_queue_reserve(ex, ex->count + 1)) {
+        yax_lock_release(&ex->lock);
+        return -1;
+    }
+    long long tail = (ex->head + ex->count) % ex->capacity;
+    ex->queue[tail].poll = poll;
+    ex->queue[tail].frame = frame;
+    ex->queue[tail].id = 0;
+    ex->queue[tail].state = 0;
+    ex->count++;
+    yax_cond_signal(&ex->has_work);
+    yax_lock_release(&ex->lock);
+    return 0;
+}
+
 static int yax_enqueue(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     yax_lock_acquire(&ex->lock);
     if (ex->shutdown) {
@@ -348,7 +371,7 @@ static void *yax_worker_loop(void *raw)
             yax_lock_release(&ex->lock);
         } else {
             /* Still pending: requeue at the tail (FIFO, no work stealing). */
-            yax_enqueue(ex, task.poll, task.frame);
+            yax_requeue(ex, task.poll, task.frame);
         }
         if (ready != NULL) {
             yax_finish_one(ex);
@@ -726,8 +749,11 @@ void yashy_scope_join_or_cancel(yashy_scope *scope) {
             yashy_task_cancel(scope->ex, child.poll, child.frame);
         } else {
             /* The scope drove this child home: dequeue it so the executor's
-             * own drain does not run it a second time. */
+             * own drain does not run it a second time, and free its frame —
+             * a discarded handle has no owner left to free it, and a handle
+             * awaited inside the scope took the retained branch above. */
             yax_unqueue(scope->ex, child.frame);
+            yashy_free(child.frame);
         }
     }
     scope->count = 0;
@@ -757,7 +783,7 @@ static int yax_drive_once(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
             yax_lock_release(&ex->lock);
             yax_finish_one(ex);
         } else {
-            yax_enqueue(ex, task.poll, task.frame);
+            yax_requeue(ex, task.poll, task.frame);
         }
     }
     return 0;
@@ -807,7 +833,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
             ex->completed++;
             yax_lock_release(&ex->lock);
         } else {
-            yax_enqueue(ex, task.poll, task.frame);
+            yax_requeue(ex, task.poll, task.frame);
             /* A still-pending child after the main task is done can only
              * mean progress stopped; avoid an infinite drain loop. */
             yashy_sleep_ms(1);
@@ -821,7 +847,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
                 ex->completed++;
                 yax_lock_release(&ex->lock);
             } else {
-                yax_enqueue(ex, task.poll, task.frame);
+                yax_requeue(ex, task.poll, task.frame);
             }
         }
         yax_finish_one(ex);

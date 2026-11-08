@@ -1,0 +1,22 @@
+// Eight locals live across one await: they have to be in the frame,
+// not the stack. 1 + 2 + ... + 8 + inner(10) = 36 + 11 = 47.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int a = 1;
+    let int b = 2;
+    let int c = 3;
+    let int d = 4;
+    let int e = 5;
+    let int f = 6;
+    let int g = 7;
+    let int h = 8;
+    let int child = inner(10).await;
+    return a + b + c + d + e + f + g + h + child;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

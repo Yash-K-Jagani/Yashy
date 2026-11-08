@@ -1,0 +1,28 @@
+// Sequential scopes: two scopes in a row, each spawning and awaiting,
+// summed: 10 + 20 = 30.
+fn worker_a() -> int {
+    return 10;
+}
+
+fn worker_b() -> int {
+    return 20;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    scope {
+        let t = spawn(worker_a);
+        let int v = t.await;
+        total = total + v;
+    }
+    scope {
+        let t = spawn(worker_b);
+        let int v = t.await;
+        total = total + v;
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

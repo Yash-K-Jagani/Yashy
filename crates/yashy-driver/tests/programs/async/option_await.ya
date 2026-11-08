@@ -1,0 +1,22 @@
+// An Option crosses an await: lookup(3) is Some(3), doubled to Some(6),
+// and main prints the payload.
+async fn lookup(int key) -> Option[int] {
+    if key >= 0 {
+        return Some(key);
+    }
+    return None;
+}
+
+async fn main_task() -> Option[int] {
+    let opt = lookup(3).await;
+    if let Some(v) = opt {
+        return Some(v * 2);
+    }
+    return None;
+}
+
+fn main() {
+    if let Some(total) = block_on(main_task()) {
+        print(total);
+    }
+}

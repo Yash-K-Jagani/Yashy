@@ -1,0 +1,15 @@
+// A string result: a static literal crosses the await, so nothing to
+// free, and its length is the report.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn greet() -> string {
+    let int ignore = inner(0).await;
+    return "hello";
+}
+
+fn main() {
+    let string s = block_on(greet());
+    print(s.len());
+}

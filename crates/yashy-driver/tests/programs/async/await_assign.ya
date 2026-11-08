@@ -1,0 +1,15 @@
+// The assign form of an await: x is declared first, then assigned the
+// awaited value. inner(41) = 42.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int x = 0;
+    x = inner(41).await;
+    return x;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

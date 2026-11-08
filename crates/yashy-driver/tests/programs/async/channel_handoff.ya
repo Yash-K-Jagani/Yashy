@@ -1,0 +1,31 @@
+// Channel handoff: one worker sends five values, the main task receives
+// them, and the sum is order independent: 10 + 11 + 12 + 13 + 14 = 60.
+fn worker(Channel[int] ch, int base) {
+    let i = 0;
+    while i < 5 {
+        ch.send(base + i);
+        i += 1;
+    }
+}
+
+async fn main_task() -> int {
+    let Channel[int] ch = chan_new(16);
+    scope {
+        let a = spawn(worker, ch, 10);
+        a.await;
+    }
+    let total = 0;
+    let received = 0;
+    while received < 5 {
+        if let Some(n) = ch.recv() {
+            total += n;
+        }
+        received += 1;
+    }
+    ch.free();
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

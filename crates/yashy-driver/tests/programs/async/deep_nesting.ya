@@ -1,0 +1,34 @@
+// Deep nesting: five levels of await, resume indices 1 through 4 in
+// four different frames. l1..l5 chained on 0 give 5.
+async fn l1(int x) -> int {
+    return x + 1;
+}
+
+async fn l2(int x) -> int {
+    let int v = l1(x).await;
+    return v;
+}
+
+async fn l3(int x) -> int {
+    let int v = l2(x).await;
+    return v;
+}
+
+async fn l4(int x) -> int {
+    let int v = l3(x).await;
+    return v;
+}
+
+async fn l5(int x) -> int {
+    let int v = l4(x).await;
+    return v;
+}
+
+async fn main_task() -> int {
+    let int v = l5(0).await;
+    return v;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

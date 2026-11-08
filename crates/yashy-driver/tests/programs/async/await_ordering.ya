@@ -1,0 +1,16 @@
+// Await ordering: three sequential awaits, each suspended, each resumed.
+// inner(1) + inner(2) + inner(3) = 2 + 3 + 4 = 9.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int a = inner(1).await;
+    let int b = inner(2).await;
+    let int c = inner(3).await;
+    return a + b + c;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

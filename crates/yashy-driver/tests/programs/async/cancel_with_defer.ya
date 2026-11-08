@@ -1,0 +1,24 @@
+// Cancel with defers: two defers registered in the cancelled worker run
+// last-registered first when the scope drives it home - "second" then
+// "first" - and main answers 4. The defers run on whichever thread polls
+// the worker, but the order inside one task never changes.
+fn worker() -> int {
+    defer {
+        print("first");
+    }
+    defer {
+        print("second");
+    }
+    return 9;
+}
+
+async fn main_task() -> int {
+    scope {
+        spawn(worker);
+    }
+    return 4;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

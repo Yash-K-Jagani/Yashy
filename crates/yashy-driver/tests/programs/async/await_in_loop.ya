@@ -1,0 +1,19 @@
+// Awaits in a loop: inner(0) + inner(1) + ... + inner(4) = 15.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    let i = 0;
+    while i < 5 {
+        let int v = inner(i).await;
+        total += v;
+        i += 1;
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

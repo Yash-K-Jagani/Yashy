@@ -1,0 +1,33 @@
+// Cancel order: two spawned workers never awaited, the scope drives
+// both home at exit (reverse spawn order), and the channel collects
+// exactly the two values - 30. Both sends happen exactly once whatever
+// thread polled the workers, so the sum is stable.
+fn worker_a(Channel[int] ch) {
+    ch.send(10);
+}
+
+fn worker_b(Channel[int] ch) {
+    ch.send(20);
+}
+
+async fn main_task() -> int {
+    let Channel[int] ch = chan_new(4);
+    scope {
+        spawn(worker_a, ch);
+        spawn(worker_b, ch);
+    }
+    let total = 0;
+    let received = 0;
+    while received < 2 {
+        if let Some(n) = ch.recv() {
+            total += n;
+        }
+        received += 1;
+    }
+    ch.free();
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

@@ -1,0 +1,28 @@
+// Nested scopes: the inner scope joins its own spawn before the outer
+// scope's join runs. 5 + 7 = 12.
+fn worker_a() -> int {
+    return 5;
+}
+
+fn worker_b() -> int {
+    return 7;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    scope {
+        let a = spawn(worker_a);
+        let int va = a.await;
+        total = total + va;
+        scope {
+            let b = spawn(worker_b);
+            let int vb = b.await;
+            total = total + vb;
+        }
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

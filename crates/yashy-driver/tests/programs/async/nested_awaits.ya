@@ -1,0 +1,19 @@
+// Nested awaits: each level awaits the one below, so the resume indices
+// stack - inner(0) = 1, middle = 2, main = 3.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn middle(int x) -> int {
+    let int v = inner(x).await;
+    return inner(v).await;
+}
+
+async fn main_task() -> int {
+    let int v = middle(0).await;
+    return v;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

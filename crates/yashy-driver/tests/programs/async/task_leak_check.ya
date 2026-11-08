@@ -1,0 +1,24 @@
+// Task leak check: 100 tasks spawn and complete, and every frame comes
+// back. The harness runs this with YASHY_LEAK_REPORT=1 and requires the
+// report to read 0 live allocations in both executor modes.
+async fn one() -> int {
+    return 1;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    scope {
+        let i = 0;
+        while i < 100 {
+            let t = spawn(one);
+            let int v = t.await;
+            total += v;
+            i += 1;
+        }
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

@@ -342,6 +342,15 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
     }
 }
 
+/// The `T` inside the type of a child expression: `child()` answers
+/// `Task[T]`, so awaiting it yields `T`.
+fn task_inner_ty(expr: &HirExpr) -> TypeKind {
+    match expr_ty_kind(expr) {
+        TypeKind::Task(inner) => inner.kind,
+        other => other,
+    }
+}
+
 /// The result type `T` inside `Task[T]` (or `unit` for a non-`Task` return,
 /// which the checker never produces for an `async fn`).
 fn result_type(f: &HirFn) -> TypeKind {
@@ -402,6 +411,21 @@ pub fn lower_async(f: &HirFn) -> (FrameLayout, String) {
             fields.push(FrameField {
                 name: name.clone(),
                 ty: ty.clone(),
+            });
+        }
+    }
+    // The name an `await` binds is not part of any segment's statements, so
+    // the liveness pass never gives it a field. It needs one, typed by the
+    // child task's `T` -- the value being bound -- not by anything else.
+    for (child, site) in &segmentation.awaits {
+        let name = match site {
+            AwaitSite::Bind(name) | AwaitSite::Assign(name) => name,
+            AwaitSite::Return | AwaitSite::Discard => continue,
+        };
+        if !fields.iter().any(|field| &field.name == name) {
+            fields.push(FrameField {
+                name: name.clone(),
+                ty: task_inner_ty(child),
             });
         }
     }
@@ -584,7 +608,9 @@ fn bind_result(
                 ctx.push(format!("store {repr} {value}, ptr {result}"));
                 let resume = field_slot(ctx, layout, 0);
                 ctx.push(format!("store i32 -1, ptr {resume}"));
+                ctx.push(format!("call void @yashy_free(i8* {child})"));
                 ctx.push("ret i8* %task.frame".to_string());
+                return;
             }
             AwaitSite::Discard => {}
         }
@@ -641,7 +667,7 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
         }
         ctx.push(format!(
             "switch i32 {resume}, label %state0 [ {} ]",
-            cases.join(", ")
+            cases.join(" ")
         ));
 
         for (index, segment) in segmentation.segments.iter().enumerate() {

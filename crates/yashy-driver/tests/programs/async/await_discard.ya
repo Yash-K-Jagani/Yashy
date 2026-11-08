@@ -1,0 +1,14 @@
+// The discard form of an await: the result is dropped and the function
+// answers 7.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    inner(9).await;
+    return 7;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

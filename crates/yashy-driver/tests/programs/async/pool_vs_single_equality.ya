@@ -1,0 +1,30 @@
+// Pool vs single-thread equality: two async workers send through one
+// channel and the received sum is the same no matter which thread ran
+// which: inner(0) + inner(100) = 1 + 101 = 102.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn sender(Channel[int] ch, int base) -> int {
+    let int v = inner(base).await;
+    ch.send(v);
+    return v;
+}
+
+async fn main_task() -> int {
+    let Channel[int] ch = chan_new(16);
+    let int total = 0;
+    scope {
+        let a = spawn(sender, ch, 0);
+        let b = spawn(sender, ch, 100);
+        let int ra = a.await;
+        let int rb = b.await;
+        total = ra + rb;
+    }
+    ch.free();
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

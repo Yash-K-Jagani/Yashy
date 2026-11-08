@@ -1,0 +1,21 @@
+// A bool across awaits: the even numbers of 0..5 are 0, 2, 4 - three.
+async fn is_even(int x) -> bool {
+    return x % 2 == 0;
+}
+
+async fn main_task() -> int {
+    let int count = 0;
+    let i = 0;
+    while i < 5 {
+        let bool b = is_even(i).await;
+        if b {
+            count += 1;
+        }
+        i += 1;
+    }
+    return count;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

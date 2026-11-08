@@ -1,0 +1,17 @@
+// Four suspension points in one task: 1+1 = 2, +10 = 12, +100 = 112,
+// +1000 = 1112. The resume index climbs 1, 2, 3, 4 through the poll.
+async fn stage(int x, int d) -> int {
+    return x + d;
+}
+
+async fn main_task() -> int {
+    let int a = stage(1, 1).await;
+    let int b = stage(a, 10).await;
+    let int c = stage(b, 100).await;
+    let int d = stage(c, 1000).await;
+    return d;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

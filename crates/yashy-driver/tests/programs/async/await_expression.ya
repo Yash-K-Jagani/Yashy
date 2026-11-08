@@ -1,0 +1,14 @@
+// An await nested in an expression: it cannot surrender, so it drives
+// the child inline. (inner(40).await) + 2 = 43.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int x = inner(40).await + 2;
+    return x;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

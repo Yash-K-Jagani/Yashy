@@ -1,0 +1,17 @@
+// Early return: the value is non-negative, so the branch is skipped
+// and main answers inner(0) * 10 = 10.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int v = inner(0).await;
+    if v < 0 {
+        return -1;
+    }
+    return v * 10;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

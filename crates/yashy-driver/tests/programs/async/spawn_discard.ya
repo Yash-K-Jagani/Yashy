@@ -1,0 +1,17 @@
+// Spawn and discard: the worker is never awaited, the scope drives it
+// home at exit, and main answers 6.
+fn worker() -> int {
+    return 1;
+}
+
+async fn main_task() -> int {
+    let int x = 3;
+    scope {
+        spawn(worker);
+    }
+    return x * 2;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

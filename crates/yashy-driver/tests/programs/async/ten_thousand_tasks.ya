@@ -1,0 +1,22 @@
+// 10 000 tasks: a spawn and an await per iteration, counted.
+async fn one() -> int {
+    return 1;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    scope {
+        let i = 0;
+        while i < 10000 {
+            let t = spawn(one);
+            let int v = t.await;
+            total += v;
+            i += 1;
+        }
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

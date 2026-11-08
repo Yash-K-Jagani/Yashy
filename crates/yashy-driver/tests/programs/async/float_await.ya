@@ -1,0 +1,15 @@
+// A float across an await: pi_half = 1.5, plus 1.0 is 2.5, printed as
+// the integer 2 so the expected output does not depend on double
+// formatting. 1.5 + 1.0 = 2.5, cast to int is 2.
+async fn pi_half() -> float {
+    return 1.5;
+}
+
+async fn main_task() -> float {
+    let float v = pi_half().await;
+    return v + 1.0;
+}
+
+fn main() {
+    print(block_on(main_task()) as int);
+}

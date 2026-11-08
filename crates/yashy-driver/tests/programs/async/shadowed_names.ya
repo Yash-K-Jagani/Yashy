@@ -1,0 +1,20 @@
+// Shadowed names: the inner scope's x = 100 is the one inner reads
+// (101); the outer x = 1 is untouched. 1 + 101 = 102.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int x = 1;
+    let int total = 0;
+    scope {
+        let int x = 100;
+        let int y = inner(x).await;
+        total = total + y;
+    }
+    return x + total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

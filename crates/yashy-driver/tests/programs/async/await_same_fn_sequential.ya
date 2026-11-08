@@ -1,0 +1,15 @@
+// The same function awaited twice in a row: inner(1) + inner(2) =
+// 2 + 3 = 5. Each await creates and drops its own frame.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn main_task() -> int {
+    let int a = inner(1).await;
+    let int b = inner(2).await;
+    return a + b;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

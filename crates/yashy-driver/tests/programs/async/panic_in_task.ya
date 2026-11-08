@@ -1,0 +1,18 @@
+// Panic in a task: the branch exists, the program takes the other
+// side - maybe(21) = 42. A task that panicked would end the process,
+// so a passing program never fires the panic.
+async fn maybe(int x) -> int {
+    if x < 0 {
+        panic("negative");
+    }
+    return x * 2;
+}
+
+async fn main_task() -> int {
+    let int v = maybe(21).await;
+    return v;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

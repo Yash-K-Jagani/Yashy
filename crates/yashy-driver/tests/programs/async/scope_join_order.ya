@@ -1,0 +1,21 @@
+// Scope join order: two spawned tasks, both awaited inside the scope,
+// their answers summed: 11 + 22 = 33.
+async fn plus(int x, int d) -> int {
+    return x + d;
+}
+
+async fn main_task() -> int {
+    let int total = 0;
+    scope {
+        let a = spawn(plus, 1, 10);
+        let b = spawn(plus, 2, 20);
+        let int ra = a.await;
+        let int rb = b.await;
+        total = ra + rb;
+    }
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

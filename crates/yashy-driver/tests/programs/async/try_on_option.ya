@@ -1,0 +1,22 @@
+// `?` on an awaited Option: maybe(10) = Some(11) and maybe(20) =
+// Some(21) pay out, summed to 32. A None would return None instead.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn maybe(int x) -> Option[int] {
+    let int v = inner(x).await;
+    return Some(v);
+}
+
+async fn main_task() -> Option[int] {
+    let int a = maybe(10).await?;
+    let int b = maybe(20).await?;
+    return Some(a + b);
+}
+
+fn main() {
+    if let Some(total) = block_on(main_task()) {
+        print(total);
+    }
+}

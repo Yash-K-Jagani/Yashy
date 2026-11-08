@@ -1,0 +1,24 @@
+// Spawn in a task: the parent spawns a worker, awaits it, and adds its
+// own awaited value: inner(0) + worker = 1 + 40 = 41.
+fn worker() -> int {
+    return 40;
+}
+
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn parent() -> int {
+    let int own = inner(0).await;
+    let int from_child = 0;
+    scope {
+        let t = spawn(worker);
+        let int v = t.await;
+        from_child = v;
+    }
+    return own + from_child;
+}
+
+fn main() {
+    print(block_on(parent()));
+}
