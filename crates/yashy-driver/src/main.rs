@@ -68,6 +68,9 @@ usage:
   yashy doctor [--json]
   yashy expand <file.ya> [--json]
   yashy index [path] [--json]
+  yashy outline <file.ya>
+  yashy graph [path] [--json|--dot]
+  yashy search <query> [path]
   yashy fmt [-w] <files...>
   yashy version
 
@@ -83,6 +86,9 @@ usage:
   expand  print the fully expanded program, without checking it
   index   print the symbol index of a directory: signatures, effects and
           contracts (--json for the machine-readable form)
+  outline print a file's symbols in source order
+  graph   print the module and call graph (--json or Graphviz --dot)
+  search  rank symbols and doc text by a query
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -164,6 +170,9 @@ fn dispatch(args: &[String]) -> ExitCode {
         "doctor" => doctor(rest),
         "expand" => expand(rest),
         "index" => index_cmd(rest),
+        "outline" => outline_cmd(rest),
+        "graph" => graph_cmd(rest),
+        "search" => search_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -2880,6 +2889,121 @@ fn index_cmd(args: &[String]) -> ExitCode {
                 println!("{}", yashy_driver::index::to_json(&model).render());
             } else {
                 print!("{}", yashy_driver::index::render_human(&model));
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashy outline <file>`: the file's symbols in source order.
+fn outline_cmd(args: &[String]) -> ExitCode {
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `outline`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`outline` needs a source file");
+    };
+    let root = input
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::outline::load(&input) {
+        Ok(model) => {
+            let file = input.to_string_lossy().replace('\\', "/");
+            for line in yashy_driver::outline::outline_of(&model, &file) {
+                println!("{line}");
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashy graph [path] [--json|--dot]`: the module and call graph.
+fn graph_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut dot = false;
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            "--dot" => dot = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `graph`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let root = input.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::outline::load(&root) {
+        Ok(model) => {
+            if dot {
+                print!("{}", yashy_driver::outline::graph_dot(&model));
+            } else if json {
+                println!("{}", yashy_driver::outline::graph_json(&model).render());
+            } else {
+                print!("{}", yashy_driver::outline::graph_dot(&model));
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashy search <query> [path]`: ranked symbol search.
+fn search_cmd(args: &[String]) -> ExitCode {
+    let mut query: Option<String> = None;
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `search`"))
+            }
+            other => {
+                if query.is_none() {
+                    query = Some(other.to_string());
+                } else if input.is_none() {
+                    input = Some(PathBuf::from(other));
+                } else {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+            }
+        }
+    }
+    let Some(query) = query else {
+        return usage_error("`search` needs a query");
+    };
+    let root = input.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::outline::load(&root) {
+        Ok(model) => {
+            for line in yashy_driver::outline::search(&model, &query) {
+                println!("{line}");
             }
             exit_code(EXIT_OK)
         }
