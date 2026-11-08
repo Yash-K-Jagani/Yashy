@@ -363,6 +363,10 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("drop_hook", 1, &["E1513"]),
     ("trait_state", 1, &["E1514"]),
     ("operator_overload", 1, &["E1515"]),
+    // Phase 9: effects, ownership and leaks all see expanded code.
+    ("macro_hidden_io", 1, &["E1300"]),
+    ("macro_double_free", 1, &["E0500"]),
+    ("macro_leak", 1, &["E1000"]),
 ];
 /// The `code` values in a schema-v1 report, in order.
 ///

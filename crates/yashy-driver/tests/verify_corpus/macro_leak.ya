@@ -1,0 +1,7 @@
+// A linear value handed to a macro that never releases it.
+macro touch { $x:expr => { $x; } }
+
+fn main() {
+    let buf = alloc(16);
+    touch(buf);
+}

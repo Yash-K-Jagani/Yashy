@@ -1,0 +1,8 @@
+// A second free, where the first is spelled by a macro invocation.
+macro release { $buf:expr => { $buf.free(); } }
+
+fn main() {
+    let buf = alloc(16);
+    release(buf);
+    buf.free();
+}

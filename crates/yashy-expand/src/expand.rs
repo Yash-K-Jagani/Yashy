@@ -328,7 +328,8 @@ impl<'a> Expander<'a> {
                 if let Some(variable) = self.metavariable_name(&trees[index..]) {
                     if let Some(bound) = bindings.get(&variable) {
                         out.extend(bound.iter().cloned());
-                        index = index.saturating_add(4);
+                        let has_kind = matches!(trees.get(index.saturating_add(2)), Some(TokenTree::Leaf(Token { kind: TokenKind::Colon, .. })));
+                        index = index.saturating_add(if has_kind { 4 } else { 2 });
                         continue;
                     }
                 }

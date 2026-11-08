@@ -1,0 +1,12 @@
+// E1300: the effect is hidden from the source but not from the verifier,
+// because expansion happens before checking: `print` inside the macro body
+// is an io call in a pure function.
+macro say { $x:expr => { print($x); } }
+
+pure fn f() {
+    say(1);
+}
+
+fn main() {
+    print(0);
+}
