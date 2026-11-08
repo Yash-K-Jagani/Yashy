@@ -5,6 +5,7 @@ pub mod codes;
 pub mod diagnostic;
 pub mod effect;
 pub mod json;
+pub mod json_rpc;
 pub mod proof_facts;
 pub mod source;
 pub mod span;

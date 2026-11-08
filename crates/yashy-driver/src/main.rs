@@ -175,6 +175,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "graph" => graph_cmd(rest),
         "search" => search_cmd(rest),
         "context" => context_cmd(rest),
+        "mcp" => mcp_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -3072,6 +3073,37 @@ fn context_cmd(args: &[String]) -> ExitCode {
         Err(message) => {
             eprintln!("error: {message}");
             exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashy mcp --root <dir>`: the MCP server on stdio.
+fn mcp_cmd(args: &[String]) -> ExitCode {
+    let mut root = PathBuf::from(".");
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--root" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--root` needs a value");
+                }
+                root = PathBuf::from(&args[i + 1]);
+                i += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `mcp`"))
+            }
+            other => {
+                return usage_error(&format!("unexpected extra argument `{other}`"));
+            }
+        }
+        i += 1;
+    }
+    match yashy_driver::mcp::serve(&root) {
+        Ok(()) => exit_code(EXIT_OK),
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_INTERNAL)
         }
     }
 }

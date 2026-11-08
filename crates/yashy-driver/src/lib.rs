@@ -9,6 +9,7 @@
 
 pub mod context;
 pub mod index;
+pub mod mcp;
 pub mod modules;
 pub mod opt_report;
 pub mod outline;
