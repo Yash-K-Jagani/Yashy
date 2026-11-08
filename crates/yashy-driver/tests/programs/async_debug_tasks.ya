@@ -1,0 +1,31 @@
+// Task-aware debugging fixture: at the panic point two tasks are live.
+//
+// `main_task` is running (id 1, resume=0) when it panics, and
+// `blocked_on_channel` is still queued (id 2, resume=0, state=pending):
+// it would block on a channel receive if the executor ever polled it,
+// but the panic lands first, so the task table names both with the
+// blocked one marked `pending` and the correct function name.
+//
+// `yashy tasks async_debug_tasks.ya` and `yashy run --debug
+// async_debug_tasks.ya` both print the table to standard error.
+async fn blocked_on_channel(Channel[int] ch) -> int {
+    let int n = -1;
+    if let Some(v) = ch.recv() {
+        n = v;
+    }
+    return n;
+}
+
+async fn main_task() -> int {
+    let Channel[int] ch = chan_new(1);
+    scope {
+        spawn(blocked_on_channel, ch);
+        panic("tasks dump");
+    }
+    ch.free();
+    return 0;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

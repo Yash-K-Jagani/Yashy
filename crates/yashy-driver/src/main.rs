@@ -58,7 +58,8 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [-- <args>...]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--debug] [-- <args>...]
+  yashy tasks <file.ya> [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
@@ -71,6 +72,7 @@ usage:
 
   build   compile a program to a native executable
   run     compile and execute a program
+  tasks   run a program and dump its live tasks (debug builds only)
   check   lex, parse and type-check without emitting anything
   verify  prove the program sound: every linear value has an owner
   test    compile and run the programs under tests/
@@ -98,6 +100,9 @@ usage:
   --no-verify  build without proving the program sound; refused when the program
                has a contract or `YASHY_REQUIRE_VERIFY` is set, and stamps
                `<output>.unverified` beside the binary
+  --debug      with `run`: run the child with `YASHY_DEBUG=1`, so a panic or
+               an arithmetic fault also prints every live task (id, function
+               and resume index)
   --timings    print how long each pipeline phase took, to stderr (or in the
                JSON report); stdout is never touched
   --jobs <n>   how many threads the front end may parse on; 0 (the default)
@@ -147,6 +152,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         }
         "build" => build(CommandKind::Build, rest),
         "run" => run(rest),
+        "tasks" => tasks(rest),
         "check" => check(rest),
         "verify" => verify(rest),
         "test" => test(rest),
@@ -652,14 +658,40 @@ fn require_verify_from_env() -> bool {
 }
 
 /// `yashy run <file.ya> [build flags] [-- <program args>...]`.
+/// `yashy run --debug <file.ya> ...` is the same run with the child's
+/// `YASHY_DEBUG` set: a panic or arithmetic fault also prints the executor's
+/// live tasks. `yashy tasks <file.ya>` goes one step further (see
+/// [`RunMode::Tasks`]): it is the task table for whatever the program does.
 ///
 /// The output path is temporary on purpose: `run` is for the edit/run loop,
 /// and a user who wants to keep the binary has `build -o`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    /// `yashy run`: no debug environment.
+    Plain,
+    /// `yashy run --debug`: the child gets `YASHY_DEBUG=1`.
+    Debug,
+    /// `yashy tasks`: a debug build only. The child gets `YASHY_DEBUG=1`
+    /// and `YASHY_TASKS_DUMP=1`, so the task table prints on a panic and
+    /// while the run spins on a pending task — the async analogue of a
+    /// thread dump.
+    Tasks,
+}
+
 fn run(args: &[String]) -> ExitCode {
+    run_as(args, RunMode::Plain)
+}
+
+fn tasks(args: &[String]) -> ExitCode {
+    run_as(args, RunMode::Tasks)
+}
+
+fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let mut build_args: Vec<String> = Vec::new();
     let mut program_args: Vec<String> = Vec::new();
     let mut input: Option<PathBuf> = None;
     let mut after_separator = false;
+    let mut debug = false;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
@@ -674,7 +706,17 @@ fn run(args: &[String]) -> ExitCode {
                     "`run` chooses its own output path; use `build -o` to keep a binary",
                 )
             }
+            "--debug" => {
+                // `tasks` already runs debug; the flag is never forwarded
+                // to the build, only to the child's environment.
+                debug = true;
+            }
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto" => {
+                if mode == RunMode::Tasks && argument == "--release" {
+                    return usage_error(
+                        "`tasks` needs a debug build; `--release` is refused",
+                    );
+                }
                 build_args.push(argument.clone())
             }
             "--pgo" => {
@@ -731,7 +773,16 @@ fn run(args: &[String]) -> ExitCode {
         return code;
     }
 
-    let status = status_with_retry(&output, &program_args);
+    // The debug environment is what turns the runtime's panic path into a
+    // task-aware one; it travels only to the child, never to the build.
+    let mut child_env: Vec<(&str, &str)> = Vec::new();
+    if debug || mode == RunMode::Tasks {
+        child_env.push(("YASHY_DEBUG", "1"));
+    }
+    if mode == RunMode::Tasks {
+        child_env.push(("YASHY_TASKS_DUMP", "1"));
+    }
+    let status = status_with_retry_env(&output, &program_args, &child_env);
     let _ = fs::remove_dir_all(&dir);
 
     match status {
@@ -764,9 +815,25 @@ fn exit_status_code(status: ExitStatus) -> i32 {
 /// new question, and the loader never reads those bytes. The tail has to differ
 /// in content, not only in length: a copy padded with zeros is still refused.
 fn status_with_retry(exe: &Path, args: &[String]) -> std::io::Result<ExitStatus> {
+    status_with_retry_env(exe, args, &[])
+}
+
+/// As [`status_with_retry`], plus the child's environment. The debug modes
+/// (`run --debug`, `tasks`) use it to hand the runtime its task table
+/// triggers; an empty `envs` is an ordinary run.
+fn status_with_retry_env(
+    exe: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+) -> std::io::Result<ExitStatus> {
     for attempt in 0..LAUNCH_ATTEMPTS {
         let candidate = launch_candidate(exe, attempt)?;
-        match Command::new(&candidate).args(args).status() {
+        let mut command = Command::new(&candidate);
+        command.args(args);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        match command.status() {
             Ok(status) => return Ok(status),
             Err(error) if blocked_by_policy(&error) => continue,
             Err(error) => return Err(error),

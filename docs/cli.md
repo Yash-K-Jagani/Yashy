@@ -46,6 +46,34 @@ Compiles and runs in one step. It accepts the same optimization, CPU, release,
 to the program. It refuses `--pgo`, because that would train on the program and
 then run it a second time; use `build --pgo` and run the resulting binary.
 
+| Option | Meaning |
+|---|---|
+| `--debug` | Run the child with `YASHY_DEBUG=1`: a panic or an arithmetic fault also prints every live task (id, async function and resume index) before the process ends. See [`yashy tasks`](#yashy-tasks-fileya). |
+
+## `yashy tasks <file.ya>`
+
+Runs the program like `run --debug`, and prints the executor's live-task
+table: the async analogue of a thread dump, and the only reason a hung
+program is debuggable. Debug builds only: `--release` is refused. The
+table goes to standard error, one line per task, sorted by task id:
+
+```text
+tasks: 2
+task 1 main_task resume=0 state=running
+task 2 blocked_on_channel resume=0 state=pending
+```
+
+`resume` is the task's resume index — the next suspension point its poll
+dispatches on. `state` is `running` while the task is inside its poll and
+`pending` when it is queued or suspended. The table prints on a panic
+(`YASHY_DEBUG=1`) and while the run spins on a pending task
+(`YASHY_TASKS_DUMP=1`, which `tasks` sets), so a program that never
+finishes still shows why.
+
+The same switches name the executor's mode: `YASHY_EXECUTOR_THREADS=<n>`
+is the worker count of the default executor (`0`, unset or non-numeric
+means single-threaded), so one binary runs both modes without rebuilding.
+
 ## ThinLTO and `--pgo`
 
 `--release` links the generated IR and the C runtime as one ThinLTO unit
@@ -605,6 +633,9 @@ diagnostic points at, not a switch to set.
 | `YASHY_LLC` | Names the `llc` executable directly. Builds still need `clang` on `PATH`. |
 | `YASHY_LEAK_REPORT=1` | Print live allocations at process exit. |
 | `YASHY_REQUIRE_VERIFY` | When set to anything but empty, `0` or `false`, `build` and `run` refuse `--no-verify`. |
+| `YASHY_DEBUG=1` | A panic or arithmetic fault also prints every live task (id, async function, resume index) to standard error before the process ends. Set by `run --debug` and `tasks`. |
+| `YASHY_TASKS_DUMP=1` | The executor prints its live-task table while the run spins on a pending task. Set by `tasks`. |
+| `YASHY_EXECUTOR_THREADS=<n>` | Worker count of the default executor; `0`, unset or non-numeric means single-threaded. |
 
 ## Installer flags
 

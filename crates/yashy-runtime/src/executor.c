@@ -15,11 +15,25 @@
  * `yashy_block_on`. Thread-pool mode (`threads > 0`): worker threads poll
  * spawned tasks; `yashy_block_on` still polls the main task inline and
  * then waits for the spawned queue to drain.
+ *
+ * Task-aware debugging: the executor keeps a registry of live tasks (id,
+ * frame, poll fn, state) guarded by the same mutex that guards the queue.
+ * `yashy_tasks_dump` walks it so `yashy tasks` and `run --debug` can name
+ * every live task, and the frame's fifth header word (the async function's
+ * name, written by the factory) is what the dump prints as the function —
+ * the textual-IR analogue of the `task.<id>.<fn>` DWARF name a debugger
+ * would show.
+ *
+ * The process-wide default executor takes its thread count from
+ * `YASHY_EXECUTOR_THREADS` (unset or non-numeric means single-threaded),
+ * which is how the conformance suite runs every program in both modes
+ * without rebuilding.
  */
 
 #include "yashy_runtime.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,9 +86,17 @@ typedef void *(*yax_thread_routine)(void *);
 typedef pthread_t yax_thread_handle;
 #endif
 
+/* A live task. `id` is 0 until the record is registered; real ids start at 1
+ * and never repeat. `state` is 0 (pending: queued or suspended, not inside a
+ * poll) or 1 (running: inside its poll). The `name` is not copied here: it
+ * lives in the frame's fifth header word (byte offset 32), written by the
+ * async factory, and the dump reads it under the lock while the frame is
+ * still live. */
 typedef struct yax_task_record {
     yashy_poll_fn poll;
     void *frame;
+    long long id;
+    int state;
 } yax_task_record;
 
 /* A structured-concurrency scope: children spawned while it is the executor's
@@ -110,7 +132,90 @@ struct yashy_executor {
     int threads;
     yax_thread_handle *workers;
     yashy_scope *active_scope;
+    yax_task_record *registry; /* live tasks, in no particular order */
+    long long registry_count;
+    long long registry_capacity;
+    long long next_id; /* highest id handed out so far */
 };
+
+/* --- The live-task registry -------------------------------------------------
+ * Everything below this heading assumes `ex->lock` is held; the public
+ * helpers acquire it themselves. The mutex is never held across a poll, so a
+ * poll that spawns a task (which takes the lock) cannot deadlock. */
+
+static long long yax_registry_index(yashy_executor *ex, void *frame) {
+    for (long long i = 0; i < ex->registry_count; i++) {
+        if (ex->registry[i].frame == frame) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Add `frame` to the registry unless it is there already, and answer the id
+ * it carries (0 when the grow failed: the task still runs, the dump simply
+ * will not list it). */
+static long long yax_register_locked(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
+    if (yax_registry_index(ex, frame) >= 0) {
+        return ex->registry[yax_registry_index(ex, frame)].id;
+    }
+    if (ex->registry_count == ex->registry_capacity) {
+        long long grown = ex->registry_capacity == 0 ? 64 : ex->registry_capacity * 2;
+        yax_task_record *next =
+            (yax_task_record *)realloc(ex->registry, (size_t)grown * sizeof *next);
+        if (next == NULL) {
+            return 0;
+        }
+        ex->registry = next;
+        ex->registry_capacity = grown;
+    }
+    yax_task_record *entry = &ex->registry[ex->registry_count++];
+    entry->poll = poll;
+    entry->frame = frame;
+    entry->id = ++ex->next_id;
+    entry->state = 0;
+    return entry->id;
+}
+
+static void yax_unregister(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
+    yax_lock_acquire(&ex->lock);
+    long long index = yax_registry_index(ex, frame);
+    if (index >= 0) {
+        ex->registry[index] = ex->registry[ex->registry_count - 1];
+        ex->registry_count--;
+    }
+    yax_lock_release(&ex->lock);
+}
+
+static void yax_set_state(yashy_executor *ex, void *frame, int state) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
+    yax_lock_acquire(&ex->lock);
+    long long index = yax_registry_index(ex, frame);
+    if (index >= 0) {
+        ex->registry[index].state = state;
+    }
+    yax_lock_release(&ex->lock);
+}
+
+/* Poll one task with its state tracked: running across the poll, pending
+ * when it suspends, and out of the registry once it is ready. A task that
+ * was never registered (a bare `yashy_task_poll`) passes through with only
+ * the state writes finding nothing. */
+static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
+    yax_set_state(ex, frame, 1);
+    void *ready = poll == NULL ? NULL : poll(frame);
+    if (ready != NULL) {
+        yax_unregister(ex, frame);
+    } else {
+        yax_set_state(ex, frame, 0);
+    }
+    return ready;
+}
 
 static int yax_queue_reserve(yashy_executor *ex, long long needed) {
     if (ex->capacity >= needed) {
@@ -147,6 +252,8 @@ static int yax_enqueue(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     long long tail = (ex->head + ex->count) % ex->capacity;
     ex->queue[tail].poll = poll;
     ex->queue[tail].frame = frame;
+    ex->queue[tail].id = yax_register_locked(ex, poll, frame);
+    ex->queue[tail].state = 0;
     ex->count++;
     ex->outstanding++;
     yax_cond_signal(&ex->has_work);
@@ -233,7 +340,7 @@ static void *yax_worker_loop(void *raw)
             }
             continue;
         }
-        void *ready = task.poll == NULL ? NULL : task.poll(task.frame);
+        void *ready = yax_poll_tracked(ex, task.poll, task.frame);
         if (ready != NULL) {
             yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
@@ -282,6 +389,10 @@ yashy_executor *yashy_executor_new(int threads) {
     ex->threads = threads;
     ex->workers = NULL;
     ex->active_scope = NULL;
+    ex->registry = NULL;
+    ex->registry_count = 0;
+    ex->registry_capacity = 0;
+    ex->next_id = 0;
     if (threads > 0) {
         ex->workers = (yax_thread_handle *)malloc((size_t)threads * sizeof *ex->workers);
         if (ex->workers == NULL) {
@@ -371,6 +482,7 @@ void yashy_executor_free(yashy_executor *ex) {
     free(ex->workers);
     free(ex->queue);
     free(ex->retained);
+    free(ex->registry);
     yax_cond_destroy(&ex->idle);
     yax_cond_destroy(&ex->has_work);
     yax_lock_destroy(&ex->lock);
@@ -390,11 +502,94 @@ static yashy_executor *yax_default = NULL;
 yashy_executor *yashy_executor_default(void) {
     yax_lock_acquire(&yax_default_lock);
     if (yax_default == NULL) {
-        yax_default = yashy_executor_new(0);
+        /* The mode switch the conformance suite uses: `YASHY_EXECUTOR_THREADS`
+         * names the worker count of the default executor, so the same binary
+         * runs single-threaded (unset, 0 or non-numeric) or on a pool without
+         * a rebuild. */
+        int threads = 0;
+        const char *requested = getenv("YASHY_EXECUTOR_THREADS");
+        if (requested != NULL && requested[0] != '\0') {
+            int wanted = atoi(requested);
+            if (wanted > 0) {
+                threads = wanted > 64 ? 64 : wanted;
+            }
+        }
+        yax_default = yashy_executor_new(threads);
     }
     yashy_executor *ex = yax_default;
     yax_lock_release(&yax_default_lock);
     return ex;
+}
+
+/* A snapshot of one registry entry, copied under the lock so the dump can
+ * print after it. */
+typedef struct yax_task_snapshot {
+    long long id;
+    const char *name;
+    int resume;
+    int state;
+} yax_task_snapshot;
+
+void yashy_tasks_dump(void) {
+    /* Snapshot the default executor without creating it: a program that
+     * never used the executor has no live tasks. */
+    yax_lock_acquire(&yax_default_lock);
+    yashy_executor *ex = yax_default;
+    yax_lock_release(&yax_default_lock);
+    if (ex == NULL) {
+        return;
+    }
+    yax_task_snapshot *snap = NULL;
+    long long count = 0;
+    yax_lock_acquire(&ex->lock);
+    if (ex->registry_count > 0) {
+        snap = (yax_task_snapshot *)malloc(
+            (size_t)ex->registry_count * sizeof *snap);
+        if (snap == NULL) {
+            yax_lock_release(&ex->lock);
+            return;
+        }
+        for (long long i = 0; i < ex->registry_count; i++) {
+            const char *name =
+                *(const char *const *)((const unsigned char *)ex->registry[i].frame + 32);
+            /* Frames the code generator wrote: their name word holds a NUL-
+             * terminated string in a global, never a small integer. A
+             * hand-made frame (the C tests zero theirs) carries no name, and
+             * a first field that happens to look like a small integer must
+             * not be read as one either. */
+            if ((uintptr_t)name <= 4096) {
+                name = NULL;
+            }
+            snap[count].id = ex->registry[i].id;
+            snap[count].name = name;
+            snap[count].resume = *(const int *)ex->registry[i].frame;
+            snap[count].state = ex->registry[i].state;
+            count++;
+        }
+    }
+    yax_lock_release(&ex->lock);
+    if (snap == NULL) {
+        return;
+    }
+    /* The registry's order is registration order except that unregistering
+     * swaps with the last entry, so sort by id: the dump must be stable. */
+    for (long long i = 1; i < count; i++) {
+        yax_task_snapshot key = snap[i];
+        long long j = i - 1;
+        while (j >= 0 && snap[j].id > key.id) {
+            snap[j + 1] = snap[j];
+            j--;
+        }
+        snap[j + 1] = key;
+    }
+    fprintf(stderr, "tasks: %lld\n", count);
+    for (long long i = 0; i < count; i++) {
+        fprintf(stderr, "task %lld %s resume=%d state=%s\n", snap[i].id,
+                snap[i].name != NULL ? snap[i].name : "<unknown>", snap[i].resume,
+                snap[i].state == 1 ? "running" : "pending");
+    }
+    fflush(stderr);
+    free(snap);
 }
 
 int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
@@ -521,7 +716,7 @@ void yashy_scope_join_or_cancel(yashy_scope *scope) {
         }
         int ready = 0;
         for (int attempt = 0; attempt < 1000; attempt++) {
-            if (child.poll(child.frame) != NULL) {
+            if (yax_poll_tracked(scope->ex, child.poll, child.frame) != NULL) {
                 ready = 1;
                 break;
             }
@@ -539,23 +734,22 @@ void yashy_scope_join_or_cancel(yashy_scope *scope) {
 }
 
 int yashy_task_poll(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
-    (void)ex;
     if (poll == NULL || frame == NULL) {
         return -1;
     }
-    return poll(frame) != NULL ? 1 : 0;
+    return yax_poll_tracked(ex, poll, frame) != NULL ? 1 : 0;
 }
 
 /* Poll one task; on a pending answer, drive the spawned queue once so
  * `spawn`ed children make progress even while the main task waits. */
 static int yax_drive_once(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
-    int ready = poll != NULL && frame != NULL && poll(frame) != NULL;
+    int ready = poll != NULL && frame != NULL && yax_poll_tracked(ex, poll, frame) != NULL;
     if (ready) {
         return 1;
     }
     yax_task_record task;
     if (yax_dequeue(ex, &task)) {
-        void *child_ready = task.poll == NULL ? NULL : task.poll(task.frame);
+        void *child_ready = yax_poll_tracked(ex, task.poll, task.frame);
         if (child_ready != NULL) {
             yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
@@ -573,6 +767,13 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (ex == NULL || poll == NULL || frame == NULL) {
         return -1;
     }
+    /* The task being driven is live too, so the dump can name it while it
+     * runs or suspends. */
+    yax_lock_acquire(&ex->lock);
+    yax_register_locked(ex, poll, frame);
+    yax_lock_release(&ex->lock);
+    const char *tasks_dumped = getenv("YASHY_TASKS_DUMP");
+    long long pending_spins = 0;
     for (;;) {
         if (yax_drive_once(ex, poll, frame)) {
             break;
@@ -582,6 +783,15 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
          * keeps a genuinely pending task (a channel wait inside a poll)
          * from spinning hot. */
         yashy_sleep_ms(1);
+        /* `yashy tasks` on a hung program: while the main task is still
+         * pending after about a thousand 1-ms spins, print the live tasks
+         * so waiting is visible instead of silent. */
+        if (tasks_dumped != NULL && tasks_dumped[0] != '\0' && tasks_dumped[0] != '0') {
+            pending_spins++;
+            if (pending_spins % 1000 == 0) {
+                yashy_tasks_dump();
+            }
+        }
     }
     /* The main task completed before `block_on` returns, and so did every
      * task spawned from it: drain the queue before answering. */
@@ -590,7 +800,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
         if (!yax_dequeue(ex, &task)) {
             break;
         }
-        void *ready = task.poll == NULL ? NULL : task.poll(task.frame);
+        void *ready = yax_poll_tracked(ex, task.poll, task.frame);
         if (ready != NULL) {
             yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
@@ -604,7 +814,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
             if (!yax_dequeue(ex, &task)) {
                 continue;
             }
-            ready = task.poll == NULL ? NULL : task.poll(task.frame);
+            ready = yax_poll_tracked(ex, task.poll, task.frame);
             if (ready != NULL) {
                 yax_retain(ex, task.frame);
                 yax_lock_acquire(&ex->lock);
@@ -626,6 +836,10 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
         }
         yax_lock_release(&ex->lock);
     }
+    yax_unregister(ex, frame);
+    if (tasks_dumped != NULL && tasks_dumped[0] != '\0' && tasks_dumped[0] != '0') {
+        yashy_tasks_dump();
+    }
     return 0;
 }
 
@@ -633,6 +847,7 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (frame == NULL) {
         return;
     }
+    yax_unregister(ex, frame);
     if (ex != NULL) {
         yax_lock_acquire(&ex->lock);
         for (long long i = 0; i < ex->count; i++) {
@@ -658,6 +873,15 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
 }
 
 void yashy_task_drop(void *frame) {
+    if (frame == NULL) {
+        return;
+    }
+    /* A dropped frame is no longer live; take it out of the default
+     * executor's registry without creating the executor just to do so. */
+    yax_lock_acquire(&yax_default_lock);
+    yashy_executor *ex = yax_default;
+    yax_lock_release(&yax_default_lock);
+    yax_unregister(ex, frame);
     yashy_free(frame);
 }
 

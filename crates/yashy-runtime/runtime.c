@@ -2246,7 +2246,25 @@ void yashy_slice_slice_strings(yashy_slice *out, yashy_slice *source,
  * reading the exit status still sees the failure.
  *
  * `file` is the path the compiler was handed and may be relative; `line` and
- * `column` are one-based and count characters, like every other diagnostic. */
+ * `column` are one-based and count characters, like every other diagnostic.
+ *
+ * Task-aware debugging (phase 10 task 7): when `YASHY_DEBUG=1` — which is
+ * what `yashy run --debug` and `yashy tasks` set for the child — the panic
+ * path also prints the executor's live tasks (`yashy_tasks_dump`, in
+ * executor.c) before exiting, so a panic names every task that was alive.
+ * The dump is empty when no task was ever created, which is how a plain
+ * synchronous panic stays quiet.
+ */
+/* The debug dump hook every panic path shares: `YASHY_DEBUG=1` prints the
+ * live tasks before the process ends. Evaluated on the cold path only;
+ * without the variable this is one `getenv` and nothing else. */
+static void yashy_debug_dump_if_enabled(void) {
+    const char *requested = getenv("YASHY_DEBUG");
+    if (requested != NULL && requested[0] == '1') {
+        yashy_tasks_dump();
+    }
+}
+
 void yashy_panic(const yashy_str *message, const yashy_str *file, long long line, long long column) {
     fflush(stdout);
     fprintf(
@@ -2257,6 +2275,7 @@ void yashy_panic(const yashy_str *message, const yashy_str *file, long long line
         column,
         yashy_str_data(message)
     );
+    yashy_debug_dump_if_enabled();
     fflush(stderr);
     exit(1);
 }
@@ -2334,6 +2353,7 @@ static void yashy_fault(
         yashy_str_data(op),
         rhs
     );
+    yashy_debug_dump_if_enabled();
     fflush(stderr);
     exit(1);
 }
@@ -2399,6 +2419,7 @@ void yashy_panic_shift(
         yashy_str_data(type_name),
         bits - 1
     );
+    yashy_debug_dump_if_enabled();
     fflush(stderr);
     exit(1);
 }

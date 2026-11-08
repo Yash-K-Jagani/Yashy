@@ -4,8 +4,8 @@
 //! `yashy_alloc` and the poll function (`@f.poll`) drives:
 //!
 //! ```text
-//! %struct.async.f.frame = type { i32, i8*, i8*, i8*, <args>, <live locals>, <result> }
-//!                           resume poll child result_slot
+//! %struct.async.f.frame = type { i32, i8*, i8*, i8*, i8*, <args>, <live locals>, <result> }
+//!                           resume poll child result_slot name
 //! ```
 //!
 //! - `resume` is the `u32` state index. `0` enters the first segment; the
@@ -20,6 +20,18 @@
 //! - `result_slot` is a pointer to the result field, so `await` and
 //!   `block_on` can read the result without knowing the child frame's
 //!   layout.
+//! - `name` is the NUL-terminated name of the async function, in a string
+//!   global. The executor's live-task registry reads it (byte offset 32) to
+//!   name a task the way a debugger would — `task.<id>.<fn>` — in the
+//!   `yashy tasks` dump. The poll function's own argument is named
+//!   `%task.frame` for the same reason: the LLVM value a debugger sees is
+//!   the task's frame pointer, not an anonymous one.
+//!
+//! The header is five words (40 bytes); the executor knows the resume
+//! index lives at byte 0 and the name at byte 32, and nothing else about
+//! the frame. Every field after the header is reached through
+//! `getelementptr`, so a hand-made frame only needs its `resume`, `poll`
+//! and `child` words.
 //!
 //! Which locals live in the frame is a backwards liveness pass over the
 //! body: a binding defined before an `await` and used after it lives in the
@@ -395,7 +407,7 @@ pub fn lower_async(f: &HirFn) -> (FrameLayout, String) {
     }
 
     let result_ty = result_type(f);
-    let result_index = (4 + fields.len()) as i32;
+    let result_index = (5 + fields.len()) as i32;
     let poll_name = format!("{}.poll", f.name);
     let resume_points = (1..=segmentation.awaits.len())
         .map(|i| i as i32)
@@ -412,9 +424,13 @@ pub fn lower_async(f: &HirFn) -> (FrameLayout, String) {
 }
 
 /// The named frame type's fields for `layout`, in LLVM's spelling.
+///
+/// The five-word header is `resume`, `poll`, `child`, `result_slot` and
+/// `name`; the frame's own fields and the result follow it.
 pub fn frame_type_fields(layout: &FrameLayout) -> Vec<String> {
     let mut parts = vec![
         "i32".to_string(),
+        "i8*".to_string(),
         "i8*".to_string(),
         "i8*".to_string(),
         "i8*".to_string(),
@@ -468,11 +484,22 @@ fn gen_factory(ctx: &mut FnCtx<'_>, f: &HirFn, layout: &FrameLayout) {
     ctx.push(format!("{result_slot} = bitcast ptr {result_ptr} to i8*"));
     let slot = field_at(ctx, 3);
     ctx.push(format!("store i8* {result_slot}, ptr {slot}"));
+    // The name metadata (byte offset 32): the function's name as a
+    // NUL-terminated string global, which the executor's registry reads so
+    // `yashy tasks` reports `task.<id>.<fn>` for every live task.
+    let name_global = ctx.module.intern_string(f.name.as_bytes());
+    let name_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{name_ptr} = bitcast [{} x i8]* {name_global}.data to i8*",
+        f.name.len() + 1
+    ));
+    let name = field_at(ctx, 4);
+    ctx.push(format!("store i8* {name_ptr}, ptr {name}"));
 
     for (index, field) in layout.fields.iter().enumerate() {
         if index < f.params.len() {
             let repr = crate::ir::repr_type(&field.ty);
-            let slot = field_at(ctx, (4 + index) as i32);
+            let slot = field_at(ctx, (5 + index) as i32);
             ctx.push(format!("store {repr} %arg{index}, ptr {slot}"));
         }
     }
@@ -480,10 +507,14 @@ fn gen_factory(ctx: &mut FnCtx<'_>, f: &HirFn, layout: &FrameLayout) {
 }
 
 /// The slot of frame field `index` for the function being emitted.
+///
+/// The poll function's argument is `%task.frame`, not `%frame`: the frame
+/// pointer is the task's identity, and a debugger (or a reader of the IR)
+/// sees it named for the task it belongs to.
 fn field_slot(ctx: &mut FnCtx<'_>, layout: &FrameLayout, index: i32) -> String {
     let slot = ctx.tmp();
     ctx.push(format!(
-        "{slot} = getelementptr {}, ptr %frame, i32 0, i32 {index}",
+        "{slot} = getelementptr {}, ptr %task.frame, i32 0, i32 {index}",
         layout.frame_type
     ));
     slot
@@ -531,7 +562,7 @@ fn bind_result(
                     .iter()
                     .any(|field| &field.name == name)
                 {
-                    let field_index = (4 + layout
+                    let field_index = (5 + layout
                         .fields
                         .iter()
                         .position(|field| &field.name == name)
@@ -553,7 +584,7 @@ fn bind_result(
                 ctx.push(format!("store {repr} {value}, ptr {result}"));
                 let resume = field_slot(ctx, layout, 0);
                 ctx.push(format!("store i32 -1, ptr {resume}"));
-                ctx.push("ret i8* %frame".to_string());
+                ctx.push("ret i8* %task.frame".to_string());
             }
             AwaitSite::Discard => {}
         }
@@ -566,12 +597,12 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
     // `--no-opt=async` disables suspension: the whole body is one segment
     // and every await drives its child inline.
     let suspend = module.async_enabled();
-    module.push(format!("define i8* @{} (i8* %frame) {{", layout.poll_name));
+    module.push(format!("define i8* @{} (i8* %task.frame) {{", layout.poll_name));
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, layout.result_ty.clone());
         ctx.async_poll = Some(crate::expr_gen::AsyncPoll {
-            frame_slot: "%frame".to_string(),
+            frame_slot: "%task.frame".to_string(),
             frame_type: layout.frame_type.clone(),
             result_index: layout.result_index,
             result_ty: layout.result_ty.clone(),
@@ -581,7 +612,7 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
         // Header and frame fields.
         let resume_slot = field_slot(&mut ctx, layout, 0);
         for (index, field) in layout.fields.iter().enumerate() {
-            let slot = field_slot(&mut ctx, layout, (4 + index) as i32);
+            let slot = field_slot(&mut ctx, layout, (5 + index) as i32);
             ctx.locals
                 .insert(field.name.clone(), (slot, field.ty.clone()));
         }
@@ -602,7 +633,7 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
         let dispatch_label = format!("dispatch{}", ctx.alloc_label_base());
         ctx.push(format!("br i1 {done}, label %{done_label}, label %{dispatch_label}"));
         ctx.push(format!("{done_label}:"));
-        ctx.push("ret i8* %frame".to_string());
+        ctx.push("ret i8* %task.frame".to_string());
         ctx.push(format!("{dispatch_label}:"));
         let mut cases = Vec::new();
         for point in 1..=segmentation.awaits.len() {
@@ -688,7 +719,7 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
                     ctx.push(format!("store {repr} zeroinitializer, ptr {result}"));
                 }
                 ctx.push(format!("store i32 -1, ptr {resume_slot}"));
-                ctx.push("ret i8* %frame".to_string());
+                ctx.push("ret i8* %task.frame".to_string());
             }
         }
         ctx.push("}".to_string());
@@ -861,31 +892,32 @@ fn gen_spawn_sync(
         "i8*".to_string(),
         "i8*".to_string(),
         "i8*".to_string(),
+        "i8*".to_string(),
     ];
     for param in params {
         fields.push(field_repr(&param.kind));
     }
     fields.push(field_repr(ret));
     ctx.module.define_named_type(&frame_ty, fields.clone());
-    let result_index = (4 + params.len()) as i32;
+    let result_index = (5 + params.len()) as i32;
 
     // The synthesized poll function: load the arguments from the frame,
     // call the worker, store the result, run no further statements.
     let index = ctx.module.next_thread_entry();
     let poll_name = format!("yashy_spawn_poll_{index}");
     let mut lines = Vec::new();
-    lines.push(format!("define i8* @{poll_name}(i8* %frame) {{"));
+    lines.push(format!("define i8* @{poll_name}(i8* %task.frame) {{"));
     lines.push("entry:".to_string());
     // Re-polling a finished task answers Ready without running the worker
     // again, exactly like an async poll's done sentinel.
     lines.push(format!(
-        "  %spawn_resume0 = getelementptr {frame_ty}, ptr %frame, i32 0, i32 0"
+        "  %spawn_resume0 = getelementptr {frame_ty}, ptr %task.frame, i32 0, i32 0"
     ));
     lines.push("  %spawn_resume_v = load i32, ptr %spawn_resume0".to_string());
     lines.push("  %spawn_done = icmp eq i32 %spawn_resume_v, -1".to_string());
     lines.push("  br i1 %spawn_done, label %spawn_done_lbl, label %spawn_run".to_string());
     lines.push("spawn_done_lbl:".to_string());
-    lines.push("  ret i8* %frame".to_string());
+    lines.push("  ret i8* %task.frame".to_string());
     lines.push("spawn_run:".to_string());
     let mut call_args = Vec::new();
     for (param_index, param) in params.iter().enumerate() {
@@ -893,8 +925,8 @@ fn gen_spawn_sync(
         let field = format!("%spawn_arg{param_index}");
         let value = format!("%spawn_arg{param_index}_v");
         lines.push(format!(
-            "  {field} = getelementptr {frame_ty}, ptr %frame, i32 0, i32 {}",
-            4 + param_index
+            "  {field} = getelementptr {frame_ty}, ptr %task.frame, i32 0, i32 {}",
+            5 + param_index
         ));
         lines.push(format!("  {value} = load {repr}, ptr {field}"));
         call_args.push(format!("{repr} {value}"));
@@ -910,16 +942,16 @@ fn gen_spawn_sync(
         ));
         let field = "%spawn_result_field";
         lines.push(format!(
-            "  {field} = getelementptr {frame_ty}, ptr %frame, i32 0, i32 {result_index}"
+            "  {field} = getelementptr {frame_ty}, ptr %task.frame, i32 0, i32 {result_index}"
         ));
         lines.push(format!("  store {ret_repr} {result}, ptr {field}"));
     }
     let resume = "%spawn_resume";
     lines.push(format!(
-        "  {resume} = getelementptr {frame_ty}, ptr %frame, i32 0, i32 0"
+        "  {resume} = getelementptr {frame_ty}, ptr %task.frame, i32 0, i32 0"
     ));
     lines.push(format!("  store i32 -1, ptr {resume}"));
-    lines.push("  ret i8* %frame".to_string());
+    lines.push("  ret i8* %task.frame".to_string());
     lines.push("}".to_string());
     ctx.module.add_synthesized_function(lines);
 
@@ -950,11 +982,21 @@ fn gen_spawn_sync(
     ctx.push(format!("{result_slot} = bitcast ptr {result_field} to i8*"));
     let slot_slot = field_at(ctx, 3);
     ctx.push(format!("store i8* {result_slot}, ptr {slot_slot}"));
+    // The name metadata (byte offset 32), like an async frame's: the
+    // worker's name as a NUL-terminated string global.
+    let name_global = ctx.module.intern_string(name.as_bytes());
+    let name_ptr = ctx.tmp();
+    ctx.push(format!(
+        "{name_ptr} = bitcast [{} x i8]* {name_global}.data to i8*",
+        name.len() + 1
+    ));
+    let name_slot = field_at(ctx, 4);
+    ctx.push(format!("store i8* {name_ptr}, ptr {name_slot}"));
     for (param_index, (argument, param)) in args.iter().zip(params.iter()).enumerate() {
         let _ = param;
         let value = gen_expr(ctx, argument);
         let repr = repr_type(&value.ty);
-        let dest = field_at(ctx, (4 + param_index) as i32);
+        let dest = field_at(ctx, (5 + param_index) as i32);
         ctx.push(format!("store {repr} {}, ptr {dest}", value.value));
     }
     let _ = task_ty;

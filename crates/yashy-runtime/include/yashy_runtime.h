@@ -683,6 +683,24 @@ void yashy_task_cancel(yashy_executor *executor, yashy_poll_fn poll, void *frame
 void yashy_task_drop(void *frame);
 long long yashy_executor_completed(yashy_executor *executor);
 
+/* Task-aware debugging (phase 10 task 7).
+ *
+ *     declare void @yashy_tasks_dump()
+ *
+ * `yashy_tasks_dump` prints the executor's live tasks to standard error, one
+ * line per task, sorted by task id:
+ *
+ *     tasks: 2
+ *     task 1 main_task resume=0 state=running
+ *     task 2 blocked_on_channel resume=0 state=pending
+ *
+ * The name is the frame's fifth header word (byte offset 32), a NUL-
+ * terminated string the async factory wrote; hand-made frames report
+ * `<unknown>`. `resume` is the frame's first header word, the resume
+ * index the poll dispatches on. Not part of the generated-code contract:
+ * generated code never calls it. */
+void yashy_tasks_dump(void);
+
 /* Structured concurrency: `scope` lowers to "create child scope; run body;
  * join-or-cancel every child in reverse spawn order; free the scope". A child
  * is any task spawned while the scope is active. Join polls each child until

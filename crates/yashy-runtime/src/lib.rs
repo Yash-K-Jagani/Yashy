@@ -570,8 +570,16 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
-    /// Frees a task frame (`yashy_free`). Tolerates null.
+    /// Frees a task frame (`yashy_free`). Tolerates null. Also removes the
+    /// frame from the default executor's live-task registry.
     pub fn yashy_task_drop(frame: *mut c_void);
+}
+
+unsafe extern "C" {
+    /// Prints the default executor's live tasks to standard error, one line
+    /// per task: `task <id> <name> resume=<n> state=<pending|running>`,
+    /// sorted by id. Not part of the generated-code contract.
+    pub fn yashy_tasks_dump();
 }
 
 #[repr(C)]

@@ -38,6 +38,12 @@ pub fn gen_fn(module: &mut Module, f: &HirFn) {
         // The frame and poll contract is mandatory lowering: a call must
         // still hand back a task. `--no-opt=async` disables suspension
         // inside the poll (awaits drive inline) rather than the frame.
+        //
+        // The poll function's frame pointer is named `%task.frame` and the
+        // frame's header carries a `name` word with the function's name: a
+        // debugger — and the executor's live-task registry, which prints
+        // `task.<id>.<fn>` — meets the task by that name rather than by an
+        // anonymous pointer. See `crate::async_lower` for the layout.
         crate::async_lower::gen_async_fn(module, f);
         return;
     }
