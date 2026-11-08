@@ -102,6 +102,11 @@ impl<'src> Parser<'src> {
             {
                 self.parse_arena()
             }
+            TokenKind::Ident
+                if self.identifier_is("scope") && self.peek_second() == TokenKind::LBrace =>
+            {
+                self.parse_scope()
+            }
             TokenKind::Ident if self.peek_second() == TokenKind::ColonEq => {
                 self.parse_binding_stmt()
             }
@@ -914,6 +919,17 @@ impl<'src> Parser<'src> {
         let body = self.parse_block()?;
         let body_span = body.span;
         Ok(Stmt::Arena {
+            body,
+            span: cover(name_span, body_span),
+        })
+    }
+
+    fn parse_scope(&mut self) -> Result<Stmt, ParseError> {
+        let (name, name_span) = self.identifier()?;
+        debug_assert_eq!(name, "scope");
+        let body = self.parse_block()?;
+        let body_span = body.span;
+        Ok(Stmt::Scope {
             body,
             span: cover(name_span, body_span),
         })

@@ -300,6 +300,14 @@ fn an_indexed_loop_round_trips() {
 }
 
 #[test]
+fn an_async_form_round_trips() {
+    let source = "async fn fetch(string url) -> string {\n    return url;\n}\n\nfn main() {\n    const body = fetch(url).await;\n    scope {\n        spawn(worker);\n    };\n}\n";
+    let formatted = format(source);
+    assert_eq!(formatted, source);
+    assert_eq!(format(&formatted), formatted, "formatting must be idempotent");
+}
+
+#[test]
 fn a_doc_comment_round_trips_and_normalizes_its_space() {
     let source = "/// Adds two numbers.\nfn add(int a, int b) -> int {\n    return a + b;\n}\n";
     let formatted = format(source);

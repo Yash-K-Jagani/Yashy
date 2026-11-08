@@ -643,6 +643,10 @@ pub enum TokenKind {
     Pure,
     /// `io`: a function that performs IO.
     Io,
+    /// `async`: a function whose body suspends at `await` and returns a task.
+    Async,
+    /// `await`: the postfix suspension operator, `fetch(url).await`.
+    Await,
     Defer,
     Return,
     Break,
@@ -806,9 +810,9 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 36] = [
-        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "defer",
-        "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
+    pub const KEYWORDS: [&'static str; 38] = [
+        "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "async",
+        "await", "defer", "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
         "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires",
         "ensures", "invariant", "repr",
     ];
@@ -826,6 +830,8 @@ impl TokenKind {
             "unsafe" => TokenKind::Unsafe,
             "pure" => TokenKind::Pure,
             "io" => TokenKind::Io,
+            "async" => TokenKind::Async,
+            "await" => TokenKind::Await,
             "defer" => TokenKind::Defer,
             "return" => TokenKind::Return,
             "break" => TokenKind::Break,
@@ -870,6 +876,8 @@ impl TokenKind {
                 | TokenKind::Unsafe
                 | TokenKind::Pure
                 | TokenKind::Io
+                | TokenKind::Async
+                | TokenKind::Await
                 | TokenKind::Defer
                 | TokenKind::Return
                 | TokenKind::Break
@@ -930,6 +938,8 @@ impl TokenKind {
             TokenKind::Unsafe => Naming::Fixed("unsafe"),
             TokenKind::Pure => Naming::Fixed("pure"),
             TokenKind::Io => Naming::Fixed("io"),
+            TokenKind::Async => Naming::Fixed("async"),
+            TokenKind::Await => Naming::Fixed("await"),
             TokenKind::Defer => Naming::Fixed("defer"),
             TokenKind::Return => Naming::Fixed("return"),
             TokenKind::Break => Naming::Fixed("break"),
@@ -1056,7 +1066,7 @@ mod tests {
     /// The keyword table, written out here as well as in the integration tests
     /// so that a keyword added to one list and not the other is a failing test
     /// rather than a difference nobody notices.
-    const KEYWORDS: [(&str, TokenKind); 36] = [
+    const KEYWORDS: [(&str, TokenKind); 38] = [
         ("fn", TokenKind::Fn),
         ("struct", TokenKind::Struct),
         ("enum", TokenKind::Enum),
@@ -1068,6 +1078,8 @@ mod tests {
         ("unsafe", TokenKind::Unsafe),
         ("pure", TokenKind::Pure),
         ("io", TokenKind::Io),
+        ("async", TokenKind::Async),
+        ("await", TokenKind::Await),
         ("defer", TokenKind::Defer),
         ("return", TokenKind::Return),
         ("break", TokenKind::Break),

@@ -622,7 +622,8 @@ impl Stmt {
             | Stmt::Break(_, span)
             | Stmt::Continue(_, span)
             | Stmt::Defer { span, .. }
-            | Stmt::Arena { span, .. } => *span,
+            | Stmt::Arena { span, .. }
+            | Stmt::Scope { span, .. } => *span,
             Stmt::Invariant(contract) => contract.span,
         }
     }
@@ -832,6 +833,10 @@ pub enum Stmt {
     Defer { body: Block, span: Span },
     /// `arena { .. }` -- one arena for the block, released at block exit.
     Arena { body: Block, span: Span },
+    /// `scope { .. }` -- a structured-concurrency scope. Every task spawned
+    /// inside is joined or cancelled before the scope is left, so no task can
+    /// outlive the scope that started it.
+    Scope { body: Block, span: Span },
     /// `invariant n >= 0` -- a fact a loop promises at its head.
     ///
     /// It is a statement rather than a field on each loop variant because the
@@ -1105,6 +1110,21 @@ pub enum Expr {
     /// `f()?` -- propagates the error out of a `Result`.
     Try {
         expr: Box<Expr>,
+        span: Span,
+    },
+    /// `task.await` -- drives an async task until it completes and yields the
+    /// task's result. It is a postfix operator like `?`, so it binds tighter
+    /// than every binary operator: `x.await + 1` is `(x.await) + 1`.
+    Await {
+        expr: Box<Expr>,
+        span: Span,
+    },
+    /// `spawn(worker, args)` -- starts `worker(args)` on the executor and
+    /// returns the task handle. The callee is kept as an expression: a name
+    /// such as `worker`, a field chain or a type path.
+    Spawn {
+        callee: Box<Expr>,
+        args: Vec<CallArg>,
         span: Span,
     },
     /// `switch x { .. }` in value position, which yields the arm's expression.

@@ -477,6 +477,16 @@ impl<'src> Parser<'src> {
                 };
                 continue;
             }
+            if self.check(TokenKind::Dot) && self.peek_second() == TokenKind::Await {
+                self.advance();
+                let r#await = self.expect(TokenKind::Await)?;
+                let span = cover(expr_span(&expr), r#await.span);
+                expr = Expr::Await {
+                    expr: Box::new(expr),
+                    span,
+                };
+                continue;
+            }
             if self.check(TokenKind::ColonColon) {
                 expr = self.parse_type_path(expr)?;
                 continue;
@@ -595,6 +605,23 @@ impl<'src> Parser<'src> {
                     unsafe_call: false,
                     span,
                 };
+                if let Expr::Call {
+                    callee,
+                    args,
+                    span,
+                    ..
+                } = &expr
+                {
+                    if callee.len() == 1 && callee[0] == "spawn" && !args.is_empty() {
+                        let mut call_args = args.clone();
+                        let worker = call_args.remove(0).value;
+                        expr = Expr::Spawn {
+                            callee: Box::new(worker),
+                            args: call_args,
+                            span: *span,
+                        };
+                    }
+                }
                 continue;
             }
             if self.check(TokenKind::LBracket) {
@@ -863,15 +890,13 @@ impl<'src> Parser<'src> {
                 let (first, first_span) = self.identifier()?;
                 let mut path = vec![first];
                 let mut end = first_span;
-                while self.check(TokenKind::Dot) {
+                while self.check(TokenKind::Dot)
+                    && self.peek_second() == TokenKind::Ident
+                {
                     self.advance();
-                    if self.check(TokenKind::Ident) {
-                        let (seg, sspan) = self.identifier()?;
-                        path.push(seg);
-                        end = sspan;
-                    } else {
-                        break;
-                    }
+                    let (seg, sspan) = self.identifier()?;
+                    path.push(seg);
+                    end = sspan;
                 }
                 // struct literal? Only treat `{ ... }` as a struct literal when it
                 // actually looks like one (`{ ident: ... }`); otherwise a `{`
@@ -1385,6 +1410,8 @@ pub fn expr_span(expr: &Expr) -> Span {
         Expr::Interp { span, .. } => *span,
         Expr::Cast { span, .. } => *span,
         Expr::Try { span, .. } => *span,
+        Expr::Await { span, .. } => *span,
+        Expr::Spawn { span, .. } => *span,
         Expr::SwitchExpr { span, .. } => *span,
         Expr::MethodCall { span, .. } => *span,
         Expr::Lambda { span, .. } => *span,
