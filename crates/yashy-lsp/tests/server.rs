@@ -185,6 +185,35 @@ fn hover_on_a_builtin_shows_its_signature() {
 }
 
 #[test]
+fn hover_on_a_macro_shows_its_arms() {
+    let uri = test_uri("hover_macro.ya");
+    let messages = vec![
+        did_open(
+            &uri,
+            "macro say { $x:expr => { print($x); } }\n\nfn main() {\n    say(1);\n}\n",
+        ),
+        request(2, "textDocument/hover", at(&uri, 3, 6)),
+    ];
+    let replies = run(messages);
+    let hover = replies
+        .iter()
+        .find(|reply| reply.get("id").and_then(Value::as_i64) == Some(2))
+        .expect("the hover request gets a reply");
+    let value = hover
+        .get_path(&["result", "contents", "value"])
+        .and_then(Value::as_str)
+        .expect("the hover carries markup");
+    assert!(
+        value.contains("macro say"),
+        "the declaration is shown: {value}"
+    );
+    assert!(
+        value.contains("$x:expr"),
+        "the arm pattern is shown: {value}"
+    );
+}
+
+#[test]
 fn hover_on_a_documented_function_shows_its_doc_block() {
     let uri = test_uri("hover_doc.ya");
     let messages = vec![

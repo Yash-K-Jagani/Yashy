@@ -102,7 +102,10 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 
 - **Keep the language's identity.** No garbage collector, borrow checker,
   exceptions, implicit coercion, operator overloading, class inheritance, or
-  power-user procedural macros.
+  power-user procedural macros. Macros are declarative only: a macro is data,
+  not a program the compiler runs — expansion happens before parsing, once,
+  in `yashy-expand`, with the caps in its spec (`E1600` no match,
+  `E1601` depth/size, `E1602` fragment kind, `E1603` duplicate name).
 - **Patterns are irrefutable in binding position.** A pattern in `let`,
   `const` and `for` must match every value of its type; a refutable pattern
   there is `E0100` with the fix "use `switch`". In `switch`, every

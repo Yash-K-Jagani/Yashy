@@ -148,5 +148,5 @@ Continue to [01-hello](01-hello.md). If you installed a release and want the
 project-shaped path first, read [12-first-cli](12-first-cli.md); the language
 chapters assume a working `yashy` and can be read in either order. The last
 three chapters cover calling C, [13-ffi](13-ffi.md), splitting a program
-across files, [14-modules](14-modules.md), and traits, the object model and
-iterators, [15-traits](15-traits.md).
+across files, [14-modules](14-modules.md), traits, the object model and
+iterators, [15-traits](15-traits.md), and macros, [16-macros](16-macros.md).

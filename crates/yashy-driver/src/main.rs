@@ -2698,7 +2698,9 @@ fn expand(args: &[String]) -> ExitCode {
     for arg in args {
         match arg.as_str() {
             "--json" => json = true,
-            other if other.starts_with('-') => return usage_error(&format!("unknown option `{other}` for `expand`")),
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `expand`"))
+            }
             other => {
                 if input.is_some() {
                     return usage_error(&format!("unexpected extra argument `{other}`"));
@@ -2778,7 +2780,10 @@ fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::Expa
                     let mut entry = Json::object();
                     entry.set("macro", Json::string(&record.macro_name));
                     entry.set("arm_span", span_json(sources, file, record.arm_span));
-                    entry.set("invocation_span", span_json(sources, file, record.invocation_span));
+                    entry.set(
+                        "invocation_span",
+                        span_json(sources, file, record.invocation_span),
+                    );
                     entry.set("output_tokens", Json::number(record.output_tokens as i64));
                     entry
                 })

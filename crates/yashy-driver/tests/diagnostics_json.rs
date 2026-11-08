@@ -324,7 +324,8 @@ fn test_json_all_pass_exits_zero() {
 #[test]
 fn a_type_error_inside_a_macro_body_points_at_the_invocation() {
     let dir = work_dir("json-check-macro-error");
-    let source_text = "macro bad { $x:expr => { let int y = \"three\"; } }\nfn main() { bad(1); }\n";
+    let source_text =
+        "macro bad { $x:expr => { let int y = \"three\"; } }\nfn main() { bad(1); }\n";
     let source = dir.join("bad.ya");
     write(&dir, "bad.ya", source_text);
 
@@ -346,7 +347,10 @@ fn a_type_error_inside_a_macro_body_points_at_the_invocation() {
     assert_eq!(notes.len(), 2);
     assert_eq!(notes[0].get("kind").as_str(), "expansion");
     assert!(notes[0].get("message").as_str().contains("`bad`"));
-    assert!(notes[1].get("message").as_str().contains("expanded from line 2"));
+    assert!(notes[1]
+        .get("message")
+        .as_str()
+        .contains("expanded from line 2"));
 }
 
 #[test]

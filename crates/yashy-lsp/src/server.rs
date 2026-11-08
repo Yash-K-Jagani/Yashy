@@ -245,6 +245,7 @@ impl Server {
         };
         let signature = builtin_signature(word)
             .map(str::to_string)
+            .or_else(|| macro_signature(&text, word))
             .or_else(|| user_signature(&text, word));
         match signature {
             Some(signature) => object([(
@@ -639,6 +640,44 @@ fn builtin_signature(name: &str) -> Option<&'static str> {
         "exit" => "fn exit(int code)",
         _ => return None,
     })
+}
+
+/// The source of `macro <word> { ... }`, for a hover on a macro. The arms
+/// are the whole answer: a reader hovering an invocation wants to see what
+/// shapes it accepts, and the declaration is those shapes.
+fn macro_signature(text: &str, word: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(found) = text.get(from..)?.find("macro ") {
+        let start = from + found;
+        let rest = text.get(start + 6..)?;
+        let name: String = rest
+            .chars()
+            .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+            .collect();
+        if name == word {
+            let open = start + text.get(start..)?.find('{')?;
+            let mut depth = 0usize;
+            for (offset, character) in text.char_indices().skip(open) {
+                match character {
+                    '{' => depth = depth.saturating_add(1),
+                    '}' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            let end = offset + character.len_utf8();
+                            let declaration = text.get(start..end)?.trim();
+                            return Some(
+                                declaration.split_whitespace().collect::<Vec<_>>().join(" "),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return None;
+        }
+        from = start + 6;
+    }
+    None
 }
 
 /// The source text of `fn <word>` up to its body, for a hover on a user

@@ -298,7 +298,11 @@ fn macro_inputs_expand_or_report_a_diagnostic() {
             .map(|entry| entry.expect("a readable directory entry").path())
             .collect();
         entries.sort();
-        assert_eq!(entries.len(), 20, "the hostile macro corpus must have 20 files");
+        assert_eq!(
+            entries.len(),
+            20,
+            "the hostile macro corpus must have 20 files"
+        );
         for path in entries {
             let src = std::fs::read_to_string(&path).expect("a corpus file must be readable");
             let mut sources = SourceMap::new();

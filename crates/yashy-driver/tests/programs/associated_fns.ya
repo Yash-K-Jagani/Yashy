@@ -19,6 +19,9 @@ impl Point {
 
 impl Show for Point {
     fn show(self) -> string {
+        if self.x < 0 {
+            return "no";
+        }
         return "show";
     }
 }

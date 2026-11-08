@@ -8,9 +8,10 @@
 //!
 //! Hygiene is the one deliberate asymmetry with text substitution: an
 //! identifier the template introduces resolves in the template's scope, and an
-//! identifier the caller supplies keeps the caller's scope. That is carried by
-//! [`hygiene::ScopeSet`] on every identifier token, rather than by renaming,
-//! so the printed form stays the one the user wrote.
+//! identifier the caller supplies keeps the caller's scope. The rule is stated
+//! once, in [`hygiene`] as [`hygiene::ScopeSet`] and [`hygiene::resolves`];
+//! [`hygiene::MarkCounter`] hands out dense marks so the same source produces
+//! the same scopes on every run and both operating systems.
 
 pub mod expand;
 pub mod fragment;

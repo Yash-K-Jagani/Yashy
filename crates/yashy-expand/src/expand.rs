@@ -3,10 +3,10 @@
 //! A macro is a set of arms; each arm is a pattern over [`TokenTree`]s with
 //! typed metavariables and a replacement. The expander walks a token stream,
 //! finds invocations (`name(args)` and `name { ... }`), matches them against
-//! the arms, substitutes the bindings, and expands the result again. The work
-//! is an explicit loop over a token list, not recursion over the input, so
-//! the depth cap is a number in the data rather than the Rust stack: a
-//! self-recursive macro is `E1601`, never a stack overflow.
+//! the arms, substitutes the bindings, and expands the result again. Every
+//! nested expansion carries its depth in an explicit counter and is refused
+//! past [`MAX_EXPANSION_DEPTH`], so a self-recursive macro is `E1601`, never a
+//! stack overflow.
 
 use std::collections::BTreeMap;
 
@@ -31,7 +31,10 @@ impl ExpansionMap {
     /// in expansion notes.
     pub fn annotate(&self, sources: &SourceMap, file: FileId, diagnostics: &mut [Diagnostic]) {
         for diagnostic in diagnostics {
-            let Some(record) = self.records.iter().find(|record| overlaps(record.arm_span, diagnostic.span))
+            let Some(record) = self
+                .records
+                .iter()
+                .find(|record| overlaps(record.arm_span, diagnostic.span))
             else {
                 continue;
             };
@@ -42,7 +45,9 @@ impl ExpansionMap {
                 "expansion: in macro `{}`, arm at line {arm_line}",
                 record.macro_name
             ));
-            diagnostic.notes.push(format!("expansion: expanded from line {invocation_line}"));
+            diagnostic
+                .notes
+                .push(format!("expansion: expanded from line {invocation_line}"));
         }
     }
 }
@@ -328,7 +333,13 @@ impl<'a> Expander<'a> {
                 if let Some(variable) = self.metavariable_name(&trees[index..]) {
                     if let Some(bound) = bindings.get(&variable) {
                         out.extend(bound.iter().cloned());
-                        let has_kind = matches!(trees.get(index.saturating_add(2)), Some(TokenTree::Leaf(Token { kind: TokenKind::Colon, .. })));
+                        let has_kind = matches!(
+                            trees.get(index.saturating_add(2)),
+                            Some(TokenTree::Leaf(Token {
+                                kind: TokenKind::Colon,
+                                ..
+                            }))
+                        );
                         index = index.saturating_add(if has_kind { 4 } else { 2 });
                         continue;
                     }

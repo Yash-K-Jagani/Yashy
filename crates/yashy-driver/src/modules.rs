@@ -608,8 +608,25 @@ fn identity_of(path: &Path) -> PathBuf {
 fn scan_imports(tokens: &[Token], source: &str) -> Vec<(Vec<String>, Option<String>, Span)> {
     let mut imports = Vec::new();
     let mut index = 0;
+    let mut brace_depth = 0usize;
     while index < tokens.len() {
-        if tokens[index].kind != TokenKind::Import {
+        // Imports are items, so one inside a macro declaration's braces is
+        // template text, not a module edge. Tracking braces keeps discovery
+        // from loading a module a macro merely mentions.
+        match tokens[index].kind {
+            TokenKind::LBrace => {
+                brace_depth = brace_depth.saturating_add(1);
+                index += 1;
+                continue;
+            }
+            TokenKind::RBrace => {
+                brace_depth = brace_depth.saturating_sub(1);
+                index += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if tokens[index].kind != TokenKind::Import || brace_depth > 0 {
             index += 1;
             continue;
         }
@@ -686,6 +703,24 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("the test layout must be creatable");
         dir
+    }
+
+    #[test]
+    fn an_import_inside_a_macro_body_is_not_discovered() {
+        let source = "macro touch { $x:expr => { import std.io; } }\nimport wc_words;\n";
+        let mut map = SourceMap::new();
+        let file = map.add_file("main.ya", source.to_string());
+        let tokens = Lexer::with_file(source, file)
+            .tokenize()
+            .expect("the fixture must lex");
+
+        let imports = scan_imports(&tokens, source);
+        assert_eq!(
+            imports.len(),
+            1,
+            "only the item-level import is a module edge"
+        );
+        assert_eq!(imports[0].0, vec!["wc_words".to_string()]);
     }
 
     #[test]
