@@ -1,0 +1,11 @@
+// A leak: the buffer is allocated and never freed.
+// The fix frees it.
+fn main() {
+    let buf = alloc(1024);
+    let i = 0;
+    while i < 1024 {
+        buf[i] = i;
+        i += 1;
+    }
+    print(buf[10]);
+}

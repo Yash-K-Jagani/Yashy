@@ -14,6 +14,7 @@ yashy-bench - compare two benchmark measurement files
 Usage:
   yashy-bench compare --baseline <file> --current <file> [--thresholds <file>] [--report-only]
   yashy-bench update  --current <file> --baseline <file>
+  yashy-bench agent   --model <id> --tasks <dir>
   yashy-bench --per-pass --baseline <file> --without <pass>=<file> [--without ...] [--report-only]
 
 `--thresholds` defaults to benchmarks/thresholds.bench when that file exists.
@@ -47,12 +48,50 @@ fn run() -> Result<ExitCode, String> {
     match command.as_str() {
         "compare" => compare_command(args.collect()),
         "update" => update_command(args.collect()),
+        "agent" => agent_command(args.collect()),
         "--per-pass" | "per-pass" => per_pass_command(args.collect()),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)
         }
         other => Err(format!("unknown command `{other}`\n\n{USAGE}")),
+    }
+}
+
+mod agent;
+
+fn agent_command(args: Vec<String>) -> Result<ExitCode, String> {
+    let mut tasks_dir = PathBuf::from("benchmarks/agent");
+    let mut model = "reference".to_string();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--model" => {
+                model = iter
+                    .next()
+                    .ok_or_else(|| "`--model` needs a value".to_string())?;
+            }
+            "--tasks" => {
+                tasks_dir = PathBuf::from(
+                    iter.next()
+                        .ok_or_else(|| "`--tasks` needs a value".to_string())?,
+                );
+            }
+            other => return Err(format!("unknown option `{other}` for `agent`")),
+        }
+    }
+    let yashy = std::env::var("YASHY").unwrap_or_else(|_| "yashy".to_string());
+    let out = tasks_dir.join("baseline.json");
+    let _ = std::fs::remove_file(&out);
+    agent::run_all(&yashy, &tasks_dir, &out)
+        .map_err(|error| format!("{error}"))?;    let records = std::fs::read_to_string(&out).map_err(|error| format!("{error}"))?;
+    let passed = records.matches("\"success\":true").count();
+    println!("agent {model}: {passed}/10 tasks passed");
+    print!("{records}");
+    if passed == records.matches("\"success\"").count() && passed > 0 {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(1))
     }
 }
 

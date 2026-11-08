@@ -1,0 +1,13 @@
+// The fix: the buffer is freed at scope exit.
+fn main() {
+    let buf = alloc(1024);
+    let i = 0;
+    while i < 1024 {
+        buf[i] = i;
+        i += 1;
+    }
+    defer {
+        buf.free();
+    }
+    print(buf[10]);
+}

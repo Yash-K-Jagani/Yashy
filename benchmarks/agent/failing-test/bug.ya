@@ -1,0 +1,4 @@
+// A failing test: the arithmetic is wrong.
+fn main() {
+    print(1 + 2 * 3);
+}

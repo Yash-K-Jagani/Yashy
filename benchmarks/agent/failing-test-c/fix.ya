@@ -1,0 +1,4 @@
+// The fix: parentheses make the answer 9.
+fn main() {
+    print((1 + 2) * 3);
+}

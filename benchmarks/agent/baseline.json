@@ -1,0 +1,12 @@
+[
+  {"task":"leak-fix","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6719},
+  {"task":"bounds-bug","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6747},
+  {"task":"failing-test","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6575},
+  {"task":"leak-fix-b","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6802},
+  {"task":"bounds-bug-b","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6893},
+  {"task":"failing-test-b","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":7059},
+  {"task":"leak-fix-c","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":8489},
+  {"task":"bounds-bug-c","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":7914},
+  {"task":"failing-test-c","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":7848},
+  {"task":"leak-fix-d","success":true,"tokens_in":0,"tokens_out":0,"tool_calls":2,"sandbox_violations":0,"wall_ms":6959}
+]
