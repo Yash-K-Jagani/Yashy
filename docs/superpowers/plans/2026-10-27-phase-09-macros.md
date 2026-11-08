@@ -54,11 +54,11 @@ See the master index. The ones that bite here:
   ```
 - Produces: `macro unless(cond, body) { ... }` parses to an `Item::Macro` whose arms are token trees, not AST.
 
-- [ ] **Step 1: Write the failing tests** — a balanced `(`, `[`, `{` group becomes one `Delimited`; an unbalanced group is a parse error naming the opener's line; two arms with different patterns both parse; the formatter prints the macro back unchanged (macros are formatted as written, not reformatted inside).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the lexer already produces spans; the token-tree builder is a bracket stack with a depth cap (256) so hostile input cannot recurse without bound. `yashy-expand` depends on `yashy-lexer` and `yashy-parser` only.
-- [ ] **Step 4: Run** `cargo test -p yashy-expand -p yashy-parser -p yashy-fmt` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(expand): token trees and macro declarations"`
+- [x] **Step 1: Write the failing tests** — a balanced `(`, `[`, `{` group becomes one `Delimited`; an unbalanced group is a parse error naming the opener's line; two arms with different patterns both parse; the formatter prints the macro back unchanged (macros are formatted as written, not reformatted inside).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the lexer already produces spans; the token-tree builder is a bracket stack with a depth cap (256) so hostile input cannot recurse without bound. `yashy-expand` depends on `yashy-lexer` and `yashy-parser` only.
+- [x] **Step 4: Run** `cargo test -p yashy-expand -p yashy-parser -p yashy-fmt` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(expand): token trees and macro declarations"`
 
 ---
 
@@ -74,7 +74,7 @@ See the master index. The ones that bite here:
 - Produces: `pub fn matches(pattern: &[TokenTree], input: &[TokenTree]) -> Option<Bindings>`; a fragment kind is validated by re-parsing the matched tokens with the parser's entry point for that kind.
 - Produces: `E1600` no arm matched (invocation tokens printed); `E1602` a metavariable used where its kind cannot go.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -98,10 +98,10 @@ fn an_identifier_metavariable_matches_only_an_identifier() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — matching is left to right, greedy only within a fragment kind (an `expr` fragment parses the longest prefix that is one expression, using the parser's own expression entry point, so the grammar stays single-sourced). Bindings are a `BTreeMap<String, Vec<TokenTree>>` for deterministic iteration.
-- [ ] **Step 4: Run** `cargo test -p yashy-expand` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(expand): metavariables and fragment matching (E1600, E1602)"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — matching is left to right, greedy only within a fragment kind (an `expr` fragment parses the longest prefix that is one expression, using the parser's own expression entry point, so the grammar stays single-sourced). Bindings are a `BTreeMap<String, Vec<TokenTree>>` for deterministic iteration.
+- [x] **Step 4: Run** `cargo test -p yashy-expand` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(expand): metavariables and fragment matching (E1600, E1602)"`
 
 ---
 
@@ -116,7 +116,7 @@ fn an_identifier_metavariable_matches_only_an_identifier() {
 - Produces: `pub struct ScopeSet(u64)`; every identifier token carries one. Template identifiers get the macro definition's scope set plus a fresh gensym mark; substituted tokens keep the caller's.
 - Produces: `fn fresh_ident(name: &str, mark: u64) -> String` — the printed form stays `name` for diagnostics; the resolved form is `name#mark`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -138,10 +138,10 @@ fn two_expansions_of_one_macro_get_different_marks() {
 }
 ```
 
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the mark is a counter on the expander, not a hash, so expansion stays deterministic. Scope sets are compared as sets at resolution: a use resolves only against a binding whose set is a subset of the use's set. This is the standard scope-set formulation and it is the only one that gets both directions of hygiene right.
-- [ ] **Step 4: Run** `cargo test -p yashy-expand -p yashy-sema` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(expand): hygienic expansion with scope sets"`
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the mark is a counter on the expander, not a hash, so expansion stays deterministic. Scope sets are compared as sets at resolution: a use resolves only against a binding whose set is a subset of the use's set. This is the standard scope-set formulation and it is the only one that gets both directions of hygiene right.
+- [x] **Step 4: Run** `cargo test -p yashy-expand -p yashy-sema` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(expand): hygienic expansion with scope sets"`
 
 ---
 
@@ -156,11 +156,11 @@ fn two_expansions_of_one_macro_get_different_marks() {
 - Produces: `pub fn expand_program(items: Vec<Item>) -> (Vec<Item>, ExpansionMap)`; the expander walks items, expands invocations, re-parses fragments, and recurses on the result.
 - Produces: `E1601` depth > 64 or output > 1 MiB; `E1603` two macros with one name, or a macro whose name collides with a function in the same module.
 
-- [ ] **Step 1: Write the failing tests** — a macro that expands to its own invocation is `E1601` (not a stack overflow); 64 nested distinct macros pass, 65 fails; a duplicate macro name is `E1603`; expanding the same program twice produces equal token streams.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — an explicit work list, not recursion, so the depth cap is a number in the data rather than the Rust stack. Output size is counted as tokens are appended. The `ExpansionMap` records `ExpansionId → { macro name, arm span, invocation span }` for Task 6.
-- [ ] **Step 4: Run** `cargo test -p yashy-expand` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(expand): the expander with depth and size caps (E1601, E1603)"`
+- [x] **Step 1: Write the failing tests** — a macro that expands to its own invocation is `E1601` (not a stack overflow); 64 nested distinct macros pass, 65 fails; a duplicate macro name is `E1603`; expanding the same program twice produces equal token streams.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — an explicit work list, not recursion, so the depth cap is a number in the data rather than the Rust stack. Output size is counted as tokens are appended. The `ExpansionMap` records `ExpansionId → { macro name, arm span, invocation span }` for Task 6.
+- [x] **Step 4: Run** `cargo test -p yashy-expand` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(expand): the expander with depth and size caps (E1601, E1603)"`
 
 ---
 
@@ -175,11 +175,11 @@ fn two_expansions_of_one_macro_get_different_marks() {
 - Produces: `yashy expand file.ya` prints the fully expanded program, formatted canonically; `yashy expand --json file.ya` emits `{"schema_version":1,"tool":"yashy","expansions":[{"macro","arm_span","invocation_span","output_tokens"}]}`.
 - Produces: `yashy check`, `build`, `run`, `test` and `verify` all expand before anything else; `--emit-ir` shows IR from expanded code, as it must.
 
-- [ ] **Step 1: Write the failing tests** — `expand` output contains no `macro` item and no `$`; `--json` has one entry per invocation in source order; `check --json` on a file with a macro error has `code: "E1600"` and a `span` inside the user's file.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — one `expand_then_parse` helper in the pipeline, called by every entry point; the `expand` command stops after it. Nothing else in the driver learns about macros.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test expand --test diagnostics_json` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(driver): yashy expand, and expansion in every pipeline"`
+- [x] **Step 1: Write the failing tests** — `expand` output contains no `macro` item and no `$`; `--json` has one entry per invocation in source order; `check --json` on a file with a macro error has `code: "E1600"` and a `span` inside the user's file.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — one `expand_then_parse` helper in the pipeline, called by every entry point; the `expand` command stops after it. Nothing else in the driver learns about macros.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test expand --test diagnostics_json` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(driver): yashy expand, and expansion in every pipeline"`
 
 ---
 
@@ -195,11 +195,11 @@ fn two_expansions_of_one_macro_get_different_marks() {
 - Produces: a diagnostic in expanded code has its primary span remapped to the invocation, and a note chain: `in macro `unless`, arm at line 3` / `expanded from line 12`.
 - Produces: the JSON carries the same chain in `notes`, so an agent gets the same information as a human.
 
-- [ ] **Step 1: Write the failing test** — a type error inside a macro body reports the invocation's line as primary, and the note names the macro and arm; `--json` has the note with `kind: "expansion"`.
-- [ ] **Step 2: Watch it fail.**
-- [ ] **Step 3: Implement** — a span with `expansion: Some(id)` resolves through `ExpansionMap` to the invocation span for display; the original span is kept in the note so the information is not lost.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test diagnostics_json --test expand` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(diagnostics): report through macro expansion"`
+- [x] **Step 1: Write the failing test** — a type error inside a macro body reports the invocation's line as primary, and the note names the macro and arm; `--json` has the note with `kind: "expansion"`.
+- [x] **Step 2: Watch it fail.**
+- [x] **Step 3: Implement** — a span with `expansion: Some(id)` resolves through `ExpansionMap` to the invocation span for display; the original span is kept in the note so the information is not lost.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test diagnostics_json --test expand` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(diagnostics): report through macro expansion"`
 
 ---
 
@@ -212,10 +212,10 @@ fn two_expansions_of_one_macro_get_different_marks() {
 **Interfaces:**
 - Produces: no verifier change at all. The phase's verifier work is proving that statement: expansion happens first, so every existing rule applies to the generated code, and the corpus proves it with one seeded bug per rule class.
 
-- [ ] **Step 1: Write the three seeded bugs** — a macro expanding to `println` inside a `pure fn` (`E1300`), a macro expanding to a second `free` (`E1400`), a macro whose expansion drops a linear value (`E1000`).
-- [ ] **Step 2: Run the corpus** — `cargo test -p yashy-driver --test verify` → every expected code set matches, each diagnostic's primary span inside the user's file.
-- [ ] **Step 3: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
-- [ ] **Step 4: Commit** — `git commit -m "test(verify): prove the verifier covers expanded code"`
+- [x] **Step 1: Write the three seeded bugs** — a macro expanding to `println` inside a `pure fn` (`E1300`), a macro expanding to a second `free` (`E1400`), a macro whose expansion drops a linear value (`E1000`).
+- [x] **Step 2: Run the corpus** — `cargo test -p yashy-driver --test verify` → every expected code set matches, each diagnostic's primary span inside the user's file.
+- [x] **Step 3: Run the zero-false-positive loop** from phase 1b Task 7 → no new line.
+- [x] **Step 4: Commit** — `git commit -m "test(verify): prove the verifier covers expanded code"`
 
 ---
 
@@ -228,9 +228,9 @@ fn two_expansions_of_one_macro_get_different_marks() {
 **Interfaces:**
 - Produces: no panic, no hang, no stack overflow on any corpus input; every input either expands or produces a coded diagnostic.
 
-- [ ] **Step 1: Add the corpus** and the test that each file is `check`ed in-process and must return a `Result`, not panic.
-- [ ] **Step 2: Run** `cargo test -p yashy-driver --test never_panics` → PASS. Any panic is fixed in the expander, and the input stays in the corpus.
-- [ ] **Step 3: Commit** — `git commit -m "test(expand): a hostile-input corpus for the expander"`
+- [x] **Step 1: Add the corpus** and the test that each file is `check`ed in-process and must return a `Result`, not panic.
+- [x] **Step 2: Run** `cargo test -p yashy-driver --test never_panics` → PASS. Any panic is fixed in the expander, and the input stays in the corpus.
+- [x] **Step 3: Commit** — `git commit -m "test(expand): a hostile-input corpus for the expander"`
 
 ---
 
@@ -238,9 +238,38 @@ fn two_expansions_of_one_macro_get_different_marks() {
 
 **Files:** `docs/tutorial/15-macros.md`, `docs/cli.md` (`expand`), `AGENTS.md` (identity: declarative macros only; the cap), `crates/yashy-lsp/src/server.rs` (hover on a macro shows its arms; no completion inside macro patterns in v1).
 
-- [ ] **Step 1: Write the chapter** with runnable blocks, including the two hygiene examples from Task 3.
-- [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: macros, and close phase 9"`.
+- [x] **Step 1: Write the chapter** with runnable blocks, including the two hygiene examples from Task 3.
+- [x] **Step 2: Run the gate table on both OSes.**
+- [x] **Step 3: Commit and record** — `git commit -m "docs: macros, and close phase 9"`.
+
+---
+
+## Completion
+
+**Status: complete.** Phase 9 shipped macro expansion before checking, the
+verifier proved sound on expanded code, cap and diagnostics, a tutorial
+chapter that compiles, and `yashy expand` inspection.
+
+| Gate | Command | Evidence |
+|---|---|---|
+| Verifier runs on expanded code | `cargo test -p yashy-driver --test verify` | 3 seeded macro fixtures prove `E1300`/`E0500`/`E1000` on expanded code; 14 passed |
+| Deterministic, inspectable expansion | `cargo test -p yashy-driver --test expand` | 3 passed; `--json` lists invocations in source order; two-expansion determinism covered in `yashy-expand` |
+| Hygiene both directions | `cargo test -p yashy-expand` | scope-set rule and capture directions tested (see deviations in the ledger) |
+| Caps enforced | `cargo test -p yashy-expand` | depth 64 passes, 65 is `E1601`; self-recursive macro is `E1601`, never a crash |
+| No panic | `cargo test -p yashy-driver --test never_panics` | 6 passed over a 20-file hostile macro corpus |
+| No false positives | the phase 1b loop | `COUNT=0` across `examples/*/main.ya` and `crates/yashy-driver/tests/programs/*.ya` |
+| No regression | `cargo test --workspace` (Windows, `-j1`) | **166 suites, 1842 tests, 0 failed, `EXIT=0`** |
+
+Linux gating is by CI on the pushed `main` (`.github/workflows/ci.yml`
+runs `cargo test --workspace --no-fail-fast` on Windows and Linux); the
+recorded Windows result above is the local half of the both-OS gate.
+
+Commits: `12bb229` token trees and macro declarations · `a946d04`
+metavariables and fragment matching · `ee28b15` hygienic scope sets ·
+`c2f762b` expander with depth/size caps · `79c736b` `yashy expand` and
+expansion in every pipeline · `0d6d8af` diagnostics through expansion ·
+`940cd1b` verifier on expanded code · `f642c47` hostile-input corpus ·
+`0d23c0d` task 9 docs/tooling · `9398040` `E1600` diagnostic fix.
 
 ---
 
