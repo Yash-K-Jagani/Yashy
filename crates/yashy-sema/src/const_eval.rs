@@ -609,6 +609,7 @@ fn statement_kind(statement: &Stmt) -> &'static str {
         Stmt::Continue(_, _) => "a `continue`",
         Stmt::Defer { .. } => "a `defer`",
         Stmt::Arena { .. } => "an `arena` block",
+        Stmt::Scope { .. } => "a `scope` block",
         Stmt::Invariant(_) => "a loop `invariant`",
     }
 }
@@ -633,6 +634,8 @@ fn expression_kind(expr: &Expr) -> &'static str {
         Expr::Interp { .. } => "an interpolation",
         Expr::Cast { .. } => "a cast",
         Expr::Try { .. } => "a `?`",
+        Expr::Await { .. } => "an `await`",
+        Expr::Spawn { .. } => "a `spawn`",
         Expr::SwitchExpr { .. } => "a `switch`",
         Expr::MethodCall { .. } => "a method call",
         Expr::Lambda { .. } => "a lambda",
@@ -663,6 +666,8 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Interp { span, .. }
         | Expr::Cast { span, .. }
         | Expr::Try { span, .. }
+        | Expr::Await { span, .. }
+        | Expr::Spawn { span, .. }
         | Expr::SwitchExpr { span, .. }
         | Expr::MethodCall { span, .. }
         | Expr::Lambda { span, .. }
@@ -729,6 +734,13 @@ pub fn mentions_const_fn(expr: &Expr, consts: &ConstFns) -> bool {
         }),
         Expr::Cast { expr, .. } => mentions_const_fn(expr, consts),
         Expr::Try { expr, .. } => mentions_const_fn(expr, consts),
+        Expr::Await { expr, .. } => mentions_const_fn(expr, consts),
+        Expr::Spawn { callee, args, .. } => {
+            mentions_const_fn(callee, consts)
+                || args
+                    .iter()
+                    .any(|arg| mentions_const_fn(&arg.value, consts))
+        }
         Expr::SwitchExpr { subject, arms, .. } => {
             mentions_const_fn(subject, consts)
                 || arms.iter().any(|arm| {

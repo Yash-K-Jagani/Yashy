@@ -380,6 +380,7 @@ fn stmt_span(stmt: &HirStmt) -> Span {
         HirStmt::Break(span) => *span,
         HirStmt::Continue(span) => *span,
         HirStmt::Defer { span, .. } => *span,
+        HirStmt::Scope { span, .. } => *span,
         HirStmt::LoopInvariant(_) => Span::SYNTHETIC,
     }
 }

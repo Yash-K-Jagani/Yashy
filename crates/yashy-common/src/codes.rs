@@ -113,6 +113,10 @@ pub const USE_AFTER_CLOSE: &str = "E1401";
 pub const RACE: &str = "E1402";
 /// A `const` or `let` binding is never read.
 pub const UNUSED_BINDING: &str = "E2000";
+/// `await` or `spawn` appears outside an `async fn`.
+pub const AWAIT_OUTSIDE_ASYNC: &str = "E1700";
+/// An `async` method appears in a trait: traits have no async methods.
+pub const ASYNC_TRAIT: &str = "E1703";
 /// An `import` is never used.
 pub const UNUSED_IMPORT: &str = "E2001";
 /// `impl Trait for Type` names a trait that is not declared.
@@ -427,6 +431,18 @@ pub const CODES: &[Code] = &[
         title: "unused binding",
         summary: "A `const` or `let` binding is never read.",
         page: include_str!("../../../docs/errors/E2000.md"),
+    },
+    Code {
+        id: AWAIT_OUTSIDE_ASYNC,
+        title: "await or spawn outside an async function",
+        summary: "`await` and `spawn` may only appear inside an `async fn`.",
+        page: include_str!("../../../docs/errors/E1700.md"),
+    },
+    Code {
+        id: ASYNC_TRAIT,
+        title: "async method in a trait",
+        summary: "A trait method may not be `async`; declare a synchronous method instead.",
+        page: include_str!("../../../docs/errors/E1703.md"),
     },
     Code {
         id: UNKNOWN_TRAIT,

@@ -372,6 +372,12 @@ pub struct TraitMethod {
     /// `None` when the source wrote no `->`, which means the method returns
     /// unit.
     pub ret: Option<TypeExpr>,
+    /// Whether the method was written `async`.
+    ///
+    /// A trait has no async methods (the cap, `E1703`), so this exists only
+    /// for the checker to reject. The parser records what was written rather
+    /// than refusing the spelling where it is read.
+    pub is_async: bool,
     pub span: Span,
 }
 

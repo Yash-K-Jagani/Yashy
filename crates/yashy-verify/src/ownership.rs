@@ -42,6 +42,7 @@ pub fn linearity_of(ty: &TypeKind) -> Linearity {
             Linearity::Linear
         }
         TypeKind::Mutex | TypeKind::Channel(_) => Linearity::Linear,
+        TypeKind::Task(_) => Linearity::Linear,
         _ => Linearity::Copy,
     }
 }

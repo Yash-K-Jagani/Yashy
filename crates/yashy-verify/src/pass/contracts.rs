@@ -422,6 +422,7 @@ impl<'p, 'o> ContractPass<'p, 'o> {
                 self.walk_block(body, env, ctx);
                 Flow::normal(scratch)
             }
+            HirStmt::Scope { body, .. } => self.walk_block(body, env, ctx),
             HirStmt::LoopInvariant(_) => {
                 // The loop's own walk reads the clause at the head, which is
                 // the only place it means anything.
@@ -788,6 +789,17 @@ impl<'p, 'o> ContractPass<'p, 'o> {
             }
             HirExpr::Try { expr, .. } => {
                 self.eval(expr, env);
+                Value::top()
+            }
+            HirExpr::Await { expr, .. } => {
+                self.eval(expr, env);
+                Value::top()
+            }
+            HirExpr::Spawn { callee, args, .. } => {
+                self.eval(callee, env);
+                for arg in args {
+                    self.eval(arg, env);
+                }
                 Value::top()
             }
             HirExpr::AddrOf { .. } => Value::top(),

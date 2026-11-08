@@ -129,7 +129,13 @@ pub fn verify(hir: &HirProgram, options: &VerifyOptions) -> VerifyReport {
     pass::arena::check(hir, &mut diagnostics);
     pass::exhaustive::check(hir, &mut diagnostics);
     let effects = pass::effects::check(hir, &mut diagnostics);
-    pass::contracts::check(hir, options.contracts, &effects, &mut obligations, &mut diagnostics);
+    pass::contracts::check(
+        hir,
+        options.contracts,
+        &effects,
+        &mut obligations,
+        &mut diagnostics,
+    );
     pass::typestate::check(hir, &mut diagnostics);
     let mut facts = ProofFacts::empty();
     for ob in &obligations {
@@ -251,6 +257,7 @@ fn collect_in_stmt(stmt: &HirStmt, memo: &mut BTreeMap<(String, u32), ()>) {
             }
         }
         HirStmt::Defer { body, .. } => collect_in_block(body, memo),
+        HirStmt::Scope { body, .. } => collect_in_block(body, memo),
         HirStmt::LoopInvariant(contract) => collect_in_expr(&contract.expr, memo),
         HirStmt::Return(None, _)
         | HirStmt::Break(_)
@@ -305,6 +312,13 @@ fn collect_in_expr(expr: &HirExpr, memo: &mut BTreeMap<(String, u32), ()>) {
             collect_in_expr(end, memo);
         }
         HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => collect_in_expr(expr, memo),
+        HirExpr::Await { expr, .. } => collect_in_expr(expr, memo),
+        HirExpr::Spawn { callee, args, .. } => {
+            collect_in_expr(callee, memo);
+            for arg in args {
+                collect_in_expr(arg, memo);
+            }
+        }
         HirExpr::SwitchExpr { subject, arms, .. } => {
             collect_in_expr(subject, memo);
             for arm in arms {
@@ -430,6 +444,7 @@ fn stmt_has_contract(stmt: &HirStmt) -> bool {
                 || else_block.as_ref().is_some_and(block_has_contract)
         }
         HirStmt::Defer { body, .. } => block_has_contract(body),
+        HirStmt::Scope { body, .. } => block_has_contract(body),
     }
 }
 
@@ -456,6 +471,10 @@ fn expr_has_contract(expr: &HirExpr) -> bool {
             base, start, end, ..
         } => expr_has_contract(base) || expr_has_contract(start) || expr_has_contract(end),
         HirExpr::Try { expr, .. } => expr_has_contract(expr),
+        HirExpr::Await { expr, .. } => expr_has_contract(expr),
+        HirExpr::Spawn { callee, args, .. } => {
+            expr_has_contract(callee) || args.iter().any(expr_has_contract)
+        }
         HirExpr::SwitchExpr { subject, arms, .. } => {
             expr_has_contract(subject)
                 || arms.iter().any(|arm| {

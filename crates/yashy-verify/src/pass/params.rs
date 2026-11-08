@@ -274,6 +274,7 @@ impl<'f> Scan<'f> {
                 }
             }
             HirStmt::Defer { body, .. } => self.block(body),
+            HirStmt::Scope { body, .. } => self.block(body),
             HirStmt::LoopInvariant(contract) => self.expr(&contract.expr),
             HirStmt::Break(_) | HirStmt::Continue(_) => {}
         }
@@ -343,7 +344,15 @@ impl<'f> Scan<'f> {
                 self.expr(start);
                 self.expr(end);
             }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.expr(expr),
+            HirExpr::Cast { expr, .. }
+            | HirExpr::Try { expr, .. }
+            | HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.expr(subject);
                 for arm in arms {

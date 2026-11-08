@@ -181,6 +181,8 @@ struct FnSig {
     param_names: Vec<String>,
     param_defaults: Vec<Option<Box<Expr>>>,
     ret: Type,
+    /// Whether the function was declared `async`.
+    is_async: bool,
 }
 
 /// One linker symbol an `extern` declaration resolved to.
@@ -224,6 +226,8 @@ struct GenericFn {
     ensures: Vec<Contract>,
     /// The body, checked once per substitution.
     body: Block,
+    /// Whether the function was declared `async`.
+    is_async: bool,
     /// The item's span, used when the item itself is at fault.
     span: Span,
     /// The file the body came from, so its diagnostics name the right module.
@@ -284,6 +288,9 @@ struct MethodSig {
     /// called on must therefore be a mutable `let`, and it must be a binding:
     /// there is no address of a temporary.
     receiver_is_pointer: bool,
+    /// Whether the method was declared `async`. An async inherent method is
+    /// allowed; an async trait method is `E1703` at the trait declaration.
+    is_async: bool,
     /// Where the method was declared, and whether it is `pub`.
     ///
     /// A method is private to the module that declares it unless it is
@@ -461,6 +468,7 @@ fn mangled_type_name(ty: &Type) -> String {
             )
         }
         TypeKind::Mutex => "mutex".to_string(),
+        TypeKind::Task(inner) => format!("task_{}", mangled_type_name(inner)),
         TypeKind::Channel(element) => format!("channel_{}", mangled_type_name(element)),
         TypeKind::Ptr(pointee) => format!("ptr_{}", mangled_type_name(pointee)),
         TypeKind::CInt(width) => format!("cint{width}"),
@@ -738,7 +746,8 @@ const CALLABLE_EXTRAS: &[&str] = &[
 /// `resolve_type_in` resolves these before it looks at the declared structs and
 /// enums, so a "did you mean" suggestion has to offer them too.
 const BUILTIN_TYPE_NAMES: &[&str] = &[
-    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Self", "io.Error",
+    "int", "float", "bool", "char", "string", "void", "Mutex", "Channel", "Task", "Self",
+    "io.Error",
 ];
 
 /// The type checker. Owns the scope stack, the collected signatures, and the
@@ -875,6 +884,16 @@ pub struct Checker<'src> {
     /// program can reach it through an argument or a call, and a per-binding
     /// answer would need the alias analysis this milestone does not have.
     uses_threads: bool,
+    /// Whether the program uses async (`async fn`, `await`, or `spawn`).
+    uses_async: bool,
+    /// Whether the function whose body is being checked is `async`, and its
+    /// enclosing contexts, innermost last. An `await` or `spawn` in a context
+    /// whose top is `false` is `E1700`.
+    ///
+    /// A closure resets this: there is no async closure, so a lambda body is
+    /// checked as a synchronous function even when it is written inside an
+    /// `async fn`.
+    async_ctx: Vec<bool>,
     /// Whether the expression being checked is a `const` initializer.
     ///
     /// A literal shift count outside its type's range is a compile-time fault
@@ -1223,6 +1242,8 @@ impl<'src> Checker<'src> {
             aliases: Vec::new(),
             release: options.release,
             uses_threads: false,
+            uses_async: false,
+            async_ctx: Vec::new(),
             in_const_init: false,
             lambda_ret_infer: Vec::new(),
             extern_symbols: HashMap::new(),
@@ -1242,6 +1263,38 @@ impl<'src> Checker<'src> {
 
     fn error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push((self.file, TypeError::new(span, message)));
+    }
+
+    /// Whether the body being checked is an `async fn` (the innermost function).
+    fn in_async(&self) -> bool {
+        self.async_ctx.last().copied().unwrap_or(false)
+    }
+
+    /// Wrap the declared return type of an `async fn` in `Task[_]`.
+    fn wrap_async_ret(ret: Type, span: Span) -> Type {
+        Type {
+            kind: TypeKind::Task(Box::new(ret)),
+            span,
+        }
+    }
+
+    /// The declared return type of an `async fn` whose call returns
+    /// `Task[T]`, or `T` itself for a synchronous function.
+    fn unwrap_async_ret(ret: &Type) -> Type {
+        match &ret.kind {
+            TypeKind::Task(inner) => (**inner).clone(),
+            _ => ret.clone(),
+        }
+    }
+
+    /// Whether an item is wrapped in an `async` effect declaration, looking
+    /// through `pub` and doc wrappers so `pub async fn` and friends count.
+    fn item_is_async(item: &Item) -> bool {
+        match item {
+            Item::Effect { effect, .. } => *effect == yashy_common::DeclaredEffect::Async,
+            Item::Public { item, .. } | Item::Documented { item, .. } => Self::item_is_async(item),
+            _ => false,
+        }
     }
 
     /// Push an error that carries a catalog code.
@@ -1728,6 +1781,7 @@ impl<'src> Checker<'src> {
                 &[],
                 &job.body,
                 job.span,
+                yashy_common::DeclaredEffect::Inferred,
             ) {
                 items.push(HirItem::Fn(hir));
             }
@@ -1746,6 +1800,7 @@ impl<'src> Checker<'src> {
                 items,
                 instantiations: self.instantiated.len() + self.type_monomorphs.len(),
                 uses_threads: self.uses_threads,
+                uses_async: self.uses_async,
             })
         } else {
             let diagnostics = self
@@ -1788,6 +1843,7 @@ impl<'src> Checker<'src> {
         receiver_ty: &Type,
         public: bool,
         span: Span,
+        is_async: bool,
     ) -> MethodSig {
         let has_self = params
             .first()
@@ -1849,10 +1905,18 @@ impl<'src> Checker<'src> {
             }
             param_tys.push(param_ty);
         }
-        let ret_ty = match ret {
+        let ret_inner = match ret {
             Some(ty) => self.resolve_or_report_return(ty, span),
             None => prim(TypeKind::Unit),
         };
+        let ret_ty = if is_async {
+            Self::wrap_async_ret(ret_inner, span)
+        } else {
+            ret_inner
+        };
+        if is_async {
+            self.uses_async = true;
+        }
         MethodSig {
             type_name: type_name.to_string(),
             name: name.to_string(),
@@ -1860,6 +1924,7 @@ impl<'src> Checker<'src> {
             ret: ret_ty,
             has_self,
             receiver_is_pointer,
+            is_async,
             origin: ItemOrigin {
                 file: self.file,
                 public,
@@ -1948,6 +2013,7 @@ impl<'src> Checker<'src> {
                     receiver_ty,
                     Self::is_public_item(method),
                     *method_span,
+                    Self::item_is_async(method),
                 ),
                 *method_span,
             ));
@@ -2683,6 +2749,7 @@ impl<'src> Checker<'src> {
         ensures: &[Contract],
         body: &Block,
         span: Span,
+        is_async: bool,
     ) {
         if self.generics.contains_key(name) || self.scope.resolve(name).is_some() {
             self.error(span, format!("duplicate definition of `{name}`"));
@@ -2732,6 +2799,7 @@ impl<'src> Checker<'src> {
                 requires: requires.to_vec(),
                 ensures: ensures.to_vec(),
                 body: body.clone(),
+                is_async,
                 span,
                 file: self.file,
             },
@@ -2823,19 +2891,30 @@ impl<'src> Checker<'src> {
             match item {
                 // `pub` is a modifier in front of an item: the item inside is
                 // declared as usual, and marked as one another module may use.
-                Item::Public { item, .. } => self.declare_item(item, true),
+                Item::Public { item, .. } => {
+                    self.declare_item(item, true, yashy_common::DeclaredEffect::Inferred)
+                }
                 // `pure`/`io`/`unsafe` are modifiers like `pub`: the item
                 // inside is declared as usual. A `pure trait` keeps its
                 // effect on the trait itself, so impls inherit it.
                 Item::Effect { effect, item, .. } => {
-                    self.declare_item(item, false);
-                    if let Item::Trait { name, .. } = (**item).clone() {
+                    self.declare_item(item, false, *effect);
+                    if let Item::Trait { name, span, .. } = (**item).clone() {
+                        if *effect == yashy_common::DeclaredEffect::Async {
+                            self.error_code(
+                                span,
+                                codes::ASYNC_TRAIT,
+                                format!(
+                                    "`{name}` is declared `async`: traits have no async methods; declare a synchronous method instead"
+                                ),
+                            );
+                        }
                         if let Some(sig) = self.traits.get_mut(&name) {
                             sig.declared = *effect;
                         }
                     }
                 }
-                other => self.declare_item(other, false),
+                other => self.declare_item(other, false, yashy_common::DeclaredEffect::Inferred),
             }
         }
     }
@@ -2843,14 +2922,17 @@ impl<'src> Checker<'src> {
     /// Declare one item's name, and record where it came from.
     ///
     /// `public` says whether the item is marked `pub`, which is what decides
-    /// whether another module may use it.
-    fn declare_item(&mut self, item: &Item, public: bool) {
+    /// whether another module may use it. `declared` is the effect wrapper
+    /// in front of the item, if any: an `async fn`'s call type is `Task[T]`
+    /// rather than `T`, which is a fact about its signature pass 1 has to
+    /// record.
+    fn declare_item(&mut self, item: &Item, public: bool, declared: yashy_common::DeclaredEffect) {
         match item {
-            Item::Public { item, .. } => self.declare_item(item, public),
-            Item::Effect { item, .. } => self.declare_item(item, public),
+            Item::Public { item, .. } => self.declare_item(item, public, declared),
+            Item::Effect { item, .. } => self.declare_item(item, public, declared),
             // A doc block documents the item inside it; the item declares
             // as usual.
-            Item::Documented { item, .. } => self.declare_item(item, public),
+            Item::Documented { item, .. } => self.declare_item(item, public, declared),
             Item::Fn {
                 name,
                 type_params,
@@ -2861,6 +2943,10 @@ impl<'src> Checker<'src> {
                 body,
                 span,
             } => {
+                let is_async = declared == yashy_common::DeclaredEffect::Async;
+                if is_async {
+                    self.uses_async = true;
+                }
                 if !type_params.is_empty() {
                     // A generic function is not a value: its signature has
                     // type variables, so there is nothing to bind in the
@@ -2875,6 +2961,7 @@ impl<'src> Checker<'src> {
                         ensures,
                         body,
                         *span,
+                        is_async,
                     );
                     self.record_origin(name, public);
                     return;
@@ -2883,15 +2970,23 @@ impl<'src> Checker<'src> {
                     .iter()
                     .map(|Param { ty, .. }| self.resolve_or_report(ty, *span))
                     .collect();
-                let ret_ty = match ret {
+                let ret_inner = match ret {
                     Some(ty) => self.resolve_or_report_return(ty, *span),
                     None => prim(TypeKind::Unit),
+                };
+                // `async fn f() -> T` answers `Task[T]`: the call does not run
+                // the body, it hands back the task that will.
+                let ret_ty = if is_async {
+                    Self::wrap_async_ret(ret_inner, *span)
+                } else {
+                    ret_inner
                 };
                 let sig = FnSig {
                     params: param_tys.clone(),
                     param_names: params.iter().map(|p| p.name.clone()).collect(),
                     param_defaults: params.iter().map(|p| p.default.clone()).collect(),
                     ret: ret_ty.clone(),
+                    is_async,
                 };
                 // A parameter default is held to the same rule as a field
                 // default (E0102), checked here, at the declaration, so a bad
@@ -2977,6 +3072,7 @@ impl<'src> Checker<'src> {
                         &receiver_ty,
                         Self::is_public_item(method),
                         *method_span,
+                        Self::item_is_async(method),
                     );
                     let mangled = format!("{type_name}.{name}");
                     if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
@@ -3071,6 +3167,7 @@ impl<'src> Checker<'src> {
                         &receiver_ty,
                         Self::is_public_item(method),
                         *method_span,
+                        Self::item_is_async(method),
                     );
                     let mangled = format!("{name}.{method_name}");
                     if let Some(previous) = self.methods.insert(mangled.clone(), sig) {
@@ -3290,6 +3387,7 @@ impl<'src> Checker<'src> {
                         param_names: decl.params.iter().map(|p| p.name.clone()).collect(),
                         param_defaults: decl.params.iter().map(|p| p.default.clone()).collect(),
                         ret: ret_ty.clone(),
+                        is_async: false,
                     };
                     let binding = Binding {
                         ty: Type {
@@ -3362,6 +3460,16 @@ impl<'src> Checker<'src> {
                 );
                 let mut sigs = Vec::with_capacity(methods.len());
                 for method in methods {
+                    if method.is_async {
+                        self.error_code(
+                            method.span,
+                            codes::ASYNC_TRAIT,
+                            format!(
+                                "`{}` is an async method of trait `{name}`: traits have no async methods; declare a synchronous method instead",
+                                method.name
+                            ),
+                        );
+                    }
                     let sig = self.method_signature(
                         name,
                         &method.name,
@@ -3370,6 +3478,7 @@ impl<'src> Checker<'src> {
                         &placeholder,
                         false, // a trait method takes the trait's visibility
                         method.span,
+                        false, // async trait methods were rejected above
                     );
                     if sigs
                         .iter()
@@ -3725,6 +3834,12 @@ impl<'src> Checker<'src> {
                             "`Channel` takes an element type, as in `Channel[int]`".to_string(),
                         ))
                     }
+                    "Task" => {
+                        return Err(TypeError::new(
+                            *span,
+                            "`Task` takes a result type, as in `Task[int]`".to_string(),
+                        ))
+                    }
                     _ => {
                         // A generic type used bare is an arity error, not an
                         // unknown type: the name is known, the count is wrong.
@@ -3771,6 +3886,23 @@ impl<'src> Checker<'src> {
                 }
             }
             TypeExpr::Generic { name, args, span } => {
+                // `Task[T]`: the opaque handle an `async fn` call returns.
+                // It is a built-in like `Option[T]`, not a declared generic
+                // type, so it resolves here before the scheme lookup.
+                if name == "Task" {
+                    if args.len() != 1 {
+                        return Err(TypeError::new(
+                            *span,
+                            format!("`Task` takes one result type, given {}", args.len()),
+                        )
+                        .with_code(codes::WRONG_TYPE_ARG_COUNT));
+                    }
+                    let inner = self.resolve_type_in(&args[0], allow_c)?;
+                    return Ok(Type {
+                        kind: TypeKind::Task(Box::new(inner)),
+                        span: *span,
+                    });
+                }
                 let (kind, _params) = self.generic_kind(name, args, *span)?;
                 Ok(Type { kind, span: *span })
             }
@@ -3958,7 +4090,11 @@ impl<'src> Checker<'src> {
     /// Check one function body against concrete parameter and return types.
     ///
     /// Shared by ordinary functions and by each instantiation of a generic
-    /// one: the two differ only in where the types come from.
+    /// one: the two differ only in where the types come from. `ret_ty` is the
+    /// *declared* return type `T`: for an `async fn` the body returns `T`
+    /// while the call answers `Task[T]`, and the wrapping is applied when the
+    /// `HirFn` is built, so `return`, `?` and the `missing return` check all
+    /// read `T` here.
     fn check_fn_body(
         &mut self,
         name: &str,
@@ -3969,6 +4105,29 @@ impl<'src> Checker<'src> {
         ensures: &[Contract],
         body: &Block,
         span: Span,
+        declared: yashy_common::DeclaredEffect,
+    ) -> Option<HirFn> {
+        let is_async = declared == yashy_common::DeclaredEffect::Async;
+        self.async_ctx.push(is_async);
+        let out = self.check_fn_body_inner(
+            name, params, param_tys, ret_ty, requires, ensures, body, span, declared,
+        );
+        self.async_ctx.pop();
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check_fn_body_inner(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        param_tys: &[Type],
+        ret_ty: &Type,
+        requires: &[Contract],
+        ensures: &[Contract],
+        body: &Block,
+        span: Span,
+        declared: yashy_common::DeclaredEffect,
     ) -> Option<HirFn> {
         self.scope.push();
         for (param, ty) in params.iter().zip(param_tys.iter()) {
@@ -4023,6 +4182,7 @@ impl<'src> Checker<'src> {
         {
             self.error(span, "missing return");
         }
+        let is_async = declared == yashy_common::DeclaredEffect::Async;
         Some(HirFn {
             name: name.to_string(),
             params: params
@@ -4034,13 +4194,18 @@ impl<'src> Checker<'src> {
                     span: param.span,
                 })
                 .collect(),
-            ret: ret_ty.clone(),
+            ret: if is_async {
+                Self::wrap_async_ret(ret_ty.clone(), span)
+            } else {
+                ret_ty.clone()
+            },
             body,
             requires,
             ensures,
             captures: Vec::new(),
             effect: yashy_common::Effect::PURE,
-            declared: yashy_common::DeclaredEffect::Inferred,
+            declared,
+            is_async,
             file: self.file,
             span,
         })
@@ -4162,9 +4327,14 @@ impl<'src> Checker<'src> {
             .iter()
             .map(|param| self.resolve_or_report(&param.ty, param.span))
             .collect();
-        let ret_ty = match &generic.ret {
+        let ret_inner = match &generic.ret {
             Some(ty) => self.resolve_or_report_return(ty, span),
             None => prim(TypeKind::Unit),
+        };
+        let ret_ty = if generic.is_async {
+            Self::wrap_async_ret(ret_inner, span)
+        } else {
+            ret_inner
         };
         self.type_subst = outer_subst;
         // A parameter of linear type takes ownership, exactly as it does in an
@@ -4449,6 +4619,14 @@ impl<'src> Checker<'src> {
                 Some(ty) => self.resolve_or_report_return(ty, job.span),
                 None => prim(TypeKind::Unit),
             };
+            // An async generic answers `Task[T]` at the call (`check_generic_call`
+            // wraps), while its body returns `T`: the inner type is what the
+            // body is checked against.
+            let declared = if generic.is_async {
+                yashy_common::DeclaredEffect::Async
+            } else {
+                yashy_common::DeclaredEffect::Inferred
+            };
             let mangled = mangled_generic_name(&job.name, &job.subst);
             self.active_generics
                 .push((job.name.clone(), job.subst.clone()));
@@ -4461,6 +4639,7 @@ impl<'src> Checker<'src> {
                 &generic.ensures,
                 &generic.body,
                 generic.span,
+                declared,
             );
             self.active_generics.pop();
             self.type_subst.clear();
@@ -4476,25 +4655,38 @@ impl<'src> Checker<'src> {
     ///
     /// An `impl` block holds several methods, so the answer is a list: each
     /// method is an ordinary function item in the HIR, with a mangled name.
+    ///
+    /// `declared` is the effect wrapper in front of the item: an `async fn`
+    /// body is checked in an async context and its call answers `Task[T]`,
+    /// so the body checker has to know before it reads the body rather than
+    /// having the answer stamped on afterwards.
     fn check_item(&mut self, item: &Item) -> Option<Vec<HirItem>> {
+        self.check_item_with_declared(item, yashy_common::DeclaredEffect::Inferred)
+    }
+
+    fn check_item_with_declared(
+        &mut self,
+        item: &Item,
+        declared: yashy_common::DeclaredEffect,
+    ) -> Option<Vec<HirItem>> {
         match item {
             // `pub` is a modifier in front of an item: the item inside is
             // checked as usual. The visibility was settled in the declaration
             // pass, where the item's name was recorded.
-            Item::Public { item, .. } => self.check_item(item),
+            Item::Public { item, .. } => self.check_item_with_declared(item, declared),
             // A doc block is stored, not checked: the item inside checks as
             // usual, and `yashy doc` reads the text later.
-            Item::Documented { item, .. } => self.check_item(item),
+            Item::Documented { item, .. } => self.check_item_with_declared(item, declared),
             Item::Effect { effect, item, .. } => {
-                // Check the inner item, then stamp the declared effect onto
-                // the resulting HirFn.
-                let mut items = self.check_item(item)?;
-                for hir_item in &mut items {
-                    if let HirItem::Fn(f) = hir_item {
-                        f.declared = *effect;
-                    }
-                }
-                Some(items)
+                // Check the inner item with the wrapper's effect in hand, so
+                // an `async fn` is checked as async from the first statement.
+                // (The wrapper may itself be nested; the outer one wins.)
+                let deep = if declared == yashy_common::DeclaredEffect::Inferred {
+                    *effect
+                } else {
+                    declared
+                };
+                self.check_item_with_declared(item, deep)
             }
             Item::Fn {
                 name,
@@ -4513,15 +4705,17 @@ impl<'src> Checker<'src> {
                     return None;
                 }
                 let sig = self.fns.get(name).cloned()?;
+                let body_ret = Self::unwrap_async_ret(&sig.ret);
                 let checked = self.check_fn_body(
                     name,
                     params,
                     &sig.params,
-                    &sig.ret,
+                    &body_ret,
                     requires,
                     ensures,
                     body,
                     *span,
+                    declared,
                 )?;
                 Some(vec![HirItem::Fn(checked)])
             }
@@ -4778,7 +4972,17 @@ impl<'src> Checker<'src> {
                 &receiver_ty,
                 Self::is_public_item(method),
                 *span,
+                Self::item_is_async(method),
             );
+            // An async method's body returns `T` (`sig.ret` is `Task[T]`):
+            // check against the inner type, wrap at the `HirFn`.
+            let is_async = sig.is_async;
+            let body_declared = if is_async {
+                yashy_common::DeclaredEffect::Async
+            } else {
+                method_declared
+            };
+            let body_ret = Self::unwrap_async_ret(&sig.ret);
             let ret_ty = sig.ret.clone();
             self.scope.push();
             for (param, param_ty) in params.iter().zip(sig.params.iter()) {
@@ -4794,14 +4998,16 @@ impl<'src> Checker<'src> {
                 );
             }
             let outer_self_type = self.self_type.replace(receiver_ty.clone());
-            let outer_ret = self.fn_ret.replace(ret_ty.clone());
-            let checked = self.check_block_with_ret(body, &ret_ty);
+            let outer_ret = self.fn_ret.replace(body_ret.clone());
+            self.async_ctx.push(is_async);
+            let checked = self.check_block_with_ret(body, &body_ret);
+            self.async_ctx.pop();
             self.fn_ret = outer_ret;
             self.self_type = outer_self_type;
             self.scope.pop();
             let body = checked?;
             // A method that returns a value has to return one on every path.
-            if !matches!(ret_ty.kind, TypeKind::Unit | TypeKind::Never)
+            if !matches!(body_ret.kind, TypeKind::Unit | TypeKind::Never)
                 && !block_always_returns(&body)
             {
                 self.error(*span, "missing return");
@@ -4828,7 +5034,8 @@ impl<'src> Checker<'src> {
                 effect: yashy_common::Effect::PURE,
                 // A `pure trait`'s impls are declared `pure`, so an `io`
                 // impl body is `E1300` at the impl in the verifier.
-                declared: method_declared,
+                declared: body_declared,
+                is_async,
                 file: self.file,
                 span: *span,
             }));
@@ -6006,6 +6213,11 @@ impl<'src> Checker<'src> {
             Stmt::Defer { body, span } => {
                 let body = self.check_block_with_ret(body, ret)?;
                 Some(HirStmt::Defer { body, span: *span })
+            }
+            Stmt::Scope { body, span } => {
+                self.uses_async = true;
+                let body = self.check_block_with_ret(body, ret)?;
+                Some(HirStmt::Scope { body, span: *span })
             }
             Stmt::Arena { body, span } => {
                 // `arena { .. }` is an `if true` whose block carries the arena
@@ -9182,7 +9394,11 @@ impl<'src> Checker<'src> {
         if infer_ret {
             self.lambda_ret_infer.push(None);
         }
+        // There is no async closure: a lambda body is a synchronous function
+        // even when written inside an `async fn`.
+        self.async_ctx.push(false);
         let checked_body = self.check_block_with_ret(body, &ret_ty);
+        self.async_ctx.pop();
         let inferred = if infer_ret {
             self.lambda_ret_infer.pop().flatten()
         } else {
@@ -9219,6 +9435,7 @@ impl<'src> Checker<'src> {
                 captures: frame.captures,
                 effect: yashy_common::Effect::PURE,
                 declared: yashy_common::DeclaredEffect::Inferred,
+                is_async: false,
                 file: self.file,
                 span,
             }),
@@ -11973,6 +12190,144 @@ impl<'src> Checker<'src> {
                     ty: ok,
                 })
             }
+            Expr::Await { expr, span } => {
+                self.uses_async = true;
+                // `await` suspends the enclosing task, so an enclosing async
+                // frame is required. The check runs before the operand so a
+                // bare `x.await` in a sync function reports `E1700` rather
+                // than a secondary error about `x`.
+                if !self.in_async() {
+                    self.error_code(
+                        *span,
+                        codes::AWAIT_OUTSIDE_ASYNC,
+                        "`await` outside an `async fn`: make the enclosing function `async`, or drive the task where one already runs",
+                    );
+                    return None;
+                }
+                let inner = self.check_expr(expr)?;
+                let inner_ty = expr_ty(&inner);
+                let ok = match &inner_ty.kind {
+                    TypeKind::Task(inner) => (**inner).clone(),
+                    _ => {
+                        self.error_code(
+                            *span,
+                            codes::TYPE_MISMATCH,
+                            format!(
+                                "`await` needs a `Task[T]`, found `{inner_ty}`: `await` drives a task to its result"
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                Some(HirExpr::Await {
+                    expr: Box::new(inner),
+                    span: *span,
+                    ty: ok,
+                })
+            }
+            Expr::Spawn { callee, args, span } => {
+                self.uses_async = true;
+                if !self.in_async() {
+                    self.error_code(
+                        *span,
+                        codes::AWAIT_OUTSIDE_ASYNC,
+                        "`spawn` outside an `async fn`: make the enclosing function `async`, or spawn where one already runs",
+                    );
+                    return None;
+                }
+                // The callee names a function value (`spawn(worker, ...)`):
+                // keep the checked worker expression for codegen so it can
+                // name what to run, check arguments against its parameters,
+                // and wrap the worker's own answer as the task's result.
+                let checked_callee = self.check_expr(callee)?;
+                let callee_ty = expr_ty(&checked_callee);
+                let (params, worker_ret) = match &callee_ty.kind {
+                    TypeKind::Func(params, ret) => (params.clone(), (**ret).clone()),
+                    _ => {
+                        self.error_code(
+                            *span,
+                            codes::TYPE_MISMATCH,
+                            format!("`spawn` needs a function, found `{callee_ty}`"),
+                        );
+                        return None;
+                    }
+                };
+                if params.len() != args.len() {
+                    // Named/default arguments resolve like a call's, using the
+                    // function's own names when there is a signature on file.
+                    let callee_name = match callee.as_ref() {
+                        Expr::Ident(path, _) => path.last().cloned().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let resolved = if callee_name.is_empty() {
+                        None
+                    } else {
+                        self.fns.get(&callee_name).cloned().and_then(|sig| {
+                            self.resolve_named_args(
+                                args,
+                                &sig.param_names,
+                                &sig.param_defaults,
+                                *span,
+                                false,
+                            )
+                        })
+                    };
+                    let Some(resolved_args) = resolved else {
+                        self.error_code(
+                            *span,
+                            codes::WRONG_ARGUMENT_COUNT,
+                            format!("expected {} arguments, found {}", params.len(), args.len()),
+                        );
+                        return None;
+                    };
+                    let mut checked_args = Vec::with_capacity(resolved_args.len());
+                    for (arg, param) in resolved_args.iter().zip(params.iter()) {
+                        let value = self.check_expr_with_expected(arg, param)?;
+                        if !fits(param, &expr_ty(&value)) {
+                            self.error(
+                                expr_span(&value),
+                                format!("expected `{param}`, found `{}`", expr_ty(&value)),
+                            );
+                        }
+                        checked_args.push(value);
+                    }
+                    // The worker's answer is the task's result. An async
+                    // worker already answers `Task[T]`, so its inner type is
+                    // the result; a synchronous worker's answer is it as-is.
+                    let inner = Self::unwrap_async_ret(&worker_ret);
+                    let task_ty = Type {
+                        kind: TypeKind::Task(Box::new(inner)),
+                        span: *span,
+                    };
+                    return Some(HirExpr::Spawn {
+                        callee: Box::new(checked_callee),
+                        args: checked_args,
+                        span: *span,
+                        ty: task_ty,
+                    });
+                }
+                let mut checked_args = Vec::with_capacity(args.len());
+                for (arg, param) in args.iter().zip(params.iter()) {
+                    let value = self.check_expr_with_expected(&arg.value, param)?;
+                    if !fits(param, &expr_ty(&value)) {
+                        self.error(
+                            expr_span(&value),
+                            format!("expected `{param}`, found `{}`", expr_ty(&value)),
+                        );
+                    }
+                    checked_args.push(value);
+                }
+                let inner = Self::unwrap_async_ret(&worker_ret);
+                Some(HirExpr::Spawn {
+                    callee: Box::new(checked_callee),
+                    args: checked_args,
+                    span: *span,
+                    ty: Type {
+                        kind: TypeKind::Task(Box::new(inner)),
+                        span: *span,
+                    },
+                })
+            }
             Expr::SwitchExpr {
                 subject,
                 arms,
@@ -12837,9 +13192,18 @@ impl<'src> Checker<'src> {
                 TypeKind::Ptr(_) | TypeKind::CPtr(_) => "a pointer has no value to show",
                 TypeKind::Func(_, _) => "a function has no text form",
                 TypeKind::Unit | TypeKind::Never => "void has no text form",
+                TypeKind::Task(_) => "a task must be awaited before it has a value",
                 _ => "this type has no text form",
             };
-            self.error(expr_span(&expr), format!("cannot print a `{ty}`: {why}"));
+            if matches!(&ty.kind, TypeKind::Task(_)) {
+                self.error_code(
+                    expr_span(&expr),
+                    codes::TYPE_MISMATCH,
+                    format!("cannot print a `{ty}`: {why}: use `.await` to get its result"),
+                );
+            } else {
+                self.error(expr_span(&expr), format!("cannot print a `{ty}`: {why}"));
+            }
             return None;
         }
         let callee = match &ty.kind {
@@ -13705,6 +14069,11 @@ fn type_to_expr(ty: &Type) -> TypeExpr {
         ),
         TypeKind::Mutex => TypeExpr::Name("Mutex".to_string(), span),
         TypeKind::Channel(element) => TypeExpr::Channel(Box::new(type_to_expr(element)), span),
+        TypeKind::Task(inner) => TypeExpr::Generic {
+            name: "Task".to_string(),
+            args: vec![type_to_expr(inner)],
+            span,
+        },
         TypeKind::CInt(width) => TypeExpr::Name(format!("i{width}"), span),
         TypeKind::CUInt(width) => TypeExpr::Name(format!("u{width}"), span),
         TypeKind::CFloat(width) => TypeExpr::Name(format!("f{width}"), span),

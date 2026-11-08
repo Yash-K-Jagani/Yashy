@@ -277,10 +277,22 @@ impl TypestatePass<'_> {
                 // `None` pattern is the mirror image.
                 if let Some(source) = self.iterator_source(subject) {
                     if pattern_is_some(pattern) {
-                        return self.branch_iter(then_block, else_block.as_ref(), false, true, &source);
+                        return self.branch_iter(
+                            then_block,
+                            else_block.as_ref(),
+                            false,
+                            true,
+                            &source,
+                        );
                     }
                     if pattern_is_none(pattern) {
-                        return self.branch_iter(then_block, else_block.as_ref(), true, false, &source);
+                        return self.branch_iter(
+                            then_block,
+                            else_block.as_ref(),
+                            true,
+                            false,
+                            &source,
+                        );
                     }
                 }
                 self.branch(then_block, else_block.as_ref())
@@ -288,6 +300,10 @@ impl TypestatePass<'_> {
             HirStmt::Break(_) => false,
             HirStmt::Continue(_) => false,
             HirStmt::Defer { body, .. } => {
+                let _ = self.block(body);
+                true
+            }
+            HirStmt::Scope { body, .. } => {
                 let _ = self.block(body);
                 true
             }
@@ -325,7 +341,9 @@ impl TypestatePass<'_> {
                 self.walk(rhs);
             }
             HirExpr::Unary { operand, .. } => self.walk(operand),
-            HirExpr::Call { callee, args, span, .. } => {
+            HirExpr::Call {
+                callee, args, span, ..
+            } => {
                 // An `Iterator::next` call: the receiver is `Open` until a
                 // `None` is observed, `Closed` after it (terminal: the
                 // protocol does not promise resurrection).

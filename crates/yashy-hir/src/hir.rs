@@ -31,6 +31,16 @@ pub struct HirProgram {
     /// thread exists, any string can cross into it, and proving which ones
     /// cannot is interprocedural analysis this milestone does not attempt.
     pub uses_threads: bool,
+    /// Whether the program contains an `async fn`, an `await`, or a `spawn`.
+    /// The trigger for linking the executor, mirroring `uses_threads`.
+    pub uses_async: bool,
+}
+
+impl HirProgram {
+    /// True when the program uses async machinery (`async fn`, `await`, `spawn`).
+    pub fn uses_async(&self) -> bool {
+        self.uses_async
+    }
 }
 
 /// A top-level item after type checking.
@@ -119,6 +129,10 @@ pub struct HirFn {
     pub effect: yashy_common::Effect,
     /// What the programmer declared about this function's effect.
     pub declared: yashy_common::DeclaredEffect,
+    /// Whether this function was declared `async`. Equivalent to
+    /// `declared == DeclaredEffect::Async`, kept as its own field so a
+    /// reader never has to reconstruct it from the declaration first.
+    pub is_async: bool,
     /// `requires` clauses: what the caller must establish.
     pub requires: Vec<HirContract>,
     /// `ensures` clauses: what the callee promises. `result` names the value
@@ -428,6 +442,12 @@ pub enum HirStmt {
         body: HirBlock,
         span: Span,
     },
+    /// `scope { .. }` -- a structured-concurrency scope. Every task spawned
+    /// inside is joined or cancelled before the scope is left.
+    Scope {
+        body: HirBlock,
+        span: Span,
+    },
     /// `invariant n >= 0` -- a loop's promise at its head.
     ///
     /// The checker accepts one only among the first statements of a loop body,
@@ -696,6 +716,22 @@ pub enum HirExpr {
         span: Span,
         ty: Type,
     },
+    /// `task.await` -- drives the task until it completes and yields its
+    /// result. `ty` is the result type `T`, not `Task[T]`.
+    Await {
+        expr: Box<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
+    /// `spawn(worker, args)` -- starts the worker on the executor and returns
+    /// its task handle. `callee` is the worker expression (a name, a field
+    /// chain or a type path); `ty` is `Task[T]`.
+    Spawn {
+        callee: Box<HirExpr>,
+        args: Vec<HirExpr>,
+        span: Span,
+        ty: Type,
+    },
     SwitchExpr {
         subject: Box<HirExpr>,
         arms: Vec<HirSwitchArm>,
@@ -833,6 +869,8 @@ pub fn expr_span(expr: &HirExpr) -> Span {
         HirExpr::View { span, .. } => *span,
         HirExpr::Cast { span, .. } => *span,
         HirExpr::Try { span, .. } => *span,
+        HirExpr::Await { span, .. } => *span,
+        HirExpr::Spawn { span, .. } => *span,
         HirExpr::SwitchExpr { span, .. } => *span,
         HirExpr::Lambda { span, .. } => *span,
         HirExpr::Capture { span, .. } => *span,
@@ -860,6 +898,8 @@ pub fn expr_ty(expr: &HirExpr) -> Type {
         HirExpr::View { ty, .. } => ty.clone(),
         HirExpr::Cast { ty, .. } => ty.clone(),
         HirExpr::Try { ty, .. } => ty.clone(),
+        HirExpr::Await { ty, .. } => ty.clone(),
+        HirExpr::Spawn { ty, .. } => ty.clone(),
         HirExpr::SwitchExpr { ty, .. } => ty.clone(),
         HirExpr::Lambda { ty, .. } => ty.clone(),
         HirExpr::Capture { ty, .. } => ty.clone(),

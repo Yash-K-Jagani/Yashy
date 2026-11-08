@@ -157,6 +157,8 @@ pub fn owner(expr: &HirExpr) -> &'static str {
         | HirExpr::TupleLit { .. }
         | HirExpr::Cast { .. }
         | HirExpr::Try { .. }
+        | HirExpr::Await { .. }
+        | HirExpr::Spawn { .. }
         | HirExpr::SwitchExpr { .. }
         | HirExpr::Lambda { .. }
         | HirExpr::Capture { .. }

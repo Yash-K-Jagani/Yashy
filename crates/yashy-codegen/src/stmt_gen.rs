@@ -775,6 +775,13 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             });
             Flow::Fallthrough
         }
+        HirStmt::Scope { body, .. } => {
+            // Structured concurrency lowers here in Task 5; until then the
+            // body is run inline so the lowering stays total. This is a
+            // placeholder, not the joining semantics the scope promises.
+            gen_block(ctx, body);
+            Flow::Fallthrough
+        }
         HirStmt::LoopInvariant(_) => {
             // An invariant is a promise to the verifier, not work the program
             // does. It has no lowering: the compiler spends it, it does not run

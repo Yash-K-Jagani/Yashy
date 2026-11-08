@@ -174,9 +174,7 @@ impl Walker<'_> {
                 self.expr(end);
                 self.block(body);
             }
-            HirStmt::ForIn {
-                iterable, body, ..
-            } => {
+            HirStmt::ForIn { iterable, body, .. } => {
                 self.expr(iterable);
                 self.block(body);
             }
@@ -216,6 +214,7 @@ impl Walker<'_> {
             }
             HirStmt::Break(_) | HirStmt::Continue(_) => {}
             HirStmt::Defer { body, .. } => self.block(body),
+            HirStmt::Scope { body, .. } => self.block(body),
             HirStmt::LoopInvariant(clause) => self.expr(&clause.expr),
         }
     }
@@ -290,7 +289,15 @@ impl Walker<'_> {
                 self.expr(start);
                 self.expr(end);
             }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.expr(expr),
+            HirExpr::Cast { expr, .. }
+            | HirExpr::Try { expr, .. }
+            | HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.expr(subject);
                 self.arms(arms);

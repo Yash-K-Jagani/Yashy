@@ -90,6 +90,8 @@ the declaration or import involved when that is not obvious.
 | [E1601](errors/E1601.md) | macro expansion limit exceeded |
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |
 | [E1603](errors/E1603.md) | duplicate macro name |
+| [E1700](errors/E1700.md) | await or spawn outside an async function |
+| [E1703](errors/E1703.md) | async method in a trait |
 | [E2000](errors/E2000.md) | unused binding |
 | [E2001](errors/E2001.md) | unused import |
 | [E2002](errors/E2002.md) | unreachable code |

@@ -94,7 +94,8 @@ fn main() { }";
 
 #[test]
 fn mutual_recursion_terminates_and_propagates() {
-    let source = "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { print(\"x\"); a(n); } fn main() { }";
+    let source =
+        "fn a(int n) { if n > 0 { b(n - 1); } } fn b(int n) { print(\"x\"); a(n); } fn main() { }";
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["a"].io);
@@ -155,4 +156,37 @@ fn a_loop_carrying_an_io_call_is_io() {
     let report = verify_source(source);
     assert!(report.diagnostics.is_empty());
     assert!(report.effects["f"].io);
+}
+
+#[test]
+fn an_async_function_is_async_effect() {
+    let source = "async fn f() -> int { return 1; } fn main() { }";
+    let report = verify_source(source);
+    assert!(report.diagnostics.is_empty());
+    assert!(report.effects["f"].async_, "the async flag is inferred");
+}
+
+#[test]
+fn an_async_caller_of_an_async_function_is_accepted() {
+    let source =
+        "async fn f() -> int { return 1; } async fn g() -> int { return f().await; } fn main() { }";
+    let report = verify_source(source);
+    assert!(
+        report.diagnostics.is_empty(),
+        "diagnostics: {:?}",
+        report.diagnostics
+    );
+    assert!(report.effects["g"].async_);
+}
+
+#[test]
+fn a_sync_caller_of_an_async_function_is_e1300_naming_the_callee() {
+    let source = "async fn f() -> int { return 1; } fn g() { f(); } fn main() { }";
+    let report = verify_source(source);
+    assert_eq!(codes(&report), vec!["E1300"]);
+    assert!(
+        report.diagnostics.iter().any(|d| d.message.contains("`f`")),
+        "the diagnostic names the async callee: {:?}",
+        report.diagnostics
+    );
 }

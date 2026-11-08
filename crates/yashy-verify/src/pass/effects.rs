@@ -89,7 +89,164 @@ pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) -> BTreeMap<String
         }
     }
 
+    // An async call from a synchronous function is `E1300`, with the async
+    // callee named. An `async fn` may do it.
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            if function.is_async || function.declared == DeclaredEffect::Async {
+                continue;
+            }
+            check_async_calls(function, &effects, out);
+        }
+    }
+
     effects
+}
+
+/// An async function is async-effect by declaration, whatever its body does.
+fn async_direct() -> Effect {
+    Effect { io: false, unsafe_: false, async_: true }
+}
+
+/// Report `E1300` for every call to an async callee inside a synchronous
+/// function, naming the callee.
+fn check_async_calls(function: &HirFn, effects: &BTreeMap<String, Effect>, out: &mut Vec<Diagnostic>) {
+    let mut walker = AsyncWalker {
+        out,
+        file: function.file,
+        owner: &function.name,
+        effects,
+    };
+    walker.block(&function.body);
+}
+
+struct AsyncWalker<'a> {
+    out: &'a mut Vec<Diagnostic>,
+    file: FileId,
+    owner: &'a str,
+    effects: &'a BTreeMap<String, Effect>,
+}
+
+impl AsyncWalker<'_> {
+    fn report(&mut self, callee: &str, span: yashy_common::Span) {
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!(
+                    "`{callee}` is an async function, but `{}` is not declared `async`",
+                    self.owner,
+                ),
+            )
+            .with_label("declare the function `async`, or drive the task inside an `async fn`")
+            .with_code(codes::EFFECT),
+        );
+    }
+    fn block(&mut self, block: &HirBlock) {
+        for stmt in &block.stmts {
+            self.stmt(stmt);
+        }
+    }
+    fn stmt(&mut self, stmt: &HirStmt) {
+        match stmt {
+            HirStmt::Expr(expr, ..) => self.expr(expr),
+            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } | HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Assign { value, .. } => self.expr(value),
+            HirStmt::IndexAssign { base, index, value, .. } => {
+                self.expr(base); self.expr(index); self.expr(value);
+            }
+            HirStmt::FieldAssign { value, .. } => self.expr(value),
+            HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+                self.expr(pointer); self.expr(index); self.expr(value);
+            }
+            HirStmt::Return(Some(expr), _) => self.expr(expr),
+            HirStmt::If { init, cond, then_block, else_block, .. } => {
+                if let Some(init) = init { self.stmt(init); }
+                self.expr(cond);
+                self.block(then_block);
+                if let Some(else_block) = else_block { self.block(else_block); }
+            }
+            HirStmt::ForRange { start, end, body, .. } => {
+                self.expr(start); self.expr(end); self.block(body);
+            }
+            HirStmt::ForIn { iterable, body, .. } => {
+                self.expr(iterable); self.block(body);
+            }
+            HirStmt::ForC { init, cond, update, body, .. } => {
+                if let Some(init) = init { self.stmt(init); }
+                if let Some(cond) = cond { self.expr(cond); }
+                if let Some(update) = update { self.expr(update); }
+                self.block(body);
+            }
+            HirStmt::Switch { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard { self.expr(guard); }
+                    self.expr(&arm.body);
+                }
+            }
+            HirStmt::Defer { body, .. } | HirStmt::Scope { body, .. } => self.block(body),
+            HirStmt::IfLet { subject, then_block, else_block, .. } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block { self.block(else_block); }
+            }
+            HirStmt::LoopInvariant(c) => self.expr(&c.expr),
+            _ => {}
+        }
+    }
+    fn expr(&mut self, expr: &HirExpr) {
+        match expr {
+            HirExpr::Call { callee, args, span, .. } => {
+                if callee.len() == 1 {
+                    let name = &callee[0];
+                    if self.effects.get(name).is_some_and(|effect| effect.async_) {
+                        self.report(name, *span);
+                    }
+                }
+                for arg in args { self.expr(arg); }
+            }
+            HirExpr::Binary { lhs, rhs, .. } => { self.expr(lhs); self.expr(rhs); }
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => self.expr(operand),
+            HirExpr::StructLit { fields, .. } => {
+                for (_, v, _) in fields { self.expr(v); }
+            }
+            HirExpr::SliceLit { elements, .. } | HirExpr::FixedArrayLit { elements, .. } | HirExpr::TupleLit { elements, .. } => {
+                for e in elements { self.expr(e); }
+            }
+            HirExpr::FieldAccess { base, .. } => self.expr(base),
+            HirExpr::Index { base, index, .. } => { self.expr(base); self.expr(index); }
+            HirExpr::View { base, start, end, .. } => { self.expr(base); self.expr(start); self.expr(end); }
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args { self.expr(arg); }
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(g) = &arm.guard { self.expr(g); }
+                    self.expr(&arm.body);
+                }
+            }
+            HirExpr::Lambda { f, .. } => {
+                let saved = self.file;
+                self.file = f.file;
+                self.block(&f.body);
+                self.file = saved;
+            }
+            HirExpr::CallCapture { args, .. } => {
+                for arg in args { self.expr(arg); }
+            }
+            HirExpr::HigherOrder { receiver, func, init, .. } => {
+                self.expr(receiver);
+                self.expr(func);
+                if let Some(init) = init { self.expr(init); }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// True when `declared` makes an `unsafe` call in the body a broken promise.
@@ -266,6 +423,12 @@ impl UnsafeWalker<'_> {
                 }
             }
             HirStmt::Defer { body, .. } => self.block(body),
+            HirStmt::Scope { body, .. } => self.block(body),
+            HirStmt::IfLet { subject, then_block, else_block, .. } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block { self.block(else_block); }
+            }
             HirStmt::LoopInvariant(c) => self.expr(&c.expr),
             _ => {}
         }
@@ -299,7 +462,11 @@ impl UnsafeWalker<'_> {
             HirExpr::FieldAccess { base, .. } => self.expr(base),
             HirExpr::Index { base, index, .. } => { self.expr(base); self.expr(index); }
             HirExpr::View { base, start, end, .. } => { self.expr(base); self.expr(start); self.expr(end); }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.expr(expr),
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args { self.expr(arg); }
+            }
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.expr(subject);
                 for arm in arms {
@@ -337,10 +504,17 @@ pub fn infer_effects(program: &HirProgram) -> BTreeMap<String, Effect> {
     // no change.
     let mut effects: BTreeMap<String, Effect> = BTreeMap::new();
 
-    // Initialize all functions to PURE.
+    // Initialize all functions to PURE, except async functions, which are
+    // async by declaration: a body that never awaits still answers a `Task`,
+    // and calling it from a synchronous function waits on the executor.
     for item in &program.items {
         if let HirItem::Fn(f) = item {
-            effects.insert(f.name.clone(), Effect::PURE);
+            let seed = if f.is_async || f.declared == DeclaredEffect::Async {
+                async_direct()
+            } else {
+                Effect::PURE
+            };
+            effects.insert(f.name.clone(), seed);
         }
     }
 
@@ -360,7 +534,15 @@ pub fn infer_effects(program: &HirProgram) -> BTreeMap<String, Effect> {
         changed = false;
         for item in &program.items {
             if let HirItem::Fn(f) = item {
-                let mut effect = direct_effects(&f.body);
+                // The seed matters: an async function is async-effect by
+                // declaration, so the fixpoint must join it in or the loop
+                // would overwrite it with the body's direct effect.
+                let mut effect = if f.is_async || f.declared == DeclaredEffect::Async {
+                    async_direct()
+                } else {
+                    Effect::PURE
+                };
+                effect = effect.join(direct_effects(&f.body));
                 // Join effects of callees.
                 for callee in collect_callees(&f.body) {
                     if let Some(ce) = effects.get(&callee) {
@@ -453,6 +635,7 @@ fn direct_effects_stmt(stmt: &HirStmt) -> Effect {
             e
         }
         HirStmt::Defer { body, .. } => direct_effects(body),
+        HirStmt::Scope { body, .. } => direct_effects(body),
         HirStmt::LoopInvariant(c) => direct_effects_expr(&c.expr),
         _ => Effect::PURE,
     }
@@ -507,6 +690,16 @@ fn direct_effects_expr(expr: &HirExpr) -> Effect {
             direct_effects_expr(base).join(direct_effects_expr(start)).join(direct_effects_expr(end))
         }
         HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => direct_effects_expr(expr),
+        HirExpr::Await { expr, .. } => {
+            direct_effects_expr(expr).join(async_direct())
+        }
+        HirExpr::Spawn { callee, args, .. } => {
+            let mut e = direct_effects_expr(callee).join(async_direct());
+            for arg in args {
+                e = e.join(direct_effects_expr(arg));
+            }
+            e
+        }
         HirExpr::SwitchExpr { subject, arms, .. } => {
             let mut e = direct_effects_expr(subject);
             for arm in arms {
@@ -648,6 +841,11 @@ fn collect_callees_stmt(stmt: &HirStmt, callees: &mut Vec<String>) {
                 callees.push(c);
             }
         }
+        HirStmt::Scope { body, .. } => {
+            for c in collect_callees(body) {
+                callees.push(c);
+            }
+        }
         HirStmt::LoopInvariant(c) => collect_callees_expr(&c.expr, callees),
         _ => {}
     }
@@ -692,8 +890,14 @@ fn collect_callees_expr(expr: &HirExpr, callees: &mut Vec<String>) {
             collect_callees_expr(start, callees);
             collect_callees_expr(end, callees);
         }
-        HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => {
+        HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => {
             collect_callees_expr(expr, callees);
+        }
+        HirExpr::Spawn { callee, args, .. } => {
+            collect_callees_expr(callee, callees);
+            for arg in args {
+                collect_callees_expr(arg, callees);
+            }
         }
         HirExpr::SwitchExpr { subject, arms, .. } => {
             collect_callees_expr(subject, callees);

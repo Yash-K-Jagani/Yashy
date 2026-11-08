@@ -42,6 +42,8 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         // Mutex and channel handles are runtime pointers with no visible
         // fields either.
         TypeKind::Mutex | TypeKind::Channel(_) => "i8*".to_string(),
+        // A task handle is a frame pointer plus an executor handle: one word.
+        TypeKind::Task(_) => "i8*".to_string(),
         TypeKind::CInt(width) | TypeKind::CUInt(width) => match width {
             8 => "i8".to_string(),
             16 => "i16".to_string(),
@@ -71,10 +73,9 @@ pub fn llvm_type_string(t: &TypeKind) -> String {
         // A non-capturing function leaves the environment null; a closure will
         // put a retained environment there.
         TypeKind::Func(_, _) => "{ i8*, i8* }".to_string(),
-        TypeKind::Option(_)
-        | TypeKind::Result(_, _)
-        | TypeKind::Struct(_)
-        | TypeKind::Enum(_) => "void".to_string(),
+        TypeKind::Option(_) | TypeKind::Result(_, _) | TypeKind::Struct(_) | TypeKind::Enum(_) => {
+            "void".to_string()
+        }
     }
 }
 
@@ -195,6 +196,7 @@ pub fn size_of(kind: &TypeKind) -> u64 {
         | TypeKind::CPtr(_)
         | TypeKind::Map(_, _)
         | TypeKind::Mutex
+        | TypeKind::Task(_)
         | TypeKind::Channel(_) => 8,
         TypeKind::Slice(_) => 24,
         // The elements are laid out end to end and each is a whole number of
@@ -221,10 +223,7 @@ pub fn size_of(kind: &TypeKind) -> u64 {
             size.div_ceil(alignment) * alignment
         }
         TypeKind::Func(_, _) => 16,
-        TypeKind::Option(_)
-        | TypeKind::Result(_, _)
-        | TypeKind::Struct(_)
-        | TypeKind::Enum(_) => 8,
+        TypeKind::Option(_) | TypeKind::Result(_, _) | TypeKind::Struct(_) | TypeKind::Enum(_) => 8,
         TypeKind::Unit | TypeKind::Never | TypeKind::CVoid => 0,
         // Widths the checker never constructs; one word is the harmless answer.
         TypeKind::CInt(_) | TypeKind::CUInt(_) => 8,
@@ -361,11 +360,7 @@ mod tests {
 
         // LLVM: the i64 at 0, the 16-byte nested tuple at 8, the last i64 at
         // 24, and the whole struct rounded to 32.
-        let outer = TypeKind::Tuple(vec![
-            ty(TypeKind::I64),
-            ty(inner),
-            ty(TypeKind::I64),
-        ]);
+        let outer = TypeKind::Tuple(vec![ty(TypeKind::I64), ty(inner), ty(TypeKind::I64)]);
         assert_eq!(size_of(&outer), 32);
         assert_eq!(alignment_of(&outer), 8);
 

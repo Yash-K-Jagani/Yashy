@@ -930,6 +930,23 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         } => gen_struct_lit(ctx, path, fields, &ty.kind),
         HirExpr::Lambda { f, ty, .. } => gen_lambda(ctx, f, &ty.kind),
         HirExpr::Capture { index, ty, .. } => gen_capture_read(ctx, *index, &ty.kind),
+        HirExpr::Await { expr, ty, .. } => {
+            // The state machine that drives this task lands in Task 3. Until
+            // then the operand is still lowered (its own calls run) and the
+            // result is a zero of the result type: an explicit placeholder
+            // rather than a panic on a checked program.
+            let _operand = gen_expr(ctx, expr);
+            zero_of(&ty.kind, ctx)
+        }
+        HirExpr::Spawn {
+            callee, args, ty, ..
+        } => {
+            let _worker = gen_expr(ctx, callee);
+            for arg in args {
+                let _ = gen_expr(ctx, arg);
+            }
+            zero_of(&ty.kind, ctx)
+        }
         HirExpr::CallCapture {
             index, args, ty, ..
         } => gen_capture_call(ctx, *index, args, &ty.kind),

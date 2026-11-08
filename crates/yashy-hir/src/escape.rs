@@ -304,9 +304,7 @@ impl<'f> Analysis<'f> {
                      arena must not own it"
                         .to_string(),
                 )
-            } else if let (Some(arena), Some(_)) =
-                (info.arena_block, info.arena_boundary)
-            {
+            } else if let (Some(arena), Some(_)) = (info.arena_block, info.arena_boundary) {
                 // An explicit `arena { }` block owns every allocation written
                 // inside it, whatever its size. The block releases the whole
                 // arena on every exit, so the size heuristic does not apply.
@@ -515,7 +513,11 @@ impl<'f> Analysis<'f> {
         let Some(binding) = self.bindings.get(name).copied() else {
             return;
         };
-        let Some(boundary) = self.sites.get(&binding.site).and_then(|info| info.arena_boundary) else {
+        let Some(boundary) = self
+            .sites
+            .get(&binding.site)
+            .and_then(|info| info.arena_boundary)
+        else {
             return;
         };
         let finding = ArenaFinding {
@@ -595,23 +597,24 @@ impl<'f> Analysis<'f> {
                 }
             }
             HirStmt::Destructure { init, .. } => self.value(init, Mode::Escape),
-            HirStmt::Assign { name, value, span, .. } => {
+            HirStmt::Assign {
+                name, value, span, ..
+            } => {
                 // The RHS is evaluated before the binding changes, so a shadow
                 // or a self-reference still sees the old value.
                 let target = self.bindings.get(name).copied();
-                let value_site = self
-                    .record_alloc(value)
-                    .or_else(|| self.alias_site(value));
+                let value_site = self.record_alloc(value).or_else(|| self.alias_site(value));
                 let value_arena = value_site
                     .and_then(|site| self.sites.get(&site).and_then(|info| info.arena_block));
                 // Storing an arena-owned value in a binding that does not share
                 // its arena is an escape, whether the value reaches the target
                 // directly or through a copy chain (`let b = a; out = b;`).
                 if let Some(site) = value_site {
-                    let same_arena = target.is_some_and(|binding| match (binding.arena, value_arena) {
-                        (Some(target_arena), Some(value_arena)) => target_arena == value_arena,
-                        _ => false,
-                    });
+                    let same_arena =
+                        target.is_some_and(|binding| match (binding.arena, value_arena) {
+                            (Some(target_arena), Some(value_arena)) => target_arena == value_arena,
+                            _ => false,
+                        });
                     let reported_name = self
                         .alias_source_name(value)
                         .filter(|source| source != name);
@@ -767,6 +770,7 @@ impl<'f> Analysis<'f> {
                 }
             }
             HirStmt::Defer { body, .. } => self.block(body),
+            HirStmt::Scope { body, .. } => self.block(body),
             HirStmt::LoopInvariant(contract) => self.value(&contract.expr, Mode::Escape),
             HirStmt::Break(_) | HirStmt::Continue(_) => {}
         }
@@ -814,10 +818,7 @@ impl<'f> Analysis<'f> {
                 }
             }
             HirExpr::Call {
-                callee,
-                args,
-                span,
-                ..
+                callee, args, span, ..
             } => {
                 if callee.last().map(String::as_str) == Some("alloc") {
                     // Reaching here means the allocation is not the direct
@@ -884,6 +885,13 @@ impl<'f> Analysis<'f> {
             }
             HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => {
                 self.value(expr, Mode::Escape)
+            }
+            HirExpr::Await { expr, .. } => self.value(expr, Mode::Escape),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.value(callee, Mode::Escape);
+                for arg in args {
+                    self.value(arg, Mode::Escape);
+                }
             }
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.value(subject, Mode::Escape);

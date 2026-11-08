@@ -126,6 +126,7 @@ fn check_stmt(program: &HirProgram, stmt: &HirStmt, file: FileId, out: &mut Vec<
             check_arms(program, arms, file, out);
         }
         HirStmt::Defer { body, .. } => check_block(program, body, file, out),
+        HirStmt::Scope { body, .. } => check_block(program, body, file, out),
         HirStmt::IfLet {
             subject,
             then_block,
@@ -191,8 +192,15 @@ fn check_expr(program: &HirProgram, expr: &HirExpr, file: FileId, out: &mut Vec<
         }
         HirExpr::FieldAccess { base, .. }
         | HirExpr::Cast { expr: base, .. }
-        | HirExpr::Try { expr: base, .. } => {
+        | HirExpr::Try { expr: base, .. }
+        | HirExpr::Await { expr: base, .. } => {
             check_expr(program, base, file, out);
+        }
+        HirExpr::Spawn { callee, args, .. } => {
+            check_expr(program, callee, file, out);
+            for arg in args {
+                check_expr(program, arg, file, out);
+            }
         }
         HirExpr::Index { base, index, .. } => {
             check_expr(program, base, file, out);

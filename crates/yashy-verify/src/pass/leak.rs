@@ -348,6 +348,10 @@ impl LeakPass<'_> {
                 let _ = self.block(body);
                 Flow::Falls
             }
+            HirStmt::Scope { body, .. } => {
+                let _ = self.block(body);
+                Flow::Falls
+            }
             // A contract is not executed, but the checker did read it, so a
             // value it hands to a call is spent from here on. Walking the
             // clause keeps the two halves agreeing about what is still owned.
@@ -520,7 +524,15 @@ impl LeakPass<'_> {
                 self.walk(start);
                 self.walk(end);
             }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.walk(expr),
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => self.walk(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.hand_off(callee);
+                self.walk(callee);
+                for arg in args {
+                    self.hand_off(arg);
+                    self.walk(arg);
+                }
+            }
             HirExpr::SwitchExpr { subject, arms, .. } => {
                 self.walk(subject);
                 for arm in arms {

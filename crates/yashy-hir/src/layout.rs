@@ -137,6 +137,7 @@ pub fn layout(ty: &TypeKind, decls: &dyn Decls) -> Option<Layout> {
         | TypeKind::CPtr(_)
         | TypeKind::Map(_, _)
         | TypeKind::Mutex
+        | TypeKind::Task(_)
         | TypeKind::Channel(_) => Layout {
             size: 8,
             align: 8,

@@ -69,6 +69,15 @@ pub enum TypeKind {
     /// it up. A spawned thread receives a *borrowed* handle, which is the one
     /// way a handle reaches a second thread without a copy.
     Channel(Box<Type>),
+    /// An async task running an `async fn` that will produce `T`, written
+    /// `Task[T]` and never written by hand in v1.
+    ///
+    /// `async fn f() -> T` is a function whose call returns `Task[T]`, and
+    /// `task.await` is what yields the `T`. Opaque: the value is a frame
+    /// pointer plus an executor handle, nothing the source names. Linear for
+    /// the same reason a channel is: exactly one binding owns the task, and
+    /// driving it consumes the handle.
+    Task(Box<Type>),
     /// A raw owning pointer to `T`, written `*mut T`. Linear (see
     /// `yashy_verify::ownership`): at most one binding owns it at a time.
     Ptr(Box<Type>),
@@ -194,6 +203,7 @@ impl std::fmt::Display for TypeKind {
             TypeKind::Map(key, value) => write!(f, "map[{key}]{value}"),
             TypeKind::Mutex => write!(f, "Mutex"),
             TypeKind::Channel(element) => write!(f, "Channel[{element}]"),
+            TypeKind::Task(inner) => write!(f, "Task[{inner}]"),
             TypeKind::Ptr(pointee) => write!(f, "*mut {pointee}"),
             TypeKind::CInt(width) => write!(f, "i{width}"),
             TypeKind::CUInt(width) => write!(f, "u{width}"),

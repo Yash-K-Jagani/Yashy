@@ -85,6 +85,11 @@ fn render(node: &HirExpr, parent: u8) -> String {
         ),
         HirExpr::Cast { expr, ty, .. } => (format!("{} as {ty}", render(expr, POSTFIX)), POSTFIX),
         HirExpr::Try { expr, .. } => (format!("{}?", render(expr, POSTFIX)), POSTFIX),
+        HirExpr::Await { expr, .. } => (format!("{}.await", render(expr, POSTFIX)), POSTFIX),
+        HirExpr::Spawn { callee, args, .. } => {
+            let args = args.iter().map(expr).collect::<Vec<_>>().join(", ");
+            (format!("spawn({}, {args})", expr(callee)), POSTFIX)
+        }
         HirExpr::StructLit { path, fields, .. } => {
             let fields = fields
                 .iter()

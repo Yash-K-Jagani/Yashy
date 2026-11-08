@@ -488,7 +488,10 @@ impl<'src> Parser<'src> {
 
         let mut methods = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.at_eof() {
-            if !self.check(TokenKind::Fn) && !self.check(TokenKind::Pub) {
+            if !self.check(TokenKind::Fn)
+                && !self.check(TokenKind::Pub)
+                && !self.check(TokenKind::Async)
+            {
                 return Err(error::trait_has_no_fields(self.peek_span()));
             }
             methods.push(self.parse_trait_method()?);
@@ -628,6 +631,12 @@ impl<'src> Parser<'src> {
         if self.check(TokenKind::Pub) && self.peek_second() == TokenKind::Fn {
             return Err(error::trait_method_takes_trait_visibility(self.peek_span()));
         }
+        let is_async = if self.check(TokenKind::Async) {
+            self.expect(TokenKind::Async)?;
+            true
+        } else {
+            false
+        };
         let keyword = self.expect(TokenKind::Fn)?;
         let (name, _) = self.identifier()?;
 
@@ -650,6 +659,7 @@ impl<'src> Parser<'src> {
             name,
             params,
             ret,
+            is_async,
             span: cover(keyword.span, semicolon.span),
         })
     }
