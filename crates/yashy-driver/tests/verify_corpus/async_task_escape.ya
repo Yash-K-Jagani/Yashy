@@ -1,0 +1,20 @@
+// A spawned task handle assigned into an outer binding, so it outlives the
+// scope that owns the child.
+// Expected: E1701 on the assignment.
+async fn g() -> int {
+    return 1;
+}
+
+async fn f() -> int {
+    let t = g();
+    let n = t.await;
+    scope {
+        t = spawn(g);
+    }
+    let m = t.await;
+    return n + m;
+}
+
+fn main() {
+    print(block_on(f()));
+}

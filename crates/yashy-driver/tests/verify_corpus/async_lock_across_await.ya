@@ -1,0 +1,18 @@
+// A mutex locked and then held across an `await`: the executor may run
+// another task while this one is suspended, so the lock outlives its owner.
+// Expected: E1702 on the `await`.
+async fn g() -> int {
+    return 1;
+}
+
+async fn f() -> int {
+    let m = mutex_new();
+    m.lock();
+    let n = g().await;
+    m.unlock();
+    return n;
+}
+
+fn main() {
+    print(block_on(f()));
+}

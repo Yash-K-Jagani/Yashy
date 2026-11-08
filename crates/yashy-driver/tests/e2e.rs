@@ -3819,6 +3819,46 @@ fn an_async_function_suspends_and_resumes_with_its_locals() {
 }
 
 #[test]
+fn an_async_cancelled_task_runs_its_defers() {
+    // The scope spawns a worker and never awaits it, so the child outlives the
+    // scope's body. Leaving the scope joins-or-cancels it, and the deferred
+    // print runs on that cancel path before `main_task` answers 3.
+    let (_dir, exe, compile) = build_program("async_cancel");
+    assert!(
+        compile.status.success(),
+        "compiling async_cancel.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "async_cancel exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "closed\n3\n");
+}
+
+#[test]
+fn two_async_tasks_incrementing_through_a_channel_have_a_deterministic_total() {
+    // Both workers send five values each into a channel that holds all ten,
+    // so the sum is 0+..+4 + 100..+104 = 520 whatever the executor's
+    // interleaving.
+    let (_dir, exe, compile) = build_program("async_channel_total");
+    assert!(
+        compile.status.success(),
+        "compiling async_channel_total.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "async_channel_total exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "520\n");
+}
+
+#[test]
 fn the_async_opt_list_names_the_poll_pass_and_no_opt_disables_it() {
     // `--opt-list` names the registered `async` pass, and `--no-opt=async`
     // still builds the same program: suspension is a bisect switch, not a

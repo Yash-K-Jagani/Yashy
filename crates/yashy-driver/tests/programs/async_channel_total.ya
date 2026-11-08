@@ -1,0 +1,52 @@
+// Two tasks incrementing through one channel produce a deterministic total.
+//
+// Both workers are synchronous (a spawn takes any function), each sends five
+// values — 0..4 and 100..104 — into a channel with room for ten, so neither
+// send can block regardless of which task the executor ran first. The parent
+// then receives exactly those ten values and sums them: 10 + 510 = 520, the
+// same answer no matter the interleaving, because every send is counted once
+// and the receive order does not change the sum.
+fn worker(Channel[int] ch, int base) {
+    let i = 0;
+    while i < 5 {
+        ch.send(base + i);
+        i += 1;
+    }
+}
+
+async fn main_task() -> int {
+    let Channel[int] ch = chan_new(16);
+    scope {
+        let a = spawn(worker, ch, 0);
+        let b = spawn(worker, ch, 100);
+        a.await;
+        b.await;
+    }
+    let answers = []int { };
+    let received = 0;
+    while received < 10 {
+        switch ch.recv() {
+            case Some(n) {
+                answers.push(n);
+            }
+            case None {
+                // The workers send exactly ten values; a missing one poisons
+                // the sum so a lost send cannot pass silently.
+                answers.push(-1);
+            }
+        }
+        received += 1;
+    }
+
+    let total = 0;
+    for n in answers {
+        total += n;
+    }
+    answers.free();
+    ch.free();
+    return total;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

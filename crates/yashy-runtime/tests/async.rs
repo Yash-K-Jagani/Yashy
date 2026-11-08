@@ -146,3 +146,25 @@ fn the_async_executor_suite_passes() {
     let directory = executable.parent().expect("the executable has a parent");
     let _ = std::fs::remove_dir_all(directory);
 }
+
+#[test]
+fn the_pool_executor_stress_survives_100_runs() {
+    // Phase 10 task 6: the pool-mode stress suite (10 000 tasks in both
+    // modes, nested spawn) run a hundred times over the same binary. The
+    // e2e async tests stay deterministic by design; this loop is the
+    // concurrency stress the single runs cannot be.
+    let executable = build_async_program();
+    for run in 0..100 {
+        let output = run_retrying(&executable);
+        assert!(
+            output.status.success(),
+            "run {run} failed with {:?}:\nstdout:\n{}\nstderr:\n{}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let directory = executable.parent().expect("the executable has a parent");
+    let _ = std::fs::remove_dir_all(directory);
+}

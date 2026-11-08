@@ -1,0 +1,20 @@
+// A bare `*mut int` capture reaching a spawned task: the same phase 2 race
+// rule as `thread_spawn`, now over the async boundary.
+// Expected: E1402 on the `spawn`.
+fn bump(*mut int p) -> int {
+    p[0] = p[0] + 1;
+    return p[0];
+}
+
+async fn f(*mut int p) -> int {
+    let n = 0;
+    scope {
+        let t = spawn(bump, p);
+        n = t.await;
+    }
+    return n;
+}
+
+fn main() {
+    print(0);
+}

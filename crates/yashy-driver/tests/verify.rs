@@ -367,6 +367,12 @@ const SEEDED_BUGS: &[(&str, i32, &[&str])] = &[
     ("macro_hidden_io", 1, &["E1300"]),
     ("macro_double_free", 1, &["E0500"]),
     ("macro_leak", 1, &["E1000"]),
+    // Phase 10: race freedom over async captures (E1402 over `spawn`), a
+    // lock held across an `await` (E1702), and a task handle that escapes
+    // its scope (E1701).
+    ("async_bare_capture", 1, &["E1402"]),
+    ("async_lock_across_await", 1, &["E1702"]),
+    ("async_task_escape", 1, &["E2000", "E1701"]),
 ];
 /// The `code` values in a schema-v1 report, in order.
 ///
