@@ -1,0 +1,1 @@
+macro fn { $x:expr => { 1 } }

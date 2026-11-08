@@ -288,6 +288,35 @@ fn malformed_inputs() -> Vec<(&'static str, String)> {
 }
 
 #[test]
+fn macro_inputs_expand_or_report_a_diagnostic() {
+    on_front_end_stack(|| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("never_panics_corpus");
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)
+            .expect("the macro corpus directory must exist")
+            .map(|entry| entry.expect("a readable directory entry").path())
+            .collect();
+        entries.sort();
+        assert_eq!(entries.len(), 20, "the hostile macro corpus must have 20 files");
+        for path in entries {
+            let src = std::fs::read_to_string(&path).expect("a corpus file must be readable");
+            let mut sources = SourceMap::new();
+            let file = sources.add_file("macro.ya", src.clone());
+            let Ok(tokens) = Lexer::with_file(&src, file).tokenize() else {
+                continue;
+            };
+            let Ok(program) = Parser::new(tokens.clone(), &sources, file).parse_program() else {
+                continue;
+            };
+            // Every outcome here is acceptable except a panic: expansion
+            // either succeeds or produces a coded diagnostic.
+            let _ = yashy_expand::expand_tokens(&program.items, &sources, file, &tokens);
+        }
+    });
+}
+
+#[test]
 fn no_input_makes_the_compiler_panic() {
     on_front_end_stack(no_input_makes_the_compiler_panic_inner);
 }

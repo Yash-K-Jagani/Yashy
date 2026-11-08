@@ -1,0 +1,1 @@
+macro m { $x:ident => { 1 } } fn main() { m(1); }

@@ -1,0 +1,1 @@
+macro m { $x:expr => { m($x) } } fn main() { m(1); }

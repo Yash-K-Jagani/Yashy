@@ -1,0 +1,1 @@
+macro m { $x:ty => { 1 } } fn main() { m(1 + 2); }
