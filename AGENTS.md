@@ -106,6 +106,12 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   not a program the compiler runs — expansion happens before parsing, once,
   in `yashy-expand`, with the caps in its spec (`E1600` no match,
   `E1601` depth/size, `E1602` fragment kind, `E1603` duplicate name).
+- **Async is one executor.** `async fn` returns `Task[T]` and suspends at
+  `.await`; `scope` joins or cancels its children before it is left. There is
+  no pluggable runtime, no `async` trait method (`E1703`), no `Future`
+  trait and no async closures. A lock held across `.await` is `E1702`, a
+  task escaping its scope is `E1701`, and an `await` outside an `async fn`
+  is `E1700`.
 - **Patterns are irrefutable in binding position.** A pattern in `let`,
   `const` and `for` must match every value of its type; a refutable pattern
   there is `E0100` with the fix "use `switch`". In `switch`, every

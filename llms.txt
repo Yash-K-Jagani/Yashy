@@ -6,11 +6,12 @@
 
 - [Quickstart](docs/quickstart.md): install LLVM and Yashy, run `yashy doctor`, create a project, run it, and test it.
 - [Your first CLI](docs/tutorial/12-first-cli.md): the project-shaped path, from install to a tested release binary.
-- [Language tutorial](docs/tutorial/00-intro.md): seventeen chapters; every `yashy` block is compiled and run by the test suite.
+- [Language tutorial](docs/tutorial/00-intro.md): eighteen chapters; every `yashy` block is compiled and run by the test suite.
 - [The C boundary](docs/tutorial/13-ffi.md): `extern` declarations, `link_name`, variadic calls, and the `repr(C)` layout `sizeof`, `alignof` and `offsetof` read.
 - [Modules](docs/tutorial/14-modules.md): `import`, `pub` visibility (`E0801`), aliases, and import cycles (`E0802`).
 - [Traits and objects](docs/tutorial/15-traits.md): requirement-set traits, `impl Trait for Type`, bounds, associated functions, static dispatch, and the `Iterator[T]` protocol.
 - [Macros](docs/tutorial/16-macros.md): declarative macros, the seven fragment kinds (`E1600`, `E1602`), expansion before checking, and the depth and size caps (`E1601`).
+- [Async](docs/tutorial/17-async.md): `async fn`, `Task[T]`, `.await`, `spawn`, `scope`, the one executor, and `yashy run --debug` / `yashy tasks`.
 - [Strings](docs/tutorial/08-strings.md): bytes versus grapheme clusters — `len()` keeps counting bytes; `graphemes()`, `char_at()` and `substring()` count and slice by cluster.
 
 ## Reference
@@ -35,6 +36,7 @@
 - `yashy check --json <file.ya>`, `yashy verify --json <file.ya>` and `yashy test --json` share [schema v1](docs/cli.md#json-diagnostics-schema-v1); `--json` implies no color or prompt.
 - `yashy explain <code> [--json]` prints the embedded [error catalog](docs/errors.md) page for a stable code, offline.
 - `yashy expand <file.ya> [--json]` prints the program after every macro is replaced, without checking it; `--json` lists each invocation in source order.
+- `yashy run --debug <file.ya>` and `yashy tasks <file.ya>` run the program with the live-task table (`YASHY_DEBUG=1` / `YASHY_TASKS_DUMP=1`); `YASHY_EXECUTOR_THREADS=<n>` selects the executor's worker count.
 - [Example page](docs/errors/E0100.md): the cause, minimal example, and fix for a type mismatch.
 - [Leak page](docs/errors/E1000.md): the cause, minimal example, and fix for a linear value that is never released.
 
