@@ -71,6 +71,7 @@ usage:
   yashy outline <file.ya>
   yashy graph [path] [--json|--dot]
   yashy search <query> [path]
+  yashy context --task <task> [path] [--budget <n>] [--json]
   yashy fmt [-w] <files...>
   yashy version
 
@@ -173,6 +174,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "outline" => outline_cmd(rest),
         "graph" => graph_cmd(rest),
         "search" => search_cmd(rest),
+        "context" => context_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -3004,6 +3006,66 @@ fn search_cmd(args: &[String]) -> ExitCode {
         Ok(model) => {
             for line in yashy_driver::outline::search(&model, &query) {
                 println!("{line}");
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+/// `yashy context --task "..." [path] [--budget <n>] [--json]`: a
+/// token-budgeted context pack.
+fn context_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut task: Option<String> = None;
+    let mut budget: usize = 8000;
+    let mut input: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--task" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--task` needs a value");
+                }
+                task = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--budget" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--budget` needs a value");
+                }
+                match args[i + 1].parse::<usize>() {
+                    Ok(parsed) => budget = parsed,
+                    Err(_) => return usage_error("`--budget` needs a whole number"),
+                }
+                i += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `context`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+    let Some(task) = task else {
+        return usage_error("`context` needs `--task \"...\"`");
+    };
+    let root = input.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::context::build_context(&root, &task, budget, None) {
+        Ok(pack) => {
+            if json {
+                println!("{}", pack.to_json().render());
+            } else {
+                print!("{}", pack.render_markdown());
             }
             exit_code(EXIT_OK)
         }

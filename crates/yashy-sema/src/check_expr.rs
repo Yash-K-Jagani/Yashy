@@ -2890,6 +2890,12 @@ impl<'src> Checker<'src> {
     fn declare_items(&mut self, items: &[Item]) {
         for item in items {
             match item {
+                // A doc block may wrap outside `pub` (`/// x\npub fn`): the
+                // `pub` test below has to see through it, so unwrap here and
+                // declare the item inside with the same visibility.
+                Item::Documented { item, .. } => {
+                    self.declare_items(std::slice::from_ref(&**item))
+                }
                 // `pub` is a modifier in front of an item: the item inside is
                 // declared as usual, and marked as one another module may use.
                 Item::Public { item, .. } => {
