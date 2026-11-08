@@ -2537,6 +2537,16 @@ fn gen_borrowed_call_lowered(
     value
 }
 
+/// The slot of frame field `index` for the async poll being emitted.
+fn field_slot_for_try(ctx: &mut FnCtx<'_>, poll: &AsyncPoll, index: i32) -> String {
+    let slot = ctx.tmp();
+    ctx.push(format!(
+        "{slot} = getelementptr {}, ptr {}, i32 0, i32 {index}",
+        poll.frame_type, poll.frame_slot
+    ));
+    slot
+}
+
 /// Lower `expr?`: test the Result tag, propagate on `Err`, unwrap on `Ok`.
 ///
 /// The `Err` path returns the whole Result value out of the enclosing
@@ -2577,7 +2587,17 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
     ));
 
     ctx.push(format!("{err_label}:"));
-    if ret_repr == subject_repr && ret_repr != "void" {
+    if ctx.async_poll.is_some() {
+        let poll = ctx.async_poll.clone().expect("async poll is present");
+        // Inside an async poll the function returns the task frame, not the
+        // function's own result: the early answer goes into the frame's
+        // result slot and the resume word marks the task done.
+        let result = field_slot_for_try(ctx, &poll, poll.result_index);
+        ctx.push(format!("store {} {}, ptr {result}", ret_repr, value.value));
+        let resume = field_slot_for_try(ctx, &poll, 0);
+        ctx.push(format!("store i32 -1, ptr {resume}"));
+        ctx.push(format!("ret i8* {}", poll.frame_slot));
+    } else if ret_repr == subject_repr && ret_repr != "void" {
         ctx.push(format!("ret {ret_repr} {}", value.value));
     } else {
         ctx.push(
