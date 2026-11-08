@@ -141,6 +141,8 @@ pub struct HirFn {
     /// The values the function captured, in the order the environment holds
     /// them. Empty for every function that is not a closure.
     pub captures: Vec<HirCapture>,
+    /// The doc lines of the item's `///` block, stored for `yashy doc`.
+    pub docs: Vec<String>,
     /// The module the function was written in.
     ///
     /// A program's items arrive flattened, one list in dependency order, so a

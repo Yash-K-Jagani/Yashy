@@ -67,6 +67,7 @@ usage:
   yashy init [path]
   yashy doctor [--json]
   yashy expand <file.ya> [--json]
+  yashy index [path] [--json]
   yashy fmt [-w] <files...>
   yashy version
 
@@ -80,6 +81,8 @@ usage:
   init    create a new Yashy project
   doctor  check the compiler's toolchain and standard library
   expand  print the fully expanded program, without checking it
+  index   print the symbol index of a directory: signatures, effects and
+          contracts (--json for the machine-readable form)
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -160,6 +163,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "init" => init(rest),
         "doctor" => doctor(rest),
         "expand" => expand(rest),
+        "index" => index_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -2850,8 +2854,43 @@ fn expand(args: &[String]) -> ExitCode {
     }
 }
 
-fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {
-    let mut report = Json::object();
+/// `yashy index [path] [--json]`: the symbol index over a directory or a
+/// single file.
+fn index_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `index`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let root = input.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::index::build_index(&root) {
+        Ok(model) => {
+            if json {
+                println!("{}", yashy_driver::index::to_json(&model).render());
+            } else {
+                print!("{}", yashy_driver::index::render_human(&model));
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
+        }
+    }
+}
+
+fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {    let mut report = Json::object();
     report.set("schema_version", Json::number(1));
     report.set("tool", Json::string("yashy"));
     report.set(

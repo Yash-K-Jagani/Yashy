@@ -148,6 +148,7 @@ impl Checker<'_> {
             effect: yashy_common::Effect::PURE,
             declared: yashy_common::DeclaredEffect::Inferred,
             is_async: false,
+            docs: Vec::new(),
             file: self.file,
             span,
         });

@@ -4207,6 +4207,7 @@ impl<'src> Checker<'src> {
             effect: yashy_common::Effect::PURE,
             declared,
             is_async,
+            docs: Vec::new(),
             file: self.file,
             span,
         })
@@ -4662,22 +4663,29 @@ impl<'src> Checker<'src> {
     /// so the body checker has to know before it reads the body rather than
     /// having the answer stamped on afterwards.
     fn check_item(&mut self, item: &Item) -> Option<Vec<HirItem>> {
-        self.check_item_with_declared(item, yashy_common::DeclaredEffect::Inferred)
+        self.check_item_with_declared(
+            item,
+            yashy_common::DeclaredEffect::Inferred,
+            &[],
+        )
     }
 
     fn check_item_with_declared(
         &mut self,
         item: &Item,
         declared: yashy_common::DeclaredEffect,
+        docs: &[String],
     ) -> Option<Vec<HirItem>> {
         match item {
             // `pub` is a modifier in front of an item: the item inside is
             // checked as usual. The visibility was settled in the declaration
             // pass, where the item's name was recorded.
-            Item::Public { item, .. } => self.check_item_with_declared(item, declared),
+            Item::Public { item, .. } => self.check_item_with_declared(item, declared, docs),
             // A doc block is stored, not checked: the item inside checks as
             // usual, and `yashy doc` reads the text later.
-            Item::Documented { item, .. } => self.check_item_with_declared(item, declared),
+            Item::Documented { docs: text, item, .. } => {
+                self.check_item_with_declared(item, declared, text)
+            }
             Item::Effect { effect, item, .. } => {
                 // Check the inner item with the wrapper's effect in hand, so
                 // an `async fn` is checked as async from the first statement.
@@ -4687,7 +4695,7 @@ impl<'src> Checker<'src> {
                 } else {
                     declared
                 };
-                self.check_item_with_declared(item, deep)
+                self.check_item_with_declared(item, deep, docs)
             }
             Item::Fn {
                 name,
@@ -4718,6 +4726,8 @@ impl<'src> Checker<'src> {
                     *span,
                     declared,
                 )?;
+                let mut checked = checked;
+                checked.docs = docs.to_vec();
                 Some(vec![HirItem::Fn(checked)])
             }
             Item::Struct {
@@ -5037,6 +5047,7 @@ impl<'src> Checker<'src> {
                 // impl body is `E1300` at the impl in the verifier.
                 declared: body_declared,
                 is_async,
+                docs: Vec::new(),
                 file: self.file,
                 span: *span,
             }));
@@ -9437,6 +9448,7 @@ impl<'src> Checker<'src> {
                 effect: yashy_common::Effect::PURE,
                 declared: yashy_common::DeclaredEffect::Inferred,
                 is_async: false,
+                docs: Vec::new(),
                 file: self.file,
                 span,
             }),
