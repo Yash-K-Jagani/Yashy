@@ -670,6 +670,7 @@ void yashy_chan_free(yashy_chan *chan);
  * `block_on` frees the frame it drove after reading the result.
  */
 typedef struct yashy_executor yashy_executor;
+typedef struct yashy_scope yashy_scope;
 typedef void *(*yashy_poll_fn)(void *frame);
 
 yashy_executor *yashy_executor_new(int threads);
@@ -681,6 +682,14 @@ int yashy_block_on(yashy_executor *executor, yashy_poll_fn poll, void *frame);
 void yashy_task_cancel(yashy_executor *executor, yashy_poll_fn poll, void *frame);
 void yashy_task_drop(void *frame);
 long long yashy_executor_completed(yashy_executor *executor);
+
+/* Structured concurrency: `scope` lowers to "create child scope; run body;
+ * join-or-cancel every child in reverse spawn order; free the scope". A child
+ * is any task spawned while the scope is active. Join polls each child until
+ * ready; a child that stays pending is cancelled (frame freed). */
+yashy_scope *yashy_scope_create(yashy_executor *executor);
+void yashy_scope_join_or_cancel(yashy_scope *scope);
+void yashy_scope_free(yashy_scope *scope);
 
 /* ---- Diagnostics ----
  *

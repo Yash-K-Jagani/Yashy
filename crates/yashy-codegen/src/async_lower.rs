@@ -876,6 +876,17 @@ fn gen_spawn_sync(
     let mut lines = Vec::new();
     lines.push(format!("define i8* @{poll_name}(i8* %frame) {{"));
     lines.push("entry:".to_string());
+    // Re-polling a finished task answers Ready without running the worker
+    // again, exactly like an async poll's done sentinel.
+    lines.push(format!(
+        "  %spawn_resume0 = getelementptr {frame_ty}, ptr %frame, i32 0, i32 0"
+    ));
+    lines.push("  %spawn_resume_v = load i32, ptr %spawn_resume0".to_string());
+    lines.push("  %spawn_done = icmp eq i32 %spawn_resume_v, -1".to_string());
+    lines.push("  br i1 %spawn_done, label %spawn_done_lbl, label %spawn_run".to_string());
+    lines.push("spawn_done_lbl:".to_string());
+    lines.push("  ret i8* %frame".to_string());
+    lines.push("spawn_run:".to_string());
     let mut call_args = Vec::new();
     for (param_index, param) in params.iter().enumerate() {
         let repr = repr_type(&param.kind);

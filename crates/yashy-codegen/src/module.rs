@@ -849,6 +849,10 @@ impl Module {
         out.push_str("declare i32 @yashy_block_on(i8*, i8*, i8*)\n");
         out.push_str("declare void @yashy_task_cancel(i8*, i8*, i8*)\n");
         out.push_str("declare void @yashy_task_drop(i8*)\n");
+        // Structured concurrency (Phase 10, Task 5): the scope registry.
+        out.push_str("declare i8* @yashy_scope_create(i8*)\n");
+        out.push_str("declare void @yashy_scope_join_or_cancel(i8*)\n");
+        out.push_str("declare void @yashy_scope_free(i8*)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.

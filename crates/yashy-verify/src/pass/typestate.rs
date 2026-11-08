@@ -18,6 +18,756 @@ use yashy_hir::hir::{
 pub fn check(program: &HirProgram, out: &mut Vec<Diagnostic>) {
     check_typestate(program, out);
     check_race(program, out);
+    check_async_rules(program, out);
+}
+
+/// Structured concurrency (phase 10, task 5): `E1701` (task escape) and
+/// `E1702` (hold across await).
+///
+/// The ruling in `.superpowers/sdd/2026-11-08-phase-10/progress.md` places
+/// `E1702` in the async pass rather than the typestate state walk: a suspension
+/// is an async fact, and this function computes only the *intersection* of
+/// "a lock or linear resource is held here" (the same lock/unlock and
+/// alloc/free facts the typestate walk already tracks) with "the next
+/// statement suspends". It does not duplicate the merge machinery.
+fn check_async_rules(program: &HirProgram, out: &mut Vec<Diagnostic>) {
+    for item in &program.items {
+        if let HirItem::Fn(function) = item {
+            check_escape_fn(function, out);
+            if function.is_async {
+                check_hold_fn(function, out);
+            }
+        }
+    }
+}
+
+/// `E1701`: a `Task[T]` handle returned, stored in a struct field, or pushed
+/// into a collection. The handle's defining span answers the liveness
+/// question: a handle defined inside a `scope` that is used at a shallower
+/// depth, or stored into a field/collection at any depth (storage outlives
+/// the scope by construction), escapes.
+fn check_escape_fn(function: &HirFn, out: &mut Vec<Diagnostic>) {
+    let mut walker = EscapeWalker {
+        out,
+        file: function.file,
+        depth: 0,
+        scoped: Vec::new(),
+    };
+    walker.block(&function.body);
+}
+
+struct EscapeWalker<'a> {
+    out: &'a mut Vec<Diagnostic>,
+    file: FileId,
+    depth: usize,
+    /// `(name, defining depth)` for `Task` bindings created inside a scope.
+    scoped: Vec<(String, usize)>,
+}
+
+impl EscapeWalker<'_> {
+    fn report(&mut self, name: &str, span: Span) {
+        self.out.push(
+            Diagnostic::new(
+                Severity::Error,
+                self.file,
+                span,
+                format!("task handle `{name}` escapes its scope"),
+            )
+            .with_code(codes::TASK_ESCAPE),
+        );
+    }
+
+    fn defines_task(&self, name: &str) -> Option<usize> {
+        self.scoped
+            .iter()
+            .rev()
+            .find(|(scoped, _)| scoped == name)
+            .map(|(_, depth)| *depth)
+    }
+
+    fn block(&mut self, block: &HirBlock) {
+        for stmt in &block.stmts {
+            self.stmt(stmt);
+        }
+    }
+
+    fn stmt(&mut self, stmt: &HirStmt) {
+        match stmt {
+            HirStmt::Scope { body, .. } => {
+                self.depth += 1;
+                self.block(body);
+                self.depth -= 1;
+            }
+            HirStmt::Var { name, init, .. } | HirStmt::Const { name, init, .. } => {
+                self.expr(init);
+                if self.depth > 0 && is_task_ty(init) {
+                    self.scoped.push((name.clone(), self.depth));
+                }
+            }
+            HirStmt::Return(Some(expr), _) => {
+                self.expr(expr);
+                if let Some((name, span)) = escaping_ident(expr, &self.scoped, self.depth) {
+                    self.report(&name, span);
+                }
+            }
+            HirStmt::Assign { name, value, .. } => {
+                self.expr(value);
+                // Assigning a spawned task into a binding that outlives the
+                // scope (one not itself defined inside the scope) escapes.
+                if matches!(root_ident(value), HirExpr::Spawn { .. })
+                    && self.defines_task(name).is_none()
+                {
+                    let span = yashy_hir::hir::expr_span(value);
+                    self.report(name, span);
+                }
+            }
+            HirStmt::FieldAssign { value, .. } => {
+                self.expr(value);
+                if matches!(root_ident(value), HirExpr::Spawn { .. }) {
+                    let span = yashy_hir::hir::expr_span(value);
+                    self.report("spawn(...)", span);
+                }
+                if let HirExpr::Ident(path, span, _) = root_ident(value) {
+                    if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                        let name = path.last().cloned().unwrap_or_default();
+                        self.report(&name, *span);
+                    }
+                }
+            }
+            HirStmt::If {
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                self.expr(cond);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
+            HirStmt::ForRange { start, end, body, .. } => {
+                self.expr(start);
+                self.expr(end);
+                self.block(body);
+            }
+            HirStmt::ForIn { iterable, body, .. } => {
+                self.expr(iterable);
+                self.block(body);
+            }
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                if let Some(cond) = cond {
+                    self.expr(cond);
+                }
+                if let Some(update) = update {
+                    self.expr(update);
+                }
+                self.block(body);
+            }
+            HirStmt::Switch { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
+                    self.expr(&arm.body);
+                }
+            }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
+            HirStmt::Defer { body, .. } => self.block(body),
+            HirStmt::Expr(expr, ..) => self.expr(expr),
+            HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Assign { value, .. } => self.expr(value),
+            HirStmt::IndexAssign {
+                base, index, value, ..
+            } => {
+                self.expr(base);
+                self.expr(index);
+                self.expr(value);
+            }
+            HirStmt::FieldPtrAssign {
+                pointer,
+                index,
+                value,
+                ..
+            } => {
+                self.expr(pointer);
+                self.expr(index);
+                self.expr(value);
+            }
+            HirStmt::LoopInvariant(contract) => self.expr(&contract.expr),
+            _ => {}
+        }
+    }
+
+    fn expr(&mut self, expr: &HirExpr) {
+        match expr {
+            HirExpr::Call { callee, args, span, .. } => {
+                let name = callee.last().map(|s| s.as_str()).unwrap_or("");
+                if name == "push" {
+                    for arg in args {
+                        if let HirExpr::Ident(path, arg_span, _) = root_ident(arg) {
+                            if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                                let name = path.last().cloned().unwrap_or_default();
+                                self.report(&name, *arg_span);
+                            }
+                        }
+                        if matches!(arg, HirExpr::Spawn { .. }) {
+                            self.report("spawn(...)", *span);
+                        }
+                    }
+                }
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::StructLit { fields, .. } => {
+                for (_, value, _) in fields {
+                    if matches!(root_ident(value), HirExpr::Spawn { .. }) {
+                        let span = yashy_hir::hir::expr_span(value);
+                        self.report("spawn(...)", span);
+                    }
+                    if let HirExpr::Ident(path, span, _) = root_ident(value) {
+                        if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                            let name = path.last().cloned().unwrap_or_default();
+                            self.report(&name, *span);
+                        }
+                    }
+                    self.expr(value);
+                }
+            }
+            HirExpr::Binary { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => self.expr(operand),
+            HirExpr::SliceLit { elements, .. }
+            | HirExpr::FixedArrayLit { elements, .. }
+            | HirExpr::TupleLit { elements, .. } => {
+                for element in elements {
+                    self.expr(element);
+                }
+            }
+            HirExpr::FieldAccess { base, .. } => self.expr(base),
+            HirExpr::Index { base, index, .. } => {
+                self.expr(base);
+                self.expr(index);
+            }
+            HirExpr::View {
+                base, start, end, ..
+            } => {
+                self.expr(base);
+                self.expr(start);
+                self.expr(end);
+            }
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.expr(expr),
+            HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
+                    self.expr(&arm.body);
+                }
+            }
+            HirExpr::Lambda { f, .. } => {
+                let saved = self.depth;
+                // A lambda is a fresh body; its tasks escape only across the
+                // lambda's own scopes.
+                self.depth = 0;
+                let saved_scoped = std::mem::take(&mut self.scoped);
+                self.block(&f.body);
+                self.scoped = saved_scoped;
+                self.depth = saved;
+            }
+            HirExpr::CallCapture { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
+                self.expr(receiver);
+                self.expr(func);
+                if let Some(init) = init {
+                    self.expr(init);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn root_ident(expr: &HirExpr) -> &HirExpr {
+    match expr {
+        HirExpr::Move(inner, ..) => root_ident(inner),
+        other => other,
+    }
+}
+
+/// The escaping ident a `return` carries: the returned expression itself when
+/// it names a handle defined in a deeper scope than the `return` sits in.
+fn escaping_ident(
+    expr: &HirExpr,
+    scoped: &[(String, usize)],
+    depth: usize,
+) -> Option<(String, Span)> {
+    let HirExpr::Ident(path, span, _) = root_ident(expr) else {
+        return None;
+    };
+    let name = path.last().cloned().unwrap_or_default();
+    let def_depth = scoped
+        .iter()
+        .rev()
+        .find(|(scoped, _)| scoped == &name)
+        .map(|(_, depth)| *depth)?;
+    if def_depth > depth {
+        Some((name, *span))
+    } else {
+        None
+    }
+}
+
+fn is_task_ty(expr: &HirExpr) -> bool {
+    use yashy_hir::ty::TypeKind;
+    matches!(
+        yashy_hir::hir::expr_ty(expr).kind,
+        TypeKind::Task(_)
+    ) || matches!(expr, HirExpr::Spawn { .. })
+}
+
+/// `E1702`: a resource held across an `await`. Tracks, in statement order,
+/// mutexes in `Locked` state and linear (allocated) resources, and fires when
+/// a statement suspends while one is held and no `defer` in scope releases it.
+fn check_hold_fn(function: &HirFn, out: &mut Vec<Diagnostic>) {
+    let mut held: Vec<(String, &'static str, bool)> = Vec::new();
+    let mut walker = HoldWalker {
+        out,
+        file: function.file,
+        held: &mut held,
+    };
+    walker.block(&function.body);
+}
+
+struct HoldWalker<'a> {
+    out: &'a mut Vec<Diagnostic>,
+    file: FileId,
+    held: &'a mut Vec<(String, &'static str, bool)>,
+}
+
+impl HoldWalker<'_> {
+    fn block(&mut self, block: &HirBlock) {
+        // A `defer` anywhere in this block releases at its exit; whether it
+        // exempts an `await` in this block is answered per-await by whether
+        // the defer was *reached* before it.
+        for stmt in &block.stmts {
+            self.stmt(stmt);
+        }
+    }
+
+    fn stmt(&mut self, stmt: &HirStmt) {
+        // First the await check: the intersection of "held" with "suspends".
+        if let Some(await_span) = stmt_await_span(stmt) {
+            let held: Vec<String> = self
+                .held
+                .iter()
+                .filter(|(_, _, deferred)| !deferred)
+                .map(|(name, _, _)| name.clone())
+                .collect();
+            for name in held {
+                self.out.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        self.file,
+                        await_span,
+                        format!("`{name}` is held across an `await`: release it before suspending, or `defer` the release"),
+                    )
+                    .with_code(codes::HOLD_ACROSS_AWAIT),
+                );
+            }
+        }
+        match stmt {
+            HirStmt::Var { name, init, .. } | HirStmt::Const { name, init, .. } => {
+                self.note_init(name, init);
+                self.expr(init);
+            }
+            HirStmt::Defer { body, .. } => {
+                for name in deferred_releases(body) {
+                    if let Some(entry) = self.held.iter_mut().find(|(held, ..)| held == &name) {
+                        entry.2 = true;
+                    }
+                }
+            }
+            HirStmt::If {
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                self.expr(cond);
+                let saved = self.held.clone();
+                self.block(then_block);
+                let then_held = self.held.clone();
+                *self.held = saved;
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+                // Conservative join: a held flag set on either branch stays.
+                for entry in then_held {
+                    if !self.held.iter().any(|(name, _, _)| name == &entry.0) {
+                        self.held.push(entry);
+                    }
+                }
+            }
+            HirStmt::Scope { body, .. } => self.block(body),
+            HirStmt::ForRange { start, end, body, .. } => {
+                self.expr(start);
+                self.expr(end);
+                let saved = self.held.clone();
+                self.block(body);
+                let _ = saved;
+            }
+            HirStmt::ForIn { iterable, body, .. } => {
+                self.expr(iterable);
+                self.block(body);
+            }
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                ..
+            } => {
+                if let Some(init) = init {
+                    self.stmt(init);
+                }
+                if let Some(cond) = cond {
+                    self.expr(cond);
+                }
+                self.block(body);
+                if let Some(update) = update {
+                    self.expr(update);
+                }
+            }
+            HirStmt::Switch { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
+                    self.expr(&arm.body);
+                }
+            }
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.expr(subject);
+                self.block(then_block);
+                if let Some(else_block) = else_block {
+                    self.block(else_block);
+                }
+            }
+            HirStmt::Expr(expr, ..) => self.expr(expr),
+            HirStmt::Destructure { init, .. } => self.expr(init),
+            HirStmt::Assign { value, .. } => self.expr(value),
+            HirStmt::IndexAssign {
+                base, index, value, ..
+            } => {
+                self.expr(base);
+                self.expr(index);
+                self.expr(value);
+            }
+            HirStmt::FieldAssign { value, .. } => self.expr(value),
+            HirStmt::FieldPtrAssign {
+                pointer,
+                index,
+                value,
+                ..
+            } => {
+                self.expr(pointer);
+                self.expr(index);
+                self.expr(value);
+            }
+            HirStmt::Return(Some(expr), _) => self.expr(expr),
+            HirStmt::LoopInvariant(contract) => self.expr(&contract.expr),
+            _ => {}
+        }
+    }
+
+    fn note_init(&mut self, name: &str, init: &HirExpr) {
+        let HirExpr::Call { callee, .. } = init else {
+            return;
+        };
+        match callee.last().map(|s| s.as_str()).unwrap_or("") {
+            // An unlocked mutex is not held yet: the flag starts exempt and
+            // the lock transition clears it.
+            "mutex_new" => {
+                self.held.push((name.to_string(), "mutex", true));
+            }
+            "alloc" => {
+                self.held.push((name.to_string(), "resource", false));
+            }
+            _ => {}
+        }
+    }
+
+    fn expr(&mut self, expr: &HirExpr) {
+        match expr {
+            HirExpr::Call { callee, args, .. } => {
+                match callee.last().map(|s| s.as_str()).unwrap_or("") {
+                    "mutex_lock" | "lock" => {
+                        if let Some(name) = first_arg_name(args) {
+                            if let Some(entry) = self.held.iter_mut().find(|(held, ..)| held == &name) {
+                                entry.1 = "mutex";
+                                entry.2 = false;
+                            } else {
+                                self.held.push((name, "mutex", false));
+                            }
+                        }
+                    }
+                    "mutex_unlock" | "unlock" | "free" | "dealloc" | "mutex_free" => {
+                        if let Some(name) = first_arg_name(args) {
+                            self.held.retain(|(held, ..)| held != &name);
+                        }
+                    }
+                    _ => {}
+                }
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::Binary { lhs, rhs, .. } => {
+                self.expr(lhs);
+                self.expr(rhs);
+            }
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => self.expr(operand),
+            HirExpr::StructLit { fields, .. } => {
+                for (_, value, _) in fields {
+                    self.expr(value);
+                }
+            }
+            HirExpr::SliceLit { elements, .. }
+            | HirExpr::FixedArrayLit { elements, .. }
+            | HirExpr::TupleLit { elements, .. } => {
+                for element in elements {
+                    self.expr(element);
+                }
+            }
+            HirExpr::FieldAccess { base, .. } => self.expr(base),
+            HirExpr::Index { base, index, .. } => {
+                self.expr(base);
+                self.expr(index);
+            }
+            HirExpr::View {
+                base, start, end, ..
+            } => {
+                self.expr(base);
+                self.expr(start);
+                self.expr(end);
+            }
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.expr(expr),
+            HirExpr::Await { expr, .. } => self.expr(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                self.expr(callee);
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => {
+                self.expr(subject);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.expr(guard);
+                    }
+                    self.expr(&arm.body);
+                }
+            }
+            HirExpr::Lambda { f, .. } => {
+                let saved = self.held.clone();
+                self.block(&f.body);
+                *self.held = saved;
+            }
+            HirExpr::CallCapture { args, .. } => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
+                self.expr(receiver);
+                self.expr(func);
+                if let Some(init) = init {
+                    self.expr(init);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn first_arg_name(args: &[HirExpr]) -> Option<String> {
+    match args.first()? {
+        HirExpr::AddrOf { name, .. } => Some(name.clone()),
+        HirExpr::Ident(path, ..) if path.len() == 1 => path.first().cloned(),
+        _ => None,
+    }
+}
+
+/// The span of the first `await` a statement suspends at, if any.
+fn stmt_await_span(stmt: &HirStmt) -> Option<Span> {
+    fn expr_await(expr: &HirExpr) -> Option<Span> {
+        match expr {
+            HirExpr::Await { span, .. } => Some(*span),
+            HirExpr::Binary { lhs, rhs, .. } => expr_await(lhs).or_else(|| expr_await(rhs)),
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => expr_await(operand),
+            HirExpr::Call { args, .. } | HirExpr::CallCapture { args, .. } => {
+                args.iter().find_map(expr_await)
+            }
+            HirExpr::StructLit { fields, .. } => {
+                fields.iter().find_map(|(_, value, _)| expr_await(value))
+            }
+            HirExpr::SliceLit { elements, .. }
+            | HirExpr::FixedArrayLit { elements, .. }
+            | HirExpr::TupleLit { elements, .. } => elements.iter().find_map(expr_await),
+            HirExpr::FieldAccess { base, .. } => expr_await(base),
+            HirExpr::Index { base, index, .. } => expr_await(base).or_else(|| expr_await(index)),
+            HirExpr::View {
+                base, start, end, ..
+            } => expr_await(base).or_else(|| expr_await(start)).or_else(|| expr_await(end)),
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => expr_await(expr),
+            HirExpr::Spawn { callee, args, .. } => {
+                expr_await(callee).or_else(|| args.iter().find_map(expr_await))
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => expr_await(subject).or_else(|| {
+                arms.iter()
+                    .find_map(|arm| arm.guard.as_ref().and_then(expr_await).or_else(|| expr_await(&arm.body)))
+            }),
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => expr_await(receiver)
+                .or_else(|| expr_await(func))
+                .or_else(|| init.as_ref().and_then(|value| expr_await(value))),
+            HirExpr::Lambda { f, .. } => f.body.stmts.iter().find_map(stmt_await_span),
+            _ => None,
+        }
+    }
+    match stmt {
+        HirStmt::Expr(expr, ..) => expr_await(expr),
+        HirStmt::Var { init, .. } | HirStmt::Const { init, .. } | HirStmt::Destructure { init, .. } => {
+            expr_await(init)
+        }
+        HirStmt::Assign { value, .. } => expr_await(value),
+        HirStmt::Return(Some(expr), _) => expr_await(expr),
+        HirStmt::If { cond, then_block, else_block, .. } => expr_await(cond)
+            .or_else(|| then_block.stmts.iter().find_map(stmt_await_span))
+            .or_else(|| else_block.as_ref().and_then(|block| block.stmts.iter().find_map(stmt_await_span))),
+        HirStmt::ForRange { start, end, body, .. } => expr_await(start)
+            .or_else(|| expr_await(end))
+            .or_else(|| body.stmts.iter().find_map(stmt_await_span)),
+        HirStmt::Scope { body, .. } | HirStmt::Defer { body, .. } => {
+            body.stmts.iter().find_map(stmt_await_span)
+        }
+        _ => None,
+    }
+}
+
+/// Names released by `defer` bodies in `block`: a `defer` naming `x` in a
+/// release call exempts `x` from `E1702`.
+fn deferred_releases(block: &HirBlock) -> Vec<String> {
+    fn expr_releases(expr: &HirExpr, out: &mut Vec<String>) {
+        match expr {
+            HirExpr::Call { callee, args, .. } => {
+                match callee.last().map(|s| s.as_str()).unwrap_or("") {
+                    "mutex_unlock" | "unlock" | "free" | "dealloc" | "mutex_free" => {
+                        if let Some(name) = first_arg_name(args) {
+                            out.push(name);
+                        }
+                    }
+                    _ => {}
+                }
+                for arg in args {
+                    expr_releases(arg, out);
+                }
+            }
+            HirExpr::Binary { lhs, rhs, .. } => {
+                expr_releases(lhs, out);
+                expr_releases(rhs, out);
+            }
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => expr_releases(operand, out),
+            HirExpr::StructLit { fields, .. } => {
+                for (_, value, _) in fields {
+                    expr_releases(value, out);
+                }
+            }
+            HirExpr::SliceLit { elements, .. }
+            | HirExpr::FixedArrayLit { elements, .. }
+            | HirExpr::TupleLit { elements, .. } => {
+                for element in elements {
+                    expr_releases(element, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for stmt in &block.stmts {
+        match stmt {
+            HirStmt::Expr(expr, ..) => expr_releases(expr, &mut out),
+            HirStmt::Var { init, .. } | HirStmt::Const { init, .. } => expr_releases(init, &mut out),
+            HirStmt::Assign { value, .. } => expr_releases(value, &mut out),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The typestate pass: what state a resource is in.
@@ -886,6 +1636,19 @@ fn check_race_in_stmt(stmt: &HirStmt, uses_threads: bool, out: &mut Vec<Diagnost
             }
         }
         HirStmt::Defer { body, .. } => check_race_in_block(body, uses_threads, out, file),
+        HirStmt::Scope { body, .. } => check_race_in_block(body, uses_threads, out, file),
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
+            check_race_in_expr(subject, uses_threads, out, file);
+            check_race_in_block(then_block, uses_threads, out, file);
+            if let Some(else_block) = else_block {
+                check_race_in_block(else_block, uses_threads, out, file);
+            }
+        }
         HirStmt::LoopInvariant(c) => check_race_in_expr(&c.expr, uses_threads, out, file),
         _ => {}
     }
@@ -914,6 +1677,30 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
                 }
             }
             for arg in args {
+                check_race_in_expr(arg, uses_threads, out, file);
+            }
+        }
+        HirExpr::Spawn { callee, args, span, .. } => {
+            // One rule, one implementation: a capture that reaches a
+            // concurrent context must be shareable, where a concurrent
+            // context is `thread_spawn` or `spawn`. A `spawn` argument is
+            // such a capture, so it is checked like a lambda capture.
+            check_race_in_expr(callee, uses_threads, out, file);
+            for arg in args {
+                if !is_shareable_spawn(&yashy_hir::hir::expr_ty(arg)) {
+                    out.push(
+                        Diagnostic::new(
+                            Severity::Error,
+                            file,
+                            *span,
+                            format!(
+                                "`{}` is shared across a task boundary without a `Mutex`",
+                                yashy_hir::hir::expr_ty(arg)
+                            ),
+                        )
+                        .with_code(codes::RACE),
+                    );
+                }
                 check_race_in_expr(arg, uses_threads, out, file);
             }
         }
@@ -979,6 +1766,18 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
             }
         }
         _ => {}
+    }
+}
+
+/// Shareability across an async task boundary: the same rule as
+/// [`is_shareable`] with `string` accepted, since an owned `string` capture
+/// is a value copy like the other `Copy` scalars.
+fn is_shareable_spawn(ty: &yashy_hir::ty::Type) -> bool {
+    // Reuse the thread rule with `string` accepted: an owned `string`
+    // capture is a value copy like the other `Copy` scalars the rule accepts.
+    match &ty.kind {
+        yashy_hir::ty::TypeKind::Str => true,
+        _ => is_shareable(ty, false),
     }
 }
 

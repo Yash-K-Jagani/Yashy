@@ -1,0 +1,25 @@
+// A cancelled task runs its defers.
+//
+// The scope spawns a worker but never awaits it, so the child is still
+// unjoined when the scope is left. Leaving the scope joins-or-cancels every
+// child in reverse spawn order: the cancel path polls the child once more,
+// and that poll runs the worker to completion, defers included. The deferred
+// print is the observable proof that the resource release happened on the
+// cancel path instead of being dropped silently.
+fn worker() -> int {
+    defer {
+        print("closed");
+    }
+    return 7;
+}
+
+async fn main_task() -> int {
+    scope {
+        spawn(worker);
+    }
+    return 3;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

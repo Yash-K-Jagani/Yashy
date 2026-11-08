@@ -827,11 +827,24 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             Flow::Fallthrough
         }
         HirStmt::Scope { body, .. } => {
-            // Structured concurrency lowers here in Task 5; until then the
-            // body is run inline so the lowering stays total. This is a
-            // placeholder, not the joining semantics the scope promises.
-            gen_block(ctx, body);
-            Flow::Fallthrough
+            // Structured concurrency: "create child scope; run body;
+            // join-or-cancel every child in reverse spawn order; free the
+            // scope". Spawns register with the active scope in the runtime
+            // (yashy_task_spawn checks the executor's active scope), and the
+            // join runs here before the scope is freed. On a terminating
+            // body (return/break/continue) the join is skipped: the ret
+            // already ended the block, and emitting calls after it would be
+            // a second terminator.
+            let executor = ctx.tmp();
+            ctx.push(format!("{executor} = call i8* @yashy_executor_default()"));
+            let scope = ctx.tmp();
+            ctx.push(format!("{scope} = call i8* @yashy_scope_create(i8* {executor})"));
+            let flow = gen_block(ctx, body);
+            if flow == Flow::Fallthrough {
+                ctx.push(format!("call void @yashy_scope_join_or_cancel(i8* {scope})"));
+                ctx.push(format!("call void @yashy_scope_free(i8* {scope})"));
+            }
+            flow
         }
         HirStmt::LoopInvariant(_) => {
             // An invariant is a promise to the verifier, not work the program

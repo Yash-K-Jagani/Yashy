@@ -574,6 +574,30 @@ unsafe extern "C" {
     pub fn yashy_task_drop(frame: *mut c_void);
 }
 
+#[repr(C)]
+pub struct YashyScope {
+    _private: [u8; 0],
+}
+
+unsafe extern "C" {
+    /// Creates the child scope for a `scope` block and makes it the executor's
+    /// active scope. Null on a null executor or allocation failure; a null
+    /// scope needs no other calls.
+    pub fn yashy_scope_create(executor: *mut YashyExecutor) -> *mut YashyScope;
+}
+
+unsafe extern "C" {
+    /// Joins or cancels every child of `scope` in reverse spawn order; a child
+    /// that stays pending after repeated polls is cancelled. Tolerates null.
+    pub fn yashy_scope_join_or_cancel(scope: *mut YashyScope);
+}
+
+unsafe extern "C" {
+    /// Releases the scope and restores the enclosing one as active. Tolerates
+    /// null.
+    pub fn yashy_scope_free(scope: *mut YashyScope);
+}
+
 unsafe extern "C" {
     /// The number of spawned tasks that reached ready. Null is zero.
     pub fn yashy_executor_completed(executor: *const YashyExecutor) -> c_longlong;

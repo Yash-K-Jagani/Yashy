@@ -77,6 +77,22 @@ typedef struct yax_task_record {
     void *frame;
 } yax_task_record;
 
+/* A structured-concurrency scope: children spawned while it is the executor's
+ * active scope, in spawn order. Leaving the scope joins or cancels them in
+ * reverse spawn order before execution continues past it. */
+typedef struct yax_scope_child {
+    yashy_poll_fn poll;
+    void *frame;
+} yax_scope_child;
+
+typedef struct yashy_scope {
+    yashy_executor *ex;
+    yax_scope_child *children;
+    long long count;
+    long long capacity;
+    struct yashy_scope *parent;
+} yashy_scope;
+
 struct yashy_executor {
     yax_os_lock lock;
     yax_os_cond has_work;
@@ -93,6 +109,7 @@ struct yashy_executor {
     int shutdown;
     int threads;
     yax_thread_handle *workers;
+    yashy_scope *active_scope;
 };
 
 static int yax_queue_reserve(yashy_executor *ex, long long needed) {
@@ -264,6 +281,7 @@ yashy_executor *yashy_executor_new(int threads) {
     ex->shutdown = 0;
     ex->threads = threads;
     ex->workers = NULL;
+    ex->active_scope = NULL;
     if (threads > 0) {
         ex->workers = (yax_thread_handle *)malloc((size_t)threads * sizeof *ex->workers);
         if (ex->workers == NULL) {
@@ -383,7 +401,141 @@ int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (ex == NULL || poll == NULL || frame == NULL) {
         return -1;
     }
-    return yax_enqueue(ex, poll, frame);
+    int rc = yax_enqueue(ex, poll, frame);
+    /* A spawn while a scope is active belongs to that scope: register it so
+     * leaving the scope joins or cancels it in reverse spawn order. */
+    if (rc == 0 && ex->active_scope != NULL) {
+        yashy_scope *scope = ex->active_scope;
+        if (scope->count == scope->capacity) {
+            long long grown = scope->capacity == 0 ? 16 : scope->capacity * 2;
+            yax_scope_child *next =
+                (yax_scope_child *)realloc(scope->children, (size_t)grown * sizeof *next);
+            if (next != NULL) {
+                scope->children = next;
+                scope->capacity = grown;
+            }
+        }
+        if (scope->count < scope->capacity) {
+            scope->children[scope->count].poll = poll;
+            scope->children[scope->count].frame = frame;
+            scope->count++;
+        }
+    }
+    return rc;
+}
+
+yashy_scope *yashy_scope_create(yashy_executor *ex) {
+    if (ex == NULL) {
+        return NULL;
+    }
+    yashy_scope *scope = (yashy_scope *)malloc(sizeof *scope);
+    if (scope == NULL) {
+        return NULL;
+    }
+    scope->ex = ex;
+    scope->children = NULL;
+    scope->count = 0;
+    scope->capacity = 0;
+    yax_lock_acquire(&ex->lock);
+    scope->parent = ex->active_scope;
+    ex->active_scope = scope;
+    yax_lock_release(&ex->lock);
+    return scope;
+}
+
+void yashy_scope_free(yashy_scope *scope) {
+    if (scope == NULL) {
+        return;
+    }
+    yax_lock_acquire(&scope->ex->lock);
+    if (scope->ex->active_scope == scope) {
+        scope->ex->active_scope = scope->parent;
+    }
+    yax_lock_release(&scope->ex->lock);
+    free(scope->children);
+    free(scope);
+}
+
+/* True when the executor already retained this frame: it reached ready
+ * through a drain or an `await` drive, and must not be polled again. */
+static int yax_is_retained(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return 0;
+    }
+    yax_lock_acquire(&ex->lock);
+    int found = 0;
+    for (long long i = 0; i < ex->retained_count; i++) {
+        if (ex->retained[i] == frame) {
+            found = 1;
+            break;
+        }
+    }
+    yax_lock_release(&ex->lock);
+    return found;
+}
+
+/* Remove a task's queued record without freeing its frame: used when the
+ * scope itself drove the child home, so a later executor drain must not poll
+ * it a second time. */
+static void yax_unqueue(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
+    yax_lock_acquire(&ex->lock);
+    for (long long i = 0; i < ex->count; i++) {
+        long long index = (ex->head + i) % ex->capacity;
+        if (ex->queue[index].frame == frame) {
+            ex->queue[index] =
+                ex->queue[(ex->head + ex->count - 1) % ex->capacity];
+            ex->count--;
+            ex->outstanding--;
+            if (ex->outstanding == 0) {
+                yax_cond_broadcast(&ex->idle);
+            }
+            break;
+        }
+    }
+    yax_lock_release(&ex->lock);
+}
+
+/* Join or cancel every child in reverse spawn order. A child whose resume
+ * index already reads done (an `await` drove it home) is skipped. Every other
+ * child is polled until it is ready; a child that stays pending is cancelled
+ * (its frame is freed, which is also the cancel path a `defer` observes
+ * through the one final poll that runs its pending segment). */
+void yashy_scope_join_or_cancel(yashy_scope *scope) {
+    if (scope == NULL) {
+        return;
+    }
+    for (long long i = scope->count - 1; i >= 0; i--) {
+        yax_scope_child child = scope->children[i];
+        if (child.poll == NULL || child.frame == NULL) {
+            continue;
+        }
+        /* Header word 0 is the resume index: -1 means done. A frame the
+         * executor retained was driven home by an `await` even if the memory
+         * was since freed, so it is never polled again here. */
+        if (yax_is_retained(scope->ex, child.frame) || *(int *)child.frame == -1) {
+            yax_unqueue(scope->ex, child.frame);
+            continue;
+        }
+        int ready = 0;
+        for (int attempt = 0; attempt < 1000; attempt++) {
+            if (child.poll(child.frame) != NULL) {
+                ready = 1;
+                break;
+            }
+            yashy_sleep_ms(1);
+        }
+        if (!ready) {
+            yashy_task_cancel(scope->ex, child.poll, child.frame);
+        } else {
+            /* The scope drove this child home: dequeue it so the executor's
+             * own drain does not run it a second time. */
+            yax_unqueue(scope->ex, child.frame);
+        }
+    }
+    scope->count = 0;
 }
 
 int yashy_task_poll(yashy_executor *ex, yashy_poll_fn poll, void *frame) {

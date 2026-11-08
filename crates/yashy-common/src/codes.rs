@@ -115,6 +115,10 @@ pub const RACE: &str = "E1402";
 pub const UNUSED_BINDING: &str = "E2000";
 /// `await` or `spawn` appears outside an `async fn`.
 pub const AWAIT_OUTSIDE_ASYNC: &str = "E1700";
+/// A `Task[T]` handle leaves the `scope` that owns it.
+pub const TASK_ESCAPE: &str = "E1701";
+/// A lock or linear resource is held across an `await`.
+pub const HOLD_ACROSS_AWAIT: &str = "E1702";
 /// An `async` method appears in a trait: traits have no async methods.
 pub const ASYNC_TRAIT: &str = "E1703";
 /// An `import` is never used.
@@ -437,6 +441,18 @@ pub const CODES: &[Code] = &[
         title: "await or spawn outside an async function",
         summary: "`await` and `spawn` may only appear inside an `async fn`.",
         page: include_str!("../../../docs/errors/E1700.md"),
+    },
+    Code {
+        id: TASK_ESCAPE,
+        title: "task handle escapes its scope",
+        summary: "A `Task[T]` handle returned, stored, or collected outlives its `scope`.",
+        page: include_str!("../../../docs/errors/E1701.md"),
+    },
+    Code {
+        id: HOLD_ACROSS_AWAIT,
+        title: "resource held across an await",
+        summary: "A locked mutex or linear resource without a `defer` release is live at an `await`.",
+        page: include_str!("../../../docs/errors/E1702.md"),
     },
     Code {
         id: ASYNC_TRAIT,
