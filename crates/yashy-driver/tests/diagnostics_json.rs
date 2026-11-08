@@ -322,6 +322,34 @@ fn test_json_all_pass_exits_zero() {
 }
 
 #[test]
+fn a_type_error_inside_a_macro_body_points_at_the_invocation() {
+    let dir = work_dir("json-check-macro-error");
+    let source_text = "macro bad { $x:expr => { let int y = \"three\"; } }\nfn main() { bad(1); }\n";
+    let source = dir.join("bad.ya");
+    write(&dir, "bad.ya", source_text);
+
+    let output = run(&dir, &["check", "--json", source.to_str().unwrap()]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a type error inside expanded code must fail:\n{}",
+        stderr(&output)
+    );
+    let report = Json::parse(&stdout(&output));
+    let diagnostics = report.get("diagnostics").as_array();
+    assert_eq!(diagnostics.len(), 1);
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.get("code").as_str(), "E0100");
+    assert_eq!(diagnostic.get("span").get("line").as_i64(), 2);
+
+    let notes = diagnostic.get("notes").as_array();
+    assert_eq!(notes.len(), 2);
+    assert_eq!(notes[0].get("kind").as_str(), "expansion");
+    assert!(notes[0].get("message").as_str().contains("`bad`"));
+    assert!(notes[1].get("message").as_str().contains("expanded from line 2"));
+}
+
+#[test]
 fn test_json_usage_errors_exit_2() {
     let dir = work_dir("json-test-usage");
 

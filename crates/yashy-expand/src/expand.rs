@@ -25,6 +25,32 @@ pub const MAX_EXPANSION_DEPTH: usize = 64;
 /// bytes a token.
 pub const MAX_EXPANSION_TOKENS: usize = 262_144;
 
+impl ExpansionMap {
+    /// Rewrite diagnostics whose spans lie in an expansion arm so they read
+    /// as occurring at the invocation, with the arm and the call site kept
+    /// in expansion notes.
+    pub fn annotate(&self, sources: &SourceMap, file: FileId, diagnostics: &mut [Diagnostic]) {
+        for diagnostic in diagnostics {
+            let Some(record) = self.records.iter().find(|record| overlaps(record.arm_span, diagnostic.span))
+            else {
+                continue;
+            };
+            diagnostic.span = record.invocation_span;
+            let arm_line = sources.locate(file, record.arm_span).line;
+            let invocation_line = sources.locate(file, record.invocation_span).line;
+            diagnostic.notes.push(format!(
+                "expansion: in macro `{}`, arm at line {arm_line}",
+                record.macro_name
+            ));
+            diagnostic.notes.push(format!("expansion: expanded from line {invocation_line}"));
+        }
+    }
+}
+
+fn overlaps(left: Span, right: Span) -> bool {
+    left.start < right.end && right.start < left.end
+}
+
 /// One expansion, in source order, for `yashy expand --json`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpansionRecord {

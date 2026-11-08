@@ -2223,7 +2223,15 @@ fn diagnostic_json(sources: &SourceMap, diagnostic: &Diagnostic) -> Json {
                 diagnostic
                     .notes
                     .iter()
-                    .map(|note| Json::string(note.as_str()))
+                    .map(|note| match note.strip_prefix("expansion: ") {
+                        Some(message) => {
+                            let mut expansion = Json::object();
+                            expansion.set("kind", Json::string("expansion"));
+                            expansion.set("message", Json::string(message));
+                            expansion
+                        }
+                        None => Json::string(note.as_str()),
+                    })
                     .collect(),
             ),
         );

@@ -777,16 +777,23 @@ pub fn load_and_check_exports_timed(
     // Expansion is the pipeline stage before checking: every module's
     // declarations are read first, then its token stream is expanded and
     // re-parsed, so the checker and verifier only ever see ordinary syntax.
+    let mut expansion_maps: Vec<(FileId, yashy_expand::ExpansionMap)> = Vec::new();
     for (index, module) in modules.iter_mut().enumerate() {
         let tokens = &module_sources[index].tokens;
-        let (expanded, _map) = expand_tokens(&module.program.items, sources, module.file, tokens);
+        let (expanded, map) = expand_tokens(&module.program.items, sources, module.file, tokens);
         let tokens = match expanded {
             Ok(tokens) => tokens,
             Err(diagnostic) => return Err(vec![diagnostic]),
         };
+        expansion_maps.push((module.file, map));
         let program = Parser::new(tokens, sources, module.file)
             .parse_program()
-            .map_err(|diagnostics| diagnostics)?;
+            .map_err(|mut diagnostics| {
+                for (file, map) in &expansion_maps {
+                    map.annotate(sources, *file, &mut diagnostics);
+                }
+                diagnostics
+            })?;
         module.program = program;
     }
 
@@ -795,7 +802,7 @@ pub fn load_and_check_exports_timed(
     // checked world, and a second caller in the same process (a test suite, a
     // language server) gets a memo hit instead of a second whole-program check.
     // The parsed modules are adopted by the database rather than re-parsed.
-    let (hir, stats) = timed(timings, "check", || {
+    let (hir, stats) = match timed(timings, "check", || {
         // The loader's order is dependency-first with the entry point last;
         // registration is by file id so the database's source map lines up with
         // the caller's.
@@ -832,7 +839,15 @@ pub fn load_and_check_exports_timed(
         let checked = db.check(entry)?;
         let hir = (*checked.program).clone();
         Ok((hir, db.stats()))
-    })?;
+    }) {
+        Ok(outcome) => outcome,
+        Err(mut diagnostics) => {
+            for (file, map) in &expansion_maps {
+                map.annotate(sources, *file, &mut diagnostics);
+            }
+            return Err(diagnostics);
+        }
+    };
     if stats.hits + stats.misses > 0 {
         timings.push(TimingRow::Query(stats));
     }
