@@ -311,18 +311,52 @@ impl<'a> Expander<'a> {
             }
         }
 
-        let invocation = terms_of(trees, index);
+        let (invocation, invocation_span) = self.render_invocation(trees, index, name_token.span);
         let patterns: Vec<String> = arms
             .iter()
-            .map(|arm| self.source.snippet(self.file, arm.span).to_string())
+            .map(|arm| self.render_trees_span(&arm.pattern))
             .collect();
         Err(no_match_diagnostic(
             &name,
             self.file,
-            name_token.span,
+            invocation_span,
             &invocation,
             &patterns,
         ))
+    }
+
+    /// The invocation as written, `name(args)`, and the span it covers. The
+    /// message is the tokens the caller actually wrote: "no arm matched" with
+    /// an empty quotation is a support ticket, not a diagnostic.
+    fn render_invocation(
+        &self,
+        trees: &[TokenTree],
+        index: usize,
+        fallback: Span,
+    ) -> (String, Span) {
+        let Some(name) = trees.get(index) else {
+            return (String::new(), fallback);
+        };
+        let start = name.span().start;
+        let end = match trees.get(index.saturating_add(1)) {
+            Some(arguments @ TokenTree::Delimited { .. }) => arguments.span().end,
+            _ => name.span().end,
+        };
+        let span = Span::new(start, end);
+        (self.source.snippet(self.file, span).to_string(), span)
+    }
+
+    /// The source text of a token sequence, from its first token's start to
+    /// its last token's end, so `$cond:expr` keeps the spelling the user
+    /// wrote instead of being spaced token by token.
+    fn render_trees_span(&self, trees: &[TokenTree]) -> String {
+        match (trees.first(), trees.last()) {
+            (Some(first), Some(last)) => {
+                let span = Span::new(first.span().start, last.span().end);
+                self.source.snippet(self.file, span).to_string()
+            }
+            _ => String::new(),
+        }
     }
 
     fn substitute(&self, trees: &[TokenTree], bindings: &Bindings) -> Vec<TokenTree> {
@@ -419,15 +453,6 @@ fn close_of(tree: &TokenTree) -> Option<Token> {
 
 fn count_tokens(trees: &[TokenTree]) -> usize {
     trees.iter().map(|tree| tree.leaves().len()).sum()
-}
-
-fn terms_of(trees: &[TokenTree], index: usize) -> String {
-    trees
-        .iter()
-        .skip(index)
-        .take(2)
-        .map(|tree| tree.span())
-        .fold(String::new(), |_, _| String::new())
 }
 
 pub fn expand_tokens<'a>(

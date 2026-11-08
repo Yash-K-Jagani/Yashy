@@ -6,7 +6,7 @@
 
 - [Quickstart](docs/quickstart.md): install LLVM and Yashy, run `yashy doctor`, create a project, run it, and test it.
 - [Your first CLI](docs/tutorial/12-first-cli.md): the project-shaped path, from install to a tested release binary.
-- [Language tutorial](docs/tutorial/00-intro.md): sixteen chapters; every `yashy` block is compiled and run by the test suite.
+- [Language tutorial](docs/tutorial/00-intro.md): seventeen chapters; every `yashy` block is compiled and run by the test suite.
 - [The C boundary](docs/tutorial/13-ffi.md): `extern` declarations, `link_name`, variadic calls, and the `repr(C)` layout `sizeof`, `alignof` and `offsetof` read.
 - [Modules](docs/tutorial/14-modules.md): `import`, `pub` visibility (`E0801`), aliases, and import cycles (`E0802`).
 - [Traits and objects](docs/tutorial/15-traits.md): requirement-set traits, `impl Trait for Type`, bounds, associated functions, static dispatch, and the `Iterator[T]` protocol.

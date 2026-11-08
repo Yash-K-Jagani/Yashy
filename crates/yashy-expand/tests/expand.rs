@@ -73,6 +73,40 @@ fn a_duplicate_macro_name_is_rejected() {
 }
 
 #[test]
+fn a_failed_match_names_the_invocation_and_the_arm_pattern() {
+    let src = "macro unless { $cond:expr => { if $cond { } } } fn main() { unless(ready, count); }";
+    let (map, file, items, tokens) = files(src);
+
+    let (result, _) = expand_tokens(&items, &map, file, &tokens);
+    let diagnostic = result.expect_err("an unmatched invocation must be refused");
+    assert_eq!(diagnostic.code, Some(codes::MACRO_NO_MATCH));
+    assert_eq!(
+        diagnostic.label.as_deref(),
+        Some("unless(ready, count)"),
+        "the caret label must be the invocation the caller wrote"
+    );
+    assert_eq!(
+        usize::try_from(diagnostic.span.end - diagnostic.span.start).unwrap_or(0),
+        "unless(ready, count)".len(),
+        "the underlined span must cover the whole invocation"
+    );
+    assert!(
+        diagnostic.message.contains("unless(ready, count)"),
+        "the message must quote the invocation the caller wrote: {}",
+        diagnostic.message
+    );
+    let notes = diagnostic.notes.join("\n");
+    assert!(
+        notes.contains("$cond:expr"),
+        "the notes must show the pattern that was tried: {notes}"
+    );
+    assert!(
+        !notes.contains("if $cond"),
+        "a pattern note must not quote the replacement: {notes}"
+    );
+}
+
+#[test]
 fn expanding_the_same_program_twice_is_deterministic() {
     let src = "macro unless { $cond:expr => { if $cond { } } } fn main() { unless(ready); }";
     let (map, file, items, tokens) = files(src);
