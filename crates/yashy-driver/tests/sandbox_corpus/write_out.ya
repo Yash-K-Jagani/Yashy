@@ -1,0 +1,9 @@
+// A write outside the root: denied.
+import io;
+
+fn main() {
+    switch write_file("escape.ya", "x") {
+        case Ok(_) { print("escaped") }
+        case Err(_) { print("denied") }
+    }
+}

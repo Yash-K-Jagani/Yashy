@@ -107,6 +107,11 @@ pub const EFFECT: &str = "E1300";
 pub const UNSAFE_CALL: &str = "E1301";
 /// A resource is released twice, or released in the wrong state.
 pub const DOUBLE_CLOSE: &str = "E1400";
+/// A sandbox capability is denied: the program tried to touch a path, the
+/// network or a child process outside its capability set.
+pub const SANDBOX_DENIED: &str = "E1900";
+/// A sandbox limit is breached: time, memory or output.
+pub const SANDBOX_LIMIT: &str = "E1901";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -459,6 +464,18 @@ pub const CODES: &[Code] = &[
         title: "async method in a trait",
         summary: "A trait method may not be `async`; declare a synchronous method instead.",
         page: include_str!("../../../docs/errors/E1703.md"),
+    },
+    Code {
+        id: SANDBOX_DENIED,
+        title: "sandbox capability denied",
+        summary: "A sandboxed program touched a path, the network or a child process outside its capability set.",
+        page: include_str!("../../../docs/errors/E1900.md"),
+    },
+    Code {
+        id: SANDBOX_LIMIT,
+        title: "sandbox limit breached",
+        summary: "A sandboxed program hit its time, memory or output limit.",
+        page: include_str!("../../../docs/errors/E1901.md"),
     },
     Code {
         id: UNKNOWN_TRAIT,

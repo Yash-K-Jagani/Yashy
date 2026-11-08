@@ -37,6 +37,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+int yashy_sandbox_active(void);
+
 #if defined(_WIN32)
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0600
@@ -618,6 +620,13 @@ void yashy_tasks_dump(void) {
 int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (ex == NULL || poll == NULL || frame == NULL) {
         return -1;
+    }
+    /* The sandbox's spawn capability is off by default. */
+    if (yashy_sandbox_active() != NULL) {
+        const char *spawn_allowed = getenv("YASHY_SANDBOX_SPAWN");
+        if (spawn_allowed == NULL || spawn_allowed[0] != '1') {
+            return -1;
+        }
     }
     int rc = yax_enqueue(ex, poll, frame);
     /* A spawn while a scope is active belongs to that scope: register it so

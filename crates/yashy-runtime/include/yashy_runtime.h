@@ -103,6 +103,19 @@ static YASHY_ALWAYS_INLINE void *yashy_alloc_aligned(long long size,
     if (total < wanted) {
         return NULL;
     }
+    /* The sandbox's memory cap, measured on live allocations (see
+     * runtime.c): past the cap, allocation fails and the caller sees the
+     * usual NULL a failed allocation answers. */
+    {
+        const char *sandbox = getenv("YASHY_SANDBOX");
+        const char *memory = getenv("YASHY_SANDBOX_MEMORY_MB");
+        if (sandbox != NULL && sandbox[0] == '1' && memory != NULL && memory[0] != '\0') {
+            long long cap = atoll(memory) * 1024LL * 1024LL;
+            if (cap > 0 && yashy_live_allocations_now() * 4096LL + (long long)wanted > cap) {
+                return NULL;
+            }
+        }
+    }
     raw = (unsigned char *)malloc(total);
     if (raw == NULL) {
         return NULL;

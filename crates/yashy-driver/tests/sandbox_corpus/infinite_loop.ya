@@ -1,0 +1,5 @@
+// An infinite loop: the time limit ends it.
+fn main() {
+    while true {
+    }
+}

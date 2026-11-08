@@ -1,0 +1,9 @@
+// An absolute path outside the root: the read must be denied.
+import io;
+
+fn main() {
+    switch read_file("/etc/passwd") {
+        case Ok(_) { print("escaped") }
+        case Err(_) { print("denied") }
+    }
+}

@@ -58,7 +58,7 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 const USAGE: &str = "\
 usage:
   yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--debug] [-- <args>...]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
   yashy tasks <file.ya> [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
@@ -708,6 +708,12 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut after_separator = false;
     let mut debug = false;
+    let mut deterministic = false;
+    let mut sandbox = false;
+    let mut allow_read: Vec<PathBuf> = Vec::new();
+    let mut allow_write: Vec<PathBuf> = Vec::new();
+    let mut sandbox_time: u64 = 5000;
+    let mut sandbox_memory: u64 = 256;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
@@ -726,6 +732,33 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                 // `tasks` already runs debug; the flag is never forwarded
                 // to the build, only to the child's environment.
                 debug = true;
+            }
+            "--deterministic" => deterministic = true,
+            "--sandbox" => sandbox = true,
+            "--allow-read" | "--allow-write" => {
+                let Some(value) = iter.next() else {
+                    return usage_error(&format!("`{argument}` needs a value"));
+                };
+                if argument == "--allow-read" {
+                    allow_read.push(PathBuf::from(value));
+                } else {
+                    allow_write.push(PathBuf::from(value));
+                }
+            }
+            "--time" | "--memory" => {
+                let Some(value) = iter.next() else {
+                    return usage_error(&format!("`{argument}` needs a value"));
+                };
+                match value.parse::<u64>() {
+                    Ok(parsed) => {
+                        if argument == "--time" {
+                            sandbox_time = parsed;
+                        } else {
+                            sandbox_memory = parsed;
+                        }
+                    }
+                    Err(_) => return usage_error(&format!("`{argument}` needs a whole number")),
+                }
             }
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto" => {
                 if mode == RunMode::Tasks && argument == "--release" {
@@ -791,14 +824,74 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
 
     // The debug environment is what turns the runtime's panic path into a
     // task-aware one; it travels only to the child, never to the build.
-    let mut child_env: Vec<(&str, &str)> = Vec::new();
+    let mut child_env: Vec<(String, String)> = Vec::new();
     if debug || mode == RunMode::Tasks {
-        child_env.push(("YASHY_DEBUG", "1"));
+        child_env.push(("YASHY_DEBUG".to_string(), "1".to_string()));
     }
     if mode == RunMode::Tasks {
-        child_env.push(("YASHY_TASKS_DUMP", "1"));
+        child_env.push(("YASHY_TASKS_DUMP".to_string(), "1".to_string()));
     }
-    let status = status_with_retry_env(&output, &program_args, &child_env);
+    if deterministic {
+        child_env.push(("YASHY_DETERMINISTIC".to_string(), "1".to_string()));
+        child_env.push((
+            "YASHY_DETERMINISTIC_SEED".to_string(),
+            "1700000000000".to_string(),
+        ));
+    }
+    if sandbox {
+        let mut capabilities = yashy_driver::sandbox::CapabilitySet {
+            time_ms: sandbox_time,
+            memory_mb: sandbox_memory,
+            ..Default::default()
+        };
+        for root in &allow_read {
+            match yashy_driver::sandbox::canonical_root(root) {
+                Ok(canonical) => capabilities.fs_read.push(canonical),
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return exit_code(EXIT_USAGE);
+                }
+            }
+        }
+        for root in &allow_write {
+            match yashy_driver::sandbox::canonical_root(root) {
+                Ok(canonical) => capabilities.fs_write.push(canonical),
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return exit_code(EXIT_USAGE);
+                }
+            }
+        }
+        for (key, value) in yashy_driver::sandbox::sandbox_env(&capabilities) {
+            child_env.push((key, value));
+        }
+        // The resource side: a Job Object on Windows, rlimits on Linux.
+        #[cfg(target_os = "windows")]
+        let job = yashy_driver::sandbox::windows_job(&capabilities);
+        #[cfg(not(target_os = "windows"))]
+        let job = Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "no job object",
+        ));
+        let child_env_refs: Vec<(&str, &str)> = child_env
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        let status = status_with_sandbox(&output, &program_args, &child_env_refs, &capabilities, job);
+        let _ = fs::remove_dir_all(&dir);
+        return match status {
+            Ok(status) => std::process::exit(exit_status_code(status)),
+            Err(error) => {
+                eprintln!("error: cannot run {}: {error}", output.display());
+                exit_code(EXIT_COMPILE_ERROR)
+            }
+        };
+    }
+    let child_env_refs: Vec<(&str, &str)> = child_env
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    let status = status_with_retry_env(&output, &program_args, &child_env_refs);
     let _ = fs::remove_dir_all(&dir);
 
     match status {
@@ -832,6 +925,45 @@ fn exit_status_code(status: ExitStatus) -> i32 {
 /// in content, not only in length: a copy padded with zeros is still refused.
 fn status_with_retry(exe: &Path, args: &[String]) -> std::io::Result<ExitStatus> {
     status_with_retry_env(exe, args, &[])
+}
+
+/// Run the child with the sandbox's resource limits applied: a Job Object
+/// on Windows, rlimits before exec on Linux.
+fn status_with_sandbox(
+    exe: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+    capabilities: &yashy_driver::sandbox::CapabilitySet,
+    job: Result<usize, std::io::Error>,
+) -> std::io::Result<ExitStatus> {
+    for attempt in 0..LAUNCH_ATTEMPTS {
+        let candidate = launch_candidate(exe, attempt)?;
+        let mut command = Command::new(&candidate);
+        command.args(args);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        // rlimits go on the command before spawn; the Job Object is created
+        // before spawn and assigned after.
+        yashy_driver::sandbox::apply_limits(&mut command, capabilities)?;
+        match command.spawn() {
+            Ok(mut child) => {
+                #[cfg(target_os = "windows")]
+                {
+                    if let Ok(job) = job {
+                        yashy_driver::sandbox::assign_child(job, &child)?;
+                    }
+                }
+                return child.wait();
+            }
+            Err(error) if blocked_by_policy(&error) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "the operating system refused to start the compiled program",
+    ))
 }
 
 /// As [`status_with_retry`], plus the child's environment. The debug modes
@@ -929,9 +1061,11 @@ fn test(args: &[String]) -> ExitCode {
     let mut jobs_given = false;
 
     let mut iter = args.iter();
+    let mut sandbox = false;
     while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--list" => list = true,
+            "--sandbox" => sandbox = true,
             "--json" => json = true,
             "--timings" => timings_flag = true,
             "--jobs" => {
@@ -976,6 +1110,25 @@ fn test(args: &[String]) -> ExitCode {
     if json && list {
         return usage_error("`--list` and `--json` cannot be combined");
     }
+
+    // `test --sandbox`: every test program runs with the default-deny set
+    // (read/write limited to the test root itself).
+    let root_for_sandbox = root.clone().unwrap_or_else(|| PathBuf::from("tests"));
+    let sandbox_env: Vec<(String, String)> = if sandbox {
+        let canonical = root_for_sandbox
+            .canonicalize()
+            .unwrap_or(root_for_sandbox.clone());
+        let mut capabilities = yashy_driver::sandbox::CapabilitySet::default();
+        capabilities.fs_read.push(canonical.clone());
+        capabilities.fs_write.push(canonical);
+        yashy_driver::sandbox::sandbox_env(&capabilities)
+    } else {
+        Vec::new()
+    };
+    let sandbox_env_refs: Vec<(&str, &str)> = sandbox_env
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
 
     let explicit_root = root.is_some();
     let root = root.unwrap_or_else(|| PathBuf::from("tests"));
@@ -1058,7 +1211,7 @@ fn test(args: &[String]) -> ExitCode {
             continue;
         }
 
-        match output_with_retry(&exe, &[]) {
+        match output_with_env(&exe, &[], &sandbox_env_refs) {
             Ok(output) if output.status.success() => {
                 println!("test {name} ... ok");
                 passed += 1;
@@ -1603,9 +1756,22 @@ fn display_test_path(path: &Path) -> String {
 }
 
 fn output_with_retry(exe: &Path, args: &[String]) -> std::io::Result<std::process::Output> {
+    output_with_env(exe, args, &[])
+}
+
+fn output_with_env(
+    exe: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+) -> std::io::Result<std::process::Output> {
     for attempt in 0..LAUNCH_ATTEMPTS {
         let candidate = launch_candidate(exe, attempt)?;
-        match Command::new(&candidate).args(args).output() {
+        let mut command = Command::new(&candidate);
+        command.args(args);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        match command.output() {
             Ok(output) => return Ok(output),
             Err(error) if blocked_by_policy(&error) => continue,
             Err(error) => return Err(error),

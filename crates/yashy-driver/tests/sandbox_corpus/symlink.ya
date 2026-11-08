@@ -1,0 +1,9 @@
+// A symlink pointing outside the root: canonicalised, so denied.
+import io;
+
+fn main() {
+    switch read_file("link_out") {
+        case Ok(_) { print("escaped") }
+        case Err(_) { print("denied") }
+    }
+}

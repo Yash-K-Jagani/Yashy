@@ -1,0 +1,14 @@
+// Spawn is off by default: a task may not start on the executor.
+async fn worker() -> int {
+    return 1;
+}
+
+async fn main_task() -> int {
+    let task = spawn(worker);
+    let int v = task.await;
+    return v;
+}
+
+fn main() {
+    print(block_on(main_task()));
+}

@@ -1,0 +1,16 @@
+// A path taken from the environment is still a path: denied when it
+// names something outside the allowlist.
+import io;
+
+fn main() {
+    let path = getenv("OUTSIDE_PATH");
+    switch path {
+        case Some(name) {
+            switch read_file(name) {
+                case Ok(_) { print("escaped") }
+                case Err(_) { print("denied") }
+            }
+        }
+        case None { print("denied") }
+    }
+}

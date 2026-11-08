@@ -1,0 +1,11 @@
+// Network is off by default. There is no connect builtin in the language,
+// so this program cannot even name one: the escape is denied at compile
+// time, which is also a denial. The read it does perform is denied too.
+import io;
+
+fn main() {
+    switch read_file("http://127.0.0.1/") {
+        case Ok(_) { print("escaped") }
+        case Err(_) { print("denied") }
+    }
+}

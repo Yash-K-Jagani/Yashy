@@ -91,6 +91,8 @@ the declaration or import involved when that is not obvious.
 | [E1602](errors/E1602.md) | macro metavariable kind mismatch |
 | [E1603](errors/E1603.md) | duplicate macro name |
 | [E1700](errors/E1700.md) | await or spawn outside an async function |
+| [E1900](errors/E1900.md) | sandbox capability denied |
+| [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1701](errors/E1701.md) | task handle escapes its scope |
 | [E1702](errors/E1702.md) | resource held across an await |
 | [E1703](errors/E1703.md) | async method in a trait |

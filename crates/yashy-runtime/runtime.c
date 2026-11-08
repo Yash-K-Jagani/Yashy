@@ -11,6 +11,7 @@
 #include <time.h>
 
 #if defined(_WIN32)
+#include <direct.h>
 #include <fcntl.h>
 #include <io.h>
 /* SRW locks and condition variables are Vista-era, and `_beginthreadex` is
@@ -32,6 +33,7 @@
  * of a string to the C functions that want a `const char*`. Declared here
  * because the printing and diagnostic functions come before it. */
 static const char *yashy_str_data(const yashy_str *s);
+long long yashy_now_ms(void);
 
 /* `yashy_str_release`, defined with the string type further down. The closure
  * environment releases the strings it captured, and it comes before the string
@@ -84,6 +86,66 @@ static void yashy_stdout_binary(void) {
  * first byte whichever way the bytes are written. */
 void yashy_runtime_init(void) {
     yashy_stdout_binary();
+}
+
+/* The observability sink: one JSON object per line on stderr, with a
+ * stable schema. `YASHY_DETERMINISTIC=1` fixes the clock, so a
+ * deterministic run is byte-identical. */
+
+static long long yashy_log_clock_ms(void) {
+    const char *requested = getenv("YASHY_DETERMINISTIC");
+    if (requested != NULL && requested[0] == '1') {
+        const char *seed = getenv("YASHY_DETERMINISTIC_SEED");
+        return seed != NULL ? atoll(seed) : 1700000000000LL;
+    }
+    return yashy_now_ms();
+}
+
+void yashy_log_line(const char *fields) {
+    if (getenv("YASHY_LOG") == NULL) {
+        return;
+    }
+    fflush(stdout);
+    fprintf(stderr, "{\"ts\":%lld", yashy_log_clock_ms());
+    if (fields != NULL) {
+        fprintf(stderr, ",%s", fields);
+    }
+    fprintf(stderr, "}\n");
+    fflush(stderr);
+}
+
+static void yashy_log_escape(const char *text) {
+    for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; p++) {
+        if (*p == '"' || *p == '\\') {
+            fprintf(stderr, "\\%c", *p);
+        } else if (*p < 0x20) {
+            fprintf(stderr, "\\u%04x", *p);
+        } else {
+            fputc(*p, stderr);
+        }
+    }
+}
+
+void yashy_log_event(const char *level, const char *message) {
+    if (getenv("YASHY_LOG") == NULL) {
+        return;
+    }
+    fflush(stdout);
+    fprintf(stderr, "{\"ts\":%lld,\"level\":\"%s\",\"message\":", yashy_log_clock_ms(), level);
+    yashy_log_escape(message);
+    fprintf(stderr, "}\n");
+    fflush(stderr);
+}
+
+void yashy_metrics(const char *kind, const char *name, long long value) {
+    if (getenv("YASHY_LOG") == NULL) {
+        return;
+    }
+    fflush(stdout);
+    fprintf(stderr, "{\"ts\":%lld,\"metric\":", yashy_log_clock_ms());
+    yashy_log_escape(name);
+    fprintf(stderr, ",\"kind\":\"%s\",\"value\":%lld}\n", kind, value);
+    fflush(stderr);
 }
 
 void yashy_print_str(const yashy_str *s) {
@@ -1346,6 +1408,100 @@ yashy_str *yashy_read_line(void) {
  * than that reads as `Other` rather than being truncated.
  */
 
+/* The sandbox: when `yashy run --sandbox` launched this process, the
+ * capability set arrived as environment variables. A file entry point reads
+ * its allowlist before opening anything; anything outside a listed root is
+ * denied before the file is touched, which is what makes the escape corpus
+ * fail to escape. Time and memory are measured here too, so a limit breach
+ * is reported by the program rather than by a hung test. */
+
+long long yashy_now_ms(void);
+long long yashy_live_allocations_now(void);
+
+static long long yashy_sandbox_start_ms = -1;
+
+/* Zero when this process was not launched sandboxed. */
+int yashy_sandbox_active(void) {
+    const char *requested = getenv("YASHY_SANDBOX");
+    return requested != NULL && requested[0] == '1';
+}
+
+/* Canonicalise `path` the way the allowlist was canonicalised at launch:
+ * Windows `_full_path`, POSIX `realpath`. */
+static int yashy_sandbox_canonical(const char *path, char *out, size_t out_size) {
+#if defined(_WIN32)
+    DWORD got = GetFullPathNameA(path, (DWORD)out_size, out, NULL);
+    return got != 0 && (size_t)got < out_size;
+#else
+    return realpath(path, out) != NULL;
+#endif
+}
+
+/* Is `path` inside one of the `;`-separated roots in `list`? */
+static int yashy_sandbox_listed(const char *list, const char *canonical) {
+    if (list == NULL || list[0] == '\0') {
+        return 0;
+    }
+    const char *cursor = list;
+    size_t length = strlen(canonical);
+    while (*cursor != '\0') {
+        const char *separator = strchr(cursor, ';');
+        size_t root_length = separator != NULL ? (size_t)(separator - cursor) : strlen(cursor);
+        if (root_length > 0 && strncmp(canonical, cursor, root_length) == 0) {
+            char next = canonical[root_length];
+            if (next == '\0' || next == '\\' || next == '/' ||
+                (root_length > 0 && (cursor[root_length - 1] == '\\' || cursor[root_length - 1] == '/'))) {
+                return 1;
+            }
+        }
+        if (separator == NULL) {
+            break;
+        }
+        cursor = separator + 1;
+    }
+    (void)length;
+    return 0;
+}
+
+/* `0` when the access is allowed (or no sandbox is active), otherwise the
+ * `io.Error` variant index to report: `PermissionDenied` for a path outside
+ * the allowlist, `Other` for a breached time or memory limit. */
+static int yashy_sandbox_check(const char *path, int write) {
+    if (!yashy_sandbox_active()) {
+        return 0;
+    }
+    long long now = yashy_now_ms();
+    if (yashy_sandbox_start_ms < 0) {
+        yashy_sandbox_start_ms = now;
+    }
+    const char *time_ms = getenv("YASHY_SANDBOX_TIME_MS");
+    if (time_ms != NULL && time_ms[0] != '\0') {
+        long long limit = atoll(time_ms);
+        if (limit > 0 && now - yashy_sandbox_start_ms > limit) {
+            return 4; /* Other: the time limit */
+        }
+    }
+    const char *memory_mb = getenv("YASHY_SANDBOX_MEMORY_MB");
+    if (memory_mb != NULL && memory_mb[0] != '\0') {
+        long long limit = atoll(memory_mb) * 1024LL * 1024LL;
+        if (limit > 0 && yashy_live_allocations_now() * 1024LL > limit) {
+            return 4; /* Other: the memory limit */
+        }
+    }
+    if (path == NULL) {
+        return 0;
+    }
+    char canonical[4096];
+    if (!yashy_sandbox_canonical(path, canonical, sizeof canonical)) {
+        return 1; /* PermissionDenied: unresolvable paths are outside */
+    }
+    const char *list = getenv(write ? "YASHY_SANDBOX_WRITE" : "YASHY_SANDBOX_READ");
+    if (!yashy_sandbox_listed(list, canonical)) {
+        return 1; /* PermissionDenied */
+    }
+    return 0;
+}
+
 /* Whether the path names something that is not a regular file: a directory, a
  * device, or anything else `stat` can describe but `fopen` would not treat as
  * a file. On Windows this is `_stat64` + `_S_IFREG`; everywhere else it is
@@ -1394,6 +1550,12 @@ long long yashy_read_file(const char *path, yashy_str **out) {
     if (path == NULL || out == NULL) {
         return 1 + 4; /* Other */
     }
+    {
+        int denied = yashy_sandbox_check(path, 0);
+        if (denied != 0) {
+            return 1 + denied;
+        }
+    }
     if (yashy_path_is_not_a_file(path)) {
         return 1 + 3; /* NotAFile */
     }
@@ -1433,6 +1595,12 @@ long long yashy_write_file(const char *path, const char *bytes, long long len) {
     if (path == NULL || len < 0) {
         return 1 + 4; /* Other */
     }
+    {
+        int denied = yashy_sandbox_check(path, 1);
+        if (denied != 0) {
+            return 1 + denied;
+        }
+    }
     if (yashy_path_is_not_a_file(path)) {
         return 1 + 3; /* NotAFile */
     }
@@ -1455,6 +1623,12 @@ long long yashy_write_file(const char *path, const char *bytes, long long len) {
 long long yashy_read_bytes(const char *path, yashy_slice *out) {
     if (path == NULL || out == NULL) {
         return 1 + 4; /* Other */
+    }
+    {
+        int denied = yashy_sandbox_check(path, 0);
+        if (denied != 0) {
+            return 1 + denied;
+        }
     }
     if (yashy_path_is_not_a_file(path)) {
         return 1 + 3; /* NotAFile */
@@ -1498,6 +1672,12 @@ long long yashy_read_bytes(const char *path, yashy_slice *out) {
 long long yashy_write_bytes(const char *path, const char *bytes, long long len) {
     if (path == NULL || len < 0) {
         return 1 + 4; /* Other */
+    }
+    {
+        int denied = yashy_sandbox_check(path, 1);
+        if (denied != 0) {
+            return 1 + denied;
+        }
     }
     if (yashy_path_is_not_a_file(path)) {
         return 1 + 3; /* NotAFile */

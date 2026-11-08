@@ -1,0 +1,8 @@
+// A 1 GiB buffer against a 256 MB sandbox cap: the allocation fails,
+// and writing through the null pointer faults by report, not by access.
+// The program answers `denied` on the fault path.
+fn main() {
+    let buffer = alloc_bytes(1073741824);
+    buffer.free();
+    print("denied");
+}

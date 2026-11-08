@@ -1,0 +1,9 @@
+// /proc/self/mem is readable on Linux but outside every allowlist.
+import io;
+
+fn main() {
+    switch read_file("/proc/self/mem") {
+        case Ok(_) { print("escaped") }
+        case Err(_) { print("denied") }
+    }
+}

@@ -894,7 +894,19 @@ pub fn gen_spawn(
     ctx.push(format!(
         "{status} = call i32 @yashy_task_spawn(i8* {executor}, i8* {poll_fn}, i8* {frame})"
     ));
-    let _ = status;
+    // A failed spawn (a sandbox denial is one) must be loud: the frame was
+    // never queued, so an await would poll it inline and pretend the spawn
+    // had happened. Exit instead, with the mismatch visible in the IR.
+    let failed = ctx.tmp();
+    ctx.push(format!("{failed} = icmp ne i32 {status}, 0"));
+    let failed_label = format!("spawn_failed{}", ctx.alloc_label_base());
+    let ok_label = format!("spawn_ok{}", ctx.alloc_label_base());
+    ctx.push(format!("br i1 {failed}, label %{failed_label}, label %{ok_label}"));
+    ctx.push(format!("{failed_label}:"));
+    ctx.push(format!("call void @yashy_free(i8* {frame})"));
+    ctx.push("call void @yashy_exit(i64 1)".to_string());
+    ctx.push("unreachable".to_string());
+    ctx.push(format!("{ok_label}:"));
     GenValue {
         value: frame,
         ty: ty.clone(),
