@@ -91,6 +91,7 @@ pass     row
 facts    fib_run_ms
 escape   maps_run_ms
 intern   hello_binary_bytes
+async    async_run_ms
 ```
 
 `--no-opt=<pass>` disables exactly one of them. None of them changes what a
@@ -102,6 +103,7 @@ program that behaves differently with one pass off is a bug in that pass.
 | `facts` | Rely on the verifier's facts: delete proved checks, emit `noalias`, `nonnull`, `readonly` and `align`. Off means an empty fact set and attribute-free IR. | `fib_run_ms` |
 | `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. | `maps_run_ms` |
 | `intern` | Identical string literals share one global. Off emits one global per literal. | `hello_binary_bytes` |
+| `async` | Generate the poll function (the explicit-frame state machine) for each `async fn`. Off drives every `await` inline, without suspending. | `async_run_ms` |
 
 Anything not in the table is mandatory lowering, not a pass: there is no switch
 that turns an expression into a call or a field into an offset, because there

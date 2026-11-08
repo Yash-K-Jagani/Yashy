@@ -1,0 +1,34 @@
+// An async function suspends once, keeps a local written before the await
+// live after it, spawns a worker from inside a task, and joins it by
+// awaiting. The sum is computed by hand: inner(1) = 2, before + 2 = 43,
+// and worker(20) = inner(20) * 2 = 42, so the answer is 85.
+//
+// The frame of every task is freed on completion: `when the leak suite
+// runs over this binary, it reports zero live allocations. Nested awaits
+// compose because each child is itself a task.
+async fn inner(int x) -> int {
+    return x + 1;
+}
+
+async fn worker() -> int {
+    let int doubled = inner(20).await;
+    return doubled * 2;
+}
+
+async fn main_task() -> int {
+    let int before = 41;
+    let int child = inner(1).await;
+    let int after = before + child;
+    let int from_worker = 0;
+    scope {
+        let task = spawn(worker);
+        let int done = task.await;
+        from_worker = done;
+    }
+    return after + from_worker;
+}
+
+fn main() {
+    let int result = block_on(main_task());
+    print(result);
+}

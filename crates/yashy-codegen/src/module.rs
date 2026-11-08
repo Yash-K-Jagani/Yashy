@@ -206,6 +206,11 @@ pub struct Module {
     /// [`FnCtx`](crate::FnCtx) is built from it and the answer must not differ
     /// between two functions in one module.
     atomic_strings: bool,
+    /// Whether the `async` pass generated poll functions for this module.
+    ///
+    /// Set by the pass; read when a function is emitted so `--no-opt=async`
+    /// disables suspension and drives every `await` inline.
+    async_enabled: bool,
     /// C declarations by name, so a call can tell an extern callee from a user
     /// function and apply the boundary rules (spec §8.1).
     externs: HashMap<String, HirExternDecl>,
@@ -246,6 +251,7 @@ impl Module {
             next_lambda: 0,
             captures: Vec::new(),
             atomic_strings: false,
+            async_enabled: true,
             externs: HashMap::new(),
             extern_symbols: HashSet::new(),
             report: false,
@@ -320,6 +326,16 @@ impl Module {
     /// Whether promotion is enabled; read when a function's context is built.
     pub fn escape_enabled(&self) -> bool {
         self.escape
+    }
+
+    /// Allow or refuse the async pass's poll generation.
+    pub fn set_async(&mut self, enabled: bool) {
+        self.async_enabled = enabled;
+    }
+
+    /// Whether poll generation is enabled; read when a function is emitted.
+    pub fn async_enabled(&self) -> bool {
+        self.async_enabled
     }
 
     /// The verifier's facts, for a pass that reads them alongside the HIR.
@@ -825,6 +841,14 @@ impl Module {
         out.push_str("declare i8 @yashy_chan_recv(i8*, i8*, i64)\n");
         out.push_str("declare void @yashy_chan_close(i8*)\n");
         out.push_str("declare void @yashy_chan_free(i8*)\n");
+        // The executor (Phase 10, Task 4). An unused `declare` is legal IR,
+        // so these are always present like every other runtime family.
+        out.push_str("declare i8* @yashy_executor_default()\n");
+        out.push_str("declare i32 @yashy_task_spawn(i8*, i8*, i8*)\n");
+        out.push_str("declare i32 @yashy_task_poll(i8*, i8*, i8*)\n");
+        out.push_str("declare i32 @yashy_block_on(i8*, i8*, i8*)\n");
+        out.push_str("declare void @yashy_task_cancel(i8*, i8*, i8*)\n");
+        out.push_str("declare void @yashy_task_drop(i8*)\n");
         // The string half of ledger L1. All of it is declared up front so a
         // later task that starts emitting one of these does not change every
         // golden file a second time; an unused `declare` is legal IR.

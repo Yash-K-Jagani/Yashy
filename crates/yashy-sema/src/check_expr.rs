@@ -739,6 +739,7 @@ const CALLABLE_EXTRAS: &[&str] = &[
     "thread_join",
     "mutex_new",
     "chan_new",
+    "block_on",
 ];
 
 /// The type names a program can write without declaring them.
@@ -10232,6 +10233,41 @@ impl<'src> Checker<'src> {
         Some(checked)
     }
 
+    /// `block_on(task) -> T`.
+    ///
+    /// Drives a `Task[T]` to completion on the default executor and yields
+    /// `T`. It is the one place a task runs without an enclosing `async fn`,
+    /// which is why `main` can drive a task without being `async` itself.
+    fn check_block_on(&mut self, args: &[Expr], span: Span) -> Option<HirExpr> {
+        self.uses_async = true;
+        if args.len() != 1 {
+            self.error(
+                span,
+                format!("`block_on` takes 1 argument, found {}", args.len()),
+            );
+            return None;
+        }
+        let task = self.check_expr(&args[0])?;
+        let found = expr_ty(&task);
+        let TypeKind::Task(inner) = &found.kind else {
+            self.error(
+                expr_span(&task),
+                format!(
+                    "`block_on` needs a `Task[T]`, found `{found}`: `block_on` drives a task to its result"
+                ),
+            );
+            return None;
+        };
+        let result = (**inner).clone();
+        Some(HirExpr::Call {
+            callee: vec!["block_on".to_string()],
+            args: vec![task],
+            unsafe_call: false,
+            span,
+            ty: result,
+        })
+    }
+
     /// `thread_spawn(body, args...)`.
     ///
     /// The first argument names an ordinary function, and the rest are checked
@@ -11201,6 +11237,9 @@ impl<'src> Checker<'src> {
                     }
                     if name == "map_new" {
                         return self.check_map_new(&arg_vals, *span, None);
+                    }
+                    if name == "block_on" {
+                        return self.check_block_on(&arg_vals, *span);
                     }
                     if matches!(
                         name.as_str(),

@@ -43,8 +43,9 @@ use yashy_expand::expand_tokens;
 use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_runtime::{
-    GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH, HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME,
-    RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME,
+    EXECUTOR_C_SOURCE, EXECUTOR_SOURCE_NAME, GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH,
+    HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
+    RUNTIME_SOURCE_NAME,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
@@ -99,6 +100,183 @@ pub enum TimingRow {
         /// Distinct generic substitutions plus monomorphised types.
         count: usize,
     },
+    /// How many tasks the program can spawn: its `async fn`s plus its
+    /// `spawn` sites.
+    Tasks {
+        /// The static task count of the program.
+        count: usize,
+    },
+}
+
+/// The number of tasks a program can spawn: its `async fn`s plus its
+/// `spawn` sites, counted over the whole HIR.
+fn task_count(hir: &HirProgram) -> usize {
+    fn exprs(expr: &yashy_sema::HirExpr, count: &mut usize) {
+        use yashy_sema::HirExpr;
+        match expr {
+            HirExpr::Spawn { .. } => *count += 1,
+            _ => {}
+        }
+        match expr {
+            HirExpr::Binary { lhs, rhs, .. } => {
+                exprs(lhs, count);
+                exprs(rhs, count);
+            }
+            HirExpr::Unary { operand, .. } => exprs(operand, count),
+            HirExpr::Move(inner, ..) => exprs(inner, count),
+            HirExpr::Call { args, .. } => {
+                for arg in args {
+                    exprs(arg, count);
+                }
+            }
+            HirExpr::StructLit { fields, .. } => {
+                for (_, field, _) in fields {
+                    exprs(field, count);
+                }
+            }
+            HirExpr::SliceLit { elements, .. } | HirExpr::FixedArrayLit { elements, .. } => {
+                for element in elements {
+                    exprs(element, count);
+                }
+            }
+            HirExpr::FieldAccess { base, .. } => exprs(base, count),
+            HirExpr::Index { base, index, .. } => {
+                exprs(base, count);
+                exprs(index, count);
+            }
+            HirExpr::TupleLit { elements, .. } => {
+                for element in elements {
+                    exprs(element, count);
+                }
+            }
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => {
+                exprs(expr, count);
+            }
+            HirExpr::Spawn { callee, args, .. } => {
+                exprs(callee, count);
+                for arg in args {
+                    exprs(arg, count);
+                }
+            }
+            HirExpr::SwitchExpr { subject, arms, .. } => {
+                exprs(subject, count);
+                for arm in arms {
+                    exprs(&arm.body, count);
+                    if let Some(guard) = &arm.guard {
+                        exprs(guard, count);
+                    }
+                }
+            }
+            HirExpr::View { base, start, end, .. } => {
+                exprs(base, count);
+                exprs(start, count);
+                exprs(end, count);
+            }
+            HirExpr::CallCapture { args, .. } => {
+                for arg in args {
+                    exprs(arg, count);
+                }
+            }
+            HirExpr::HigherOrder { receiver, func, init, .. } => {
+                exprs(receiver, count);
+                exprs(func, count);
+                if let Some(init) = init {
+                    exprs(init, count);
+                }
+            }
+            HirExpr::Lambda { f, .. } => block(&f.body, count),
+            HirExpr::Literal(..) | HirExpr::Ident(..) | HirExpr::Capture { .. } | HirExpr::AddrOf { .. } => {}
+        }
+    }
+    fn block(block: &yashy_sema::HirBlock, count: &mut usize) {
+        for statement in &block.stmts {
+            stmt_count(statement, count);
+        }
+    }
+    fn stmt_count(statement: &yashy_sema::HirStmt, count: &mut usize) {
+        use yashy_sema::HirStmt;
+        match statement {
+            HirStmt::Expr(expr, ..) => exprs(expr, count),
+            HirStmt::Const { init, .. } | HirStmt::Var { init, .. } => exprs(init, count),
+            HirStmt::Assign { value, .. } => exprs(value, count),
+            HirStmt::IndexAssign { base, index, value, .. } => {
+                exprs(base, count);
+                exprs(index, count);
+                exprs(value, count);
+            }
+            HirStmt::FieldAssign { value, .. } => exprs(value, count),
+            HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+                exprs(pointer, count);
+                exprs(index, count);
+                exprs(value, count);
+            }
+            HirStmt::Destructure { init, .. } => exprs(init, count),
+            HirStmt::Return(value, _) => {
+                if let Some(value) = value {
+                    exprs(value, count);
+                }
+            }
+            HirStmt::If { init, cond, then_block, else_block, .. } => {
+                if let Some(init) = init {
+                    stmt_count(init, count);
+                }
+                exprs(cond, count);
+                block(then_block, count);
+                if let Some(else_block) = else_block {
+                    block(else_block, count);
+                }
+            }
+            HirStmt::IfLet { subject, then_block, else_block, .. } => {
+                exprs(subject, count);
+                block(then_block, count);
+                if let Some(else_block) = else_block {
+                    block(else_block, count);
+                }
+            }
+            HirStmt::ForRange { start, end, body, .. } => {
+                exprs(start, count);
+                exprs(end, count);
+                block(body, count);
+            }
+            HirStmt::ForIn { iterable, body, .. } => {
+                exprs(iterable, count);
+                block(body, count);
+            }
+            HirStmt::ForC { init, cond, update, body, .. } => {
+                if let Some(init) = init {
+                    stmt_count(init, count);
+                }
+                if let Some(cond) = cond {
+                    exprs(cond, count);
+                }
+                if let Some(update) = update {
+                    exprs(update, count);
+                }
+                block(body, count);
+            }
+            HirStmt::Switch { subject, arms, .. } => {
+                exprs(subject, count);
+                for arm in arms {
+                    exprs(&arm.body, count);
+                    if let Some(guard) = &arm.guard {
+                        exprs(guard, count);
+                    }
+                }
+            }
+            HirStmt::Break(_) | HirStmt::Continue(_) | HirStmt::LoopInvariant(_) => {}
+            HirStmt::Defer { body, .. } | HirStmt::Scope { body, .. } => block(body, count),
+        }
+    }
+    let mut count = 0usize;
+    for item in &hir.items {
+        if let HirItem::Fn(f) = item {
+            if f.is_async {
+                count += 1;
+            }
+            block(&f.body, &mut count);
+        }
+    }
+    count
 }
 
 /// Run `work`, record how long it took under `phase`, and return its result.
@@ -353,6 +531,7 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     fnv1a(&mut state, RUNTIME_C_SOURCE.as_bytes());
     fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
+    fnv1a(&mut state, EXECUTOR_C_SOURCE.as_bytes());
     fnv1a(&mut state, RUNTIME_HEADER.as_bytes());
     // The Unicode tables are compiled into the runtime object too, so a table
     // change has to invalidate it rather than leave a stale object behind.
@@ -488,6 +667,10 @@ pub struct BuildOptions {
     /// Off unless `--pgo` asks. The profile lives under `.yashy/pgo/` beside
     /// the output and is never written outside it.
     pub pgo: bool,
+    /// Generate poll functions for `async fn`s; see
+    /// [`CodegenOptions::async_`]. On by default and disabled by
+    /// `--no-opt=async`.
+    pub async_: bool,
 }
 
 impl Default for BuildOptions {
@@ -502,6 +685,7 @@ impl Default for BuildOptions {
             release: false,
             lto: false,
             pgo: false,
+            async_: true,
         }
     }
 }
@@ -856,6 +1040,10 @@ pub fn load_and_check_exports_timed(
             count: hir.instantiations,
         });
     }
+    let tasks = if hir.uses_async { task_count(&hir) } else { 0 };
+    if tasks > 0 {
+        timings.push(TimingRow::Tasks { count: tasks });
+    }
     Ok((hir, exports))
 }
 
@@ -980,6 +1168,7 @@ pub fn compile_hir_timed(
                 escape: options.escape,
                 facts: options.facts,
                 intern: options.intern,
+                async_: options.async_,
             },
             facts,
         )
@@ -1004,9 +1193,11 @@ pub fn compile_hir_timed(
     ));
     let runtime_source = runtime_dir.join(RUNTIME_SOURCE_NAME);
     let hashmap_source = runtime_dir.join(HASHMAP_SOURCE_NAME);
+    let executor_source = runtime_dir.join(EXECUTOR_SOURCE_NAME);
     ensure_dir(&runtime_dir, entry_name)?;
     write_or_report(&runtime_source, RUNTIME_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(&hashmap_source, HASHMAP_C_SOURCE.as_bytes(), entry_name)?;
+    write_or_report(&executor_source, EXECUTOR_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(
         &runtime_dir.join(RUNTIME_HEADER_NAME),
         RUNTIME_HEADER.as_bytes(),
@@ -1083,7 +1274,17 @@ pub fn compile_hir_timed(
                 options.opt,
                 toolchain,
             )?;
-            Some((runtime, hashmap))
+            let executor = cached_runtime_object(
+                &cache_dir,
+                &executor_source,
+                "executor",
+                &runtime_dir,
+                key,
+                target,
+                options.opt,
+                toolchain,
+            )?;
+            Some((runtime, hashmap, executor))
         })
     };
 
@@ -1158,7 +1359,7 @@ fn link_arguments(
     toolchain: &Toolchain,
     ir_path: &Path,
     out: &Path,
-    runtime_objects: &Option<(PathBuf, PathBuf)>,
+    runtime_objects: &Option<(PathBuf, PathBuf, PathBuf)>,
     runtime_dir: &Path,
     extra: &[String],
 ) -> Vec<String> {
@@ -1177,13 +1378,15 @@ fn link_arguments(
     args.extend(extra.iter().cloned());
     args.push(display(ir_path));
     match runtime_objects {
-        Some((runtime, hashmap)) => {
+        Some((runtime, hashmap, executor)) => {
             args.push(display(runtime));
             args.push(display(hashmap));
+            args.push(display(executor));
         }
         None => {
             args.push(display(&runtime_dir.join(RUNTIME_SOURCE_NAME)));
             args.push(display(&runtime_dir.join(HASHMAP_SOURCE_NAME)));
+            args.push(display(&runtime_dir.join(EXECUTOR_SOURCE_NAME)));
             args.push(format!("-I{}", display(runtime_dir)));
         }
     }

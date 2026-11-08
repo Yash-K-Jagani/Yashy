@@ -330,6 +330,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let escape = !disabled.iter().any(|pass| pass == "escape");
     let facts = !disabled.iter().any(|pass| pass == "facts");
     let intern = !disabled.iter().any(|pass| pass == "intern");
+    let async_ = !disabled.iter().any(|pass| pass == "async");
 
     if opt_list {
         println!("{:<8} {}", "pass", "row");
@@ -498,6 +499,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
+                    async_,
                 };
                 let (_, notes) = timed(measured, "emit", || {
                     emit_program_with_notes(&hir, &entry, options, &report.facts)
@@ -526,6 +528,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     escape,
                     facts,
                     intern,
+                    async_,
                 };
                 let ir = timed(measured, "emit", || {
                     emit_program(&hir, &entry, options, &report.facts)
@@ -565,6 +568,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         release,
         lto: release && !no_lto,
         pgo,
+        async_,
     };
     let code = match compile_hir_timed(
         &hir,
@@ -1356,6 +1360,10 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("phase", Json::string("monomorphise"));
                             entry.set("instantiations", Json::number(*count as i64));
                         }
+                        TimingRow::Tasks { count } => {
+                            entry.set("phase", Json::string("tasks"));
+                            entry.set("tasks", Json::number(*count as i64));
+                        }
                     }
                     entry
                 })
@@ -1446,6 +1454,13 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                 Some(seen) => *seen = (*seen).max(*count),
                 None => total.push(timing.clone()),
             },
+            TimingRow::Tasks { count } => match total.iter_mut().find_map(|seen| match seen {
+                TimingRow::Tasks { count } => Some(count),
+                _ => None,
+            }) {
+                Some(seen) => *seen = (*seen).max(*count),
+                None => total.push(timing.clone()),
+            },
         }
     }
 }
@@ -1473,6 +1488,7 @@ fn report_timings(timings: &[TimingRow]) {
             TimingRow::Lto { mode } => eprintln!("lto={mode}"),
             TimingRow::Pgo { stage } => eprintln!("pgo={stage}"),
             TimingRow::Instantiations { count } => eprintln!("instantiations={count}"),
+            TimingRow::Tasks { count } => eprintln!("tasks={count}"),
         }
     }
 }

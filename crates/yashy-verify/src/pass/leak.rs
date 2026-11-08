@@ -524,7 +524,15 @@ impl LeakPass<'_> {
                 self.walk(start);
                 self.walk(end);
             }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => self.walk(expr),
+            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => self.walk(expr),
+            HirExpr::Await { expr, .. } => {
+                // Awaiting consumes the task: the frame is freed once its
+                // result is read, so a bare name's linear binding is done.
+                // (The code generator frees the child frame at the same
+                // point; the verifier's leak rule must agree.)
+                self.hand_off(expr);
+                self.walk(expr)
+            }
             HirExpr::Spawn { callee, args, .. } => {
                 self.hand_off(callee);
                 self.walk(callee);

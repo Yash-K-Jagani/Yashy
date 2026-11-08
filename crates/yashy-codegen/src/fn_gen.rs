@@ -34,6 +34,13 @@ pub fn fn_return_repr(kind: &TypeKind) -> String {
 
 /// Emit `f` — its signature, its parameter spills, its body — into `module`.
 pub fn gen_fn(module: &mut Module, f: &HirFn) {
+    if f.is_async {
+        // The frame and poll contract is mandatory lowering: a call must
+        // still hand back a task. `--no-opt=async` disables suspension
+        // inside the poll (awaits drive inline) rather than the frame.
+        crate::async_lower::gen_async_fn(module, f);
+        return;
+    }
     gen_fn_impl(module, f, false);
 }
 

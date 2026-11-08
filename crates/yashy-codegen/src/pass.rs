@@ -81,6 +81,11 @@ pub fn pipeline() -> &'static [Pass] {
             run: apply_intern,
             row: "hello_binary_bytes",
         },
+        Pass {
+            name: "async",
+            run: apply_async,
+            row: "async_run_ms",
+        },
     ]
 }
 
@@ -131,6 +136,14 @@ fn apply_intern(ctx: &mut PassCtx<'_>) -> PassStats {
     }
 }
 
+/// Generate poll functions for `async fn`s.
+fn apply_async(ctx: &mut PassCtx<'_>) -> PassStats {
+    ctx.module.set_async(ctx.options.async_);
+    PassStats {
+        applied: ctx.options.async_,
+    }
+}
+
 /// The pass that owns a construct's IR.
 ///
 /// Most variants are ordinary lowering and name `lower`, which is not an
@@ -159,6 +172,7 @@ pub fn owner(expr: &HirExpr) -> &'static str {
         | HirExpr::Try { .. }
         | HirExpr::Await { .. }
         | HirExpr::Spawn { .. }
+        => "async",
         | HirExpr::SwitchExpr { .. }
         | HirExpr::Lambda { .. }
         | HirExpr::Capture { .. }
@@ -193,7 +207,7 @@ mod tests {
             assert!(!seen.contains(&pass.name), "duplicate pass `{}`", pass.name);
             seen.push(pass.name);
         }
-        assert_eq!(seen, ["facts", "escape", "intern"]);
+        assert_eq!(seen, ["facts", "escape", "intern", "async"]);
     }
 
     #[test]

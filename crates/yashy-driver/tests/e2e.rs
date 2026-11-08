@@ -3798,6 +3798,78 @@ fn the_concurrent_programs_are_deterministic_across_ten_runs() {
     }
 }
 
+#[test]
+fn an_async_function_suspends_and_resumes_with_its_locals() {
+    // A local written before an `await` is visible after it, a task spawned
+    // from a task completes before `block_on` returns, and nested awaits
+    // compose: inner(1) = 2, 41 + 2 = 43, and worker = inner(20) * 2 = 42.
+    let (_dir, exe, compile) = build_program("async_basic");
+    assert!(
+        compile.status.success(),
+        "compiling async_basic.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let output = run_with_timeout(&exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "async_basic exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "85\n");
+}
+
+#[test]
+fn the_async_opt_list_names_the_poll_pass_and_no_opt_disables_it() {
+    // `--opt-list` names the registered `async` pass, and `--no-opt=async`
+    // still builds the same program: suspension is a bisect switch, not a
+    // meaning change.
+    let (_dir, _exe, compile) = build_program("async_basic");
+    assert!(
+        compile.status.success(),
+        "compiling async_basic.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let listed = Command::new(yashy())
+        .arg("build")
+        .arg("--opt-list")
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        listed.status.success(),
+        "--opt-list failed:\n{}",
+        stderr_of(&listed)
+    );
+    let listed_out = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        listed_out.contains("async"),
+        "--opt-list must name the async pass:\n{listed_out}"
+    );
+
+    let dir = work_dir("async-no-opt");
+    let source = programs_dir().join("async_basic.ya");
+    let no_opt_exe = dir.join(format!("async_basic_noopt{}", std::env::consts::EXE_SUFFIX));
+    let built = Command::new(yashy())
+        .arg("build")
+        .arg(&source)
+        .arg("--no-opt=async")
+        .arg("-o")
+        .arg(&no_opt_exe)
+        .output()
+        .expect("the yashy CLI must be runnable");
+    assert!(
+        built.status.success(),
+        "compiling with --no-opt=async failed:\n{}",
+        stderr_of(&built)
+    );
+    let output = run_with_timeout(&no_opt_exe, CONCURRENT_TIMEOUT);
+    assert!(
+        output.status.success(),
+        "async_basic with --no-opt=async exited with {:?}",
+        output.status.code()
+    );
+    assert_eq!(stdout_of(&output), "85\n");
+}
+
 // --- M8: the formatter's command line ---------------------------------------------
 
 #[test]

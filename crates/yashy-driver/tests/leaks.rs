@@ -161,6 +161,17 @@ fn assert_no_leaks(name: &str, output: &Output) {
 }
 
 #[test]
+fn async_frames_return_every_allocation() {
+    // Every task frame is a `yashy_alloc` block the frame's owner frees on
+    // completion or drop; a completed task frees its children's frames after
+    // reading their results. Zero live allocations is the proof.
+    let output = build_and_run("async_basic");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "85\n", "the async answer stays 85:\n{stdout}");
+    assert_no_leaks("async_basic", &output);
+}
+
+#[test]
 fn a_manual_buffer_returns_every_allocation() {
     // `buffer.ya` allocates 1024 `i64`s, fills and sums them through pointer
     // indexing, and releases the block with `defer`. The sum proves the memory

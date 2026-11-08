@@ -103,6 +103,20 @@ pub struct LoopTarget {
 /// `locals` and `next_label` are additions the plan's three-field sketch did
 /// not foresee: a body cannot resolve an identifier or emit a second `switch`
 /// without them.
+/// Where a `return` inside an async poll stores its answer: the frame
+/// pointer the poll returns, and the result field index inside the frame.
+#[derive(Clone, Debug)]
+pub struct AsyncPoll {
+    /// The SSA name the poll's frame argument arrived under.
+    pub frame_slot: String,
+    /// The LLVM named type of the frame.
+    pub frame_type: String,
+    /// The LLVM index of the result field inside the frame.
+    pub result_index: i32,
+    /// The function result type `T` (the `HirFn` return type is `Task[T]`).
+    pub result_ty: TypeKind,
+}
+
 pub struct FnCtx<'a> {
     /// The module every instruction is appended to.
     pub module: &'a mut Module,
@@ -221,6 +235,10 @@ pub struct FnCtx<'a> {
     /// defer and ref-scope stacks, so a block exit releases only the arenas
     /// that block owns.
     pub(crate) arena_scopes: Vec<Vec<ArenaId>>,
+    /// Set when this context is lowering an async poll function: a `return`
+    /// stores its value into the frame's result field and answers the frame
+    /// pointer instead of the value.
+    pub async_poll: Option<AsyncPoll>,
     /// The scope index that owns each live arena.
     ///
     /// An `arena { }` block opens its arena when the block opens, so an
@@ -256,6 +274,7 @@ impl<'a> FnCtx<'a> {
             arena_handles: HashMap::new(),
             arena_scopes: Vec::new(),
             arena_owners: HashMap::new(),
+            async_poll: None,
             atomic_strings,
         }
     }
@@ -931,22 +950,17 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
         HirExpr::Lambda { f, ty, .. } => gen_lambda(ctx, f, &ty.kind),
         HirExpr::Capture { index, ty, .. } => gen_capture_read(ctx, *index, &ty.kind),
         HirExpr::Await { expr, ty, .. } => {
-            // The state machine that drives this task lands in Task 3. Until
-            // then the operand is still lowered (its own calls run) and the
-            // result is a zero of the result type: an explicit placeholder
-            // rather than a panic on a checked program.
-            let _operand = gen_expr(ctx, expr);
-            zero_of(&ty.kind, ctx)
+            // An await that reaches general expression lowering is nested
+            // inside a larger expression (the statement-level awaits are
+            // surrendered by `async_lower`'s segmentation). It drives its
+            // child to completion inline, which is the same result without
+            // a suspension point.
+            let child = gen_expr(ctx, expr);
+            crate::async_lower::drive_inline(ctx, &child, &ty.kind)
         }
         HirExpr::Spawn {
             callee, args, ty, ..
-        } => {
-            let _worker = gen_expr(ctx, callee);
-            for arg in args {
-                let _ = gen_expr(ctx, arg);
-            }
-            zero_of(&ty.kind, ctx)
-        }
+        } => crate::async_lower::gen_spawn(ctx, callee, args, &ty.kind),
         HirExpr::CallCapture {
             index, args, ty, ..
         } => gen_capture_call(ctx, *index, args, &ty.kind),
@@ -1837,6 +1851,13 @@ fn gen_call(
         "chan_recv" => crate::threads::gen_chan_recv(ctx, args, ty),
         "chan_close" => crate::threads::gen_chan_call(ctx, args, "yashy_chan_close"),
         "chan_free" => crate::threads::gen_chan_call(ctx, args, "yashy_chan_free"),
+        "block_on" => {
+            let Some(task) = args.first() else {
+                return zero_of(ty, ctx);
+            };
+            let child = gen_expr(ctx, task);
+            crate::async_lower::drive_inline(ctx, &child, ty)
+        }
         "arena_new" => crate::arena::gen_arena_new(ctx, args, ty),
         "arena_alloc" => crate::arena::gen_arena_alloc(ctx, args, ty),
         "arena_free_all" => crate::arena::gen_arena_free_all(ctx, args),

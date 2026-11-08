@@ -51,6 +51,10 @@ pub const RUNTIME_C_SOURCE: &str = include_str!("../runtime.c");
 /// The map runtime, a separate translation unit that includes the same header.
 pub const HASHMAP_C_SOURCE: &str = include_str!("../hashmap.c");
 
+/// The executor runtime, a separate translation unit that includes the same
+/// header.
+pub const EXECUTOR_C_SOURCE: &str = include_str!("executor.c");
+
 /// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
 pub const RUNTIME_HEADER: &str = include_str!("../include/yashy_runtime.h");
 
@@ -74,6 +78,9 @@ pub const RUNTIME_SOURCE_NAME: &str = "runtime.c";
 
 /// The map source's file name, used when the driver writes it to disk.
 pub const HASHMAP_SOURCE_NAME: &str = "hashmap.c";
+
+/// The executor source's file name, used when the driver writes it to disk.
+pub const EXECUTOR_SOURCE_NAME: &str = "executor.c";
 
 // The IR says `i64`. If a target ever gave `long long` a different width, the
 // generated IR and the compiled runtime would disagree silently, so refuse to
@@ -491,4 +498,83 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Blocks for at least `ms` milliseconds; `ms <= 0` is a no-op.
     pub fn yashy_sleep_ms(ms: c_longlong);
+}
+
+/// The executor, opaque to Rust as it is to generated code. The fields live
+/// in `executor.c`; a test only ever holds the pointer.
+#[repr(C)]
+pub struct YashyExecutor {
+    _private: [u8; 0],
+}
+
+/// A task poll function: returns the frame pointer when ready, null while
+/// pending.
+pub type YashyPollFn = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
+
+unsafe extern "C" {
+    /// Creates an executor: 0 threads runs polls inline on the `block_on`
+    /// caller, n > 0 runs spawned tasks on n workers. Null on failure.
+    pub fn yashy_executor_new(threads: c_int) -> *mut YashyExecutor;
+}
+
+unsafe extern "C" {
+    /// Cancels every queued task (freeing its frame), stops the workers and
+    /// releases the executor. Tolerates null.
+    pub fn yashy_executor_free(executor: *mut YashyExecutor);
+}
+
+unsafe extern "C" {
+    /// The process-wide default executor (single-threaded, created lazily).
+    /// Generated code drives every task through it.
+    pub fn yashy_executor_default() -> *mut YashyExecutor;
+}
+
+unsafe extern "C" {
+    /// Enqueues a task: 0 on success, -1 on failure (the caller keeps the
+    /// frame). Ownership of the frame transfers to the executor.
+    pub fn yashy_task_spawn(
+        executor: *mut YashyExecutor,
+        poll: YashyPollFn,
+        frame: *mut c_void,
+    ) -> c_int;
+}
+
+unsafe extern "C" {
+    /// Polls a task once: 1 ready, 0 pending, -1 on a null poll or frame.
+    pub fn yashy_task_poll(
+        executor: *mut YashyExecutor,
+        poll: YashyPollFn,
+        frame: *mut c_void,
+    ) -> c_int;
+}
+
+unsafe extern "C" {
+    /// Drives a task to completion (and drains the spawned queue): 0 on
+    /// success, -1 on a null argument. The frame stays the caller's; the
+    /// result lives in it for the caller to read and free.
+    pub fn yashy_block_on(
+        executor: *mut YashyExecutor,
+        poll: YashyPollFn,
+        frame: *mut c_void,
+    ) -> c_int;
+}
+
+unsafe extern "C" {
+    /// Cancels a task: frees its frame, removing it from the queue first
+    /// when it is still queued. Tolerates a null frame.
+    pub fn yashy_task_cancel(
+        executor: *mut YashyExecutor,
+        poll: YashyPollFn,
+        frame: *mut c_void,
+    );
+}
+
+unsafe extern "C" {
+    /// Frees a task frame (`yashy_free`). Tolerates null.
+    pub fn yashy_task_drop(frame: *mut c_void);
+}
+
+unsafe extern "C" {
+    /// The number of spawned tasks that reached ready. Null is zero.
+    pub fn yashy_executor_completed(executor: *const YashyExecutor) -> c_longlong;
 }

@@ -201,6 +201,12 @@ impl AsyncWalker<'_> {
             HirExpr::Call { callee, args, span, .. } => {
                 if callee.len() == 1 {
                     let name = &callee[0];
+                    // `block_on` drives the task it is handed, so the async
+                    // call inside it is the point of the expression, not a
+                    // leaked effect.
+                    if name == "block_on" {
+                        return;
+                    }
                     if self.effects.get(name).is_some_and(|effect| effect.async_) {
                         self.report(name, *span);
                     }

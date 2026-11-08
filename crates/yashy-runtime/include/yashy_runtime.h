@@ -647,6 +647,41 @@ char yashy_chan_recv(yashy_chan *chan, void *out_item, long long size);
 void yashy_chan_close(yashy_chan *chan);
 void yashy_chan_free(yashy_chan *chan);
 
+/* ---- The executor ----
+ *
+ *     declare i8* @yashy_executor_default()
+ *     declare i32 @yashy_task_spawn(i8*, i8*, i8*)
+ *     declare i32 @yashy_task_poll(i8*, i8*, i8*)
+ *     declare i32 @yashy_block_on(i8*, i8*, i8*)
+ *     declare void @yashy_task_cancel(i8*, i8*, i8*)
+ *     declare void @yashy_task_drop(i8*)
+ *     declare i64 @yashy_executor_completed(i8*)
+ *
+ * One executor type with two modes: `yashy_executor_new(0)` runs polls
+ * inline on the caller of `yashy_block_on`, and `yashy_executor_new(n)`
+ * runs spawned tasks on n workers. Generated code uses the process-wide
+ * default executor (`yashy_executor_default`, single-threaded), so a
+ * program never spells an executor value.
+ *
+ * A task is a frame pointer plus a poll function `void *(*)(void *)`. The
+ * poll function returns the frame when the task is ready and NULL while it
+ * is pending. Frames are `yashy_alloc` blocks: the executor frees a spawned
+ * frame with `yashy_free` when it completes, and the caller of `await` or
+ * `block_on` frees the frame it drove after reading the result.
+ */
+typedef struct yashy_executor yashy_executor;
+typedef void *(*yashy_poll_fn)(void *frame);
+
+yashy_executor *yashy_executor_new(int threads);
+void yashy_executor_free(yashy_executor *executor);
+yashy_executor *yashy_executor_default(void);
+int yashy_task_spawn(yashy_executor *executor, yashy_poll_fn poll, void *frame);
+int yashy_task_poll(yashy_executor *executor, yashy_poll_fn poll, void *frame);
+int yashy_block_on(yashy_executor *executor, yashy_poll_fn poll, void *frame);
+void yashy_task_cancel(yashy_executor *executor, yashy_poll_fn poll, void *frame);
+void yashy_task_drop(void *frame);
+long long yashy_executor_completed(yashy_executor *executor);
+
 /* ---- Diagnostics ----
  *
  *     declare void @yashy_panic(i8*, i8*, i64, i64)

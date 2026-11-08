@@ -24,6 +24,7 @@ pass     row
 facts    fib_run_ms
 escape   maps_run_ms
 intern   hello_binary_bytes
+async    async_run_ms
 ```
 
 `--no-opt=<pass>` disables exactly one of them for bisecting. None of them changes what a program prints, so a program that behaves differently with one pass off is a bug in that pass.
@@ -33,6 +34,7 @@ intern   hello_binary_bytes
 | `facts` | Rely on the verifier's facts: delete proved checks, emit `noalias`, `nonnull`, `readonly`, `align`. Off means an empty fact set and attribute-free IR. | `fib_run_ms` |
 | `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. | `maps_run_ms` |
 | `intern` | Identical string literals share one global. Off emits one global per literal. | `hello_binary_bytes` |
+| `async` | Generate poll functions for `async fn`s: the frame holds every local live across an `await` and the poll dispatches on its resume index. Off drives every `await` inline without suspending. | `async_run_ms` |
 
 Anything not in the table is mandatory lowering, not a pass: there is no switch that turns an expression into a call or a field into an offset, because there would be no program left to measure. `yashy_codegen::pass::owner` names the owner of each expression form, and its exhaustive match is the check that every construct has an owner — a new form fails to compile until that is decided.
 

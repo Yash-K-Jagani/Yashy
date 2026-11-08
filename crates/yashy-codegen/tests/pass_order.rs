@@ -105,8 +105,8 @@ fn the_pipeline_is_deterministic() {
 #[test]
 fn the_registry_names_one_order_with_its_rows() {
     let names: Vec<&str> = pass::pipeline().iter().map(|pass| pass.name).collect();
-    assert_eq!(names, ["facts", "escape", "intern"]);
-    assert_eq!(pass::names(), "facts, escape, intern");
+    assert_eq!(names, ["facts", "escape", "intern", "async"]);
+    assert_eq!(pass::names(), "facts, escape, intern, async");
     for name in &names {
         assert!(pass::find(name).is_some(), "`{name}` must be findable");
     }

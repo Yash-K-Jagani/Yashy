@@ -11,6 +11,7 @@
 //! must fail as a diagnostic here, not as a linker error 400 lines later).
 
 pub mod arena;
+pub mod async_lower;
 pub mod env;
 pub mod escape;
 pub mod expr_gen;
@@ -92,7 +93,17 @@ pub struct CodegenOptions {
     /// literal points at, never the bytes it reads. `--no-opt=intern` emits one
     /// global per literal for bisecting.
     pub intern: bool,
+    /// Generate poll functions for `async fn`s.
+    ///
+    /// On by default. `--no-opt=async` disables suspension: every `await`
+    /// drives its child inline, so the flag bisects a miscompile without
+    /// changing what a program prints.
+    pub async_: bool,
 }
+
+/// The shape the async pass exposes: a function poll's frame layout and the
+/// poll function's name.
+pub use async_lower::{lower_async, FrameLayout};
 
 impl Default for CodegenOptions {
     /// The semantics-preserving set: no contraction, no promotion, but the
@@ -105,6 +116,7 @@ impl Default for CodegenOptions {
             escape: false,
             facts: true,
             intern: true,
+            async_: true,
         }
     }
 }

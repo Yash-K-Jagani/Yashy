@@ -266,6 +266,32 @@ fn insert_field(
 /// early -- before the scope's locals are released -- and still share the
 /// truncation, `void`, and `Never` rules.
 fn emit_return(ctx: &mut FnCtx<'_>, v: &GenValue) {
+    if let Some(poll) = ctx.async_poll.clone() {
+        // An async poll returns its frame: the value lands in the frame's
+        // result field, the resume index becomes the done sentinel, and the
+        // frame pointer is the answer the executor reads as `Ready`.
+        if matches!(v.ty, TypeKind::Never) {
+            ctx.push("unreachable".to_string());
+            return;
+        }
+        let repr = repr_type(&poll.result_ty);
+        if repr != "void" {
+            let result = ctx.tmp();
+            ctx.push(format!(
+                "{result} = getelementptr {}, ptr {}, i32 0, i32 {}",
+                poll.frame_type, poll.frame_slot, poll.result_index
+            ));
+            ctx.push(format!("store {repr} {}, ptr {result}", v.value));
+        }
+        let resume = ctx.tmp();
+        ctx.push(format!(
+            "{resume} = getelementptr {}, ptr {}, i32 0, i32 0",
+            poll.frame_type, poll.frame_slot
+        ));
+        ctx.push(format!("store i32 -1, ptr {resume}"));
+        ctx.push(format!("ret i8* {}", poll.frame_slot));
+        return;
+    }
     let repr = repr_type(&ctx.ret_type);
     if matches!(v.ty, TypeKind::Never) {
         // The expression never produces a value, so the block that would have
@@ -300,6 +326,20 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
         }
         HirStmt::Const { name, init, .. } | HirStmt::Var { name, init, .. } => {
             let ty = expr_ty(init).kind.clone();
+            if ctx.async_poll.is_some() {
+                let existing = ctx.locals.get(name).map(|(slot, _)| slot.clone());
+                if let Some(slot) = existing {
+                    // A frame field for this name was preloaded by the async
+                    // lowering: the binding's storage is the frame, so the
+                    // value lands there instead of in a new stack slot.
+                    let value = gen_expr(ctx, init);
+                    let repr = repr_type(&ty);
+                    if repr != "void" && !value.value.is_empty() {
+                        ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
+                    }
+                    return Flow::Fallthrough;
+                }
+            }
             let slot = if matches!(ty, TypeKind::Str) {
                 // A `string` binding owns a reference: the slot holds one for as
                 // long as the scope lasts, and the scope releases it at exit.
@@ -682,8 +722,19 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                     emit_return(ctx, &v);
                 }
                 (None, _) => {
-                    let terminator = ctx.unit_terminator.clone();
-                    ctx.push(terminator);
+                    if let Some(poll) = ctx.async_poll.clone() {
+                        let resume = ctx.tmp();
+                        ctx.push(format!(
+                            "{resume} = getelementptr {}, ptr {}, i32 0, i32 0",
+                            poll.frame_type, poll.frame_slot
+                        ));
+                        ctx.push(format!("store i32 -1, ptr {resume}"));
+                        let frame = poll.frame_slot.clone();
+                        ctx.push(format!("ret i8* {frame}"));
+                    } else {
+                        let terminator = ctx.unit_terminator.clone();
+                        ctx.push(terminator);
+                    }
                 }
             }
             Flow::Return
