@@ -31,6 +31,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -290,4 +291,29 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len) {
 void yashy_tcp_close(int64_t fd) {
     yashy_net_socket socket = yashy_socket_from_i64(fd);
     yashy_close_socket(socket);
+}
+
+int64_t yashy_tcp_set_timeout(int64_t fd, int64_t millis) {
+    yashy_net_socket socket = yashy_socket_from_i64(fd);
+    if (socket == yashy_invalid_socket() || millis < 0 || millis > INT_MAX) {
+        return -1;
+    }
+#if defined(_WIN32)
+    DWORD timeout = (DWORD)millis;
+    if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout,
+                   (int)sizeof(timeout)) != 0 ||
+        setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout,
+                   (int)sizeof(timeout)) != 0) {
+        return -1;
+    }
+#else
+    struct timeval timeout;
+    timeout.tv_sec = (time_t)(millis / 1000);
+    timeout.tv_usec = (suseconds_t)((millis % 1000) * 1000);
+    if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        return -1;
+    }
+#endif
+    return 0;
 }

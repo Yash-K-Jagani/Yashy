@@ -730,6 +730,7 @@ struct ClosureFrame {
 /// mean" suggestion has to offer them explicitly.
 const CALLABLE_EXTRAS: &[&str] = &[
     "print",
+    "eprint",
     "None",
     "Some",
     "Ok",
@@ -991,7 +992,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 37] = [
+        let builtins: [(&str, Vec<Type>, Type); 38] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // Byte buffers (phase 3b). `alloc_bytes(n)` is `n` *bytes*, not `n`
             // elements, and the result is a pointer to one byte (`char`), so
@@ -1044,6 +1045,7 @@ impl<'src> Checker<'src> {
             // gauges in the same sink. All four are `io` effects.
             ("log_info", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("log_error", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
+            ("eprint", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("metrics_add", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
             ("metrics_set", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Files and the environment (M6 Task 10, honest signatures in

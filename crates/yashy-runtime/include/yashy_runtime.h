@@ -45,6 +45,7 @@ void yashy_runtime_init(void);
 
 void yashy_print_str(const yashy_str *s);
 void yashy_print_line_str(const yashy_str *s);
+void yashy_print_line_stderr(const yashy_str *s);
 
 /* Writes a decimal integer to stdout, no newline. */
 void yashy_print_i64(long long value);
@@ -346,6 +347,7 @@ long long yashy_parse_f64(const yashy_str *s, double *out);
  * release it. */
 long long yashy_read_file(const char *path, yashy_str **out);
 long long yashy_write_file(const char *path, const char *bytes, long long len);
+int yashy_mkdir(const char *path);
 int yashy_getenv(const char *name, yashy_str **out);
 
 /* Reference counting. `yashy_str_retain` adds one to the count and returns its
@@ -385,6 +387,7 @@ int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len);
  * error. This is the string half of the contract used by `net.ya`. */
 yashy_str *yashy_tcp_read_str(int64_t fd, int64_t max);
 void yashy_tcp_close(int64_t fd);
+int64_t yashy_tcp_set_timeout(int64_t fd, int64_t millis);
 
 /* ---- Slices ----
  *

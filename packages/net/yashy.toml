@@ -1,3 +1,5 @@
 [package]
 name = "net"
 version = "1.0.0"
+license = "MIT"
+description = "TCP sockets on the Yashy runtime"

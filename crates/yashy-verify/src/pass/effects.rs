@@ -742,6 +742,7 @@ fn is_io_builtin(name: &str) -> bool {
     matches!(
         name,
         "print"
+            | "eprint"
             | "println"
             | "print_str"
             | "print_line_str"

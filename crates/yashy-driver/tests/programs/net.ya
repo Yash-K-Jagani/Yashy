@@ -21,6 +21,7 @@ extern "C" {
     unsafe fn yashy_tcp_read_str(i64 fd, i64 max) -> string;
     unsafe fn yashy_tcp_write(i64 fd, *const u8 buf, i64 len) -> i64;
     unsafe fn yashy_tcp_close(i64 fd) -> void;
+    unsafe fn yashy_tcp_set_timeout(i64 fd, i64 millis) -> i64;
 }
 
 struct Listener {
@@ -85,6 +86,14 @@ unsafe fn net_write(Socket peer, string data) -> Result[int, Error] {
 
 unsafe fn net_close(Socket peer) {
     yashy_tcp_close(peer.fd);
+}
+
+unsafe fn net_set_timeout(Socket peer, int millis) -> Result[int, Error] {
+    const code = yashy_tcp_set_timeout(peer.fd, millis);
+    if code != 0 {
+        return Err(Error.Failure);
+    }
+    return Ok(code);
 }
 
 unsafe fn net_close_listener(Listener listener) {

@@ -108,6 +108,11 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" {
+    /// Writes the NUL-terminated string to stderr, then a newline.
+    pub fn yashy_print_line_stderr(s: *const YashyStr);
+}
+
+unsafe extern "C" {
     /// Writes a decimal integer to stdout, no newline.
     pub fn yashy_print_i64(value: c_longlong);
 }
@@ -115,6 +120,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Writes a double with `%.17g`, no newline — enough digits to round-trip.
     pub fn yashy_print_f64(value: c_double);
+}
+
+unsafe extern "C" {
+    /// Creates one directory; answers 0 on success and -1 on failure.
+    pub fn yashy_mkdir(path: *const c_char) -> c_int;
 }
 
 unsafe extern "C" {
@@ -648,6 +658,12 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Writes `len` bytes from `buf`, answering the count written or `-1`.
     pub fn yashy_tcp_write(fd: c_longlong, buf: *const c_uchar, len: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Sets both receive and send timeouts on a TCP descriptor, in
+    /// milliseconds; answers 0 on success and -1 on failure.
+    pub fn yashy_tcp_set_timeout(fd: c_longlong, millis: c_longlong) -> c_longlong;
 }
 
 unsafe extern "C" {

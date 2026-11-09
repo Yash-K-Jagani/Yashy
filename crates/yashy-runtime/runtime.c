@@ -165,6 +165,15 @@ void yashy_print_line_str(const yashy_str *s) {
     fputc('\n', stdout);
 }
 
+void yashy_print_line_stderr(const yashy_str *s) {
+    if (s == NULL) {
+        return;
+    }
+    fwrite(yashy_str_data(s), 1, (size_t)yashy_str_len(s), stderr);
+    fputc('\n', stderr);
+    fflush(stderr);
+}
+
 /* Writes the decimal digits straight into a stack buffer and hands them to
  * stdio. No `sprintf`, no `malloc`: printing a number is a formatting step,
  * not an allocation, and a loop that prints a million of them should not
@@ -1624,6 +1633,17 @@ long long yashy_write_file(const char *path, const char *bytes, long long len) {
         return 1 + yashy_errno_to_io_error(errno);
     }
     return 0;
+}
+
+int yashy_mkdir(const char *path) {
+    if (path == NULL) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return _mkdir(path) == 0 ? 0 : -1;
+#else
+    return mkdir(path, 0777) == 0 ? 0 : -1;
+#endif
 }
 
 /* Read a file as bytes. Writes the slice header into `out` and returns `0` on

@@ -18,6 +18,7 @@ extern "C" {
     unsafe fn yashy_tcp_read_str(i64 fd, i64 max) -> string;
     unsafe fn yashy_tcp_write(i64 fd, *const u8 buf, i64 len) -> i64;
     unsafe fn yashy_tcp_close(i64 fd) -> void;
+    unsafe fn yashy_tcp_set_timeout(i64 fd, i64 millis) -> i64;
 }
 
 pub struct Listener {
@@ -28,38 +29,38 @@ pub struct Socket {
     fd: int,
 }
 
-pub enum Error {
+pub enum NetError {
     Failure,
 }
 
-pub unsafe fn net_listen(string host, int port) -> Result[Listener, Error] {
+pub unsafe fn net_listen(string host, int port) -> Result[Listener, NetError] {
     const fd = yashy_tcp_listen(host, port);
     if fd < 0 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     return Ok(Listener { fd: fd });
 }
 
-pub unsafe fn net_accept(Listener listener) -> Result[Socket, Error] {
+pub unsafe fn net_accept(Listener listener) -> Result[Socket, NetError] {
     const fd = yashy_tcp_accept(listener.fd);
     if fd < 0 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     return Ok(Socket { fd: fd });
 }
 
-pub unsafe fn net_connect(string host, int port) -> Result[Socket, Error] {
+pub unsafe fn net_connect(string host, int port) -> Result[Socket, NetError] {
     const fd = yashy_tcp_connect(host, port);
     if fd < 0 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     return Ok(Socket { fd: fd });
 }
 
-pub unsafe fn net_read(Socket peer) -> Result[Option[string], Error] {
+pub unsafe fn net_read(Socket peer) -> Result[Option[string], NetError] {
     const encoded = yashy_tcp_read_str(peer.fd, 4096);
     if encoded.len() == 0 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     const status = encoded.byte_at(0).to_int();
     if status == 0 {
@@ -67,21 +68,29 @@ pub unsafe fn net_read(Socket peer) -> Result[Option[string], Error] {
         return Ok(nothing);
     }
     if status != 1 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     return Ok(Some(encoded.slice(1, encoded.len())));
 }
 
-pub unsafe fn net_write(Socket peer, string data) -> Result[int, Error] {
+pub unsafe fn net_write(Socket peer, string data) -> Result[int, NetError] {
     const sent = yashy_tcp_write(peer.fd, data, data.len());
     if sent < 0 {
-        return Err(Error.Failure);
+        return Err(NetError.Failure);
     }
     return Ok(sent);
 }
 
 pub unsafe fn net_close(Socket peer) {
     yashy_tcp_close(peer.fd);
+}
+
+pub unsafe fn net_set_timeout(Socket peer, int millis) -> Result[int, NetError] {
+    const code = yashy_tcp_set_timeout(peer.fd, millis);
+    if code != 0 {
+        return Err(NetError.Failure);
+    }
+    return Ok(code);
 }
 
 pub unsafe fn net_close_listener(Listener listener) {
