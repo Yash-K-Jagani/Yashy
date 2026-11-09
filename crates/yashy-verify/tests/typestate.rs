@@ -70,6 +70,36 @@ fn lock_then_unlock_is_accepted() {
     assert!(verify_source("fn main() { let m = mutex_new(); m.lock(); m.unlock(); }").diagnostics.is_empty());
 }
 
+const SOCKET_HANDLE: &str = "\
+struct Listener { fd: int }\n\
+struct Socket { fd: int }\n\
+enum Error { Failure }\n\
+unsafe fn net_listen(string host, int port) -> Result[Listener, Error] { const fd = 0; return Ok(Listener { fd: fd }); }\n\
+unsafe fn net_connect(string host, int port) -> Result[Socket, Error] { const fd = 0; return Ok(Socket { fd: fd }); }\n\
+unsafe fn net_read(Socket peer) -> Result[Option[string], Error] { const Option[string] nothing = None; return Ok(nothing); }\n\
+unsafe fn net_close(Socket peer) {}\n\
+unsafe fn net_close_listener(Listener listener) {}\n";
+
+#[test]
+fn closing_a_listener_twice_is_e1400() {
+    let source = format!(
+        "{SOCKET_HANDLE}\
+fn fail() -> Result[int, Error] {{ const listener = net_listen(\"127.0.0.1\", 19179)?; net_close_listener(listener); net_close_listener(listener); return Ok(0); }}\n\
+fn main() {{ }}"
+    );
+    assert!(codes(&verify_source(&source)).contains(&"E1400"), "{:?}", codes(&verify_source(&source)));
+}
+
+#[test]
+fn using_a_socket_after_close_is_e1401() {
+    let source = format!(
+        "{SOCKET_HANDLE}\
+fn fail() -> Result[int, Error] {{ const socket = net_connect(\"127.0.0.1\", 19180)?; net_close(socket); const data = net_read(socket)?; print(data); return Ok(0); }}\n\
+fn main() {{ }}"
+    );
+    assert!(codes(&verify_source(&source)).contains(&"E1401"), "{:?}", codes(&verify_source(&source)));
+}
+
 const ITERATOR: &str = "\
 trait Iterator { fn next(self: *mut Self) -> Option[int]; }\n\
 struct Counter { n: int }\n\

@@ -128,7 +128,10 @@ impl EscapeWalker<'_> {
                     self.report("spawn(...)", span);
                 }
                 if let HirExpr::Ident(path, span, _) = root_ident(value) {
-                    if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                    if path
+                        .last()
+                        .is_some_and(|name| self.defines_task(name).is_some())
+                    {
                         let name = path.last().cloned().unwrap_or_default();
                         self.report(&name, *span);
                     }
@@ -150,7 +153,9 @@ impl EscapeWalker<'_> {
                     self.block(else_block);
                 }
             }
-            HirStmt::ForRange { start, end, body, .. } => {
+            HirStmt::ForRange {
+                start, end, body, ..
+            } => {
                 self.expr(start);
                 self.expr(end);
                 self.block(body);
@@ -226,12 +231,17 @@ impl EscapeWalker<'_> {
 
     fn expr(&mut self, expr: &HirExpr) {
         match expr {
-            HirExpr::Call { callee, args, span, .. } => {
+            HirExpr::Call {
+                callee, args, span, ..
+            } => {
                 let name = callee.last().map(|s| s.as_str()).unwrap_or("");
                 if name == "push" {
                     for arg in args {
                         if let HirExpr::Ident(path, arg_span, _) = root_ident(arg) {
-                            if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                            if path
+                                .last()
+                                .is_some_and(|name| self.defines_task(name).is_some())
+                            {
                                 let name = path.last().cloned().unwrap_or_default();
                                 self.report(&name, *arg_span);
                             }
@@ -252,7 +262,10 @@ impl EscapeWalker<'_> {
                         self.report("spawn(...)", span);
                     }
                     if let HirExpr::Ident(path, span, _) = root_ident(value) {
-                        if path.last().is_some_and(|name| self.defines_task(name).is_some()) {
+                        if path
+                            .last()
+                            .is_some_and(|name| self.defines_task(name).is_some())
+                        {
                             let name = path.last().cloned().unwrap_or_default();
                             self.report(&name, *span);
                         }
@@ -365,10 +378,8 @@ fn escaping_ident(
 
 fn is_task_ty(expr: &HirExpr) -> bool {
     use yashy_hir::ty::TypeKind;
-    matches!(
-        yashy_hir::hir::expr_ty(expr).kind,
-        TypeKind::Task(_)
-    ) || matches!(expr, HirExpr::Spawn { .. })
+    matches!(yashy_hir::hir::expr_ty(expr).kind, TypeKind::Task(_))
+        || matches!(expr, HirExpr::Spawn { .. })
 }
 
 /// `E1702`: a resource held across an `await`. Tracks, in statement order,
@@ -459,7 +470,9 @@ impl HoldWalker<'_> {
                 }
             }
             HirStmt::Scope { body, .. } => self.block(body),
-            HirStmt::ForRange { start, end, body, .. } => {
+            HirStmt::ForRange {
+                start, end, body, ..
+            } => {
                 self.expr(start);
                 self.expr(end);
                 let saved = self.held.clone();
@@ -559,7 +572,9 @@ impl HoldWalker<'_> {
                 match callee.last().map(|s| s.as_str()).unwrap_or("") {
                     "mutex_lock" | "lock" => {
                         if let Some(name) = first_arg_name(args) {
-                            if let Some(entry) = self.held.iter_mut().find(|(held, ..)| held == &name) {
+                            if let Some(entry) =
+                                self.held.iter_mut().find(|(held, ..)| held == &name)
+                            {
                                 entry.1 = "mutex";
                                 entry.2 = false;
                             } else {
@@ -679,14 +694,20 @@ fn stmt_await_span(stmt: &HirStmt) -> Option<Span> {
             HirExpr::Index { base, index, .. } => expr_await(base).or_else(|| expr_await(index)),
             HirExpr::View {
                 base, start, end, ..
-            } => expr_await(base).or_else(|| expr_await(start)).or_else(|| expr_await(end)),
+            } => expr_await(base)
+                .or_else(|| expr_await(start))
+                .or_else(|| expr_await(end)),
             HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } => expr_await(expr),
             HirExpr::Spawn { callee, args, .. } => {
                 expr_await(callee).or_else(|| args.iter().find_map(expr_await))
             }
             HirExpr::SwitchExpr { subject, arms, .. } => expr_await(subject).or_else(|| {
-                arms.iter()
-                    .find_map(|arm| arm.guard.as_ref().and_then(expr_await).or_else(|| expr_await(&arm.body)))
+                arms.iter().find_map(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .and_then(expr_await)
+                        .or_else(|| expr_await(&arm.body))
+                })
             }),
             HirExpr::HigherOrder {
                 receiver,
@@ -702,15 +723,26 @@ fn stmt_await_span(stmt: &HirStmt) -> Option<Span> {
     }
     match stmt {
         HirStmt::Expr(expr, ..) => expr_await(expr),
-        HirStmt::Var { init, .. } | HirStmt::Const { init, .. } | HirStmt::Destructure { init, .. } => {
-            expr_await(init)
-        }
+        HirStmt::Var { init, .. }
+        | HirStmt::Const { init, .. }
+        | HirStmt::Destructure { init, .. } => expr_await(init),
         HirStmt::Assign { value, .. } => expr_await(value),
         HirStmt::Return(Some(expr), _) => expr_await(expr),
-        HirStmt::If { cond, then_block, else_block, .. } => expr_await(cond)
+        HirStmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => expr_await(cond)
             .or_else(|| then_block.stmts.iter().find_map(stmt_await_span))
-            .or_else(|| else_block.as_ref().and_then(|block| block.stmts.iter().find_map(stmt_await_span))),
-        HirStmt::ForRange { start, end, body, .. } => expr_await(start)
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|block| block.stmts.iter().find_map(stmt_await_span))
+            }),
+        HirStmt::ForRange {
+            start, end, body, ..
+        } => expr_await(start)
             .or_else(|| expr_await(end))
             .or_else(|| body.stmts.iter().find_map(stmt_await_span)),
         HirStmt::Scope { body, .. } | HirStmt::Defer { body, .. } => {
@@ -742,7 +774,9 @@ fn deferred_releases(block: &HirBlock) -> Vec<String> {
                 expr_releases(lhs, out);
                 expr_releases(rhs, out);
             }
-            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => expr_releases(operand, out),
+            HirExpr::Unary { operand, .. } | HirExpr::Move(operand, ..) => {
+                expr_releases(operand, out)
+            }
             HirExpr::StructLit { fields, .. } => {
                 for (_, value, _) in fields {
                     expr_releases(value, out);
@@ -762,7 +796,9 @@ fn deferred_releases(block: &HirBlock) -> Vec<String> {
     for stmt in &block.stmts {
         match stmt {
             HirStmt::Expr(expr, ..) => expr_releases(expr, &mut out),
-            HirStmt::Var { init, .. } | HirStmt::Const { init, .. } => expr_releases(init, &mut out),
+            HirStmt::Var { init, .. } | HirStmt::Const { init, .. } => {
+                expr_releases(init, &mut out)
+            }
             HirStmt::Assign { value, .. } => expr_releases(value, &mut out),
             _ => {}
         }
@@ -1428,12 +1464,16 @@ fn pattern_is_none(pattern: &HirPattern) -> bool {
 
 fn resource_state_of_init(expr: &HirExpr) -> Option<State> {
     match expr {
+        HirExpr::Try { expr, .. } => resource_state_of_init(expr),
         HirExpr::Call { callee, .. } => {
             let name = callee.last().map(|s| s.as_str()).unwrap_or("");
             match name {
                 "mutex_new" => Some(State::Unlocked),
                 "chan_new" => Some(State::Open),
                 "alloc" => Some(State::Allocated),
+                "listen" | "accept" | "connect" | "net_listen" | "net_accept" | "net_connect" => {
+                    Some(State::Open)
+                }
                 _ => None,
             }
         }
@@ -1450,6 +1490,8 @@ fn transition_for(callee: &[String]) -> Option<(State, State)> {
         "mutex_free" => Some((State::Unlocked, State::Freed)),
         "chan_close" => Some((State::Open, State::Closed)),
         "chan_free" => Some((State::Open, State::Freed)),
+        "close" | "net_close" => Some((State::Open, State::Closed)),
+        "close_listener" | "net_close_listener" => Some((State::Open, State::Closed)),
         "dealloc" => Some((State::Allocated, State::Freed)),
         _ => {
             // Check for .free() method calls - callee like ["Type", "free"] or ["free"]
@@ -1680,7 +1722,9 @@ fn check_race_in_expr(expr: &HirExpr, uses_threads: bool, out: &mut Vec<Diagnost
                 check_race_in_expr(arg, uses_threads, out, file);
             }
         }
-        HirExpr::Spawn { callee, args, span, .. } => {
+        HirExpr::Spawn {
+            callee, args, span, ..
+        } => {
             // One rule, one implementation: a capture that reaches a
             // concurrent context must be shareable, where a concurrent
             // context is `thread_spawn` or `spawn`. A `spawn` argument is

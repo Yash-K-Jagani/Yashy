@@ -848,6 +848,9 @@ pub fn builtin_borrows_argument(callee: &[String], index: usize) -> bool {
     match name.as_str() {
         "arena_alloc" => index == 0,
         "write_bytes" => index == 1,
+        // The socket helpers only read or write through this buffer; they do
+        // not take ownership of it, so the caller can still free it.
+        "yashy_tcp_read" | "yashy_tcp_write" => index == 1,
         _ => false,
     }
 }

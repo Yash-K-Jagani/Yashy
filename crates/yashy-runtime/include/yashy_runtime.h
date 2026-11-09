@@ -268,6 +268,8 @@ yashy_str *yashy_str_slice(const yashy_str *s, long long start, long long end);
 yashy_str *yashy_str_from_i64(long long value);
 yashy_str *yashy_str_from_f64(double value);
 yashy_str *yashy_str_from_bool(long long value);
+/* Creates an owned string from `len` bytes at `bytes`. */
+yashy_str *yashy_str_from_bytes(const uint8_t *bytes, long long len);
 /* The one-byte string the byte spells: `'\xFF'` is a length-1 string holding
  * 0xFF, with no encoding applied. */
 yashy_str *yashy_str_from_char(unsigned char value);
@@ -364,6 +366,25 @@ void yashy_str_release_atomic(yashy_str *s);
 /* The current reference count: 1 for a live owned string, -1 for a static
  * literal, 0 for NULL. For the runtime's own concurrency test. */
 long long yashy_str_refcount(const yashy_str *s);
+
+/* ---- TCP sockets -------------------------------------------------------
+ *
+ * The `net` package's C contract. A descriptor is an opaque non-negative
+ * integer owned by the caller. `listen`, `accept` and `connect` answer a
+ * descriptor or `-1`. `read` answers the number of bytes copied, `0` for a
+ * clean EOF after the peer closed, and `-1` for an error. `write` sends the
+ * requested bytes and answers their count, or `-1`. `close` never reports
+ * failure: it is safe on an invalid descriptor and is a no-op there. */
+int64_t yashy_tcp_listen(const char *host, int64_t port);
+int64_t yashy_tcp_accept(int64_t listener);
+int64_t yashy_tcp_connect(const char *host, int64_t port);
+int64_t yashy_tcp_read(int64_t fd, uint8_t *buf, int64_t len);
+int64_t yashy_tcp_write(int64_t fd, const uint8_t *buf, int64_t len);
+/* Reads once and returns an owned string whose first byte is a status tag:
+ * `0` for a clean EOF, `1` followed by the received bytes, or `2` for an
+ * error. This is the string half of the contract used by `net.ya`. */
+yashy_str *yashy_tcp_read_str(int64_t fd, int64_t max);
+void yashy_tcp_close(int64_t fd);
 
 /* ---- Slices ----
  *

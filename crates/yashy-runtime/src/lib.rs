@@ -55,6 +55,10 @@ pub const HASHMAP_C_SOURCE: &str = include_str!("../hashmap.c");
 /// header.
 pub const EXECUTOR_C_SOURCE: &str = include_str!("executor.c");
 
+/// The network runtime, a separate translation unit that includes the same
+/// header.
+pub const NET_C_SOURCE: &str = include_str!("net.c");
+
 /// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
 pub const RUNTIME_HEADER: &str = include_str!("../include/yashy_runtime.h");
 
@@ -81,6 +85,9 @@ pub const HASHMAP_SOURCE_NAME: &str = "hashmap.c";
 
 /// The executor source's file name, used when the driver writes it to disk.
 pub const EXECUTOR_SOURCE_NAME: &str = "executor.c";
+
+/// The network source's file name, used when the driver writes it to disk.
+pub const NET_SOURCE_NAME: &str = "net.c";
 
 // The IR says `i64`. If a target ever gave `long long` a different width, the
 // generated IR and the compiled runtime would disagree silently, so refuse to
@@ -149,7 +156,11 @@ unsafe extern "C" {
 
 unsafe extern "C" {
     /// Hands out `size` bytes aligned to `align` from `arena`, or returns null.
-    pub fn yashy_arena_alloc(arena: *mut c_void, size: c_longlong, align: c_longlong) -> *mut c_void;
+    pub fn yashy_arena_alloc(
+        arena: *mut c_void,
+        size: c_longlong,
+        align: c_longlong,
+    ) -> *mut c_void;
 }
 
 unsafe extern "C" {
@@ -296,7 +307,8 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Copies the value for `key` into `out`, removes the entry, and returns 1;
     /// returns 0 when the key is missing.
-    pub fn yashy_map_remove(map: *mut YashyMap, key: *const c_void, out: *mut c_void) -> c_longlong;
+    pub fn yashy_map_remove(map: *mut YashyMap, key: *const c_void, out: *mut c_void)
+        -> c_longlong;
 }
 
 unsafe extern "C" {
@@ -379,11 +391,8 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// The bytes in `[start, end)` as a fresh owned string. The range is
     /// clamped; an inverted range is empty and null is empty.
-    pub fn yashy_str_slice(
-        s: *const YashyStr,
-        start: c_longlong,
-        end: c_longlong,
-    ) -> *mut YashyStr;
+    pub fn yashy_str_slice(s: *const YashyStr, start: c_longlong, end: c_longlong)
+        -> *mut YashyStr;
 }
 
 unsafe extern "C" {
@@ -562,11 +571,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Cancels a task: frees its frame, removing it from the queue first
     /// when it is still queued. Tolerates a null frame.
-    pub fn yashy_task_cancel(
-        executor: *mut YashyExecutor,
-        poll: YashyPollFn,
-        frame: *mut c_void,
-    );
+    pub fn yashy_task_cancel(executor: *mut YashyExecutor, poll: YashyPollFn, frame: *mut c_void);
 }
 
 unsafe extern "C" {
@@ -609,4 +614,43 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// The number of spawned tasks that reached ready. Null is zero.
     pub fn yashy_executor_completed(executor: *const YashyExecutor) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Opens a TCP listening descriptor for `host` and `port`, or answers
+    /// `-1`. `host` is a NUL-terminated string.
+    pub fn yashy_tcp_listen(host: *const c_char, port: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Accepts one connection on `listener`, or answers `-1`.
+    pub fn yashy_tcp_accept(listener: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Connects to TCP `host` and `port`, or answers `-1`. `host` is a
+    /// NUL-terminated string.
+    pub fn yashy_tcp_connect(host: *const c_char, port: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Reads up to `len` bytes into `buf`, answering the count read. `0` is a
+    /// clean EOF; `-1` is an error.
+    pub fn yashy_tcp_read(fd: c_longlong, buf: *mut c_uchar, len: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Reads once and returns the bytes as an owned string. An empty string
+    /// is a clean EOF; NULL is an error.
+    pub fn yashy_tcp_read_str(fd: c_longlong, max: c_longlong) -> *mut YashyStr;
+}
+
+unsafe extern "C" {
+    /// Writes `len` bytes from `buf`, answering the count written or `-1`.
+    pub fn yashy_tcp_write(fd: c_longlong, buf: *const c_uchar, len: c_longlong) -> c_longlong;
+}
+
+unsafe extern "C" {
+    /// Closes a TCP descriptor. An invalid descriptor is silently ignored.
+    pub fn yashy_tcp_close(fd: c_longlong);
 }

@@ -620,6 +620,16 @@ static yashy_str *yashy_str_new(const char *bytes, size_t len) {
     return s;
 }
 
+/* Creates an owned string from a byte buffer. This is the entry point a
+ * separate translation unit uses when it already owns raw bytes, such as the
+ * socket reader. */
+yashy_str *yashy_str_from_bytes(const uint8_t *bytes, long long len) {
+    if (len < 0 || (len > 0 && bytes == NULL)) {
+        return NULL;
+    }
+    return yashy_str_new((const char *)bytes, (size_t)len);
+}
+
 /* Returns the data pointer for passing to C functions that expect `const char*`. */
 static const char *yashy_str_data(const yashy_str *s) {
     return s == NULL ? "" : s->data;

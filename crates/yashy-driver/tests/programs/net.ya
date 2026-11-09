@@ -1,0 +1,135 @@
+// TCP sockets: the language-level half of the `net` package, exercised end
+// to end. Loopback connect, accept, echo, close a socket twice for `E1400`,
+// and read from a closed socket for `E1401` below; the runtime tests own
+// the OS-level cases.
+//
+// `net_listen`, `net_accept` and `net_connect` return linear handles; the
+// typestate pass tracks each binding as `Open` until `net_close` moves it to
+// `Closed`. A second close is `E1400`, and any later use is `E1401`.
+// `net_read` answers `Some(text)` for bytes, `None` for a clean EOF, and
+// `Err` for a failed socket; it never invents empty bytes to mean failure.
+// `net_write` sends every byte and answers the count it sent.
+//
+// Every operation is effectful and a `pure fn` cannot open a socket (`E1300`).
+// Ownership: handles are moved into the operation that uses them; a read or
+// write does not release the socket. Close each handle exactly once.
+
+extern "C" {
+    unsafe fn yashy_tcp_listen(*const u8 host, i64 port) -> i64;
+    unsafe fn yashy_tcp_accept(i64 listener) -> i64;
+    unsafe fn yashy_tcp_connect(*const u8 host, i64 port) -> i64;
+    unsafe fn yashy_tcp_read_str(i64 fd, i64 max) -> string;
+    unsafe fn yashy_tcp_write(i64 fd, *const u8 buf, i64 len) -> i64;
+    unsafe fn yashy_tcp_close(i64 fd) -> void;
+}
+
+struct Listener {
+    fd: int,
+}
+
+struct Socket {
+    fd: int,
+}
+
+enum Error {
+    Failure,
+}
+
+unsafe fn net_listen(string host, int port) -> Result[Listener, Error] {
+    const fd = yashy_tcp_listen(host, port);
+    if fd < 0 {
+        return Err(Error.Failure);
+    }
+    return Ok(Listener { fd: fd });
+}
+
+unsafe fn net_accept(Listener listener) -> Result[Socket, Error] {
+    const fd = yashy_tcp_accept(listener.fd);
+    if fd < 0 {
+        return Err(Error.Failure);
+    }
+    return Ok(Socket { fd: fd });
+}
+
+unsafe fn net_connect(string host, int port) -> Result[Socket, Error] {
+    const fd = yashy_tcp_connect(host, port);
+    if fd < 0 {
+        return Err(Error.Failure);
+    }
+    return Ok(Socket { fd: fd });
+}
+
+unsafe fn net_read(Socket peer) -> Result[Option[string], Error] {
+    const encoded = yashy_tcp_read_str(peer.fd, 4096);
+    if encoded.len() == 0 {
+        return Err(Error.Failure);
+    }
+    const status = encoded.byte_at(0).to_int();
+    if status == 0 {
+        const Option[string] nothing = None;
+        return Ok(nothing);
+    }
+    if status != 1 {
+        return Err(Error.Failure);
+    }
+    return Ok(Some(encoded.slice(1, encoded.len())));
+}
+
+unsafe fn net_write(Socket peer, string data) -> Result[int, Error] {
+    const sent = yashy_tcp_write(peer.fd, data, data.len());
+    if sent < 0 {
+        return Err(Error.Failure);
+    }
+    return Ok(sent);
+}
+
+unsafe fn net_close(Socket peer) {
+    yashy_tcp_close(peer.fd);
+}
+
+unsafe fn net_close_listener(Listener listener) {
+    yashy_tcp_close(listener.fd);
+}
+
+fn echo() -> Result[int, Error] {
+    const listener = net_listen("127.0.0.1", 19177)?;
+    const client = net_connect("127.0.0.1", 19177)?;
+    const sent = net_write(client, "hello")?;
+    assert(sent == 5);
+    const server = net_accept(listener)?;
+    const received = net_read(server)?;
+    const received_text = switch received {
+        case Some(text) { text }
+        case None { "" }
+    };
+    if received_text != "hello" {
+        net_close(server);
+        net_close(client);
+        net_close_listener(listener);
+        return Err(Error.Failure);
+    }
+    const replied = net_write(server, "world")?;
+    assert(replied == 5);
+    const reply = net_read(client)?;
+    const reply_text = switch reply {
+        case Some(text) { text }
+        case None { "" }
+    };
+    if reply_text != "world" {
+        net_close(server);
+        net_close(client);
+        net_close_listener(listener);
+        return Err(Error.Failure);
+    }
+    net_close(server);
+    net_close(client);
+    net_close_listener(listener);
+    return Ok(sent);
+}
+
+fn main() {
+    switch echo() {
+        case Ok(_) { print("net-ok") }
+        case Err(_) { panic("net echo failed") }
+    }
+}

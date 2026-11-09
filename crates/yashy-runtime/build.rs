@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=runtime.c");
     println!("cargo:rerun-if-changed=hashmap.c");
     println!("cargo:rerun-if-changed=src/executor.c");
+    println!("cargo:rerun-if-changed=src/net.c");
     println!("cargo:rerun-if-changed=include/yashy_runtime.h");
     println!("cargo:rerun-if-changed=src/grapheme_data.h");
 
@@ -22,10 +23,15 @@ fn main() {
         std::env::var("HOST").expect("Cargo sets HOST for build scripts")
     );
 
+    if std::env::var("CARGO_CFG_WINDOWS").as_deref() == Ok("1") {
+        println!("cargo:rustc-link-lib=dylib=ws2_32");
+    }
+
     cc::Build::new()
         .file("runtime.c")
         .file("hashmap.c")
         .file("src/executor.c")
+        .file("src/net.c")
         .include("include")
         .warnings(true)
         .compile("yashy_runtime");
