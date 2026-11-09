@@ -60,11 +60,18 @@ See the master index. The ones that bite here:
 - Produces: the supported TOML subset — tables, bare/quoted keys, strings, integers, booleans, arrays of strings, comments. No inline tables, no multi-line strings, no dates. Documented in `docs/cli.md` with a one-screen grammar.
 - Produces: `E1800` with line and column for any input outside the subset; a manifest missing `name` or `version` is `E1800` with the missing key named.
 
-- [ ] **Step 1: Write the failing tests** — all 15 valid manifests parse to the expected struct; each of the 15 invalid ones produces `E1800` at the right line; a 1 MiB manifest is rejected with a size diagnostic rather than a slow parse; a `git` dependency without `rev` is `E1800` ("a git dependency is pinned to a commit").
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — a line-oriented reader with a small state machine; keys are `BTreeMap` so error order is deterministic. The parser is total: every input returns `Result`, never panics, and the fuzz corpus from phase 9's harness gains ten manifest cases.
-- [ ] **Step 4: Run** `cargo test -p yashy-manifest` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(manifest): a small, total TOML subset and yashy.toml (E1800)"`
+- [x] **Step 1: Write the failing tests** — all 15 valid manifests parse to the expected struct; each of the 15 invalid ones produces `E1800` at the right line; a 1 MiB manifest is rejected with a size diagnostic rather than a slow parse; a `git` dependency without `rev` is `E1800` ("a git dependency is pinned to a commit").
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — a line-oriented reader with a small state machine; keys are `BTreeMap` so error order is deterministic. The parser is total: every input returns `Result`, never panics, and the fuzz corpus from phase 9's harness gains ten manifest cases.
+- [x] **Step 4: Run** `cargo test -p yashy-manifest` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(manifest): a small, total TOML subset and yashy.toml (E1800)"`
+
+**Ruling recorded during implementation:** the lockfile format needs
+`[[package]]`, and the manifest subset as written has no array-of-tables form.
+The reader accepts `[[name]]` (append a table to the array at `name`) and keeps
+rejecting a repeated plain `[name]`, so a manifest typo is still caught. The
+subset's documented grammar in `docs/cli.md` includes this form. The compiler
+and driver also share the crate through the root workspace member list.
 
 ---
 
@@ -89,11 +96,19 @@ See the master index. The ones that bite here:
 - Produces: `hash` covers the package's source tree canonically (sorted paths, LF, no mtimes), so it is stable across a re-clone.
 - Produces: `yashy lock --check` exits 1 with `E1802` when the lock and manifest disagree; `yashy build` runs the same check before compiling.
 
-- [ ] **Step 1: Write the failing tests** — round-trip a lockfile byte-identically; changing a manifest version without updating the lock is `E1802` naming both versions; a hand-edited hash that does not match the source is `E1802`; the lockfile is sorted by name then version.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — hashing is a streaming SHA-256 written in the crate (about 120 lines, no dependency), with a test vector from the FIPS 180-4 examples so the implementation is proven against a known answer rather than against itself.
-- [ ] **Step 4: Run** `cargo test -p yashy-manifest` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(manifest): a content-hashed, sorted lockfile (E1802)"`
+- [x] **Step 1: Write the failing tests** — round-trip a lockfile byte-identically; changing a manifest version without updating the lock is `E1802` naming both versions; a hand-edited hash that does not match the source is `E1802`; the lockfile is sorted by name then version.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — hashing is a streaming SHA-256 written in the crate (about 120 lines, no dependency), with a test vector from the FIPS 180-4 examples so the implementation is proven against a known answer rather than against itself.
+- [x] **Step 4: Run** `cargo test -p yashy-manifest` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(manifest): a content-hashed, sorted lockfile (E1802)"`
+
+**Ruling recorded during implementation:** `yashy lock --check` is the whole
+command in this task; the generating half of `yashy lock` arrives with
+`yashy update` in Task 3, when there is a store to fetch from. `yashy build`
+verifies a lock only when one exists, so the existing example projects (which
+have a `yashy.toml` and no lock yet) keep building. Registry entries are checked
+by name and exact version here; a path dependency's tree is hashed and compared.
+The driver test `tests/lock_cli.rs` proves all four behaviours.
 
 ---
 
