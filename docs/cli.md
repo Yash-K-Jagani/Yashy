@@ -689,6 +689,57 @@ a generated command file that sets a breakpoint on `main` and dumps the
 async task table on stop; the same table is available without a debugger
 through `YASHY_DEBUG=1`.
 
+## `yashy.toml` and `yashy lock --check`
+
+A project may carry a manifest beside its source. The reader is a documented
+subset of TOML, hand-written so the compiler keeps building offline:
+
+```text
+file       := line*
+line       := ws (comment | table | array-table | assignment) ws comment? ws
+table      := '[' key ('.' key)* ']'
+array-table:= '[[' key ('.' key)* ']]'
+assignment := key ('.' key)* '=' ws value
+key        := bare-key | '"' basic-string '"' | "'" literal-string "'"
+value      := string | integer | boolean | array
+array      := '[' ws (value ws (',' value ws)* ','?)? ']'
+comment    := '#' any
+```
+
+Bare keys are letters, digits, `_` and `-`. Strings are single-line: a basic
+string understands `\n`, `\r`, `\t`, `\\` and `\"`, and a literal string
+understands nothing. There are no inline tables, no multi-line strings, no
+floats and no dates. `[[package]]` is the array-of-tables form the lockfile
+uses; a plain `[table]` may not repeat. The whole file is capped at 1 MiB and
+every rejection is [E1800](errors/E1800.md) at a line and column.
+
+```toml
+[package]
+name = "hello"
+version = "0.1.0"
+
+[dependencies]
+http = "0.3.1"
+
+[dependencies.net]
+path = "../net"
+
+[dependencies.extra]
+git = "https://example.invalid/extra"
+rev = "0123456789abcdef0123456789abcdef01234567"
+```
+
+Versions are exact pins: `1.2.3`, never `^1.2.3`, `~1.2.3`, `*` or a range. A
+git dependency names a commit. Unknown tables and keys are refused, so a
+misspelled `[dependecies]` cannot silently vanish.
+
+`yashy lock --check` compares `yashy.toml` with `yashy.lock` and exits 1 with
+[E1802](errors/E1802.md) when a version, source or content hash differs. The
+lockfile is deterministic: packages sorted by name then version, dependency
+lists sorted, LF endings, and a `sha256:` hash over a canonical source tree
+(sorted paths, CRLF normalised, no mtimes). `yashy build` runs the same check
+when a lockfile is present.
+
 ## Flags the native foundation did not add
 
 The `link_name`, variadic, `repr(C)` and byte-buffer work extended the language,

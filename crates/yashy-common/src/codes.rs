@@ -115,6 +115,9 @@ pub const SANDBOX_LIMIT: &str = "E1901";
 /// A `yashy.toml` is outside the documented TOML subset, or names a key the
 /// manifest does not have.
 pub const MANIFEST_SYNTAX: &str = "E1800";
+/// `yashy.lock` and `yashy.toml` disagree: a version, source or content hash
+/// differs, or the lockfile is not the file the format describes.
+pub const LOCKFILE_MISMATCH: &str = "E1802";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -473,6 +476,12 @@ pub const CODES: &[Code] = &[
         title: "manifest syntax",
         summary: "`yashy.toml` is outside the documented TOML subset or names a key the manifest does not have.",
         page: include_str!("../../../docs/errors/E1800.md"),
+    },
+    Code {
+        id: LOCKFILE_MISMATCH,
+        title: "lockfile mismatch",
+        summary: "`yashy.lock` and `yashy.toml` disagree; run `yashy update`.",
+        page: include_str!("../../../docs/errors/E1802.md"),
     },
     Code {
         id: SANDBOX_DENIED,

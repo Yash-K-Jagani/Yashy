@@ -38,6 +38,7 @@ use yashy_driver::{
     load_and_check_timed, opt_report, resolve_opt, timed, BuildOptions, CommandKind, CpuTarget,
     OptLevel, TimingRow,
 };
+use yashy_manifest::{Lockfile, Manifest};
 use yashy_verify::{first_contract, Assumption, ContractMode, VerifyOptions, VerifyReport};
 
 /// How every command that verifies reads the program.
@@ -76,6 +77,7 @@ usage:
   yashy lsp [--version]
   yashy doc [path] [--out DIR] [--json] [--private]
   yashy profile <file.ya> | yashy profile --report <file.json>
+  yashy lock --check
   yashy fmt [-w] <files...>
   yashy version
 
@@ -98,6 +100,7 @@ usage:
   lsp     run the language server (the sibling `yashy-lsp` binary)
   doc     render the public surface as Markdown (--json for the model)
   profile print a per-function counter report sorted by self time
+  lock    check yashy.toml against yashy.lock without resolving anything
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -187,6 +190,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "lsp" => lsp_cmd(rest),
         "doc" => doc_cmd(rest),
         "profile" => profile_cmd(rest),
+        "lock" => lock_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -388,6 +392,14 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let Some(input) = input else {
         return stopped(usage_error("`build` needs a source file"));
     };
+
+    // A project that carries both a manifest and a lockfile has made a
+    // reproducibility claim. Verify it before compiling; that is the point of
+    // the lock. A manifest without a lock is not an error yet: the first lock
+    // is written by `yashy update` once resolution has a source to pin.
+    if let Some(code) = verify_project_lock(&input) {
+        return stopped(code);
+    }
 
     // `--no-verify` is an escape hatch, not a mode. It exists so a user can
     // build a program the verifier is wrong about, and it has to be loud and
@@ -3634,11 +3646,126 @@ fn render_tokens(tokens: &[yashy_lexer::Token], sources: &SourceMap, file: FileI
     out
 }
 
+/// A failure from `yashy lock --check` or the build-time check.
+enum LockCheckError {
+    /// The command cannot run: no manifest, wrong arguments.
+    Usage(String),
+    /// The files disagree. Carries the code the diagnostic prints.
+    Diagnostic { code: &'static str, message: String },
+}
+
+impl LockCheckError {
+    fn report(&self) {
+        match self {
+            LockCheckError::Usage(message) => eprintln!("error: {message}"),
+            LockCheckError::Diagnostic { code, message } => {
+                eprintln!("error[{code}]: {message}");
+                eprintln!("  docs: {}", codes::docs_url(code));
+            }
+        }
+    }
+
+    fn status(&self) -> ExitCode {
+        match self {
+            LockCheckError::Usage(_) => exit_code(EXIT_USAGE),
+            LockCheckError::Diagnostic { .. } => exit_code(EXIT_COMPILE_ERROR),
+        }
+    }
+}
+
+/// `yashy lock --check [dir]`.
+fn lock_cmd(args: &[String]) -> ExitCode {
+    let mut check = false;
+    let mut directory: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--check" => check = true,
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `lock`"))
+            }
+            other => {
+                if directory.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                directory = Some(PathBuf::from(other));
+            }
+        }
+    }
+    if !check {
+        return usage_error("`lock` needs `--check`; `yashy update` writes a new lock");
+    }
+    let directory = directory.unwrap_or_else(|| PathBuf::from("."));
+    match check_lock(&directory) {
+        Ok(()) => {
+            println!("yashy.lock is up to date");
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            error.report();
+            error.status()
+        }
+    }
+}
+
+/// Compare `dir/yashy.toml` with `dir/yashy.lock`.
+fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
+    let manifest_path = directory.join("yashy.toml");
+    if !manifest_path.is_file() {
+        return Err(LockCheckError::Usage(format!(
+            "no yashy.toml in {}",
+            directory.display()
+        )));
+    }
+    let manifest = Manifest::load(&manifest_path).map_err(|error| LockCheckError::Diagnostic {
+        code: codes::MANIFEST_SYNTAX,
+        message: format!(
+            "yashy.toml:{}:{}: {}",
+            error.line, error.column, error.message
+        ),
+    })?;
+    let lock_path = directory.join("yashy.lock");
+    if !lock_path.is_file() {
+        return Err(LockCheckError::Diagnostic {
+            code: codes::LOCKFILE_MISMATCH,
+            message: "there is no yashy.lock; run `yashy update`".to_string(),
+        });
+    }
+    let lock = Lockfile::load(&lock_path).map_err(|error| LockCheckError::Diagnostic {
+        code: codes::LOCKFILE_MISMATCH,
+        message: format!(
+            "yashy.lock:{}:{}: {}",
+            error.line, error.column, error.message
+        ),
+    })?;
+    lock.check_manifest(&manifest, directory)
+        .map_err(|error| LockCheckError::Diagnostic {
+            code: codes::LOCKFILE_MISMATCH,
+            message: error.message,
+        })
+}
+
+/// The build-time half of `yashy lock --check`.
+///
+/// Returns `Some(exit code)` only when a manifest and a lock both exist and
+/// disagree. A manifest without a lock is left alone; the first lock is
+/// written by `yashy update`.
+fn verify_project_lock(input: &Path) -> Option<ExitCode> {
+    let directory = input.parent().unwrap_or_else(|| Path::new("."));
+    if !directory.join("yashy.toml").is_file() || !directory.join("yashy.lock").is_file() {
+        return None;
+    }
+    match check_lock(directory) {
+        Ok(()) => None,
+        Err(error) => {
+            error.report();
+            Some(error.status())
+        }
+    }
+}
+
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("error: {message}\n{USAGE}");
     exit_code(EXIT_USAGE)
-}
-
-fn exit_code(code: i32) -> ExitCode {
+}fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(code as u8)
 }

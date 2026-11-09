@@ -92,6 +92,7 @@ the declaration or import involved when that is not obvious.
 | [E1603](errors/E1603.md) | duplicate macro name |
 | [E1700](errors/E1700.md) | await or spawn outside an async function |
 | [E1800](errors/E1800.md) | manifest syntax |
+| [E1802](errors/E1802.md) | lockfile mismatch |
 | [E1900](errors/E1900.md) | sandbox capability denied |
 | [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1701](errors/E1701.md) | task handle escapes its scope |
