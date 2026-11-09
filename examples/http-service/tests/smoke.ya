@@ -1,0 +1,126 @@
+// HTTP package and service tests.
+//
+// This is an ordinary Yashy program: exit 0 is a pass. It starts the service
+// in a worker thread, then exercises the parser, the client, a redirected
+// response, and fifty concurrent connections.
+
+import http;
+import server;
+import client;
+
+fn handler(Request request) -> Response {
+    const method = request.method;
+    const target = request.target;
+    if method == "POST" && target == "/echo" {
+        return response(200, request.body);
+    }
+    if target == "/redirect" {
+        return Response {
+            status: 302,
+            headers: "Location: /\r\n",
+            body: "",
+            final_url: "",
+        };
+    }
+    if target == "/echo" || target.starts_with("/echo?") {
+        return response(200, target);
+    }
+    if target == "/" {
+        return response(200, "ok");
+    }
+    return response(404, "missing");
+}
+
+fn server_entry() {
+    const ignored = serve("127.0.0.1:19091", handler);
+    switch ignored {
+        case Ok(_) { print("server stopped"); }
+        case Err(_) { print("server stopped"); }
+    }
+}
+
+fn success_code(Response response) -> int {
+    if response.status == 200 && response.body == "ok" {
+        return 1;
+    }
+    return 0;
+}
+
+fn client_worker(Channel[int] done) {
+    const found = client.get("http://127.0.0.1:19091/");
+    const code = switch found {
+        case Ok(response) { success_code(response) }
+        case Err(_) { 0 }
+    };
+    done.send(code);
+}
+
+fn unwrap_request(Result[Request, HttpError] found) -> Request {
+    return switch found {
+        case Ok(value) { value }
+        case Err(_) { panic("request failed"); }
+    };
+}
+
+fn run() -> Result[int, HttpError] {
+    const parsed = unwrap_request(http.parse_request(
+        "GET /x HTTP/1.1\r\nHost: example.test\r\nX-Test: yes\r\nContent-Length: 0\r\n\r\n"
+    ));
+    assert(parsed.method == "GET");
+    assert(parsed.target == "/x");
+    assert(parsed.version == "HTTP/1.1");
+    const found = http.header_value(parsed.headers, "X-Test");
+    const marker = switch found {
+        case Some(value) { value }
+        case None { "" }
+    };
+    assert(marker == "yes");
+
+    const chunked = unwrap_request(http.parse_request(
+        "POST /echo HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+    ));
+    assert(chunked.method == "POST");
+    assert(chunked.body == "hello");
+
+    const service = thread_spawn(server_entry);
+    sleep(250);
+
+    const root = client.get("http://127.0.0.1:19091/")?;
+    assert(root.status == 200);
+    assert(root.body == "ok");
+
+    const posted = client.post("http://127.0.0.1:19091/echo", "hello", []string {})?;
+    assert(posted.status == 200);
+    assert(posted.body == "hello");
+
+    const redirected = client.get("http://127.0.0.1:19091/redirect")?;
+    assert(redirected.status == 200);
+    assert(redirected.body == "ok");
+    assert(redirected.final_url == "http://127.0.0.1:19091/");
+
+    const Channel[int] done = chan_new(50);
+    let index = 0;
+    while index < 50 {
+        thread_spawn(client_worker, done);
+        index = index + 1;
+    }
+    let successes = 0;
+    let received = 0;
+    while received < 50 {
+        const value = done.recv();
+        if let Some(code) = value {
+            successes = successes + code;
+        }
+        received = received + 1;
+    }
+    assert(successes == 50);
+    done.free();
+    return Ok(successes);
+}
+
+fn main() {
+    switch run() {
+        case Ok(_) { print("http-ok"); }
+        case Err(_) { panic("http test failed"); }
+    }
+}

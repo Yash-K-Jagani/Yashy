@@ -1,0 +1,252 @@
+// The HTTP server (phase 12, Task 6).
+//
+// `serve` listens on `host:port`, accepts one connection per thread, and
+// keeps each connection alive for keep-alive requests. The handler is a
+// top-level function value; it runs on the connection thread, so a slow
+// handler occupies one worker, not the accept loop.
+//
+// A request header may take ten seconds in total and an idle keep-alive
+// connection thirty seconds. Both limits are enforced by a receive timeout
+// on the socket, renewed before every read, plus the wall-clock deadline
+// while the header is incomplete. A body larger than 10 MiB is a `413` and
+// the connection is closed; errors are responses, not panics.
+
+import http;
+import net;
+
+// The constants in this module are the ten-second header deadline, the
+// thirty-second idle timeout, and the 128-worker cap.
+
+struct Buffered {
+    request: Request,
+    pending: string,
+    status: int,
+}
+
+fn empty_request() -> Request {
+    return Request { method: "", target: "", version: "", headers: "", body: "" };
+}
+
+fn server_read_or(Socket peer) -> Result[Option[string], HttpError] {
+    if let Ok(value) = net_read(peer) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn server_accept_or(Listener listener) -> Result[Socket, HttpError] {
+    if let Ok(value) = net_accept(listener) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn server_listen_or(string host, int port) -> Result[Listener, HttpError] {
+    if let Ok(value) = net_listen(host, port) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn server_set_timeout_or(Socket peer, int millis) -> Result[int, HttpError] {
+    if let Ok(value) = net_set_timeout(peer, millis) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn server_write_or(Socket peer, string text) -> Result[int, HttpError] {
+    if let Ok(value) = net_write(peer, text) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn empty_buffer(int status) -> Buffered {
+    return Buffered { request: empty_request(), pending: "", status: status };
+}
+
+fn wait_for_head(Socket peer, string pending, int started) -> Result[string, HttpError] {
+    let pending = pending;
+    while header_end(pending) < 0 {
+        if pending.len() > 65536 {
+            return Err(HttpError.Failure);
+        }
+        const chunk = server_read_or(peer)?;
+        if let Some(text) = chunk {
+            pending = pending + text;
+            if now() - started > 10000 {
+                return Err(HttpError.Failure);
+            }
+        } else {
+            return Err(HttpError.Failure);
+        }
+    }
+    return Ok(pending);
+}
+
+fn wait_for_body(Socket peer, string pending, int needed) -> Result[string, HttpError] {
+    let pending = pending;
+    while pending.len() < needed {
+        const chunk = server_read_or(peer)?;
+        if let Some(text) = chunk {
+            pending = pending + text;
+        } else {
+            return Err(HttpError.Failure);
+        }
+        if pending.len() > 65536 + 10485760 {
+            return Err(HttpError.Failure);
+        }
+    }
+    return Ok(pending);
+}
+
+fn read_request(Socket peer, string pending, int started) -> Result[Buffered, HttpError] {
+    let pending = pending;
+    let ready = wait_for_head(peer, pending, started)?;
+    pending = ready;
+    const boundary = header_end(pending);
+    const head = pending.slice(0, boundary);
+    const rest = pending.slice(boundary, pending.len());
+    const headers_start = head.index_of("\r\n");
+    const header_at = switch headers_start {
+        case Some(found) { found }
+        case None { -1 }
+    };
+    let header_text = "";
+    if header_at >= 0 {
+        header_text = head.slice(header_at, head.len());
+    }
+    if is_chunked(header_text) {
+        const decoded = decode_chunked(rest);
+        if !decoded.valid {
+            return Ok(empty_buffer(400));
+        }
+        if !decoded.complete {
+            const more = wait_for_body(peer, pending, boundary + 10485760)?;
+            return read_request(peer, more, started);
+        }
+        const head_body = head + rest.slice(0, decoded.consumed);
+        const request = parse_request(head_body)?;
+        return Ok(Buffered {
+            request: request,
+            pending: rest.slice(decoded.consumed, rest.len()),
+            status: 0,
+        });
+    }
+    const length = content_length(header_text);
+    const count = switch length {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    if count > 10485760 {
+        return Ok(empty_buffer(413));
+    }
+    const body_ready = wait_for_body(peer, pending, boundary + count)?;
+    const request = parse_request(body_ready.slice(0, boundary + count))?;
+    return Ok(Buffered {
+        request: request,
+        pending: body_ready.slice(boundary + count, body_ready.len()),
+        status: 0,
+    });
+}
+
+fn wants_keep_alive(Request request) -> bool {
+    const connection = header_value(request.headers, "Connection");
+    if let Some(text) = connection {
+        const lowered = text.to_lower();
+        if lowered.contains("close") {
+            return false;
+        }
+        if lowered.contains("keep-alive") {
+            return true;
+        }
+    }
+    return request.version == "HTTP/1.1";
+}
+
+fn failure_response(int status) -> Response {
+    return response(status, "");
+}
+
+unsafe fn connection(Socket peer, fn(Request) -> Response handler) {
+    server_set_timeout_or(peer, 1000);
+    let pending = "";
+    let active = true;
+    while active {
+        const started = now();
+        const found_buffer = read_request(peer, pending, started);
+        if let Ok(found) = found_buffer {
+            if found.status != 0 {
+                const text = serialize_response(failure_response(found.status), false);
+                server_write_or(peer, text);
+                break;
+            }
+            const reply = handler(found.request);
+            let status = reply.status;
+            if status <= 99 || status > 999 {
+                status = 500;
+            }
+            const normalized = Response {
+                status: status,
+                headers: reply.headers,
+                body: reply.body,
+                final_url: "",
+            };
+            const keep = wants_keep_alive(found.request);
+            const text = serialize_response(normalized, keep);
+            const sent = server_write_or(peer, text);
+            if let Err(_) = sent {
+                break;
+            }
+            pending = found.pending;
+            server_set_timeout_or(peer, 30000);
+            if !keep {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    net_close(peer);
+}
+
+pub unsafe fn serve(string addr, fn(Request) -> Response handler) -> Result[int, HttpError] {
+    const colon = addr.index_of(":");
+    const at = switch colon {
+        case Some(found) { found }
+        case None { -1 }
+    };
+    if at < 0 {
+        return Err(HttpError.Failure);
+    }
+    const host = addr.slice(0, at);
+    const port_text = addr.slice(at + 1, addr.len());
+    const parsed = port_text.parse_i64();
+    const port = switch parsed {
+        case Some(value) { value }
+        case None { -1 }
+    };
+    if host.is_empty() || port <= 0 || port > 65535 {
+        return Err(HttpError.Failure);
+    }
+    const listener = server_listen_or(host, port)?;
+    let handles = []int {};
+    let count = 0;
+    let accepted = 0;
+    while true {
+        if count == 128 {
+            for handle in handles {
+                thread_join(handle);
+            }
+            handles.clear();
+            count = 0;
+        }
+        const peer = server_accept_or(listener)?;
+        count = count + 1;
+        accepted = accepted + 1;
+        handles.push(thread_spawn(connection, peer, handler));
+    }
+    handles.free();
+    return Err(HttpError.Failure);
+}

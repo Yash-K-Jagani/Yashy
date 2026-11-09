@@ -1,0 +1,321 @@
+// The HTTP client (phase 12, Task 6).
+//
+// `get` and `post` send one request on a fresh `net` connection and parse
+// one response. The response body is capped at the same 10 MiB as a request
+// body: a server that answers with more is a `Failure`, not an unbounded
+// buffer. `Location` is followed once; the returned `Response.final_url`
+// names the URL of the response actually received.
+
+import http;
+import net;
+
+struct Url {
+    host: string,
+    port: int,
+    target: string,
+    origin: string,
+    full: string,
+}
+
+fn int_option_value(Option[int] value) -> int {
+    return switch value {
+        case Some(at) { at }
+        case None { -1 }
+    };
+}
+
+fn client_connect_or(string host, int port) -> Result[Socket, HttpError] {
+    if let Ok(peer) = net_connect(host, port) {
+        return Ok(peer);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn client_read_or(Socket peer) -> Result[Option[string], HttpError] {
+    if let Ok(value) = net_read(peer) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn client_set_timeout_or(Socket peer, int millis) -> Result[int, HttpError] {
+    if let Ok(value) = net_set_timeout(peer, millis) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn client_write_or(Socket peer, string text) -> Result[int, HttpError] {
+    if let Ok(value) = net_write(peer, text) {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn parse_url(string url) -> Result[Url, HttpError] {
+    let text = url.trim();
+    if !text.starts_with("http://") {
+        return Err(HttpError.Failure);
+    }
+    const no_scheme = text.slice(7, text.len());
+    const slash = no_scheme.index_of("/");
+    const at = int_option_value(slash);
+    let authority = no_scheme;
+    let target = "/";
+    if at >= 0 {
+        authority = no_scheme.slice(0, at);
+        target = no_scheme.slice(at, no_scheme.len());
+    }
+    const colon = authority.index_of(":");
+    const col = int_option_value(colon);
+    let host = authority.to_lower();
+    let port = 80;
+    if col >= 0 {
+        const name = authority.slice(0, col);
+        host = name.to_lower();
+        const port_text = authority.slice(col + 1, authority.len());
+        const text = port_text.trim();
+        const found = text.parse_i64();
+        port = switch found {
+            case Some(number) { number }
+            case None { -1 }
+        };
+    }
+    if host.is_empty() || port <= 0 || port > 65535 {
+        return Err(HttpError.Failure);
+    }
+    return Ok(Url {
+        host: host,
+        port: port,
+        target: target,
+        origin: "http://${host}:${port}",
+        full: url,
+    });
+}
+
+fn resolve_location(Url current, string location) -> Result[Url, HttpError] {
+    let text = location.trim();
+    if text.starts_with("http://") {
+        return parse_url(text);
+    }
+    if !text.starts_with("/") {
+        return Err(HttpError.Failure);
+    }
+    return parse_url(current.origin + text);
+}
+
+fn send_all(Socket peer, string text) -> Result[int, HttpError] {
+    const sent = client_write_or(peer, text)?;
+    if sent != text.len() {
+        return Err(HttpError.Failure);
+    }
+    return Ok(sent);
+}
+
+struct RawResponse {
+    status: int,
+    headers: string,
+    body: string,
+}
+
+fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
+    let pending = "";
+    while true {
+        const boundary = header_end(pending);
+        if boundary >= 0 {
+            const head = pending.slice(0, boundary);
+            const rest = pending.slice(boundary, pending.len());
+            const status_line = request_line(head);
+            const text = switch status_line {
+                case Some(value) { value }
+                case None { "" }
+            };
+            const first_space = text.index_of(" ");
+            const first_at = switch first_space {
+                case Some(found) { found }
+                case None { -1 }
+            };
+            if first_at < 0 {
+                return Err(HttpError.Failure);
+            }
+            const code_start = first_at + 1;
+            const after_code = text.slice(code_start, text.len());
+            const second_space = after_code.index_of(" ");
+            const second_at = switch second_space {
+                case Some(found) { code_start + found }
+                case None { text.len() }
+            };
+            const code_slice = text.slice(code_start, second_at);
+            const code_text = code_slice.trim();
+            const code = code_text.parse_i64();
+            const status = switch code {
+                case Some(value) { value }
+                case None { -1 }
+            };
+            if status <= 0 || status > 999 {
+                return Err(HttpError.Failure);
+            }
+            let headers = "";
+            const lines = head.lines();
+            let index = 1;
+            while index < lines.len() {
+                const raw_line = switch lines[index] {
+                    case Some(value) { value }
+                    case None { "" }
+                };
+                const colon = raw_line.index_of(":");
+                const at = switch colon {
+                    case Some(found) { found }
+                    case None { -1 }
+                };
+                if at >= 0 {
+                    const name_slice = raw_line.slice(0, at);
+                    const name = name_slice.trim();
+                    const value_slice = raw_line.slice(at + 1, raw_line.len());
+                    const value = value_slice.trim();
+                    headers = headers + name + ": " + value + "\r\n";
+                }
+                index = index + 1;
+            }
+            lines.free();
+            if is_chunked(headers) {
+                const decoded = decode_chunked(rest);
+                if decoded.complete {
+                    return Ok(RawResponse {
+                        status: status,
+                        headers: headers,
+                        body: decoded.body,
+                    });
+                }
+                if !decoded.valid {
+                    return Err(HttpError.Failure);
+                }
+            } else {
+                const length = content_length(headers);
+                const count = switch length {
+                    case Some(value) { value }
+                    case None { -1 }
+                };
+                if count >= 0 {
+                    if count > 10485760 {
+                        return Err(HttpError.Failure);
+                    }
+                    if rest.len() >= count {
+                        return Ok(RawResponse {
+                            status: status,
+                            headers: headers,
+                            body: rest.slice(0, count),
+                        });
+                    }
+                }
+            }
+        }
+        if pending.len() > 65536 + 10485760 {
+            return Err(HttpError.Failure);
+        }
+        const chunk = client_read_or(peer)?;
+        if let Some(text) = chunk {
+            pending = pending + text;
+        } else {
+            return Err(HttpError.Failure);
+        }
+    }
+    return Err(HttpError.Failure);
+}
+
+fn one_request(string method, Url url, string body, string headers) -> Result[Response, HttpError] {
+    const peer = client_connect_or(url.host, url.port)?;
+    client_set_timeout_or(peer, 10000)?;
+    let text = "${method} ${url.target} HTTP/1.1\r\n";
+    text = text + "Host: ${url.host}:${url.port}\r\n";
+    text = text + "Connection: close\r\n";
+    text = text + "Accept: */*\r\n";
+    if !headers.is_empty() {
+        text = text + headers;
+    }
+    const chunked = is_chunked(headers);
+    if !chunked {
+        text = text + "Content-Length: ${body.len()}\r\n";
+    }
+    text = text + "\r\n";
+    if chunked {
+        let start = 0;
+        while start < body.len() {
+            let end = start + 4096;
+            if end > body.len() {
+                end = body.len();
+            }
+            const part = body.slice(start, end);
+            const size = part.len();
+            text = text + "${size}\r\n" + part + "\r\n";
+            start = end;
+        }
+        text = text + "0\r\n\r\n";
+    } else {
+        text = text + body;
+    }
+    send_all(peer, text)?;
+    const found = receive_response(peer)?;
+    net_close(peer);
+    return Ok(Response {
+        status: found.status,
+        headers: found.headers,
+        body: found.body,
+        final_url: url.full,
+    });
+}
+
+fn redirect(Url current, Response found) -> Result[Url, HttpError] {
+    if found.status != 301 && found.status != 302 && found.status != 303 &&
+        found.status != 307 && found.status != 308 {
+        return Err(HttpError.Failure);
+    }
+    const location = header_value(found.headers, "Location");
+    const text = switch location {
+        case Some(value) { value }
+        case None { "" }
+    };
+    if text.is_empty() {
+        return Err(HttpError.Failure);
+    }
+    return resolve_location(current, text);
+}
+
+fn request(string method, string url, string body, string headers) -> Result[Response, HttpError] {
+    const first_url = parse_url(url)?;
+    const first = one_request(method, first_url, body, headers)?;
+    if first.status != 301 && first.status != 302 && first.status != 303 &&
+        first.status != 307 && first.status != 308 {
+        return Ok(first);
+    }
+    const next_url = redirect(first_url, first)?;
+    let next_method = "GET";
+    if first.status == 307 || first.status == 308 {
+        next_method = method;
+    }
+    let next_body = body;
+    if next_method == "GET" {
+        next_body = "";
+    }
+    return one_request(next_method, next_url, next_body, "");
+}
+
+pub fn get(string url) -> Result[Response, HttpError] {
+    return request("GET", url, "", "");
+}
+
+pub fn post(string url, string body, []string headers) -> Result[Response, HttpError] {
+    let text = "";
+    for header in headers {
+        const colon = header.index_of(":");
+        const at = switch colon {
+            case Some(found) { found }
+            case None { -1 }
+        };
+        if at < 0 {
+            return Err(HttpError.Failure);
+        }
+        text = text + header.trim() + "\r\n";
+    }
+    return request("POST", url, body, text);
+}

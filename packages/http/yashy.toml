@@ -1,0 +1,8 @@
+[package]
+name = "http"
+version = "1.0.0"
+license = "MIT"
+description = "A small HTTP/1.1 client and server on the net package"
+
+[dependencies.net]
+path = "../net"

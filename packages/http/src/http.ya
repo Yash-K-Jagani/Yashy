@@ -1,0 +1,521 @@
+// HTTP/1.1 messages (phase 12, Task 6).
+//
+// `http.ya` is the shared message format: the request and response types,
+// the byte-level request parser, and the response serializer used by both
+// ends of the wire. `server.ya` accepts subscriptions and runs a handler;
+// `client.ya` opens one connection at a time.
+//
+// Headers are stored as one normalized string of `Name: value` lines rather
+// than as a slice. Yashy cannot put a struct with string fields into an
+// array, and a single text value keeps the ownership simple: every helper
+// scans the text, the wire format has exactly one shape, and no array
+// element has to be retained or freed.
+//
+// The body cap is 10 MiB on a request. Chunked codings are decoded, and a
+// body larger than the cap is a value the caller can turn into a `413`, not
+// a panic and not a silently truncated request.
+
+// The shared constants are the 10 MiB body cap and the 64 KiB header cap.
+
+pub struct Request {
+    pub method: string,
+    pub target: string,
+    pub version: string,
+    pub headers: string,
+    pub body: string,
+}
+
+pub struct Response {
+    pub status: int,
+    pub headers: string,
+    pub body: string,
+    pub final_url: string,
+}
+
+pub enum HttpError {
+    Failure,
+}
+
+pub fn response(int status, string body) -> Response {
+    return Response {
+        status: status,
+        headers: "",
+        body: body,
+        final_url: "",
+    };
+}
+
+fn same_word(string left, string right) -> bool {
+    return left.to_lower() == right.to_lower();
+}
+
+fn trim_header(string value) -> string {
+    let text = value.trim();
+    let start = 0;
+    let end = text.len();
+    while start < end && text.byte_at(start).to_int() == 32 {
+        start = start + 1;
+    }
+    while end > start && text.byte_at(end - 1).to_int() == 32 {
+        end = end - 1;
+    }
+    return text.slice(start, end);
+}
+
+pub fn header_value(string headers, string name) -> Option[string] {
+    const wanted = name.to_lower();
+    let start = 0;
+    while start < headers.len() {
+        let end = start;
+        while end < headers.len() && headers.byte_at(end).to_int() != 10 {
+            end = end + 1;
+        }
+        let next = end;
+        if end < headers.len() {
+            next = end + 1;
+        }
+        const line = headers.slice(start, end);
+        const colon = line.index_of(":");
+        const at = switch colon {
+            case Some(found) { found }
+            case None { -1 }
+        };
+        if at >= 0 {
+            const sliced = line.slice(0, at);
+            const trimmed = sliced.trim();
+            const found = trimmed.to_lower();
+            if found == wanted {
+                const value = trim_header(line.slice(at + 1, line.len()));
+                return Some(value);
+            }
+        }
+        start = next;
+    }
+    const Option[string] missing = None;
+    return missing;
+}
+
+pub fn header_end(string text) -> int {
+    const crlf = text.index_of("\r\n\r\n");
+    const both = text.index_of("\n\n");
+    const crlf_end = switch crlf { case Some(at) { at + 4 } case None { -1 } };
+    const both_end = switch both { case Some(at) { at + 2 } case None { -1 } };
+    if crlf_end >= 0 && both_end >= 0 {
+        if crlf_end < both_end {
+            return crlf_end;
+        }
+        return both_end;
+    }
+    if crlf_end >= 0 {
+        return crlf_end;
+    }
+    return both_end;
+}
+
+fn parse_int(string text) -> Option[int] {
+    const trimmed = text.trim();
+    if trimmed.is_empty() {
+        const Option[int] missing = None;
+        return missing;
+    }
+    const value = trimmed.parse_i64();
+    const number = switch value {
+        case Some(parsed) { parsed }
+        case None { -1 }
+    };
+    if number < 0 {
+        const Option[int] missing = None;
+        return missing;
+    }
+    return Some(number);
+}
+
+pub fn content_length(string headers) -> Option[int] {
+    const found = header_value(headers, "Content-Length");
+    const Option[int] missing = None;
+    return switch found {
+        case Some(text) { parse_int(text) }
+        case None { missing }
+    };
+}
+
+pub fn is_chunked(string headers) -> bool {
+    const found = header_value(headers, "Transfer-Encoding");
+    if let Some(text) = found {
+        const lowered = text.to_lower();
+        return lowered.contains("chunked");
+    }
+    return false;
+}
+
+pub struct Chunked {
+    pub body: string,
+    pub consumed: int,
+    pub complete: bool,
+    pub valid: bool,
+}
+
+fn hex_value(char next) -> int {
+    const byte = next.to_int();
+    if byte >= 48 && byte <= 57 {
+        return byte - 48;
+    }
+    if byte >= 65 && byte <= 70 {
+        return byte - 55;
+    }
+    if byte >= 97 && byte <= 102 {
+        return byte - 87;
+    }
+    return -1;
+}
+
+fn parse_chunk_size(string text) -> int {
+    const value = text.trim();
+    const cut = value.index_of(";");
+    const first = switch cut { case Some(at) { value.slice(0, at) } case None { value } };
+    const token = first.trim();
+    if token.is_empty() {
+        return -1;
+    }
+    let size = 0;
+    let index = 0;
+    while index < token.len() {
+        const digit = hex_value(token.byte_at(index));
+        if digit < 0 {
+            return -1;
+        }
+        size = size * 16 + digit;
+        index = index + 1;
+    }
+    return size;
+}
+
+fn line_end_at(string text, int start) -> int {
+    let index = start;
+    while index < text.len() {
+        const byte = text.byte_at(index).to_int();
+        if byte == 10 {
+            return index + 1;
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+pub fn decode_chunked(string raw) -> Chunked {
+    let body = "";
+    let index = 0;
+    while true {
+        const end = line_end_at(raw, index);
+        if end < 0 {
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: true,
+            };
+        }
+        const slice = raw.slice(index, end);
+        const line = slice.trim();
+        const size = parse_chunk_size(line);
+        if size < 0 {
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: false,
+            };
+        }
+        index = end;
+        if size == 0 {
+            if raw.len() - index >= 2 && raw.byte_at(index).to_int() == 13 &&
+                raw.byte_at(index + 1).to_int() == 10 {
+                return Chunked {
+                    body: body,
+                    consumed: index + 2,
+                    complete: true,
+                    valid: true,
+                };
+            }
+            if raw.len() - index >= 1 && raw.byte_at(index).to_int() == 10 {
+                return Chunked {
+                    body: body,
+                    consumed: index + 1,
+                    complete: true,
+                    valid: true,
+                };
+            }
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: true,
+            };
+        }
+        if body.len() + size > 10485760 {
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: false,
+            };
+        }
+        if raw.len() - index < size + 1 {
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: true,
+            };
+        }
+        body = body + raw.slice(index, index + size);
+        index = index + size;
+        if raw.byte_at(index).to_int() == 13 {
+            index = index + 1;
+            if raw.len() - index < 1 {
+                return Chunked {
+                    body: body,
+                    consumed: index,
+                    complete: false,
+                    valid: true,
+                };
+            }
+        }
+        if raw.byte_at(index).to_int() != 10 {
+            return Chunked {
+                body: body,
+                consumed: index,
+                complete: false,
+                valid: false,
+            };
+        }
+        index = index + 1;
+    }
+    return Chunked {
+        body: body,
+        consumed: index,
+        complete: false,
+        valid: false,
+    };
+}
+
+fn first_token(string text) -> string {
+    let index = 0;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 32 {
+            break;
+        }
+        index = index + 1;
+    }
+    return text.slice(0, index);
+}
+
+fn after_first_token(string text) -> string {
+    const space = text.index_of(" ");
+    const at = switch space {
+        case Some(found) { found }
+        case None { -1 }
+    };
+    if at < 0 {
+        return "";
+    }
+    const tail = text.slice(at + 1, text.len());
+    return tail.trim();
+}
+
+fn after_second_token(string text) -> string {
+    const first = first_token(text);
+    const rest = after_first_token(text);
+    const third = after_first_token(rest);
+    return third;
+}
+
+pub fn request_line(string head) -> Option[string] {
+    // Read the first line with manual scanning, not `head.lines()`: a
+    // string read out of a `[]string` aliases the slice's element, so
+    // freeing the slice frees the line too. `slice` copies the bytes,
+    // which keeps the returned line alive on its own.
+    let index = 0;
+    while index < head.len() {
+        if head.byte_at(index).to_int() == 10 {
+            const line = head.slice(0, index);
+            const text = line.trim();
+            if text.is_empty() {
+                const Option[string] missing = None;
+                return missing;
+            }
+            return Some(text);
+        }
+        index = index + 1;
+    }
+    const text = head.trim();
+    if text.is_empty() {
+        const Option[string] missing = None;
+        return missing;
+    }
+    return Some(text);
+}
+
+pub fn parse_request(string raw) -> Result[Request, HttpError] {
+    const boundary = header_end(raw);
+    if boundary < 0 {
+        return Err(HttpError.Failure);
+    }
+    const head = raw.slice(0, boundary);
+    const rest = raw.slice(boundary, raw.len());
+    const line = request_line(head);
+    const text = switch line {
+        case Some(value) { value }
+        case None { "" }
+    };
+    if text.is_empty() {
+        return Err(HttpError.Failure);
+    }
+    const method = first_token(text);
+    const upper = method.to_upper();
+    if upper != "GET" && upper != "POST" && upper != "PUT" &&
+        upper != "DELETE" && upper != "HEAD" {
+        return Err(HttpError.Failure);
+    }
+    const remainder = after_first_token(text);
+    const target = first_token(remainder);
+    const version = after_second_token(text);
+    if target.is_empty() || version.is_empty() {
+        return Err(HttpError.Failure);
+    }
+    let headers = "";
+    let invalid = false;
+    const lines = head.lines();
+    let index = 1;
+    while index < lines.len() {
+        const raw_line = switch lines[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        const colon = raw_line.index_of(":");
+        if colon_is_some(colon) {
+            const at = option_value(colon);
+            const name = trim_header(raw_line.slice(0, at));
+            const value = trim_header(raw_line.slice(at + 1, raw_line.len()));
+            if name.is_empty() {
+                invalid = true;
+                break;
+            }
+            headers = headers + name + ": " + value + "\r\n";
+        }
+        index = index + 1;
+    }
+    lines.free();
+    if invalid {
+        return Err(HttpError.Failure);
+    }
+    if is_chunked(headers) {
+        const decoded = decode_chunked(rest);
+        if !decoded.valid || !decoded.complete {
+            return Err(HttpError.Failure);
+        }
+        return Ok(Request {
+            method: upper,
+            target: target,
+            version: version,
+            headers: headers,
+            body: decoded.body,
+        });
+    }
+    const length = content_length(headers);
+    const count = switch length {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    if count > 10485760 || rest.len() < count {
+        return Err(HttpError.Failure);
+    }
+    return Ok(Request {
+        method: upper,
+        target: target,
+        version: version,
+        headers: headers,
+        body: rest.slice(0, count),
+    });
+}
+
+fn colon_is_some(Option[int] value) -> bool {
+    return switch value {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+fn option_value(Option[int] value) -> int {
+    return switch value {
+        case Some(at) { at }
+        case None { -1 }
+    };
+}
+
+pub fn status_text(int status) -> string {
+    if status == 100 {
+        return "Continue";
+    }
+    if status == 200 {
+        return "OK";
+    }
+    if status == 201 {
+        return "Created";
+    }
+    if status == 204 {
+        return "No Content";
+    }
+    if status == 301 {
+        return "Moved Permanently";
+    }
+    if status == 302 {
+        return "Found";
+    }
+    if status == 307 {
+        return "Temporary Redirect";
+    }
+    if status == 308 {
+        return "Permanent Redirect";
+    }
+    if status == 400 {
+        return "Bad Request";
+    }
+    if status == 404 {
+        return "Not Found";
+    }
+    if status == 405 {
+        return "Method Not Allowed";
+    }
+    if status == 408 {
+        return "Request Timeout";
+    }
+    if status == 413 {
+        return "Payload Too Large";
+    }
+    if status == 431 {
+        return "Request Header Fields Too Large";
+    }
+    if status == 500 {
+        return "Internal Server HttpError";
+    }
+    return "Unknown";
+}
+
+pub fn serialize_response(Response found, bool keep_alive) -> string {
+    let connection = "close";
+    if keep_alive {
+        connection = "keep-alive";
+    }
+    const body = found.body;
+    const body_length = body.len();
+    const headers = found.headers;
+    let text = "HTTP/1.1 ${found.status} ${status_text(found.status)}\r\n";
+    text = text + "Content-Length: ${body_length}\r\n";
+    text = text + "Connection: ${connection}\r\n";
+    if !headers.is_empty() {
+        text = text + headers;
+    }
+    text = text + "\r\n" + body;
+    return text;
+}

@@ -1,0 +1,54 @@
+// A real HTTP service on the `http` and `net` packages.
+//
+// `main.ya` starts the server and never returns until the process is
+// stopped; the driver test starts this program, sends requests to it, and
+// then terminates it. `tests/ya` is the same program in process: it
+// starts the handler through the client package against a server run in
+// another process by the test harness.
+//
+// Endpoints:
+//
+// - `GET /` answers `ok`.
+// - `GET /echo` answers the request target back.
+// - `POST /echo` answers the request body back.
+// - `GET /redirect` answers `302` to `/`.
+// - `GET /slow` sleeps, proving one worker does not stall the accept loop.
+
+import http;
+import server;
+import client;
+
+fn handler(Request request) -> Response {
+    const method = request.method;
+    const target = request.target;
+    if method == "POST" && target == "/echo" {
+        return response(200, request.body);
+    }
+    if target == "/redirect" {
+        return Response {
+            status: 302,
+            headers: "Location: /\r\n",
+            body: "",
+            final_url: "",
+        };
+    }
+    if target == "/slow" {
+        sleep(50);
+        return response(200, "slow");
+    }
+    if target == "/echo" || target.starts_with("/echo?") {
+        return response(200, target);
+    }
+    if target == "/" {
+        return response(200, "ok");
+    }
+    return response(404, "missing");
+}
+
+fn main() {
+    const found = serve("127.0.0.1:19090", handler);
+    switch found {
+        case Ok(count) { print(count); }
+        case Err(_) { panic("http service failed"); }
+    }
+}
