@@ -101,6 +101,7 @@ try {
         if (-not $Stdlib) {
             $Stdlib = Join-Path $root 'crates\yashy-stdlib\yashy'
         }
+        $StdlibManifest = Join-Path (Split-Path -Parent $Stdlib) 'yashy.toml'
         Assert-True (Test-Path -LiteralPath $Binary) "no compiler binary at $Binary; run cargo build --release -p yashy-driver or pass -Binary"
         Assert-True (Test-Path -LiteralPath $Stdlib) "no stdlib at $Stdlib"
 
@@ -109,6 +110,9 @@ try {
         New-Item -ItemType Directory -Force -Path (Join-Path $stage 'yashy-stdlib') | Out-Null
         Copy-Item -LiteralPath $Binary -Destination (Join-Path $stage 'yashy.exe')
         Copy-Item -LiteralPath $Stdlib -Destination (Join-Path $stage 'yashy-stdlib\yashy') -Recurse
+        if (Test-Path -LiteralPath $StdlibManifest) {
+            Copy-Item -LiteralPath $StdlibManifest -Destination (Join-Path $stage 'yashy-stdlib\yashy.toml')
+        }
         Copy-Item -LiteralPath $installer -Destination (Join-Path $stage 'install.ps1')
         Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $stage 'README.md')
         Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $stage 'LICENSE')

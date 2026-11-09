@@ -80,8 +80,22 @@ pub struct Store {
 impl Store {
     pub fn open() -> io::Result<Store> {
         let root = store_root()?;
+        Self::open_at(root)
+    }
+
+    /// A store rooted at `root`, creating the directory when it is missing.
+    ///
+    /// A caller that already knows where the compiler's cache lives (the
+    /// driver reuses `YASHY_CACHE_DIR` for its runtime objects) uses this
+    /// instead of letting the platform decide a second location.
+    pub fn open_at(root: PathBuf) -> io::Result<Store> {
         std::fs::create_dir_all(&root)?;
         Ok(Store { root })
+    }
+
+    /// The directory the store was opened at.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     pub fn get(&self, key: &CacheKey) -> Option<PathBuf> {
@@ -101,9 +115,25 @@ impl Store {
         let dir = self.root.join(key.hex());
         std::fs::create_dir_all(&dir)?;
         let ir = dir.join("ir.ll");
-        std::fs::write(&ir, bytes)?;
+        // Write the IR through a per-process temporary and rename it into
+        // place. Two builds of the same key can race (a test suite, a parallel
+        // make); a reader must never see half an `ir.ll`, because the next
+        // stage would hand the fragment to `clang`.
+        let staged = dir.join(format!("ir.ll.tmp-{}", std::process::id()));
+        std::fs::write(&staged, bytes)?;
+        if let Err(error) = std::fs::rename(&staged, &ir) {
+            let _ = std::fs::remove_file(&staged);
+            // The destination can already exist because another process won
+            // the race. The key covers the bytes, so its file is equivalent;
+            // only a missing destination makes the error real.
+            if !ir.exists() {
+                return Err(error);
+            }
+        }
         let hash = fnv1a(bytes);
         let meta = format!(r#"{{"hash":{}}}"#, hash);
+        // The meta file is the commit point: `get` requires both files, so a
+        // reader that sees the IR without meta still reports a miss.
         std::fs::write(dir.join("meta.json"), meta.as_bytes())?;
         Ok(ir)
     }
@@ -131,7 +161,11 @@ impl Store {
     pub fn stats(&self) -> Stats {
         let mut stats = Stats::default();
         if self.root.exists() {
-            for entry in std::fs::read_dir(&self.root).into_iter().flatten().flatten() {
+            for entry in std::fs::read_dir(&self.root)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 if entry.path().is_dir() {
                     stats.entries += 1;
                     stats.bytes += dir_size(&entry.path());
@@ -155,7 +189,9 @@ fn store_root() -> io::Result<PathBuf> {
         if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
             return Ok(PathBuf::from(xdg).join("yashy"));
         }
-        let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+        let home = std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
         Ok(home.join(".cache").join("yashy"))
     }
 }
@@ -188,7 +224,9 @@ fn parse_meta(data: &[u8]) -> Option<()> {
     let s = std::str::from_utf8(data).ok()?;
     let idx = s.find("\"hash\":")?;
     let rest = &s[idx + 7..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     let _: u64 = rest[..end].parse().ok()?;
     Some(())
 }
@@ -199,29 +237,69 @@ mod tests {
 
     #[test]
     fn program_key_changes_on_text_change() {
-        let a = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
-        let b = program_key(&[("a.ya".to_string(), "fn main() { }".to_string())], "", "0.1", "x86_64");
+        let a = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
+        let b = program_key(
+            &[("a.ya".to_string(), "fn main() { }".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
         assert_ne!(a, b);
     }
 
     #[test]
     fn program_key_changes_on_flag_change() {
-        let a = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "-O0", "0.1", "x86_64");
-        let b = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "-O2", "0.1", "x86_64");
+        let a = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "-O0",
+            "0.1",
+            "x86_64",
+        );
+        let b = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "-O2",
+            "0.1",
+            "x86_64",
+        );
         assert_ne!(a, b);
     }
 
     #[test]
     fn program_key_changes_on_version_change() {
-        let a = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
-        let b = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.2", "x86_64");
+        let a = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
+        let b = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.2",
+            "x86_64",
+        );
         assert_ne!(a, b);
     }
 
     #[test]
     fn program_key_changes_on_triple_change() {
-        let a = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
-        let b = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "aarch64");
+        let a = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
+        let b = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "aarch64",
+        );
         assert_ne!(a, b);
     }
 
@@ -231,7 +309,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store { root: dir.clone() };
         std::fs::create_dir_all(&dir).unwrap();
-        let key = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
+        let key = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
         let data = b"hello world";
         store.put(&key, data).unwrap();
         let got = store.get(&key).unwrap();
@@ -245,7 +328,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store { root: dir.clone() };
         std::fs::create_dir_all(&dir).unwrap();
-        let key = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
+        let key = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
         store.put(&key, b"data").unwrap();
         let freed = store.clean().unwrap();
         assert!(freed > 0);
@@ -259,7 +347,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store { root: dir.clone() };
         std::fs::create_dir_all(&dir).unwrap();
-        let key = program_key(&[("a.ya".to_string(), "fn main() {}".to_string())], "", "0.1", "x86_64");
+        let key = program_key(
+            &[("a.ya".to_string(), "fn main() {}".to_string())],
+            "",
+            "0.1",
+            "x86_64",
+        );
         store.put(&key, b"data").unwrap();
         let meta_path = store.root.join(key.hex()).join("meta.json");
         std::fs::write(&meta_path, b"{\"hash\":999}").unwrap();

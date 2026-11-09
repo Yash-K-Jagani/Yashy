@@ -1,0 +1,8 @@
+# The standard library is a package like any other: it has a name and a
+# version. The compiler mixes the version into its content-addressed cache
+# keys, so changing the stdlib can never read an artifact compiled from an
+# older one.
+
+[package]
+name = "stdlib"
+version = "1.0.0"

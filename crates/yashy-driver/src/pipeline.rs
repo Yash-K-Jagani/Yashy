@@ -95,6 +95,19 @@ pub enum TimingRow {
         /// Which stage just finished.
         stage: &'static str,
     },
+    /// Whether the emitted IR came from the content-addressed cache.
+    IrCache {
+        /// True when the IR was read instead of emitted.
+        hit: bool,
+    },
+    /// How many modules the build loaded from the standard library.
+    ///
+    /// Zero for a program that imports none: the stdlib is not ambient, so
+    /// `hello` never pays for it.
+    StdlibModules {
+        /// Modules whose path is under the stdlib root.
+        count: usize,
+    },
     /// How many generic instantiations the program holds.
     Instantiations {
         /// Distinct generic substitutions plus monomorphised types.
@@ -149,7 +162,9 @@ fn task_count(hir: &HirProgram) -> usize {
                     exprs(element, count);
                 }
             }
-            HirExpr::Cast { expr, .. } | HirExpr::Try { expr, .. } | HirExpr::Await { expr, .. } => {
+            HirExpr::Cast { expr, .. }
+            | HirExpr::Try { expr, .. }
+            | HirExpr::Await { expr, .. } => {
                 exprs(expr, count);
             }
             HirExpr::Spawn { callee, args, .. } => {
@@ -167,7 +182,9 @@ fn task_count(hir: &HirProgram) -> usize {
                     }
                 }
             }
-            HirExpr::View { base, start, end, .. } => {
+            HirExpr::View {
+                base, start, end, ..
+            } => {
                 exprs(base, count);
                 exprs(start, count);
                 exprs(end, count);
@@ -177,7 +194,12 @@ fn task_count(hir: &HirProgram) -> usize {
                     exprs(arg, count);
                 }
             }
-            HirExpr::HigherOrder { receiver, func, init, .. } => {
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
                 exprs(receiver, count);
                 exprs(func, count);
                 if let Some(init) = init {
@@ -185,7 +207,10 @@ fn task_count(hir: &HirProgram) -> usize {
                 }
             }
             HirExpr::Lambda { f, .. } => block(&f.body, count),
-            HirExpr::Literal(..) | HirExpr::Ident(..) | HirExpr::Capture { .. } | HirExpr::AddrOf { .. } => {}
+            HirExpr::Literal(..)
+            | HirExpr::Ident(..)
+            | HirExpr::Capture { .. }
+            | HirExpr::AddrOf { .. } => {}
         }
     }
     fn block(block: &yashy_sema::HirBlock, count: &mut usize) {
@@ -199,13 +224,20 @@ fn task_count(hir: &HirProgram) -> usize {
             HirStmt::Expr(expr, ..) => exprs(expr, count),
             HirStmt::Const { init, .. } | HirStmt::Var { init, .. } => exprs(init, count),
             HirStmt::Assign { value, .. } => exprs(value, count),
-            HirStmt::IndexAssign { base, index, value, .. } => {
+            HirStmt::IndexAssign {
+                base, index, value, ..
+            } => {
                 exprs(base, count);
                 exprs(index, count);
                 exprs(value, count);
             }
             HirStmt::FieldAssign { value, .. } => exprs(value, count),
-            HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+            HirStmt::FieldPtrAssign {
+                pointer,
+                index,
+                value,
+                ..
+            } => {
                 exprs(pointer, count);
                 exprs(index, count);
                 exprs(value, count);
@@ -216,7 +248,13 @@ fn task_count(hir: &HirProgram) -> usize {
                     exprs(value, count);
                 }
             }
-            HirStmt::If { init, cond, then_block, else_block, .. } => {
+            HirStmt::If {
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
                 if let Some(init) = init {
                     stmt_count(init, count);
                 }
@@ -226,14 +264,21 @@ fn task_count(hir: &HirProgram) -> usize {
                     block(else_block, count);
                 }
             }
-            HirStmt::IfLet { subject, then_block, else_block, .. } => {
+            HirStmt::IfLet {
+                subject,
+                then_block,
+                else_block,
+                ..
+            } => {
                 exprs(subject, count);
                 block(then_block, count);
                 if let Some(else_block) = else_block {
                     block(else_block, count);
                 }
             }
-            HirStmt::ForRange { start, end, body, .. } => {
+            HirStmt::ForRange {
+                start, end, body, ..
+            } => {
                 exprs(start, count);
                 exprs(end, count);
                 block(body, count);
@@ -242,7 +287,13 @@ fn task_count(hir: &HirProgram) -> usize {
                 exprs(iterable, count);
                 block(body, count);
             }
-            HirStmt::ForC { init, cond, update, body, .. } => {
+            HirStmt::ForC {
+                init,
+                cond,
+                update,
+                body,
+                ..
+            } => {
                 if let Some(init) = init {
                     stmt_count(init, count);
                 }
@@ -548,6 +599,95 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     state
 }
 
+/// The format of a cached IR entry.
+///
+/// Bump this whenever `yashy-codegen` starts emitting different bytes for the
+/// same input. The compiler version alone is not enough during development:
+/// `0.1.0` does not change between commits, so without this constant a
+/// developer's warm cache would serve IR from the previous codegen.
+const IR_CACHE_FORMAT: &str = "1";
+
+/// The content-addressed store the emitted IR lives in.
+///
+/// It shares the compiler's cache directory with the runtime objects, so
+/// `YASHY_CACHE_DIR` moves both. `None` when the directory cannot be created:
+/// the build then emits as if the cache did not exist.
+fn ir_cache_store() -> Option<yashy_cache::Store> {
+    let root = runtime_cache_dir()?.join("ir");
+    yashy_cache::Store::open_at(root).ok()
+}
+
+/// The key for one program's emitted IR.
+///
+/// Every file the build read is hashed by path and text, sorted so discovery
+/// order cannot change the key. The version string carries the compiler, the IR
+/// format, the stdlib and the compiler executable's timestamp; the triple names
+/// the target, and the flags cover every codegen choice. The entry name is part
+/// of the IR (`source_filename` and the module name), so it belongs in the key
+/// too.
+fn ir_cache_key(
+    sources: &SourceMap,
+    entry_name: &str,
+    options: &BuildOptions,
+) -> yashy_cache::CacheKey {
+    let mut files: Vec<(String, String)> = (0..sources.len())
+        .map(|index| {
+            // `SourceMap` caps its ids at `u32::MAX`, so a valid index always
+            // fits.
+            let id = FileId::from_index(index as u32);
+            (sources.path(id).to_string(), sources.file(id).to_string())
+        })
+        .collect();
+    files.sort();
+    let flags = format!(
+        "{entry_name}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
+        options.opt,
+        options.cpu,
+        options.fast_math,
+        options.escape,
+        options.facts,
+        options.intern,
+        options.release,
+        options.lto,
+        options.pgo,
+        options.async_,
+    );
+    let version = format!(
+        "{}/{}/{}/{}",
+        env!("CARGO_PKG_VERSION"),
+        IR_CACHE_FORMAT,
+        modules::stdlib_version(),
+        compiler_stamp()
+    );
+    yashy_cache::program_key(&files, &flags, &version, host_target_triple())
+}
+
+/// The running compiler's path and modification time.
+///
+/// The version string alone does not change between commits, so without this a
+/// developer's warm cache would outlive a codegen change and a test suite could
+/// pass on IR the current compiler would never have produced. The executable's
+/// mtime changes on every rebuild, which makes the cache self-invalidating
+/// exactly when the thing that produces the IR changed.
+fn compiler_stamp() -> String {
+    let Ok(exe) = env::current_exe() else {
+        return "unknown".to_string();
+    };
+    let modified = fs::metadata(&exe)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    match modified {
+        Some(since) => format!(
+            "{}:{}.{}",
+            exe.display(),
+            since.as_secs(),
+            since.subsec_nanos()
+        ),
+        None => exe.display().to_string(),
+    }
+}
+
 /// One runtime source, compiled to an object file that can be reused across
 /// builds.
 ///
@@ -671,6 +811,14 @@ pub struct BuildOptions {
     /// [`CodegenOptions::async_`]. On by default and disabled by
     /// `--no-opt=async`.
     pub async_: bool,
+    /// Reuse the emitted IR from the content-addressed cache.
+    ///
+    /// On by default. The cache is keyed on every source byte, the codegen
+    /// options, the compiler version, the target triple and the stdlib
+    /// version, so a hit can only hand back the IR those inputs produce. A
+    /// miss, an unreadable cache or a failed write all fall back to emitting,
+    /// because a cache is an optimization and never a requirement.
+    pub ir_cache: bool,
 }
 
 impl Default for BuildOptions {
@@ -686,6 +834,7 @@ impl Default for BuildOptions {
             lto: false,
             pgo: false,
             async_: true,
+            ir_cache: true,
         }
     }
 }
@@ -803,6 +952,7 @@ pub fn compile_to_binary(
     )?;
 
     compile_hir(
+        &sources,
         &hir,
         entry_name,
         out,
@@ -876,6 +1026,13 @@ pub fn load_and_check_exports_timed(
     let module_sources = timed(timings, "load", || {
         modules::load_sources(sources, entry_path, entry_source)
     })?;
+
+    // The stdlib is not ambient, so this is zero for a program that imports
+    // none of it. Reporting the count makes the claim checkable without
+    // inferring it from a thread count.
+    timings.push(TimingRow::StdlibModules {
+        count: modules::stdlib_module_count(&module_sources),
+    });
 
     // How many threads to parse on. `--jobs 0` means "all available".
     let requested = if jobs == 0 {
@@ -1123,6 +1280,7 @@ pub fn check_and_verify_timed(
 /// above it is pure Rust, which is what lets `yashy check` and `--emit-ir` run
 /// on a machine that cannot produce a binary.
 pub fn compile_hir(
+    sources: &SourceMap,
     hir: &HirProgram,
     entry_name: &str,
     out: &Path,
@@ -1132,6 +1290,7 @@ pub fn compile_hir(
 ) -> Result<(), Vec<Diagnostic>> {
     let mut timings = Vec::new();
     compile_hir_timed(
+        sources,
         hir,
         entry_name,
         out,
@@ -1147,6 +1306,7 @@ pub fn compile_hir(
 /// `link` covers the whole `clang` invocation -- compiling the runtime, the IR
 /// and the link -- because that is one process and the user waits on it once.
 pub fn compile_hir_timed(
+    sources: &SourceMap,
     hir: &HirProgram,
     entry_name: &str,
     out: &Path,
@@ -1159,20 +1319,62 @@ pub fn compile_hir_timed(
         return Err(vec![diagnostic]);
     }
 
-    let ir_text = timed(timings, "emit", || {
-        emit_program(
-            hir,
-            entry_name,
-            CodegenOptions {
-                fp_contract: options.fast_math,
-                escape: options.escape,
-                facts: options.facts,
-                intern: options.intern,
-                async_: options.async_,
-            },
-            facts,
-        )
-    });
+    // The IR for a program is a pure function of its sources, the codegen
+    // options, the compiler and the stdlib: if all of those are the same, the
+    // bytes are the same. The cache is consulted before `emit` and never
+    // before `check` -- a cached binary still passed the type checker and the
+    // verifier on this run, which is what keeps a stale entry from ever
+    // licensing an unsound build.
+    let cache = if options.ir_cache {
+        ir_cache_store()
+    } else {
+        None
+    };
+    let key = cache
+        .as_ref()
+        .map(|_| ir_cache_key(sources, entry_name, &options));
+    let cached = match (&cache, &key) {
+        (Some(store), Some(key)) => store
+            .get(key)
+            .and_then(|path| fs::read_to_string(path).ok()),
+        _ => None,
+    };
+    let (ir_text, hit) = match cached {
+        Some(text) => {
+            // Keep the row shape a build without a cache has: `emit` is a
+            // phase, and it took no time because nothing was emitted.
+            timings.push(TimingRow::Phase {
+                phase: "emit",
+                ms: 0,
+            });
+            (text, true)
+        }
+        None => {
+            let text = timed(timings, "emit", || {
+                emit_program(
+                    hir,
+                    entry_name,
+                    CodegenOptions {
+                        fp_contract: options.fast_math,
+                        escape: options.escape,
+                        facts: options.facts,
+                        intern: options.intern,
+                        async_: options.async_,
+                    },
+                    facts,
+                )
+            });
+            if let (Some(store), Some(key)) = (&cache, &key) {
+                // A cache that cannot be written is a lost optimization, not
+                // a build failure.
+                let _ = store.put(key, text.as_bytes());
+            }
+            (text, false)
+        }
+    };
+    if cache.is_some() {
+        timings.push(TimingRow::IrCache { hit });
+    }
     if options.escape {
         let (stack, arena) = promotion_counts(hir, facts);
         timings.push(TimingRow::Promotion { stack, arena });

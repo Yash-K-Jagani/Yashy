@@ -58,8 +58,8 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
   yashy tasks <file.ya> [-- <args>...]
   yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
@@ -132,6 +132,8 @@ usage:
                and resume index)
   --timings    print how long each pipeline phase took, to stderr (or in the
                JSON report); stdout is never touched
+  --stdlib-source  derive the program from source instead of reusing cached IR;
+               the cache is neither read nor written, for bisecting a build
   --jobs <n>   how many threads the front end may parse on; 0 (the default)
                uses one per available core, 1 parses serially
   --no-opt=<pass>  disable one registered optimization pass; `--opt-list` names
@@ -271,6 +273,10 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // `--offline` never touches the network or invokes git. A package that is
     // not already in the store is `E1803`, never a silent fetch.
     let mut offline = false;
+    // `--stdlib-source` derives the stdlib from source even when a matching
+    // IR cache entry exists: it neither reads nor writes the cache. It is the
+    // escape hatch for bisecting a suspected cache problem.
+    let mut stdlib_source = false;
     // Registered optimization passes the user asked to disable. Validated
     // after parsing, so one message can list every pass that exists.
     let mut disabled: Vec<String> = Vec::new();
@@ -308,6 +314,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
             "--offline" => offline = true,
+            "--stdlib-source" => stdlib_source = true,
             "--opt-list" => opt_list = true,
             "--opt-report" => opt_report_flag = Some(false),
             "--release" => release = true,
@@ -641,8 +648,10 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         lto: release && !no_lto,
         pgo,
         async_,
+        ir_cache: !stdlib_source,
     };
     let code = match compile_hir_timed(
+        &sources,
         &hir,
         &entry,
         &output,
@@ -811,7 +820,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                 }
             }
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto"
-            | "--offline" => {
+            | "--offline" | "--stdlib-source" => {
                 if mode == RunMode::Tasks && argument == "--release" {
                     return usage_error("`tasks` needs a debug build; `--release` is refused");
                 }
@@ -1448,6 +1457,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool, jobs: usize) ->
                     let facts = report.facts;
                     let warnings = report.diagnostics;
                     match compile_hir_timed(
+                        &sources,
                         &hir,
                         &file,
                         &exe,
@@ -1685,6 +1695,14 @@ fn set_timings(report: &mut Json, timings: Option<&[TimingRow]>) {
                             entry.set("phase", Json::string("tasks"));
                             entry.set("tasks", Json::number(*count as i64));
                         }
+                        TimingRow::IrCache { hit } => {
+                            entry.set("phase", Json::string("ir_cache"));
+                            entry.set("hit", Json::bool(*hit));
+                        }
+                        TimingRow::StdlibModules { count } => {
+                            entry.set("phase", Json::string("stdlib_modules"));
+                            entry.set("modules", Json::number(*count as i64));
+                        }
                     }
                     entry
                 })
@@ -1782,6 +1800,23 @@ fn accumulate(total: &mut Vec<TimingRow>, timings: &[TimingRow]) {
                 Some(seen) => *seen = (*seen).max(*count),
                 None => total.push(timing.clone()),
             },
+            TimingRow::IrCache { hit } => {
+                if let Some(TimingRow::IrCache { hit: seen }) = total
+                    .iter_mut()
+                    .find(|seen| matches!(seen, TimingRow::IrCache { .. }))
+                {
+                    *seen = *hit;
+                } else {
+                    total.push(timing.clone());
+                }
+            }
+            TimingRow::StdlibModules { count } => match total.iter_mut().find_map(|seen| match seen {
+                TimingRow::StdlibModules { count } => Some(count),
+                _ => None,
+            }) {
+                Some(seen) => *seen = (*seen).max(*count),
+                None => total.push(timing.clone()),
+            },
         }
     }
 }
@@ -1810,6 +1845,10 @@ fn report_timings(timings: &[TimingRow]) {
             TimingRow::Pgo { stage } => eprintln!("pgo={stage}"),
             TimingRow::Instantiations { count } => eprintln!("instantiations={count}"),
             TimingRow::Tasks { count } => eprintln!("tasks={count}"),
+            TimingRow::IrCache { hit } => {
+                eprintln!("ir_cache={}", if *hit { "hit" } else { "miss" })
+            }
+            TimingRow::StdlibModules { count } => eprintln!("stdlib_modules={count}"),
         }
     }
 }

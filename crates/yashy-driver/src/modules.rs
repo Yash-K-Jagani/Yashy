@@ -205,6 +205,53 @@ pub fn default_stdlib_root() -> Option<PathBuf> {
     None
 }
 
+/// The stdlib version this compiler was built against.
+///
+/// The bundled stdlib ships a `yashy.toml` naming the same version, and
+/// [`stdlib_version`] prefers the file so an install can be identified without
+/// rebuilding the compiler. This constant is the fallback for a stdlib tree
+/// that has no manifest, and the value the manifest in this repository is
+/// checked against.
+pub const STDLIB_VERSION: &str = "1.0.0";
+
+/// The version of the stdlib found by [`default_stdlib_root`].
+///
+/// A stdlib is a package: the version goes into every content-addressed cache
+/// key, so a changed stdlib cannot read an artifact compiled from an older one.
+/// A root with no manifest (or an unreadable one) answers [`STDLIB_VERSION`]:
+/// the compiler still knows which stdlib it shipped.
+pub fn stdlib_version() -> String {
+    let Some(root) = default_stdlib_root() else {
+        return STDLIB_VERSION.to_string();
+    };
+    let mut candidates = vec![root.join("yashy.toml")];
+    if let Some(parent) = root.parent() {
+        candidates.push(parent.join("yashy.toml"));
+    }
+    for candidate in candidates {
+        if let Ok(manifest) = yashy_manifest::Manifest::load(&candidate) {
+            return manifest.package.version;
+        }
+    }
+    STDLIB_VERSION.to_string()
+}
+
+/// How many of the discovered modules come from the standard library.
+///
+/// The stdlib is not ambient: the loader never adds a module the program did
+/// not import, so a program with no `import` has a count of zero. That is the
+/// fact `--timings` reports as `stdlib_modules`, and the reason `hello` does
+/// not pay for a stdlib it never names.
+pub fn stdlib_module_count(sources: &[ModuleSource]) -> usize {
+    let Some(root) = default_stdlib_root() else {
+        return 0;
+    };
+    sources
+        .iter()
+        .filter(|source| source.path.starts_with(&root))
+        .count()
+}
+
 /// The stdlib layouts an installed `yashy` binary can sit next to.
 fn stdlib_root_near_exe(exe: &Path) -> Option<PathBuf> {
     let dir = exe.parent()?;

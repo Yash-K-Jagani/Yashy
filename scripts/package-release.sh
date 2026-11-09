@@ -6,6 +6,7 @@
 #   yashy-<version>-<target>/
 #     yashy
 #     yashy-stdlib/yashy/*.ya
+#     yashy-stdlib/yashy.toml
 #     install.sh
 #     README.md
 #     LICENSE
@@ -79,6 +80,7 @@ name="yashy-$version-$target"
 stage="$dist/$name"
 archive="$dist/$name.tar.gz"
 stdlib="$root/crates/yashy-stdlib/yashy"
+stdlib_manifest="$root/crates/yashy-stdlib/yashy.toml"
 installer="$root/scripts/install.sh"
 readme="$root/README.md"
 license="$root/LICENSE"
@@ -89,6 +91,7 @@ fi
 
 [ -f "$binary" ] || die "no release binary at $binary - run: cargo build --release -p yashy-driver"
 [ -d "$stdlib" ] || die "no stdlib at $stdlib"
+[ -f "$stdlib_manifest" ] || die "no stdlib manifest at $stdlib_manifest"
 [ -f "$installer" ] || die "no installer at $installer"
 [ -f "$readme" ] || die "no README at $readme"
 [ -f "$license" ] || die "no LICENSE at $license"
@@ -99,6 +102,7 @@ mkdir -p "$stage/yashy-stdlib"
 cp "$binary" "$stage/yashy"
 chmod 755 "$stage/yashy"
 cp -R "$stdlib" "$stage/yashy-stdlib/yashy"
+cp "$stdlib_manifest" "$stage/yashy-stdlib/yashy.toml"
 cp "$installer" "$stage/install.sh"
 chmod 755 "$stage/install.sh"
 cp "$readme" "$stage/README.md"

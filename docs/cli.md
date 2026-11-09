@@ -35,6 +35,7 @@ yashy build main.ya --emit-ir
 | `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |
 | `--opt-report[=json]` | Explain every check and allocation that survived, grouped by function, and stop. See [The optimization report](#the-optimization-report). |
 | `--emit-ir` | Print LLVM IR and stop; do not link. |
+| `--stdlib-source` | Derive the program from source instead of reusing cached IR. The IR cache is neither read nor written, for bisecting a suspected cache problem. |
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
 | `--jobs <n>` | Threads the front end may parse on. `0` (default) uses one per core; `1` is serial. See [`--jobs`](#--jobs-n). |
@@ -434,6 +435,31 @@ frontend_threads=8
 what [`--jobs`](#--jobs-n) sets. `query_hits`/`query_misses` are how many cached
 front-end queries were reused and how many ran; `recomputed` names what ran.
 
+Two lines describe what the build reused:
+
+```text
+ir_cache=hit
+stdlib_modules=1
+```
+
+Every build is a pure function of the sources it read, the codegen flags, the
+compiler and the stdlib, so the emitted LLVM IR is stored in a
+content-addressed cache and reused when all of those agree. `ir_cache=hit` means
+the IR was read (its `emit` row is `0 ms`); `ir_cache=miss` means it was emitted
+and stored. The key includes every source byte and path, the optimization and
+codegen flags, the target triple, the compiler version and executable timestamp,
+the IR format version and the stdlib version, so a hit can only hand back the IR
+those inputs produce. The cache shares
+[`YASHY_CACHE_DIR`](#environment) with the runtime objects and the package
+store. `--stdlib-source` neither reads nor writes it and prints no `ir_cache`
+line.
+
+`stdlib_modules=N` counts the modules the build loaded from the standard
+library. The stdlib is not ambient: the loader adds only modules the program
+imports, so `hello` reports `stdlib_modules=0` and an `import JSON;` reports
+one. A stdlib module is typechecked only because it was imported, not because
+the compiler was installed with one.
+
 `test --timings` prints one total for the whole suite rather than five lines per
 test, so the report answers where the run's wall time went.
 
@@ -522,7 +548,11 @@ stdout; `--json` implies no color and no prompt.
   memo counters and `{"phase":"frontend_threads","threads":8}` the pool size.
   The link strategy is `{"phase":"lto","mode":"thin"}`; a profile-guided build
   adds one `{"phase":"pgo","stage":"instrumented"}` per stage (`trained`,
-  `applied`). `test --json --timings` carries the suite's totals.
+  `applied`). The cache decision is `{"phase":"ir_cache","hit":true}` and the
+  stdlib count is `{"phase":"stdlib_modules","modules":1}`; the first appears
+  only on a command that runs the backend (`build`, `run`, `test`), never for
+  `check`, `verify` or `--emit-ir`, while the second appears on every command
+  that loads sources. `test --json --timings` carries the suite's totals.
 
 `test --json` uses the same envelope plus `tests` and a test summary:
 
@@ -796,6 +826,7 @@ diagnostic points at, not a switch to set.
 | `YASHY_DEBUG=1` | A panic or arithmetic fault also prints every live task (id, async function, resume index) to standard error before the process ends. Set by `run --debug` and `tasks`. |
 | `YASHY_TASKS_DUMP=1` | The executor prints its live-task table while the run spins on a pending task. Set by `tasks`. |
 | `YASHY_EXECUTOR_THREADS=<n>` | Worker count of the default executor; `0`, unset or non-numeric means single-threaded. |
+| `YASHY_CACHE_DIR` | Root of the compiler's caches: compiled runtime objects, emitted IR and the package store (`<dir>/packages`). A private value isolates a test or a build system. |
 
 ## Installer flags
 

@@ -91,7 +91,11 @@ struct SourceFile {
 impl SourceFile {
     fn new(path: String, text: String) -> SourceFile {
         let line_starts = collect_line_starts(&text);
-        SourceFile { path, text, line_starts }
+        SourceFile {
+            path,
+            text,
+            line_starts,
+        }
     }
 
     /// Turns a byte offset into a one-based line and column.
@@ -118,8 +122,15 @@ impl SourceFile {
             Some((_, end)) => offset.min(end),
             None => offset,
         };
-        let preceding = self.text.get(line_start..visible_end).map(|s| s.chars().count()).unwrap_or(0);
-        Location { line: saturating_u32(line_index.saturating_add(1)), col: saturating_u32(preceding.saturating_add(1)) }
+        let preceding = self
+            .text
+            .get(line_start..visible_end)
+            .map(|s| s.chars().count())
+            .unwrap_or(0);
+        Location {
+            line: saturating_u32(line_index.saturating_add(1)),
+            col: saturating_u32(preceding.saturating_add(1)),
+        }
     }
 
     /// The text of a one-based line, without its line terminator.
@@ -187,6 +198,17 @@ impl SourceMap {
         FileId(index)
     }
 
+    /// How many files the map holds. File ids run from zero through
+    /// `len() - 1`, which is what lets a cache key walk the map in order.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// True when the map holds no files.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
     /// The text of a file, or `""` if the id names no file in this map.
     pub fn file(&self, id: FileId) -> &str {
         self.get(id).map(|file| file.text.as_str()).unwrap_or("")
@@ -194,7 +216,9 @@ impl SourceMap {
 
     /// The path a file was added under, or `"<unknown>"`.
     pub fn path(&self, id: FileId) -> &str {
-        self.get(id).map(|file| file.path.as_str()).unwrap_or("<unknown>")
+        self.get(id)
+            .map(|file| file.path.as_str())
+            .unwrap_or("<unknown>")
     }
 
     /// The one-based line and column of a span's start.
@@ -260,7 +284,9 @@ impl SourceMap {
 
         let located = file.locate(offset_of(d.span.start));
         let line_text = file.line_text(located.line);
-        let prefix = line_text.chars().take(offset_of(located.col.saturating_sub(1)));
+        let prefix = line_text
+            .chars()
+            .take(offset_of(located.col.saturating_sub(1)));
         // A tab stays a tab so the caret stays aligned when it is displayed; any
         // other character becomes a single space, which keeps one column per
         // character for wide and multi-byte characters alike.
@@ -268,12 +294,7 @@ impl SourceMap {
         let carets = "^".repeat(caret_count(file, line_text, located, d.span));
 
         let mut out = String::new();
-        out.push_str(&format!(
-            "{}:{}:{}\n",
-            file.path,
-            located.line,
-            located.col
-        ));
+        out.push_str(&format!("{}:{}:{}\n", file.path, located.line, located.col));
         out.push_str(&format!("{}: {}\n", severity_label(d), d.message));
         out.push_str(line_text);
         out.push('\n');
@@ -294,7 +315,9 @@ impl SourceMap {
     }
 
     fn get(&self, id: FileId) -> Option<&SourceFile> {
-        usize::try_from(id.index()).ok().and_then(|index| self.files.get(index))
+        usize::try_from(id.index())
+            .ok()
+            .and_then(|index| self.files.get(index))
     }
 }
 
@@ -328,18 +351,23 @@ fn severity_label(d: &Diagnostic) -> String {
 /// empty range, which still leaves the one caret that marks the position.
 fn caret_count(file: &SourceFile, line_text: &str, at: Location, span: Span) -> usize {
     let start = floor_char_boundary(&file.text, offset_of(span.start));
-    let end = floor_char_boundary(
-        &file.text,
-        offset_of(span.end).min(file.text.len()),
-    );
-    let spanned = file.text.get(start..end).map(|s| s.chars().count()).unwrap_or(0);
+    let end = floor_char_boundary(&file.text, offset_of(span.end).min(file.text.len()));
+    let spanned = file
+        .text
+        .get(start..end)
+        .map(|s| s.chars().count())
+        .unwrap_or(0);
     let already_past = usize::try_from(at.col.saturating_sub(1)).unwrap_or(usize::MAX);
     // The `.max(1)` is load-bearing: a span pointing at the end of the file
     // leaves `at.col` one past the last character, so the subtraction yields 0,
     // and `clamp(1, 0)` below *panics* when min exceeds max. Do not drop the
     // `.max(1)` or move it below the `clamp` without a proof that `available`
     // can never be zero.
-    let available = line_text.chars().count().saturating_sub(already_past).max(1);
+    let available = line_text
+        .chars()
+        .count()
+        .saturating_sub(already_past)
+        .max(1);
     spanned.clamp(1, available)
 }
 

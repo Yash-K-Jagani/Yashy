@@ -316,6 +316,13 @@ chmod 755 "$prefix/bin/yashy"
 rm -rf "$prefix/share/yashy/stdlib"
 mkdir -p "$prefix/share/yashy/stdlib"
 cp -R "$stage/yashy-stdlib/yashy" "$prefix/share/yashy/stdlib/yashy"
+# The stdlib is a package: its manifest sits beside the module directory, where
+# the compiler finds the version that keys its IR cache. An archive from before
+# the manifest existed still installs, and the compiler falls back to its
+# built-in version.
+if [ -f "$stage/yashy-stdlib/yashy.toml" ]; then
+    cp "$stage/yashy-stdlib/yashy.toml" "$prefix/share/yashy/stdlib/yashy.toml"
+fi
 
 if [ "$do_path" -eq 1 ]; then
     add_path_block "$HOME/.profile"
