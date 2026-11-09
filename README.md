@@ -897,7 +897,7 @@ and asserts a diagnostic comes back instead of a Rust backtrace.
 
 ## Documentation
 
-- [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in eighteen chapters, ending with [the C boundary](docs/tutorial/13-ffi.md), [modules](docs/tutorial/14-modules.md), [traits and objects](docs/tutorial/15-traits.md), [macros](docs/tutorial/16-macros.md) and [async](docs/tutorial/17-async.md)
+- [`docs/tutorial/00-intro.md`](docs/tutorial/00-intro.md) — the language tutorial, in twenty chapters, ending with [the C boundary](docs/tutorial/13-ffi.md), [modules](docs/tutorial/14-modules.md), [traits and objects](docs/tutorial/15-traits.md), [macros](docs/tutorial/16-macros.md), [async](docs/tutorial/17-async.md), [debugging](docs/tutorial/18-debugging.md) and [tooling](docs/tutorial/19-tooling.md)
 - [`docs/quickstart.md`](docs/quickstart.md) — install, doctor, init, run, and test in one page
 - [`examples/`](examples) — `hello`, `wordcount`, and `json-report`, each with tests
 - [`docs/superpowers/specs/2026-10-27-yashy-master-design.md`](docs/superpowers/specs/2026-10-27-yashy-master-design.md) — the current design: trust-first verifier, speed program, phase spine

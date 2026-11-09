@@ -149,5 +149,6 @@ project-shaped path first, read [12-first-cli](12-first-cli.md); the language
 chapters assume a working `yashy` and can be read in either order. The last
 three chapters cover calling C, [13-ffi](13-ffi.md), splitting a program
 across files, [14-modules](14-modules.md), traits, the object model and
-iterators, [15-traits](15-traits.md), macros, [16-macros](16-macros.md), and
-async, [17-async](17-async.md).
+iterators, [15-traits](15-traits.md), macros, [16-macros](16-macros.md), async,
+[17-async](17-async.md), debugging, [18-debugging](18-debugging.md), and
+mcp, doc, sandbox and deterministic mode, [19-tooling](19-tooling.md).

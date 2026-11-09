@@ -112,6 +112,15 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   trait and no async closures. A lock held across `.await` is `E1702`, a
   task escaping its scope is `E1701`, and an `await` outside an `async fn`
   is `E1700`.
+- **Tooling: one fact, two renderings.** `index`, `context`, `doc` and the
+  `mcp` server all build a JSON model first and render the human form from
+  it. The MCP verbs are the seven compiler verbs (`check`, `build`, `test`,
+  `verify`, `explain`, `context`, `index`) — never shell execution, never a
+  path outside the workspace root. The sandbox is default-deny
+  (`--allow-read`/`--allow-write` name the only paths) and both OSes or it
+  is not a sandbox. `yashy doc` is the documentation source of truth:
+  the public surface rendered from the compiler's own tables, byte-stable
+  across runs and OSes.
 - **Patterns are irrefutable in binding position.** A pattern in `let`,
   `const` and `for` must match every value of its type; a refutable pattern
   there is `E0100` with the fix "use `switch`". In `switch`, every

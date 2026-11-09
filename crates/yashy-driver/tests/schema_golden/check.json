@@ -1,0 +1,14 @@
+exit=0
+stdout:
+{
+  "schema_version": 1,
+  "tool": "check",
+  "yashy_version": "0.1.0",
+  "success": true,
+  "diagnostics": [],
+  "summary": {
+    "errors": 0,
+    "warnings": 0
+  }
+}
+stderr:

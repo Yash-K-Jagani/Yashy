@@ -1,0 +1,14 @@
+exit=0
+stdout:
+{
+  "schema_version": 1,
+  "tool": "yashy",
+  "task": "fix the bug in main",
+  "tokens": 19,
+  "budget": 8000,
+  "included": [
+    "enclosing function"
+  ],
+  "dropped": []
+}
+stderr:

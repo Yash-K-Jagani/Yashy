@@ -37,6 +37,12 @@ pub struct Symbol {
     pub docs: Option<String>,
 }
 
+impl Symbol {
+    pub fn is_public(&self) -> bool {
+        self.visibility == "pub"
+    }
+}
+
 /// One `import` edge.
 #[derive(Clone, Debug)]
 pub struct ImportEdge {
@@ -70,7 +76,7 @@ fn effect_of(effects: &BTreeMap<String, yashy_common::Effect>, name: &str) -> Op
 }
 
 /// `fn fetch(string url) -> Result[string, io.Error]` from the checked item.
-fn signature_of(f: &HirFn) -> String {
+pub fn signature_of(f: &HirFn) -> String {
     let params: Vec<String> = f
         .params
         .iter()
@@ -176,6 +182,49 @@ fn calls_of(f: &HirFn, out: &mut Vec<String>) {
 }
 
 /// One `.ya` file: the checked program's symbols plus the import edges.
+/// Whether the HirFn `f` in `path`'s AST is `pub`.
+pub fn is_public(path: &Path, f: &HirFn) -> bool {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+    let mut sources = SourceMap::new();
+    let file = sources.add_file(path.to_string_lossy().into_owned(), text.clone());
+    let tokens = Lexer::with_file(&text, file).tokenize().unwrap_or_default();
+    let Ok(program) = Parser::new(tokens, &sources, file).parse_program() else {
+        return false;
+    };
+    fn find(item: &Item, pubbed: bool, name: &str, span_start: u32) -> Option<bool> {
+        match item {
+            Item::Public { item, .. } => find(item, true, name, span_start),
+            Item::Documented { item, .. } => find(item, pubbed, name, span_start),
+            Item::Effect { item, .. } => find(item, pubbed, name, span_start),
+            Item::Fn { name: item_name, span, .. } => {
+                if item_name == name && span.start == span_start {
+                    Some(pubbed)
+                } else {
+                    None
+                }
+            }
+            Item::Impl { methods, .. } => {
+                for method in methods {
+                    if let found @ Some(_) = find(method, pubbed, name, span_start) {
+                        return found;
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+    for item in &program.items {
+        if let Some(found) = find(item, false, &f.name.rsplit('.').next().unwrap_or(&f.name), f.span.start) {
+            return found;
+        }
+    }
+    false
+}
+
 fn collect_file(
     path: &Path,
     sources: &mut SourceMap,
@@ -432,6 +481,11 @@ pub fn build_index(root: &Path) -> Result<IndexModel, String> {
     });
     model.files.sort();
     Ok(model)
+}
+
+/// Walk `root` and collect every `.ya` file in it.
+pub fn collect_files_from(dir: &Path, out: &mut Vec<PathBuf>) {
+    collect_ya_files(dir, out);
 }
 
 fn collect_ya_files(dir: &Path, out: &mut Vec<PathBuf>) {

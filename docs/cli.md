@@ -611,6 +611,78 @@ place.
 
 Prints the compiler version.
 
+## `yashy index [path] [--json]`
+
+Walks a directory (or one file) and prints the symbol index: every top-level
+function, struct, enum, trait and impl method, with signature, effects,
+contracts, typestate, visibility and docs. A fact the compiler does not know
+is `null`. Symbols are sorted by `(file, span.start)`, so `--json` is
+byte-identical across runs.
+
+## `yashy outline <file.ya>` / `yashy graph [path] [--json|--dot]` / `yashy search <query> [path]`
+
+`outline` prints one file's symbols in source order, one line each.
+`graph` prints the module graph plus the call graph; `--json` is
+`{"nodes":[...],"edges":[{"from","to","kind":"import"|"call"}]}` and
+`--dot` is Graphviz. `search` matches symbols and doc text, ranked exact
+name, then prefix, then doc match; no match exits 0 with an empty result.
+
+## `yashy context --task "..." [path] [--budget <n>] [--json]`
+
+A token-budgeted pack for one task: the diagnostic, the enclosing function,
+its callees' signatures, the tests that cover it, and the contracts
+involved, added in that relevance order until the next section would exceed
+the budget. `--json` reports `tokens`, `budget`, `included` and `dropped`;
+what did not fit is named in `dropped`. The estimator is documented in
+`crates/yashy-driver/src/context.rs`: one token per four bytes of ASCII,
+one per non-ASCII character, rounded up. Exit 2 when `--task` names nothing
+in the workspace.
+
+## `yashy mcp --root <dir>`
+
+JSON-RPC 2.0 over stdio with seven tools: `check`, `build`, `test`,
+`verify`, `explain`, `context`, `index`. Every tool returns the schema-v1
+payload the CLI returns; a tool error is `code: -32000` with the diagnostic
+array in `data`. No tool accepts a path outside `--root` (refused with
+`-32001`), no tool accepts a shell string, and `build` writes only under
+`<root>/.yashy/` and the requested output.
+
+## `yashy run --sandbox [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>]`
+
+Runs the program with a default-deny capability set: the named paths, and
+nothing else. A read or write outside the allowlist is `E1900` naming the
+capability; a time, memory or output breach is `E1901` naming the limit.
+Windows enforces with a Job Object (memory, process count, kill-on-close);
+Linux with rlimits in the child. `test --sandbox` applies the same set to
+every test program.
+
+## `yashy run --deterministic`
+
+Fixes the clock at a given instant, seeds the RNG, sorts map iteration
+where observable, and pins the process id field, so `log_info`/`log_error`
+and `metrics_add`/`metrics_set` produce byte-identical stderr across runs.
+`YASHY_DETERMINISTIC=1` does the same for a test run.
+
+## `yashy doc [path] [--out DIR] [--json] [--private]`
+
+Renders the public surface from the compiler's own tables into `target/doc/`
+(one Markdown file per module plus `index.md`). A private item appears only
+with `--private`; an undocumented public item appears with
+`No documentation.` `--json` emits the same model the Markdown renders
+from. The output is byte-identical across runs and OSes. HTML is out of
+scope: the Markdown is what `llms.txt` and the index already consume.
+
+## `yashy lsp`
+
+Execs the sibling `yashy-lsp` binary on stdio, so an editor needs one
+command. A missing sibling exits 2 naming the path; the server's exit code
+is propagated. `yashy doctor` reports the lookup.
+
+## `yashy profile <file.ya>`
+
+Prints a table of per-function counters sorted by self time, with the
+instrumentation overhead measured and printed. No sampling thread.
+
 ## Flags the native foundation did not add
 
 The `link_name`, variadic, `repr(C)` and byte-buffer work extended the language,
