@@ -95,6 +95,7 @@ the declaration or import involved when that is not obvious.
 | [E1801](errors/E1801.md) | dependency cycle |
 | [E1802](errors/E1802.md) | lockfile mismatch |
 | [E1803](errors/E1803.md) | package missing from the offline store |
+| [E1804](errors/E1804.md) | package audit failure |
 | [E1900](errors/E1900.md) | sandbox capability denied |
 | [E1901](errors/E1901.md) | sandbox limit breached |
 | [E1701](errors/E1701.md) | task handle escapes its scope |

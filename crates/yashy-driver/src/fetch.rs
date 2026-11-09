@@ -17,6 +17,8 @@ use std::process::Command;
 
 use yashy_manifest::sha256_hex;
 
+use crate::registry::{extract_tarball, read_tarball, RegistryEntry};
+
 /// A failure to obtain a package source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FetchError {
@@ -60,6 +62,86 @@ impl Store {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The checkout for a registry entry, verifying its tarball hash.
+    pub fn registry_checkout(
+        &self,
+        entry: &RegistryEntry,
+        registry_root: &Path,
+        offline: bool,
+    ) -> Result<PathBuf, FetchError> {
+        let hash = entry.hash.trim_start_matches("sha256:");
+        let directory = self.root.join("registry").join(hash);
+        if directory.is_dir() {
+            return Ok(directory);
+        }
+        if offline {
+            return Err(FetchError::new(format!(
+                "`{}@{}` is not in the local store; run `yashy fetch` without `--offline` (or `yashy update`) first",
+                entry.name, entry.version
+            )));
+        }
+        let tarball = registry_root
+            .join("packages")
+            .join(format!("{hash}.tar"));
+        let bytes = std::fs::read(&tarball).map_err(|error| {
+            FetchError::new(format!(
+                "cannot read registry tarball {}: {error}",
+                tarball.display()
+            ))
+        })?;
+        let _entries = read_tarball(&bytes).map_err(|error| {
+            FetchError::new(format!("cannot read registry tarball: {error}"))
+        })?;
+        let staging = self.root.join(format!(
+            ".staging-registry-{}-{:x}",
+            std::process::id(),
+            unique_suffix()
+        ));
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|error| {
+            FetchError::new(format!(
+                "cannot create the registry staging directory: {error}"
+            ))
+        })?;
+        extract_tarball(&staging, &bytes).map_err(|error| {
+            let _ = std::fs::remove_dir_all(&staging);
+            FetchError::new(format!("cannot extract registry tarball: {error}"))
+        })?;
+        let extracted = yashy_manifest::hash_tree(&staging).map_err(|error| {
+            let _ = std::fs::remove_dir_all(&staging);
+            FetchError::new(format!(
+                "cannot hash extracted registry package: {error}"
+            ))
+        })?;
+        if extracted != entry.hash {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(FetchError::new(format!(
+                "registry tarball for `{}@{}` does not match its tree hash ({extracted} != {})",
+                entry.name, entry.version, entry.hash
+            )));
+        }
+        make_read_only(&staging);
+        std::fs::create_dir_all(directory.parent().expect("the store has a parent")).map_err(|error| {
+            let _ = std::fs::remove_dir_all(&staging);
+            FetchError::new(format!(
+                "cannot create the registry store directory: {error}"
+            ))
+        })?;
+        match std::fs::rename(&staging, &directory) {
+            Ok(()) => Ok(directory),
+            Err(_) if directory.is_dir() => {
+                let _ = std::fs::remove_dir_all(&staging);
+                Ok(directory)
+            }
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                Err(FetchError::new(format!(
+                    "cannot move the registry package into the store: {error}"
+                )))
+            }
+        }
     }
 
     /// The checkout for `url` at `rev`, fetching it when allowed.
@@ -149,6 +231,16 @@ impl Store {
             }
         }
     }
+}
+
+pub fn default_registry_root_for(store: &Path) -> PathBuf {
+    if let Some(value) = env::var_os("YASHY_REGISTRY") {
+        let text = value.to_string_lossy();
+        if let Ok(path) = crate::registry::registry_path(&text) {
+            return path;
+        }
+    }
+    store.join("registry")
 }
 
 /// `%LOCALAPPDATA%/yashy/packages` and its siblings, with the two explicit

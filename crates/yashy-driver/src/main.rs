@@ -71,7 +71,7 @@ usage:
   yashy index [path] [--json]
   yashy outline <file.ya>
   yashy graph [path] [--json|--dot]
-  yashy search <query> [path]
+  yashy search <query> [path] | yashy search <query> --registry <dir>
   yashy context --task <task> [path] [--budget <n>] [--json]
   yashy mcp --root <dir>
   yashy lsp [--version]
@@ -81,6 +81,9 @@ usage:
   yashy fetch [--offline]
   yashy update [--offline]
   yashy add <name> --path <dir> | yashy add <name> --git <url> --rev <commit>
+  yashy audit [dir] [--json]
+  yashy publish [dir] --registry <dir>
+  yashy search <query> --registry <dir>
   yashy fmt [-w] <files...>
   yashy version
 
@@ -107,6 +110,9 @@ usage:
   fetch   put every package in the store without building
   update  resolve the manifests and rewrite yashy.lock
   add     add a path or pinned git dependency to yashy.toml, then update
+  audit   inspect manifests, lockfile and package policy without building
+  publish publish a package to a local directory registry
+  search  search a local directory registry
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -202,6 +208,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "fetch" => fetch_cmd(rest),
         "update" => update_cmd(rest),
         "add" => add_cmd(rest),
+        "audit" => audit_cmd(rest),
+        "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -3299,8 +3307,53 @@ fn graph_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy search <query> [path]`: ranked symbol search.
+/// `yashy search <query> [path]`: ranked symbol search, or
+/// `yashy search <query> --registry <root>`: package registry search.
 fn search_cmd(args: &[String]) -> ExitCode {
+    if args.iter().any(|argument| argument == "--registry") {
+        let mut query: Option<String> = None;
+        let mut registry: Option<String> = None;
+        let mut iter = args.iter();
+        while let Some(argument) = iter.next() {
+            match argument.as_str() {
+                "--registry" => match iter.next() {
+                    Some(value) => registry = Some(value.clone()),
+                    None => return usage_error("`--registry` needs a directory"),
+                },
+                other if other.starts_with('-') => {
+                    return usage_error(&format!("unknown option `{other}` for `search`"))
+                }
+                other => {
+                    if query.is_some() {
+                        return usage_error(&format!("unexpected extra argument `{other}`"));
+                    }
+                    query = Some(other.to_string());
+                }
+            }
+        }
+        let Some(registry) = registry else {
+            return usage_error("`search` needs `--registry <dir>`");
+        };
+        let root = match yashy_driver::registry::registry_path(&registry) {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return exit_code(EXIT_COMPILE_ERROR);
+            }
+        };
+        return match yashy_driver::registry::search(&root, query.as_deref()) {
+            Ok(entries) => {
+                for entry in entries {
+                    println!("{} {} {}", entry.name, entry.version, entry.hash);
+                }
+                exit_code(EXIT_OK)
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                exit_code(EXIT_COMPILE_ERROR)
+            }
+        };
+    }
     let mut query: Option<String> = None;
     let mut input: Option<PathBuf> = None;
     for arg in args {
@@ -3817,8 +3870,17 @@ fn check_lock(directory: &Path) -> Result<(), LockCheckError> {
 /// disagree. A manifest without a lock is left alone; the first lock is
 /// written by `yashy update`.
 fn verify_project_lock(input: &Path) -> Option<ExitCode> {
-    let directory = input.parent().unwrap_or_else(|| Path::new("."));
-    if !directory.join("yashy.toml").is_file() || !directory.join("yashy.lock").is_file() {
+    let mut directory = input.parent().unwrap_or_else(|| Path::new("."));
+    loop {
+        if directory.join("yashy.toml").is_file() {
+            break;
+        }
+        let Some(parent) = directory.parent() else {
+            return None;
+        };
+        directory = parent;
+    }
+    if !directory.join("yashy.lock").is_file() {
         return None;
     }
     match check_lock(directory) {
@@ -3837,6 +3899,109 @@ fn usage_error(message: &str) -> ExitCode {
 
 fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(code as u8)
+}
+
+/// `yashy publish [dir] --registry <root>`: write a package tarball and its
+/// index entry.
+fn publish_cmd(args: &[String]) -> ExitCode {
+    let mut directory: Option<PathBuf> = None;
+    let mut registry: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(value.clone()),
+                None => return usage_error("`--registry` needs a directory"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `publish`"))
+            }
+            other => {
+                if directory.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                directory = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(registry) = registry else {
+        return usage_error("`publish` needs `--registry <dir>`");
+    };
+    let root = match yashy_driver::registry::registry_path(&registry) {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+    let directory = directory.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::registry::publish(&directory, &root) {
+        Ok(entry) => {
+            println!(
+                "published {}@{} {} to {}",
+                entry.name,
+                entry.version,
+                entry.hash,
+                root.display()
+            );
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
+}
+
+/// `yashy audit [dir] [--json]`: a read-only package check.
+fn audit_cmd(args: &[String]) -> ExitCode {
+    let json = args.iter().any(|argument| argument == "--json");
+    let arguments = args
+        .iter()
+        .filter(|argument| *argument != "--json")
+        .cloned()
+        .collect::<Vec<_>>();
+    let project = match project_args(&arguments, "audit") {
+        Ok(project) => project,
+        Err(code) => return code,
+    };
+    let store = match open_store() {
+        Ok(store) => store,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    match yashy_driver::audit::audit_project(&project.directory, &store) {
+        Ok(report) => {
+            if json {
+                println!("{}", report.to_json());
+            } else if report.ok {
+                println!(
+                    "ok: {} package{}, {} bytes",
+                    report.packages,
+                    if report.packages == 1 { "" } else { "s" },
+                    report.source_bytes
+                );
+            } else {
+                for finding in &report.findings {
+                    eprintln!(
+                        "error[{}]: package `{}`: {}",
+                        finding.code, finding.package, finding.detail
+                    );
+                }
+            }
+            if report.ok {
+                exit_code(EXIT_OK)
+            } else {
+                exit_code(EXIT_COMPILE_ERROR)
+            }
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
 }
 
 /// `yashy update [--offline] [dir]`: resolve the manifests and rewrite the
@@ -3953,13 +4118,14 @@ fn fetch_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-/// `yashy add <name> --path <dir>` or
-/// `yashy add <name> --git <url> --rev <commit>`.
+/// `yashy add <name> --path <dir>`, `yashy add <name> --git <url> --rev
+/// <commit>`, or `yashy add <name>@<version> --registry <dir>`.
 fn add_cmd(args: &[String]) -> ExitCode {
     let mut name: Option<String> = None;
     let mut path: Option<String> = None;
     let mut git: Option<String> = None;
     let mut rev: Option<String> = None;
+    let mut registry: Option<String> = None;
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
@@ -3975,6 +4141,10 @@ fn add_cmd(args: &[String]) -> ExitCode {
                 Some(value) => rev = Some(value.clone()),
                 None => return usage_error("`--rev` needs a commit"),
             },
+            "--registry" => match iter.next() {
+                Some(value) => registry = Some(value.clone()),
+                None => return usage_error("`--registry` needs a directory"),
+            },
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown option `{other}` for `add`"))
             }
@@ -3986,8 +4156,26 @@ fn add_cmd(args: &[String]) -> ExitCode {
             }
         }
     }
-    let Some(name) = name else {
+    let Some(raw_name) = name else {
         return usage_error("`add` needs a dependency name");
+    };
+    let (name, registry_version) = match raw_name.split_once('@') {
+        Some((name, version)) => {
+            let valid_version = {
+                let parts: Vec<&str> = version.split('.').collect();
+                parts.len() == 3
+                    && parts
+                        .iter()
+                        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+            };
+            if !valid_version {
+                return usage_error(&format!(
+                    "`{version}` is not an exact version; write `1.2.3`"
+                ));
+            }
+            (name.to_string(), Some(version.to_string()))
+        }
+        None => (raw_name, None),
     };
     if !name
         .chars()
@@ -3997,30 +4185,41 @@ fn add_cmd(args: &[String]) -> ExitCode {
             "`{name}` is not a package name; use letters, digits, `_` and `-`"
         ));
     }
-    let block = match (&path, &git, &rev) {
-        (Some(path), None, None) => format!(
+    if let Some(registry) = &registry {
+        let _ = yashy_driver::registry::registry_path(registry);
+        env::set_var("YASHY_REGISTRY", registry);
+    }
+    let block = match (&path, &git, &rev, registry_version) {
+        (Some(path), None, None, _) => format!(
             "\n[dependencies.{name}]\npath = \"{}\"\n",
             toml_escape(path)
         ),
-        (None, Some(url), Some(rev)) => format!(
+        (None, Some(url), Some(rev), _) => format!(
             "\n[dependencies.{name}]\ngit = \"{}\"\nrev = \"{}\"\n",
             toml_escape(url),
             toml_escape(rev)
         ),
-        (None, Some(_), None) => {
+        (None, None, None, Some(version)) => format!(
+            "\n[dependencies.{name}]\nversion = \"{}\"\n",
+            toml_escape(&version)
+        ),
+        (None, Some(_), None, _) => {
             return usage_error("a git dependency is pinned to a commit; pass `--rev <commit>`")
         }
-        (None, None, Some(_)) | (Some(_), None, Some(_)) => {
+        (None, None, Some(_), _) | (Some(_), None, Some(_), _) => {
             return usage_error("`--rev` only means something with `--git <url>`")
         }
-        (Some(_), Some(_), _) => {
+        (Some(_), Some(_), _, _) => {
             return usage_error("a dependency has exactly one source: `--path` or `--git`")
         }
-        (None, None, None) => {
+        (None, None, None, None) => {
             return usage_error(
-                "`add` needs a source: `--path <dir>` or `--git <url> --rev <commit>`; \
-                 registry dependencies arrive with the local registry",
+                "`add` needs a source: `--path <dir>`, `--git <url> --rev <commit>`, or \
+                 `<name>@<version> --registry <dir>`",
             )
+        }
+        (Some(_), _, _, Some(_)) | (None, Some(_), _, Some(_)) => {
+            return usage_error("a dependency has exactly one source")
         }
     };
     let manifest_path = Path::new("yashy.toml").to_path_buf();
@@ -4133,13 +4332,23 @@ fn load_lock_if_present(directory: &Path) -> Result<Option<Lockfile>, LockCheckE
 /// A project without a manifest, or a manifest without dependencies, resolves
 /// to nothing: the import loader keeps its pre-package behaviour.
 fn prepare_packages(input: &Path, offline: bool) -> Result<Vec<PathBuf>, LockCheckError> {
-    let directory = input.parent().unwrap_or_else(|| Path::new("."));
-    let manifest_path = directory.join("yashy.toml");
-    if !manifest_path.is_file() {
-        return Ok(Vec::new());
+    let mut directory = input.parent().unwrap_or_else(|| Path::new("."));
+    loop {
+        if directory.join("yashy.toml").is_file() {
+            break;
+        }
+        let Some(parent) = directory.parent() else {
+            return Ok(Vec::new());
+        };
+        directory = parent;
     }
+    let manifest_path = directory.join("yashy.toml");
     let manifest = load_manifest_at(&manifest_path)?;
     if manifest.dependencies.is_empty() && manifest.dev_dependencies.is_empty() {
+        let src = directory.join("src");
+        if src.is_dir() {
+            return Ok(vec![src]);
+        }
         return Ok(Vec::new());
     }
     let lock = load_lock_if_present(directory)?;

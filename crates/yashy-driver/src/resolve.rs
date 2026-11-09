@@ -268,10 +268,26 @@ impl Resolver<'_> {
                     self.locked_version(name),
                 ))
             }
-            Dependency::Registry { version } => Err(ResolveError::offline(format!(
-                "`{name}` {version} is a registry dependency, but no registry is \
-                 configured in this build; use a `path` or `git`+`rev` dependency"
-            ))),
+            Dependency::Registry { version } => {
+                let registry_root = crate::fetch::default_registry_root_for(self.store.root());
+                let entry = crate::registry::lookup(&registry_root, name, version)
+                    .map_err(|error| ResolveError::offline(error.message))?
+                    .ok_or_else(|| {
+                        ResolveError::offline(format!(
+                            "`{name}` {version} is a registry dependency, but no registry is \
+                             configured in this build; use a `path` or `git`+`rev` dependency"
+                        ))
+                    })?;
+                let root = self
+                    .store
+                    .registry_checkout(&entry, &registry_root, self.offline)
+                    .map_err(fetch_error)?;
+                Ok((
+                    root,
+                    format!("registry+file://{}", registry_root.display()),
+                    self.locked_version(name),
+                ))
+            }
         }
     }
 

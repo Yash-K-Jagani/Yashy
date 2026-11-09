@@ -7,6 +7,7 @@
 //! that is `main.rs`, so the library surface stays a set of functions a test
 //! can call with plain values.
 
+pub mod audit;
 pub mod context;
 pub mod doc;
 pub mod fetch;
@@ -18,6 +19,7 @@ pub mod outline;
 pub mod pipeline;
 pub mod profile;
 pub mod resolve;
+pub mod registry;
 pub mod sandbox;
 pub mod toolchain;
 

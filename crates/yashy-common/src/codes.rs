@@ -122,6 +122,8 @@ pub const LOCKFILE_MISMATCH: &str = "E1802";
 pub const DEPENDENCY_CYCLE: &str = "E1801";
 /// A package is not in the local store and `--offline` forbids fetching it.
 pub const OFFLINE_MISSING: &str = "E1803";
+/// A package audit found a policy violation.
+pub const AUDIT_FAILURE: &str = "E1804";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -498,6 +500,12 @@ pub const CODES: &[Code] = &[
         title: "package missing from the offline store",
         summary: "A required package is not in the local store and `--offline` forbids fetching it.",
         page: include_str!("../../../docs/errors/E1803.md"),
+    },
+    Code {
+        id: AUDIT_FAILURE,
+        title: "package audit failure",
+        summary: "A package violates an audit policy: it needs an exact pin, a supported source, no build script, and a declared license.",
+        page: include_str!("../../../docs/errors/E1804.md"),
     },
     Code {
         id: SANDBOX_DENIED,
