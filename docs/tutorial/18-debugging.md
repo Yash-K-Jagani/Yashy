@@ -38,4 +38,19 @@ counter per function, incremented on entry and exit — rather than by
 sampling. There is no sampling thread: a sampling profiler changes the
 scheduling it measures. Self time is total minus children, and the report
 prints the instrumentation overhead next to the table, because a number
-without its measurement cost is the wrong number.
+without its measurement cost is the wrong number:
+
+```text
+$ yashy profile --report counters.json
+program: workload
+hot                      calls=1        self_ms=     0.009 total_ms=     0.010
+small                    calls=10       self_ms=     0.001 total_ms=     0.002
+instrumentation overhead: 12.50%
+```
+
+`yashy profile prog.ya` without `--report` builds and times the program;
+the per-function table comes from the recorded report. `run --debug`
+also writes `.yashy/debug.lldb`, a command file that breakpoints `main`
+and dumps the task table on stop (launch it with `lldb -s
+.yashy/debug.lldb run`); without a debugger, `YASHY_DEBUG=1` prints the
+same table on a panic.

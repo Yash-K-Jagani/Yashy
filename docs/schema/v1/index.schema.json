@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "yashy index --json (schema v1)",
+  "type": "object",
+  "required": ["schema_version", "tool", "files", "symbols", "imports", "tests"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tool": { "type": "string" },
+    "files": { "type": "array", "items": { "type": "string" } },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "file", "span", "signature", "effects", "contracts", "typestate", "visibility", "docs"],
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "file": { "type": "string" },
+          "span": { "type": "object" },
+          "signature": { "type": ["string", "null"] },
+          "effects": { "type": "object" },
+          "contracts": { "type": "array" },
+          "typestate": { "type": ["string", "null"] },
+          "visibility": { "type": "string" },
+          "docs": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "imports": { "type": "array" },
+    "tests": { "type": "array" }
+  }
+}

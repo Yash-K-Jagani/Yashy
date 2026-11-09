@@ -4229,3 +4229,49 @@ fn offsetof_on_a_non_repr_c_struct_explains_the_fix() {
         "the diagnostic links its page:\n{stderr}"
     );
 }
+
+#[test]
+fn observability_is_byte_identical_under_deterministic_mode() {
+    // `observability.ya` emits a log line, a span-carrying metric and an
+    // error line as JSON on stderr. With `YASHY_DETERMINISTIC=1` the clock
+    // is fixed, so two runs of the same binary must print the same bytes:
+    // a test that passes there and fails otherwise is a bug report, not a
+    // flake.
+    let (_dir, exe, compile) = build_program("observability");
+    assert!(
+        compile.status.success(),
+        "compiling observability.ya failed:\n{}",
+        stderr_of(&compile)
+    );
+    let run = |exe: &Path| -> Output {
+        launch_retrying(exe, |path| {
+            Command::new(path)
+                .env("YASHY_DETERMINISTIC", "1")
+                .env("YASHY_LOG", "1")
+                .env("YASHY_DETERMINISTIC_SEED", "1700000000000")
+                .output()
+        })
+        .expect("the compiled program must be runnable")
+    };
+    let first = run(&exe);
+    assert!(
+        first.status.success(),
+        "observability exited with {:?}",
+        first.status.code()
+    );
+    let first_stderr = stderr_of(&first);
+    assert!(
+        first_stderr.contains("\"level\":\"info\"") || first_stderr.contains("\"event\""),
+        "a JSON log line on stderr:\n{first_stderr}"
+    );
+    assert!(
+        first_stderr.contains("\"metric\""),
+        "a metric line on stderr:\n{first_stderr}"
+    );
+    let second = run(&exe);
+    assert_eq!(
+        stderr_of(&second),
+        first_stderr,
+        "deterministic stderr is byte-identical across runs"
+    );
+}

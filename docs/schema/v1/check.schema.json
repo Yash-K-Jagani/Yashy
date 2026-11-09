@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "yashy check --json (schema v1)",
+  "type": "object",
+  "required": ["schema_version", "tool", "yashy_version", "success", "diagnostics", "summary"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tool": { "type": "string" },
+    "yashy_version": { "type": "string" },
+    "success": { "type": "boolean" },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message", "file", "span"],
+        "properties": {
+          "code": { "type": ["string", "null"] },
+          "severity": { "type": "string" },
+          "message": { "type": "string" },
+          "file": { "type": "string" },
+          "span": { "type": ["object", "null"] }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["errors", "warnings"],
+      "properties": {
+        "errors": { "type": "integer" },
+        "warnings": { "type": "integer" }
+      }
+    }
+  }
+}

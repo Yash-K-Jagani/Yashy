@@ -1,6 +1,8 @@
 # Phase 11 — AI-Native Tooling and Observability: Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status: complete** (2026-11-09). All twelve tasks landed; every checkbox below is checked. The phase-11 acceptance suites pass on Windows. The final full-workspace pass was stopped at the user's request after the phase-11 targeted suites had already passed, so no no-regression claim is made here. Gaps closed in the final pass: `yashy profile` got its report model (`crates/yashy-driver/src/profile.rs`, `tests/profile.rs`), the LLDB command file for `run --debug`, the `yashy-lsp.exe` sibling lookup on Windows, the LSP stub/exit-propagation/handshake tests, the JSON Schema files under `docs/schema/v1/`, the schema key diff, the deterministic observability e2e test, and the MCP harness wait that kept `yashy.exe` locked for the next link.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** Make the compiler legible to a machine without making it worse for a person: a symbol index, a context packer with a token budget, an MCP server that exposes only compiler verbs, a sandbox that can be tested for escapes, program-side observability that is deterministic when a test needs it — and the two ordinary tools every editor and every library expects, `yashy lsp` and `yashy doc`.
 
@@ -50,11 +52,11 @@ See the master index. The ones that bite here:
   ```
 - Produces: `tests` lists every `tests/**/*.ya` program with the functions it calls, so an agent can pick a regression test by symbol.
 
-- [ ] **Step 1: Write the failing tests** — an index of `examples/` contains every top-level function, struct, enum, trait and impl method; a `pure` function has `effects.io == false`; a function with a `requires` clause carries it; `--json` is stable across two runs (byte-identical).
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — build the model from `HirProgram` plus the module graph plus `VerifyReport`'s effect map; sort by `(file, span.start)` so output is deterministic without a hash map in the path. The human table is rendered from the same structs.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test index` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(driver): a symbol index with signatures, effects and contracts"`
+- [x] **Step 1: Write the failing tests** — an index of `examples/` contains every top-level function, struct, enum, trait and impl method; a `pure` function has `effects.io == false`; a function with a `requires` clause carries it; `--json` is stable across two runs (byte-identical).
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — build the model from `HirProgram` plus the module graph plus `VerifyReport`'s effect map; sort by `(file, span.start)` so output is deterministic without a hash map in the path. The human table is rendered from the same structs.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test index` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(driver): a symbol index with signatures, effects and contracts"`
 
 ---
 
@@ -70,11 +72,11 @@ See the master index. The ones that bite here:
 - Produces: `yashy graph [--json|--dot]` — the module graph plus the call graph; `--dot` is Graphviz, `--json` is `{"nodes":[…],"edges":[{"from","to","kind":"import"|"call"}]}`.
 - Produces: `yashy search <query>` — substring and identifier-boundary matching over symbols and doc comments, ranked by (exact name, prefix, doc match), deterministic ties broken by file then span.
 
-- [ ] **Step 1: Write the failing tests** — outline order equals source order; a cycle-free graph has one edge per import; `--dot` output parses as DOT (a strict bracket/shape check); search for `fetch` ranks the exact name first; search with no match exits 0 with an empty result, not an error.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — all three consume Task 1's model; `graph` additionally walks call sites from the HIR. No new analysis.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test outline` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(driver): outline, graph and search"`
+- [x] **Step 1: Write the failing tests** — outline order equals source order; a cycle-free graph has one edge per import; `--dot` output parses as DOT (a strict bracket/shape check); search for `fetch` ranks the exact name first; search with no match exits 0 with an empty result, not an error.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — all three consume Task 1's model; `graph` additionally walks call sites from the HIR. No new analysis.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test outline` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(driver): outline, graph and search"`
 
 ---
 
@@ -90,11 +92,11 @@ See the master index. The ones that bite here:
 - Produces: `--json` with `{"tokens":7421,"budget":8000,"included":[…],"dropped":[…]}`; `tokens` is computed by a documented, versioned estimator (bytes/4 for ASCII, 1 token per non-ASCII char, rounded up), not guessed.
 - Produces: exit 0 with a pack when it fits, exit 0 with a partial pack and a non-empty `dropped` when it does not, exit 2 when `--task` names nothing in the workspace.
 
-- [ ] **Step 1: Write the failing tests** — a pack for a known bug contains the diagnostic, the function and the covering test; `tokens ≤ budget` always; requesting a 200-token budget drops the stdlib section first and says so; the same task produces byte-identical output twice.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — relevance is a fixed scoring table (diagnostic span > enclosing function > direct callees > tests > stdlib), not a model call. Sections are added in score order until the next would exceed the budget; each addition's cost is measured before it is added.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test context` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(driver): a token-budgeted context packer"`
+- [x] **Step 1: Write the failing tests** — a pack for a known bug contains the diagnostic, the function and the covering test; `tokens ≤ budget` always; requesting a 200-token budget drops the stdlib section first and says so; the same task produces byte-identical output twice.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — relevance is a fixed scoring table (diagnostic span > enclosing function > direct callees > tests > stdlib), not a model call. Sections are added in score order until the next would exceed the budget; each addition's cost is measured before it is added.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test context` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(driver): a token-budgeted context packer"`
 
 ---
 
@@ -110,11 +112,11 @@ See the master index. The ones that bite here:
 - Produces: every tool returns the schema-v1 payload the CLI returns; a tool error is a JSON-RPC error with `code: -32000` and the diagnostic array in `data`.
 - Produces: no tool accepts a path outside `--root`; no tool accepts a shell string; `build` writes only under `<root>/.yashy/` and the requested output.
 
-- [ ] **Step 1: Write the failing tests** — `initialize` advertises exactly the seven tools; `tools/call check` on a bad file returns diagnostics with codes; a path traversal (`../../etc/passwd`) is refused with `-32001` and no file read; a malformed request produces an error response and the server stays alive; an unknown method is `-32601`.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the adapter parses a request, canonicalises the path, checks containment, calls the same `pub fn` the CLI calls, serialises the model. The server is a loop over stdin lines with a size cap (1 MiB) so a hostile client cannot exhaust memory.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test mcp` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(mcp): seven compiler verbs over JSON-RPC, sandboxed to the workspace"`
+- [x] **Step 1: Write the failing tests** — `initialize` advertises exactly the seven tools; `tools/call check` on a bad file returns diagnostics with codes; a path traversal (`../../etc/passwd`) is refused with `-32001` and no file read; a malformed request produces an error response and the server stays alive; an unknown method is `-32601`.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the adapter parses a request, canonicalises the path, checks containment, calls the same `pub fn` the CLI calls, serialises the model. The server is a loop over stdin lines with a size cap (1 MiB) so a hostile client cannot exhaust memory.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test mcp` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(mcp): seven compiler verbs over JSON-RPC, sandboxed to the workspace"`
 
 ---
 
@@ -130,11 +132,11 @@ See the master index. The ones that bite here:
 - Produces: `yashy run --sandbox --allow-read . --allow-write ./.yashy --time 5000 --memory 256 prog.ya`; a denied capability is a runtime diagnostic `E1900` with the capability named, and a limit breach is `E1901`.
 - Produces: Windows enforcement via a Job Object (memory, process count, kill-on-close) plus a restricted token for the file allowlist; Linux via rlimits plus a path allowlist checked by the runtime's `open`/`socket` wrappers.
 
-- [ ] **Step 1: Write the failing tests** — the escape corpus: absolute path outside root, `..` traversal, symlink out, environment-variable path, `/proc/self/mem`, `fork` bomb, 1 GiB allocation, infinite loop, socket connect, child process spawn. Every one must be denied with `E1900`/`E1901`, and the test asserts the *reason*, not just a non-zero exit.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — the allowlist is resolved to canonical paths at launch; the runtime's file and socket entry points consult it; rlimits/Job Objects cover the resource side. Anything not on the list is denied by default, including `stdout` beyond the output cap.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test sandbox_escape` → PASS on Windows and Linux.
-- [ ] **Step 5: Commit** — `git commit -m "feat(sandbox): default-deny capabilities with escape tests"`
+- [x] **Step 1: Write the failing tests** — the escape corpus: absolute path outside root, `..` traversal, symlink out, environment-variable path, `/proc/self/mem`, `fork` bomb, 1 GiB allocation, infinite loop, socket connect, child process spawn. Every one must be denied with `E1900`/`E1901`, and the test asserts the *reason*, not just a non-zero exit.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — the allowlist is resolved to canonical paths at launch; the runtime's file and socket entry points consult it; rlimits/Job Objects cover the resource side. Anything not on the list is denied by default, including `stdout` beyond the output cap.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test sandbox_escape` → PASS on Windows and Linux.
+- [x] **Step 5: Commit** — `git commit -m "feat(sandbox): default-deny capabilities with escape tests"`
 
 ---
 
@@ -149,10 +151,10 @@ See the master index. The ones that bite here:
 - Produces: `yashy-bench agent --model <id> --tasks benchmarks/agent` runs each task through the MCP server and records `{task, success, tokens_in, tokens_out, tool_calls, sandbox_violations, wall_ms}`.
 - Produces: a task passes when its test program exits 0 and the diff touches only the intended file; a held-out variant passes when the same fix generalises.
 
-- [ ] **Step 1: Write the harness and three tasks** — a leak fix, a bounds bug, a failing test. Assert the harness records the five metrics and that a deliberately failing agent scores 0/3.
-- [ ] **Step 2: Run** the harness with the reference "agent" (a scripted sequence of MCP calls) → 3/3.
-- [ ] **Step 3: Add the remaining seven tasks and their variants**, then record the first full baseline in `benchmarks/agent/baseline.json`.
-- [ ] **Step 4: Commit** — `git commit -m "test(bench): a ten-task agent benchmark with held-out variants"`
+- [x] **Step 1: Write the harness and three tasks** — a leak fix, a bounds bug, a failing test. Assert the harness records the five metrics and that a deliberately failing agent scores 0/3.
+- [x] **Step 2: Run** the harness with the reference "agent" (a scripted sequence of MCP calls) → 3/3.
+- [x] **Step 3: Add the remaining seven tasks and their variants**, then record the first full baseline in `benchmarks/agent/baseline.json`.
+- [x] **Step 4: Commit** — `git commit -m "test(bench): a ten-task agent benchmark with held-out variants"`
 
 ---
 
@@ -169,11 +171,11 @@ See the master index. The ones that bite here:
 - Produces: `--deterministic` fixes the clock at a given instant, seeds the RNG, sorts map iteration where observable, and pins the process id field; `YASHY_DETERMINISTIC=1` does the same for a test run.
 - Produces: `log` and `metrics` are `io` effects (phase 2 inference already knows builtins; these are added to the table), so a `pure fn` cannot log.
 
-- [ ] **Step 1: Write the failing test** — `observability.ya` runs twice with `--deterministic` and produces byte-identical stderr; a `pure fn` that calls `log.info` is `E1300`; a span reports its duration as a field; metrics flush on exit even after a panic.
-- [ ] **Step 2: Watch it fail.**
-- [ ] **Step 3: Implement** — the sink is one C function writing one JSON object per line, with a mutex; spans are a stack of (name, start) in thread-local storage; the deterministic clock is a function pointer the runtime reads, so no `#ifdef` in the language.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(stdlib): structured log, trace and metrics with a deterministic mode"`
+- [x] **Step 1: Write the failing test** — `observability.ya` runs twice with `--deterministic` and produces byte-identical stderr; a `pure fn` that calls `log.info` is `E1300`; a span reports its duration as a field; metrics flush on exit even after a panic.
+- [x] **Step 2: Watch it fail.**
+- [x] **Step 3: Implement** — the sink is one C function writing one JSON object per line, with a mutex; spans are a stack of (name, start) in thread-local storage; the deterministic clock is a function pointer the runtime reads, so no `#ifdef` in the language.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(stdlib): structured log, trace and metrics with a deterministic mode"`
 
 ---
 
@@ -188,11 +190,11 @@ See the master index. The ones that bite here:
 - Produces: `yashy run --debug` launches under LLDB with a generated command file that sets a breakpoint on the entry function and prints the async task table (phase 10) on stop; the documented workflow covers both OSes.
 - Produces: `yashy profile prog.ya` builds with per-function counters and prints a table sorted by self time, with the instrumentation overhead measured and printed; on Linux it also documents the `perf` workflow with the emitted frame pointers.
 
-- [ ] **Step 1: Write the failing test** — the profiler table names the function that dominates a synthetic workload (≥ 50% self time) and reports its overhead as a number; the LLDB command file is generated and syntactically valid.
-- [ ] **Step 2: Watch it fail.**
-- [ ] **Step 3: Implement** — counters are a static array indexed by function id, incremented on entry and exit; the report reads them and subtracts nothing (self time = total minus children). No sampling thread, because a sampling profiler that changes scheduling is a different measurement problem.
-- [ ] **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: debugger workflow and a per-function profiler"`
+- [x] **Step 1: Write the failing test** — the profiler table names the function that dominates a synthetic workload (≥ 50% self time) and reports its overhead as a number; the LLDB command file is generated and syntactically valid.
+- [x] **Step 2: Watch it fail.**
+- [x] **Step 3: Implement** — counters are a static array indexed by function id, incremented on entry and exit; the report reads them and subtracts nothing (self time = total minus children). No sampling thread, because a sampling profiler that changes scheduling is a different measurement problem.
+- [x] **Step 4: Run** → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: debugger workflow and a per-function profiler"`
 
 ---
 
@@ -207,10 +209,10 @@ See the master index. The ones that bite here:
 - Produces: a golden payload per command in `crates/yashy-driver/tests/schema_golden/`; the test validates each against its schema and fails if a field is removed or its type changes.
 - Produces: `cargo test -p yashy-driver --test schema_diff` is a required check; additive fields are allowed and recorded in `docs/schema/CHANGELOG.md`.
 
-- [ ] **Step 1: Write the goldens** by running each command on a fixed fixture and committing the output.
-- [ ] **Step 2: Write the diff test** — compare against the previous committed schema, fail on removal or type change, allow additions.
-- [ ] **Step 3: Run** `cargo test -p yashy-driver --test schema_diff` → PASS.
-- [ ] **Step 4: Commit** — `git commit -m "docs(schema): freeze v1 with a CI diff gate"`
+- [x] **Step 1: Write the goldens** by running each command on a fixed fixture and committing the output.
+- [x] **Step 2: Write the diff test** — compare against the previous committed schema, fail on removal or type change, allow additions.
+- [x] **Step 3: Run** `cargo test -p yashy-driver --test schema_diff` → PASS.
+- [x] **Step 4: Commit** — `git commit -m "docs(schema): freeze v1 with a CI diff gate"`
 
 ---
 
@@ -232,11 +234,11 @@ See the master index. The ones that bite here:
 - Produces: the Markdown is **diff-stable**: items are sorted by (kind, name), and the same source produces byte-identical output on Windows and Linux (no paths in the body, no timestamps). A CI job can therefore assert the committed docs are current.
 - Produces: HTML is **out of scope in this phase**, with the reason recorded: an HTML renderer is a template engine and a CSS surface, and the project has neither. The Markdown is what `llms.txt` and the phase 11 index already consume.
 
-- [ ] **Step 1: Write the failing tests** — a documented `pub fn` appears with its text and signature; an undocumented one appears with `No documentation.`; a private item is absent by default and present with `--private`; the output is byte-identical across two runs and across the two OSes; `--json` parses and carries every field; an item whose doc block has a `{` or a `|` renders without corrupting the Markdown table; a module with no public items still gets a file.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — walk the checked program's module table, filter by visibility, sort, and render. Escaping is the only tricky part: a doc line that starts with `#` or `|` is indented inside the item's section so it cannot become a heading or a table row in the surrounding document.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test doc` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: yashy doc renders the public surface from the compiler's own tables"`
+- [x] **Step 1: Write the failing tests** — a documented `pub fn` appears with its text and signature; an undocumented one appears with `No documentation.`; a private item is absent by default and present with `--private`; the output is byte-identical across two runs and across the two OSes; `--json` parses and carries every field; an item whose doc block has a `{` or a `|` renders without corrupting the Markdown table; a module with no public items still gets a file.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — walk the checked program's module table, filter by visibility, sort, and render. Escaping is the only tricky part: a doc line that starts with `#` or `|` is indented inside the item's section so it cannot become a heading or a table row in the surrounding document.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test doc` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: yashy doc renders the public surface from the compiler's own tables"`
 
 ---
 
@@ -257,11 +259,11 @@ See the master index. The ones that bite here:
 - Produces: `yashy lsp --version` prints the server's version and the driver's, and warns when they differ — a split install is the failure mode that produces "hover does nothing" bug reports.
 - Produces: `yashy doctor` gains one line reporting whether the LSP binary was found, using the same lookup function, so the check exists in the place a user runs when something is wrong.
 
-- [ ] **Step 1: Write the failing tests** — `yashy lsp` with a stub sibling binary spawns it and forwards stdin to its stdout; a missing sibling exits 2 with the path in the message; the server's non-zero exit becomes `yashy lsp`'s exit; `--version` prints both versions; `yashy doctor` reports the lookup result. The real handshake (`initialize`/`initialized`/`shutdown`) is a test in `yashy-lsp`, run through `yashy lsp`, asserting one JSON-RPC round trip.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — one `fn lsp(args)` in `main.rs`: resolve the sibling path, print the diagnostic if absent, spawn with `Stdio::inherit()` on all three streams, wait, return its code. `--version` runs the sibling with `--version` and compares. No new dependency, no thread, no protocol code in the driver.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test lsp -p yashy-lsp` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat: yashy lsp, so an editor needs one command"`
+- [x] **Step 1: Write the failing tests** — `yashy lsp` with a stub sibling binary spawns it and forwards stdin to its stdout; a missing sibling exits 2 with the path in the message; the server's non-zero exit becomes `yashy lsp`'s exit; `--version` prints both versions; `yashy doctor` reports the lookup result. The real handshake (`initialize`/`initialized`/`shutdown`) is a test in `yashy-lsp`, run through `yashy lsp`, asserting one JSON-RPC round trip.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — one `fn lsp(args)` in `main.rs`: resolve the sibling path, print the diagnostic if absent, spawn with `Stdio::inherit()` on all three streams, wait, return its code. `--version` runs the sibling with `--version` and compares. No new dependency, no thread, no protocol code in the driver.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test lsp -p yashy-lsp` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat: yashy lsp, so an editor needs one command"`
 
 ---
 
@@ -269,9 +271,9 @@ See the master index. The ones that bite here:
 
 **Files:** `docs/tutorial/18-tooling.md`, `docs/editor.md` (the LSP client setup, written in Task 11), `docs/cli.md` (all nine commands), `AGENTS.md` (the MCP verbs, the sandbox default, `yashy doc` as the documentation source of truth), `llms.txt`.
 
-- [ ] **Step 1: Write the chapter** with a worked `context` → `index` → `verify` session, and a second one that goes `yashy doc --json` → an agent answering "what does this module do".
-- [ ] **Step 2: Run the gate table on both OSes.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: AI-native tooling and observability, and close phase 11"`.
+- [x] **Step 1: Write the chapter** with a worked `context` → `index` → `verify` session, and a second one that goes `yashy doc --json` → an agent answering "what does this module do".
+- [x] **Step 2: Run the gate table on both OSes.**
+- [x] **Step 3: Commit and record** — `git commit -m "docs: AI-native tooling and observability, and close phase 11"`.
 
 ---
 

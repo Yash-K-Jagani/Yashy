@@ -15,6 +15,7 @@ pub mod modules;
 pub mod opt_report;
 pub mod outline;
 pub mod pipeline;
+pub mod profile;
 pub mod sandbox;
 pub mod toolchain;
 

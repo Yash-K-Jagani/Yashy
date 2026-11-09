@@ -20,11 +20,7 @@ fn goldens() -> PathBuf {
 
 fn fixture_dir(name: &str) -> PathBuf {
     let dir = common::work_dir(&format!("schema-{name}"));
-    common::write(
-        &dir,
-        "main.ya",
-        "fn main() {\n    print(\"hi\");\n}\n",
-    );
+    common::write(&dir, "main.ya", "fn main() {\n    print(\"hi\");\n}\n");
     dir
 }
 
@@ -35,7 +31,8 @@ fn payload(command: &str, dir: &Path, extra: &[&str]) -> String {
         dir.to_path_buf()
     } else {
         dir.join("main.ya")
-    };    args.push(target.to_str().unwrap());
+    };
+    args.push(target.to_str().unwrap());
     let output = Command::new(yashy())
         .args(&args)
         .output()
@@ -62,7 +59,65 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("check", &["--json"]),
     ("verify", &["--json"]),
     ("index", &["--json"]),
-    ("context", &["--task", "fix the bug in main", "--budget", "8000", "--json"]),
+    (
+        "context",
+        &[
+            "--task",
+            "fix the bug in main",
+            "--budget",
+            "8000",
+            "--json",
+        ],
+    ),
+];
+
+/// The top-level keys each frozen command's schema requires. A payload that
+/// loses one fails here even before the byte comparison runs.
+const REQUIRED: &[(&str, &[&str])] = &[
+    (
+        "check",
+        &[
+            "schema_version",
+            "tool",
+            "yashy_version",
+            "success",
+            "diagnostics",
+            "summary",
+        ],
+    ),
+    (
+        "verify",
+        &[
+            "schema_version",
+            "tool",
+            "yashy_version",
+            "success",
+            "diagnostics",
+            "summary",
+        ],
+    ),
+    (
+        "index",
+        &[
+            "schema_version",
+            "tool",
+            "files",
+            "symbols",
+            "imports",
+            "tests",
+        ],
+    ),
+    (
+        "context",
+        &[
+            "schema_version",
+            "tool",
+            "tokens",
+            "budget",
+            "included",
+            "dropped",
+        ],
+    ),
 ];
 
 #[test]
@@ -77,5 +132,38 @@ fn every_frozen_command_matches_its_golden() {
             "`yashy {command}` JSON drifted from its v1 golden; if the change is additive, \
              update the golden and record it in docs/schema/CHANGELOG.md"
         );
+    }
+}
+
+#[test]
+fn every_golden_stdout_parses_and_carries_its_schema_keys() {
+    let dir = fixture_dir("golden-keys");
+    for (command, extra) in COMMANDS {
+        let required = REQUIRED
+            .iter()
+            .find(|(name, _)| *name == *command)
+            .map(|(_, keys)| *keys)
+            .expect("the command has a schema row");
+        let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/schema/v1")
+            .join(format!("{command}.schema.json"));
+        assert!(
+            schema_path.is_file(),
+            "the JSON Schema for {command} must exist at {}",
+            schema_path.display()
+        );
+        let current = payload(command, &dir, extra);
+        let stdout = current
+            .split_once("stdout:\n")
+            .map(|(_, rest)| rest.split("\nstderr:").next().unwrap_or(rest))
+            .unwrap_or("");
+        let value = yashy_common::json_rpc::parse(stdout)
+            .unwrap_or_else(|error| panic!("`yashy {command}` stdout must parse: {error}"));
+        for key in required.iter() {
+            assert!(
+                value.get(key).is_some(),
+                "`yashy {command}` lost the required field `{key}`"
+            );
+        }
     }
 }

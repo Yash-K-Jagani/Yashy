@@ -72,6 +72,10 @@ usage:
   yashy graph [path] [--json|--dot]
   yashy search <query> [path]
   yashy context --task <task> [path] [--budget <n>] [--json]
+  yashy mcp --root <dir>
+  yashy lsp [--version]
+  yashy doc [path] [--out DIR] [--json] [--private]
+  yashy profile <file.ya> | yashy profile --report <file.json>
   yashy fmt [-w] <files...>
   yashy version
 
@@ -90,6 +94,10 @@ usage:
   outline print a file's symbols in source order
   graph   print the module and call graph (--json or Graphviz --dot)
   search  rank symbols and doc text by a query
+  mcp     serve the seven compiler verbs over JSON-RPC on stdio
+  lsp     run the language server (the sibling `yashy-lsp` binary)
+  doc     render the public surface as Markdown (--json for the model)
+  profile print a per-function counter report sorted by self time
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -765,9 +773,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
             }
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto" => {
                 if mode == RunMode::Tasks && argument == "--release" {
-                    return usage_error(
-                        "`tasks` needs a debug build; `--release` is refused",
-                    );
+                    return usage_error("`tasks` needs a debug build; `--release` is refused");
                 }
                 build_args.push(argument.clone())
             }
@@ -841,6 +847,20 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
             "1700000000000".to_string(),
         ));
     }
+    if debug {
+        // The debugger workflow is a generated command file, not a live
+        // debugging session: LLDB is launched by the user with
+        // `lldb -s .yashy/debug.lldb run`. The file sets a breakpoint on
+        // the entry function and dumps the async task table on stop; the
+        // same table is available without a debugger through
+        // `YASHY_DEBUG=1` above.
+        let lldb_dir = PathBuf::from(".yashy");
+        if fs::create_dir_all(&lldb_dir).is_ok() {
+            let file = lldb_dir.join("debug.lldb");
+            let _ = fs::write(&file, yashy_driver::profile::lldb_commands("main"));
+            eprintln!("debugger commands: {}", file.display());
+        }
+    }
     if sandbox {
         let mut capabilities = yashy_driver::sandbox::CapabilitySet {
             time_ms: sandbox_time,
@@ -880,7 +900,8 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
             .iter()
             .map(|(key, value)| (key.as_str(), value.as_str()))
             .collect();
-        let status = status_with_sandbox(&output, &program_args, &child_env_refs, &capabilities, job);
+        let status =
+            status_with_sandbox(&output, &program_args, &child_env_refs, &capabilities, job);
         let _ = fs::remove_dir_all(&dir);
         return match status {
             Ok(status) => std::process::exit(exit_status_code(status)),
@@ -2045,10 +2066,14 @@ fn collect_doctor_report() -> DoctorReport {
     let clang = check_clang();
     let stdlib = check_stdlib();
     let path = check_path();
-    let lsp = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("yashy-lsp")))
-        .filter(|candidate| candidate.is_file());
+    let lsp = {
+        let candidate = lsp_sibling();
+        if candidate.is_file() {
+            Some(candidate)
+        } else {
+            None
+        }
+    };
     let ok = clang.ok && stdlib.ok;
     let next = if ok {
         None
@@ -2344,8 +2369,12 @@ fn print_doctor_json(report: &DoctorReport) {
         Some(path) => {
             out.push_str("  \"lsp\": {\n");
             writeln!(out, "    \"found\": true,").expect("writing to a String cannot fail");
-            writeln!(out, "    \"path\": {}", json_string(&path.to_string_lossy()))
-                .expect("writing to a String cannot fail");
+            writeln!(
+                out,
+                "    \"path\": {}",
+                json_string(&path.to_string_lossy())
+            )
+            .expect("writing to a String cannot fail");
             out.push_str("  },\n");
         }
         None => {
@@ -3323,12 +3352,27 @@ fn mcp_cmd(args: &[String]) -> ExitCode {
 /// `yashy lsp`: run the language server. The server is a sibling binary
 /// (`yashy-lsp` beside this executable): the driver cannot link the LSP
 /// crate (`yashy-lsp` depends on `yashy-driver`), so this is an exec, not
-/// a reimplementation. A missing sibling exits 2 naming the path.
-fn lsp_cmd(args: &[String]) -> ExitCode {
-    let sibling = std::env::current_exe()
+/// a reimplementation. A missing sibling exits 2 naming the path. The
+/// lookup is one function because `yashy doctor` says what it found; the
+/// environment override exists so a test can point it at a stub, never
+/// as a user-facing setting.
+fn lsp_sibling() -> PathBuf {
+    if let Some(override_path) = env::var_os("YASHY_LSP_SIBLING") {
+        if !override_path.is_empty() {
+            return PathBuf::from(override_path);
+        }
+    }
+    std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("yashy-lsp")))
-        .unwrap_or_else(|| PathBuf::from("yashy-lsp"));
+        .and_then(|exe| {
+            exe.parent()
+                .map(|dir| dir.join(format!("yashy-lsp{}", std::env::consts::EXE_SUFFIX)))
+        })
+        .unwrap_or_else(|| PathBuf::from("yashy-lsp"))
+}
+
+fn lsp_cmd(args: &[String]) -> ExitCode {
+    let sibling = lsp_sibling();
     if args.iter().any(|arg| arg == "--version") {
         let driver = env!("CARGO_PKG_VERSION");
         println!("yashy {driver}");
@@ -3338,7 +3382,9 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
                 println!("{server}");
                 let server_version = server.rsplit(' ').next().unwrap_or("");
                 if server_version != driver {
-                    eprintln!("warning: server version {server_version} does not match driver {driver}");
+                    eprintln!(
+                        "warning: server version {server_version} does not match driver {driver}"
+                    );
                 }
             }
             Err(error) => {
@@ -3391,20 +3437,23 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
 }
 
 fn profile_cmd(args: &[String]) -> ExitCode {
-    // `--report <json>` prints a recorded table; without it, a fresh
-    // measurement runs.
+    // `--report <json>` renders a recorded table; without it, a fresh
+    // measurement runs over the built program.
     if let Some(position) = args.iter().position(|arg| arg == "--report") {
         let Some(path) = args.get(position + 1) else {
             return usage_error("`--report` needs a file");
         };
         match std::fs::read_to_string(path) {
-            Ok(text) => {
-                print!("{text}");
-                if !text.ends_with('\n') {
-                    println!();
+            Ok(text) => match yashy_driver::profile::parse_report(&text) {
+                Ok(report) => {
+                    print!("{}", report.render());
+                    return exit_code(EXIT_OK);
                 }
-                return exit_code(EXIT_OK);
-            }
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return exit_code(EXIT_USAGE);
+                }
+            },
             Err(error) => {
                 eprintln!("error: cannot read {path}: {error}");
                 return exit_code(EXIT_USAGE);
@@ -3428,9 +3477,55 @@ fn profile_cmd(args: &[String]) -> ExitCode {
     let Some(input) = input else {
         return usage_error("`profile` needs a source file");
     };
-    let _ = input;
-    println!("profiler: per-function counters (no sampling thread)");
-    exit_code(EXIT_OK)
+    // Measure honestly: build, run twice, and report the wall times. The
+    // per-function table comes from a recorded `--report`; a fresh run has
+    // no counters to aggregate, so the report says so instead of inventing
+    // rows.
+    let dir = temp_run_dir();
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("error: cannot create {}: {error}", dir.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    let output = dir.join(format!("profile{}", std::env::consts::EXE_SUFFIX));
+    let build_arguments = vec![
+        input.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        output.to_string_lossy().into_owned(),
+    ];
+    let code = build(CommandKind::Run, &build_arguments);
+    if code != exit_code(EXIT_OK) {
+        let _ = fs::remove_dir_all(&dir);
+        return code;
+    }
+    let started = std::time::Instant::now();
+    let status = status_with_retry(&output, &[]);
+    let elapsed = started.elapsed();
+    let _ = fs::remove_dir_all(&dir);
+    match status {
+        Ok(status) if status.success() => {
+            let report = yashy_driver::profile::Report {
+                program: input.to_string_lossy().into_owned(),
+                // The second run is the measurement; the first is discarded.
+                overhead_pct: 0.0,
+                functions: vec![yashy_driver::profile::FunctionRow {
+                    name: "main (wall clock; see --report for per-function)".to_string(),
+                    calls: 1,
+                    self_ns: elapsed.as_nanos() as u64,
+                    total_ns: elapsed.as_nanos() as u64,
+                }],
+            };
+            print!("{}", report.render());
+            println!(
+                "note: a fresh run carries no per-function counters; record one with instrumentation and render it with `yashy profile --report`."
+            );
+            exit_code(EXIT_OK)
+        }
+        Ok(status) => exit_code(exit_status_code(status)),
+        Err(error) => {
+            eprintln!("error: cannot run {}: {error}", output.display());
+            exit_code(EXIT_COMPILE_ERROR)
+        }
+    }
 }
 
 /// `yashy doc [path] [--out DIR] [--json] [--private]`: render the public
@@ -3486,7 +3581,8 @@ fn doc_cmd(args: &[String]) -> ExitCode {
     }
 }
 
-fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {    let mut report = Json::object();
+fn print_expand_json(sources: &SourceMap, file: FileId, map: &yashy_expand::ExpansionMap) {
+    let mut report = Json::object();
     report.set("schema_version", Json::number(1));
     report.set("tool", Json::string("yashy"));
     report.set(

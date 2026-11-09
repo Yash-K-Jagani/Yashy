@@ -11,12 +11,16 @@ fn yashy() -> &'static str {
 }
 
 fn workspace_dir() -> PathBuf {
-    let dir = common::work_dir("mcp-workspace");
-    common::write(
-        &dir,
-        "main.ya",
-        "fn main() {\n    print(\"hi\");\n}\n",
-    );
+    // One directory per caller: tests in this process run in parallel, and
+    // sharing a directory races `remove_dir_all` against the other test's
+    // writes.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    let dir = common::work_dir(&format!(
+        "mcp-workspace-{}",
+        CALLS.fetch_add(1, Ordering::SeqCst)
+    ));
+    common::write(&dir, "main.ya", "fn main() {\n    print(\"hi\");\n}\n");
     common::write(
         &dir,
         "bad.ya",
@@ -63,6 +67,10 @@ impl Mcp {
 impl Drop for Mcp {
     fn drop(&mut self) {
         let _ = self.child.kill();
+        // Wait before releasing the executable: on Windows the image stays
+        // locked until the process is gone, and an unwaited kill leaves the
+        // next link step failing with "cannot open file".
+        let _ = self.child.wait();
     }
 }
 
@@ -75,16 +83,15 @@ fn initialize_advertises_exactly_the_seven_tools() {
     let dir = workspace_dir();
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(1, "initialize", "{}"));
-    for tool in ["check", "build", "test", "verify", "explain", "context", "index"] {
+    for tool in [
+        "check", "build", "test", "verify", "explain", "context", "index",
+    ] {
         assert!(
             response.contains(&format!(r#""name":"{tool}""#)),
             "tool {tool} is advertised:\n{response}"
         );
     }
-    assert!(
-        !response.contains("shell"),
-        "no shell verb:\n{response}"
-    );
+    assert!(!response.contains("shell"), "no shell verb:\n{response}");
 }
 
 #[test]
@@ -143,10 +150,7 @@ fn an_unknown_method_is_minus_32601() {
     let dir = workspace_dir();
     let mut mcp = Mcp::start(&dir);
     let response = mcp.call(&request(5, "nope", "{}"));
-    assert!(
-        response.contains("-32601"),
-        "method not found:\n{response}"
-    );
+    assert!(response.contains("-32601"), "method not found:\n{response}");
 }
 
 #[test]
