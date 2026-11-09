@@ -424,6 +424,42 @@ pub fn gen_write_file(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     finish_result(ctx, &ret, &code, None, "write_file")
 }
 
+/// Lower `log_info(message)` / `log_error(message)`: a JSON line on stderr.
+/// The runtime prints `{"ts":…,"level":"…","message":…}` and escapes the
+/// message; the level is a static the sink already knows how to spell.
+pub fn gen_log(ctx: &mut FnCtx<'_>, args: &[HirExpr], level: &str) -> GenValue {
+    let value = gen_expr(ctx, &args[0]);
+    // The message's bytes: `yashy_str_cstr` hands back the data pointer of
+    // a `%yashy_str`, which is what the sink reads.
+    let text = ctx.tmp();
+    ctx.push(format!("{text} = call i8* @yashy_str_cstr(i8* {})", value.value));
+    let level_global = ctx.module.intern_string(level.as_bytes());
+    ctx.push(format!(
+        "call void @yashy_log_event(i8* {level_global}.data, i8* {text})"
+    ));
+    GenValue {
+        value: String::new(),
+        ty: TypeKind::Unit,
+    }
+}
+
+/// Lower `metrics_add(name, value)` / `metrics_set(name, value)`.
+pub fn gen_metrics(ctx: &mut FnCtx<'_>, args: &[HirExpr], kind: &str) -> GenValue {
+    let name = gen_expr(ctx, &args[0]);
+    let value = gen_expr(ctx, &args[1]);
+    let text = ctx.tmp();
+    ctx.push(format!("{text} = call i8* @yashy_str_cstr(i8* {})", name.value));
+    let kind_global = ctx.module.intern_string(kind.as_bytes());
+    ctx.push(format!(
+        "call void @yashy_metrics(i8* {kind_global}.data, i8* {text}, i64 {})",
+        value.value
+    ));
+    GenValue {
+        value: String::new(),
+        ty: TypeKind::Unit,
+    }
+}
+
 /// Lower `getenv(name: string) -> Option[string]`.
 ///
 /// `1` is "set" and writes the value; an empty variable is `Some("")`, which is

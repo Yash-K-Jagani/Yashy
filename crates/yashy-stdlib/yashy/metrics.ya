@@ -1,0 +1,12 @@
+// Counters and gauges (phase 11).
+//
+// `metrics_add(name, value)` and `metrics_set(name, value)` write one
+// JSON line each to the same sink as `log`:
+//
+// ```json
+// {"ts":1700000000000,"metric":"tasks","kind":"counter","value":3}
+// ```
+//
+// Both are `io` effects, so a `pure fn` cannot record a metric (`E1300`).
+// Metrics flush on exit, including on a panic, because each call writes
+// immediately rather than buffering.

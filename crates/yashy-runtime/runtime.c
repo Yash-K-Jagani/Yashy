@@ -131,9 +131,9 @@ void yashy_log_event(const char *level, const char *message) {
         return;
     }
     fflush(stdout);
-    fprintf(stderr, "{\"ts\":%lld,\"level\":\"%s\",\"message\":", yashy_log_clock_ms(), level);
+    fprintf(stderr, "{\"ts\":%lld,\"level\":\"%s\",\"message\":\"", yashy_log_clock_ms(), level);
     yashy_log_escape(message);
-    fprintf(stderr, "}\n");
+    fprintf(stderr, "\"}\n");
     fflush(stderr);
 }
 
@@ -142,9 +142,9 @@ void yashy_metrics(const char *kind, const char *name, long long value) {
         return;
     }
     fflush(stdout);
-    fprintf(stderr, "{\"ts\":%lld,\"metric\":", yashy_log_clock_ms());
+    fprintf(stderr, "{\"ts\":%lld,\"metric\":\"", yashy_log_clock_ms());
     yashy_log_escape(name);
-    fprintf(stderr, ",\"kind\":\"%s\",\"value\":%lld}\n", kind, value);
+    fprintf(stderr, "\",\"kind\":\"%s\",\"value\":%lld}\n", kind, value);
     fflush(stderr);
 }
 

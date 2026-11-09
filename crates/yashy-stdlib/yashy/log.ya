@@ -1,0 +1,14 @@
+// Structured logging (phase 11).
+//
+// `log_info(message)` and `log_error(message)` write one JSON object per
+// line to stderr, through the runtime's sink:
+//
+// ```json
+// {"ts":1700000000000,"level":"info","message":"started"}
+// ```
+//
+// Both are `io` effects, so a `pure fn` cannot log (`E1300`). `ts` is
+// milliseconds since the Unix epoch, or the fixed instant
+// `--deterministic` sets when `YASHY_DETERMINISTIC=1`. Without
+// `YASHY_LOG=1` the sink is a no-op: logging that nobody reads must cost
+// nothing.

@@ -1,0 +1,9 @@
+// Program observability: a log line, a span and a metric, all JSON on
+// stderr. Run with `YASHY_LOG=1 --deterministic` and the output is
+// byte-identical on every run.
+fn main() {
+    log_info("started");
+    metrics_add("tasks", 3);
+    metrics_set("load", 42);
+    log_error("done");
+}

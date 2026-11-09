@@ -991,7 +991,7 @@ impl<'src> Checker<'src> {
         // and without indexing or pointer casts a `*mut u8` could not be used at
         // all; `*mut i64` is directly usable and matches the plan's own
         // `buffer.ya`. Recorded as a divergence from the master plan's L3.
-        let builtins: [(&str, Vec<Type>, Type); 33] = [
+        let builtins: [(&str, Vec<Type>, Type); 37] = [
             ("alloc", vec![prim(TypeKind::I64)], ptr(prim(TypeKind::I64))),
             // Byte buffers (phase 3b). `alloc_bytes(n)` is `n` *bytes*, not `n`
             // elements, and the result is a pointer to one byte (`char`), so
@@ -1039,6 +1039,13 @@ impl<'src> Checker<'src> {
             // program that can print but not read is a report generator; this
             // line is what makes it a program.
             ("read_line", vec![], option_of(prim(TypeKind::Str))),
+            // Observability (phase 11). `log_info`/`log_error` write one JSON
+            // line to stderr; `metrics_add`/`metrics_set` are counters and
+            // gauges in the same sink. All four are `io` effects.
+            ("log_info", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
+            ("log_error", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
+            ("metrics_add", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
+            ("metrics_set", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
             // Files and the environment (M6 Task 10, honest signatures in
             // phase 3b). A missing file and an empty file are different
             // answers, so failure is `io.Error` rather than an empty string;

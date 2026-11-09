@@ -2130,6 +2130,10 @@ fn gen_call(
                 // runtime unit is explicit in the symbol name.
                 "now" => gen_borrowed_call(ctx, "yashy_now_ms", args, ty),
                 "sleep" => gen_borrowed_call(ctx, "yashy_sleep_ms", args, ty),
+                "log_info" => crate::file::gen_log(ctx, args, "info"),
+                "log_error" => crate::file::gen_log(ctx, args, "error"),
+                "metrics_add" => crate::file::gen_metrics(ctx, args, "counter"),
+                "metrics_set" => crate::file::gen_metrics(ctx, args, "gauge"),
                 // The builtins whose answer is an `Option`/`Result` rather than
                 // a sentinel: a missing file, an unset variable, end of input
                 // and unparseable text are all values, not `""` or `0`.
