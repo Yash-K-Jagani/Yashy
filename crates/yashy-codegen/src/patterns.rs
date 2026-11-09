@@ -42,7 +42,7 @@ use yashy_parser::ast::Literal;
 use yashy_sema::{HirBlock, HirExpr, HirPattern, HirSwitchArm, TypeKind};
 
 use crate::expr_gen::{
-    gen_expr, gen_literal, has_string_payload, retain_payload, retain_struct_fields, FnCtx,
+    gen_expr, gen_literal, owns_string_refs, retain_payload, retain_struct_fields, FnCtx,
     GenValue, RefKind,
 };
 use crate::ir::{repr_type, variant_payload_index, variant_tag};
@@ -454,11 +454,12 @@ pub fn gen_match(
     // first: true falls into the body, false goes where a failed test would
     // have gone. An unguarded arm has no extra block, so its IR is untouched.
     //
-    // A `string` result (or an `Option[string]`/`Result[string, E]` result) is a
-    // reference the match owns: a fresh one is taken over from the arm, and a
-    // borrowed one -- a binding, a parameter -- is retained, because the subject
-    // is released after the merge point and the result may point into it.
-    let owns_result = matches!(result_ty, TypeKind::Str) || has_string_payload(result_ty);
+    // A `string` result (or an `Option[string]`/`Result[string, E]` result, a
+    // struct of strings, or an `Option`/`Result` of those) is a reference the
+    // match owns: a fresh one is taken over from the arm, and a borrowed one
+    // -- a binding, a parameter -- is retained, because the subject is
+    // released after the merge point and the result may point into it.
+    let owns_result = owns_string_refs(ctx, result_ty);
     for (index, arm) in arms.iter().enumerate() {
         ctx.push(format!("{}:", arm_labels[index]));
         bind_pattern(ctx, subject, &arm.pattern);
@@ -865,7 +866,7 @@ fn retain_field(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
         ctx.retain_env(value);
     } else if matches!(ty, TypeKind::Struct(_)) {
         retain_struct_fields(ctx, value, ty);
-    } else if has_string_payload(ty) {
+    } else if owns_string_refs(ctx, ty) {
         retain_payload(ctx, value, ty);
     }
 }
@@ -879,7 +880,7 @@ fn track_field(ctx: &mut FnCtx<'_>, slot: &str, ty: &TypeKind) {
         ctx.track_ref_slot(slot, RefKind::Env);
     } else if matches!(ty, TypeKind::Struct(_)) {
         ctx.track_ref_slot_typed(slot, RefKind::StructFields, Some(ty.clone()));
-    } else if has_string_payload(ty) {
+    } else if owns_string_refs(ctx, ty) {
         ctx.track_ref_slot_typed(slot, RefKind::Payload, Some(ty.clone()));
     }
 }

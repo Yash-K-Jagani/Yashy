@@ -16,7 +16,7 @@ use yashy_common::Span;
 use yashy_sema::{HirExpr, Type, TypeKind};
 
 use crate::expr_gen::{
-    gen_expr, has_string_payload, string_payload_fields, FnCtx, GenValue, RefKind,
+    gen_expr, owns_string_refs, string_payload_fields, FnCtx, GenValue, RefKind,
 };
 use crate::ir::repr_type;
 
@@ -297,7 +297,7 @@ fn finish_result(
     ctx.push(format!("{cont_label}:"));
     let result = ctx.tmp();
     ctx.push(format!("{result} = load {repr}, ptr {result_slot}"));
-    if has_string_payload(ret) {
+    if owns_string_refs(ctx, ret) {
         ctx.mark_owned_typed(&result, RefKind::Payload, Some(ret.clone()));
     }
     GenValue {
@@ -342,7 +342,7 @@ fn finish_option(
     ctx.push(format!("{cont_label}:"));
     let result = ctx.tmp();
     ctx.push(format!("{result} = load {repr}, ptr {result_slot}"));
-    if has_string_payload(ret) {
+    if owns_string_refs(ctx, ret) {
         ctx.mark_owned_typed(&result, RefKind::Payload, Some(ret.clone()));
     }
     GenValue {

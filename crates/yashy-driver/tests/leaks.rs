@@ -289,6 +289,22 @@ fn a_struct_releases_the_strings_its_fields_hold() {
 }
 
 #[test]
+fn a_result_of_structs_keeps_every_string_alive() {
+    // `struct_strings.ya` returns a struct of strings inside a `Result`,
+    // unwraps it with `?`, forwards it by copying it out of a binding, and
+    // nests it inside another struct. Every handoff must retain the string
+    // fields; the bindings then release their own, so the count is zero.
+    let output = build_and_run("struct_strings");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout,
+        "GET /x HTTP/1.1\nGET /x HTTP/1.1\nGET /x HTTP/1.1\nstruct-ok 1\n",
+        "the program prints its witnesses before exiting:\n{stdout}"
+    );
+    assert_no_leaks("struct_strings", &output);
+}
+
+#[test]
 fn a_string_slice_releases_every_element() {
     // `string_slices_heap.ya` pushes one hundred freshly built strings. The
     // slice owns a reference to each, so `free_slice` must release all hundred

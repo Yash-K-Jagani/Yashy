@@ -34,7 +34,7 @@ use yashy_sema::{
 use crate::escape::{AllocSite, ArenaId, Placement};
 use crate::expr_gen::retain_struct_fields;
 use crate::expr_gen::{
-    gen_expr, gen_expr_to_slot, has_string_payload, release_payload, retain_payload, FnCtx,
+    gen_expr, gen_expr_to_slot, owns_string_refs, release_payload, retain_payload, FnCtx,
     GenValue, LoopTarget, RefKind,
 };
 use crate::ir::repr_type;
@@ -393,7 +393,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 ctx.push(format!("store {repr} {}, ptr {slot}", value.value));
                 ctx.track_ref_slot_typed(&slot, RefKind::StructFields, Some(ty.clone()));
                 slot
-            } else if has_string_payload(&ty) {
+            } else if owns_string_refs(ctx, &ty) {
                 // `Option[string]` / `Result[string, E]` owns one reference to
                 // the string in its payload. A fresh value -- `read_line()`,
                 // `Some(...)` -- brings that reference; a copy of another
@@ -436,7 +436,7 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
             let repr = repr_type(&ty.kind);
             let is_string = matches!(ty.kind, TypeKind::Str);
-            let is_payload = has_string_payload(&ty.kind);
+            let is_payload = owns_string_refs(ctx, &ty.kind);
             // A promoted allocation lives in the frame or a block arena, so it
             // has no allocator block to release. The slot's *previous* state is
             // what decides the free, before the new value can change it.
@@ -661,25 +661,30 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             Flow::Fallthrough
         }
         HirStmt::Return(value, _) => {
-            // A returned `string` is taken *before* the scope's locals are
-            // released: the block is leaving, and a local the `return` names is
-            // still in its slot. Only for a string return type, so every other
-            // function's semantics (and its IR) are unchanged.
+            // The return value is taken before the scope's locals are
+            // released, for every return type. A local the `return` names is
+            // still in its slot while the value is built, so a struct literal
+            // can retain its fields and a `Result` can wrap them; releasing
+            // first would free the strings the returned aggregate goes on to
+            // point at.
             //
             // A returned closure is taken for the same reason, and for one
             // more: the closure's environment must survive the scope's
             // release, or the value the caller gets would point at a block
             // that is already gone.
+            //
+            // Whether the taken value is then retained depends on the return
+            // type (`returned_kind`); the generation order does not.
             let returned_kind = match ctx.ret_type {
                 TypeKind::Str => Some(RefKind::Str),
                 TypeKind::Func(_, _) => Some(RefKind::Env),
                 TypeKind::Struct(_) => Some(RefKind::StructFields),
-                _ if has_string_payload(&ctx.ret_type) => Some(RefKind::Payload),
+                _ if owns_string_refs(ctx, &ctx.ret_type) => Some(RefKind::Payload),
                 _ => None,
             };
-            let mut taken = match (value, returned_kind) {
-                (Some(expr), Some(_)) => Some(gen_expr(ctx, expr)),
-                _ => None,
+            let mut taken = match value {
+                Some(expr) => Some(gen_expr(ctx, expr)),
+                None => None,
             };
             // Defers for every scope between this `return` and the function
             // body run before the block is terminated, innermost first, so they
@@ -717,9 +722,8 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             ctx.release_all_ref_scopes();
             match (value, taken) {
                 (Some(_), Some(v)) => emit_return(ctx, &v),
-                (Some(expr), None) => {
-                    let v = gen_expr(ctx, expr);
-                    emit_return(ctx, &v);
+                (Some(_), None) => {
+                    ctx.push("; the return value was taken above".to_string());
                 }
                 (None, _) => {
                     if let Some(poll) = ctx.async_poll.clone() {

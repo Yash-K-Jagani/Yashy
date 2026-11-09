@@ -754,15 +754,14 @@ pub(crate) fn retain_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKi
     let repr = repr_type(ty);
     let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
     for (index, field_ty) in fields.iter().enumerate() {
-        if !matches!(field_ty, TypeKind::Str) {
+        if !owns_string_refs(ctx, field_ty) {
             continue;
         }
         let extracted = ctx.tmp();
         ctx.push(format!(
             "{extracted} = extractvalue {repr} {value}, {index}"
         ));
-        let retained = ctx.tmp();
-        ctx.push_str_retain_into(&retained, &extracted);
+        retain_refs(ctx, &extracted, field_ty);
     }
 }
 
@@ -774,14 +773,14 @@ fn release_struct_fields(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
     let repr = repr_type(ty);
     let fields: Vec<TypeKind> = ctx.module.struct_fields(name).to_vec();
     for (index, field_ty) in fields.iter().enumerate() {
-        if !matches!(field_ty, TypeKind::Str) {
+        if !owns_string_refs(ctx, field_ty) {
             continue;
         }
         let extracted = ctx.tmp();
         ctx.push(format!(
             "{extracted} = extractvalue {repr} {value}, {index}"
         ));
-        ctx.push_str_release(&extracted);
+        release_refs(ctx, &extracted, field_ty);
     }
 }
 
@@ -810,9 +809,113 @@ pub(crate) fn string_payload_fields(ty: &TypeKind) -> Vec<u32> {
     }
 }
 
-/// Whether a value of `ty` owns a reference to a `string` payload.
-pub(crate) fn has_string_payload(ty: &TypeKind) -> bool {
-    !string_payload_fields(ty).is_empty()
+/// Whether a value of `ty` owns any `string` reference, directly or through
+/// a struct field or an `Option`/`Result` payload. `has_string_payload` sees
+/// only a direct `string`; this one follows a struct of strings and a
+/// `Result[Request, E]`, whose fields the refcount discipline owns too.
+pub(crate) fn owns_string_refs(ctx: &FnCtx<'_>, ty: &TypeKind) -> bool {
+    match ty {
+        TypeKind::Str => true,
+        TypeKind::Struct(name) => ctx
+            .module
+            .struct_fields(name)
+            .iter()
+            .any(|field| owns_string_refs(ctx, field)),
+        TypeKind::Option(inner) => owns_string_refs(ctx, &inner.kind),
+        TypeKind::Result(ok, err) => {
+            owns_string_refs(ctx, &ok.kind) || owns_string_refs(ctx, &err.kind)
+        }
+        _ => false,
+    }
+}
+
+/// Every slot of `ty` that can own string references, with the field's type:
+/// an `Option` payload at field 1; a `Result`'s payloads at fields 1 and 2;
+/// a struct's owning fields at their declaration positions.
+fn ref_slots(ctx: &FnCtx<'_>, ty: &TypeKind) -> Vec<(u32, TypeKind)> {
+    match ty {
+        TypeKind::Option(inner) if owns_string_refs(ctx, &inner.kind) => {
+            vec![(1, inner.kind.clone())]
+        }
+        TypeKind::Result(ok, err) => {
+            let mut slots = Vec::new();
+            if owns_string_refs(ctx, &ok.kind) {
+                slots.push((1, ok.kind.clone()));
+            }
+            if owns_string_refs(ctx, &err.kind) {
+                slots.push((2, err.kind.clone()));
+            }
+            slots
+        }
+        TypeKind::Struct(name) => ctx
+            .module
+            .struct_fields(name)
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| owns_string_refs(ctx, field))
+            .map(|(index, field)| (index as u32, field.clone()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Bump every `string` reference in `value`, in place.
+///
+/// A `string` refcount lives in the heap object the pointer names, so bumping
+/// is the whole "copy": the copies share the string and the count says how
+/// many owners there are. `yashy_str_retain` leaves `null` and static strings
+/// alone, so the absent variant's field costs a call that does nothing. The
+/// value backing an aggregate is unchanged, so the return is the same name.
+fn retain_refs(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) -> String {
+    match ty {
+        TypeKind::Str => {
+            ctx.push_str_retain(value);
+            value.to_string()
+        }
+        _ => {
+            let repr = repr_type(ty);
+            for (slot, field_ty) in ref_slots(ctx, ty) {
+                let extracted = ctx.tmp();
+                ctx.push(format!(
+                    "{extracted} = extractvalue {repr} {value}, {slot}"
+                ));
+                retain_refs(ctx, &extracted, &field_ty);
+            }
+            value.to_string()
+        }
+    }
+}
+
+/// Drop every `string` reference in `value`.
+fn release_refs(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
+    match ty {
+        TypeKind::Str => {
+            ctx.push_str_release(value);
+        }
+        _ => {
+            let repr = repr_type(ty);
+            for (slot, field_ty) in ref_slots(ctx, ty) {
+                let extracted = ctx.tmp();
+                ctx.push(format!(
+                    "{extracted} = extractvalue {repr} {value}, {slot}"
+                ));
+                release_refs(ctx, &extracted, &field_ty);
+            }
+        }
+    }
+}
+
+/// A zero value for an absent `Option`/`Result` variant whose payload would
+/// otherwise be released: its fields hold `null` strings, so the release
+/// after an overwrite never reads an uninitialised pointer.
+fn zero_refs(ctx: &mut FnCtx<'_>, ty: &TypeKind) -> String {
+    let repr = repr_type(ty);
+    let slot = ctx.alloc_slot();
+    ctx.push_alloca(format!("{slot} = alloca {repr}"));
+    ctx.push(format!("store {repr} zeroinitializer, ptr {slot}"));
+    let loaded = ctx.tmp();
+    ctx.push(format!("{loaded} = load {repr}, ptr {slot}"));
+    loaded
 }
 
 /// Retain the references an `Option`/`Result` value owns, so a copy of it has
@@ -821,42 +924,18 @@ pub(crate) fn has_string_payload(ty: &TypeKind) -> bool {
 /// The runtime's retain leaves `null` and static strings alone, so the absent
 /// variant's field costs a call that does nothing.
 pub(crate) fn retain_payload(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) -> String {
-    let fields = string_payload_fields(ty);
-    if fields.is_empty() || value.is_empty() {
+    if value.is_empty() {
         return value.to_string();
     }
-    let repr = repr_type(ty);
-    let mut current = value.to_string();
-    for field in fields {
-        let extracted = ctx.tmp();
-        ctx.push(format!(
-            "{extracted} = extractvalue {repr} {current}, {field}"
-        ));
-        let retained = ctx.tmp();
-        ctx.push_str_retain_into(&retained, &extracted);
-        let next = ctx.tmp();
-        ctx.push(format!(
-            "{next} = insertvalue {repr} {current}, i8* {retained}, {field}"
-        ));
-        current = next;
-    }
-    current
+    retain_refs(ctx, value, ty)
 }
 
 /// Release the references an `Option`/`Result` value owns.
 pub(crate) fn release_payload(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
-    let fields = string_payload_fields(ty);
-    if fields.is_empty() || value.is_empty() {
+    if value.is_empty() {
         return;
     }
-    let repr = repr_type(ty);
-    for field in fields {
-        let extracted = ctx.tmp();
-        ctx.push(format!(
-            "{extracted} = extractvalue {repr} {value}, {field}"
-        ));
-        ctx.push_str_release(&extracted);
-    }
+    release_refs(ctx, value, ty);
 }
 
 /// Lower `expr` to a value, pushing its instructions into the module.
@@ -1140,7 +1219,7 @@ pub fn gen_expr(ctx: &mut FnCtx<'_>, expr: &HirExpr) -> GenValue {
             if matches!(ty.kind, TypeKind::Str) {
                 ctx.mark_owned(&tmp, RefKind::Str);
             }
-            if has_string_payload(&ty.kind) {
+            if owns_string_refs(ctx, &ty.kind) {
                 ctx.mark_owned_typed(&tmp, RefKind::Payload, Some(ty.kind.clone()));
             }
             GenValue {
@@ -1754,7 +1833,7 @@ fn gen_indirect_call(
     if ret_repr != "void" && matches!(ret, TypeKind::Str) {
         ctx.mark_owned(&result, RefKind::Str);
     }
-    if ret_repr != "void" && has_string_payload(ret) {
+    if ret_repr != "void" && owns_string_refs(ctx, ret) {
         ctx.mark_owned_typed(&result, RefKind::Payload, Some(ret.clone()));
     }
     if ret_repr != "void" && matches!(ret, TypeKind::Func(_, _)) {
@@ -2052,7 +2131,8 @@ fn gen_call(
             ));
             // The other variant's `string` payload is absent: write `null` so
             // the aggregate owns exactly one reference and releasing it is safe
-            // whichever variant it turned out to be.
+            // whichever variant it turned out to be. A struct payload's other
+            // variant is the same zero (its string fields hold `null`).
             let mut acc = with_tag;
             for absent in string_payload_fields(ty) {
                 if absent == field {
@@ -2064,9 +2144,39 @@ fn gen_call(
                 ));
                 acc = next;
             }
+            // A struct-typed other variant is written as a zero value, so
+            // releasing the aggregate never reads an uninitialised pointer
+            // out of it.
+            if let TypeKind::Result(ok_ty, err_ty) = ty {
+                let absent_field = if field == 1 { 2 } else { 1 };
+                if absent_field == 1 && owns_string_refs(ctx, &ok_ty.kind) {
+                    let zero = zero_refs(ctx, &ok_ty.kind);
+                    let next = ctx.tmp();
+                    ctx.push(format!(
+                        "{next} = insertvalue {repr} {acc}, {} {zero}, 1",
+                        repr_type(&ok_ty.kind)
+                    ));
+                    acc = next;
+                }
+                if absent_field == 2 && owns_string_refs(ctx, &err_ty.kind) {
+                    let zero = zero_refs(ctx, &err_ty.kind);
+                    let next = ctx.tmp();
+                    ctx.push(format!(
+                        "{next} = insertvalue {repr} {acc}, {} {zero}, 2",
+                        repr_type(&err_ty.kind)
+                    ));
+                    acc = next;
+                }
+            }
             // A `string` payload is taken over when the runtime just built it
             // and retained when it belongs to someone else, so the aggregate
-            // holds exactly one reference.
+            // holds exactly one reference. A struct payload copied out of a
+            // binding is retained field-by-field for the same reason; a fresh
+            // struct already owns its strings.
+            let copied_payload = match args.first() {
+                Some(HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }) => true,
+                _ => false,
+            };
             let payload_value = if matches!(payload.ty, TypeKind::Str) && !payload.value.is_empty()
             {
                 if ctx.is_owned(&payload.value) {
@@ -2077,6 +2187,11 @@ fn gen_call(
                     ctx.push_str_retain_into(&retained, &payload.value);
                     retained
                 }
+            } else if matches!(payload.ty, TypeKind::Struct(_)) && !payload.value.is_empty() {
+                if copied_payload {
+                    retain_struct_fields(ctx, &payload.value, &payload.ty);
+                }
+                payload.value.clone()
             } else {
                 payload.value.clone()
             };
@@ -2086,7 +2201,7 @@ fn gen_call(
                 field_repr(&payload.ty),
                 payload_value
             ));
-            if has_string_payload(ty) {
+            if owns_string_refs(ctx, ty) {
                 ctx.mark_owned_typed(&full, RefKind::Payload, Some(ty.clone()));
             }
             GenValue {
@@ -2130,6 +2245,7 @@ fn gen_call(
                 // runtime unit is explicit in the symbol name.
                 "now" => gen_borrowed_call(ctx, "yashy_now_ms", args, ty),
                 "sleep" => gen_borrowed_call(ctx, "yashy_sleep_ms", args, ty),
+                "eprint" => gen_borrowed_call(ctx, "yashy_print_line_stderr", args, ty),
                 "log_info" => crate::file::gen_log(ctx, args, "info"),
                 "log_error" => crate::file::gen_log(ctx, args, "error"),
                 "metrics_add" => crate::file::gen_metrics(ctx, args, "counter"),
@@ -2527,10 +2643,11 @@ fn gen_borrowed_call_lowered(
     if matches!(ty, TypeKind::Str) {
         ctx.mark_owned(&value.value, RefKind::Str);
     }
-    if has_string_payload(ty) {
-        // `Option[string]`/`Result[string, E]`: the callee hands the reference
-        // to the payload to the caller, so the binding takes it over rather
-        // than retaining a second one.
+    if owns_string_refs(ctx, ty) {
+        // `Option[string]`/`Result[string, E]` (or a struct of strings in the
+        // payload): the callee hands the reference to the payload to the
+        // caller, so the binding takes it over rather than retaining a second
+        // one.
         ctx.mark_owned_typed(&value.value, RefKind::Payload, Some(ty.clone()));
     }
     if matches!(ty, TypeKind::Func(_, _)) {
@@ -2619,7 +2736,8 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
     // A `string` payload is a reference the caller now owns. When the subject
     // is a copy of a binding, that binding still owns its own reference and
     // releases it at scope exit, so this one is retained; a fresh aggregate
-    // hands its reference over.
+    // hands its reference over. A struct payload follows the same rule,
+    // field by field.
     let payload_value = if matches!(result_ty, TypeKind::Str) {
         if matches!(
             expr,
@@ -2631,11 +2749,23 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
         } else {
             payload
         }
+    } else if matches!(result_ty, TypeKind::Struct(_)) {
+        if matches!(
+            expr,
+            HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }
+        ) {
+            retain_struct_fields(ctx, &payload, result_ty);
+        }
+        payload
     } else {
         payload
     };
     if matches!(result_ty, TypeKind::Str) {
         ctx.mark_owned(&payload_value, RefKind::Str);
+    } else if matches!(result_ty, TypeKind::Struct(_)) {
+        // The payload is the caller's now, so a consumer that discards or
+        // passes it on releases it rather than retaining again.
+        ctx.mark_owned_typed(&payload_value, RefKind::StructFields, Some(result_ty.clone()));
     }
     ctx.push(format!("br label %{cont_label}"));
     ctx.push(format!("{cont_label}:"));
@@ -2664,11 +2794,14 @@ fn gen_struct_lit(
     ctx.module.define_named_type(&struct_name, field_tys);
     let repr = repr_type(ty);
     let mut acc = "undef".to_string();
-    for (index, value) in lowered.iter().enumerate() {
+    for (index, ((_, field_expr, _), value)) in fields.iter().zip(lowered.iter()).enumerate() {
         // A `string` field is a reference the struct owns: the value is
         // either taken over (a temporary the runtime built) or retained (a
         // literal, a local, a call's result) -- never both, so the reference
-        // is counted once.
+        // is counted once. A struct-typed field is a value: when it is copied
+        // out of a binding its string fields are retained field-by-field, so
+        // the new struct and the binding each hold a reference; a fresh
+        // struct already owns its fields' references.
         if matches!(value.ty, TypeKind::Str) {
             if ctx.is_owned(&value.value) {
                 ctx.forget_owned(&value.value);
@@ -2690,6 +2823,13 @@ fn gen_struct_lit(
                 ));
                 acc = next;
                 continue;
+            }
+        } else if matches!(value.ty, TypeKind::Struct(_)) {
+            if matches!(
+                field_expr,
+                HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }
+            ) {
+                retain_struct_fields(ctx, &value.value, &value.ty);
             }
         }
         let next = ctx.tmp();

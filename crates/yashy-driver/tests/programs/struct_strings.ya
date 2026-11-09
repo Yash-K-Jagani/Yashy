@@ -1,0 +1,66 @@
+// A `Result` carrying a struct of strings, unwrapped with `?` and with a
+// switch, then nested inside another struct: every string through every
+// handoff keeps its bytes.
+
+enum HttpError { Failure }
+
+struct Request {
+    method: string,
+    target: string,
+    version: string,
+}
+
+struct Envelope {
+    request: Request,
+}
+
+fn make() -> Result[Request, HttpError] {
+    const text = "GET /x HTTP/1.1";
+    const method = text.slice(0, 3);
+    const target = text.slice(4, 6);
+    return Ok(Request { method: method, target: target, version: "HTTP/1.1" });
+}
+
+fn forward(Result[Request, HttpError] found) -> Result[Request, HttpError] {
+    if let Ok(value) = found {
+        return Ok(value);
+    }
+    return Err(HttpError.Failure);
+}
+
+fn unwrap_request(Result[Request, HttpError] found) -> Request {
+    if let Ok(value) = found {
+        return value;
+    }
+    panic("request failed");
+}
+
+fn show(Request value) {
+    const method = value.method;
+    const target = value.target;
+    const version = value.version;
+    print("${method} ${target} ${version}");
+}
+
+fn run() -> Result[int, HttpError] {
+    const parsed = unwrap_request(make());
+    show(parsed);
+    assert(parsed.method == "GET");
+    assert(parsed.target == "/x");
+    assert(parsed.version == "HTTP/1.1");
+    const both = Envelope { request: parsed };
+    const inner = both.request;
+    show(inner);
+    assert(inner.method == "GET");
+    assert(inner.target == "/x");
+    const again = forward(Ok(parsed))?;
+    show(again);
+    return Ok(1);
+}
+
+fn main() {
+    switch run() {
+        case Ok(count) { print("struct-ok ${count}"); }
+        case Err(_) { panic("struct test failed"); }
+    }
+}

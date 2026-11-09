@@ -271,6 +271,20 @@ fn gen_body(module: &mut Module, f: &HirFn, entry_point: bool, env: Option<&str>
             } else {
                 match f.ret.kind {
                     TypeKind::Unit | TypeKind::Never => ctx.push("ret void"),
+                    // A fallthrough in an aggregate-returning function can only
+                    // come from code the checker let end without a value (a
+                    // trailing `panic`); the block is unreachable, so `undef`
+                    // is the honest constant. `0` is not a value of an
+                    // aggregate type and does not assemble.
+                    TypeKind::Slice(_)
+                    | TypeKind::Tuple(_)
+                    | TypeKind::Func(_, _)
+                    | TypeKind::Option(_)
+                    | TypeKind::Result(_, _)
+                    | TypeKind::Struct(_)
+                    | TypeKind::Enum(_) => {
+                        ctx.push(format!("ret {} undef", repr_type(&f.ret.kind)))
+                    }
                     _ => ctx.push(format!("ret {} 0", repr_type(&f.ret.kind))),
                 }
             }
