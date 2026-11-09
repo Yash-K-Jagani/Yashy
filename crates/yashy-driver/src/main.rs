@@ -78,6 +78,9 @@ usage:
   yashy doc [path] [--out DIR] [--json] [--private]
   yashy profile <file.ya> | yashy profile --report <file.json>
   yashy lock --check
+  yashy fetch [--offline]
+  yashy update [--offline]
+  yashy add <name> --path <dir> | yashy add <name> --git <url> --rev <commit>
   yashy fmt [-w] <files...>
   yashy version
 
@@ -101,6 +104,9 @@ usage:
   doc     render the public surface as Markdown (--json for the model)
   profile print a per-function counter report sorted by self time
   lock    check yashy.toml against yashy.lock without resolving anything
+  fetch   put every package in the store without building
+  update  resolve the manifests and rewrite yashy.lock
+  add     add a path or pinned git dependency to yashy.toml, then update
   fmt     rewrite source files in the canonical style; -w writes them back
   -O<n>        LLVM optimization level for the generated code (default -O2)
   --cpu <tier> instruction set the program may use, one of:
@@ -191,6 +197,9 @@ fn dispatch(args: &[String]) -> ExitCode {
         "doc" => doc_cmd(rest),
         "profile" => profile_cmd(rest),
         "lock" => lock_cmd(rest),
+        "fetch" => fetch_cmd(rest),
+        "update" => update_cmd(rest),
+        "add" => add_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -259,6 +268,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     let mut pgo = false;
     // How many threads the front end may parse on. `0` means "one per core".
     let mut jobs: usize = 0;
+    // `--offline` never touches the network or invokes git. A package that is
+    // not already in the store is `E1803`, never a silent fetch.
+    let mut offline = false;
     // Registered optimization passes the user asked to disable. Validated
     // after parsing, so one message can list every pass that exists.
     let mut disabled: Vec<String> = Vec::new();
@@ -295,6 +307,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             },
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
+            "--offline" => offline = true,
             "--opt-list" => opt_list = true,
             "--opt-report" => opt_report_flag = Some(false),
             "--release" => release = true,
@@ -399,6 +412,20 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // is written by `yashy update` once resolution has a source to pin.
     if let Some(code) = verify_project_lock(&input) {
         return stopped(code);
+    }
+
+    // Resolve the project's packages and make their module roots visible to the
+    // import loader. A build with no manifest, or one with no dependencies, is
+    // exactly what it was before packages existed.
+    let package_roots = match prepare_packages(&input, offline) {
+        Ok(roots) => roots,
+        Err(error) => {
+            error.report();
+            return stopped(error.status());
+        }
+    };
+    if !package_roots.is_empty() {
+        expose_package_roots(&input, &package_roots);
     }
 
     // `--no-verify` is an escape hatch, not a mode. It exists so a user can
@@ -783,7 +810,8 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                     Err(_) => return usage_error(&format!("`{argument}` needs a whole number")),
                 }
             }
-            "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto" => {
+            "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto"
+            | "--offline" => {
                 if mode == RunMode::Tasks && argument == "--release" {
                     return usage_error("`tasks` needs a debug build; `--release` is refused");
                 }
@@ -3766,6 +3794,367 @@ fn verify_project_lock(input: &Path) -> Option<ExitCode> {
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("error: {message}\n{USAGE}");
     exit_code(EXIT_USAGE)
-}fn exit_code(code: i32) -> ExitCode {
+}
+
+fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(code as u8)
+}
+
+/// `yashy update [--offline] [dir]`: resolve the manifests and rewrite the
+/// lockfile from the result.
+fn update_cmd(args: &[String]) -> ExitCode {
+    let project = match project_args(args, "update") {
+        Ok(project) => project,
+        Err(code) => return code,
+    };
+    let manifest = match load_manifest(&project.directory) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    let store = match open_store() {
+        Ok(store) => store,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    // `update` deliberately ignores the old lock: it is the command that
+    // replaces it. Resolution still refuses a cycle or a missing package.
+    let graph =
+        match yashy_driver::resolve(&manifest, None, &project.directory, project.offline, &store) {
+            Ok(graph) => graph,
+            Err(error) => {
+                let error = LockCheckError::Diagnostic {
+                    code: error.code,
+                    message: error.message,
+                };
+                error.report();
+                return error.status();
+            }
+        };
+    let lock = match graph.to_lock() {
+        Ok(lock) => lock,
+        Err(error) => {
+            let error = LockCheckError::Diagnostic {
+                code: error.code,
+                message: error.message,
+            };
+            error.report();
+            return error.status();
+        }
+    };
+    let path = project.directory.join("yashy.lock");
+    if let Err(error) = lock.save(&path) {
+        eprintln!("error: cannot write {}: {error}", path.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    println!(
+        "wrote {} ({} package{})",
+        path.display(),
+        lock.packages.len(),
+        if lock.packages.len() == 1 { "" } else { "s" }
+    );
+    exit_code(EXIT_OK)
+}
+
+/// `yashy fetch [--offline] [dir]`: populate the store without building.
+fn fetch_cmd(args: &[String]) -> ExitCode {
+    let project = match project_args(args, "fetch") {
+        Ok(project) => project,
+        Err(code) => return code,
+    };
+    let manifest = match load_manifest(&project.directory) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    let lock = match load_lock_if_present(&project.directory) {
+        Ok(lock) => lock,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    let store = match open_store() {
+        Ok(store) => store,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    match yashy_driver::resolve(
+        &manifest,
+        lock.as_ref(),
+        &project.directory,
+        project.offline,
+        &store,
+    ) {
+        Ok(graph) => {
+            println!(
+                "fetched {} package{} into {}",
+                graph.packages.len(),
+                if graph.packages.len() == 1 { "" } else { "s" },
+                store.root().display()
+            );
+            exit_code(EXIT_OK)
+        }
+        Err(error) => {
+            let error = LockCheckError::Diagnostic {
+                code: error.code,
+                message: error.message,
+            };
+            error.report();
+            error.status()
+        }
+    }
+}
+
+/// `yashy add <name> --path <dir>` or
+/// `yashy add <name> --git <url> --rev <commit>`.
+fn add_cmd(args: &[String]) -> ExitCode {
+    let mut name: Option<String> = None;
+    let mut path: Option<String> = None;
+    let mut git: Option<String> = None;
+    let mut rev: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--path" => match iter.next() {
+                Some(value) => path = Some(value.clone()),
+                None => return usage_error("`--path` needs a directory"),
+            },
+            "--git" => match iter.next() {
+                Some(value) => git = Some(value.clone()),
+                None => return usage_error("`--git` needs a URL"),
+            },
+            "--rev" => match iter.next() {
+                Some(value) => rev = Some(value.clone()),
+                None => return usage_error("`--rev` needs a commit"),
+            },
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `add`"))
+            }
+            other => {
+                if name.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                name = Some(other.to_string());
+            }
+        }
+    }
+    let Some(name) = name else {
+        return usage_error("`add` needs a dependency name");
+    };
+    if !name
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        return usage_error(&format!(
+            "`{name}` is not a package name; use letters, digits, `_` and `-`"
+        ));
+    }
+    let block = match (&path, &git, &rev) {
+        (Some(path), None, None) => format!(
+            "\n[dependencies.{name}]\npath = \"{}\"\n",
+            toml_escape(path)
+        ),
+        (None, Some(url), Some(rev)) => format!(
+            "\n[dependencies.{name}]\ngit = \"{}\"\nrev = \"{}\"\n",
+            toml_escape(url),
+            toml_escape(rev)
+        ),
+        (None, Some(_), None) => {
+            return usage_error("a git dependency is pinned to a commit; pass `--rev <commit>`")
+        }
+        (None, None, Some(_)) | (Some(_), None, Some(_)) => {
+            return usage_error("`--rev` only means something with `--git <url>`")
+        }
+        (Some(_), Some(_), _) => {
+            return usage_error("a dependency has exactly one source: `--path` or `--git`")
+        }
+        (None, None, None) => {
+            return usage_error(
+                "`add` needs a source: `--path <dir>` or `--git <url> --rev <commit>`; \
+                 registry dependencies arrive with the local registry",
+            )
+        }
+    };
+    let manifest_path = Path::new("yashy.toml").to_path_buf();
+    let manifest = match load_manifest_at(&manifest_path) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            error.report();
+            return error.status();
+        }
+    };
+    if manifest.dependencies.contains_key(&name) || manifest.dev_dependencies.contains_key(&name) {
+        return usage_error(&format!("`{name}` is already a dependency"));
+    }
+    let mut text = match fs::read_to_string(&manifest_path) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", manifest_path.display());
+            return exit_code(EXIT_COMPILE_ERROR);
+        }
+    };
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&block);
+    if let Err(error) = fs::write(&manifest_path, text) {
+        eprintln!("error: cannot write {}: {error}", manifest_path.display());
+        return exit_code(EXIT_COMPILE_ERROR);
+    }
+    updating_after_add()
+}
+
+/// Resolve and lock the current project after `add` appended its dependency.
+fn updating_after_add() -> ExitCode {
+    update_cmd(&[])
+}
+
+struct ProjectArgs {
+    directory: PathBuf,
+    offline: bool,
+}
+
+fn project_args(args: &[String], command: &str) -> Result<ProjectArgs, ExitCode> {
+    let mut directory: Option<PathBuf> = None;
+    let mut offline = false;
+    for argument in args {
+        match argument.as_str() {
+            "--offline" => offline = true,
+            other if other.starts_with('-') => {
+                return Err(usage_error(&format!(
+                    "unknown option `{other}` for `{command}`"
+                )))
+            }
+            other => {
+                if directory.is_some() {
+                    return Err(usage_error(&format!("unexpected extra argument `{other}`")));
+                }
+                directory = Some(PathBuf::from(other));
+            }
+        }
+    }
+    Ok(ProjectArgs {
+        directory: directory.unwrap_or_else(|| PathBuf::from(".")),
+        offline,
+    })
+}
+
+fn open_store() -> Result<yashy_driver::Store, LockCheckError> {
+    yashy_driver::Store::open()
+        .map_err(|error| LockCheckError::Usage(format!("cannot open the package store: {error}")))
+}
+
+fn load_manifest(directory: &Path) -> Result<Manifest, LockCheckError> {
+    load_manifest_at(&directory.join("yashy.toml"))
+}
+
+fn load_manifest_at(path: &Path) -> Result<Manifest, LockCheckError> {
+    if !path.is_file() {
+        return Err(LockCheckError::Usage(format!(
+            "no yashy.toml at {}",
+            path.display()
+        )));
+    }
+    Manifest::load(path).map_err(|error| LockCheckError::Diagnostic {
+        code: codes::MANIFEST_SYNTAX,
+        message: format!(
+            "yashy.toml:{}:{}: {}",
+            error.line, error.column, error.message
+        ),
+    })
+}
+
+fn load_lock_if_present(directory: &Path) -> Result<Option<Lockfile>, LockCheckError> {
+    let path = directory.join("yashy.lock");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    Lockfile::load(&path)
+        .map(Some)
+        .map_err(|error| LockCheckError::Diagnostic {
+            code: codes::LOCKFILE_MISMATCH,
+            message: format!(
+                "yashy.lock:{}:{}: {}",
+                error.line, error.column, error.message
+            ),
+        })
+}
+
+/// Resolve `input`'s packages and return the module roots to expose.
+///
+/// A project without a manifest, or a manifest without dependencies, resolves
+/// to nothing: the import loader keeps its pre-package behaviour.
+fn prepare_packages(input: &Path, offline: bool) -> Result<Vec<PathBuf>, LockCheckError> {
+    let directory = input.parent().unwrap_or_else(|| Path::new("."));
+    let manifest_path = directory.join("yashy.toml");
+    if !manifest_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let manifest = load_manifest_at(&manifest_path)?;
+    if manifest.dependencies.is_empty() && manifest.dev_dependencies.is_empty() {
+        return Ok(Vec::new());
+    }
+    let lock = load_lock_if_present(directory)?;
+    let store = open_store()?;
+    let graph = yashy_driver::resolve(&manifest, lock.as_ref(), directory, offline, &store)
+        .map_err(|error| LockCheckError::Diagnostic {
+            code: error.code,
+            message: error.message,
+        })?;
+    Ok(graph.module_roots())
+}
+
+/// Put the entry directory and every package root at the front of
+/// `YASHY_PATH`, keeping whatever the user already had.
+fn expose_package_roots(input: &Path, roots: &[PathBuf]) {
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    let mut all: Vec<PathBuf> = Vec::new();
+    let entry_dir = input
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    all.push(entry_dir);
+    all.extend(roots.iter().cloned());
+    if let Some(existing) = env::var_os("YASHY_PATH") {
+        all.extend(
+            existing
+                .to_string_lossy()
+                .split(separator)
+                .filter(|root| !root.is_empty())
+                .map(PathBuf::from),
+        );
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let text = all
+        .into_iter()
+        .filter(|path| seen.insert(path.clone()))
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(&separator.to_string());
+    env::set_var("YASHY_PATH", text);
+}
+
+fn toml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }

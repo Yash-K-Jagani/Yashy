@@ -740,6 +740,37 @@ lists sorted, LF endings, and a `sha256:` hash over a canonical source tree
 (sorted paths, CRLF normalised, no mtimes). `yashy build` runs the same check
 when a lockfile is present.
 
+### Resolution: `update`, `fetch`, `add`, `--offline`
+
+Resolution is exact-pin only; there is no version solver. A path dependency is
+read in place and a git dependency is cloned into a global store keyed by
+`(url, rev)`, checked out at that commit and made read-only.
+
+```text
+yashy update [--offline] [dir]     resolve the manifests and rewrite yashy.lock
+yashy fetch  [--offline] [dir]     put every package in the store, without building
+yashy add <name> --path <dir>      append a path dependency, then update
+yashy add <name> --git <url> --rev <commit>   append a pinned git dependency
+```
+
+`--offline` (also accepted by `build` and `run`) never invokes git or touches
+the network: a package that is not already in the store stops the build with
+[E1803](errors/E1803.md), which names the package, its pin and the command that
+would fetch it. A dependency cycle is [E1801](errors/E1801.md) and prints the
+path it followed.
+
+A package's modules are found under its `src/` directory when it has one, and
+under its root otherwise. The build puts the entry directory and every resolved
+package root at the front of `YASHY_PATH` for the duration of the build, so
+`import net;` finds the `net` package without any manual environment setup.
+
+The store lives under `YASHY_PACKAGE_STORE` when set, otherwise under the
+compiler's cache directory: `YASHY_CACHE_DIR/packages`, or the platform
+convention (`%LOCALAPPDATA%/yashy/packages`, `$XDG_CACHE_HOME/yashy/packages`,
+`~/.cache/yashy/packages`). A registry dependency is parsed and pinned by exact
+version, but this build has no registry configured yet, so resolving one stops
+with `E1803` and asks for a `path` or `git`+`rev` dependency instead.
+
 ## Flags the native foundation did not add
 
 The `link_name`, variadic, `repr(C)` and byte-buffer work extended the language,

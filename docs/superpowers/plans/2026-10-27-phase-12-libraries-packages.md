@@ -126,11 +126,25 @@ The driver test `tests/lock_cli.rs` proves all four behaviours.
 - Produces: git dependencies are cloned into the global store keyed by `(url, rev)` and checked out at that commit; a `rev` that does not exist is `E1803`-class with the URL and rev printed.
 - Produces: `--offline` never invokes git or the network; a missing package is `E1803` with the fetch command in the note.
 
-- [ ] **Step 1: Write the failing tests** — a path dependency compiles; a diamond resolves one copy; a cycle is `E1801` with the path; a git dependency at a fixed rev is reproducible across two fetches; `--offline` with a cold store is `E1803`; `--offline` with a warm store builds.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — DFS with a visiting stack for cycles (the phase 6 module-graph pattern, reused); fetching shells out to `git` only when `git` is on `PATH`, and the absence of `git` is a documented diagnostic, not a panic. Fetched trees are read-only in the store.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test dependencies` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(pkg): resolve path and pinned git dependencies, offline (E1801, E1803)"`
+- [x] **Step 1: Write the failing tests** — a path dependency compiles; a diamond resolves one copy; a cycle is `E1801` with the path; a git dependency at a fixed rev is reproducible across two fetches; `--offline` with a cold store is `E1803`; `--offline` with a warm store builds.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — DFS with a visiting stack for cycles (the phase 6 module-graph pattern, reused); fetching shells out to `git` only when `git` is on `PATH`, and the absence of `git` is a documented diagnostic, not a panic. Fetched trees are read-only in the store.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test dependencies` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(pkg): resolve path and pinned git dependencies, offline (E1801, E1803)"`
+
+**Ruling recorded during implementation:** the resolver has no version solver and no
+registry: a dependency is a path, a `git`+`rev`, or a registry pin that fails
+with `E1803` ("no registry is configured") until Task 9 ships the local
+registry. `yashy update` is the only writer of `yashy.lock`; `yashy fetch`
+populates the store without writing one. `--offline` is accepted by `build`,
+`run`, `fetch` and `update` and never invokes git. The build exposes the entry
+directory and every resolved package root through `YASHY_PATH`, which the
+import loader already honours, so no loader change was needed. On Windows the
+clone is staged at a shallow path and renamed into the keyed store directory;
+staging beside the deep destination exceeded the path limit inside git's own
+`.git/objects/pack` before the clone could finish. Test
+`crates/yashy-driver/tests/dependencies.rs` proves all six behaviours, with a
+private `YASHY_PACKAGE_STORE` per test.
 
 ---
 

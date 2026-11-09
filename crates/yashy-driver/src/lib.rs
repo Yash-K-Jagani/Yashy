@@ -9,6 +9,7 @@
 
 pub mod context;
 pub mod doc;
+pub mod fetch;
 pub mod index;
 pub mod mcp;
 pub mod modules;
@@ -16,9 +17,11 @@ pub mod opt_report;
 pub mod outline;
 pub mod pipeline;
 pub mod profile;
+pub mod resolve;
 pub mod sandbox;
 pub mod toolchain;
 
+pub use fetch::{default_store_root, FetchError, Store};
 pub use modules::{
     default_stdlib_root, load, load_sources, module_roots, resolve_import, Module, ModuleSource,
 };
@@ -27,4 +30,5 @@ pub use pipeline::{
     load_and_check, load_and_check_exports_timed, load_and_check_timed, resolve_opt, timed,
     BuildOptions, CommandKind, CpuTarget, OptLevel, TimingRow,
 };
+pub use resolve::{resolve, ResolveError, ResolvedGraph, ResolvedPackage};
 pub use toolchain::{detect, detect_with, Toolchain};
