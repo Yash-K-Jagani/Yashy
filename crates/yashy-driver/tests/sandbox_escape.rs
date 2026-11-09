@@ -140,11 +140,11 @@ fn a_child_process_spawn_is_denied_by_default() {
 #[test]
 fn an_infinite_loop_is_killed_by_the_time_limit() {
     let dir = workspace_dir();
+    // The time limit is enforced by the driver, so the process is killed:
+    // a non-zero exit the program did not choose, plus E1901 on stderr.
     let (code, output) = run_sandboxed("infinite_loop", &[dir.to_str().unwrap()], &[]);
-    // The time limit is enforced by the OS (Job Object / rlimits), so the
-    // process is killed: a non-zero exit the program did not choose.
     assert!(
-        code != 0,
-        "the time limit must end an infinite loop:\n{output}"
+        code != 0 && output.contains("E1901"),
+        "the time limit must end an infinite loop with E1901:\n{output} (exit {code})"
     );
 }

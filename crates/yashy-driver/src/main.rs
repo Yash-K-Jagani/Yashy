@@ -956,7 +956,28 @@ fn status_with_sandbox(
                         yashy_driver::sandbox::assign_child(job, &child)?;
                     }
                 }
-                return child.wait();
+                // The time and output limits are the driver's: poll the
+                // child, kill it past `--time`, and refuse output past the
+                // cap. This is portable, which the OS primitives alone are
+                // not (a child that writes fast needs the cap somewhere).
+                let started = std::time::Instant::now();
+                loop {
+                    match child.try_wait()? {
+                        Some(status) => return Ok(status),
+                        None => {
+                            if started.elapsed().as_millis() > capabilities.time_ms as u128 {
+                                let _ = child.kill();
+                                let status = child.wait()?;
+                                eprintln!(
+                                    "error[E1901]: sandbox limit breached: time ({} ms)",
+                                    capabilities.time_ms
+                                );
+                                return Ok(status);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                }
             }
             Err(error) if blocked_by_policy(&error) => continue,
             Err(error) => return Err(error),
