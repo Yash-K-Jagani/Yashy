@@ -178,6 +178,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "mcp" => mcp_cmd(rest),
         "lsp" => lsp_cmd(rest),
         "doc" => doc_cmd(rest),
+        "profile" => profile_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -3390,6 +3391,26 @@ fn lsp_cmd(args: &[String]) -> ExitCode {
 }
 
 fn profile_cmd(args: &[String]) -> ExitCode {
+    // `--report <json>` prints a recorded table; without it, a fresh
+    // measurement runs.
+    if let Some(position) = args.iter().position(|arg| arg == "--report") {
+        let Some(path) = args.get(position + 1) else {
+            return usage_error("`--report` needs a file");
+        };
+        match std::fs::read_to_string(path) {
+            Ok(text) => {
+                print!("{text}");
+                if !text.ends_with('\n') {
+                    println!();
+                }
+                return exit_code(EXIT_OK);
+            }
+            Err(error) => {
+                eprintln!("error: cannot read {path}: {error}");
+                return exit_code(EXIT_USAGE);
+            }
+        }
+    }
     let mut input: Option<PathBuf> = None;
     for arg in args {
         match arg.as_str() {
