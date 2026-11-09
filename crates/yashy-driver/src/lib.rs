@@ -8,6 +8,7 @@
 //! can call with plain values.
 
 pub mod context;
+pub mod doc;
 pub mod index;
 pub mod mcp;
 pub mod modules;

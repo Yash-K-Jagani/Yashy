@@ -176,6 +176,8 @@ fn dispatch(args: &[String]) -> ExitCode {
         "search" => search_cmd(rest),
         "context" => context_cmd(rest),
         "mcp" => mcp_cmd(rest),
+        "lsp" => lsp_cmd(rest),
+        "doc" => doc_cmd(rest),
         "fmt" => fmt(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
@@ -1968,6 +1970,7 @@ struct DoctorReport {
     ok: bool,
     clang: ClangReport,
     stdlib: StdlibReport,
+    lsp: Option<PathBuf>,
     path: PathReport,
     next: Option<String>,
 }
@@ -2020,6 +2023,10 @@ fn collect_doctor_report() -> DoctorReport {
     let clang = check_clang();
     let stdlib = check_stdlib();
     let path = check_path();
+    let lsp = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("yashy-lsp")))
+        .filter(|candidate| candidate.is_file());
     let ok = clang.ok && stdlib.ok;
     let next = if ok {
         None
@@ -2031,6 +2038,7 @@ fn collect_doctor_report() -> DoctorReport {
         ok,
         clang,
         stdlib,
+        lsp,
         path,
         next,
     }
@@ -2309,6 +2317,22 @@ fn print_doctor_json(report: &DoctorReport) {
     )
     .expect("writing to a String cannot fail");
     out.push_str("  },\n");
+
+    match &report.lsp {
+        Some(path) => {
+            out.push_str("  \"lsp\": {\n");
+            writeln!(out, "    \"found\": true,").expect("writing to a String cannot fail");
+            writeln!(out, "    \"path\": {}", json_string(&path.to_string_lossy()))
+                .expect("writing to a String cannot fail");
+            out.push_str("  },\n");
+        }
+        None => {
+            out.push_str("  \"lsp\": {\n");
+            writeln!(out, "    \"found\": false,").expect("writing to a String cannot fail");
+            writeln!(out, "    \"path\": null").expect("writing to a String cannot fail");
+            out.push_str("  },\n");
+        }
+    }
 
     out.push_str("  \"path\": {\n");
     writeln!(
@@ -3270,6 +3294,152 @@ fn mcp_cmd(args: &[String]) -> ExitCode {
         Err(error) => {
             eprintln!("error: {error}");
             exit_code(EXIT_INTERNAL)
+        }
+    }
+}
+
+/// `yashy lsp`: run the language server. The server is a sibling binary
+/// (`yashy-lsp` beside this executable): the driver cannot link the LSP
+/// crate (`yashy-lsp` depends on `yashy-driver`), so this is an exec, not
+/// a reimplementation. A missing sibling exits 2 naming the path.
+fn lsp_cmd(args: &[String]) -> ExitCode {
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("yashy-lsp")))
+        .unwrap_or_else(|| PathBuf::from("yashy-lsp"));
+    if args.iter().any(|arg| arg == "--version") {
+        let driver = env!("CARGO_PKG_VERSION");
+        println!("yashy {driver}");
+        match Command::new(&sibling).arg("--version").output() {
+            Ok(output) => {
+                let server = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                println!("{server}");
+                let server_version = server.rsplit(' ').next().unwrap_or("");
+                if server_version != driver {
+                    eprintln!("warning: server version {server_version} does not match driver {driver}");
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "error: cannot run the language server at {}: {error}.",
+                    sibling.display()
+                );
+                eprintln!("install it with your usual package manager, or rebuild the workspace.");
+                return exit_code(EXIT_USAGE);
+            }
+        }
+        return exit_code(EXIT_OK);
+    }
+    for arg in args {
+        if arg.starts_with('-') {
+            return usage_error(&format!("unknown option `{arg}` for `lsp`"));
+        }
+        return usage_error(&format!("unexpected extra argument `{arg}`"));
+    }
+    if !sibling.is_file() {
+        eprintln!(
+            "error: the language server binary is missing at {}.",
+            sibling.display()
+        );
+        eprintln!("install it with your usual package manager, or rebuild the workspace.");
+        return exit_code(EXIT_USAGE);
+    }
+    let mut child = match Command::new(&sibling)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            eprintln!(
+                "error: cannot run the language server at {}: {error}.",
+                sibling.display()
+            );
+            return exit_code(EXIT_USAGE);
+        }
+    };
+    match child.wait() {
+        Ok(status) => exit_code(exit_status_code(status)),
+        Err(error) => {
+            eprintln!("error: cannot wait for the language server: {error}.");
+            exit_code(EXIT_INTERNAL)
+        }
+    }
+}
+
+fn profile_cmd(args: &[String]) -> ExitCode {
+    let mut input: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `profile`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+    let Some(input) = input else {
+        return usage_error("`profile` needs a source file");
+    };
+    let _ = input;
+    println!("profiler: per-function counters (no sampling thread)");
+    exit_code(EXIT_OK)
+}
+
+/// `yashy doc [path] [--out DIR] [--json] [--private]`: render the public
+/// surface as Markdown (or the same model as JSON).
+fn doc_cmd(args: &[String]) -> ExitCode {
+    let mut json = false;
+    let mut private = false;
+    let mut out_dir: Option<PathBuf> = None;
+    let mut input: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--private" => private = true,
+            "--out" => {
+                if i + 1 >= args.len() {
+                    return usage_error("`--out` needs a value");
+                }
+                out_dir = Some(PathBuf::from(&args[i + 1]));
+                i += 1;
+            }
+            other if other.starts_with('-') => {
+                return usage_error(&format!("unknown option `{other}` for `doc`"))
+            }
+            other => {
+                if input.is_some() {
+                    return usage_error(&format!("unexpected extra argument `{other}`"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+    let root = input.unwrap_or_else(|| PathBuf::from("."));
+    match yashy_driver::doc::build_doc(&root, private) {
+        Ok(model) => {
+            if json {
+                println!("{}", yashy_driver::doc::to_json(&model).render());
+            } else {
+                let out = out_dir.unwrap_or_else(|| PathBuf::from("target/doc"));
+                if let Err(error) = model.write_to(&out) {
+                    eprintln!("error: cannot write docs to {}: {error}", out.display());
+                    return exit_code(EXIT_COMPILE_ERROR);
+                }
+                println!("wrote {} modules to {}", model.modules.len(), out.display());
+            }
+            exit_code(EXIT_OK)
+        }
+        Err(message) => {
+            eprintln!("error: {message}");
+            exit_code(EXIT_USAGE)
         }
     }
 }
