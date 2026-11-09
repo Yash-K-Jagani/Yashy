@@ -1,0 +1,23 @@
+// Microbenchmarks (phase 12, Task 7).
+//
+// `bench.run` prints one `key=value` line for every bench-row kind the phase
+// 3 bench parser understands: compile time, binary size, and run time. The
+// caller supplies a name, a count, and a body. The body runs that many
+// times; the elapsed wall-clock time is reported as `run_ms`, and the count
+// is checked afterwards so a body cannot be discarded as side-effect free.
+
+pub fn run(string name, int iterations, fn() -> int body) -> int {
+    assert(iterations > 0);
+    const start = now();
+    let accumulator = 0;
+    let index = 0;
+    while index < iterations {
+        accumulator = accumulator + body();
+        index = index + 1;
+    }
+    const elapsed = now() - start;
+    print("${name}_run_ms=${elapsed}");
+    print("${name}_iterations=${iterations}");
+    print("${name}_total=${accumulator}");
+    return elapsed;
+}

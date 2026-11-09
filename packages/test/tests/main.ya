@@ -1,0 +1,8 @@
+// The test package.
+import test;
+
+fn main() {
+    test_assert_eq("hello", "hello", "same-value");
+    test_assert_contains("hello world", "world", "substring");
+    print("test-ok");
+}

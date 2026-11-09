@@ -1,0 +1,5 @@
+[package]
+name = "fuzz"
+version = "1.0.0"
+license = "MIT"
+description = "Deterministic fuzzing and corpus minimization"

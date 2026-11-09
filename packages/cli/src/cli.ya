@@ -1,0 +1,252 @@
+// Command-line arguments (phase 12, Task 7).
+//
+// `parse` reads the built-in `args()` list and turns it into a small parsed
+// result. A declaration is one line of the form
+// `name|description|kind`, where `kind` is `flag` or `value`; a program
+// joins its declarations with newlines. One string, rather than an array of
+// structs, keeps the declarations free of array-element ownership rules and
+// matches how they are read in a README.
+//
+// `--help` is accepted by every parser; its text is generated in declaration
+// order. A parse error writes one line and the generated usage to standard
+// error and exits with status 2.
+
+pub struct Parsed {
+    pub flags: []string,
+    pub values: []string,
+    pub positionals: []string,
+    pub help: bool,
+}
+
+pub fn usage(string program, string declarations) -> string {
+    let text = "usage: ${program} [options] [operands]";
+    let start = 0;
+    while start < declarations.len() {
+        let end = line_end(declarations, start);
+        if end < 0 {
+            break;
+        }
+        const line = declarations.slice(start, end);
+        if !line.is_empty() {
+            const name = declaration_name(line);
+            const kind = declaration_kind(line);
+            const description = declaration_description(line);
+            if kind == "value" {
+                text = text + "\n  --${name} <value>: ${description}";
+            } else {
+                text = text + "\n  --${name}: ${description}";
+            }
+        }
+        start = end + 1;
+    }
+    text = text + "\n  --help: show this help";
+    return text;
+}
+
+fn line_end(string text, int start) -> int {
+    let index = start;
+    while index < text.len() {
+        if text.byte_at(index).to_int() == 10 {
+            return index;
+        }
+        index = index + 1;
+    }
+    if start < text.len() {
+        return text.len();
+    }
+    return -1;
+}
+
+fn declaration_description(string declaration) -> string {
+    // `text` must own its bytes before `parts` is freed: a string read out
+    // of a `[]string` aliases the slice's element, so freeing the slice
+    // frees the field too. `slice` copies, which keeps the field alive.
+    const parts = declaration.split("|");
+    const text = switch parts[1] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    const owned = text.slice(0, text.len());
+    parts.free();
+    return owned;
+}
+
+fn declaration_kind(string declaration) -> string {
+    const parts = declaration.split("|");
+    const text = switch parts[2] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    const owned = text.slice(0, text.len());
+    parts.free();
+    return owned;
+}
+
+fn declaration_name(string declaration) -> string {
+    const parts = declaration.split("|");
+    const text = switch parts[0] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    const owned = text.slice(0, text.len());
+    parts.free();
+    return owned;
+}
+
+pub fn fail(string program, string declarations, string message) -> int {
+    eprint("error: ${message}");
+    eprint(usage(program, declarations));
+    exit(2);
+    return 2;
+}
+
+pub fn parse(string program, string declarations) -> Parsed {
+    return parse_arguments(program, declarations, args());
+}
+
+pub fn parse_arguments(string program, string declarations, []string arguments) -> Parsed {
+    let flags = []string {};
+    let values = []string {};
+    let positionals = []string {};
+    let help = false;
+    let end_of_flags = false;
+    let index = 0;
+    while index < arguments.len() {
+        const argument = switch arguments[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        if end_of_flags {
+            positionals.push(argument);
+            index = index + 1;
+            continue;
+        }
+        if argument == "--" {
+            end_of_flags = true;
+            index = index + 1;
+            continue;
+        }
+        if argument == "--help" || argument == "-h" {
+            help = true;
+            index = index + 1;
+            continue;
+        }
+        if argument.starts_with("--") {
+            const body = argument.slice(2, argument.len());
+            let name = body;
+            let value = "";
+            const equals = body.index_of("=");
+            const at = switch equals {
+                case Some(found) { found }
+                case None { -1 }
+            };
+            if at >= 0 {
+                name = body.slice(0, at);
+                value = body.slice(at + 1, body.len());
+            }
+            let declaration = "";
+            const declaration_index = find_declaration(declarations, name);
+            if declaration_index < 0 {
+                fail(program, declarations, "unknown option --${name}");
+            }
+            const declaration_line = declarations.slice(
+                declaration_index,
+                line_end(declarations, declaration_index)
+            );
+            declaration = declaration_line;
+            if declaration_kind(declaration) == "value" {
+                if at < 0 {
+                    const next_index = index + 1;
+                    if next_index >= arguments.len() {
+                        fail(program, declarations, "--${name} needs a value");
+                    }
+                    value = switch arguments[next_index] {
+                        case Some(next) { next }
+                        case None { "" }
+                    };
+                    index = next_index;
+                }
+                values.push(name);
+                values.push(value);
+            } else {
+                if at >= 0 && value != "true" && value != "false" {
+                    fail(program, declarations, "--${name} is a flag and takes no value");
+                }
+                if at < 0 || value == "true" {
+                    flags.push(name);
+                }
+            }
+            index = index + 1;
+            continue;
+        }
+        if argument.starts_with("-") && argument != "-" {
+            fail(program, declarations, "unknown option ${argument}");
+        }
+        positionals.push(argument);
+        index = index + 1;
+    }
+    arguments.free();
+    return Parsed {
+        flags: move flags,
+        values: move values,
+        positionals: move positionals,
+        help: help,
+    };
+}
+
+fn find_declaration(string declarations, string name) -> int {
+    let start = 0;
+    while start < declarations.len() {
+        const end = line_end(declarations, start);
+        const line = declarations.slice(start, end);
+        if declaration_name(line) == name {
+            return start;
+        }
+        start = end + 1;
+    }
+    return -1;
+}
+
+pub fn has_flag([]string flags, string name) -> bool {
+    let found = false;
+    for flag in flags {
+        if flag == name {
+            found = true;
+        }
+    }
+    flags.free();
+    return found;
+}
+
+pub fn value([]string values, string name) -> Option[string] {
+    let previous = "";
+    let awaiting_value = false;
+    let Option[string] output = None;
+    for found in values {
+        if awaiting_value {
+            if previous == name {
+                output = Some(found);
+            }
+            awaiting_value = false;
+            previous = "";
+        } else {
+            previous = found;
+            awaiting_value = true;
+        }
+    }
+    values.free();
+    return output;
+}
+
+pub fn positional([]string positionals, int index) -> Option[string] {
+    let Option[string] output = None;
+    let current = 0;
+    for value in positionals {
+        if current == index {
+            output = Some(value);
+        }
+        current = current + 1;
+    }
+    positionals.free();
+    return output;
+}

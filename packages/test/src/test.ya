@@ -1,0 +1,30 @@
+// Assertions for test programs (phase 12, Task 7).
+//
+// `assert_eq` and `assert_contains` print a diff and exit non-zero when
+// their check fails; `fail` always does. This is the library form of what
+// the harness already does, so a test program can use the same wording
+// inside a helper function instead of inlining assertions everywhere.
+
+pub fn test_assert_eq(string actual, string expected, string label) {
+    if actual != expected {
+        print("FAIL ${label}");
+        print("  expected: ${expected}");
+        print("  actual:   ${actual}");
+        exit(1);
+    }
+}
+
+pub fn test_assert_contains(string haystack, string needle, string label) {
+    if !haystack.contains(needle) {
+        print("FAIL ${label}");
+        print("  expected to contain: ${needle}");
+        print("  actual: ${haystack}");
+        exit(1);
+    }
+}
+
+pub fn test_fail(string label, string detail) {
+    print("FAIL ${label}");
+    print("  ${detail}");
+    exit(1);
+}

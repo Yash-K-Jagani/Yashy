@@ -1,0 +1,21 @@
+// The fuzz package.
+import fuzz;
+
+fn rejects_high_bytes(string text) -> bool {
+    let index = 0;
+    while index < text.len() {
+        if text.byte_at(index).to_int() > 127 {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+fn main() {
+    const minimal = fuzz.run(rejects_high_bytes, 5000, 42);
+    assert(minimal.len() > 0);
+    assert(minimal.len() <= 8);
+    assert(!rejects_high_bytes(minimal));
+    print("fuzz-ok");
+}

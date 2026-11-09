@@ -1,0 +1,78 @@
+// Deterministic fuzzing (phase 12, Task 7).
+//
+// `run` generates inputs with a fixed linear congruential generator, so the
+// same seed always produces the same sequence. A target returns `true` for a
+// passing input and `false` for a failing one. The first failure is written
+// to `fuzz_corpus/` and minimized by removing one byte at a time while the
+// target still fails. The shortest failing input is returned; an empty
+// string means no failure was found.
+
+extern "C" {
+    unsafe fn yashy_mkdir(*const u8 path) -> i32;
+}
+
+fn next_byte(int state) -> int {
+    const value = (state * 1664525 + 1013904223) % 4294967296;
+    return (value / 65536) % 256;
+}
+
+fn generate(int seed, int length) -> string {
+    let text = "";
+    let state = seed;
+    let index = 0;
+    while index < length {
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        const byte = (state / 65536) % 256;
+        text = text + byte.to_char().to_string();
+        index = index + 1;
+    }
+    return text;
+}
+
+fn without(string text, int cut) -> string {
+    return text.slice(0, cut) + text.slice(cut + 1, text.len());
+}
+
+fn minimize(fn(string) -> bool target, string found) -> string {
+    let current = found;
+    let improved = true;
+    while improved {
+        improved = false;
+        let index = 0;
+        while index < current.len() {
+            const next = without(current, index);
+            if !target(next) {
+                current = next;
+                improved = true;
+                break;
+            }
+            index = index + 1;
+        }
+    }
+    return current;
+}
+
+pub fn run(fn(string) -> bool target, int iterations, int seed) -> string {
+    assert(iterations > 0);
+    let state = seed;
+    state = state % 4294967296;
+    let index = 0;
+    while index < iterations {
+        const length = 3;
+        const candidate = generate(state, length);
+        if !target(candidate) {
+            const minimal = minimize(target, candidate);
+            unsafe yashy_mkdir("fuzz_corpus");
+            const saved = write_file("fuzz_corpus/minimal", minimal);
+            switch saved {
+                case Ok(_) { print("fuzz corpus saved"); }
+                case Err(_) { panic("could not write fuzz corpus"); }
+            }
+            print("fuzz: ${candidate.len()} bytes -> ${minimal.len()} bytes");
+            return minimal;
+        }
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        index = index + 1;
+    }
+    return "";
+}
