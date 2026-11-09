@@ -16,6 +16,7 @@ members = [
     "crates/yashy-cache",
     "crates/yashy-query",
     "crates/yashy-expand",
+    "crates/yashy-manifest",
 ]
 
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.

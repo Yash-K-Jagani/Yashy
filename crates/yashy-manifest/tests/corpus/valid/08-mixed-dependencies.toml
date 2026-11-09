@@ -1,0 +1,16 @@
+[package]
+name = "mixed"
+version = "0.1.0"
+
+[dependencies]
+http = "0.3.1"
+
+[dependencies.net]
+path = "../net"
+
+[dependencies.extra]
+git = "https://example.invalid/extra"
+rev = "0123456789abcdef0123456789abcdef01234567"
+
+[dev-dependencies]
+assert = "1.0.0"

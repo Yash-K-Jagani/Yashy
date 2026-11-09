@@ -1,10 +1,12 @@
 # Fuzz targets
 
-Two `cargo-fuzz` targets for the front end:
+Three `cargo-fuzz` targets for the front end:
 
 - `lex_parse` — lexes and parses arbitrary bytes.
 - `check` — carries a program that parses through the type checker and the IR
   emitter.
+- `manifest` — parses arbitrary bytes as `yashy.toml` and `yashy.lock`; both
+  readers are total and must answer with a `Result`, never a panic.
 
 ## Running them
 

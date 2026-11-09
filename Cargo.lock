@@ -63,6 +63,7 @@ dependencies = [
  "yashy-expand",
  "yashy-fmt",
  "yashy-lexer",
+ "yashy-manifest",
  "yashy-parser",
  "yashy-query",
  "yashy-runtime",
@@ -113,6 +114,13 @@ dependencies = [
  "yashy-lexer",
  "yashy-parser",
  "yashy-sema",
+]
+
+[[package]]
+name = "yashy-manifest"
+version = "0.1.0"
+dependencies = [
+ "yashy-common",
 ]
 
 [[package]]

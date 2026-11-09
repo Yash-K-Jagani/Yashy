@@ -1,0 +1,4 @@
+[package]
+name = "escapes"
+version = "0.1.0"
+description = "a tab\tand a quote \" and a backslash \\"

@@ -1,0 +1,4 @@
+[package]
+name = 'literal'
+version = "0.1.0"
+description = 'a literal \n is two characters, not a newline'

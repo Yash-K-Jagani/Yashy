@@ -1,0 +1,8 @@
+# A manifest may be mostly comments.
+# The reader strips a `#` that is not inside a string.
+
+[package] # the one required table
+name = "commented" # its name
+version = "0.1.0" # and exact pin
+
+# Dependencies are optional.

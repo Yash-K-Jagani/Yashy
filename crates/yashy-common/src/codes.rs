@@ -112,6 +112,9 @@ pub const DOUBLE_CLOSE: &str = "E1400";
 pub const SANDBOX_DENIED: &str = "E1900";
 /// A sandbox limit is breached: time, memory or output.
 pub const SANDBOX_LIMIT: &str = "E1901";
+/// A `yashy.toml` is outside the documented TOML subset, or names a key the
+/// manifest does not have.
+pub const MANIFEST_SYNTAX: &str = "E1800";
 /// A resource is used after it has been released.
 pub const USE_AFTER_CLOSE: &str = "E1401";
 /// A bare linear value is shared across a thread boundary.
@@ -464,6 +467,12 @@ pub const CODES: &[Code] = &[
         title: "async method in a trait",
         summary: "A trait method may not be `async`; declare a synchronous method instead.",
         page: include_str!("../../../docs/errors/E1703.md"),
+    },
+    Code {
+        id: MANIFEST_SYNTAX,
+        title: "manifest syntax",
+        summary: "`yashy.toml` is outside the documented TOML subset or names a key the manifest does not have.",
+        page: include_str!("../../../docs/errors/E1800.md"),
     },
     Code {
         id: SANDBOX_DENIED,

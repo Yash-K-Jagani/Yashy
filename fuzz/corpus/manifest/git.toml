@@ -1,0 +1,6 @@
+[package]
+name = "d"
+version = "0.1.0"
+[dependencies.x]
+git = "https://example.invalid/x"
+rev = "0123456789abcdef"

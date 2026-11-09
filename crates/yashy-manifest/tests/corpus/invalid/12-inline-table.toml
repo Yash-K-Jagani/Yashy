@@ -1,0 +1,6 @@
+[package]
+name = "x"
+version = "1.0.0"
+
+[dependencies]
+http = { version = "1.0.0" }
