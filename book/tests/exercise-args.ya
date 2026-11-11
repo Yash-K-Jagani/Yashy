@@ -1,0 +1,17 @@
+// The solution to the tooling exercise: a program that prints its arguments,
+// one per line.
+//
+// The arguments arrive in order and do not include the program's own path,
+// so `nth(0)` is the first argument the user gave.
+
+import args;
+
+fn main() {
+    const all = args.all();
+    // The loop reads the array's header on every iteration, so the array
+    // stays alive for the body and can be freed after it.
+    for argument in all {
+        print(argument);
+    }
+    all.free();
+}

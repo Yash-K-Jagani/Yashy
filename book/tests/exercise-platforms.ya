@@ -1,0 +1,27 @@
+// The solution to the first exercise of the platforms chapter: a program that
+// prints the platform it was built for, with a branch for a platform that
+// does not exist.
+//
+// The `cfg` blocks are removed before the compiler looks a name up, so the
+// branches for the other platforms do not have to compile here -- and the
+// fourth branch, for a platform that does not exist, never runs.
+
+cfg(windows) fn platform() -> string {
+    return "windows";
+}
+
+cfg(linux) fn platform() -> string {
+    return "linux";
+}
+
+cfg(macos) fn platform() -> string {
+    return "macos";
+}
+
+cfg(all(not(windows), not(linux), not(macos))) fn platform() -> string {
+    return "a platform that does not exist";
+}
+
+fn main() {
+    print(platform());
+}

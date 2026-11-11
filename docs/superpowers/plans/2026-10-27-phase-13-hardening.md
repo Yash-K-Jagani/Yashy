@@ -147,10 +147,10 @@ See the master index. The ones that bite here:
 - Produces: a book whose code blocks are the same files the tutorial harness compiles — no copied snippets. A block that does not compile fails CI.
 - Produces: a reference section generated from `yashy index --json` on the stdlib and the language's own definitions, so signatures cannot drift.
 
-- [ ] **Step 1: Write the failing job** — the book build fails because a chapter's block does not compile (use a deliberate error to prove the mechanism), then fix it.
-- [ ] **Step 2: Write the book** — six sections, each ending with an exercise whose solution is a test program under `book/tests/`.
-- [ ] **Step 3: Run** `cargo test -p yashy-driver --test tutorial` and the book job → PASS.
-- [ ] **Step 4: Commit** — `git commit -m "docs: the book, with every code block executed by CI"`
+- [x] **Step 1: Write the failing job** - the book build fails because a chapter's block does not compile (use a deliberate error to prove the mechanism), then fix it.
+- [x] **Step 2: Write the book** - six sections, each ending with an exercise whose solution is a test program under `book/tests/`.
+- [x] **Step 3: Run** `cargo test -p yashy-driver --test tutorial` and the book job → PASS.
+- [x] **Step 4: Commit** - `git commit -m "docs: the book, with every code block executed by CI"`
 
 ---
 

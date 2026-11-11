@@ -1,0 +1,30 @@
+// The solution to the getting-started exercise: a program that adds two
+// numbers from the command line.
+//
+// `args.nth(i)` answers `Option[string]`, so the program asks for the two
+// arguments it needs and stops when they are not there.
+
+import args;
+
+fn number(Option[string] text) -> int {
+    return switch text {
+        case Some(value) { parse(value) }
+        case None { 0 }
+    };
+}
+
+// The parse is a separate function because a method needs a binding as its
+// receiver, and the value inside a pattern is one.
+fn parse(string text) -> int {
+    const parsed = text.parse_i64();
+    return switch parsed {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
+fn main() {
+    let left = number(args.nth(1));
+    let right = number(args.nth(2));
+    print(left + right);
+}

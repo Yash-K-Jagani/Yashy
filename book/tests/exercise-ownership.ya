@@ -1,0 +1,17 @@
+// The solution to the verification-guide exercise: a function that owns a
+// buffer, and a caller that frees it exactly once.
+//
+// The buffer is a `*mut int` the caller owns once the function returns it.
+// The verifier refuses a second free, because the second free would use a
+// value that has been moved.
+
+fn make_buffer(int count) -> *mut int {
+    const buffer = alloc(count);
+    return buffer;
+}
+
+fn main() {
+    const buffer = make_buffer(16);
+    defer { buffer.free(); }
+    print("owned once");
+}

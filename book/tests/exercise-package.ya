@@ -1,0 +1,9 @@
+// The solution to the packages exercise: a program that prints the name and
+// the version a package would publish.
+//
+// The manifest is the source of truth for both, and `yashy audit` checks it
+// against the release policy before the package is published.
+
+fn main() {
+    print("my-tool 0.1.0");
+}

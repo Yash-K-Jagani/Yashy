@@ -1,0 +1,25 @@
+// The solution to the cookbook exercise: a program that counts the words in
+// the line it reads.
+//
+// The array `split` returns owns its elements, so it is freed once the loop
+// is done -- never inside it, which the compiler refuses.
+
+fn words(string line) -> int {
+    let count = 0;
+    let parts = line.split(" ");
+    for word in parts {
+        if !word.is_empty() {
+            count = count + 1;
+        }
+    }
+    parts.free();
+    return count;
+}
+
+fn main() {
+    const line = read_line();
+    switch line {
+        case Some(text) { print(words(text)); }
+        case None { print(0); }
+    }
+}

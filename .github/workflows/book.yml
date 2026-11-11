@@ -1,0 +1,74 @@
+name: Book
+
+# The book's code blocks are the tutorial's files: the language guide includes
+# the tutorial's chapters, and the tutorial harness compiles them. A block that
+# does not compile fails here, before it reaches a reader.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  book:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Install mdBook
+        run: cargo install mdbook --version 0.4.40 --locked
+
+      - name: Build the book
+        run: mdbook build book
+
+      - name: Build the compiler
+        run: cargo build --release -p yashy-driver
+
+      # The reference is generated from the compiler's own tables, so a
+      # signature cannot drift from the code. The gate is the diff: the file
+      # must already be what the script writes.
+      - name: The reference must not have drifted
+        run: |
+          sh scripts/book-reference.sh
+          git diff --exit-code book/src/reference.md
+
+      # The language guide's blocks are the tutorial's chapters; the tutorial
+      # harness compiles them.
+      - name: Run the tutorial's blocks
+        run: cargo test -p yashy-driver --test tutorial
+
+      # The book's own pages have blocks too, and the same script that drives
+      # the install test drives them.
+      - name: Run the book's own blocks
+        run: |
+          sh scripts/run-tutorial-blocks.sh target/release/yashy \
+            book/src/getting-started.md \
+            book/src/verification-guide.md \
+            book/src/tooling.md \
+            book/src/cookbook.md
+
+      # The exercises' solutions are programs, and a program that does not
+      # compile is not a solution.
+      - name: Run the exercises
+        run: |
+          for program in book/tests/*.ya; do
+            echo "building $program"
+            target/release/yashy build "$program" -o "$(mktemp -u)"
+          done
+
+      - name: Upload the book
+        uses: actions/upload-artifact@v4
+        with:
+          name: yashy-book
+          path: book/book
