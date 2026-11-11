@@ -26,9 +26,9 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// A file the formatter would rewrite: two spaces where the canonical form has
-/// one.
-const UNFORMATTED: &str = "fn main() {\n    print(\"a\");\n    print(\"b\");\n}\n";
+/// A file the formatter would rewrite: two spaces of indentation where the
+/// canonical form has four.
+const UNFORMATTED: &str = "fn main() {\n  print(\"a\");\n  print(\"b\");\n}\n";
 
 #[test]
 fn check_exits_one_for_a_file_that_would_change_and_names_it() {

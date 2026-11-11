@@ -58,10 +58,10 @@ const OPTIONS: VerifyOptions = VerifyOptions {
 
 const USAGE: &str = "\
 usage:
-  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source]
-  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
+  yashy build <file.ya> [-o <out>] [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--pgo] [--emit-ir] [--opt-report[=json]] [--timings] [--jobs <n>] [--no-opt=<pass>] [--opt-list] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible]
+  yashy run <file.ya> [-O0|-O1|-O2|-O3] [--cpu <tier>] [--fast-math] [--release] [--no-lto] [--timings] [--jobs <n>] [--no-opt=<pass>] [--no-verify] [--stdlib-source] [--target <triple>] [--reproducible] [--debug] [--sandbox] [--allow-read <path>] [--allow-write <path>] [--time <ms>] [--memory <mb>] [-- <args>...]
   yashy tasks <file.ya> [-- <args>...]
-  yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings]
+  yashy check <file.ya> [--json] [--timings] [--jobs <n>] [--deny warnings] [--allow warnings] [--print-cfg] [--target <triple>]
   yashy verify <file.ya> [--json] [--timings] [--jobs <n>] [--inventory]
   yashy test [path] [--filter <substring>] [--list] [--json] [--timings] [--jobs <n>]
   yashy explain <code> [--json]
@@ -84,7 +84,7 @@ usage:
   yashy audit [dir] [--json]
   yashy publish [dir] --registry <dir>
   yashy search <query> --registry <dir>
-  yashy fmt [-w] <files...>
+  yashy fmt [-w | --check] [--json] <files...>
   yashy version
 
   build   compile a program to a native executable
@@ -296,6 +296,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // The triple this build is for. `None` means the host, which is what every
     // build before `--target` existed meant.
     let mut target: Option<&'static str> = None;
+    // Build for bytes that depend only on the tree, not on the clock or the
+    // build directory.
+    let mut reproducible = false;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -324,6 +327,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             },
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
+            "--reproducible" => reproducible = true,
             "--target" => match args.next() {
                 Some(value) => match target_flag(value) {
                     Ok(triple) => target = Some(triple),
@@ -504,7 +508,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         Ok(source) => source,
         Err(code) => return stopped(code),
     };
-    let entry = input.to_string_lossy().into_owned();
+    let entry = if reproducible {
+        reproducible_entry(&input)
+    } else {
+        input.to_string_lossy().into_owned()
+    };
 
     // Timings are collected only when asked. An empty vector is how the
     // outcome says "the flag was not passed", so `build` prints without having
@@ -702,6 +710,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         async_,
         ir_cache: !stdlib_source,
         target,
+        reproducible,
     };
     let code = match compile_hir_timed(
         &sources,
@@ -754,8 +763,27 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     BuildOutcome { code, timings }
 }
 
-/// The provenance stamp that sits beside an unverified binary.
+/// The name the IR carries for the entry file in a reproducible build.
 ///
+/// The name has to be the same in two builds of the same source in two
+/// directories, so it is relative to the working directory when the file is
+/// under it, and the file's own name when it is not. A path that named the
+/// build directory would make the IR -- and every hash computed from it --
+/// depend on where the build happened.
+fn reproducible_entry(path: &Path) -> String {
+    let relative = std::env::current_dir()
+        .ok()
+        .and_then(|root| path.strip_prefix(root).ok())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| {
+            path.file_name()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| path.to_path_buf())
+        });
+    relative.to_string_lossy().replace('\\', "/")
+}
+
+/// The provenance stamp that sits beside an unverified binary.///
 /// `hello.exe` becomes `hello.exe.unverified`, so the pair travels together
 /// through a copy or a package without a manifest to keep in step.
 fn unverified_sidecar(output: &Path) -> PathBuf {
@@ -876,7 +904,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                 }
             }
             "--release" | "--fast-math" | "--native" | "--timings" | "--no-verify" | "--no-lto"
-            | "--offline" | "--stdlib-source" => {
+            | "--offline" | "--stdlib-source" | "--reproducible" => {
                 if mode == RunMode::Tasks && argument == "--release" {
                     return usage_error("`tasks` needs a debug build; `--release` is refused");
                 }

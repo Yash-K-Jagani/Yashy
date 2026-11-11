@@ -108,11 +108,11 @@ See the master index. The ones that bite here:
 - Produces: `yashy build --reproducible` sets a fixed timestamp, normalises source paths to a workspace-relative form, sorts every map before emission, and passes `-ffile-prefix-map` to `clang`.
 - Produces: `scripts/repro-check` builds twice in two directories and compares SHA-256; exit 1 with the first differing byte offset on failure.
 
-- [ ] **Step 1: Write the failing test** — build `examples/hello` twice in two temp directories; the two binaries differ today (timestamp or path). Assert equality after the fix.
-- [ ] **Step 2: Watch it fail**, and record *which* input caused the difference — that list is the actual work.
-- [ ] **Step 3: Implement** — the timestamp comes from `SOURCE_DATE_EPOCH` (default: the commit time, from `git log -1 --format=%ct`, falling back to 0); paths are mapped; `HashMap` iteration is replaced by `BTreeMap` anywhere it reaches output.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test reproducible` and `scripts/repro-check` on both OSes → identical hashes.
-- [ ] **Step 5: Commit** — `git commit -m "feat(build): reproducible binaries from a fixed epoch and normalised paths"`
+- [x] **Step 1: Write the failing test** — build `examples/hello` twice in two temp directories; the two binaries differ today (timestamp or path). Assert equality after the fix.
+- [x] **Step 2: Watch it fail**, and record *which* input caused the difference — that list is the actual work.
+- [x] **Step 3: Implement** — the timestamp comes from `SOURCE_DATE_EPOCH` (default: the commit time, from `git log -1 --format=%ct`, falling back to 0); paths are mapped; `HashMap` iteration is replaced by `BTreeMap` anywhere it reaches output.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test reproducible` and `scripts/repro-check` on both OSes → identical hashes.
+- [x] **Step 5: Commit** — `git commit -m "feat(build): reproducible binaries from a fixed epoch and normalised paths"`
 
 ---
 

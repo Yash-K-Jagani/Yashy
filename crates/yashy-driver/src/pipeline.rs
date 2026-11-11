@@ -643,7 +643,7 @@ fn ir_cache_key(
         .collect();
     files.sort();
     let flags = format!(
-        "{entry_name}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{entry_name}|{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         options.opt,
         options.cpu,
         options.fast_math,
@@ -654,6 +654,8 @@ fn ir_cache_key(
         options.lto,
         options.pgo,
         options.async_,
+        options.reproducible,
+        options.target,
     );
     let version = format!(
         "{}/{}/{}/{}",
@@ -722,6 +724,8 @@ fn cached_runtime_object(
     target: &str,
     opt: OptLevel,
     toolchain: &Toolchain,
+    extra_flags: &[String],
+    epoch: Option<&str>,
 ) -> Option<PathBuf> {
     let object = cache_dir.join(format!("yashy-{stem}-{cache_key:016x}.o"));
     if object.is_file() {
@@ -733,17 +737,21 @@ fn cached_runtime_object(
         "yashy-{stem}-{cache_key:016x}.{}.tmp",
         std::process::id()
     ));
-    let status = Command::new(&toolchain.llc)
-        .args([
-            "-c".to_string(),
-            display(source),
-            "-o".to_string(),
-            display(&staged),
-            format!("-I{}", display(include_dir)),
-            format!("--target={target}"),
-            opt.flag().to_string(),
-        ])
-        .output();
+    let mut command = Command::new(&toolchain.llc);
+    command.args([
+        "-c".to_string(),
+        display(source),
+        "-o".to_string(),
+        display(&staged),
+        format!("-I{}", display(include_dir)),
+        format!("--target={target}"),
+        opt.flag().to_string(),
+    ]);
+    command.args(extra_flags.iter().cloned());
+    if let Some(epoch) = epoch {
+        command.env("SOURCE_DATE_EPOCH", epoch);
+    }
+    let status = command.output();
     match status {
         Ok(output) if output.status.success() => {}
         _ => {
@@ -832,6 +840,14 @@ pub struct BuildOptions {
     /// `cfg!(target_os)` anywhere in the build would make a cross build claim
     /// the host's layout while linking the target's runtime.
     pub target: &'static str,
+    /// Build for a byte-identical result.
+    ///
+    /// The timestamp is fixed (from `SOURCE_DATE_EPOCH`, the commit time, or
+    /// zero), the source paths are normalised to a form that does not depend
+    /// on the build directory, and the linker is asked for a reproducible
+    /// image. Two builds of the same tree then produce the same bytes, which
+    /// is what lets a stranger recompute the hash of a release.
+    pub reproducible: bool,
 }
 
 impl Default for BuildOptions {
@@ -849,6 +865,7 @@ impl Default for BuildOptions {
             async_: true,
             ir_cache: true,
             target: host_target_triple(),
+            reproducible: false,
         }
     }
 }
@@ -1518,6 +1535,15 @@ pub fn compile_hir_timed(
     timings.push(TimingRow::Lto {
         mode: if lto { "thin" } else { "off" },
     });
+    // The epoch is read once, so every invocation of the toolchain in this
+    // build stamps the same instant, and the flags are the same for the
+    // runtime objects and for the link.
+    let epoch = if options.reproducible {
+        Some(reproducible_epoch())
+    } else {
+        None
+    };
+    let extra_flags = reproducibility_flags(&options, target);
     let runtime_objects = if lto {
         None
     } else {
@@ -1532,6 +1558,8 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
+                &extra_flags,
+                epoch.as_deref(),
             )?;
             let hashmap = cached_runtime_object(
                 &cache_dir,
@@ -1542,6 +1570,8 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
+                &extra_flags,
+                epoch.as_deref(),
             )?;
             let executor = cached_runtime_object(
                 &cache_dir,
@@ -1552,6 +1582,8 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
+                &extra_flags,
+                epoch.as_deref(),
             )?;
             let net = cached_runtime_object(
                 &cache_dir,
@@ -1562,6 +1594,8 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
+                &extra_flags,
+                epoch.as_deref(),
             )?;
             let platform = cached_runtime_object(
                 &cache_dir,
@@ -1572,6 +1606,8 @@ pub fn compile_hir_timed(
                 target,
                 options.opt,
                 toolchain,
+                &extra_flags,
+                epoch.as_deref(),
             )?;
             Some((runtime, hashmap, executor, net, platform))
         })
@@ -1594,7 +1630,7 @@ pub fn compile_hir_timed(
             extra,
         );
         timed(timings, "link", || {
-            run_tool(toolchain, &args, entry_name, what)
+            run_tool(toolchain, &args, entry_name, what, epoch.as_deref())
         })
     };
 
@@ -1654,6 +1690,7 @@ fn link_arguments(
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
     args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
+    args.extend(reproducibility_flags(&options, target));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
     // asks the toolchain its version and supplies the one flag LLVM 14 needs;
     // newer clang releases get nothing because the mode is already the default
@@ -1931,13 +1968,78 @@ fn parse_clang_major(version: &str) -> Option<u32> {
 ///
 /// `what` names the step for the message, so a link failure says which of the
 /// two invocations failed.
+/// The flags that make one build's bytes independent of where it ran.
+///
+/// Three things reach a binary that a stranger cannot recompute: the clock,
+/// the build directory's path, and the linker's own idea of an identity.
+/// A reproducible build answers all three.
+///
+/// The path is mapped rather than removed: `-ffile-prefix-map` tells the
+/// compiler that the directory it is running in is really `.`, which covers
+/// the debug info, the `__FILE__` macros and the compilation directory in one
+/// flag. The timestamp is the linker's: a PE image carries one in its header,
+/// and `/Brepro` makes the linker derive it from the content instead of the
+/// clock. An ELF image's build id is already a hash of the output, and a
+/// Mach-O image's UUID is a hash too, so neither needs a flag.
+fn reproducibility_flags(options: &BuildOptions, target: &str) -> Vec<String> {
+    if !options.reproducible {
+        return Vec::new();
+    }
+    let mut flags = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        flags.push(format!(
+            "-ffile-prefix-map={}=.",
+            cwd.to_string_lossy().replace('\\', "/")
+        ));
+    }
+    if target.contains("windows") {
+        flags.push("-Wl,/Brepro".to_string());
+    }
+    flags
+}
+
+/// The epoch a reproducible build stamps its output with.
+///
+/// `SOURCE_DATE_EPOCH` wins, because it is how every other tool in the
+/// ecosystem says the same thing. Failing that the commit time of the tree
+/// being built, because two people building the same commit must agree. Zero
+/// is the last resort: it is still a fixed instant.
+fn reproducible_epoch() -> String {
+    if let Ok(value) = std::env::var("SOURCE_DATE_EPOCH") {
+        let trimmed = value.trim();
+        if trimmed.parse::<u64>().is_ok() {
+            return trimmed.to_string();
+        }
+    }
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%ct"])
+        .output()
+    {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if text.parse::<u64>().is_ok() {
+                return text;
+            }
+        }
+    }
+    "0".to_string()
+}
+
 fn run_tool(
     toolchain: &Toolchain,
     args: &[String],
     entry_name: &str,
     what: &str,
+    epoch: Option<&str>,
 ) -> Result<(), Vec<Diagnostic>> {
-    let output = match Command::new(&toolchain.llc).args(args).output() {
+    let mut command = Command::new(&toolchain.llc);
+    command.args(args);
+    if let Some(epoch) = epoch {
+        // The compiler expands `__DATE__` and `__TIME__` from this, and so
+        // does anything it links; a fixed epoch is what makes them fixed.
+        command.env("SOURCE_DATE_EPOCH", epoch);
+    }
+    let output = match command.output() {
         Ok(output) => output,
         Err(error) => {
             return Err(vec![toolchain_diagnostic(

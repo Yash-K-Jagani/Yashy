@@ -40,6 +40,7 @@ yashy build main.ya --emit-ir
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
 | `--jobs <n>` | Threads the front end may parse on. `0` (default) uses one per core; `1` is serial. See [`--jobs`](#--jobs-n). |
 | `--target <triple>` | Build for this platform rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
+| `--reproducible` | Build for bytes that depend only on the tree: a fixed timestamp, no absolute paths in the IR, and a reproducible link. See [Reproducible builds](#reproducible-builds). |
 
 ## `yashy run <file.ya>`
 
@@ -263,6 +264,37 @@ cross runtime. A target whose toolchain is missing is
 `run` and `test` refuse a target other than the host: they run what they
 build, and a binary for another platform cannot start here. `build` is the way
 to make a program for another platform.
+
+## Reproducible builds
+
+`yashy build --reproducible` builds for bytes that depend only on the tree
+and not on the machine:
+
+```text
+yashy build --reproducible main.ya -o hello
+```
+
+Three things normally make two builds of the same source differ, and the flag
+answers all three:
+
+| What differs | What the flag does |
+|---|---|
+| The clock | The timestamp is fixed: `SOURCE_DATE_EPOCH` if the environment sets it, otherwise the commit time of the tree, otherwise zero. |
+| The build directory | The source is named relative to the working directory, and `clang` is told `-ffile-prefix-map` so the debug info and the `__FILE__` macros do not carry the path either. |
+| The linker's own idea of an identity | A PE image carries the time it was made in its header; the linker is asked for a reproducible image, so that stamp comes from the content. |
+
+Two builds of the same source in two different directories then produce the
+same bytes, which is what lets a stranger recompute the hash of a release.
+
+`scripts/repro-check.sh` (and `scripts/repro-check.ps1` on Windows) checks
+the claim on a machine: it builds `examples/hello` twice, in two temporary
+directories, and compares the SHA-256 of the two binaries. When they differ
+it prints the first differing byte offset, because "the builds differ" is not
+an answer a person can act on.
+
+The compiler's own output is already ordered: the one map the emitter
+iterates is a `BTreeMap`, and the maps that are only looked up never reach
+the output.
 
 ## `yashy expand <file.ya> [--json]`
 
