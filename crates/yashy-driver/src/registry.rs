@@ -1,12 +1,19 @@
-//! A local package registry.
+//! A package registry: a directory on this machine, or a URL.
 //!
 //! The registry is a directory with `index.json` and one uncompressed
 //! `.tar` file per tree hash under `packages/`. Publishing writes the
 //! tarball through a staging file and renames it into place, and writes the
 //! index the same way. A duplicate name-and-version with a different hash is
 //! an error; the same name-and-version and hash is an idempotent republish.
+//!
+//! A *read* may also come from a URL, because the registry a release
+//! publishes is a static index on a host and not a directory on the reader's
+//! machine. Publishing stays local: `file://` is where a package is written,
+//! and a pull request to the registry's repository is how a package gets
+//! there.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use yashy_common::Json;
 use yashy_manifest::{hash_tree, Manifest};
@@ -17,6 +24,50 @@ pub struct RegistryEntry {
     pub version: String,
     pub hash: String,
     pub description: String,
+}
+
+/// Where a registry lives.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RegistrySource {
+    /// A directory on this machine.
+    Local(PathBuf),
+    /// A URL: `http://` for a host on this machine, `https://` for one that is
+    /// not.
+    Remote(String),
+}
+
+impl RegistrySource {
+    /// How the source is named in a message.
+    pub fn describe(&self) -> String {
+        match self {
+            RegistrySource::Local(path) => path.display().to_string(),
+            RegistrySource::Remote(url) => url.clone(),
+        }
+    }
+
+    /// Whether the source is on this machine.
+    pub fn is_local(&self) -> bool {
+        matches!(self, RegistrySource::Local(_))
+    }
+}
+
+/// The registry a spec names.
+///
+/// A spec is a directory, a `file://` URL, or an `http(s)://` URL. The URL
+/// forms are for *reading*: publishing needs a directory it can write to.
+pub fn registry_source(spec: &str) -> Result<RegistrySource, RegistryError> {
+    if let Some(rest) = spec.strip_prefix("file://") {
+        return Ok(RegistrySource::Local(PathBuf::from(rest)));
+    }
+    if spec.starts_with("http://") || spec.starts_with("https://") {
+        return Ok(RegistrySource::Remote(spec.to_string()));
+    }
+    if Path::new(spec).is_absolute() {
+        return Ok(RegistrySource::Local(PathBuf::from(spec)));
+    }
+    Err(registry_error(format!(
+        "registry must be an absolute path, a file URL, or an http URL, not `{spec}`"
+    )))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,6 +140,114 @@ pub fn search(root: &Path, query: Option<&str>) -> Result<Vec<RegistryEntry>, Re
         entries.retain(|entry| {
             entry.name.contains(query) || entry.version.contains(query)
         });
+    }
+    Ok(entries)
+}
+
+/// The index of a registry, wherever it lives.
+pub fn fetch_index(source: &RegistrySource) -> Result<Vec<RegistryEntry>, RegistryError> {
+    match source {
+        RegistrySource::Local(root) => read_index(root),
+        RegistrySource::Remote(url) => {
+            let index_url = format!("{}/index.json", url.trim_end_matches('/'));
+            let bytes = fetch_url(&index_url)?;
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            read_index_text(&text)
+        }
+    }
+}
+
+/// The tarball of one entry, wherever the registry lives.
+pub fn fetch_tarball(
+    source: &RegistrySource,
+    entry: &RegistryEntry,
+) -> Result<Vec<u8>, RegistryError> {
+    let hash = entry.hash.trim_start_matches("sha256:");
+    match source {
+        RegistrySource::Local(root) => {
+            let path = root.join("packages").join(format!("{hash}.tar"));
+            std::fs::read(&path).map_err(|error| {
+                registry_error(format!("cannot read {}: {error}", path.display()))
+            })
+        }
+        RegistrySource::Remote(url) => {
+            let tarball_url = format!(
+                "{}/packages/{hash}.tar",
+                url.trim_end_matches('/')
+            );
+            fetch_url(&tarball_url)
+        }
+    }
+}
+
+/// Fetch a URL.
+///
+/// The transport is `curl`, and the reason is TLS: the compiler ships no TLS
+/// stack, and a registry fetched over plaintext is a registry whose packages
+/// can be replaced in flight. `--proto =https` is what makes the refusal
+/// real -- it tells curl not to follow a redirect to a plaintext URL, and not
+/// to speak plaintext at all when the URL says `https`.
+///
+/// A machine without `curl` gets a message that names it, rather than a
+/// silent fallback to something that is not secure.
+fn fetch_url(url: &str) -> Result<Vec<u8>, RegistryError> {
+    let program = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let mut command = Command::new(program);
+    command.args(["--fail", "--silent", "--show-error", "--location"]);
+    if url.starts_with("https://") {
+        command.arg("--proto").arg("=https");
+    }
+    command.arg(url);
+    let output = command.output().map_err(|error| {
+        registry_error(format!(
+            "cannot run `{program}` to fetch {url}: {error}. \
+             A registry over HTTPS needs curl; a registry on this machine needs a path."
+        ))
+    })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(registry_error(format!(
+            "cannot fetch {url}: {}",
+            if detail.is_empty() {
+                "the request failed".to_string()
+            } else {
+                detail
+            }
+        )));
+    }
+    Ok(output.stdout)
+}
+
+/// The entry for one name and version, wherever the registry lives.
+pub fn lookup_source(
+    source: &RegistrySource,
+    name: &str,
+    version: &str,
+) -> Result<Option<RegistryEntry>, RegistryError> {
+    let mut entries = fetch_index(source)?;
+    entries.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    Ok(entries
+        .into_iter()
+        .find(|entry| entry.name == name && entry.version == version))
+}
+
+/// The entries of a registry that match a query, wherever it lives.
+pub fn search_source(
+    source: &RegistrySource,
+    query: Option<&str>,
+) -> Result<Vec<RegistryEntry>, RegistryError> {
+    let mut entries = fetch_index(source)?;
+    entries.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    if let Some(query) = query {
+        entries.retain(|entry| entry.name.contains(query) || entry.version.contains(query));
     }
     Ok(entries)
 }

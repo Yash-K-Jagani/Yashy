@@ -168,7 +168,7 @@ See the master index. The ones that bite here:
 - [x] **Step 1: Write the failing tests** - the phase 11 escape corpus is replayed through `POST /run`; every attempt is denied; a fork bomb is killed at the process cap; a 64 KB+ source is `413`; 100 requests from one IP hit the rate limit.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** - the server is a thin shell around the compiler binary with a temp dir per request; the front end is static HTML/JS with no build step, because a playground that needs a toolchain is not a playground.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test playground` → PASS.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test playground` → PASS.
 - [x] **Step 5: Commit** - `git commit -m "feat(playground): compile and run in the sandbox, not in the browser"`
 
 ---

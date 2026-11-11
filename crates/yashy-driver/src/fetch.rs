@@ -68,7 +68,7 @@ impl Store {
     pub fn registry_checkout(
         &self,
         entry: &RegistryEntry,
-        registry_root: &Path,
+        source: &crate::registry::RegistrySource,
         offline: bool,
     ) -> Result<PathBuf, FetchError> {
         let hash = entry.hash.trim_start_matches("sha256:");
@@ -82,13 +82,10 @@ impl Store {
                 entry.name, entry.version
             )));
         }
-        let tarball = registry_root
-            .join("packages")
-            .join(format!("{hash}.tar"));
-        let bytes = std::fs::read(&tarball).map_err(|error| {
+        let bytes = crate::registry::fetch_tarball(source, entry).map_err(|error| {
             FetchError::new(format!(
-                "cannot read registry tarball {}: {error}",
-                tarball.display()
+                "cannot read the registry tarball for `{}@{}`: {error}",
+                entry.name, entry.version
             ))
         })?;
         let _entries = read_tarball(&bytes).map_err(|error| {
@@ -233,14 +230,19 @@ impl Store {
     }
 }
 
-pub fn default_registry_root_for(store: &Path) -> PathBuf {
+/// The registry a build reads from.
+///
+/// `YASHY_REGISTRY` names it: a directory on this machine, or a URL. Without
+/// it, the store's own `registry` directory is the registry, which is where a
+/// package fetched from a URL is kept.
+pub fn default_registry_source(store: &Path) -> crate::registry::RegistrySource {
     if let Some(value) = env::var_os("YASHY_REGISTRY") {
         let text = value.to_string_lossy();
-        if let Ok(path) = crate::registry::registry_path(&text) {
-            return path;
+        if let Ok(source) = crate::registry::registry_source(&text) {
+            return source;
         }
     }
-    store.join("registry")
+    crate::registry::RegistrySource::Local(store.join("registry"))
 }
 
 /// `%LOCALAPPDATA%/yashy/packages` and its siblings, with the two explicit

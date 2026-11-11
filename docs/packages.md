@@ -187,12 +187,50 @@ ok: 2 packages, 8301 bytes
 build stops with [E1803](errors/E1803.md) naming it rather than reaching for
 the network.
 
+## A hosted registry
+
+The registry a release publishes is a *static* index: `index.json` and one
+tarball per package. There is no service, no database and no upload API --
+the directory is the registry, and the URL of the directory is the registry's
+address.
+
+Reading from a URL works the same way as reading from a directory:
+
+```text
+$ cd consumer
+$ YASHY_REGISTRY=https://packages.example.com/ yashy add cli@0.1.0
+$ YASHY_REGISTRY=https://packages.example.com/ yashy build main.ya
+```
+
+The package's tree hash is the integrity check: the tarball is unpacked into
+the store, the tree is hashed, and the hash must be the one the index names. A
+tarball that was changed on the way is refused, and the build stops with the
+two hashes in the message.
+
+An `https://` registry is fetched over TLS, and the fetch fails rather than
+falling back to plaintext. The compiler ships no TLS stack of its own, so the
+fetch uses `curl`; a machine without it gets a message that names it.
+
+Publishing stays local. A package reaches a hosted registry by a pull request
+to the registry's repository, reviewed by a person:
+
+```text
+$ scripts/publish-registry.sh registry
+publishing bench
+publishing cli
+publishing fuzz
+publishing http
+publishing net
+publishing test
+published 6 package(s) into registry
+```
+
 ## What the prototype does not do
 
 - There is no version solver. Every dependency is an exact pin.
-- `--registry` takes an absolute path or a `file://` URL. There is no HTTP
-  registry service and no authentication.
+- `--registry` takes an absolute path, a `file://` URL, or an `http(s)://` URL
+  to read from. Publishing needs a directory it can write to.
 - A registry entry carries no signature beyond its content hash, so trust is
-  the decision to point `YASHY_REGISTRY` at that directory.
+  the decision to point `YASHY_REGISTRY` at that registry.
 - `yashy publish` writes the tree as it is; it does not run the package's
   tests first. Run `yashy test` before publishing.

@@ -269,8 +269,8 @@ impl Resolver<'_> {
                 ))
             }
             Dependency::Registry { version } => {
-                let registry_root = crate::fetch::default_registry_root_for(self.store.root());
-                let entry = crate::registry::lookup(&registry_root, name, version)
+                let registry = crate::fetch::default_registry_source(self.store.root());
+                let entry = crate::registry::lookup_source(&registry, name, version)
                     .map_err(|error| ResolveError::offline(error.message))?
                     .ok_or_else(|| {
                         ResolveError::offline(format!(
@@ -280,11 +280,11 @@ impl Resolver<'_> {
                     })?;
                 let root = self
                     .store
-                    .registry_checkout(&entry, &registry_root, self.offline)
+                    .registry_checkout(&entry, &registry, self.offline)
                     .map_err(fetch_error)?;
                 Ok((
                     root,
-                    format!("registry+file://{}", registry_root.display()),
+                    format!("registry+{}", registry.describe()),
                     self.locked_version(name),
                 ))
             }
