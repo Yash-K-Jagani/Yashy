@@ -95,6 +95,7 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 | `crates/yashy-lsp` | the language server |
 | `docs/tutorial` | the executable language tutorial |
 | `docs/superpowers` | design records and milestone plans |
+| `packages` | the workspace's own packages (`net`, `http`, `cli`, `test`, `bench`, `fuzz`) |
 | `scripts` | release packaging and installer tests |
 | `examples` | complete projects used by the examples test |
 
@@ -178,6 +179,13 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
   `Result[string, io.Error]`, `getenv` is `Option[string]`, `parse_i64` is
   `Option[int]`. `""` and `0` are values a program can produce legitimately, so
   they cannot also mean "failed".
+- **The standard library is a product.** A module under
+  `crates/yashy-stdlib/yashy` documents each `pub fn` with `///` or `/** */`
+  and has a program under `crates/yashy-driver/tests/programs/stdlib/`. Its
+  fallible functions answer `Result` or `Option`, never a sentinel. The e2e
+  suite runs every program twice, compares the bytes, and requires the leak
+  report to read zero. `docs/stdlib.md` is generated from the same doc tables
+  by `yashy doc`; edit the module, never the page.
 - **Bitwise arithmetic is checked and total.** `& | ^ ~ << >>` take integers
   (and `bool` for the first three) with no implicit widening; a shift count out
   of range is a fault at run time and `E0105` in a `const`. `>>` is arithmetic

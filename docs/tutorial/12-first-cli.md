@@ -239,8 +239,9 @@ pub fn count_words(string line) -> int {
 
 The `import wc_words;` line looks for `wc_words.ya` beside the file that
 imports it. A module's items are private unless they say `pub`, which is why
-`count_words` is public and `main` is not. There is no package manager involved
-yet: a module is a file, and its path is its name.
+`count_words` is public and `main` is not. A module beside your program is one
+way to split work; a package another project depends on is the other, and this
+chapter adds one below.
 
 `args()` returns the program's user arguments as a fresh `[]string`; the
 executable's own path is not included. The result is owned, so the program
@@ -319,6 +320,75 @@ yashy run main.ya
 ```text
 usage: wordcount <file>
 ```
+
+## Use the standard library
+
+The standard library is a set of packages shipped with the compiler. Import the
+module you need and call a `pub fn`; names stay inside the module, so `string`
+and `path` can both have a `join` without collision.
+
+```yashy
+import string;
+
+fn main() {
+    const parts = []string { "one", "two", "three" };
+    print(string.join_list(parts, " "));
+    print(string.pad_start("7", 3, "0"));
+    print(string.pad_end("7", 3, "."));
+}
+// => one two three
+// => 007
+// => 7..
+```
+
+`join_list` consumes the slice, because a slice is linear: the function reads it
+once and releases it, so the caller does not free it again. `pad_start` and
+`pad_end` answer new strings. The full list, with one section per module, is
+[the standard library reference](../stdlib.md); it is generated from the same
+doc blocks `yashy doc` reads.
+
+The modules worth knowing on day one: `string` (and `text` for base64 and hex),
+`path`, `fs`, `env`, `args`, `io`, `process`, `time`, `datetime`, `hash`,
+`JSON`, `math`, `collections`, `regex`, `csv`, `glob`, `term`, `os`, `rand` and
+`iter`. A function that can fail returns `Result` or `Option`; none of them
+returns `""` or `0` to mean "failed".
+
+## Add a dependency
+
+A package is a directory with a `yashy.toml`. The compiler can add one by path,
+by pinned git commit, or by exact version from a local registry. This walk-through
+uses a path, because it needs no network and no registry.
+
+Make a tiny package beside the project:
+
+```text
+mkdir count
+```
+
+```toml
+# count/yashy.toml
+[package]
+name = "count"
+version = "0.1.0"
+```
+
+A package's modules live under `src/` when it has one, so
+`count/src/count.ya` can hold `pub fn words(string line) -> int` and the
+function is reached as `count.words(line)`. Then add it to the word-count
+project:
+
+```text
+yashy add count --path ../count
+```
+
+`add` appends a `[dependencies.count]` table to `yashy.toml` and runs
+`yashy update`, which writes `yashy.lock`. Resolution is a set of exact pins,
+so the lock and the manifest must agree; `yashy lock --check` says so. From
+then on `import count;` reaches `count/src/count.ya` without any `YASHY_PATH`
+setup, and `yashy build --offline` works from the warm store.
+
+The manifest grammar, the lockfile, `yashy audit`, and the publish → depend →
+build cycle with a local registry are in [packages](../packages.md).
 
 ## Add a test
 

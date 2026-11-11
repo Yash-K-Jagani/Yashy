@@ -722,7 +722,9 @@ through `YASHY_DEBUG=1`.
 ## `yashy.toml` and `yashy lock --check`
 
 A project may carry a manifest beside its source. The reader is a documented
-subset of TOML, hand-written so the compiler keeps building offline:
+subset of TOML, hand-written so the compiler keeps building offline. The full
+story — lockfile, store, audit and the local registry — is in
+[packages](packages.md).
 
 ```text
 file       := line*
@@ -797,9 +799,29 @@ package root at the front of `YASHY_PATH` for the duration of the build, so
 The store lives under `YASHY_PACKAGE_STORE` when set, otherwise under the
 compiler's cache directory: `YASHY_CACHE_DIR/packages`, or the platform
 convention (`%LOCALAPPDATA%/yashy/packages`, `$XDG_CACHE_HOME/yashy/packages`,
-`~/.cache/yashy/packages`). A registry dependency is parsed and pinned by exact
-version, but this build has no registry configured yet, so resolving one stops
-with `E1803` and asks for a `path` or `git`+`rev` dependency instead.
+`~/.cache/yashy/packages`). A registry dependency is looked up by exact version
+in `YASHY_REGISTRY` (or `store/registry`), its tarball hash is checked, and the
+tree is unpacked into the store.
+
+### `audit`, `publish` and a local registry
+
+```text
+yashy audit [dir] [--json]
+yashy publish [dir] --registry <absolute-path-or-file-url>
+yashy add <name>@<version> --registry <dir>
+```
+
+`yashy audit` reads the resolved graph and reports missing exact versions,
+wrong sources, a lockfile that disagrees with the manifest, and an untrusted
+registry; each finding is [E1804](errors/E1804.md). A clean run prints
+`ok: N packages, M bytes` and exits 0.
+
+A registry is a directory: `index.json` plus `packages/<hash>.tar`, written
+through staging files and renamed into place. `publish` takes the name,
+version and description from the package's `yashy.toml` and hashes the whole
+tree. `YASHY_REGISTRY` names the registry a later resolution uses; `add
+<name>@<version> --registry <dir>` sets it for the update it runs. The worked
+publish → depend → build cycle is in [packages](packages.md#a-local-registry).
 
 ## Flags the native foundation did not add
 

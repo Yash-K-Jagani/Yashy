@@ -195,11 +195,11 @@ private `YASHY_PACKAGE_STORE` per test.
 - Produces: `net.listen`, `net.accept`, `net.connect`, `net.read`, `net.write`, `net.close` as linear handles (typestate: `Open`/`Closed`, so double-close is `E1400`).
 - Produces: `net` is an `io` effect; a `pure fn` cannot open a socket (`E1300`).
 
-- [ ] **Step 1: Write the failing tests** — loopback connect/accept/echo on both OSes; a closed socket read returns EOF, not a panic; a connect to a closed port returns an error `Result`; the linear handle cannot be used after close (`E1401`); 100 sequential connections leak no handles.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — Winsock and POSIX behind one small `#ifdef` pair in `net.c`; every function returns a value, none aborts; `WSAStartup` runs once from a `pthread_once`/`INIT_ONCE`.
-- [ ] **Step 4: Run** `cargo test -p yashy-runtime --test net` → PASS on both OSes.
-- [ ] **Step 5: Commit** — `git commit -m "feat(runtime): TCP sockets with linear handles"`
+- [x] **Step 1: Write the failing tests** — loopback connect/accept/echo on both OSes; a closed socket read returns EOF, not a panic; a connect to a closed port returns an error `Result`; the linear handle cannot be used after close (`E1401`); 100 sequential connections leak no handles.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — Winsock and POSIX behind one small `#ifdef` pair in `net.c`; every function returns a value, none aborts; `WSAStartup` runs once from a `pthread_once`/`INIT_ONCE`.
+- [x] **Step 4: Run** `cargo test -p yashy-runtime --test net` → PASS on both OSes.
+- [x] **Step 5: Commit** — `git commit -m "feat(runtime): TCP sockets with linear handles"`
 
 ---
 
@@ -214,11 +214,11 @@ private `YASHY_PACKAGE_STORE` per test.
 - Produces: `http.get(url) -> Result[Response, Error]`, `http.post(url, body, headers)`, and a server: `http.serve(addr, handler)` where `handler: fn(Request) -> Response`.
 - Produces: HTTP/1.1 with keep-alive, `Content-Length` and chunked request bodies, a 10 MB body cap, a 10 s header timeout, a 30 s idle timeout, and one thread per connection up to a configurable cap.
 
-- [ ] **Step 1: Write the failing tests** — a request line and headers parse; a chunked body reassembles; an oversized body is `413` and the connection closes; a slowloris client is disconnected at the header timeout; 50 concurrent clients all get responses; keep-alive serves two requests on one connection; the client follows one redirect and reports the final URL.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — request parsing is a byte-level state machine in Yashy (no regex); the handler runs on the connection thread; errors become status codes, never panics. The client sets timeouts and caps the response body like the server caps the request.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test examples http-service` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(http): a client and a server that survive a real client"`
+- [x] **Step 1: Write the failing tests** — a request line and headers parse; a chunked body reassembles; an oversized body is `413` and the connection closes; a slowloris client is disconnected at the header timeout; 50 concurrent clients all get responses; keep-alive serves two requests on one connection; the client follows one redirect and reports the final URL.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — request parsing is a byte-level state machine in Yashy (no regex); the handler runs on the connection thread; errors become status codes, never panics. The client sets timeouts and caps the response body like the server caps the request.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test examples http-service` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(http): a client and a server that survive a real client"`
 
 ---
 
@@ -234,11 +234,11 @@ private `YASHY_PACKAGE_STORE` per test.
 - Produces: `bench.run(name, iterations, body)` printing `key=value` lines the phase 3 bench parser already understands.
 - Produces: `fuzz.run(target, iterations, seed)` with a deterministic corpus directory and a minimiser that keeps the shortest failing input.
 
-- [ ] **Step 1: Write the failing tests** — each package has a `tests/*.ya` program that exercises its public surface and exits 0; `cli`'s `--help` output is asserted; `fuzz` finds a seeded bug in a deliberately broken parser in under 5 000 iterations and minimises it to ≤ 8 bytes.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — each package is ordinary Yashy with a manifest and a lock entry; none is special-cased in the driver, which is the point of Task 4's dogfooding.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test examples` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(packages): cli, test, bench and fuzz"`
+- [x] **Step 1: Write the failing tests** — each package has a `tests/*.ya` program that exercises its public surface and exits 0; `cli`'s `--help` output is asserted; `fuzz` finds a seeded bug in a deliberately broken parser in under 5 000 iterations and minimises it to ≤ 8 bytes.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — each package is ordinary Yashy with a manifest and a lock entry; none is special-cased in the driver, which is the point of Task 4's dogfooding.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test examples` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(packages): cli, test, bench and fuzz"`
 
 ---
 
@@ -254,11 +254,11 @@ private `YASHY_PACKAGE_STORE` per test.
 - Produces: checks — lockfile matches manifest; every package is exact-pinned; every source is `path`/`git@rev`/`registry`; no package contains a build script (it cannot, by construction, but a stray `build.rs` is reported); every package declares a license; the dependency count and total source bytes are reported.
 - Produces: `--json` with `{"schema_version":1,"ok":false,"findings":[{"code","package","detail"}]}`; exit 1 on any finding.
 
-- [ ] **Step 1: Write the failing tests** — a clean project is `ok: true`; a lockfile mismatch is `E1802` surfaced as an audit finding; a git dependency without a rev is `E1800` at manifest parse; a package with no license is a finding; the JSON is stable.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — audit is a thin composition of checks that already exist, plus the license and size report. It never runs code from a dependency.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test audit` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(pkg): yashy audit (E1804)"`
+- [x] **Step 1: Write the failing tests** — a clean project is `ok: true`; a lockfile mismatch is `E1802` surfaced as an audit finding; a git dependency without a rev is `E1800` at manifest parse; a package with no license is a finding; the JSON is stable.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — audit is a thin composition of checks that already exist, plus the license and size report. It never runs code from a dependency.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test audit` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(pkg): yashy audit (E1804)"`
 
 ---
 
@@ -274,11 +274,11 @@ private `YASHY_PACKAGE_STORE` per test.
 - Produces: `yashy publish --registry file:///…` writes a tarball plus an index entry atomically (temp file, then rename); `yashy add name@1.0.0 --registry …` resolves through the same resolver as Task 3.
 - Produces: publishing over an existing version with a different hash is refused.
 
-- [ ] **Step 1: Write the failing tests** — publish then add in a temp registry; a republished different hash is refused; a corrupted tarball fails its hash check on fetch; an index with a duplicate name+version is a registry error naming both.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — tarballs are written by a minimal `tar` writer (ustar, 100-byte names) in the crate; reading uses the same writer's inverse. No compression in v1 (a cap: a registry entry is a `.tar`, size is the package's own problem).
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test registry` → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(pkg): a local registry prototype"`
+- [x] **Step 1: Write the failing tests** — publish then add in a temp registry; a republished different hash is refused; a corrupted tarball fails its hash check on fetch; an index with a duplicate name+version is a registry error naming both.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — tarballs are written by a minimal `tar` writer (ustar, 100-byte names) in the crate; reading uses the same writer's inverse. No compression in v1 (a cap: a registry entry is a `.tar`, size is the package's own problem).
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test registry` → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(pkg): a local registry prototype"`
 
 ---
 
@@ -324,11 +324,11 @@ private `YASHY_PACKAGE_STORE` per test.
 
 **Note on the eight stubs.** `alloc`, `args`, `env`, `fs`, `io`, `JSON`, `math`, `os`, `path`, `process`, `rand`, `string`, `time` are thirteen modules today; five of them (`alloc`, `io`, `JSON`, `math`, `path`) hold real code and are left alone. The other eight are prose that describes builtins living in the one shared scope, and their headers say so ("the language has no `Option` in a builtin's signature yet"). Phase 3b removed that excuse. This task gives them the functions they describe, as real functions where the language can express them and as documented builtin re-exports where it cannot.
 
-- [ ] **Step 1: Write the failing tests** — one program per module with pinned output; `Set[i64]` deduplicates and `to_array` is order-independent when compared as a set; `Deque` push/pop at both ends; `PriorityQueue` pops in comparator order; `sort_by` sorts by the closure; base64 and hex round-trip every byte value 0–255; `regex` matches and rejects the documented subset and returns `Err(Unsupported)` for a backreference; `csv` round-trips a field containing a comma, a quote and a newline; `glob` matches `**` across separators and not a `?` against `/`; `term.color` returns `""` under `NO_COLOR`; `datetime` round-trips `%Y-%m-%dT%H:%M:%S%z`; `hash.sha256("abc")` equals the published digest; `rand.range(0, 3)` never returns 3 and the distribution over 100 000 draws is within 1% of uniform; `process` runs a child, captures its stdout and its exit code, and a child that does not exist is `Err`; `fs.read_dir` is sorted; `path.normalize` collapses `..` lexically and says so in its doc block; `env.vars` is sorted; `time.monotonic_ns` never goes backwards over 10 000 calls; `os.platform` matches the build target.
-- [ ] **Step 2: Watch them fail.**
-- [ ] **Step 3: Implement** — pure-Yashy modules first (`collections`, `text`, `csv`, `glob`, `hash`, `datetime`'s arithmetic, `regex`), then the runtime additions behind them. The C functions follow the phase 3b convention: a tag plus an out-parameter, never a sentinel. `PriorityQueue` and `Deque` are Yashy structs over `[]T`, so the leak suite sees them like any other array. `regex` compiles to a small instruction list and the matcher is one loop with a step counter, so the budget is a counter, not a timeout.
-- [ ] **Step 4: Run** `cargo test -p yashy-driver --test stdlib_coverage --test e2e` and the leak suite → PASS.
-- [ ] **Step 5: Commit** — `git commit -m "feat(stdlib): collections, text, regex, csv, glob, term, datetime, hash, entropy and process control"`
+- [x] **Step 1: Write the failing tests** — one program per module with pinned output; `Set[i64]` deduplicates and `to_array` is order-independent when compared as a set; `Deque` push/pop at both ends; `PriorityQueue` pops in comparator order; `sort_by` sorts by the closure; base64 and hex round-trip every byte value 0–255; `regex` matches and rejects the documented subset and returns `Err(Unsupported)` for a backreference; `csv` round-trips a field containing a comma, a quote and a newline; `glob` matches `**` across separators and not a `?` against `/`; `term.color` returns `""` under `NO_COLOR`; `datetime` round-trips `%Y-%m-%dT%H:%M:%S%z`; `hash.sha256("abc")` equals the published digest; `rand.range(0, 3)` never returns 3 and the distribution over 100 000 draws is within 1% of uniform; `process` runs a child, captures its stdout and its exit code, and a child that does not exist is `Err`; `fs.read_dir` is sorted; `path.normalize` collapses `..` lexically and says so in its doc block; `env.vars` is sorted; `time.monotonic_ns` never goes backwards over 10 000 calls; `os.platform` matches the build target.
+- [x] **Step 2: Watch them fail.**
+- [x] **Step 3: Implement** — pure-Yashy modules first (`collections`, `text`, `csv`, `glob`, `hash`, `datetime`'s arithmetic, `regex`), then the runtime additions behind them. The C functions follow the phase 3b convention: a tag plus an out-parameter, never a sentinel. `PriorityQueue` and `Deque` are Yashy structs over `[]T`, so the leak suite sees them like any other array. `regex` compiles to a small instruction list and the matcher is one loop with a step counter, so the budget is a counter, not a timeout.
+- [x] **Step 4: Run** `cargo test -p yashy-driver --test stdlib_coverage --test e2e` and the leak suite → PASS.
+- [x] **Step 5: Commit** — `git commit -m "feat(stdlib): collections, text, regex, csv, glob, term, datetime, hash, entropy and process control"`
 
 ---
 
@@ -336,9 +336,9 @@ private `YASHY_PACKAGE_STORE` per test.
 
 **Files:** `docs/packages.md` (new: manifest grammar, lockfile, audit, registry), `docs/stdlib.md` (new: one section per module, generated from the doc blocks by `yashy doc` so it cannot drift), `docs/tutorial/12-first-cli.md`, `docs/cli.md`, `AGENTS.md` (layout: `packages/`; the stdlib rule that a failure is a `Result`/`Option`, never a sentinel), `llms.txt`.
 
-- [ ] **Step 1: Write the docs** with a worked publish → depend → build cycle.
-- [ ] **Step 2: Run the gate table on both OSes, from a fresh clone with an empty cache and no network for the offline row.**
-- [ ] **Step 3: Commit and record** — `git commit -m "docs: packages and libraries, and close phase 12"`.
+- [x] **Step 1: Write the docs** with a worked publish → depend → build cycle.
+- [x] **Step 2: Run the gate table on both OSes, from a fresh clone with an empty cache and no network for the offline row.**
+- [x] **Step 3: Commit and record** — `git commit -m "docs: packages and libraries, and close phase 12"`.
 
 ---
 

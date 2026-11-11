@@ -15,11 +15,11 @@ use std::path::{Path, PathBuf};
 
 use crate::pipeline::check_and_verify;
 use yashy_common::{FileId, Json, SourceMap, Span};
-use yashy_sema::hir::{HirExpr, HirFn, HirItem, HirProgram, HirStmt};
-use yashy_sema::ty::TypeKind;
 use yashy_lexer::Lexer;
 use yashy_parser::ast::Item;
 use yashy_parser::Parser;
+use yashy_sema::hir::{HirExpr, HirFn, HirItem, HirProgram, HirStmt};
+use yashy_sema::ty::TypeKind;
 use yashy_verify::{ContractMode, VerifyOptions};
 
 /// One symbol the compiler knows about.
@@ -69,7 +69,10 @@ pub struct IndexModel {
 }
 
 /// The effects a `pure` check reads: nothing but this.
-fn effect_of(effects: &BTreeMap<String, yashy_common::Effect>, name: &str) -> Option<(bool, bool, bool)> {
+fn effect_of(
+    effects: &BTreeMap<String, yashy_common::Effect>,
+    name: &str,
+) -> Option<(bool, bool, bool)> {
     effects
         .get(name)
         .map(|effect| (effect.io, effect.unsafe_, effect.async_))
@@ -87,16 +90,86 @@ pub fn signature_of(f: &HirFn) -> String {
         _ => f.ret.to_string(),
     };
     let prefix = if f.is_async { "async fn " } else { "fn " };
-    let name = f
-        .name
-        .rsplit('.')
-        .next()
-        .unwrap_or(&f.name)
-        .to_string();
-    format!(
-        "{prefix}{name}({}) -> {ret}",
-        params.join(", ")
-    )
+    let name = f.name.rsplit('.').next().unwrap_or(&f.name).to_string();
+    format!("{prefix}{name}({}) -> {ret}", params.join(", "))
+}
+
+/// One public generic function, rendered from the AST.
+///
+/// A generic function is not a value until a call says what its type
+/// parameters are, so the checker keeps it in a table of schemes and never
+/// builds a checked item for it: the HIR carries no entry, and the reference
+/// the documentation renders has to come from the AST -- the declaration as the
+/// source wrote it.
+#[derive(Clone, Debug)]
+pub struct GenericFn {
+    pub name: String,
+    pub signature: String,
+    pub docs: Option<String>,
+    pub span: Span,
+}
+
+/// The public generic functions a parsed file declares, in declaration order.
+///
+/// A generic function is invisible to the HIR, so this is the only place the
+/// index and the documentation learn about one. The walk keeps the same facts
+/// the AST holds: whether the item is `pub`, and the doc block above it.
+pub fn generic_functions(program: &yashy_parser::ast::Program) -> Vec<GenericFn> {
+    fn walk(item: &Item, public: bool, docs: Vec<String>, out: &mut Vec<GenericFn>) {
+        match item {
+            Item::Public { item, .. } => walk(item, true, docs, out),
+            Item::Effect { item, .. } => walk(item, public, docs, out),
+            Item::Documented { docs, item, .. } => walk(item, public, docs.clone(), out),
+            Item::Fn {
+                name,
+                type_params,
+                params,
+                ret,
+                span,
+                ..
+            } => {
+                if !public || type_params.is_empty() {
+                    return;
+                }
+                let type_list = type_params
+                    .iter()
+                    .map(|param| {
+                        if param.bounds.is_empty() {
+                            param.name.clone()
+                        } else {
+                            format!("{}: {}", param.name, param.bounds.join(" + "))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let arguments = params
+                    .iter()
+                    .map(|param| format!("{} {}", param.ty, param.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let returns = ret
+                    .as_ref()
+                    .map(|ty| ty.to_string())
+                    .unwrap_or_else(|| "void".to_string());
+                out.push(GenericFn {
+                    name: name.clone(),
+                    signature: format!("fn {name}[{type_list}]({arguments}) -> {returns}"),
+                    docs: if docs.is_empty() {
+                        None
+                    } else {
+                        Some(docs.join("\n"))
+                    },
+                    span: *span,
+                });
+            }
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for item in &program.items {
+        walk(item, false, Vec::new(), &mut found);
+    }
+    found
 }
 
 /// Every name this function body calls, in first-use order, deduplicated.
@@ -158,7 +231,11 @@ fn calls_of(f: &HirFn, out: &mut Vec<String>) {
             HirStmt::Return(Some(e), ..) => walk(e, out),
             HirStmt::Return(None, ..) => {}
             HirStmt::If {
-                init, cond, then_block, else_block, ..
+                init,
+                cond,
+                then_block,
+                else_block,
+                ..
             } => {
                 if let Some(init) = init {
                     stmt(init, out);
@@ -199,7 +276,11 @@ pub fn is_public(path: &Path, f: &HirFn) -> bool {
             Item::Public { item, .. } => find(item, true, name, span_start),
             Item::Documented { item, .. } => find(item, pubbed, name, span_start),
             Item::Effect { item, .. } => find(item, pubbed, name, span_start),
-            Item::Fn { name: item_name, span, .. } => {
+            Item::Fn {
+                name: item_name,
+                span,
+                ..
+            } => {
                 if item_name == name && span.start == span_start {
                     Some(pubbed)
                 } else {
@@ -218,7 +299,12 @@ pub fn is_public(path: &Path, f: &HirFn) -> bool {
         }
     }
     for item in &program.items {
-        if let Some(found) = find(item, false, &f.name.rsplit('.').next().unwrap_or(&f.name), f.span.start) {
+        if let Some(found) = find(
+            item,
+            false,
+            &f.name.rsplit('.').next().unwrap_or(&f.name),
+            f.span.start,
+        ) {
             return found;
         }
     }
@@ -243,10 +329,13 @@ fn collect_file(
         .unwrap_or_default();
     let program = Parser::new(tokens, sources, file)
         .parse_program()
-        .unwrap_or(yashy_parser::ast::Program {
-            items: Vec::new(),
-        });
-    fn item_facts(item: &Item, pubbed: bool, docs: Vec<String>, out: &mut Vec<(String, Span, String, Option<String>)>) {
+        .unwrap_or(yashy_parser::ast::Program { items: Vec::new() });
+    fn item_facts(
+        item: &Item,
+        pubbed: bool,
+        docs: Vec<String>,
+        out: &mut Vec<(String, Span, String, Option<String>)>,
+    ) {
         match item {
             Item::Public { item, .. } => item_facts(item, true, docs, out),
             Item::Documented { docs, item, .. } => item_facts(item, pubbed, docs.clone(), out),
@@ -254,14 +343,30 @@ fn collect_file(
             Item::Fn { name, span, .. } => out.push((
                 name.clone(),
                 *span,
-                if pubbed { "pub".to_string() } else { "private".to_string() },
-                if docs.is_empty() { None } else { Some(docs.join("\n")) },
+                if pubbed {
+                    "pub".to_string()
+                } else {
+                    "private".to_string()
+                },
+                if docs.is_empty() {
+                    None
+                } else {
+                    Some(docs.join("\n"))
+                },
             )),
             Item::Struct { name, span, .. } | Item::Enum { name, span, .. } => out.push((
                 name.clone(),
                 *span,
-                if pubbed { "pub".to_string() } else { "private".to_string() },
-                if docs.is_empty() { None } else { Some(docs.join("\n")) },
+                if pubbed {
+                    "pub".to_string()
+                } else {
+                    "private".to_string()
+                },
+                if docs.is_empty() {
+                    None
+                } else {
+                    Some(docs.join("\n"))
+                },
             )),
             Item::Impl { methods, .. } => {
                 for method in methods {
@@ -323,14 +428,7 @@ fn collect_file(
                     .iter()
                     .find(|(name, span, ..)| name == &s.name && span.start == s.span.start)
                     .cloned()
-                    .unwrap_or_else(|| {
-                        (
-                            s.name.clone(),
-                            s.span,
-                            "private".to_string(),
-                            None,
-                        )
-                    });
+                    .unwrap_or_else(|| (s.name.clone(), s.span, "private".to_string(), None));
                 model.symbols.push(Symbol {
                     name: s.name.clone(),
                     kind: "struct".to_string(),
@@ -349,14 +447,7 @@ fn collect_file(
                     .iter()
                     .find(|(name, span, ..)| name == &e.name && span.start == e.span.start)
                     .cloned()
-                    .unwrap_or_else(|| {
-                        (
-                            e.name.clone(),
-                            e.span,
-                            "private".to_string(),
-                            None,
-                        )
-                    });
+                    .unwrap_or_else(|| (e.name.clone(), e.span, "private".to_string(), None));
                 model.symbols.push(Symbol {
                     name: e.name.clone(),
                     kind: "enum".to_string(),
@@ -373,6 +464,24 @@ fn collect_file(
             HirItem::Import(_) => {}
             HirItem::Extern(_) => {}
         }
+    }
+    // A generic function has no HIR item, so the AST is where the index
+    // learns about it. Its effects and contracts are unknown: the checker
+    // never analysed a body, because there is no body to analyse until a call
+    // says what the type parameters are.
+    for function in generic_functions(&program) {
+        model.symbols.push(Symbol {
+            name: function.name,
+            kind: "fn".to_string(),
+            file: display.clone(),
+            span: function.span,
+            signature: function.signature,
+            effects: None,
+            contracts: Vec::new(),
+            typestate: None,
+            visibility: "pub".to_string(),
+            docs: function.docs,
+        });
     }
     for item in &program.items {
         if let Item::Import { path, alias, span } = item {
@@ -475,10 +584,9 @@ pub fn build_index(root: &Path) -> Result<IndexModel, String> {
             }
         }
     }
-    model.symbols.sort_by(|a, b| {
-        (&a.file, a.span.start)
-            .cmp(&(&b.file, b.span.start))
-    });
+    model
+        .symbols
+        .sort_by(|a, b| (&a.file, a.span.start).cmp(&(&b.file, b.span.start)));
     model.files.sort();
     Ok(model)
 }
@@ -522,13 +630,7 @@ pub fn to_json(model: &IndexModel) -> Json {
     root.set("tool", Json::string("yashy"));
     root.set(
         "files",
-        Json::array(
-            model
-                .files
-                .iter()
-                .map(|file| Json::string(file))
-                .collect(),
-        ),
+        Json::array(model.files.iter().map(|file| Json::string(file)).collect()),
     );
     root.set(
         "symbols",
@@ -582,12 +684,7 @@ pub fn to_json(model: &IndexModel) -> Json {
                     entry.set("file", Json::string(&test.file));
                     entry.set(
                         "calls",
-                        Json::array(
-                            test.calls
-                                .iter()
-                                .map(|call| Json::string(call))
-                                .collect(),
-                        ),
+                        Json::array(test.calls.iter().map(|call| Json::string(call)).collect()),
                     );
                     entry
                 })
@@ -609,10 +706,7 @@ fn symbol_json(symbol: &Symbol) -> Json {
     entry.set("name", Json::string(&symbol.name));
     entry.set("kind", Json::string(&symbol.kind));
     entry.set("file", Json::string(&symbol.file));
-    entry.set(
-        "span",
-        span_json(symbol.span),
-    );
+    entry.set("span", span_json(symbol.span));
     entry.set("signature", Json::string(&symbol.signature));
     match symbol.effects {
         Some((io, unsafe_, async_)) => {
@@ -636,10 +730,7 @@ fn symbol_json(symbol: &Symbol) -> Json {
                     let mut entry = Json::object();
                     entry.set("kind", Json::string(kind));
                     entry.set("text", Json::string(text));
-                    entry.set(
-                        "span",
-                        span_json(*span),
-                    );
+                    entry.set("span", span_json(*span));
                     entry
                 })
                 .collect(),
@@ -668,7 +759,11 @@ fn symbol_json(symbol: &Symbol) -> Json {
 /// The human table: the same model, one line per symbol.
 pub fn render_human(model: &IndexModel) -> String {
     let mut out = String::new();
-    out.push_str(&format!("{} symbols in {} files\n", model.symbols.len(), model.files.len()));
+    out.push_str(&format!(
+        "{} symbols in {} files\n",
+        model.symbols.len(),
+        model.files.len()
+    ));
     for symbol in &model.symbols {
         let effects = match symbol.effects {
             Some((io, unsafe_, async_)) => {

@@ -13,10 +13,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use yashy_common::{FileId, Json, SourceMap};
 use crate::pipeline::check_and_verify;
-use yashy_verify::VerifyOptions;
+use yashy_common::{FileId, Json, SourceMap};
+use yashy_lexer::Lexer;
+use yashy_parser::Parser;
 use yashy_sema::hir::{HirItem, HirProgram};
+use yashy_verify::VerifyOptions;
 
 /// One documented item.
 #[derive(Clone, Debug)]
@@ -91,7 +93,7 @@ pub fn build_doc(root: &Path, private: bool) -> Result<DocModel, String> {
         let Ok((hir, report)) = checked else {
             continue;
         };
-        let module = doc_module(path, &hir, &report.effects, private);
+        let module = doc_module(path, &hir, &report.effects, private, &entry_source);
         if !module.items.is_empty() || private {
             model.modules.push(module);
         }
@@ -114,6 +116,7 @@ fn doc_module(
     hir: &HirProgram,
     effects: &BTreeMap<String, yashy_common::Effect>,
     private: bool,
+    source: &str,
 ) -> DocModule {
     let mut items: Vec<DocItem> = Vec::new();
     for item in &hir.items {
@@ -171,11 +174,43 @@ fn doc_module(
             _ => {}
         }
     }
+    // A generic function has no HIR item: the checker keeps it as a scheme
+    // until a call says what its type parameters are. The reference still has
+    // to show it, so it is rendered from the AST -- the declaration as the
+    // source wrote it.
+    for function in generic_functions(source) {
+        items.push(DocItem {
+            name: function.name,
+            kind: "fn".to_string(),
+            signature: function.signature,
+            docs: function.docs,
+            effects: None,
+            contracts: Vec::new(),
+        });
+    }
     items.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
     DocModule {
         name: module_name(path),
         items,
     }
+}
+
+/// The public generic functions a source file declares.
+///
+/// The AST is parsed again here: the HIR has no item for a generic function,
+/// because the checker keeps it as a scheme until a call says what its type
+/// parameters are. A file that does not parse has no generic functions to
+/// report -- the checker has already said why.
+fn generic_functions(source: &str) -> Vec<crate::index::GenericFn> {
+    let mut sources = SourceMap::new();
+    let file = sources.add_file("stdlib.ya".to_string(), source.to_string());
+    let tokens = Lexer::with_file(source, file)
+        .tokenize()
+        .unwrap_or_default();
+    let Ok(program) = Parser::new(tokens, &sources, file).parse_program() else {
+        return Vec::new();
+    };
+    crate::index::generic_functions(&program)
 }
 
 /// The JSON form of the model.

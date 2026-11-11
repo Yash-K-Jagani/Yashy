@@ -94,6 +94,8 @@ fn quickstart_and_reference_links_resolve() {
         "README.md",
         "docs/quickstart.md",
         "docs/cli.md",
+        "docs/packages.md",
+        "docs/stdlib.md",
         "docs/optimization.md",
         "docs/errors.md",
         "docs/release-notes-template.md",
@@ -103,4 +105,70 @@ fn quickstart_and_reference_links_resolve() {
     ] {
         assert_links_resolve(document);
     }
+}
+
+/// `docs/stdlib.md` is generated from the same documentation model `yashy doc`
+/// renders, so the reference cannot drift from the doc blocks.
+///
+/// `UPDATE_GOLDEN=1` rewrites the page instead of comparing it.
+#[test]
+fn stdlib_reference_is_generated_from_doc_blocks() {
+    let stdlib = root().join("crates").join("yashy-stdlib").join("yashy");
+    let model = yashy_driver::doc::build_doc(&stdlib, false)
+        .expect("the standard library must build a documentation model");
+    // `build_doc` skips a module that does not check, so compare the model
+    // against the files: a module that stops checking must fail this test
+    // rather than quietly leave the reference.
+    let mut expected: Vec<String> = std::fs::read_dir(&stdlib)
+        .expect("the stdlib directory must be readable")
+        .map(|entry| entry.expect("a stdlib entry must be readable").path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("ya"))
+        .map(|path| yashy_driver::doc::module_name(&path))
+        .collect();
+    expected.sort();
+    let documented: Vec<String> = model
+        .modules
+        .iter()
+        .map(|module| module.name.clone())
+        .collect();
+    assert_eq!(
+        documented, expected,
+        "every stdlib module must check; one that fails is absent from the reference"
+    );
+
+    let mut text = String::from(
+        "# The standard library\n\n\
+         Generated from the `///` and `/** */` doc blocks by `yashy doc`; edit the\n\
+         module, not this page. `cargo test -p yashy-driver --test docs` fails\n\
+         when the page and the compiler's tables disagree.\n",
+    );
+    for module in &model.modules {
+        text.push_str(&format!("\n## `{}`\n", module.name));
+        for item in &module.items {
+            text.push_str(&format!(
+                "\n### `{}`\n\n```yashy\n{}\n```\n",
+                item.name, item.signature
+            ));
+            match &item.docs {
+                Some(docs) => text.push_str(&format!("\n{}\n", docs.trim())),
+                // A type carries no doc block in the compiler's model; its
+                // signature above is the whole entry. A public function without
+                // one is caught by `stdlib_coverage`, not by filler here.
+                None => {}
+            }
+        }
+    }
+
+    let page = root().join("docs").join("stdlib.md");
+    if std::env::var("UPDATE_GOLDEN").is_ok() {
+        std::fs::write(&page, &text)
+            .unwrap_or_else(|error| panic!("writing {} failed: {error}", page.display()));
+        return;
+    }
+    let pinned = std::fs::read_to_string(&page)
+        .unwrap_or_else(|error| panic!("{} must be readable: {error}", page.display()));
+    assert_eq!(
+        text, pinned,
+        "docs/stdlib.md is stale; rerun with UPDATE_GOLDEN=1"
+    );
 }
