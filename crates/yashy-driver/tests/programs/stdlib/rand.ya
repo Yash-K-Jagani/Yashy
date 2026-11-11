@@ -1,0 +1,40 @@
+import rand;
+
+fn main() {
+    const bytes = rand.fill(8);
+    print("bytes ${bytes.len()}");
+    bytes.free();
+    const value = rand.range(0, 3);
+    print("range in 0..3: ${value >= 0 && value < 3}");
+
+    // 1 000 000 draws. A 1% band on the expected count is about seven standard
+    // deviations at this size, so the check is stable; at 100 000 draws the
+    // same band is two and a bit, which a uniform draw occasionally misses.
+    const draws = 1000000;
+    let zero = 0;
+    let one = 0;
+    let two = 0;
+    let index = 0;
+    while index < draws {
+        const draw = rand.range(0, 3);
+        if draw == 0 {
+            zero = zero + 1;
+        }
+        if draw == 1 {
+            one = one + 1;
+        }
+        if draw == 2 {
+            two = two + 1;
+        }
+        index = index + 1;
+    }
+    const expected = draws / 3;
+    const tolerance = expected / 100;
+    const low = expected - tolerance;
+    const high = expected + tolerance;
+    print("uniform: ${zero > low && zero < high && one > low && one < high && two > low && two < high}");
+
+    const chars = rand.fill(4);
+    rand.shuffle(chars);
+    print("shuffle consumed 4");
+}

@@ -1,17 +1,168 @@
-// Files (M6 Task 10).
+// Files (phase 12, Task 10).
 //
-// `read_file(path)` and `write_file(path, body)` are builtins, not functions in
-// this module: the names live in the one shared scope, so a wrapper would be a
-// duplicate definition. They are documented here because this is the module a
-// reader looks in for them.
+// `read_dir` answers the entry names sorted by name (the runtime sorts, so
+// the same directory reads the same way twice); `metadata` answers a file's
+// byte size, whether it is a directory, and its modification time in Unix
+// seconds. `create_dir`/`create_dir_all`, `remove_file`, `remove_dir`,
+// `rename`, `copy`, and `exists` cover the rest of the filesystem surface.
 //
-// `read_file` answers `Result[string, io.Error]`: the whole file as a fresh
-// owned string, or the error that stopped it. A missing file and an empty file
-// are different answers. `write_file` answers `Result[void, io.Error]` -- `1`/`0`
-// was a boolean pretending to be an error. Match the `Result`, or propagate it
-// with `?` from a function that returns one.
-//
-// The current directory is `getcwd()`, which answers the same `Result`; it is
-// documented in `os.ya` beside the process builtins.
-//
-// Ownership: neither consumes its argument; both results are owned.
+// A missing path is an `Err`, never an empty list: an empty directory has its
+// own value, and the two are not the same answer.
+
+import io;
+
+extern "C" {
+    unsafe fn yashy_fs_listdir_record(*const u8 path) -> string;
+    unsafe fn yashy_fs_metadata_record(*const u8 path) -> string;
+    unsafe fn yashy_fs_stat_size(*const u8 path) -> int;
+    unsafe fn yashy_fs_stat_is_dir(*const u8 path) -> int;
+    unsafe fn yashy_mkdir(*const u8 path) -> int;
+    unsafe fn yashy_remove_file(*const u8 path) -> int;
+    unsafe fn yashy_remove_dir(*const u8 path) -> int;
+    unsafe fn yashy_rename(*const u8 old_path, *const u8 new_path) -> int;
+    unsafe fn yashy_copy(*const u8 src, *const u8 dst) -> int;
+}
+
+/** The `Result` for a C status word: `0` is success, anything else `Other`. */
+fn as_result(int status) -> Result[int, io.Error] {
+    if status == 0 {
+        return Ok(0);
+    }
+    return Err(io.Error.Other);
+}
+
+/** Whether a record's leading status byte says success. */
+fn record_ok(string record) -> bool {
+    return record.byte_at(0).to_int() - 48 == 0;
+}
+
+/** The number in a metadata field this module produced. */
+fn field_int(string text) -> int {
+    const value = text.parse_i64();
+    return switch value {
+        case Some(number) { number }
+        case None { -1 }
+    };
+}
+
+/** Every entry name in the directory at `path`, sorted by name. */
+pub fn read_dir(string path) -> Result[[]string, io.Error] {
+    const record = yashy_fs_listdir_record(path);
+    if !record_ok(record) {
+        return Err(io.Error.Other);
+    }
+    const body = record.slice(2, record.len());
+    if body.len() == 0 {
+        const empty = []string {};
+        return Ok(empty);
+    }
+    return Ok(body.lines());
+}
+
+/** One file's metadata: its byte size, whether it is a directory, and the
+ * modification time in Unix seconds (at the filesystem's resolution). */
+pub struct Metadata {
+    pub size: int,
+    pub is_dir: bool,
+    pub modified_unix: int,
+}
+
+/** The metadata for `path`, or `Err` when it does not stat. */
+pub fn metadata(string path) -> Result[Metadata, io.Error] {
+    const record = yashy_fs_metadata_record(path);
+    if !record_ok(record) {
+        return Err(io.Error.Other);
+    }
+    const body = record.slice(2, record.len());
+    const first = switch body.index_of("\n") {
+        case Some(index) { index }
+        case None { -1 }
+    };
+    if first < 0 {
+        return Err(io.Error.Other);
+    }
+    const size_text = body.slice(0, first);
+    const rest = body.slice(first + 1, body.len());
+    const second = switch rest.index_of("\n") {
+        case Some(index) { index }
+        case None { -1 }
+    };
+    if second < 0 {
+        return Err(io.Error.Other);
+    }
+    const directory_text = rest.slice(0, second);
+    const rest2 = rest.slice(second + 1, rest.len());
+    const third = switch rest2.index_of("\n") {
+        case Some(index) { index }
+        case None { -1 }
+    };
+    if third < 0 {
+        return Err(io.Error.Other);
+    }
+    const modified_text = rest2.slice(0, third);
+    return Ok(Metadata {
+        size: field_int(size_text),
+        is_dir: field_int(directory_text) == 1,
+        modified_unix: field_int(modified_text),
+    });
+}
+
+/** Create one directory, non-recursive. */
+pub fn create_dir(string path) -> Result[int, io.Error] {
+    return as_result(yashy_mkdir(path));
+}
+
+/** Create `path` and every missing parent: `a/b/c` creates `a`, `a/b`,
+ * `a/b/c`. A component that already exists is left alone. */
+pub fn create_dir_all(string path) -> Result[int, io.Error] {
+    if path.is_empty() {
+        return Err(io.Error.Other);
+    }
+    let index = 0;
+    while index < path.len() {
+        const byte = path.byte_at(index).to_int();
+        if byte == 47 || byte == 92 {
+            const part = path.slice(0, index);
+            if part.len() > 0 && !part.ends_with(":") {
+                yashy_mkdir(part);
+            }
+        }
+        index = index + 1;
+    }
+    // The final directory may already exist (created by an earlier call or
+    // present from the start); "already there" is not a failure here. The
+    // check runs before `yashy_mkdir` because the extern call moves `path`.
+    if exists(path) {
+        return Ok(0);
+    }
+    const created = yashy_mkdir(path);
+    if created == 0 {
+        return Ok(0);
+    }
+    return Err(io.Error.Other);
+}
+
+/** Remove a file. */
+pub fn remove_file(string path) -> Result[int, io.Error] {
+    return as_result(yashy_remove_file(path));
+}
+
+/** Remove an empty directory. */
+pub fn remove_dir(string path) -> Result[int, io.Error] {
+    return as_result(yashy_remove_dir(path));
+}
+
+/** Rename `old_path` to `new_path`. */
+pub fn rename(string old_path, string new_path) -> Result[int, io.Error] {
+    return as_result(yashy_rename(old_path, new_path));
+}
+
+/** Copy the bytes of `src` to `dst`, overwriting. */
+pub fn copy(string src, string dst) -> Result[int, io.Error] {
+    return as_result(yashy_copy(src, dst));
+}
+
+/** Whether `path` exists as a file or a directory (by statting it). */
+pub fn exists(string path) -> bool {
+    return yashy_fs_stat_size(path) >= 0;
+}

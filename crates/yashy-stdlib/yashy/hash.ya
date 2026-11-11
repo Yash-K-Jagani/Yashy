@@ -1,0 +1,401 @@
+// Hashing (phase 12, Task 10).
+//
+// Three digests: `fnv1a64` (FNV-1a 64-bit), `xxhash64` (xxHash64), and
+// `sha256`, the published SHA-256 over the input bytes. `sha256` returns the
+// 32-byte digest as a `[]char`; its length is asserted (32), not implied.
+//
+// **None of these is a password hash.** FNV and xxHash are checksums;
+// `sha256` is a commitment device as documented: it detects corruption, it
+// does not authenticate it. For passwords use a password KDF (none ships
+// here). The 64-bit primes and the 32-bit rotations below are the published
+// signed i64 equivalents of the unsigned constants: with wrapping
+// multiplication and arithmetic shifts on positive words, two's complement
+// arithmetic matches the unsigned originals bit for bit.
+//
+// Ownership: `[]char` parameters move into the function (slices are linear),
+// so byte reads happen in the caller, never through a helper: a second call
+// on the same slice would be a move, and that is exactly the use-after-free
+// the checker forbids.
+
+fn fnv_offset() -> int {
+    return -3750763034362895579;
+}
+
+fn fnv_prime() -> int {
+    return 1099511628211;
+}
+
+/// FNV-1a 64-bit over the input bytes.
+pub fn fnv1a64([]char data) -> int {
+    let hash = fnv_offset();
+    let index = 0;
+    while index < data.len() {
+        const byte = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        hash = hash ^ byte;
+        hash = wrapping_mul(hash, fnv_prime());
+        index = index + 1;
+    }
+    data.free();
+    return hash;
+}
+
+fn xx_prime64_1() -> int {
+    return -7046029288634856825;
+}
+
+fn xx_prime64_2() -> int {
+    return -4417276706812531889;
+}
+
+fn xx_prime64_3() -> int {
+    return 1609587929392839161;
+}
+
+fn xx_prime64_4() -> int {
+    return -8796714831421723037;
+}
+
+fn xx_prime64_5() -> int {
+    return 2870177450012600261;
+}
+
+/// A logical (zero-filling) right shift, for `n` in `1..64`.
+///
+/// `>>` on a signed integer is arithmetic, so the sign bits would be shifted
+/// back in. The mask keeps the low `64 - n` bits, which is the unsigned
+/// operation the published algorithm is written with.
+fn xx_lshr(int value, int n) -> int {
+    const mask = wrapping_sub(1 << (64 - n), 1);
+    return (value >> n) & mask;
+}
+
+/// Rotate left by `n` bits, `n` in `1..64`.
+fn xx_rotl(int value, int n) -> int {
+    return (value << n) | xx_lshr(value, 64 - n);
+}
+
+/// One xxHash round: add the input, rotate, multiply by prime 1.
+fn xx_round(int seed, int input) -> int {
+    let acc = wrapping_add(seed, wrapping_mul(input, xx_prime64_2()));
+    acc = xx_rotl(acc, 31);
+    return wrapping_mul(acc, xx_prime64_1());
+}
+
+/// Fold one accumulator into the running hash (the `mergeRound` step).
+fn xx_merge_round(int seed, int lane) -> int {
+    const acc = seed ^ xx_round(0, lane);
+    return wrapping_add(wrapping_mul(acc, xx_prime64_1()), xx_prime64_4());
+}
+
+/// xxHash64 over the input bytes.
+pub fn xxhash64([]char data) -> int {
+    const length = data.len();
+    let index = 0;
+    let hash = 0;
+    if length >= 32 {
+        let v1 = wrapping_add(xx_prime64_1(), xx_prime64_2());
+        let v2 = xx_prime64_2();
+        let v3 = 0;
+        let v4 = 0 - xx_prime64_1();
+        while index + 32 <= length {
+            let lane0 = 0;
+            let i0 = 0;
+            while i0 < 8 {
+                const byte = switch data[index + i0] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                lane0 = lane0 | (byte << (8 * i0));
+                i0 = i0 + 1;
+            }
+            v1 = xx_round(v1, lane0);
+            let lane1 = 0;
+            let i1 = 0;
+            while i1 < 8 {
+                const byte = switch data[index + 8 + i1] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                lane1 = lane1 | (byte << (8 * i1));
+                i1 = i1 + 1;
+            }
+            v2 = xx_round(v2, lane1);
+            let lane2 = 0;
+            let i2 = 0;
+            while i2 < 8 {
+                const byte = switch data[index + 16 + i2] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                lane2 = lane2 | (byte << (8 * i2));
+                i2 = i2 + 1;
+            }
+            v3 = xx_round(v3, lane2);
+            let lane3 = 0;
+            let i3 = 0;
+            while i3 < 8 {
+                const byte = switch data[index + 24 + i3] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                lane3 = lane3 | (byte << (8 * i3));
+                i3 = i3 + 1;
+            }
+            v4 = xx_round(v4, lane3);
+            index = index + 32;
+        }
+        hash = wrapping_add(
+            wrapping_add(xx_rotl(v1, 1), xx_rotl(v2, 7)),
+            wrapping_add(xx_rotl(v3, 12), xx_rotl(v4, 18)),
+        );
+        hash = xx_merge_round(hash, v1);
+        hash = xx_merge_round(hash, v2);
+        hash = xx_merge_round(hash, v3);
+        hash = xx_merge_round(hash, v4);
+    } else {
+        hash = xx_prime64_5();
+    }
+    hash = wrapping_add(hash, length);
+    while index + 8 <= length {
+        let value = 0;
+        let i = 0;
+        while i < 8 {
+            const byte = switch data[index + i] {
+                case Some(c) { c.to_int() }
+                case None { 0 }
+            };
+            value = value | (byte << (8 * i));
+            i = i + 1;
+        }
+        hash = hash ^ xx_round(0, value);
+        hash = xx_rotl(hash, 27);
+        hash = wrapping_add(wrapping_mul(hash, xx_prime64_1()), xx_prime64_4());
+        index = index + 8;
+    }
+    if index + 4 <= length {
+        let value = 0;
+        let i = 0;
+        while i < 4 {
+            const byte = switch data[index + i] {
+                case Some(c) { c.to_int() }
+                case None { 0 }
+            };
+            value = value | (byte << (8 * i));
+            i = i + 1;
+        }
+        hash = hash ^ wrapping_mul(value, xx_prime64_1());
+        hash = xx_rotl(hash, 23);
+        hash = wrapping_add(wrapping_mul(hash, xx_prime64_2()), xx_prime64_3());
+        index = index + 4;
+    }
+    while index < length {
+        const byte = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        hash = hash ^ wrapping_mul(byte, xx_prime64_5());
+        hash = xx_rotl(hash, 11);
+        hash = wrapping_mul(hash, xx_prime64_1());
+        index = index + 1;
+    }
+    hash = hash ^ xx_lshr(hash, 33);
+    hash = wrapping_mul(hash, xx_prime64_2());
+    hash = hash ^ xx_lshr(hash, 29);
+    hash = wrapping_mul(hash, xx_prime64_3());
+    hash = hash ^ xx_lshr(hash, 32);
+    data.free();
+    return hash;
+}
+fn mask32() -> int {
+    return 4294967295;
+}
+
+/// One SHA-256 constant per block position (FIPS 180-4, round constants).
+fn k_at(int index) -> int {
+    const book = []int {0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+        0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74,
+        0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
+        0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138,
+        0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1,
+        0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+        0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb,
+        0xbef9a3f7, 0xc67178f2};
+    const value = switch book[index] {
+        case Some(v) { v }
+        case None { 0 }
+    };
+    book.free();
+    return value;
+}
+
+fn rotr32(int x, int n) -> int {
+    return (((x >> n) | ((x << (32 - n)) & mask32())) & mask32());
+}
+
+/// SHA-256 over the input bytes, as 32 digest bytes.
+pub fn sha256([]char data) -> []char {
+    let bit_length = data.len() * 8;
+    let padded = []char {};
+    padded.extend(data);
+    padded.push(128.to_char());
+    while (padded.len() % 64) != 56 {
+        padded.push(0.to_char());
+    }
+    let shift = 56;
+    while shift >= 0 {
+        padded.push(((bit_length >> shift) & 255).to_char());
+        shift = shift - 8;
+    }
+
+    let state = []int {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+        0x1f83d9ab, 0x5be0cd19};
+    let start = 0;
+    while start < padded.len() {
+        let w = []int {};
+        let i = 0;
+        while i < 64 {
+            if i < 16 {
+                let at = start + 4 * i;
+                const a = switch padded[at] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                const b = switch padded[at + 1] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                const c = switch padded[at + 2] {
+                    case Some(c2) { c2.to_int() }
+                    case None { 0 }
+                };
+                const d = switch padded[at + 3] {
+                    case Some(c3) { c3.to_int() }
+                    case None { 0 }
+                };
+                const hi = (a << 24) | (b << 16);
+                const lo = (c << 8) | d;
+                w.push(((hi | lo) & mask32()));
+            } else {
+                const w15 = switch w[i - 15] {
+                    case Some(v) { v }
+                    case None { 0 }
+                };
+                const s0 = rotr32(w15, 7) ^ rotr32(w15, 18) ^ (w15 >> 3);
+                const w2 = switch w[i - 2] {
+                    case Some(v) { v }
+                    case None { 0 }
+                };
+                const s1 = rotr32(w2, 17) ^ rotr32(w2, 19) ^ (w2 >> 10);
+                const w16 = switch w[i - 16] {
+                    case Some(v) { v }
+                    case None { 0 }
+                };
+                const w7 = switch w[i - 7] {
+                    case Some(v) { v }
+                    case None { 0 }
+                };
+                w.push((w16 + s0 + w7 + s1) & mask32());
+            }
+            i = i + 1;
+        }
+        let a = 0;
+        let b = 0;
+        let c = 0;
+        let d = 0;
+        let e = 0;
+        let f = 0;
+        let g = 0;
+        let h = 0;
+        let j = 0;
+        while j < 8 {
+            const word = switch state[j] {
+                case Some(v) { v }
+                case None { 0 }
+            };
+            if j == 0 {
+                a = word;
+            } else {
+                if j == 1 {
+                    b = word;
+                } else {
+                    if j == 2 {
+                        c = word;
+                    } else {
+                        if j == 3 {
+                            d = word;
+                        } else {
+                            if j == 4 {
+                                e = word;
+                            } else {
+                                if j == 5 {
+                                    f = word;
+                                } else {
+                                    if j == 6 {
+                                        g = word;
+                                    } else {
+                                        h = word;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        let t = 0;
+        while t < 64 {
+            const big1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+            const ch = (e & f) ^ (((~e) & mask32()) & g);
+            const wt = switch w[t] {
+                case Some(v) { v }
+                case None { 0 }
+            };
+            const temp1 = (h + big1 + ch + (k_at(t) & mask32()) + wt) & mask32();
+            const big0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const temp2 = (big0 + maj) & mask32();
+            h = g;
+            g = f;
+            f = e;
+            e = (d + temp1) & mask32();
+            d = c;
+            c = b;
+            b = a;
+            a = (temp1 + temp2) & mask32();
+            t = t + 1;
+        }
+        state.set(0, (switch state[0] { case Some(v) { v } case None { 0 } } + a) & mask32());
+        state.set(1, (switch state[1] { case Some(v) { v } case None { 0 } } + b) & mask32());
+        state.set(2, (switch state[2] { case Some(v) { v } case None { 0 } } + c) & mask32());
+        state.set(3, (switch state[3] { case Some(v) { v } case None { 0 } } + d) & mask32());
+        state.set(4, (switch state[4] { case Some(v) { v } case None { 0 } } + e) & mask32());
+        state.set(5, (switch state[5] { case Some(v) { v } case None { 0 } } + f) & mask32());
+        state.set(6, (switch state[6] { case Some(v) { v } case None { 0 } } + g) & mask32());
+        state.set(7, (switch state[7] { case Some(v) { v } case None { 0 } } + h) & mask32());
+        start = start + 64;
+        w.free();
+    }
+    let digest = []char {};
+    let s = 0;
+    while s < 8 {
+        const word = switch state[s] {
+            case Some(v) { v }
+            case None { 0 }
+        };
+        digest.push(((word >> 24) & 255).to_char());
+        digest.push(((word >> 16) & 255).to_char());
+        digest.push(((word >> 8) & 255).to_char());
+        digest.push((word & 255).to_char());
+        s = s + 1;
+    }
+    assert(digest.len() == 32);
+    padded.free();
+    state.free();
+    return digest;
+}

@@ -876,9 +876,7 @@ fn retain_refs(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) -> String {
             let repr = repr_type(ty);
             for (slot, field_ty) in ref_slots(ctx, ty) {
                 let extracted = ctx.tmp();
-                ctx.push(format!(
-                    "{extracted} = extractvalue {repr} {value}, {slot}"
-                ));
+                ctx.push(format!("{extracted} = extractvalue {repr} {value}, {slot}"));
                 retain_refs(ctx, &extracted, &field_ty);
             }
             value.to_string()
@@ -896,9 +894,7 @@ fn release_refs(ctx: &mut FnCtx<'_>, value: &str, ty: &TypeKind) {
             let repr = repr_type(ty);
             for (slot, field_ty) in ref_slots(ctx, ty) {
                 let extracted = ctx.tmp();
-                ctx.push(format!(
-                    "{extracted} = extractvalue {repr} {value}, {slot}"
-                ));
+                ctx.push(format!("{extracted} = extractvalue {repr} {value}, {slot}"));
                 release_refs(ctx, &extracted, &field_ty);
             }
         }
@@ -2174,7 +2170,9 @@ fn gen_call(
             // binding is retained field-by-field for the same reason; a fresh
             // struct already owns its strings.
             let copied_payload = match args.first() {
-                Some(HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }) => true,
+                Some(HirExpr::Ident(..) | HirExpr::FieldAccess { .. } | HirExpr::Index { .. }) => {
+                    true
+                }
                 _ => false,
             };
             let payload_value = if matches!(payload.ty, TypeKind::Str) && !payload.value.is_empty()
@@ -2228,6 +2226,17 @@ fn gen_call(
                     );
                 }
                 let value = crate::ffi::gen_ffi_call(ctx, &decl, &lowered, unsafe_call);
+                // A C function's `string` return is a fresh reference the caller
+                // owns, exactly like a Yashy call's. Without this the binding
+                // would retain a second reference and the callee's own would
+                // never be released (one live allocation per call).
+                if !value.is_empty() {
+                    if matches!(decl.ret.kind, TypeKind::Str) {
+                        ctx.mark_owned(&value, RefKind::Str);
+                    } else if owns_string_refs(ctx, &decl.ret.kind) {
+                        ctx.mark_owned_typed(&value, RefKind::Payload, Some(decl.ret.kind.clone()));
+                    }
+                }
                 return GenValue {
                     value,
                     ty: ty.clone(),
@@ -2269,7 +2278,8 @@ fn gen_call(
                     // their side effects still run in source order, while the
                     // call itself stays positional.
                     let lowered = gen_args_source_order(ctx, args);
-                    gen_borrowed_call_lowered(ctx, &name, &lowered, ty)
+                    let symbol = crate::ir::fn_symbol(&name);
+                    gen_borrowed_call_lowered(ctx, &symbol, &lowered, ty)
                 }
             }
         }
@@ -2643,7 +2653,11 @@ fn gen_borrowed_call_lowered(
     if matches!(ty, TypeKind::Str) {
         ctx.mark_owned(&value.value, RefKind::Str);
     }
-    if owns_string_refs(ctx, ty) {
+    if matches!(ty, TypeKind::Struct(_)) && owns_string_refs(ctx, ty) {
+        // A returned struct owns its `string` fields; the caller takes the
+        // reference over, so the binding does not retain a second one.
+        ctx.mark_owned_typed(&value.value, RefKind::StructFields, Some(ty.clone()));
+    } else if owns_string_refs(ctx, ty) {
         // `Option[string]`/`Result[string, E]` (or a struct of strings in the
         // payload): the callee hands the reference to the payload to the
         // caller, so the binding takes it over rather than retaining a second
@@ -2765,7 +2779,11 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
     } else if matches!(result_ty, TypeKind::Struct(_)) {
         // The payload is the caller's now, so a consumer that discards or
         // passes it on releases it rather than retaining again.
-        ctx.mark_owned_typed(&payload_value, RefKind::StructFields, Some(result_ty.clone()));
+        ctx.mark_owned_typed(
+            &payload_value,
+            RefKind::StructFields,
+            Some(result_ty.clone()),
+        );
     }
     ctx.push(format!("br label %{cont_label}"));
     ctx.push(format!("{cont_label}:"));
@@ -2839,6 +2857,14 @@ fn gen_struct_lit(
             value.value
         ));
         acc = next;
+    }
+    if owns_string_refs(ctx, ty) {
+        // The literal is a fresh aggregate: it owns the reference it holds to
+        // each `string` field (retained above when the field was a copy of a
+        // binding). Marking it lets a `return`, a call argument, a switch
+        // subject or an assignment take that reference over instead of
+        // retaining a second one, which is one leaked reference per literal.
+        ctx.mark_owned_typed(&acc, RefKind::StructFields, Some(ty.clone()));
     }
     GenValue {
         value: acc,

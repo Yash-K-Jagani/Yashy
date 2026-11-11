@@ -1,0 +1,5 @@
+sha256 abc ok
+fnv1a64 empty ok
+fnv1a64 abc ok
+xxhash64 empty ok
+sha256 length 32

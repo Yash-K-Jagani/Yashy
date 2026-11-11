@@ -1,0 +1,78 @@
+import collections;
+
+fn ascending(int left, int right) -> int {
+    return left - right;
+}
+
+fn unwrap(Option[int] value) -> int {
+    return switch value {
+        case Some(number) { number }
+        case None { -1 }
+    };
+}
+
+fn main() {
+    // A set is a slice that does not repeat a value. Every operation answers
+    // the collection, so the caller binds the answer back, and a question
+    // carries the collection with it.
+    let set = []int {};
+    set = set_insert(set, 3);
+    set = set_insert(set, 1);
+    set = set_insert(set, 3);
+    print("insert dedupes: ${set.len()}");
+    const probe = set_contains(set, 3);
+    print("contains 3: ${probe.found}");
+    set = probe.items;
+    set = set_remove(set, 1);
+    print("after remove len ${set.len()}");
+    set.free();
+
+    // Deque: push at both ends, peek the front, pop from both ends.
+    let deque = []int {};
+    deque = deque_push_back(deque, 2);
+    deque = deque_push_front(deque, 1);
+    deque = deque_push_back(deque, 3);
+    const peeked = deque_front(deque);
+    const peeked_items = peeked.items;
+    print("front ${unwrap(peeked.value)} len ${peeked_items.len()}");
+    const front = deque_pop_front(peeked_items);
+    const after_front = front.items;
+    const back = deque_pop_back(after_front);
+    const rest = back.items;
+    print("popped ${unwrap(front.value)} and ${unwrap(back.value)}, rest ${rest.len()}");
+    rest.free();
+
+    // Priority queue: the smallest element under the comparator comes out
+    // first, and a peek does not remove it.
+    let queue = []int {};
+    queue = queue_push(queue, 5, ascending);
+    queue = queue_push(queue, 1, ascending);
+    queue = queue_push(queue, 9, ascending);
+    const peeked_queue = queue_peek(queue);
+    const kept = peeked_queue.items;
+    print("peek ${unwrap(peeked_queue.value)}");
+    const smallest = queue_pop(kept, ascending);
+    const remaining = smallest.items;
+    print("smallest ${unwrap(smallest.value)} rest ${remaining.len()}");
+    remaining.free();
+
+    // Insertion sort keeps the slice ordered as values arrive.
+    let sorted = []int {};
+    sorted = int_sort_insert(sorted, 4);
+    sorted = int_sort_insert(sorted, 2);
+    sorted = int_sort_insert(sorted, 9);
+    const first = switch sorted[0] {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    const second = switch sorted[1] {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    const third = switch sorted[2] {
+        case Some(value) { value }
+        case None { 0 }
+    };
+    print("sorted ${first} ${second} ${third}");
+    sorted.free();
+}

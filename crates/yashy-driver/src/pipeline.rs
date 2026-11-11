@@ -44,8 +44,9 @@ use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_runtime::{
     EXECUTOR_C_SOURCE, EXECUTOR_SOURCE_NAME, GRAPHEME_DATA_HEADER, GRAPHEME_DATA_HEADER_PATH,
-    HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, NET_C_SOURCE, NET_SOURCE_NAME, RUNTIME_C_SOURCE,
-    RUNTIME_HEADER, RUNTIME_HEADER_NAME, RUNTIME_SOURCE_NAME,
+    HASHMAP_C_SOURCE, HASHMAP_SOURCE_NAME, NET_C_SOURCE, NET_SOURCE_NAME, PLATFORM_C_SOURCE,
+    PLATFORM_SOURCE_NAME, RUNTIME_C_SOURCE, RUNTIME_HEADER, RUNTIME_HEADER_NAME,
+    RUNTIME_SOURCE_NAME,
 };
 use yashy_sema::{check_program_with, CheckOptions, HirItem, HirProgram};
 use yashy_verify::{verify, VerifyOptions, VerifyReport};
@@ -584,6 +585,7 @@ fn runtime_cache_key(tool: &Path, triple: &str, opt: OptLevel) -> u64 {
     fnv1a(&mut state, HASHMAP_C_SOURCE.as_bytes());
     fnv1a(&mut state, EXECUTOR_C_SOURCE.as_bytes());
     fnv1a(&mut state, NET_C_SOURCE.as_bytes());
+    fnv1a(&mut state, PLATFORM_C_SOURCE.as_bytes());
     fnv1a(&mut state, RUNTIME_HEADER.as_bytes());
     // The Unicode tables are compiled into the runtime object too, so a table
     // change has to invalidate it rather than leave a stale object behind.
@@ -872,11 +874,12 @@ pub fn link_directives(hir: &HirProgram) -> Vec<String> {
 /// does not produce `-lm -lm`.
 pub fn platform_library_flags() -> Vec<&'static str> {
     if cfg!(windows) {
-        // The runtime now includes `net.c`, whose Winsock calls live in this
-        // system library. It is always linked on Windows because every Yashy
-        // program links the runtime; naming an unused system library costs
-        // nothing and keeps the runtime's object files interchangeable.
-        vec!["-lws2_32"]
+        // `net.c`'s Winsock calls live in `ws2_32`, and `platform.c`'s
+        // `BCryptGenRandom` lives in `bcrypt`. It is always linked on
+        // Windows because every Yashy program links the runtime; naming an
+        // unused system library costs nothing and keeps the runtime's object
+        // files interchangeable.
+        vec!["-lws2_32", "-lbcrypt"]
     } else {
         vec!["-lpthread", "-ldl", "-lm"]
     }
@@ -1402,11 +1405,13 @@ pub fn compile_hir_timed(
     let hashmap_source = runtime_dir.join(HASHMAP_SOURCE_NAME);
     let executor_source = runtime_dir.join(EXECUTOR_SOURCE_NAME);
     let net_source = runtime_dir.join(NET_SOURCE_NAME);
+    let platform_source = runtime_dir.join(PLATFORM_SOURCE_NAME);
     ensure_dir(&runtime_dir, entry_name)?;
     write_or_report(&runtime_source, RUNTIME_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(&hashmap_source, HASHMAP_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(&executor_source, EXECUTOR_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(&net_source, NET_C_SOURCE.as_bytes(), entry_name)?;
+    write_or_report(&platform_source, PLATFORM_C_SOURCE.as_bytes(), entry_name)?;
     write_or_report(
         &runtime_dir.join(RUNTIME_HEADER_NAME),
         RUNTIME_HEADER.as_bytes(),
@@ -1503,7 +1508,17 @@ pub fn compile_hir_timed(
                 options.opt,
                 toolchain,
             )?;
-            Some((runtime, hashmap, executor, net))
+            let platform = cached_runtime_object(
+                &cache_dir,
+                &platform_source,
+                "platform",
+                &runtime_dir,
+                key,
+                target,
+                options.opt,
+                toolchain,
+            )?;
+            Some((runtime, hashmap, executor, net, platform))
         })
     };
 
@@ -1578,7 +1593,7 @@ fn link_arguments(
     toolchain: &Toolchain,
     ir_path: &Path,
     out: &Path,
-    runtime_objects: &Option<(PathBuf, PathBuf, PathBuf, PathBuf)>,
+    runtime_objects: &Option<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf)>,
     runtime_dir: &Path,
     extra: &[String],
 ) -> Vec<String> {
@@ -1597,17 +1612,19 @@ fn link_arguments(
     args.extend(extra.iter().cloned());
     args.push(display(ir_path));
     match runtime_objects {
-        Some((runtime, hashmap, executor, net)) => {
+        Some((runtime, hashmap, executor, net, platform)) => {
             args.push(display(runtime));
             args.push(display(hashmap));
             args.push(display(executor));
             args.push(display(net));
+            args.push(display(platform));
         }
         None => {
             args.push(display(&runtime_dir.join(RUNTIME_SOURCE_NAME)));
             args.push(display(&runtime_dir.join(HASHMAP_SOURCE_NAME)));
             args.push(display(&runtime_dir.join(EXECUTOR_SOURCE_NAME)));
             args.push(display(&runtime_dir.join(NET_SOURCE_NAME)));
+            args.push(display(&runtime_dir.join(PLATFORM_SOURCE_NAME)));
             args.push(format!("-I{}", display(runtime_dir)));
         }
     }

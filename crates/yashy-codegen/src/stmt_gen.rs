@@ -34,8 +34,8 @@ use yashy_sema::{
 use crate::escape::{AllocSite, ArenaId, Placement};
 use crate::expr_gen::retain_struct_fields;
 use crate::expr_gen::{
-    gen_expr, gen_expr_to_slot, owns_string_refs, release_payload, retain_payload, FnCtx,
-    GenValue, LoopTarget, RefKind,
+    gen_expr, gen_expr_to_slot, owns_string_refs, release_payload, retain_payload, FnCtx, GenValue,
+    LoopTarget, RefKind,
 };
 use crate::ir::repr_type;
 use crate::patterns::gen_match;
@@ -436,7 +436,12 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let slot = ctx.locals.get(name).map(|(slot, _)| slot.clone());
             let repr = repr_type(&ty.kind);
             let is_string = matches!(ty.kind, TypeKind::Str);
-            let is_payload = owns_string_refs(ctx, &ty.kind);
+            // A `string` is an aggregate *representation*, but its reference is
+            // handled by the branch below; `is_payload` is only for a value that
+            // wraps string references one field deeper (`Option[string]`,
+            // `Result[T, string]`). Without the exclusion a string assignment
+            // would retain or release twice.
+            let is_payload = !is_string && owns_string_refs(ctx, &ty.kind);
             // A promoted allocation lives in the frame or a block arena, so it
             // has no allocator block to release. The slot's *previous* state is
             // what decides the free, before the new value can change it.
@@ -444,21 +449,6 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
                 .as_deref()
                 .map(|slot| ctx.is_promoted(slot))
                 .unwrap_or(false);
-            // Overwriting a linear binding discards the pointer that was there,
-            // so it is released first. `release_previous` is the checker's
-            // verdict on whether that pointer was still owned: after
-            // `dealloc(buf)` the slot still holds the address, but the address
-            // was already freed, so freeing it again here would be a double
-            // free. Only the checker knows the difference, which is why the
-            // flag is in the HIR rather than recomputed from the slot. A
-            // `string` is a copy type with its own rule below, not a linear one.
-            if *release_previous && !was_promoted && repr != "void" && !is_string && !is_payload {
-                if let Some(slot) = &slot {
-                    let old = ctx.tmp();
-                    ctx.push(format!("{old} = load {repr}, ptr {slot}"));
-                    ctx.push(format!("call void @yashy_free(i8* {old})"));
-                }
-            }
             // Fast path for `s = s + piece`: append in place instead of
             // allocating a fresh string and releasing the old one. The slot
             // owns its reference, so `yashy_str_append` either mutates it or
@@ -498,6 +488,32 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             }
             let value_expr = value;
             let value = gen_expr(ctx, value);
+            // Overwriting a linear binding discards the pointer that was there,
+            // so the old value is released. `release_previous` is the
+            // checker's verdict on whether that pointer was still owned: after
+            // `dealloc(buf)` the slot still holds the address, but the address
+            // was already freed, so freeing it again here would be a double
+            // free. Only the checker knows the difference, which is why the
+            // flag is in the HIR rather than recomputed from the slot. A
+            // `string` is a copy type with its own rule below, not a linear
+            // one, and an aggregate that owns payload references is handled
+            // there too. The release follows the value because the value may
+            // read the old binding (`set = set_insert(set, 3)` moves it
+            // instead, and then `release_previous` is false).
+            if *release_previous && !was_promoted && repr != "void" && !is_string && !is_payload {
+                if let Some(slot) = &slot {
+                    match &ty.kind {
+                        TypeKind::Slice(element) => {
+                            crate::slices::release_slot(ctx, slot, &element.kind)
+                        }
+                        _ => {
+                            let old = ctx.tmp();
+                            ctx.push(format!("{old} = load {repr}, ptr {slot}"));
+                            ctx.push(format!("call void @yashy_free(i8* {old})"));
+                        }
+                    }
+                }
+            }
             if is_string && !value.value.is_empty() {
                 // The new reference is secured *before* the old one is dropped,
                 // so `s = s + "x"` reads the old value and the store that
@@ -842,10 +858,14 @@ pub fn gen_stmt(ctx: &mut FnCtx<'_>, stmt: &HirStmt) -> Flow {
             let executor = ctx.tmp();
             ctx.push(format!("{executor} = call i8* @yashy_executor_default()"));
             let scope = ctx.tmp();
-            ctx.push(format!("{scope} = call i8* @yashy_scope_create(i8* {executor})"));
+            ctx.push(format!(
+                "{scope} = call i8* @yashy_scope_create(i8* {executor})"
+            ));
             let flow = gen_block(ctx, body);
             if flow == Flow::Fallthrough {
-                ctx.push(format!("call void @yashy_scope_join_or_cancel(i8* {scope})"));
+                ctx.push(format!(
+                    "call void @yashy_scope_join_or_cancel(i8* {scope})"
+                ));
                 ctx.push(format!("call void @yashy_scope_free(i8* {scope})"));
             }
             flow

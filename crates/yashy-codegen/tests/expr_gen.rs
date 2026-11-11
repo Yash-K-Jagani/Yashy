@@ -222,7 +222,9 @@ fn the_division_itself_is_emitted_behind_the_check() {
     let src = "fn f(int a, int b) { const q = a / b; const r = a % b; }";
     let ir_text = gen_body(src);
     let branch = ir_text.find("br i1").expect("a check must branch");
-    let divide = ir_text.find("sdiv i64").expect("the quotient is still a sdiv");
+    let divide = ir_text
+        .find("sdiv i64")
+        .expect("the quotient is still a sdiv");
     let remainder = ir_text.find("srem i64").expect("so is the remainder");
     assert!(
         branch < divide && branch < remainder,
@@ -321,8 +323,7 @@ fn negating_a_float_is_not_checked() {
 fn comparisons_and_boolean_logic_are_never_checked() {
     // A comparison cannot overflow and `&&` is not arithmetic. This is the guard
     // against the checked path widening to operations it does not belong on.
-    let ir_text =
-        gen_body("fn f(int a, int b) { const c = a < b; const d = (a < b) && (b < a); }");
+    let ir_text = gen_body("fn f(int a, int b) { const c = a < b; const d = (a < b) && (b < a); }");
     let body = body_of(&ir_text);
     assert!(
         body.contains("icmp slt i64"),
@@ -846,7 +847,7 @@ fn an_asserted_operand_is_evaluated_once() {
     );
     let ir_text = gen_body(src);
     assert_eq!(
-        ir_text.matches("call i64 @g(").count(),
+        ir_text.matches("call i64 @yashy_fn_g(").count(),
         1,
         "the operand is evaluated once:\n{ir_text}"
     );
@@ -884,8 +885,7 @@ fn an_assert_survives_a_release_build() {
     // The other half of the pair: `assert` is not a debugging aid.
     let ir_text = gen_body_in("fn f(int a) { assert(a > 0); }", true);
     assert!(
-        ir_text.contains("assertion failed: a > 0")
-            && ir_text.contains("call void @yashy_panic"),
+        ir_text.contains("assertion failed: a > 0") && ir_text.contains("call void @yashy_panic"),
         "a release build still lowers `assert`:\n{ir_text}"
     );
 }
@@ -949,7 +949,10 @@ fn golden_dir() -> PathBuf {
 
 /// True when `UPDATE_GOLDEN=1` asks for the `.expected.ll` file to be rewritten.
 fn updating_goldens() -> bool {
-    matches!(std::env::var("UPDATE_GOLDEN").as_deref(), Ok("1") | Ok("true"))
+    matches!(
+        std::env::var("UPDATE_GOLDEN").as_deref(),
+        Ok("1") | Ok("true")
+    )
 }
 
 /// Read a golden file with line endings normalised to `\n`, both halves of a

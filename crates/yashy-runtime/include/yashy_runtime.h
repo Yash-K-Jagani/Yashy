@@ -426,6 +426,42 @@ void yashy_slice_reserve(yashy_slice *slice, long long cap, long long element_si
 void yashy_slice_push(yashy_slice *slice, const void *element, long long element_size);
 void yashy_slice_free(yashy_slice *slice);
 
+/* ---- Platform (phase 12, Task 10) ----------------------------------------
+ *
+ * Every function answers with a value: `0` on success, `-1` on failure.
+ * String results are freshly allocated and owned by the caller. The take on
+ * recorded values (a directory's iterator order, mtime granularity) is
+ * documented in the Yashy modules rather than papered over here. */
+long long yashy_monotonic_ns(void);
+int yashy_platform_id(void);
+int yashy_arch_id(void);
+long long yashy_pid(void);
+long long yashy_now_unix_ns(void);
+long long yashy_random_i64(void);
+int yashy_is_tty(int fd);
+yashy_str *yashy_env_join(void);
+int yashy_env_set(const char *name, const char *value);
+int yashy_env_unset(const char *name);
+yashy_str *yashy_fs_listdir_join(const char *path);
+yashy_str *yashy_fs_listdir_record(const char *path);
+yashy_str *yashy_fs_metadata_record(const char *path);
+int yashy_fs_stat(const char *path, long long *size, int *is_dir, long long *modified_unix);
+long long yashy_fs_stat_size(const char *path);
+int yashy_fs_stat_is_dir(const char *path);
+long long yashy_fs_stat_modified(const char *path);
+int yashy_remove_file(const char *path);
+int yashy_remove_dir(const char *path);
+int yashy_rename(const char *old_path, const char *new_path);
+int yashy_copy(const char *src, const char *dst);
+int yashy_entropy(uint8_t *bytes, long long len);
+/* One child to completion; newline-separated argv/env records, `cwd` of ""
+ * inherits. `*out` receives the captured stdout, `*exit_code` the status,
+ * and `*pid_out` the child id. Argv only, never a shell. */
+int yashy_spawn(const char *argv_text, const char *cwd, const char *env_text, yashy_str **out,
+                long long *exit_code, long long *pid_out);
+yashy_str *yashy_spawn_record(const char *argv_text, const char *cwd, const char *env_text);
+yashy_str *yashy_stdin_record(void);
+
 /* ---- Byte buffers ------------------------------------------------------
  *
  * `yashy_alloc_bytes(size)` is `yashy_alloc(size, 1)` for a `*mut char`.

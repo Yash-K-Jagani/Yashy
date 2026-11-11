@@ -1,0 +1,17 @@
+mkdir ok
+wrote b
+wrote a
+entries a.txt,b.txt,sub
+a size 2 dir false
+dir is dir true
+renamed
+copied
+d size 2
+c exists true
+missing exists false
+removed d
+removed c
+removed b
+removed sub
+removed dir
+missing dir: Err

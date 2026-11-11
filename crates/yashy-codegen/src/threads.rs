@@ -20,7 +20,7 @@
 
 use yashy_sema::{HirExpr, TypeKind};
 
-use crate::expr_gen::{gen_expr, GenValue, FnCtx};
+use crate::expr_gen::{gen_expr, FnCtx, GenValue};
 use crate::ir::repr_type;
 use crate::slices::option_from_flag;
 
@@ -57,6 +57,9 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
     let Some(name) = path.last() else {
         return unit();
     };
+    // The body is a Yashy function: its symbol carries the prefix that keeps
+    // it apart from the C library's names.
+    let callee = crate::ir::fn_symbol(name);
     let TypeKind::Func(params, _) = &body_ty.kind else {
         return unit();
     };
@@ -124,7 +127,7 @@ pub fn gen_thread_spawn(ctx: &mut FnCtx<'_>, body: &HirExpr, args: &[HirExpr]) -
         }
         call_args.push(format!("{repr} {value}"));
     }
-    lines.push(format!("  call void @{name}({})", call_args.join(", ")));
+    lines.push(format!("  call void @{callee}({})", call_args.join(", ")));
     for value in strings {
         lines.push(format!("  call void @{release}(i8* {value})"));
     }

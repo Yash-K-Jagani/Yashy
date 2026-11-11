@@ -10,6 +10,29 @@ use yashy_sema::TypeKind;
 
 use crate::module::VariantRepr;
 
+/// The LLVM symbol for a Yashy function.
+///
+/// A Yashy function and a C library function can share a name: `rename`,
+/// `copy`, `free`, `strlen` and `time` are all library names a program may
+/// reasonably use for its own function. The linker binds symbols by name, so
+/// a program that defined `fn rename` would take the C library's `rename`
+/// away from the runtime: the runtime's own calls would call the program's
+/// function instead, with the wrong signature, and the program would crash
+/// inside the library rather than at its own call. Every Yashy function
+/// therefore carries a prefix that no C library symbol has.
+///
+/// Two names need no prefix. `main` is the C entry point the operating system
+/// calls, so its name is part of the platform's contract, and a recursive
+/// `main` still resolves to it. A qualified name -- a method's `Type.method` --
+/// already carries a `.`, which a C identifier cannot hold, so it cannot
+/// collide with a library symbol.
+pub fn fn_symbol(name: &str) -> String {
+    if name == "main" || name.contains('.') {
+        return name.to_string();
+    }
+    format!("yashy_fn_{name}")
+}
+
 /// The LLVM IR type for a checked Yashy type.
 ///
 /// The five primitive cases are the whole M0–M2 mapping:

@@ -1,28 +1,50 @@
-// Text output (M6 Task 10).
+// Text input and output (phase 12, Task 10).
 //
-// `print` and `read_line` are builtins: they are in scope in every file,
-// imported or not, because Yashy's modules share one root scope (the plan's
-// Task 9 rule). `print` takes any number of printable values and writes one
-// newline, so a module-level `print` would never be reached by that name; the
-// compiler rewrites it before ordinary name resolution. What this module adds
-// is the explicitly typed number forms, for a call site that wants the
+// `print`, `eprint` and `read_line` are builtins: they are in scope in every
+// file, imported or not, because Yashy's modules share one root scope (the
+// plan's Task 9 rule). `print` takes any number of printable values and writes
+// one newline, so a module-level `print` would never be reached by that name;
+// the compiler rewrites it before ordinary name resolution. What this module
+// adds is the explicitly typed forms, for a call site that wants the
 // conversion named.
 //
 // The file half of I/O is built in too: `read_file(path)` answers
 // `Result[string, io.Error]` and `write_file(path, body)` answers
-// `Result[void, io.Error]`. They are documented here because this is the module a
-// reader looks in for them; there is no wrapper, because a wrapper would have to
-// use the same name and the names live in one scope.
+// `Result[void, io.Error]`. They are documented here because this is the module
+// a reader looks in for them; there is no wrapper, because a wrapper would have
+// to use the same name and the names live in one scope.
 //
-// Ownership: none of these consume their argument. `print` copies the bytes
-// and keeps no pointer.
+// `read_all` consumes standard input to EOF. A read error is `Err(Other)`, not
+// an empty string; empty input is `Ok("")` and stays a different answer.
+//
+// Ownership: `read_all` returns a fresh string; `write_stderr` copies the
+// bytes and keeps no pointer. `println_i64`/`println_f64` own nothing.
 
-// Ownership: none; a number owns nothing.
+extern "C" {
+    unsafe fn yashy_stdin_record() -> string;
+}
+
+/// Print `value` and a newline.
 pub fn println_i64(int value) {
     print(value);
 }
 
-// Ownership: none; a number owns nothing.
+/// Print `value` and a newline.
 pub fn println_f64(float value) {
     print(value);
+}
+
+/// Everything on standard input, read to end of input.
+pub fn read_all() -> Result[string, io.Error] {
+    const record = yashy_stdin_record();
+    const status = record.byte_at(0).to_int() - 48;
+    if status != 0 {
+        return Err(io.Error.Other);
+    }
+    return Ok(record.slice(2, record.len()));
+}
+
+/// Write `text` to standard error, with no added newline.
+pub fn write_stderr(string text) {
+    eprint(text);
 }

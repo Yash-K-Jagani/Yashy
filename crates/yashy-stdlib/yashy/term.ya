@@ -1,0 +1,125 @@
+// Terminals (phase 12, Task 10).
+//
+// `is_tty()` answers whether standard output is a terminal (the C half is
+// `isatty`). The color and escape helpers build SGR sequences, and every one
+// of them answers `""` when `NO_COLOR` is set in the environment, when
+// `TERM` is exactly `dumb`, or when stdout is not a terminal: a sequence that
+// never printed is answered with nothing rather than emitted to a pipe.
+//
+// SGR codes: `1` bold; the named colors are the standard foreground 30-37,
+// written as `reset` is unset. `color(name)` answers `""` for an unknown name
+// too, rather than emitting an escape for a color the terminal may not know.
+
+extern "C" {
+    unsafe fn yashy_is_tty(int fd) -> int;
+}
+
+fn no_color_set() -> bool {
+    const value = getenv("NO_COLOR");
+    return switch value {
+        case Some(_) { true }
+        case None { false }
+    };
+}
+
+fn term_is_dumb() -> bool {
+    const value = getenv("TERM");
+    return switch value {
+        case Some(text) { text == "dumb" }
+        case None { false }
+    };
+}
+
+fn disabled() -> bool {
+    if no_color_set() {
+        return true;
+    }
+    if term_is_dumb() {
+        return true;
+    }
+    return yashy_is_tty(1) == 0;
+}
+
+/// Whether standard output is a terminal.
+pub fn is_tty() -> bool {
+    return yashy_is_tty(1) != 0;
+}
+
+/// The escape character (0x1b) as a string; a string literal has no
+/// hexadecimal escape, so it comes from a `char`.
+fn esc() -> string {
+    return (27).to_char().to_string();
+}
+
+/// Bold, `""` when disabled.
+pub fn bold() -> string {
+    if disabled() {
+        return "";
+    }
+    return esc() + "[1m";
+}
+
+/// Reset, `""` when disabled.
+pub fn reset() -> string {
+    if disabled() {
+        return "";
+    }
+    return esc() + "[0m";
+}
+
+/// Clear the screen (home the cursor afterwards), `""` when disabled.
+pub fn clear_screen() -> string {
+    if disabled() {
+        return "";
+    }
+    return esc() + "[2J" + esc() + "[H";
+}
+
+/// Move to the 1-based row and column, `""` when disabled.
+pub fn move_to(int row, int column) -> string {
+    if disabled() {
+        return "";
+    }
+    return esc() + "[${row};${column}H";
+}
+
+fn sgr_code(string name) -> int {
+    if name == "black" {
+        return 30;
+    }
+    if name == "red" {
+        return 31;
+    }
+    if name == "green" {
+        return 32;
+    }
+    if name == "yellow" {
+        return 33;
+    }
+    if name == "blue" {
+        return 34;
+    }
+    if name == "magenta" {
+        return 35;
+    }
+    if name == "cyan" {
+        return 36;
+    }
+    if name == "white" {
+        return 37;
+    }
+    return -1;
+}
+
+/// Foreground SGR for `name` (`black red green yellow blue magenta cyan
+/// white`), or `""` for an unknown color or when disabled.
+pub fn color(string name) -> string {
+    if disabled() {
+        return "";
+    }
+    const code = sgr_code(name);
+    if code < 0 {
+        return "";
+    }
+    return esc() + "[${code}m";
+}

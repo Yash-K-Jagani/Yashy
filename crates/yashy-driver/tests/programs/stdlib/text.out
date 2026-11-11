@@ -1,0 +1,5 @@
+aGVsbG8=
+base64 all bytes: true
+hex all bytes: true
+bad base64 rejected: true
+bad hex rejected: true

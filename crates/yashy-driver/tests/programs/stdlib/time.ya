@@ -1,0 +1,17 @@
+import time;
+
+fn main() {
+    let previous = time.monotonic_ns();
+    let forward = true;
+    let index = 0;
+    while index < 10000 {
+        const next = time.monotonic_ns();
+        if next < previous {
+            forward = false;
+        }
+        previous = next;
+        index = index + 1;
+    }
+    print("monotonic forward: ${forward}");
+    print("epoch ns positive: ${time.now_unix_ns() > 0}");
+}

@@ -1,0 +1,547 @@
+// Regular expressions (phase 12, Task 10).
+//
+// A small pattern language, not the whole of PCRE: literal runs, `.`,
+// `*`, `+`, `?`, character classes `[...]` with ranges and a leading `^`,
+// `(...)` groups, alternation `|`, anchors `^` and `$`, and the classes
+// `\d`, `\D`, `\w`, `\W`, `\s`, `\S`. No backreferences, no lookaround, no
+// lazy quantifiers, and no Unicode classes: those do not compile, and
+// `compile` answers `Err(Unsupported)` for them -- never a wrong answer.
+//
+// Matching is backtracking over the pattern text with a recursion-depth
+// budget (100,000 steps): a pattern whose exploration would explode counts
+// as no match rather than spinning. Matches are leftmost and greedy at each
+// atom (`a*` takes as much of `a` as it can before giving anything back).
+// No capture state ships: `Match` is a byte range, and `replace_all`'s `$0`
+// is the whole match.
+
+/** Why a compile failed.
+ *
+ * Named `RegexError` because every module's items share one root scope, where
+ * a bare `Error` from three modules cannot coexist. */
+pub enum RegexError {
+    Unsupported,
+    /** The pattern is malformed: an unclosed group, class, or escape. */
+    Syntax,
+}
+
+/** A compiled pattern: the pattern text itself. */
+pub struct Regex {
+    pub pattern: string,
+}
+
+/** Match bounds in bytes; `end` is the first byte after the match. */
+pub struct Match {
+    pub start: int,
+    pub end: int,
+}
+
+/** Split `pattern` at every `|` that is not inside `()` or `[]` or escaped. */
+fn split_alternatives(string pattern) -> []string {
+    let out = []string {};
+    let arm = "";
+    let depth = 0;
+    let in_class = false;
+    let escaped = false;
+    let index = 0;
+    while index < pattern.len() {
+        const byte = pattern.byte_at(index).to_int();
+        if escaped {
+            arm = arm + byte.to_char().to_string();
+            escaped = false;
+            index = index + 1;
+            continue;
+        }
+        if byte == 92 {
+            arm = arm + byte.to_char().to_string();
+            escaped = true;
+            index = index + 1;
+            continue;
+        }
+        if in_class {
+            arm = arm + byte.to_char().to_string();
+            if byte == 93 {
+                in_class = false;
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 91 {
+            in_class = true;
+            arm = arm + byte.to_char().to_string();
+            index = index + 1;
+            continue;
+        }
+        if byte == 40 {
+            depth = depth + 1;
+            arm = arm + byte.to_char().to_string();
+            index = index + 1;
+            continue;
+        }
+        if byte == 41 {
+            depth = depth - 1;
+            arm = arm + byte.to_char().to_string();
+            index = index + 1;
+            continue;
+        }
+        if byte == 124 && depth <= 0 {
+            out.push(arm);
+            arm = "";
+            index = index + 1;
+            continue;
+        }
+        arm = arm + byte.to_char().to_string();
+        index = index + 1;
+    }
+    out.push(arm);
+    return out;
+}
+
+/** The matching close of the `(` at `pos`, or -1 when there is none. */
+fn close_paren(string pattern, int open) -> int {
+    let depth = 1;
+    let escaped = false;
+    let in_class = false;
+    let index = open + 1;
+    while index < pattern.len() {
+        const byte = pattern.byte_at(index).to_int();
+        if escaped {
+            escaped = false;
+            index = index + 1;
+            continue;
+        }
+        if byte == 92 {
+            escaped = true;
+            index = index + 1;
+            continue;
+        }
+        if in_class {
+            if byte == 93 {
+                in_class = false;
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 91 {
+            in_class = true;
+        } else {
+            if byte == 40 {
+                depth = depth + 1;
+            }
+            if byte == 41 {
+                depth = depth - 1;
+                if depth == 0 {
+                    return index;
+                }
+            }
+        }
+        index = index + 1;
+    }
+    return -1;
+}
+
+/** Does the class body hold `byte`? Leading `^` inverts. */
+fn class_holds(string body, int byte) -> bool {
+    const negated = body.byte_at(0).to_int() == 94;
+    let index = 0;
+    if negated {
+        index = 1;
+    }
+    let found = false;
+    while index < body.len() {
+        if index + 2 < body.len() && body.byte_at(index + 1).to_int() == 45 {
+            const lo = body.byte_at(index).to_int();
+            const hi = body.byte_at(index + 2).to_int();
+            if byte >= lo && byte <= hi {
+                found = true;
+            }
+            index = index + 3;
+            continue;
+        }
+        if body.byte_at(index).to_int() == byte {
+            found = true;
+        }
+        index = index + 1;
+    }
+    if negated {
+        return !found;
+    }
+    return found;
+}
+
+/** Is the escape at `at` d/w/s (in either case)? */
+fn escape_is_class(int code) -> bool {
+    return code == 100 || code == 119 || code == 115 || code == 68 || code == 87 ||
+        code == 83;
+}
+
+/** Does the escape class match `byte`? */
+fn escape_holds(int code, int byte) -> bool {
+    const negated = code == 68 || code == 87 || code == 83;
+    const digit = byte >= 48 && byte <= 57;
+    const word = (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) ||
+        byte == 95 || (byte >= 97 && byte <= 122);
+    const space = byte == 32 || byte == 9 || byte == 10 || byte == 13;
+    const lower = code & 31;
+    let holds = false;
+    if lower == 20 {
+        holds = digit;
+    }
+    if lower == 23 {
+        holds = word;
+    }
+    if lower == 19 {
+        holds = space;
+    }
+    if negated {
+        return !holds;
+    }
+    return holds;
+}
+
+/** Is `code` a meta character that starts its own piece? */
+fn is_meta(int code) -> bool {
+    return code == 46 || code == 42 || code == 43 || code == 63 || code == 40 ||
+        code == 41 || code == 124 || code == 91 || code == 93 || code == 92;
+}
+
+fn atom_after(string pattern, int pos) -> int {
+    const code = pattern.byte_at(pos).to_int();
+    if code == 46 {
+        return pos + 1;
+    }
+    if code == 91 {
+        let close = pos + 1;
+        while close < pattern.len() && pattern.byte_at(close).to_int() != 93 {
+            close = close + 1;
+        }
+        return close + 1;
+    }
+    if code == 92 {
+        return pos + 2;
+    }
+    return pos + 1;
+}
+
+/** Does the atom at `pos` match the byte of `text` at `t`? */
+fn atom_matches(string pattern, int pos, string text, int t) -> bool {
+    if t >= text.len() {
+        return false;
+    }
+    const byte = text.byte_at(t).to_int();
+    const code = pattern.byte_at(pos).to_int();
+    if code == 46 {
+        return true;
+    }
+    if code == 91 {
+        let close = pos + 1;
+        while close < pattern.len() && pattern.byte_at(close).to_int() != 93 {
+            close = close + 1;
+        }
+        if close >= pattern.len() {
+            return false;
+        }
+        const body = pattern.slice(pos + 1, close);
+        return class_holds(body, byte);
+    }
+    if code == 92 {
+        if pos + 1 >= pattern.len() {
+            return false;
+        }
+        const next = pattern.byte_at(pos + 1).to_int();
+        if escape_is_class(next) {
+            return escape_holds(next, byte);
+        }
+        return next == byte;
+    }
+    return code == byte;
+}
+
+/** Answer whether the arm matches and the end of its match; `-1` on none. */
+fn match_arm_end(string pattern, string text, int t, int depth) -> int {
+    if depth > 100000 {
+        return -1;
+    }
+    let pos = 0;
+    if pattern.byte_at(0).to_int() == 94 {
+        if t != 0 {
+            return -1;
+        }
+        pos = 1;
+    }
+    return match_rest(pattern, text, pos, t, depth);
+}
+
+/** Answers the end of the whole continuation, or -1. */
+fn match_rest(string pattern, string text, int pos, int t, int depth) -> int {
+    if depth > 100000 {
+        return -1;
+    }
+    if pos >= pattern.len() {
+        return t;
+    }
+    const code = pattern.byte_at(pos).to_int();
+    if code == 36 {
+        if t == text.len() && pos + 1 == pattern.len() {
+            return t;
+        }
+        return -1;
+    }
+    if code == 40 {
+        const close = close_paren(pattern, pos);
+        if close < 0 {
+            return -1;
+        }
+        const inner = pattern.slice(pos + 1, close);
+        const end = match_arm_end(inner, text, t, depth + 1);
+        if end < 0 {
+            return -1;
+        }
+        return match_rest(pattern, text, close + 1, end, depth + 1);
+    }
+    // One atom at `pos` (a literal, `.`, a class, or an escape), possibly
+    // quantified by what follows it. `after` is the end of the atom itself;
+    // a quantifier glyph sits there and is skipped too.
+    const after = atom_after(pattern, pos);
+    let quant = 0;
+    if after < pattern.len() {
+        const next = pattern.byte_at(after).to_int();
+        if next == 42 || next == 43 || next == 63 {
+            quant = next;
+        }
+    }
+    let next_pos = after;
+    if quant > 0 {
+        next_pos = after + 1;
+    }
+    if quant == 0 {
+        if !atom_matches(pattern, pos, text, t) {
+            return -1;
+        }
+        return match_rest(pattern, text, next_pos, t + 1, depth + 1);
+    }
+    if quant == 63 {
+        if atom_matches(pattern, pos, text, t) {
+            const many = match_rest(pattern, text, next_pos, t + 1, depth + 1);
+            if many >= 0 {
+                return many;
+            }
+        }
+        return match_rest(pattern, text, next_pos, t, depth + 1);
+    }
+    // `*` and `+`: take one more first (greedy), then what is left.
+    let took = false;
+    if atom_matches(pattern, pos, text, t) {
+        took = true;
+        const many = match_rest(pattern, text, pos, t + 1, depth + 1);
+        if many >= 0 {
+            return many;
+        }
+    }
+    if quant == 43 {
+        if took {
+            // `+` also satisfied by the one match taken at this level keeps
+            // the rest matchable from here.
+            return match_rest(pattern, text, next_pos, t + 1, depth + 1);
+        }
+        return -1;
+    }
+    return match_rest(pattern, text, next_pos, t, depth + 1);
+}
+
+/**
+ * Compile `pattern`. A backreference (`\1`), a lookaround (`(?=`, `(?!`,
+ * `(?<=`, `(?<!`), a lazy quantifier (`a*?`, `a+?`, `a??`), or a Unicode
+ * class reads as `Err(Unsupported)`; an unclosed group, class, or escape
+ * reads as `Err(Syntax)`; anything else compiles.
+ */
+pub fn compile(string pattern) -> Result[Regex, RegexError] {
+    let depth = 0;
+    let in_class = false;
+    let escaped = false;
+    let index = 0;
+    while index < pattern.len() {
+        const byte = pattern.byte_at(index).to_int();
+        if escaped {
+            escaped = false;
+            if (byte >= 48 && byte <= 57) || byte == 112 || byte == 80 {
+                return Err(RegexError.Unsupported);
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 92 {
+            escaped = true;
+            index = index + 1;
+            continue;
+        }
+        if in_class {
+            if byte == 93 {
+                in_class = false;
+            }
+            index = index + 1;
+            continue;
+        }
+        if byte == 91 {
+            in_class = true;
+            index = index + 1;
+            continue;
+        }
+        if byte == 40 {
+            if index + 1 < pattern.len() && pattern.byte_at(index + 1).to_int() == 63 {
+                return Err(RegexError.Unsupported);
+            }
+            depth = depth + 1;
+            index = index + 1;
+            continue;
+        }
+        if byte == 41 {
+            depth = depth - 1;
+            if depth < 0 {
+                return Err(RegexError.Syntax);
+            }
+            index = index + 1;
+            continue;
+        }
+        if index + 1 < pattern.len() && pattern.byte_at(index + 1).to_int() == 63 &&
+            (byte == 42 || byte == 43 || byte == 63) {
+            return Err(RegexError.Unsupported);
+        }
+        index = index + 1;
+    }
+    if escaped || in_class || depth != 0 {
+        return Err(RegexError.Syntax);
+    }
+    return Ok(Regex { pattern: pattern });
+}
+
+/** The leftmost match in `text`: tries each start from 0 upward, and at
+ * each start the alternatives in pattern order. */
+pub fn find(Regex rx, string text) -> Option[Match] {
+    const alternatives = split_alternatives(rx.pattern);
+    let start = 0;
+    let answer_start = -1;
+    let answer_end = -1;
+    let found = false;
+    while start <= text.len() {
+        let index = 0;
+        while index < alternatives.len() {
+            const arm = switch alternatives[index] {
+                case Some(value) { value }
+                case None { "" }
+            };
+            const end = match_arm_end(arm, text, start, 0);
+            if end >= 0 {
+                answer_start = start;
+                answer_end = end;
+                found = true;
+                break;
+            }
+            const anchored = arm.len() > 0 && arm.byte_at(0).to_int() == 94;
+            if anchored {
+                break;
+            }
+            index = index + 1;
+        }
+        if found {
+            break;
+        }
+        start = start + 1;
+    }
+    alternatives.free();
+    if found {
+        return Some(Match { start: answer_start, end: answer_end });
+    }
+    const Option[Match] missing = None;
+    return missing;
+}
+
+/** Whether the compiled pattern occurs anywhere in `text`. */
+pub fn is_match(Regex rx, string text) -> bool {
+    const found = find(rx, text);
+    const hit = switch found {
+        case Some(_) { true }
+        case None { false }
+    };
+    return hit;
+}
+
+/** Every non-overlapping match in `text` as its matched text. */
+pub fn find_all(Regex rx, string text) -> []string {
+    let out = []string {};
+    let at = 0;
+    while at <= text.len() {
+        const sliced = text.slice(at, text.len());
+        const found = find(rx, sliced);
+        const missing = switch found {
+            case Some(_) { false }
+            case None { true }
+        };
+        if missing {
+            break;
+        }
+        const span = switch found {
+            case Some(m) { m }
+            case None { Match { start: -1, end: -1 } }
+        };
+        out.push(sliced.slice(span.start, span.end));
+        at = span.end + at;
+        if span.start == span.end {
+            at = at + 1;
+        }
+    }
+    return out;
+}
+
+/**
+ * Replace every match in `text` with `replacement`. `$0` is the whole
+ * match; `$$` is a literal dollar sign. Everything else is literal.
+ */
+pub fn replace_all(Regex rx, string text, string replacement) -> string {
+    let out = "";
+    let at = 0;
+    while at <= text.len() {
+        const sliced = text.slice(at, text.len());
+        const found = find(rx, sliced);
+        const missing = switch found {
+            case Some(_) { false }
+            case None { true }
+        };
+        if missing {
+            out = out + sliced;
+            break;
+        }
+        const span = switch found {
+            case Some(m) { m }
+            case None { Match { start: -1, end: -1 } }
+        };
+        if span.start > 0 {
+            out = out + text.slice(at, at + span.start);
+        }
+        const whole = sliced.slice(span.start, span.end);
+        let i = 0;
+        while i < replacement.len() {
+            if replacement.byte_at(i).to_int() == 36 && i + 1 < replacement.len() &&
+                replacement.byte_at(i + 1).to_int() == 48 {
+                out = out + whole;
+                i = i + 2;
+                continue;
+            }
+            if replacement.byte_at(i).to_int() == 36 && i + 1 < replacement.len() &&
+                replacement.byte_at(i + 1).to_int() == 36 {
+                out = out + "$";
+                i = i + 2;
+                continue;
+            }
+            out = out + replacement.byte_at(i).to_string();
+            i = i + 1;
+        }
+        at = span.end + at;
+        if span.start == span.end {
+            if at < text.len() {
+                out = out + text.byte_at(at).to_string();
+                at = at + 1;
+            }
+        }
+    }
+    return out;
+}

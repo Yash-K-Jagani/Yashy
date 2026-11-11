@@ -26,7 +26,12 @@ fn ir_of(src: &str) -> String {
         .parse_program()
         .expect("these test sources must parse");
     let hir = check_program(&ast, &sm, file).expect("these test sources must type-check");
-    emit_program(&hir, "main.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
+    emit_program(
+        &hir,
+        "main.ya",
+        CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
+    )
 }
 
 #[test]
@@ -37,7 +42,7 @@ fn a_top_level_function_becomes_a_thunk_that_takes_the_environment() {
         "the thunk takes the environment first, then the arguments:\n{ir_text}"
     );
     assert!(
-        ir_text.contains("call i64 @square(i64 %arg0)"),
+        ir_text.contains("call i64 @yashy_fn_square(i64 %arg0)"),
         "the thunk calls the real function:\n{ir_text}"
     );
 }
@@ -59,9 +64,8 @@ fn a_function_value_is_a_code_pointer_and_a_null_environment() {
 
 #[test]
 fn calling_a_function_value_goes_through_the_stored_code_pointer() {
-    let ir_text = ir_of(
-        "fn square(int x) -> int { return x; } fn main() { const f = square; print(f(4)); }",
-    );
+    let ir_text =
+        ir_of("fn square(int x) -> int { return x; } fn main() { const f = square; print(f(4)); }");
     assert!(
         ir_text.contains("load { i8*, i8* }, ptr"),
         "the value is loaded out of the binding's slot:\n{ir_text}"
@@ -88,11 +92,11 @@ fn a_function_parameter_is_passed_as_the_same_pair() {
          fn main() { print(apply(square, 7)); }",
     );
     assert!(
-        ir_text.contains("define i64 @apply({ i8*, i8* } %arg0, i64 %arg1)"),
+        ir_text.contains("define i64 @yashy_fn_apply({ i8*, i8* } %arg0, i64 %arg1)"),
         "the parameter is the same pair the value is:\n{ir_text}"
     );
     assert!(
-        ir_text.contains("call i64 @apply({ i8*, i8* }"),
+        ir_text.contains("call i64 @yashy_fn_apply({ i8*, i8* }"),
         "the argument is passed as the pair:\n{ir_text}"
     );
 }
@@ -120,7 +124,7 @@ fn a_function_that_receives_a_value_is_not_inlined() {
          fn main() { print(apply(square, 7)); }",
     );
     assert!(
-        ir_text.contains("@apply({ i8*, i8* } %arg0, i64 %arg1) noinline"),
+        ir_text.contains("@yashy_fn_apply({ i8*, i8* } %arg0, i64 %arg1) noinline"),
         "the receiver of a function value is not inlined:\n{ir_text}"
     );
 }
@@ -129,9 +133,7 @@ fn a_function_that_receives_a_value_is_not_inlined() {
 fn a_lambda_is_emitted_as_a_private_function() {
     // The lambda has no name in the source, so the backend gives it one, and
     // the environment parameter is the convention every function value uses.
-    let ir_text = ir_of(
-        "fn main() { const f = |int x| -> int { return x + 1; }; print(f(1)); }",
-    );
+    let ir_text = ir_of("fn main() { const f = |int x| -> int { return x + 1; }; print(f(1)); }");
     assert!(
         ir_text.contains("define i64 @__lambda_0(i8* %env, i64 %arg0)"),
         "the lambda is a function with an environment parameter:\n{ir_text}"
@@ -207,9 +209,7 @@ fn a_closure_carries_its_captures_in_an_environment() {
 fn a_thrown_away_closure_releases_its_environment() {
     // A closure that is made and never used still owns an environment, and the
     // environment has to come back.
-    let ir_text = ir_of(
-        "fn main() { const n = 1; |int x| -> int { return x + n; }; }",
-    );
+    let ir_text = ir_of("fn main() { const n = 1; |int x| -> int { return x + n; }; }");
     assert!(
         ir_text.contains("call void @yashy_env_release(i8* %"),
         "the discarded closure's environment is released:\n{ir_text}"

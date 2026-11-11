@@ -1,22 +1,29 @@
-// Time.
+// Time (phase 12, Task 10).
 //
-// `now()` and `sleep(ms)` are builtins, in scope in every file, so this module
-// documents the names rather than defining them.
+// Two clocks, named so a reader does not have to guess:
 //
-// `now()` answers milliseconds since the Unix epoch as an `int`. It reads the
-// wall clock, not a monotonic one: a system clock adjustment can make a later
-// call return a smaller number. Use it for timestamps and for coarse elapsed
-// measurements, not for ordering that must never go backwards.
+// - `now()` and `sleep(ms)` are builtins in the shared scope. `now()` is
+//   milliseconds since the Unix epoch from the wall clock; an adjustment can
+//   make a later call smaller. `sleep(ms)` blocks for at least `ms`
+//   milliseconds and treats a non-positive value as a no-op.
+// - `monotonic_ns()` only moves forward. It is for elapsed time and ordering,
+//   not for a timestamp: its zero point is unspecified.
+// - `now_unix_ns()` is the wall clock at nanosecond resolution; the platform
+//   may return it at a coarser granularity (Windows' clock ticks are 100 ns).
 //
-// `sleep(ms)` blocks for at least `ms` milliseconds and returns unit. A value
-// of zero or less is a no-op; it does not yield to the scheduler on its own.
-// The wait is interruptible on POSIX and is retried after a signal.
-//
-//     let start = now();
-//     sleep(20);
-//     let elapsed = now() - start;
-//     print("waited at least 20 ms: ");
-//     print(str_from_i64(elapsed));
-//     print("\n");
-//
-// Ownership: neither creates nor consumes a value.
+// Ownership: none; every function answers a number.
+
+extern "C" {
+    unsafe fn yashy_monotonic_ns() -> int;
+    unsafe fn yashy_now_unix_ns() -> int;
+}
+
+/// Nanoseconds from an unspecified origin, never decreasing.
+pub fn monotonic_ns() -> int {
+    return yashy_monotonic_ns();
+}
+
+/// Nanoseconds since the Unix epoch, from the wall clock.
+pub fn now_unix_ns() -> int {
+    return yashy_now_unix_ns();
+}

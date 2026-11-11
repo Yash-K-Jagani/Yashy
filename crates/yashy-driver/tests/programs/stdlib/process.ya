@@ -1,0 +1,51 @@
+import os;
+import process;
+
+/// Report one child: its exit code, then its captured standard output with the
+/// platform's line ending removed. The helper is a call, because a switch arm
+/// body is a single expression, and trimming keeps one golden for both OSes.
+fn report_child(Child child) {
+    print("child exit ${child.exit_code} out ${trimmed(child.stdout)}");
+}
+
+fn trimmed(string text) -> string {
+    return text.trim();
+}
+
+fn run_and_report([]string argv) {
+    switch process.run(argv) {
+        case Ok(child) { report_child(child) }
+        case Err(_) { print("child failed") }
+    }
+}
+
+fn main() {
+    switch process.run([]string {}) {
+        case Ok(_) { print("unexpected ok") }
+        case Err(_) { print("empty argv: Err") }
+    }
+    switch process.run([]string { "yashy-definitely-missing-command" }) {
+        case Ok(_) { print("unexpected ok") }
+        case Err(_) { print("missing child: Err") }
+    }
+
+    // A child that exists: its exit code and captured stdout are the point.
+    // `platform()` answers an enum, so the platform test is a `switch`; an
+    // equality on two enum values is not a comparison the backend lowers.
+    //
+    // Both children are run on both OSes so one golden covers the pair. The
+    // Windows child is `cmd`, which is itself a shell, so the argv-not-a-shell
+    // half of the check is the Linux one: `/bin/echo` is handed `a;b` as one
+    // argument, and a shell would have run `b` as a second command.
+    const on_windows = switch platform() {
+        case Windows { true }
+        case _ { false }
+    };
+    if on_windows {
+        run_and_report([]string { "cmd", "/C", "echo", "hi" });
+        run_and_report([]string { "cmd", "/C", "echo", "a;b" });
+    } else {
+        run_and_report([]string { "/bin/sh", "-c", "echo hi" });
+        run_and_report([]string { "/bin/echo", "a;b" });
+    }
+}

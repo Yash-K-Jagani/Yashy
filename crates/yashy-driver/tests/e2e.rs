@@ -3026,6 +3026,31 @@ fn libc_is_reachable_from_yashy() {
     assert_eq!(stdout_of(&output), "hello from C\n5\ntrue\n42 x\n");
 }
 
+#[test]
+fn a_function_may_be_named_like_the_c_library() {
+    // The linker binds symbols by name, so a Yashy function called `rename`
+    // would take the C library's `rename` away from the runtime: the runtime's
+    // own call would run the program's function with the C signature, and the
+    // program would fault inside the library instead of failing at its own
+    // call. Every Yashy function therefore carries a symbol of its own.
+    let (_dir, exe, built) = build_program("c_names");
+    assert!(
+        built.status.success(),
+        "c_names.ya must build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let output = run(&exe);
+    assert!(
+        output.status.success(),
+        "c_names.ya must exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        stdout_of(&output),
+        "renaming old\nnew\nlen 12\ntext hello, world\n"
+    );
+}
+
 // --- Phase 3b: `link_name` ---------------------------------------------------
 
 /// A program that calls `sqrt` through a declaration named `c_sqrt`.
@@ -4274,4 +4299,126 @@ fn observability_is_byte_identical_under_deterministic_mode() {
         first_stderr,
         "deterministic stderr is byte-identical across runs"
     );
+}
+
+/// The stdlib programs: each builds once, runs twice, prints the same bytes both
+/// times, matches its pinned `.out` file, and releases everything it allocated.
+///
+/// One program per module under `tests/programs/stdlib/`, so a new module is
+/// picked up without a test edit and an output change is a golden update rather
+/// than a silent difference. The `.out` file is named `<module>.<os>.out` when
+/// the module's answer depends on the operating system, and `<module>.out`
+/// otherwise.
+///
+/// `UPDATE_GOLDEN=1` rewrites the goldens instead of comparing them.
+#[test]
+fn stdlib_programs_are_deterministic_and_release_everything() {
+    let stdlib = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("yashy-stdlib")
+        .join("yashy");
+    let programs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("programs")
+        .join("stdlib");
+    let mut sources: Vec<PathBuf> = fs::read_dir(&programs)
+        .expect("the stdlib programs directory must be readable")
+        .map(|entry| entry.expect("a stdlib program must be readable").path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("ya"))
+        .collect();
+    sources.sort();
+    assert!(!sources.is_empty(), "no stdlib programs found");
+
+    let os = std::env::consts::OS;
+    let update = std::env::var("UPDATE_GOLDEN").is_ok();
+
+    for source in &sources {
+        let name = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .expect("a stdlib program has a UTF-8 stem")
+            .to_string();
+        let dir = work_dir(&format!("stdlib-{name}"));
+        let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+        let compile = Command::new(yashy())
+            .arg("build")
+            .arg(source)
+            .arg("-o")
+            .arg(&exe)
+            .env("YASHY_PATH", &stdlib)
+            .env("YASHY_CACHE_DIR", dir.join("cache"))
+            .output()
+            .expect("the yashy CLI must be runnable");
+        assert!(
+            compile.status.success(),
+            "compiling {} failed:\n{}",
+            source.display(),
+            stderr_of(&compile)
+        );
+
+        let run = launch_retrying(&exe, |path| {
+            Command::new(path)
+                .current_dir(&dir)
+                .env("NO_COLOR", "1")
+                .env("YASHY_LEAK_REPORT", "1")
+                .output()
+        })
+        .expect("the compiled stdlib program must be runnable");
+        assert!(
+            run.status.success(),
+            "{} exited with {:?}:\n{}",
+            name,
+            run.status.code(),
+            stderr_of(&run)
+        );
+        assert!(
+            stderr_of(&run).contains("yashy: leak report: 0 live allocations"),
+            "{} leaked:\n{}",
+            name,
+            stderr_of(&run)
+        );
+
+        let second = launch_retrying(&exe, |path| {
+            Command::new(path)
+                .current_dir(&dir)
+                .env("NO_COLOR", "1")
+                .env("YASHY_LEAK_REPORT", "1")
+                .output()
+        })
+        .expect("the compiled stdlib program must be runnable");
+        assert_eq!(
+            stdout_of(&second),
+            stdout_of(&run),
+            "{} is not deterministic across two runs",
+            name
+        );
+
+        let os_golden = programs.join(format!("{name}.{os}.out"));
+        let plain_golden = programs.join(format!("{name}.out"));
+        let golden = if os_golden.is_file() {
+            os_golden
+        } else {
+            plain_golden
+        };
+        let stdout = stdout_of(&run);
+        if update {
+            fs::write(&golden, stdout.as_bytes())
+                .unwrap_or_else(|error| panic!("writing {} failed: {error}", golden.display()));
+        } else {
+            let pinned = fs::read_to_string(&golden).unwrap_or_else(|error| {
+                panic!(
+                    "no golden output for {} ({}): {error}\nrun with UPDATE_GOLDEN=1",
+                    name,
+                    golden.display()
+                )
+            });
+            assert_eq!(
+                stdout,
+                pinned,
+                "{} changed: update {} with UPDATE_GOLDEN=1",
+                name,
+                golden.display()
+            );
+        }
+    }
 }

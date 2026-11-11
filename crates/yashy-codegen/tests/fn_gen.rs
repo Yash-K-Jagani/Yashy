@@ -190,7 +190,7 @@ fn nested_scope_defer_does_not_leak_to_the_outer_scope() {
 fn empty_function_with_unit_return_emits_ret_void() {
     let ir_text = ir_of("fn f() { }");
     assert!(
-        ir_text.contains("define void @f()"),
+        ir_text.contains("define void @yashy_fn_f()"),
         "a unit function returns void:\n{ir_text}"
     );
     assert!(
@@ -222,7 +222,7 @@ fn a_function_that_cannot_return_is_refused() {
 fn parameters_are_spilled_into_entry_block_slots() {
     let ir_text = ir_of("fn f(int a, float b) -> int { return a; }");
     assert!(
-        ir_text.contains("define i64 @f(i64 %arg0, double %arg1)"),
+        ir_text.contains("define i64 @yashy_fn_f(i64 %arg0, double %arg1)"),
         "the signature carries the parameter types:\n{ir_text}"
     );
     assert!(
@@ -489,8 +489,12 @@ fn named_arguments_evaluate_in_source_order() {
          fn f(int a, int b) -> int { return a + b; } \
          fn main() { let x = f(b: second(), a: first()); print(x); }",
     );
-    let second_call = ir.find("call i64 @second").expect("second() is called");
-    let first_call = ir.find("call i64 @first").expect("first() is called");
+    let second_call = ir
+        .find("call i64 @yashy_fn_second")
+        .expect("second() is called");
+    let first_call = ir
+        .find("call i64 @yashy_fn_first")
+        .expect("first() is called");
     assert!(
         second_call < first_call,
         "second() (named first in the source) is evaluated before first():\n{ir}"

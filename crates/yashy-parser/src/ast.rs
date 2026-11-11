@@ -48,6 +48,8 @@
 //! Tasks 4 to 6 do with the parser's output -- but it is checked, so the
 //! shapes documented here cannot drift from the shapes that exist.
 
+use std::fmt;
+
 use yashy_common::Span;
 
 pub use yashy_lexer::StringLit;
@@ -1284,6 +1286,70 @@ impl UnOp {
             UnOp::Neg => "-",
             UnOp::Not => "!",
             UnOp::BitNot => "~",
+        }
+    }
+}
+
+/// The type as it is written in source.
+///
+/// The spelling is the point: a generic function's signature is rendered from
+/// the AST, because a generic function has no checked HIR item -- the checker
+/// only instantiates it -- and the reference the documentation renders has to
+/// show the same type the source wrote. `[]T`, `Option[T]` and `Result[T, E]`
+/// print as they are written, so the page and the source agree.
+impl fmt::Display for TypeExpr {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TypeExpr::Name(name, _) => out.write_str(name),
+            TypeExpr::Ptr { kind, pointee, .. } => {
+                out.write_str(match kind {
+                    PtrKind::Mut => "*mut ",
+                    PtrKind::Const => "*const ",
+                    PtrKind::Bare => "*",
+                })?;
+                write!(out, "{pointee}")
+            }
+            TypeExpr::FixedArray(element, length, _) => {
+                write!(out, "[{element}; {length}]")
+            }
+            TypeExpr::View(element, _) => write!(out, "[{element}]"),
+            TypeExpr::Slice(element, _) => write!(out, "[]{element}"),
+            TypeExpr::Map(key, value, _) => write!(out, "map[{key}]{value}"),
+            TypeExpr::Option(inner, _) => write!(out, "Option[{inner}]"),
+            TypeExpr::Result(ok, err, _) => write!(out, "Result[{ok}, {err}]"),
+            TypeExpr::Channel(inner, _) => write!(out, "Channel[{inner}]"),
+            TypeExpr::Fn { params, ret, .. } => {
+                out.write_str("fn(")?;
+                for (index, param) in params.iter().enumerate() {
+                    if index > 0 {
+                        out.write_str(", ")?;
+                    }
+                    write!(out, "{param}")?;
+                }
+                write!(out, ") -> {ret}")
+            }
+            TypeExpr::Tuple(elements, _) => {
+                out.write_str("(")?;
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 {
+                        out.write_str(", ")?;
+                    }
+                    write!(out, "{element}")?;
+                }
+                out.write_str(")")
+            }
+            TypeExpr::Unit(_) => out.write_str("void"),
+            TypeExpr::Generic { name, args, .. } => {
+                out.write_str(name)?;
+                out.write_str("[")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        out.write_str(", ")?;
+                    }
+                    write!(out, "{arg}")?;
+                }
+                out.write_str("]")
+            }
         }
     }
 }

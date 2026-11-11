@@ -42,21 +42,24 @@ fn lower(src: &str, options: CodegenOptions) -> String {
     lower_twice(src, options).0
 }
 
-/// The `define` line that declares `name`.
-fn signature<'a>(ir: &'a str, name: &str) -> &'a str {
-    let needle = format!("@{name}(");
+/// The `define` line that declares the symbol `symbol`.
+///
+/// A Yashy function's symbol carries the prefix that keeps it apart from the
+/// C library's names, so the tests ask for the symbol the compiler writes.
+fn signature<'a>(ir: &'a str, symbol: &str) -> &'a str {
+    let needle = format!("@{symbol}(");
     ir.lines()
         .find(|line| line.starts_with("define ") && line.contains(&needle))
-        .unwrap_or_else(|| panic!("no `define` for `{name}` in:\n{ir}"))
+        .unwrap_or_else(|| panic!("no `define` for `{symbol}` in:\n{ir}"))
 }
 
-/// The body of `name`: everything after the opening `define` line.
-fn body<'a>(ir: &'a str, name: &str) -> &'a str {
-    let needle = format!("@{name}(");
+/// The body of the symbol `symbol`: everything after the opening `define` line.
+fn body<'a>(ir: &'a str, symbol: &str) -> &'a str {
+    let needle = format!("@{symbol}(");
     let start = ir
         .lines()
         .position(|line| line.starts_with("define ") && line.contains(&needle))
-        .unwrap_or_else(|| panic!("no `define` for `{name}` in:\n{ir}"));
+        .unwrap_or_else(|| panic!("no `define` for `{symbol}` in:\n{ir}"));
     let offset = ir
         .lines()
         .take(start + 1)
@@ -124,18 +127,18 @@ fn disabling_facts_changes_only_the_attributes() {
         },
     );
     assert!(
-        signature(&enabled, "read").contains("noalias"),
+        signature(&enabled, &yashy_codegen::ir::fn_symbol("read")).contains("noalias"),
         "the verified build may rely on its facts:\n{}",
-        signature(&enabled, "read")
+        signature(&enabled, &yashy_codegen::ir::fn_symbol("read"))
     );
     assert!(
-        !signature(&disabled, "read").contains("noalias"),
+        !signature(&disabled, &yashy_codegen::ir::fn_symbol("read")).contains("noalias"),
         "without the pass the attribute is gone:\n{}",
-        signature(&disabled, "read")
+        signature(&disabled, &yashy_codegen::ir::fn_symbol("read"))
     );
     assert_eq!(
-        body(&enabled, "read"),
-        body(&disabled, "read"),
+        body(&enabled, &yashy_codegen::ir::fn_symbol("read")),
+        body(&disabled, &yashy_codegen::ir::fn_symbol("read")),
         "the facts pass changes the signature, not the body it proved"
     );
 }
@@ -151,11 +154,11 @@ fn disabling_escape_keeps_the_allocator() {
     );
     let kept = lower(STACK, CodegenOptions::default());
     assert!(
-        !body(&promoted, "f").contains("@yashy_alloc("),
+        !body(&promoted, &yashy_codegen::ir::fn_symbol("f")).contains("@yashy_alloc("),
         "a promoted allocation has no allocator call:\n{promoted}"
     );
     assert!(
-        body(&kept, "f").contains("@yashy_alloc("),
+        body(&kept, &yashy_codegen::ir::fn_symbol("f")).contains("@yashy_alloc("),
         "without the pass the allocation stays on the heap:\n{kept}"
     );
 }

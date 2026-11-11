@@ -40,8 +40,11 @@ fn lower(src: &str, escape: bool) -> String {
 }
 
 /// The lines of the `define` block for `name`, without the module header.
+///
+/// A Yashy function's symbol carries the prefix that keeps it apart from the
+/// C library's names, so the helper asks for the symbol the compiler writes.
 fn body(ir: &str, name: &str) -> String {
-    let needle = format!("@{name}(");
+    let needle = format!("@{}(", yashy_codegen::ir::fn_symbol(name));
     let start = ir
         .lines()
         .position(|line| line.starts_with("define ") && line.contains(&needle))

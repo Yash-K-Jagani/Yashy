@@ -1,0 +1,14 @@
+import io;
+
+fn main() {
+    io.println_i64(42);
+    io.println_f64(2.5);
+    const input = io.read_all();
+    const text = switch input {
+        case Ok(value) { value }
+        case Err(_) { "read failed" }
+    };
+    print("stdin ${text.len()} bytes");
+    io.write_stderr("to stderr\n");
+    print("done");
+}

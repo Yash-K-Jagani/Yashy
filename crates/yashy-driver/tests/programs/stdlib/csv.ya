@@ -1,0 +1,27 @@
+import csv;
+
+fn main() {
+    // A field containing a comma, a quote and a newline is quoted by `record`;
+    // `fields` reads it back as one value.
+    const quoted = switch csv.record([]string { "a,b", "say \"hi\"", "line\nbreak" }) {
+        case Ok(text) { text }
+        case Err(_) { "failed" }
+    };
+    print(quoted);
+    const parts = csv.fields(quoted);
+    print("fields ${parts.len()}");
+    const third = switch parts[2] {
+        case Some(value) { value }
+        case None { "" }
+    };
+    print("newline kept: ${third == "line\nbreak"}");
+    parts.free();
+
+    const rows = csv.parse_rows("a,b\nc,d\r\n");
+    print("rows ${rows.len()}");
+    rows.free();
+    const round_trip = csv.parse_rows(csv.write([]string { "x,y", "z" }));
+    print("round trip ${round_trip.len()}");
+    round_trip.free();
+    print(csv.write_crlf([]string { "only" }));
+}

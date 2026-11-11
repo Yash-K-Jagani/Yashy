@@ -1,0 +1,249 @@
+// Text codecs (phase 12, Task 10).
+//
+// Byte-to-text encodings over `[]char`: base64 (RFC 4648, with `=` padding)
+// and hex. Decoding is total: malformed input is `Err(Invalid)`, never a
+// silently truncated or silently "repaired" answer.
+
+import string;
+
+/** Decoding or encoding failed: the text is not valid in its codec.
+ *
+ * Named `TextError` because every module's items share one root scope: a
+ * plain `Error` would collide with `CsvError`'s neighbours. */
+pub enum TextError {
+    Invalid,
+}
+
+fn base64_digit(int value) -> char {
+    if value < 26 {
+        return (65 + value).to_char();
+    }
+    if value < 52 {
+        return (71 + value).to_char();
+    }
+    if value < 62 {
+        return (value - 4).to_char();
+    }
+    if value == 62 {
+        return '+';
+    }
+    return '/';
+}
+
+/// Bytes to base64 text.
+pub fn base64_encode([]char data) -> string {
+    let length = data.len();
+    let text = "";
+    let index = 0;
+    while index + 3 <= length {
+        const a = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        const b = switch data[index + 1] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        const c = switch data[index + 2] {
+            case Some(c2) { c2.to_int() }
+            case None { 0 }
+        };
+        text = text + "${base64_digit(a >> 2)}${base64_digit((a & 3) * 16 + (b >> 4))}${base64_digit((b & 15) * 4 + (c >> 6))}${base64_digit(c & 63)}";
+        index = index + 3;
+    }
+    if index < length {
+        const a = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        if index + 1 < length {
+            // Two bytes left: the third symbol carries the second byte's low
+            // nibble, then one pad. The high nibble joins the first symbol's
+            // tail, which is why `b` is read before the first append.
+            const b = switch data[index + 1] {
+                case Some(c) { c.to_int() }
+                case None { 0 }
+            };
+            text = text + "${base64_digit(a >> 2)}${base64_digit((a & 3) * 16 + (b >> 4))}${base64_digit((b & 15) * 4)}=";
+        } else {
+            // One byte left: two symbols and two pads.
+            text = text + "${base64_digit(a >> 2)}${base64_digit((a & 3) * 16)}==";
+        }
+    }
+    data.free();
+    return text;
+}
+
+fn base64_value(char next) -> int {
+    const byte = next.to_int();
+    if byte >= 65 && byte <= 90 {
+        return byte - 65;
+    }
+    if byte >= 97 && byte <= 122 {
+        return byte - 71;
+    }
+    if byte >= 48 && byte <= 57 {
+        return byte + 4;
+    }
+    if byte == 43 {
+        return 62;
+    }
+    if byte == 47 {
+        return 63;
+    }
+    return -1;
+}
+
+/// Whether `text` is base64: a multiple of four, every symbol in the alphabet,
+/// and padding only in the last group.
+///
+/// Validation is a pass of its own so that decoding has no early exit: a slice
+/// freed inside a conditional is a move the checker sees on every later path,
+/// and `data` is read by the loop after the check.
+fn base64_valid(string text) -> bool {
+    const data = string.to_bytes(text);
+    const length = data.len();
+    let ok = length % 4 == 0;
+    let index = 0;
+    while ok && index < length {
+        const byte = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        if byte == 61 {
+            // Padding is only legal at the end, in the last two positions.
+            if index < length - 2 {
+                ok = false;
+            }
+        } else {
+            if base64_value(byte.to_char()) < 0 {
+                ok = false;
+            }
+        }
+        index = index + 1;
+    }
+    data.free();
+    return ok;
+}
+
+/// Base64 text to bytes; a bad symbol is `Err(Invalid)`, not a dropped byte.
+pub fn base64_decode(string text) -> Result[[]char, TextError] {
+    if !base64_valid(text) {
+        return Err(TextError.Invalid);
+    }
+    const data = string.to_bytes(text);
+    const length = data.len();
+    const out = []char {};
+    let index = 0;
+    while index < length {
+        let acc = 0;
+        let pads = 0;
+        let j = 0;
+        while j < 4 {
+            const byte = switch data[index + j] {
+                case Some(c) { c.to_int() }
+                case None { 0 }
+            };
+            if byte == 61 {
+                pads = pads + 1;
+                // A pad is a zero digit, not a missing one: the accumulator
+                // has to keep the four positions of the group, or the bytes
+                // after the padding would be read from the wrong shift.
+                acc = acc * 64;
+            } else {
+                acc = acc * 64 + base64_value(byte.to_char());
+            }
+            j = j + 1;
+        }
+        out.push(((acc >> 16) & 255).to_char());
+        if pads < 2 {
+            out.push(((acc >> 8) & 255).to_char());
+        }
+        if pads < 1 {
+            out.push((acc & 255).to_char());
+        }
+        index = index + 4;
+    }
+    data.free();
+    return Ok(out);
+}
+
+fn hex_digit(int value) -> char {
+    if value < 10 {
+        return (48 + value).to_char();
+    }
+    return (87 + value).to_char();
+}
+
+/// Bytes to lowercase hex text.
+pub fn hex_encode([]char data) -> string {
+    let text = "";
+    let index = 0;
+    while index < data.len() {
+        const byte = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        text = text + "${hex_digit(byte >> 4)}${hex_digit(byte & 15)}";
+        index = index + 1;
+    }
+    data.free();
+    return text;
+}
+
+fn hex_value(char next) -> int {
+    const byte = next.to_int();
+    if byte >= 48 && byte <= 57 {
+        return byte - 48;
+    }
+    if byte >= 97 && byte <= 102 {
+        return byte - 87;
+    }
+    if byte >= 65 && byte <= 70 {
+        return byte - 55;
+    }
+    return -1;
+}
+
+/// Whether `text` is hex: an even length and every symbol a hex digit.
+fn hex_valid(string text) -> bool {
+    const data = string.to_bytes(text);
+    let ok = data.len() % 2 == 0;
+    let index = 0;
+    while ok && index < data.len() {
+        const byte = switch data[index] {
+            case Some(c) { c }
+            case None { '0' }
+        };
+        if hex_value(byte) < 0 {
+            ok = false;
+        }
+        index = index + 1;
+    }
+    data.free();
+    return ok;
+}
+
+/// Hex text to bytes; an odd length or a bad digit is `Err(Invalid)`.
+pub fn hex_decode(string text) -> Result[[]char, TextError] {
+    if !hex_valid(text) {
+        return Err(TextError.Invalid);
+    }
+    const data = string.to_bytes(text);
+    const out = []char {};
+    let index = 0;
+    while index < data.len() {
+        const hi = switch data[index] {
+            case Some(c) { hex_value(c) }
+            case None { -1 }
+        };
+        const lo = switch data[index + 1] {
+            case Some(c) { hex_value(c) }
+            case None { -1 }
+        };
+        out.push((hi * 16 + lo).to_char());
+        index = index + 2;
+    }
+    data.free();
+    return Ok(out);
+}

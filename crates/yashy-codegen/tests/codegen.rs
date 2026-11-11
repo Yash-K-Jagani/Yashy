@@ -10,7 +10,9 @@ use yashy_lexer::Lexer;
 use yashy_parser::Parser;
 use yashy_sema::{check_program, HirProgram, TypeKind};
 
-use yashy_codegen::{check_main_exists, emit_program, find_main, llvm_type_string, CodegenOptions, Module};
+use yashy_codegen::{
+    check_main_exists, emit_program, find_main, llvm_type_string, CodegenOptions, Module,
+};
 
 /// Lex, parse and check `source` into a typed HIR program.
 fn check_source(src: &str) -> HirProgram {
@@ -64,7 +66,11 @@ fn intern_string_dedupes_identical_bytes() {
     // is what a `string` value points at; the bytes live beside it.
     let structs = ir
         .lines()
-        .filter(|line| line.starts_with("@.str.") && !line.starts_with("@.str.0.data") && !line.starts_with("@.str.1.data"))
+        .filter(|line| {
+            line.starts_with("@.str.")
+                && !line.starts_with("@.str.0.data")
+                && !line.starts_with("@.str.1.data")
+        })
         .count();
     assert_eq!(structs, 2, "two struct globals for three interns:\n{ir}");
     let datas = ir
@@ -175,7 +181,12 @@ fn main_may_not_take_parameters() {
 
 /// Lower a whole program's source to one IR module.
 fn ir_of(src: &str) -> String {
-    emit_program(&check_source(src), "main.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
+    emit_program(
+        &check_source(src),
+        "main.ya",
+        CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
+    )
 }
 
 #[test]
@@ -206,7 +217,10 @@ fn an_explicit_unit_return_in_main_still_yields_zero() {
         ir_text.contains("ret i32 0"),
         "`return;` in `main` is the entry point's zero:\n{ir_text}"
     );
-    assert!(!ir_text.contains("ret void"), "no `ret void` in `main`:\n{ir_text}");
+    assert!(
+        !ir_text.contains("ret void"),
+        "no `ret void` in `main`:\n{ir_text}"
+    );
 }
 
 #[test]
@@ -227,7 +241,7 @@ fn an_ordinary_function_keeps_its_own_return_type() {
     // The `i32` rule is the entry point's, not every function's.
     let ir_text = ir_of("fn seven() -> int { return 7; }\nfn main() { print(seven()); }");
     assert!(
-        ir_text.contains("define i64 @seven()"),
+        ir_text.contains("define i64 @yashy_fn_seven()"),
         "a helper keeps `i64`:\n{ir_text}"
     );
     assert!(

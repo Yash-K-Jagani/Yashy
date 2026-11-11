@@ -1,0 +1,4 @@
+empty argv: Err
+missing child: Err
+child exit 0 out hi
+child exit 0 out a;b

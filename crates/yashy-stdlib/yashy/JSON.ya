@@ -11,8 +11,8 @@
 //
 // Ownership: every result is a fresh owned string; no argument is consumed.
 
-// `escape(text)` is `text` with `\`, `"`, newline, carriage return and tab
-// written as their JSON escapes.
+/// `text` with `\`, `"`, newline, carriage return and tab written as their
+/// JSON escapes. The result is a fresh owned string.
 pub fn escape(string text) -> string {
     let slashes = text.replace("\\", "\\\\");
     let quotes = slashes.replace("\"", "\\\"");
@@ -22,7 +22,8 @@ pub fn escape(string text) -> string {
     return tabs;
 }
 
-// `quote(text)` is `escape(text)` inside double quotes: a JSON string literal.
+/// `escape(text)` inside double quotes: a JSON string literal. The result is a
+/// fresh owned string.
 pub fn quote(string text) -> string {
     let escaped = escape(text);
     return "\"" + escaped + "\"";

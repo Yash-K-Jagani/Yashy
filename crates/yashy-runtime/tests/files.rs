@@ -9,6 +9,7 @@
 use std::ffi::{c_char, CString};
 use std::path::PathBuf;
 
+use yashy_runtime::platform::{yashy_copy, yashy_rename};
 use yashy_runtime::{
     yashy_getenv, yashy_read_file, yashy_str_from_i64, yashy_str_release, yashy_str_slice,
     yashy_write_file, YashyStr,
@@ -98,6 +99,62 @@ fn a_missing_file_and_a_null_path_read_as_a_failure_tag() {
             0,
             "a null path cannot be opened"
         );
+    }
+}
+
+#[test]
+fn a_file_can_be_renamed_and_copied() {
+    unsafe {
+        let dir = temp_path("rename");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the temp directory must be creatable");
+        let source = dir.join("a.txt");
+        let renamed = dir.join("b.txt");
+        let copied = dir.join("c.txt");
+        std::fs::write(&source, b"hello").expect("the source file must be writable");
+        let source_c = c_path(&source);
+        let renamed_c = c_path(&renamed);
+        let copied_c = c_path(&copied);
+
+        assert_eq!(
+            yashy_rename(source_c.as_ptr(), renamed_c.as_ptr()),
+            0,
+            "a rename inside one directory must succeed"
+        );
+        assert!(renamed.is_file(), "the new name is the file now");
+        assert!(!source.exists(), "the old name is gone");
+
+        assert_eq!(
+            yashy_copy(renamed_c.as_ptr(), copied_c.as_ptr()),
+            0,
+            "a copy must succeed"
+        );
+        assert_eq!(
+            std::fs::read(&copied).expect("the copy must be readable"),
+            b"hello",
+            "the copy holds the same bytes"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn a_relative_rename_inside_the_working_directory_works() {
+    unsafe {
+        let dir = temp_path("relative-rename");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the temp directory must be creatable");
+        std::fs::write(dir.join("a.txt"), b"hello").expect("the source must be writable");
+        let previous = std::env::current_dir().expect("the working directory must be readable");
+        std::env::set_current_dir(&dir).expect("the working directory must be enterable");
+        let source = CString::new("a.txt").expect("no NUL");
+        let renamed = CString::new("b.txt").expect("no NUL");
+        let result = yashy_rename(source.as_ptr(), renamed.as_ptr());
+        std::env::set_current_dir(&previous).expect("the working directory must be enterable");
+        assert_eq!(result, 0, "a relative rename must succeed");
+        assert!(dir.join("b.txt").is_file(), "the new name is the file now");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

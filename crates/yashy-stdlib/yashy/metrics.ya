@@ -10,3 +10,17 @@
 // Both are `io` effects, so a `pure fn` cannot record a metric (`E1300`).
 // Metrics flush on exit, including on a panic, because each call writes
 // immediately rather than buffering.
+
+// `counter_add`/`gauge_set` are the module spellings for a call site that
+// imports this file; the builtins keep their own names in the shared root
+// scope, and `set` is already `env.set`'s.
+
+/// Add `value` to the counter named `name`.
+pub fn counter_add(string name, int value) {
+    metrics_add(name, value);
+}
+
+/// Set the gauge named `name` to `value`.
+pub fn gauge_set(string name, int value) {
+    metrics_set(name, value);
+}

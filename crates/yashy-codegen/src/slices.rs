@@ -45,9 +45,7 @@ pub fn gen_literal(
     let elem_size = size_of(elem_ty);
     let count = elements.len();
     let is_string = matches!(elem_ty, TypeKind::Str);
-    let is_spread = |element: &HirExpr| {
-        matches!(element, HirExpr::Call { callee, .. } if callee.as_slice() == ["__spread"])
-    };
+    let is_spread = |element: &HirExpr| matches!(element, HirExpr::Call { callee, .. } if callee.as_slice() == ["__spread"]);
     let has_spread = elements.iter().any(is_spread);
     if !has_spread {
         return gen_plain_literal(ctx, elem_ty, elements, slice_ty);
@@ -56,7 +54,10 @@ pub fn gen_literal(
     // Spread form: the total length is a runtime value, so allocation,
     // element stores and the header all work through a position slot.
     let mut spread_sources: Vec<Option<(String, String)>> = Vec::with_capacity(count);
-    let static_count = elements.iter().filter(|element| !is_spread(element)).count();
+    let static_count = elements
+        .iter()
+        .filter(|element| !is_spread(element))
+        .count();
     let mut total = format!("{static_count}");
     for element in elements {
         if is_spread(element) {
@@ -130,9 +131,7 @@ pub fn gen_literal(
             ctx.push(format!(
                 "{address} = getelementptr {elem_repr}, ptr {data}, i64 {pos}"
             ));
-            ctx.push(format!(
-                "store {elem_repr} {element_value}, ptr {address}"
-            ));
+            ctx.push(format!("store {elem_repr} {element_value}, ptr {address}"));
             let next_pos = ctx.tmp();
             ctx.push(format!("{next_pos} = add i64 {pos}, 1"));
             ctx.push(format!("store i64 {next_pos}, ptr {pos_slot}"));
@@ -158,10 +157,7 @@ pub fn gen_literal(
             ctx.push(format!(
                 "{address} = getelementptr {elem_repr}, ptr {data}, i64 {pos}"
             ));
-            ctx.push(format!(
-                "store {elem_repr} {}, ptr {address}",
-                value.value
-            ));
+            ctx.push(format!("store {elem_repr} {}, ptr {address}", value.value));
             let next_pos = ctx.tmp();
             ctx.push(format!("{next_pos} = add i64 {pos}, 1"));
             ctx.push(format!("store i64 {next_pos}, ptr {pos_slot}"));
@@ -226,10 +222,7 @@ fn gen_plain_literal(
         ctx.push(format!(
             "{address} = getelementptr {elem_repr}, ptr {data}, i64 {index}"
         ));
-        ctx.push(format!(
-            "store {elem_repr} {}, ptr {address}",
-            value.value
-        ));
+        ctx.push(format!("store {elem_repr} {}, ptr {address}", value.value));
     }
 
     let aggregate = ctx.tmp();
@@ -843,11 +836,7 @@ pub fn gen_contains(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
 }
 
 /// Lower `slice_index_of(slice, value) -> Option[i64]`.
-pub fn gen_index_of(
-    ctx: &mut FnCtx<'_>,
-    args: &[HirExpr],
-    option_ty: &TypeKind,
-) -> GenValue {
+pub fn gen_index_of(ctx: &mut FnCtx<'_>, args: &[HirExpr], option_ty: &TypeKind) -> GenValue {
     let TypeKind::Option(element) = option_ty else {
         return unit();
     };
@@ -987,21 +976,33 @@ pub fn gen_free(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let Some((slot, ty)) = binding_slot(ctx, args) else {
         return unit();
     };
-    let strings = match &ty {
-        TypeKind::Slice(element) => matches!(element.kind, TypeKind::Str),
-        _ => false,
+    let TypeKind::Slice(element) = &ty else {
+        return unit();
+    };
+    release_slot(ctx, &slot, &element.kind);
+    unit()
+}
+
+/// Release the slice header held in `slot` and zero it.
+///
+/// The runtime takes a copy of the header, because freeing the binding's own
+/// header would make it an address the compiler cannot promote -- every
+/// `len`/`cap`/`data` load in a surrounding loop would stay in memory. A
+/// `[]string` goes through `yashy_slice_free_strings`, which releases each
+/// element before freeing the array: those references belong to the slice, not
+/// to the binding that held the header. Zeroing the slot afterwards means a
+/// later read of a released binding is the empty slice, not a dangling header.
+pub(crate) fn release_slot(ctx: &mut FnCtx<'_>, slot: &str, element: &TypeKind) {
+    let symbol = if matches!(element, TypeKind::Str) {
+        "yashy_slice_free_strings"
+    } else {
+        "yashy_slice_free"
     };
     let header = ctx.alloc_slot();
     ctx.push_alloca(format!("{header} = alloca {SLICE_REPR}"));
     let snapshot = ctx.tmp();
     ctx.push(format!("{snapshot} = load {SLICE_REPR}, ptr {slot}"));
     ctx.push(format!("store {SLICE_REPR} {snapshot}, ptr {header}"));
-    let symbol = if strings {
-        "yashy_slice_free_strings"
-    } else {
-        "yashy_slice_free"
-    };
     ctx.push(format!("call void @{symbol}(ptr {header})"));
     ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {slot}"));
-    unit()
 }

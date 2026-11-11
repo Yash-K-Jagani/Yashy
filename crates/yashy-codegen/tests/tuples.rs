@@ -16,7 +16,9 @@ use yashy_codegen::{emit_program, CodegenOptions};
 fn check_source(src: &str) -> HirProgram {
     let mut sources = SourceMap::new();
     let file = sources.add_file("tuples.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser
         .parse_program()
@@ -84,10 +86,7 @@ fn destructuring_extracts_each_element_into_its_own_slot() {
         1,
         "`_` extracts nothing, so there is no element-1 read:\n{ir}"
     );
-    assert!(
-        !ir.contains("alloca i1"),
-        "`_` binds no slot either:\n{ir}"
-    );
+    assert!(!ir.contains("alloca i1"), "`_` binds no slot either:\n{ir}");
     assert!(
         ir.contains("store i64 %t"),
         "the extracted element is stored into the binding's own slot:\n{ir}"
@@ -103,7 +102,7 @@ fn a_tuple_is_passed_and_returned_by_value() {
          fn main() { const out = swap((1, true)); }",
     );
     assert!(
-        ir.contains("define { i1, i64 } @swap({ i64, i1 } %arg0)"),
+        ir.contains("define { i1, i64 } @yashy_fn_swap({ i64, i1 } %arg0)"),
         "a tuple parameter is passed as its fields:\n{ir}"
     );
     assert!(
@@ -111,7 +110,7 @@ fn a_tuple_is_passed_and_returned_by_value() {
         "the tuple return is the aggregate return:\n{ir}"
     );
     assert!(
-        ir.contains("call { i1, i64 } @swap({ i64, i1 }"),
+        ir.contains("call { i1, i64 } @yashy_fn_swap({ i64, i1 }"),
         "the call site names the aggregate result type:\n{ir}"
     );
 }

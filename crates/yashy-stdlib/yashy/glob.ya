@@ -1,0 +1,131 @@
+// Glob matching (phase 12, Task 10).
+//
+// `matches(pattern, path) -> bool` over path segments: `*` matches any run of
+// characters except the separator, `?` matches exactly one non-separator
+// character, `**` matches any run including separators (any number of whole
+// segments), and `[...]` is a character class with ranges (`[a-z]`) and a
+// leading `!` negating it. There is no brace expansion.
+//
+// Both separators are `'/'` and `'\\'` on every platform: a pattern written
+// with `/` matches a Windows path, since the comparison is over characters,
+// not filesystem calls.
+//
+// Matching is recursive over the pattern segments rather than iterative: a
+// `**` tries both its expansion and its empty form; `matches("a/**/b",
+// "a/b")` and `matches("a/**/b", "a/x/y/b")` both hold, and a `**` cannot
+// match a trailing `/` mid-segment.
+
+fn same_char(char a, char b) -> bool {
+    return a.to_int() == b.to_int();
+}
+
+fn in_class(string class, char next) -> bool {
+    // `class` is the inside of `[...]` with no brackets; a leading `!`
+    // inverts the answer. Ranges are `a-z` triples.
+    const negate = class.byte_at(0).to_int() == 33;
+    let index = 0;
+    if negate {
+        index = 1;
+    }
+    let found = false;
+    while index < class.len() {
+        const plain = class.byte_at(index).to_int();
+        if index + 2 < class.len() && class.byte_at(index + 1).to_int() == 45 {
+            const lo = plain;
+            const hi = class.byte_at(index + 2).to_int();
+            if next.to_int() >= lo && next.to_int() <= hi {
+                found = true;
+            }
+            index = index + 3;
+        } else {
+            if same_char(next, plain.to_char()) {
+                found = true;
+            }
+            index = index + 1;
+        }
+    }
+    if negate {
+        return !found;
+    }
+    return found;
+}
+
+fn matches_here(string pattern, string path, int at, int start) -> bool {
+    // `at` is the pattern offset, `start` the path offset. The recursive
+    // calls for `*` stay local to this run, so the whole match is decidable
+    // by unwinding on `**`.
+    let p = at;
+    let t = start;
+    while p < pattern.len() {
+        const next = pattern.byte_at(p).to_int();
+        if next == 42 {
+            // `*`: two stars men `**`, one is a segment-only star.
+            if p + 1 < pattern.len() && pattern.byte_at(p + 1).to_int() == 42 {
+                // `**`: cross segments too.
+                if matches_here(pattern, path, p + 2, t) {
+                    return true;
+                }
+                if t < path.len() {
+                    // Consume one path character first, any character.
+                    return matches_here(pattern, path, p, t + 1);
+                }
+                return false;
+            }
+            // `*` within a segment: stop at the separator.
+            if matches_here(pattern, path, p + 1, t) {
+                return true;
+            }
+            if t < path.len() && path.byte_at(t).to_int() != 47 && path.byte_at(t).to_int() != 92 {
+                return matches_here(pattern, path, p, t + 1);
+            }
+            return false;
+        }
+        if t >= path.len() {
+            return false;
+        }
+        const path_char = path.byte_at(t).to_int();
+        if next == 63 {
+            // `?`: one non-separator.
+            if path_char == 47 || path_char == 92 {
+                return false;
+            }
+            p = p + 1;
+            t = t + 1;
+            continue;
+        }
+        if next == 91 {
+            // `[...]`: scan for the close.
+            let close = p + 1;
+            while close < pattern.len() && pattern.byte_at(close).to_int() != 93 {
+                close = close + 1;
+            }
+            if close >= pattern.len() {
+                // Unclosed class matches a literal `[` and continues.
+                if path_char != 91 {
+                    return false;
+                }
+                p = p + 1;
+                t = t + 1;
+                continue;
+            }
+            const class = pattern.slice(p + 1, close);
+            if !in_class(class, path_char.to_char()) {
+                return false;
+            }
+            p = close + 1;
+            t = t + 1;
+            continue;
+        }
+        if path_char != next {
+            return false;
+        }
+        p = p + 1;
+        t = t + 1;
+    }
+    return t == path.len();
+}
+
+/// Whether `path` matches `pattern` under the glob rules in the module head.
+pub fn matches(string pattern, string path) -> bool {
+    return matches_here(pattern, path, 0, 0);
+}

@@ -52,12 +52,16 @@ fn lower(src: &str) -> (String, String) {
     (verified, bare)
 }
 
-/// The `define` line that declares `name`.
-fn signature<'a>(ir: &'a str, name: &str) -> &'a str {
-    let needle = format!("@{name}(");
+/// The `define` line that declares the symbol `symbol`.
+///
+/// A Yashy function's symbol carries the prefix that keeps it apart from the
+/// C library's names, so the tests ask for the symbol the compiler writes:
+/// [`yashy_codegen::ir::fn_symbol`].
+fn signature<'a>(ir: &'a str, symbol: &str) -> &'a str {
+    let needle = format!("@{symbol}(");
     ir.lines()
         .find(|line| line.starts_with("define ") && line.contains(&needle))
-        .unwrap_or_else(|| panic!("no `define` for `{name}` in:\n{ir}"))
+        .unwrap_or_else(|| panic!("no `define` for `{symbol}` in:\n{ir}"))
 }
 
 const READ_ONLY: &str = "\
@@ -112,8 +116,8 @@ fn main() { }
 fn a_read_only_pointer_gets_noalias_nonnull_readonly_and_alignment() {
     let (ir, _) = lower(READ_ONLY);
     assert_eq!(
-        signature(&ir, "read"),
-        "define i64 @read(i8* noalias nonnull readonly align 8 %arg0, i64 %arg1) {"
+        signature(&ir, &yashy_codegen::ir::fn_symbol("read")),
+        "define i64 @yashy_fn_read(i8* noalias nonnull readonly align 8 %arg0, i64 %arg1) {"
     );
 }
 
@@ -121,8 +125,8 @@ fn a_read_only_pointer_gets_noalias_nonnull_readonly_and_alignment() {
 fn a_pointer_written_through_gets_noalias_but_not_readonly() {
     let (ir, _) = lower(WRITES);
     assert_eq!(
-        signature(&ir, "fill"),
-        "define void @fill(i8* noalias nonnull align 8 %arg0, i64 %arg1) {"
+        signature(&ir, &yashy_codegen::ir::fn_symbol("fill")),
+        "define void @yashy_fn_fill(i8* noalias nonnull align 8 %arg0, i64 %arg1) {"
     );
 }
 
@@ -130,8 +134,8 @@ fn a_pointer_written_through_gets_noalias_but_not_readonly() {
 fn a_returned_pointer_escapes_and_loses_noalias_and_readonly() {
     let (ir, _) = lower(RETURNS);
     assert_eq!(
-        signature(&ir, "give"),
-        "define i8* @give(i8* nonnull align 8 %arg0) {"
+        signature(&ir, &yashy_codegen::ir::fn_symbol("give")),
+        "define i8* @yashy_fn_give(i8* nonnull align 8 %arg0) {"
     );
 }
 
@@ -139,15 +143,15 @@ fn a_returned_pointer_escapes_and_loses_noalias_and_readonly() {
 fn a_pointer_stored_in_a_struct_escapes_too() {
     let (ir, _) = lower(STORES);
     assert_eq!(
-        signature(&ir, "keep"),
-        "define %struct.Holder @keep(i8* nonnull align 8 %arg0) {"
+        signature(&ir, &yashy_codegen::ir::fn_symbol("keep")),
+        "define %struct.Holder @yashy_fn_keep(i8* nonnull align 8 %arg0) {"
     );
 }
 
 #[test]
 fn an_option_carried_pointer_is_not_a_bare_pointer() {
     let (ir, _) = lower(OPTION);
-    let line = signature(&ir, "maybe");
+    let line = signature(&ir, &yashy_codegen::ir::fn_symbol("maybe"));
     assert!(
         line.contains("{ i8, i8* } %arg0"),
         "the payload is a struct, not a pointer: {line}"
@@ -185,6 +189,6 @@ fn main() {
 #[test]
 fn without_facts_no_attribute_is_emitted() {
     let (_, bare) = lower(READ_ONLY);
-    let line = signature(&bare, "read");
-    assert_eq!(line, "define i64 @read(i8* %arg0, i64 %arg1) {");
+    let line = signature(&bare, &yashy_codegen::ir::fn_symbol("read"));
+    assert_eq!(line, "define i64 @yashy_fn_read(i8* %arg0, i64 %arg1) {");
 }

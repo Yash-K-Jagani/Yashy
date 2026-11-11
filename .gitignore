@@ -4,6 +4,8 @@
 # Build output
 target/
 dist/
+# Per-project debugger scratch written by `yashy run` under the program's directory.
+.yashy/
 # Benchmark binaries and their intermediate IR/objects: all build output, and
 # the patterns below already cover the file types. Listed for clarity.
 benchmarks/build/

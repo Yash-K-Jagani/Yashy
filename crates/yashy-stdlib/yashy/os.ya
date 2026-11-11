@@ -1,13 +1,66 @@
-// The process and its environment (M6 Task 10).
+// The operating system this program was built for (phase 12, Task 10).
 //
-// `exit(code)`, `getenv(name)`, and `getcwd()` are builtins, in scope in every
-// file. This module adds the statement-shaped exit a report wants and documents
-// the environment and directory spellings beside it.
+// `platform()` and `arch()` answer the host the executable runs on. They are
+// runtime queries, not compile-time constants: phase 13's `cfg` is the way to
+// select code before the build, and this module is how a program reports what
+// it found.
 //
-// `getcwd()` answers the current working directory as
-// `Result[string, io.Error]`. It is UTF-8 on every target, including Windows,
-// and a failure is an `io.Error` value rather than the empty string -- matching
-// `read_file` and `getenv`.
+// The enums are fieldless. A platform this runtime does not name is `Other`
+// rather than a guess, and the same rule holds for `Arch`.
 //
-// Ownership: `exit_with` never returns and owns nothing. `getcwd()`'s string is
-// owned by the caller and released like any other string.
+// `pid()` is the process id of the running program.
+//
+// Ownership: none; every answer is a number or an enum with no payload.
+
+extern "C" {
+    unsafe fn yashy_platform_id() -> int;
+    unsafe fn yashy_arch_id() -> int;
+    unsafe fn yashy_pid() -> int;
+}
+
+/// The host operating system.
+pub enum Platform {
+    Windows,
+    Linux,
+    MacOs,
+    Other,
+}
+
+/// The host CPU architecture.
+pub enum Arch {
+    X86_64,
+    Aarch64,
+    Other,
+}
+
+/// The operating system this executable is running on.
+pub fn platform() -> Platform {
+    const id = yashy_platform_id();
+    if id == 0 {
+        return Platform.Windows;
+    }
+    if id == 1 {
+        return Platform.Linux;
+    }
+    if id == 2 {
+        return Platform.MacOs;
+    }
+    return Platform.Other;
+}
+
+/// The CPU architecture this executable is running on.
+pub fn arch() -> Arch {
+    const id = yashy_arch_id();
+    if id == 0 {
+        return Arch.X86_64;
+    }
+    if id == 1 {
+        return Arch.Aarch64;
+    }
+    return Arch.Other;
+}
+
+/// This process's id.
+pub fn pid() -> int {
+    return yashy_pid();
+}

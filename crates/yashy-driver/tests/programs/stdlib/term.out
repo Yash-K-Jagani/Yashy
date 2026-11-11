@@ -1,0 +1,6 @@
+tty: false
+color empty under pipe: true
+bold empty under pipe: true
+reset empty under pipe: true
+clear empty under pipe: true
+move empty under pipe: true

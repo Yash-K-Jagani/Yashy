@@ -20,7 +20,9 @@ use yashy_codegen::{emit_program, CodegenOptions};
 fn check_source(src: &str) -> HirProgram {
     let mut sources = SourceMap::new();
     let file = sources.add_file("threads.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser
         .parse_program()
@@ -67,8 +69,8 @@ fn the_thread_body_is_emitted_as_its_own_function() {
     );
     // The entry unpacks the argument and calls the body as an ordinary
     // function; the body keeps its own definition.
-    assert!(ir.contains("call void @work(i64 %arg0_v)"), "{ir}");
-    assert!(ir.contains("define void @work(i64"), "{ir}");
+    assert!(ir.contains("call void @yashy_fn_work(i64 %arg0_v)"), "{ir}");
+    assert!(ir.contains("define void @yashy_fn_work(i64"), "{ir}");
     assert!(ir.contains("@yashy_thread_entry_0(i8* %raw)"), "{ir}");
 }
 
@@ -87,16 +89,20 @@ fn arguments_are_copied_into_the_thread_entry_struct() {
     assert!(ir.contains("store i1 1, ptr %t"), "{ir}");
     // The size handed to the runtime is the struct's own size, read from the
     // layout LLVM computes rather than from hand arithmetic.
-    assert!(ir.contains("= getelementptr { i64, i1 }, ptr null, i32 1"), "{ir}");
+    assert!(
+        ir.contains("= getelementptr { i64, i1 }, ptr null, i32 1"),
+        "{ir}"
+    );
     assert!(ir.contains("= ptrtoint ptr %t"), "{ir}");
 }
 
 #[test]
 fn join_emits_a_blocking_call() {
-    let ir = emit(
-        "fn work() { } fn main() { let int h = thread_spawn(work); thread_join(h); }",
+    let ir = emit("fn work() { } fn main() { let int h = thread_spawn(work); thread_join(h); }");
+    assert!(
+        ir.contains("define void @yashy_thread_entry_0(i8* %raw)"),
+        "{ir}"
     );
-    assert!(ir.contains("define void @yashy_thread_entry_0(i8* %raw)"), "{ir}");
     // A body with no arguments passes no struct at all.
     assert!(
         ir.contains("call i32 @yashy_thread_spawn(i8* @yashy_thread_entry_0, i8* null, i64 0)"),

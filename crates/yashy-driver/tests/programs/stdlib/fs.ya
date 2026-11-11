@@ -1,0 +1,85 @@
+import fs;
+import io;
+import string;
+
+fn main() {
+    const dir = "yashy-stdlib-probe";
+    switch fs.create_dir_all(dir + "/sub") {
+        case Ok(_) { print("mkdir ok") }
+        case Err(_) { print("mkdir failed") }
+    }
+
+    switch io.write_file(dir + "/b.txt", "hello") {
+        case Ok(_) { print("wrote b") }
+        case Err(_) { print("write failed") }
+    }
+    switch io.write_file(dir + "/a.txt", "hi") {
+        case Ok(_) { print("wrote a") }
+        case Err(_) { print("write failed") }
+    }
+
+    // The runtime sorts the entry names, so a directory reads the same way
+    // twice: this program runs twice and the bytes are compared.
+    switch fs.read_dir(dir) {
+        case Ok(names) { print("entries ${string.join_list(names, ",")}") }
+        case Err(_) { print("entries failed") }
+    }
+
+    switch fs.metadata(dir + "/a.txt") {
+        case Ok(info) { print("a size ${info.size} dir ${info.is_dir}") }
+        case Err(_) { print("metadata failed") }
+    }
+    switch fs.metadata(dir) {
+        case Ok(info) { print("dir is dir ${info.is_dir}") }
+        case Err(_) { print("metadata failed") }
+    }
+
+    switch fs.rename(dir + "/a.txt", dir + "/c.txt") {
+        case Ok(_) { print("renamed") }
+        case Err(_) { print("rename failed") }
+    }
+    switch fs.copy(dir + "/c.txt", dir + "/d.txt") {
+        case Ok(_) { print("copied") }
+        case Err(_) { print("copy failed") }
+    }
+    switch fs.metadata(dir + "/d.txt") {
+        case Ok(info) { print("d size ${info.size}") }
+        case Err(_) { print("metadata failed") }
+    }
+    print("c exists ${fs.exists(dir + "/c.txt")}");
+    print("missing exists ${fs.exists(dir + "/nope.txt")}");
+
+    switch fs.remove_file(dir + "/d.txt") {
+        case Ok(_) { print("removed d") }
+        case Err(_) { print("remove file failed") }
+    }
+    switch fs.remove_file(dir + "/c.txt") {
+        case Ok(_) { print("removed c") }
+        case Err(_) { print("remove file failed") }
+    }
+    switch fs.remove_file(dir + "/b.txt") {
+        case Ok(_) { print("removed b") }
+        case Err(_) { print("remove file failed") }
+    }
+    switch fs.remove_dir(dir + "/sub") {
+        case Ok(_) { print("removed sub") }
+        case Err(_) { print("remove dir failed") }
+    }
+    switch fs.remove_dir(dir) {
+        case Ok(_) { print("removed dir") }
+        case Err(_) { print("remove dir failed") }
+    }
+
+    // A missing directory is an `Err`, never an empty list.
+    switch fs.read_dir(dir) {
+        case Ok(names) { unexpected_entries(names) }
+        case Err(_) { print("missing dir: Err") }
+    }
+}
+
+/// An `Ok` here means the directory came back after removal; print what it
+/// found and release the list.
+fn unexpected_entries([]string names) {
+    print("unexpected entries ${names.len()}");
+    names.free();
+}

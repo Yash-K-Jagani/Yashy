@@ -1,0 +1,28 @@
+import string;
+
+fn main() {
+    print(string.join_list([]string { "a", "b", "c" }, "-"));
+    print(string.pad_start("7", 3, "0"));
+    print(string.pad_end("7", 3, "0"));
+    const first = string.char_at("hello", 1);
+    const letter = switch first {
+        case Some(value) { value }
+        case None { "?" }
+    };
+    print("char ${letter}");
+    const bytes = string.to_bytes("hi");
+    print("bytes ${bytes.len()}");
+    bytes.free();
+    const back = string.from_bytes(string.to_bytes("ok"));
+    const text = switch back {
+        case Ok(value) { value }
+        case Err(_) { "failed" }
+    };
+    print("round trip ${text}");
+    const invalid = string.from_bytes([]char { (255).to_char() });
+    const rejected = switch invalid {
+        case Ok(_) { false }
+        case Err(_) { true }
+    };
+    print("invalid rejected: ${rejected}");
+}

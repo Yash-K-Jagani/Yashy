@@ -59,6 +59,11 @@ pub const EXECUTOR_C_SOURCE: &str = include_str!("executor.c");
 /// header.
 pub const NET_C_SOURCE: &str = include_str!("net.c");
 
+/// The platform runtime (phase 12, Task 10): environment, filesystem metadata,
+/// directory iteration, entropy, the monotonic clock, tty detection, and
+/// process spawn. A separate translation unit like `net.c`.
+pub const PLATFORM_C_SOURCE: &str = include_str!("platform.c");
+
 /// The header [`RUNTIME_C_SOURCE`] includes, embedded for the same reason.
 pub const RUNTIME_HEADER: &str = include_str!("../include/yashy_runtime.h");
 
@@ -88,6 +93,9 @@ pub const EXECUTOR_SOURCE_NAME: &str = "executor.c";
 
 /// The network source's file name, used when the driver writes it to disk.
 pub const NET_SOURCE_NAME: &str = "net.c";
+
+/// The platform source's file name, used when the driver writes it to disk.
+pub const PLATFORM_SOURCE_NAME: &str = "platform.c";
 
 // The IR says `i64`. If a target ever gave `long long` a different width, the
 // generated IR and the compiled runtime would disagree silently, so refuse to
@@ -669,4 +677,103 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Closes a TCP descriptor. An invalid descriptor is silently ignored.
     pub fn yashy_tcp_close(fd: c_longlong);
+}
+
+/// The platform family (phase 12, Task 10): time, environment, filesystem,
+/// entropy and process control. The Yashy modules (`time`, `env`, `fs`,
+/// `rand`, `process`, `term`) declare these as `extern` functions; the
+/// re-declarations here keep the crate's own tests honest.
+pub mod platform {
+    use std::ffi::{c_char, c_int, c_longlong, c_uchar, c_void};
+
+    use crate::YashyStr;
+
+    unsafe extern "C" {
+        /// Nanoseconds since an unspecified epoch that only moves forwards,
+        /// or `-1` when the counter cannot be read.
+        pub fn yashy_monotonic_ns() -> c_longlong;
+    }
+
+    unsafe extern "C" {
+        /// Answers 1 when file descriptor `fd` names a terminal.
+        pub fn yashy_is_tty(fd: c_int) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Every environment entry as newline-separated `K=V` records.
+        pub fn yashy_env_join() -> *mut YashyStr;
+    }
+
+    unsafe extern "C" {
+        /// Sets `name` to `value` in the environment; 0 on success.
+        pub fn yashy_env_set(name: *const c_char, value: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Removes `name` from the environment; 0 on success.
+        pub fn yashy_env_unset(name: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Every entry name of the directory at `path`, newline-separated.
+        pub fn yashy_fs_listdir_join(path: *const c_char) -> *mut YashyStr;
+    }
+
+    unsafe extern "C" {
+        /// Stats `path` into `size`, `is_dir` and `modified_unix`; 0 on success.
+        pub fn yashy_fs_stat(
+            path: *const c_char,
+            size: *mut c_longlong,
+            is_dir: *mut c_int,
+            modified_unix: *mut c_longlong,
+        ) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Removes the file at `path`; 0 on success.
+        pub fn yashy_remove_file(path: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Removes the empty directory at `path`; 0 on success.
+        pub fn yashy_remove_dir(path: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Renames `old_path` to `new_path`; 0 on success.
+        pub fn yashy_rename(old_path: *const c_char, new_path: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Copies the file at `src` to `dst`, overwriting; 0 on success.
+        pub fn yashy_copy(src: *const c_char, dst: *const c_char) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Fills `bytes` (`len` bytes) with operating-system randomness.
+        pub fn yashy_entropy(bytes: *mut c_uchar, len: c_longlong) -> c_int;
+    }
+
+    unsafe extern "C" {
+        /// Runs one child to completion with newline-separated `argv_text`
+        /// and `env_text` records and an inherited or `cwd` directory. Pins
+        /// the child's captured stdout, exit code, and pid; argc-only, never
+        /// a shell. (Windows answers -1: spawn is a POSIX-only surface today.)
+        pub fn yashy_spawn(
+            argv_text: *const c_char,
+            cwd: *const c_char,
+            env_text: *const c_char,
+            out: *mut *mut YashyStr,
+            exit_code: *mut c_longlong,
+            pid_out: *mut c_longlong,
+        ) -> c_int;
+    }
+
+    /// The `yashy_slice` header as the generated code lays it out.
+    #[repr(C)]
+    pub struct SliceHeader {
+        pub data: *mut c_void,
+        pub len: c_longlong,
+        pub cap: c_longlong,
+    }
 }

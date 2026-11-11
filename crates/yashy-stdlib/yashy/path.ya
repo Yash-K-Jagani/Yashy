@@ -1,16 +1,24 @@
-// Path helpers (M6 Task 10).
+// Path helpers (phase 12, Task 10).
 //
 // A path is a `string` and `/` is the separator on every platform. Yashy has no
 // platform path type, so a Windows path written with `\` is one long name here;
-// guessing the platform would make the same program answer differently on two
-// machines. Nothing normalizes `.` or `..`: that is a resolver's job, not a
-// string helper's.
+// `is_absolute` recognises a drive prefix (`C:/x` or `C:\x`) without rewriting
+// it, and every other helper treats only `/` as a separator. That is a
+// documented limit, not a guess that would make the same program answer
+// differently on two machines.
+//
+// `normalize` collapses `.` and `..` **lexically** (`a/../b` is `b`) and never
+// touches the filesystem; `..` at the root of a relative path is kept, because
+// removing it would change which file the path names. `absolute` asks `getcwd()`
+// and propagates its `io.Error`.
 //
 // Every result is a fresh owned string; no argument is consumed.
 
-// One `/` between the components. A trailing separator on `left` and a leading
-// one on `right` are removed first, so `join("a/", "/b")` is `a/b` and not
-// `a//b`. An empty side contributes nothing.
+import io;
+
+/// One `/` between the components. A trailing separator on `left` and a leading
+/// one on `right` are removed first, so `join("a/", "/b")` is `a/b` and not
+/// `a//b`. An empty side contributes nothing.
 pub fn join(string left, string right) -> string {
     let head = strip_trailing(left);
     let tail = strip_leading(right);
@@ -23,8 +31,8 @@ pub fn join(string left, string right) -> string {
     return head + "/" + tail;
 }
 
-// The last component of `path`. `basename("/")` is `/` and `basename("")` is
-// the empty string.
+/// The last component of `path`. `basename("/")` is `/` and `basename("")` is
+/// the empty string.
 pub fn basename(string path) -> string {
     let trimmed = strip_trailing(path);
     if trimmed.len() == 0 {
@@ -40,8 +48,8 @@ pub fn basename(string path) -> string {
     return trimmed.slice(cut + 1, trimmed.len());
 }
 
-// Everything before the last separator. A bare name has no directory, which is
-// spelled `.`; a path that is only separators has `/`.
+/// Everything before the last separator. A bare name has no directory, which is
+/// spelled `.`; a path that is only separators has `/`.
 pub fn dirname(string path) -> string {
     if path.len() == 0 {
         return ".";
@@ -60,9 +68,9 @@ pub fn dirname(string path) -> string {
     return trimmed.slice(0, cut);
 }
 
-// The text after the last `.` in the last component, without the dot. A name
-// with no dot, or a dot that is the first byte (`.gitignore`), has no
-// extension and answers the empty string.
+/// The text after the last `.` in the last component, without the dot. A name
+/// with no dot, or a dot that is the first byte (`.gitignore`), has no
+/// extension and answers the empty string.
 pub fn extension(string path) -> string {
     let name = basename(path);
     let cut = last_dot(name);
@@ -70,6 +78,107 @@ pub fn extension(string path) -> string {
         return "";
     }
     return name.slice(cut + 1, name.len());
+}
+
+/// The last component of `path` without its extension: `notes.tar.gz` is
+/// `notes.tar`, and a name with no extension is itself.
+pub fn file_stem(string path) -> string {
+    const name = basename(path);
+    const cut = last_dot(name);
+    if cut <= 0 {
+        return name;
+    }
+    return name.slice(0, cut);
+}
+
+/// The directory above `path`, or `None` when there is no separator. The root
+/// `/` and a drive root (`C:/`) answer themselves.
+pub fn parent(string path) -> Option[string] {
+    const trimmed = strip_trailing(path);
+    if trimmed.len() == 0 {
+        const Option[string] none = None;
+        return none;
+    }
+    const cut = last_separator(trimmed);
+    if cut < 0 {
+        const Option[string] none = None;
+        return none;
+    }
+    if cut == 0 {
+        return Some("/");
+    }
+    return Some(trimmed.slice(0, cut));
+}
+
+/// Whether `path` is absolute: it starts with `/`, or with a drive letter and
+/// `:` (`C:/x`, `C:\x`).
+pub fn is_absolute(string path) -> bool {
+    if path.len() == 0 {
+        return false;
+    }
+    if path.byte_at(0).to_int() == 47 {
+        return true;
+    }
+    if path.len() >= 2 && path.byte_at(1).to_int() == 58 {
+        const lead = path.byte_at(0).to_int();
+        const upper = lead >= 65 && lead <= 90;
+        const lower = lead >= 97 && lead <= 122;
+        return upper || lower;
+    }
+    return false;
+}
+
+/// `path` with `.` removed and `..` folded into the component before it,
+/// lexically. A relative path that starts with `..` keeps it.
+pub fn normalize(string path) -> string {
+    const absolute_path = is_absolute(path);
+    let prefix = "";
+    if absolute_path && path.len() >= 2 && path.byte_at(1).to_int() == 58 {
+        prefix = path.slice(0, 2);
+    }
+    const parts = path.split("/");
+    let stack = []string {};
+    for part in parts {
+        if part == "" || part == "." || part == prefix {
+            continue;
+        }
+        if part == ".." {
+            if stack.len() > 0 {
+                const shorter = stack.slice(0, stack.len() - 1);
+                stack.free();
+                stack = move shorter;
+            } else {
+                if !absolute_path {
+                    stack.push(part.slice(0, part.len()));
+                }
+            }
+        } else {
+            stack.push(part.slice(0, part.len()));
+        }
+    }
+    parts.free();
+    let out = prefix;
+    if absolute_path && out.len() == 0 {
+        out = "/";
+    }
+    for part in stack {
+        if out.len() > 0 && !out.ends_with("/") {
+            out = out + "/";
+        }
+        out = out + part;
+    }
+    stack.free();
+    return out;
+}
+
+/// `path` made absolute against the current directory, lexically normalized.
+/// A `getcwd()` failure is the caller's `Err`, never an invented path.
+pub fn absolute(string path) -> Result[string, io.Error] {
+    if is_absolute(path) {
+        return Ok(normalize(path));
+    }
+    const base = getcwd()?;
+    return Ok(join(base, normalize(path)));
 }
 
 fn strip_trailing(string text) -> string {

@@ -606,10 +606,7 @@ impl<'src> Parser<'src> {
                     span,
                 };
                 if let Expr::Call {
-                    callee,
-                    args,
-                    span,
-                    ..
+                    callee, args, span, ..
                 } = &expr
                 {
                     if callee.len() == 1 && callee[0] == "spawn" && !args.is_empty() {
@@ -735,14 +732,14 @@ impl<'src> Parser<'src> {
                     let mut has_spread = false;
                     if self.eat(TokenKind::Comma) {
                         while !self.check(TokenKind::RBracket) && !self.at_eof() {
-                        let element = self.parse_slice_element()?;
-                        if matches!(element, SliceElement::Spread(_)) {
-                            has_spread = true;
-                        }
-                        elements.push(element);
-                        if !self.eat(TokenKind::Comma) {
-                            break;
-                        }
+                            let element = self.parse_slice_element()?;
+                            if matches!(element, SliceElement::Spread(_)) {
+                                has_spread = true;
+                            }
+                            elements.push(element);
+                            if !self.eat(TokenKind::Comma) {
+                                break;
+                            }
                         }
                     }
                     let close = self.expect(TokenKind::RBracket)?;
@@ -886,13 +883,22 @@ impl<'src> Parser<'src> {
                     span: cover(open.span, close.span),
                 })
             }
-            TokenKind::Ident => {
-                let (first, first_span) = self.identifier()?;
+            TokenKind::Ident | TokenKind::Io => {
+                // `io` is a keyword because an item may declare the I/O
+                // effect, but it is also the name of the module holding the
+                // builtin `io.Error` enum. In expression position an effect
+                // cannot start, so the keyword is the head of a path:
+                // `io.Error.Other` is an enum value, exactly as the checker's
+                // qualified-enum rule expects.
+                let (first, first_span) = if self.check(TokenKind::Io) {
+                    let token = self.advance();
+                    ("io".to_string(), token.span)
+                } else {
+                    self.identifier()?
+                };
                 let mut path = vec![first];
                 let mut end = first_span;
-                while self.check(TokenKind::Dot)
-                    && self.peek_second() == TokenKind::Ident
-                {
+                while self.check(TokenKind::Dot) && self.peek_second() == TokenKind::Ident {
                     self.advance();
                     let (seg, sspan) = self.identifier()?;
                     path.push(seg);

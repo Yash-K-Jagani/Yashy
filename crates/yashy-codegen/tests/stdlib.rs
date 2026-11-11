@@ -11,7 +11,9 @@ use yashy_codegen::{emit_program, CodegenOptions};
 fn check_source(src: &str) -> HirProgram {
     let mut sources = SourceMap::new();
     let file = sources.add_file("stdlib.ya", src.to_string());
-    let tokens = Lexer::new(src).tokenize().expect("the lexer must not panic");
+    let tokens = Lexer::new(src)
+        .tokenize()
+        .expect("the lexer must not panic");
     let mut parser = Parser::new(tokens, &sources, file);
     let program = parser
         .parse_program()
@@ -20,7 +22,12 @@ fn check_source(src: &str) -> HirProgram {
 }
 
 fn emit(src: &str) -> String {
-    emit_program(&check_source(src), "stdlib.ya", CodegenOptions::default(), &yashy_common::ProofFacts::empty())
+    emit_program(
+        &check_source(src),
+        "stdlib.ya",
+        CodegenOptions::default(),
+        &yashy_common::ProofFacts::empty(),
+    )
 }
 
 #[test]
@@ -122,7 +129,7 @@ fn a_temporary_argument_to_a_user_function_is_released_after_the_call() {
          fn main() { show(\"a\" + \"b\"); }",
     );
     let call_at = ir
-        .find("call void @show(")
+        .find("call void @yashy_fn_show(")
         .unwrap_or_else(|| panic!("the user call is emitted:\n{ir}"));
     let release_at = ir
         .find("call void @yashy_str_release(i8* ")

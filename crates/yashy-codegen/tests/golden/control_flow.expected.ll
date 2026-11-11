@@ -133,7 +133,7 @@ declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
-define i64 @control(i1 %arg0, { i8, i64 } %arg1) {
+define i64 @yashy_fn_control(i1 %arg0, { i8, i64 } %arg1) {
 entry:
 %slot0 = alloca i1
 %slot1 = alloca { i8, i64 }

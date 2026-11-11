@@ -64,7 +64,9 @@ pub fn gen_read_bytes(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) -> 
     // The out slot where the runtime writes the slice header.
     let out_slot = ctx.alloc_slot();
     ctx.push_alloca(format!("{out_slot} = alloca {SLICE_REPR}"));
-    ctx.push(format!("store {SLICE_REPR} zeroinitializer, ptr {out_slot}"));
+    ctx.push(format!(
+        "store {SLICE_REPR} zeroinitializer, ptr {out_slot}"
+    ));
 
     let code = ctx.tmp();
     ctx.push(format!(
@@ -81,7 +83,9 @@ pub fn gen_read_bytes(ctx: &mut FnCtx<'_>, args: &[HirExpr], ret: &TypeKind) -> 
     let cont_label = ctx.alloc_label_base() + "_read_bytes_cont";
     let is_ok = ctx.tmp();
     ctx.push(format!("{is_ok} = icmp eq i64 {code}, 0"));
-    ctx.push(format!("br i1 {is_ok}, label %{ok_label}, label %{err_label}"));
+    ctx.push(format!(
+        "br i1 {is_ok}, label %{ok_label}, label %{err_label}"
+    ));
 
     // Success: tag 0, payload = the slice the runtime wrote.
     ctx.push(format!("{ok_label}:"));
@@ -176,7 +180,9 @@ pub fn gen_write_bytes(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
     let cont_label = ctx.alloc_label_base() + "_write_bytes_cont";
     let is_ok = ctx.tmp();
     ctx.push(format!("{is_ok} = icmp eq i64 {code}, 0"));
-    ctx.push(format!("br i1 {is_ok}, label %{ok_label}, label %{err_label}"));
+    ctx.push(format!(
+        "br i1 {is_ok}, label %{ok_label}, label %{err_label}"
+    ));
 
     // Success: tag 0, payload = `void`, which is `{}` in field position.
     ctx.push(format!("{ok_label}:"));
@@ -272,7 +278,9 @@ fn finish_result(
     let cont_label = format!("{base}_{label}_cont");
     let is_ok = ctx.tmp();
     ctx.push(format!("{is_ok} = icmp eq i64 {code}, 0"));
-    ctx.push(format!("br i1 {is_ok}, label %{ok_label}, label %{err_label}"));
+    ctx.push(format!(
+        "br i1 {is_ok}, label %{ok_label}, label %{err_label}"
+    ));
 
     // Success: tag 0, the payload (when there is one).
     ctx.push(format!("{ok_label}:"));
@@ -429,14 +437,19 @@ pub fn gen_write_file(ctx: &mut FnCtx<'_>, args: &[HirExpr]) -> GenValue {
 /// message; the level is a static the sink already knows how to spell.
 pub fn gen_log(ctx: &mut FnCtx<'_>, args: &[HirExpr], level: &str) -> GenValue {
     let value = gen_expr(ctx, &args[0]);
-    // The message's bytes: `yashy_str_cstr` hands back the data pointer of
-    // a `%yashy_str`, which is what the sink reads.
+    // `yashy_str_cstr` copies the bytes into a NUL-terminated buffer the sink
+    // may read; the copy is released after the call.
     let text = ctx.tmp();
-    ctx.push(format!("{text} = call i8* @yashy_str_cstr(i8* {})", value.value));
+    ctx.push(format!(
+        "{text} = call i8* @yashy_str_cstr(i8* {})",
+        value.value
+    ));
     let level_global = ctx.module.intern_string(level.as_bytes());
     ctx.push(format!(
         "call void @yashy_log_event(i8* {level_global}.data, i8* {text})"
     ));
+    ctx.push(format!("call void @yashy_free(i8* {text})"));
+    ctx.release_owned(&value.value);
     GenValue {
         value: String::new(),
         ty: TypeKind::Unit,
@@ -448,12 +461,19 @@ pub fn gen_metrics(ctx: &mut FnCtx<'_>, args: &[HirExpr], kind: &str) -> GenValu
     let name = gen_expr(ctx, &args[0]);
     let value = gen_expr(ctx, &args[1]);
     let text = ctx.tmp();
-    ctx.push(format!("{text} = call i8* @yashy_str_cstr(i8* {})", name.value));
+    ctx.push(format!(
+        "{text} = call i8* @yashy_str_cstr(i8* {})",
+        name.value
+    ));
     let kind_global = ctx.module.intern_string(kind.as_bytes());
     ctx.push(format!(
         "call void @yashy_metrics(i8* {kind_global}.data, i8* {text}, i64 {})",
         value.value
     ));
+    // As with `gen_log`: the C-string copy is released after the runtime has
+    // read it.
+    ctx.push(format!("call void @yashy_free(i8* {text})"));
+    ctx.release_owned(&name.value);
     GenValue {
         value: String::new(),
         ty: TypeKind::Unit,

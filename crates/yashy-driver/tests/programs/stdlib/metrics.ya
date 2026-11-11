@@ -1,0 +1,7 @@
+import metrics;
+
+fn main() {
+    metrics.counter_add("tasks", 3);
+    metrics.gauge_set("tasks", 7);
+    print("metrics ok");
+}

@@ -1046,8 +1046,16 @@ impl<'src> Checker<'src> {
             ("log_info", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("log_error", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
             ("eprint", vec![prim(TypeKind::Str)], prim(TypeKind::Unit)),
-            ("metrics_add", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
-            ("metrics_set", vec![prim(TypeKind::Str), prim(TypeKind::I64)], prim(TypeKind::Unit)),
+            (
+                "metrics_add",
+                vec![prim(TypeKind::Str), prim(TypeKind::I64)],
+                prim(TypeKind::Unit),
+            ),
+            (
+                "metrics_set",
+                vec![prim(TypeKind::Str), prim(TypeKind::I64)],
+                prim(TypeKind::Unit),
+            ),
             // Files and the environment (M6 Task 10, honest signatures in
             // phase 3b). A missing file and an empty file are different
             // answers, so failure is `io.Error` rather than an empty string;
@@ -2902,9 +2910,7 @@ impl<'src> Checker<'src> {
                 // A doc block may wrap outside `pub` (`/// x\npub fn`): the
                 // `pub` test below has to see through it, so unwrap here and
                 // declare the item inside with the same visibility.
-                Item::Documented { item, .. } => {
-                    self.declare_items(std::slice::from_ref(&**item))
-                }
+                Item::Documented { item, .. } => self.declare_items(std::slice::from_ref(&**item)),
                 // `pub` is a modifier in front of an item: the item inside is
                 // declared as usual, and marked as one another module may use.
                 Item::Public { item, .. } => {
@@ -4355,13 +4361,17 @@ impl<'src> Checker<'src> {
         };
         self.type_subst = outer_subst;
         // A parameter of linear type takes ownership, exactly as it does in an
-        // ordinary call: passing a bare name moves it out.
+        // ordinary call: passing a bare name moves it out. A field access is a
+        // header the struct does not own, so it is not a move and its last
+        // segment is not a binding to look up.
         for (arg, param_ty) in args.iter().zip(param_tys.iter()) {
             if matches!(linearity_of(&param_ty.kind), Linearity::Linear) {
                 if let Expr::Ident(path, arg_span) = arg {
-                    let arg_name = path.last().cloned().unwrap_or_default();
-                    if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                        self.report(e);
+                    if path.len() == 1 {
+                        let arg_name = path.last().cloned().unwrap_or_default();
+                        if let Err(e) = self.move_out(&arg_name, *arg_span) {
+                            self.report(e);
+                        }
                     }
                 }
             }
@@ -4678,11 +4688,7 @@ impl<'src> Checker<'src> {
     /// so the body checker has to know before it reads the body rather than
     /// having the answer stamped on afterwards.
     fn check_item(&mut self, item: &Item) -> Option<Vec<HirItem>> {
-        self.check_item_with_declared(
-            item,
-            yashy_common::DeclaredEffect::Inferred,
-            &[],
-        )
+        self.check_item_with_declared(item, yashy_common::DeclaredEffect::Inferred, &[])
     }
 
     fn check_item_with_declared(
@@ -4698,9 +4704,9 @@ impl<'src> Checker<'src> {
             Item::Public { item, .. } => self.check_item_with_declared(item, declared, docs),
             // A doc block is stored, not checked: the item inside checks as
             // usual, and `yashy doc` reads the text later.
-            Item::Documented { docs: text, item, .. } => {
-                self.check_item_with_declared(item, declared, text)
-            }
+            Item::Documented {
+                docs: text, item, ..
+            } => self.check_item_with_declared(item, declared, text),
             Item::Effect { effect, item, .. } => {
                 // Check the inner item with the wrapper's effect in hand, so
                 // an `async fn` is checked as async from the first statement.
@@ -5796,8 +5802,18 @@ impl<'src> Checker<'src> {
                 // is true only when the slot holds a live allocation. A binding
                 // that was already moved (by `buf.free()`, or by passing it to
                 // a function that takes `*mut i64`) is not released again.
-                let release_previous = matches!(linearity_of(&binding.ty.kind), Linearity::Linear)
-                    && matches!(binding.ownership, Ownership::Live);
+                // Re-read the binding's ownership *after* the value was
+                // checked: `set = set_insert(set, 3)` moves `set` into the
+                // call, so the slot no longer owns what it holds and the
+                // backend must not release it again. `binding` above is the
+                // snapshot from before the value was checked, which still says
+                // `Live`.
+                let still_live = self
+                    .scope
+                    .resolve(&name)
+                    .is_some_and(|current| matches!(current.ownership, Ownership::Live));
+                let release_previous =
+                    matches!(linearity_of(&binding.ty.kind), Linearity::Linear) && still_live;
                 self.forbid_linear_copy(value, &checked);
                 self.scope.rebind(&name);
 
@@ -11089,10 +11105,19 @@ impl<'src> Checker<'src> {
                 // An aliased module path: `io.print(..)` where `io` is this
                 // file's alias for the module named by the import path's last
                 // segment. The head must not be a local binding (that would be
-                // a receiver method, handled below). Resolve the tail as an
-                // ordinary unqualified call after the visibility check for
+                // a receiver method, handled below); a *function* binding
+                // does not count, because a module can share its name with a
+                // builtin -- `args.all()` must reach `args.ya`'s `all`, not the
+                // builtin `args()`'s (absent) `all` method. Resolve the tail as
+                // an ordinary unqualified call after the visibility check for
                 // the target module.
-                if callee.len() == 2 && self.scope.resolve(&callee[0]).is_none() {
+                let head_is_function = self
+                    .scope
+                    .resolve(&callee[0])
+                    .is_some_and(|binding| matches!(binding.ty.kind, TypeKind::Func(_, _)));
+                if callee.len() == 2
+                    && (self.scope.resolve(&callee[0]).is_none() || head_is_function)
+                {
                     let aliased = self
                         .aliases
                         .iter()
@@ -11411,10 +11436,18 @@ impl<'src> Checker<'src> {
                                 if consumes
                                     && matches!(linearity_of(&param.kind), Linearity::Linear)
                                 {
+                                    // Only a bare name is a binding that can be
+                                    // moved. A field access is a header that
+                                    // points at storage the struct does not own
+                                    // (tutorial 04), so it is not a move and
+                                    // there is no binding named by its last
+                                    // segment to look up.
                                     if let Expr::Ident(path, arg_span) = arg {
-                                        let arg_name = path.last().cloned().unwrap_or_default();
-                                        if let Err(e) = self.move_out(&arg_name, *arg_span) {
-                                            self.report(e);
+                                        if path.len() == 1 {
+                                            let arg_name = path.last().cloned().unwrap_or_default();
+                                            if let Err(e) = self.move_out(&arg_name, *arg_span) {
+                                                self.report(e);
+                                            }
                                         }
                                     }
                                 }

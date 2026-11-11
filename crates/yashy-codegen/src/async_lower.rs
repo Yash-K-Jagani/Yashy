@@ -102,18 +102,20 @@ struct Segmentation {
 fn await_site(stmt: &HirStmt) -> Option<(HirExpr, AwaitSite)> {
     match stmt {
         HirStmt::Var { name, init, .. } | HirStmt::Const { name, init, .. } => match init {
-            HirExpr::Await { expr, .. } => Some(( (**expr).clone(), AwaitSite::Bind(name.clone()))),
+            HirExpr::Await { expr, .. } => Some(((**expr).clone(), AwaitSite::Bind(name.clone()))),
             _ => None,
         },
         HirStmt::Assign { name, value, .. } => match value {
             HirExpr::Await { expr, .. } => {
-                Some(( (**expr).clone(), AwaitSite::Assign(name.clone())))
+                Some(((**expr).clone(), AwaitSite::Assign(name.clone())))
             }
             _ => None,
         },
-        HirStmt::Expr(HirExpr::Await { expr, .. }, ..) => Some(( (**expr).clone(), AwaitSite::Discard)),
+        HirStmt::Expr(HirExpr::Await { expr, .. }, ..) => {
+            Some(((**expr).clone(), AwaitSite::Discard))
+        }
         HirStmt::Return(Some(HirExpr::Await { expr, .. }), ..) => {
-            Some(( (**expr).clone(), AwaitSite::Return))
+            Some(((**expr).clone(), AwaitSite::Return))
         }
         _ => None,
     }
@@ -225,7 +227,9 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                     }
                 }
             }
-            HirExpr::View { base, start, end, .. } => {
+            HirExpr::View {
+                base, start, end, ..
+            } => {
                 expr_uses(base, out);
                 expr_uses(start, out);
                 expr_uses(end, out);
@@ -235,7 +239,12 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                     expr_uses(arg, out);
                 }
             }
-            HirExpr::HigherOrder { receiver, func, init, .. } => {
+            HirExpr::HigherOrder {
+                receiver,
+                func,
+                init,
+                ..
+            } => {
                 expr_uses(receiver, out);
                 expr_uses(func, out);
                 if let Some(init) = init {
@@ -256,13 +265,20 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
             expr_uses(value, out);
         }
         HirStmt::Destructure { init, .. } => expr_uses(init, out),
-        HirStmt::IndexAssign { base, index, value, .. } => {
+        HirStmt::IndexAssign {
+            base, index, value, ..
+        } => {
             expr_uses(base, out);
             expr_uses(index, out);
             expr_uses(value, out);
         }
         HirStmt::FieldAssign { value, .. } => expr_uses(value, out),
-        HirStmt::FieldPtrAssign { pointer, index, value, .. } => {
+        HirStmt::FieldPtrAssign {
+            pointer,
+            index,
+            value,
+            ..
+        } => {
             expr_uses(pointer, out);
             expr_uses(index, out);
             expr_uses(value, out);
@@ -272,7 +288,13 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                 expr_uses(value, out);
             }
         }
-        HirStmt::If { init, cond, then_block, else_block, .. } => {
+        HirStmt::If {
+            init,
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
             if let Some(init) = init {
                 collect_uses(init, out);
             }
@@ -286,7 +308,12 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                 }
             }
         }
-        HirStmt::IfLet { subject, then_block, else_block, .. } => {
+        HirStmt::IfLet {
+            subject,
+            then_block,
+            else_block,
+            ..
+        } => {
             expr_uses(subject, out);
             for inner in &then_block.stmts {
                 collect_uses(inner, out);
@@ -297,7 +324,9 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                 }
             }
         }
-        HirStmt::ForRange { start, end, body, .. } => {
+        HirStmt::ForRange {
+            start, end, body, ..
+        } => {
             expr_uses(start, out);
             expr_uses(end, out);
             for inner in &body.stmts {
@@ -310,7 +339,13 @@ fn collect_uses(stmt: &HirStmt, out: &mut Vec<String>) {
                 collect_uses(inner, out);
             }
         }
-        HirStmt::ForC { init, cond, update, body, .. } => {
+        HirStmt::ForC {
+            init,
+            cond,
+            update,
+            body,
+            ..
+        } => {
             if let Some(init) = init {
                 collect_uses(init, out);
             }
@@ -389,10 +424,7 @@ pub fn lower_async(f: &HirFn) -> (FrameLayout, String) {
                 live.push((name.clone(), ty.clone()));
             }
         }
-        used_after = uses
-            .into_iter()
-            .chain(used_after)
-            .collect::<Vec<_>>();
+        used_after = uses.into_iter().chain(used_after).collect::<Vec<_>>();
         // Bindings of this segment that no later segment uses are dead by
         // the backwards pass; definitions in the last segment are never
         // live-across, so nothing to add for them.
@@ -433,9 +465,7 @@ pub fn lower_async(f: &HirFn) -> (FrameLayout, String) {
     let result_ty = result_type(f);
     let result_index = (5 + fields.len()) as i32;
     let poll_name = format!("{}.poll", f.name);
-    let resume_points = (1..=segmentation.awaits.len())
-        .map(|i| i as i32)
-        .collect();
+    let resume_points = (1..=segmentation.awaits.len()).map(|i| i as i32).collect();
     let layout = FrameLayout {
         frame_type: format!("%struct.async.{}.frame", f.name),
         poll_name: poll_name.clone(),
@@ -487,7 +517,9 @@ fn gen_factory(ctx: &mut FnCtx<'_>, f: &HirFn, layout: &FrameLayout) {
     // live in one place.
     let size = frame_size(ctx, layout);
     let frame = ctx.tmp();
-    ctx.push(format!("{frame} = call i8* @yashy_alloc(i64 {size}, i64 8)"));
+    ctx.push(format!(
+        "{frame} = call i8* @yashy_alloc(i64 {size}, i64 8)"
+    ));
 
     let field_at = |ctx: &mut FnCtx<'_>, index: i32| -> String {
         let field = ctx.tmp();
@@ -500,7 +532,10 @@ fn gen_factory(ctx: &mut FnCtx<'_>, f: &HirFn, layout: &FrameLayout) {
     let resume = field_at(ctx, 0);
     ctx.push(format!("store i32 0, ptr {resume}"));
     let poll = field_at(ctx, 1);
-    ctx.push(format!("store i8* @{poll_name}, ptr {poll}", poll_name = layout.poll_name));
+    ctx.push(format!(
+        "store i8* @{poll_name}, ptr {poll}",
+        poll_name = layout.poll_name
+    ));
     let child = field_at(ctx, 2);
     ctx.push(format!("store i8* null, ptr {child}"));
     let result_ptr = field_at(ctx, layout.result_index);
@@ -546,19 +581,16 @@ fn field_slot(ctx: &mut FnCtx<'_>, layout: &FrameLayout, index: i32) -> String {
 
 /// Bind the result of the child task that just became ready to the awaited
 /// value, then free the child frame.
-fn bind_result(
-    ctx: &mut FnCtx<'_>,
-    layout: &FrameLayout,
-    site: &AwaitSite,
-    result_ty: TypeKind,
-) {
+fn bind_result(ctx: &mut FnCtx<'_>, layout: &FrameLayout, site: &AwaitSite, result_ty: TypeKind) {
     let child_slot = field_slot(ctx, layout, 2);
     let child = ctx.tmp();
     ctx.push(format!("{child} = load i8*, ptr {child_slot}"));
     // The child's result slot is header word 3 (byte 24) of the child frame,
     // not of this frame: this frame's word 3 points at our own result.
     let slot_addr = ctx.tmp();
-    ctx.push(format!("{slot_addr} = getelementptr i8, ptr {child}, i32 24"));
+    ctx.push(format!(
+        "{slot_addr} = getelementptr i8, ptr {child}, i32 24"
+    ));
     let slot_base = ctx.tmp();
     ctx.push(format!("{slot_base} = load i8*, ptr {slot_addr}"));
     let repr = crate::ir::repr_type(&result_ty);
@@ -567,10 +599,7 @@ fn bind_result(
         ctx.push(format!("{value} = load {repr}, ptr {slot_base}"));
         match site {
             AwaitSite::Bind(name) | AwaitSite::Assign(name) => {
-                if !layout
-                    .fields
-                    .iter()
-                    .any(|field| &field.name == name)
+                if !layout.fields.iter().any(|field| &field.name == name)
                     && !ctx.locals.contains_key(name)
                 {
                     // A binding surrendered by the split keeps a stack slot:
@@ -581,17 +610,12 @@ fn bind_result(
                     ctx.push_alloca(format!("{slot} = alloca {}", repr));
                     ctx.locals.insert(name.clone(), (slot, ty));
                 }
-                if layout
-                    .fields
-                    .iter()
-                    .any(|field| &field.name == name)
-                {
+                if layout.fields.iter().any(|field| &field.name == name) {
                     let field_index = (5 + layout
                         .fields
                         .iter()
                         .position(|field| &field.name == name)
-                        .unwrap_or(0))
-                        as i32;
+                        .unwrap_or(0)) as i32;
                     let dest = field_slot(ctx, layout, field_index);
                     ctx.push(format!("store {repr} {value}, ptr {dest}"));
                 } else {
@@ -623,7 +647,10 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
     // `--no-opt=async` disables suspension: the whole body is one segment
     // and every await drives its child inline.
     let suspend = module.async_enabled();
-    module.push(format!("define i8* @{} (i8* %task.frame) {{", layout.poll_name));
+    module.push(format!(
+        "define i8* @{} (i8* %task.frame) {{",
+        layout.poll_name
+    ));
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, layout.result_ty.clone());
@@ -657,7 +684,9 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
         ctx.push(format!("{done} = icmp eq i32 {resume}, -1"));
         let done_label = format!("done{}", ctx.alloc_label_base());
         let dispatch_label = format!("dispatch{}", ctx.alloc_label_base());
-        ctx.push(format!("br i1 {done}, label %{done_label}, label %{dispatch_label}"));
+        ctx.push(format!(
+            "br i1 {done}, label %{done_label}, label %{dispatch_label}"
+        ));
         ctx.push(format!("{done_label}:"));
         ctx.push("ret i8* %task.frame".to_string());
         ctx.push(format!("{dispatch_label}:"));
@@ -683,7 +712,9 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
                 ctx.push(format!("{child} = load i8*, ptr {child_slot}"));
                 // The child's poll function is header word 1 (byte 8).
                 let poll_addr = ctx.tmp();
-                ctx.push(format!("{poll_addr} = getelementptr i8, ptr {child}, i32 8"));
+                ctx.push(format!(
+                    "{poll_addr} = getelementptr i8, ptr {child}, i32 8"
+                ));
                 let poll_fn = ctx.tmp();
                 ctx.push(format!("{poll_fn} = load i8*, ptr {poll_addr}"));
                 let ready = ctx.tmp();
@@ -700,14 +731,12 @@ fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout)
                 ctx.push(format!("{cont_label}:"));
                 // The result type is the child's `T`: the await's own type.
                 let result_ty = match site {
-                    AwaitSite::Bind(name) | AwaitSite::Assign(name) => {
-                        layout
-                            .fields
-                            .iter()
-                            .find(|field| &field.name == name)
-                            .map(|field| field.ty.clone())
-                            .unwrap_or_else(|| layout.result_ty.clone())
-                    }
+                    AwaitSite::Bind(name) | AwaitSite::Assign(name) => layout
+                        .fields
+                        .iter()
+                        .find(|field| &field.name == name)
+                        .map(|field| field.ty.clone())
+                        .unwrap_or_else(|| layout.result_ty.clone()),
                     AwaitSite::Return => layout.result_ty.clone(),
                     AwaitSite::Discard => TypeKind::Unit,
                 };
@@ -773,7 +802,11 @@ pub fn gen_async_fn(module: &mut crate::module::Module, f: &HirFn) {
             crate::ir::repr_type(&param.ty.kind)
         ));
     }
-    module.push(format!("define {ret_repr} @{}({}) {{", f.name, params.join(", ")));
+    module.push(format!(
+        "define {ret_repr} @{}({}) {{",
+        crate::ir::fn_symbol(&f.name),
+        params.join(", ")
+    ));
     module.begin_fn_report(&f.name, f.file, f.span);
     {
         let mut ctx = FnCtx::new(module, f.ret.kind.clone());
@@ -803,7 +836,10 @@ pub fn drive_inline(ctx: &mut FnCtx<'_>, child: &GenValue, result_ty: &TypeKind)
     ctx.push(format!("{executor} = call i8* @yashy_executor_default()"));
     // The child's poll function is header word 1 (byte 8).
     let poll_addr = ctx.tmp();
-    ctx.push(format!("{poll_addr} = getelementptr i8, ptr {}, i32 8", child.value));
+    ctx.push(format!(
+        "{poll_addr} = getelementptr i8, ptr {}, i32 8",
+        child.value
+    ));
     let poll_fn = ctx.tmp();
     ctx.push(format!("{poll_fn} = load i8*, ptr {poll_addr}"));
     let done = ctx.tmp();
@@ -814,7 +850,10 @@ pub fn drive_inline(ctx: &mut FnCtx<'_>, child: &GenValue, result_ty: &TypeKind)
     let _ = done;
     // The result pointer is header word 3 (byte 24).
     let slot_addr = ctx.tmp();
-    ctx.push(format!("{slot_addr} = getelementptr i8, ptr {}, i32 24", child.value));
+    ctx.push(format!(
+        "{slot_addr} = getelementptr i8, ptr {}, i32 24",
+        child.value
+    ));
     let result_slot = ctx.tmp();
     ctx.push(format!("{result_slot} = load i8*, ptr {slot_addr}"));
     let repr = crate::ir::repr_type(result_ty);
@@ -852,10 +891,12 @@ pub fn gen_spawn(
     };
     let name = match callee {
         HirExpr::Ident(path, ..) => path.last().cloned().unwrap_or_default(),
-        _ => return GenValue {
-            value: "null".to_string(),
-            ty: ty.clone(),
-        },
+        _ => {
+            return GenValue {
+                value: "null".to_string(),
+                ty: ty.clone(),
+            }
+        }
     };
     let is_async_worker = matches!(ret.kind, TypeKind::Task(_));
     let frame = if is_async_worker {
@@ -863,17 +904,12 @@ pub fn gen_spawn(
         let lowered: Vec<GenValue> = args.iter().map(|arg| gen_expr(ctx, arg)).collect();
         let call_args: Vec<String> = lowered
             .iter()
-            .map(|value| {
-                format!(
-                    "{} {}",
-                    crate::ir::repr_type(&value.ty),
-                    value.value
-                )
-            })
+            .map(|value| format!("{} {}", crate::ir::repr_type(&value.ty), value.value))
             .collect();
         let frame = ctx.tmp();
         ctx.push(format!(
-            "{frame} = call i8* @{name}({})",
+            "{frame} = call i8* @{}({})",
+            crate::ir::fn_symbol(&name),
             call_args.join(", ")
         ));
         for value in &lowered {
@@ -887,7 +923,9 @@ pub fn gen_spawn(
     ctx.push(format!("{executor} = call i8* @yashy_executor_default()"));
     // The worker's poll function is header word 1 (byte 8) of its frame.
     let poll_addr = ctx.tmp();
-    ctx.push(format!("{poll_addr} = getelementptr i8, ptr {frame}, i32 8"));
+    ctx.push(format!(
+        "{poll_addr} = getelementptr i8, ptr {frame}, i32 8"
+    ));
     let poll_fn = ctx.tmp();
     ctx.push(format!("{poll_fn} = load i8*, ptr {poll_addr}"));
     let status = ctx.tmp();
@@ -901,7 +939,9 @@ pub fn gen_spawn(
     ctx.push(format!("{failed} = icmp ne i32 {status}, 0"));
     let failed_label = format!("spawn_failed{}", ctx.alloc_label_base());
     let ok_label = format!("spawn_ok{}", ctx.alloc_label_base());
-    ctx.push(format!("br i1 {failed}, label %{failed_label}, label %{ok_label}"));
+    ctx.push(format!(
+        "br i1 {failed}, label %{failed_label}, label %{ok_label}"
+    ));
     ctx.push(format!("{failed_label}:"));
     ctx.push(format!("call void @yashy_free(i8* {frame})"));
     ctx.push("call void @yashy_exit(i64 1)".to_string());
@@ -925,6 +965,9 @@ fn gen_spawn_sync(
 ) -> String {
     use crate::ir::{field_repr, repr_type};
     let frame_ty = format!("%struct.async.spawn.{name}.frame");
+    // The worker is a Yashy function: its symbol carries the prefix that keeps
+    // it apart from the C library's names.
+    let worker = crate::ir::fn_symbol(name);
     let mut fields = vec![
         "i32".to_string(),
         "i8*".to_string(),
@@ -971,11 +1014,11 @@ fn gen_spawn_sync(
     }
     let ret_repr = repr_type(ret);
     if ret_repr == "void" {
-        lines.push(format!("  call void @{name}({})", call_args.join(", ")));
+        lines.push(format!("  call void @{worker}({})", call_args.join(", ")));
     } else {
         let result = "%spawn_result";
         lines.push(format!(
-            "  {result} = call {ret_repr} @{name}({})",
+            "  {result} = call {ret_repr} @{worker}({})",
             call_args.join(", ")
         ));
         let field = "%spawn_result_field";
@@ -1001,7 +1044,9 @@ fn gen_spawn_sync(
     let size = ctx.tmp();
     ctx.push(format!("{size} = ptrtoint ptr {size_addr} to i64"));
     let frame = ctx.tmp();
-    ctx.push(format!("{frame} = call i8* @yashy_alloc(i64 {size}, i64 8)"));
+    ctx.push(format!(
+        "{frame} = call i8* @yashy_alloc(i64 {size}, i64 8)"
+    ));
     let field_at = |ctx: &mut FnCtx<'_>, index: i32| -> String {
         let field = ctx.tmp();
         ctx.push(format!(

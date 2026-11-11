@@ -1,0 +1,10 @@
+import alloc;
+
+fn main() {
+    const zeros = alloc_zeroed(3);
+    print("zeroed ${zeros[0]} ${zeros[1]} ${zeros[2]}");
+    zeros.free();
+    const one = alloc_one(42);
+    print("one ${one[0]}");
+    one.free();
+}

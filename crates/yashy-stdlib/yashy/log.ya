@@ -12,3 +12,16 @@
 // `--deterministic` sets when `YASHY_DETERMINISTIC=1`. Without
 // `YASHY_LOG=1` the sink is a no-op: logging that nobody reads must cost
 // nothing.
+
+// `info`/`error` are the module spellings for a call site that imports this
+// file; the builtins keep their own names in the shared root scope.
+
+/// Write one info-level JSON line to the log sink.
+pub fn info(string message) {
+    log_info(message);
+}
+
+/// Write one error-level JSON line to the log sink.
+pub fn error(string message) {
+    log_error(message);
+}

@@ -1,18 +1,151 @@
-// Text helpers written in Yashy (M6 Task 10).
+// Text strings (phase 12, Task 10).
 //
-// The string surface is methods now: `len`, `byte_at`, `slice`, `trim`,
-// `contains`, `starts_with`, `split` and the rest are called on a string
-// binding. The wrappers this module used to export were removed in M12 so
-// there is one spelling per operation. What remains is `concat`, a named
-// spelling for `+` that reads well in a pipeline of stdlib helpers.
+// The string vocabulary beyond the builtins (`take`, `contains`, `eq`...).
+// `join_list` ties a list into one string, `pad_start`/`pad_end` fill to a width,
+// and `to_bytes`/`from_bytes` cross to `[]char`: `from_bytes` is UTF-8
+// validated, so invalid input is `Err`, never a replacement character.
 //
-// Graphemes (Phase 6) are methods too, on the same binding:
-// `graphemes()` counts clusters, `char_at(i)` returns the cluster at `i`,
-// and `substring(start, end)` returns the clusters in a clamped range.
-// `len()` keeps counting bytes; a byte index and a grapheme index are
-// different functions, never overloads of one name.
+// `char_at` answers the one grapheme at an index as an `Option`, where the
+// builtin `char_at` faults out of range: this one answers `None`. `join_list`
+// and the pads borrow their parts.
+//
+// The list join is `join_list` because `path.join` already owns `join`; module
+// items share one root scope, so the two could not be imported together.
 
-// Ownership: a fresh string is returned; neither argument is consumed.
-pub fn concat(string left, string right) -> string {
-    return left + right;
+/** A UTF-8 failure: the bytes are not valid text. */
+pub enum StringError {
+    InvalidUtf8,
+}
+
+/// Join `parts` with `sep` between them.
+pub fn join_list([]string parts, string sep) -> string {
+    let text = "";
+    let index = 0;
+    while index < parts.len() {
+        if index > 0 {
+            text = text + sep;
+        }
+        const part = switch parts[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        text = text + part;
+        index = index + 1;
+    }
+    parts.free();
+    return text;
+}
+
+/// Pad on the left to `width` with `pad` characters.
+pub fn pad_start(string text, int width, string pad) -> string {
+    if pad.is_empty() || text.len() >= width {
+        return text;
+    }
+    const pad_char = pad.byte_at(0);
+    const owner = pad_char.to_string();
+    let out = text;
+    while out.len() < width {
+        out = owner + out;
+    }
+    return out;
+}
+
+/// Pad on the right to `width` with `pad` characters.
+pub fn pad_end(string text, int width, string pad) -> string {
+    if pad.is_empty() || text.len() >= width {
+        return text;
+    }
+    const pad_char = pad.byte_at(0);
+    const owner = pad_char.to_string();
+    let out = text;
+    while out.len() < width {
+        out = out + owner;
+    }
+    return out;
+}
+
+/// The grapheme at `index`, or `None` outside `0..graphemes()`.
+pub fn char_at(string text, int index) -> Option[string] {
+    if index < 0 || index >= text.graphemes() {
+        const Option[string] missing = None;
+        return missing;
+    }
+    return Some(text.char_at(index));
+}
+
+/// The UTF-8 bytes of a string as `[]char`.
+pub fn to_bytes(string text) -> []char {
+    const data = []char {};
+    let index = 0;
+    while index < text.len() {
+        data.push(text.byte_at(index));
+        index = index + 1;
+    }
+    return data;
+}
+
+/// The string for `data`, or `Err(InvalidUtf8)` when `data` is not valid
+/// UTF-8: the scan is over the bytes of the input, so a dangling continuation
+/// or an overlong form is the error, not a silent substitution.
+pub fn from_bytes([]char data) -> Result[string, StringError] {
+    let index = 0;
+    let length = data.len();
+    let valid = true;
+    while index < length && valid {
+        const lead = switch data[index] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        if lead < 128 {
+            index = index + 1;
+            continue;
+        }
+        let extra = -1;
+        if lead >= 194 && lead <= 223 {
+            extra = 1;
+        } else {
+            if lead >= 224 && lead <= 239 {
+                extra = 2;
+            } else {
+                if lead >= 240 && lead <= 244 {
+                    extra = 3;
+                }
+            }
+        }
+        if extra < 0 || index + extra >= length {
+            valid = false;
+        } else {
+            let j = 1;
+            while j <= extra && valid {
+                const byte = switch data[index + j] {
+                    case Some(c) { c.to_int() }
+                    case None { 0 }
+                };
+                if byte < 128 || byte > 191 {
+                    valid = false;
+                }
+                j = j + 1;
+            }
+            index = index + extra + 1;
+        }
+    }
+    // The input is linear, so it is released on one path, after the scan and
+    // after the bytes have been read: an early `free()` would mark the binding
+    // moved on the success path too. A rejected input still pays for the text
+    // it would have produced, which is the price of one release point.
+    let text = "";
+    let i = 0;
+    while i < data.len() {
+        const byte = switch data[i] {
+            case Some(c) { c.to_int() }
+            case None { 0 }
+        };
+        text = text + byte.to_char().to_string();
+        i = i + 1;
+    }
+    data.free();
+    if !valid {
+        return Err(StringError.InvalidUtf8);
+    }
+    return Ok(text);
 }

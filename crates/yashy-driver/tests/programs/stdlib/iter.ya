@@ -1,0 +1,26 @@
+import iter;
+
+struct Countdown {
+    n: int,
+}
+
+impl Iterator for Countdown {
+    fn next(self: *mut Self) -> Option[int] {
+        if self[0].n <= 0 {
+            return None;
+        }
+        self[0].n = self[0].n - 1;
+        return Some(self[0].n);
+    }
+}
+
+fn main() {
+    const Option[int] ready = Some(7);
+    const Option[int] finished = None;
+    print("some done: ${iter.is_done(ready)}");
+    print("none done: ${iter.is_done(finished)}");
+    let countdown = Countdown { n: 3 };
+    for value in countdown {
+        print(value);
+    }
+}

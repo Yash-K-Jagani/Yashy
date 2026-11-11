@@ -1,0 +1,8 @@
+insert dedupes: 2
+contains 3: true
+after remove len 1
+front 1 len 3
+popped 1 and 3, rest 1
+peek 1
+smallest 1 rest 2
+sorted 2 4 9

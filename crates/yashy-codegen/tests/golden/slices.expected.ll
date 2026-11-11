@@ -133,7 +133,7 @@ declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
-define { i8*, i64, i64 } @build() {
+define { i8*, i64, i64 } @yashy_fn_build() {
 entry:
 %slot0 = alloca { i8*, i64, i64 }
 %slot1 = alloca { i8*, i64, i64 }
@@ -190,7 +190,7 @@ entry:
 %slot1 = alloca { i8*, i64, i64 }
 call void @yashy_runtime_init()
 call void @yashy_args_init(i32 %argc, i8** %argv)
-%t25 = call { i8*, i64, i64 } @build()
+%t25 = call { i8*, i64, i64 } @yashy_fn_build()
 store { i8*, i64, i64 } %t25, ptr %slot0
 %t26 = load { i8*, i64, i64 }, ptr %slot0
 store { i8*, i64, i64 } %t26, ptr %slot1

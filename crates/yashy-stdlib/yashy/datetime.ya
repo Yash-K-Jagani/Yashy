@@ -1,0 +1,300 @@
+// Date and time (phase 12, Task 10).
+//
+// A civil time carries a fixed UTC offset (`offset_minutes`, east of UTC):
+// there is no locale, no timezone database, and no DST here, and that limit
+// is the contract -- `parse` with `%z` reads an offset, and every conversion
+// is pure arithmetic against seconds since the Unix epoch.
+//
+// `now` is the wall clock (see `time`), so reading it in a test is a value
+// the test pins by round trip: `from_unix(to_unix(dt))` is `dt` for every
+// `DateTime` this module can name.
+
+import string;
+
+/** A civil time with a fixed offset east of UTC, in minutes. */
+pub struct DateTime {
+    pub year: int,
+    pub month: int,
+    pub day: int,
+    pub hour: int,
+    pub minute: int,
+    pub second: int,
+    pub offset_minutes: int,
+}
+
+/** A (year, month, day) triple used between the calendar functions. */
+struct Parts {
+    year: int,
+    month: int,
+    day: int,
+}
+
+/** The wall clock is the `now()` builtin (milliseconds since the epoch in
+ * UTC); `from_unix(now() / 1000)` is the civil view of it. */
+
+/** Days from `1970-01-01` to the civil date `year/month/day`. */
+fn days_from_civil(int year, int month, int day) -> int {
+    let adjusted_year = year;
+    if month <= 2 {
+        adjusted_year = year - 1;
+    }
+    let era = 0;
+    if adjusted_year >= 0 {
+        era = adjusted_year / 400;
+    } else {
+        era = (adjusted_year - 399) / 400;
+    }
+    const year_of_era = adjusted_year - era * 400;
+    let shifted_month = 0;
+    if month > 2 {
+        shifted_month = month - 3;
+    } else {
+        shifted_month = month + 9;
+    }
+    const day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
+    const day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    return era * 146097 + day_of_era - 719468;
+}
+
+/** The civil date `z` days after `1970-01-01`. */
+fn civil_from_days(int z) -> Parts {
+    const shifted = z + 719468;
+    let era = 0;
+    if shifted >= 0 {
+        era = shifted / 146097;
+    } else {
+        era = (shifted - 146096) / 146097;
+    }
+    const day_of_era = shifted - era * 146097;
+    const year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    let year = year_of_era + era * 400;
+    const day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    const shifted_month = (5 * day_of_year + 2) / 153;
+    const day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = shifted_month + 3;
+    if shifted_month >= 10 {
+        month = shifted_month - 9;
+    }
+    if month <= 2 {
+        year = year + 1;
+    }
+    return Parts { year: year, month: month, day: day };
+}
+
+/** Convert `DateTime` to seconds since the epoch in UTC. */
+pub fn to_unix(DateTime at) -> int {
+    const epoch_offset = at.offset_minutes * 60;
+    return days_from_civil(at.year, at.month, at.day) * 86400 + at.hour * 3600 +
+        at.minute * 60 + at.second - epoch_offset;
+}
+
+/** Convert seconds since the epoch to a UTC civil time. */
+pub fn from_unix(int unix) -> DateTime {
+    const days = unix / 86400;
+    const remainder = unix - days * 86400;
+    const parts = civil_from_days(days);
+    return DateTime {
+        year: parts.year,
+        month: parts.month,
+        day: parts.day,
+        hour: remainder / 3600,
+        minute: (remainder % 3600) / 60,
+        second: remainder % 60,
+        offset_minutes: 0,
+    };
+}
+
+/** Shift `at` by `seconds` (negative allowed); the offset is kept. */
+pub fn add_seconds(DateTime at, int seconds) -> DateTime {
+    return from_unix(to_unix(at) + seconds - at.offset_minutes * 60);
+}
+
+/**
+ * Parse `text` in the layout `format`. Only `%Y %m %d %H %M %S %f %z %%` are
+ * understood; any other byte of `format` is matched literally byte for byte.
+ * Numbers read to `0` (or to `1` for day and month) when the text runs out.
+ */
+pub fn parse(string text, string format) -> DateTime {
+    let year = 0;
+    let month = 1;
+    let day = 1;
+    let hour = 0;
+    let minute = 0;
+    let second = 0;
+    let offset_minutes = 0;
+    let t = 0;
+    let pos = 0;
+    while pos < format.len() {
+        const fc = format.byte_at(pos).to_int();
+        if fc != 37 {
+            if t < text.len() && text.byte_at(t).to_int() == fc {
+                t = t + 1;
+            }
+            pos = pos + 1;
+            continue;
+        }
+        if pos + 1 >= format.len() {
+            pos = pos + 1;
+            continue;
+        }
+        const spec = format.byte_at(pos + 1).to_int();
+        if spec == 37 {
+            if t < text.len() && text.byte_at(t).to_int() == 37 {
+                t = t + 1;
+            }
+            pos = pos + 2;
+            continue;
+        }
+        if spec == 122 {
+            let sign = 1;
+            if t < text.len() && text.byte_at(t).to_int() == 45 {
+                sign = -1;
+            }
+            if t < text.len() && (text.byte_at(t).to_int() == 43 || text.byte_at(t).to_int() == 45) {
+                t = t + 1;
+            }
+            let digits = "";
+            while t < text.len() && text.byte_at(t).to_int() >= 48 &&
+                text.byte_at(t).to_int() <= 57 {
+                digits = digits + text.byte_at(t).to_string();
+                t = t + 1;
+            }
+            const number = digits.parse_i64();
+            const value = switch number {
+                case Some(v) { v }
+                case None { 0 }
+            };
+            // `%z` writes `+HHMM` (or `+HH`), not a count of minutes:
+            // read `0230` as 2 hours 30 minutes, so the offset is 150.
+            const hours = value / 100;
+            const minutes = value - hours * 100;
+            offset_minutes = sign * (hours * 60 + minutes);
+            pos = pos + 2;
+            continue;
+        }
+        if spec == 102 {
+            // `%f` is fractional seconds; `DateTime` stores whole seconds, so
+            // the fraction is always zero. The parser consumes it and keeps
+            // the whole-second fields.
+            let consumed = 0;
+            while t < text.len() && text.byte_at(t).to_int() >= 48 &&
+                text.byte_at(t).to_int() <= 57 && consumed < 9 {
+                t = t + 1;
+                consumed = consumed + 1;
+            }
+            pos = pos + 2;
+            continue;
+        }
+        let width = -1;
+        if spec == 89 {
+            width = 4;
+        }
+        if spec == 109 || spec == 100 || spec == 72 || spec == 77 || spec == 83 {
+            width = 2;
+        }
+        let digits = "";
+        while t < text.len() && text.byte_at(t).to_int() >= 48 &&
+            text.byte_at(t).to_int() <= 57 {
+            digits = digits + text.byte_at(t).to_string();
+            t = t + 1;
+            if width >= 0 && digits.len() >= width {
+                break;
+            }
+        }
+        const number = digits.parse_i64();
+        const value = switch number {
+            case Some(v) { v }
+            case None { 0 }
+        };
+        if spec == 89 {
+            year = value;
+        }
+        if spec == 109 {
+            month = value;
+        }
+        if spec == 100 {
+            day = value;
+        }
+        if spec == 72 {
+            hour = value;
+        }
+        if spec == 77 {
+            minute = value;
+        }
+        if spec == 83 {
+            second = value;
+        }
+        pos = pos + 2;
+    }
+    return DateTime {
+        year: year,
+        month: month,
+        day: day,
+        hour: hour,
+        minute: minute,
+        second: second,
+        offset_minutes: offset_minutes,
+    };
+}
+
+/**
+ * Format `at` in the layout `format`. Only `%Y %m %d %H %M %S %f %z %%` are
+ * understood; anything else is already read as a literal.
+ */
+pub fn format(DateTime at, string format) -> string {
+    let text = "";
+    let pos = 0;
+    while pos < format.len() {
+        const fc = format.byte_at(pos).to_int();
+        if fc != 37 {
+            text = text + fc.to_char().to_string();
+            pos = pos + 1;
+            continue;
+        }
+        if pos + 1 >= format.len() {
+            pos = pos + 1;
+            continue;
+        }
+        const spec = format.byte_at(pos + 1).to_int();
+        if spec == 37 {
+            text = text + "%";
+        } else {
+            if spec == 89 {
+                text = text + string.pad_start(str_from_i64(at.year), 4, "0");
+            }
+            if spec == 109 {
+                text = text + string.pad_start(str_from_i64(at.month), 2, "0");
+            }
+            if spec == 100 {
+                text = text + string.pad_start(str_from_i64(at.day), 2, "0");
+            }
+            if spec == 72 {
+                text = text + string.pad_start(str_from_i64(at.hour), 2, "0");
+            }
+            if spec == 77 {
+                text = text + string.pad_start(str_from_i64(at.minute), 2, "0");
+            }
+            if spec == 83 {
+                text = text + string.pad_start(str_from_i64(at.second), 2, "0");
+            }
+            if spec == 102 {
+                // Whole-second storage, so the fraction is six zero digits.
+                text = text + "000000";
+            }
+            if spec == 122 {
+                let sign = "+";
+                if at.offset_minutes < 0 {
+                    sign = "-";
+                }
+                let magnitude = at.offset_minutes;
+                if magnitude < 0 {
+                    magnitude = 0 - magnitude;
+                }
+                text = text + sign + string.pad_start(str_from_i64(magnitude / 60), 2, "0") +
+                    string.pad_start(str_from_i64(magnitude % 60), 2, "0");
+            }
+        }
+        pos = pos + 2;
+    }
+    return text;
+}

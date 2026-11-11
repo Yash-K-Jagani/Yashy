@@ -1,0 +1,9 @@
+import math;
+
+fn main() {
+    print(math.abs(0 - 3));
+    print(math.min(2, 5));
+    print(math.max(2, 5));
+    print(math.pow(2, 10));
+    print(math.sqrt(9.0));
+}

@@ -148,10 +148,10 @@ call void @yashy_free(i8* %t3)
 %t4 = mul i64 8, 8
 %t5 = call i8* @yashy_alloc(i64 %t4, i64 8)
 store i8* %t5, ptr %slot2
-%t6 = load i8*, ptr %slot2
-call void @yashy_free(i8* %t6)
-%t7 = mul i64 16, 8
-%t8 = call i8* @yashy_alloc(i64 %t7, i64 8)
-store i8* %t8, ptr %slot2
+%t6 = mul i64 16, 8
+%t7 = call i8* @yashy_alloc(i64 %t6, i64 8)
+%t8 = load i8*, ptr %slot2
+call void @yashy_free(i8* %t8)
+store i8* %t7, ptr %slot2
 %t9 = load i8*, ptr %slot2
 call void @yashy_free(i8* %t9)

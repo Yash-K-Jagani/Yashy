@@ -1,0 +1,73 @@
+import regex;
+
+fn main() {
+    const compiled = regex.compile("a+b");
+    const rx = switch compiled {
+        case Ok(value) { value }
+        case Err(_) { regex.Regex { pattern: "" } }
+    };
+    print(regex.is_match(rx, "xyz"));
+    print(regex.is_match(rx, "xaabz"));
+    const found = regex.find(rx, "xaabz");
+    const span = switch found {
+        case Some(m) { "${m.start}-${m.end}" }
+        case None { "none" }
+    };
+    print(span);
+    const all = regex.find_all(rx, "aab aab");
+    print("all ${all.len()}");
+    all.free();
+    print(regex.replace_all(rx, "aab aab", "X"));
+
+    // The documented subset: anchors, character classes, alternation and the
+    // optional quantifier all compile and match.
+    const anchored = switch regex.compile("^ab$") {
+        case Ok(value) { value }
+        case Err(_) { regex.Regex { pattern: "" } }
+    };
+    print(regex.is_match(anchored, "ab"));
+    print(regex.is_match(anchored, "abc"));
+
+    const digits = switch regex.compile("\\d+") {
+        case Ok(value) { value }
+        case Err(_) { regex.Regex { pattern: "" } }
+    };
+    print(regex.is_match(digits, "x42"));
+
+    const alternation = switch regex.compile("(ab|cd)") {
+        case Ok(value) { value }
+        case Err(_) { regex.Regex { pattern: "" } }
+    };
+    print(regex.is_match(alternation, "xcdy"));
+
+    const optional = switch regex.compile("ab?c") {
+        case Ok(value) { value }
+        case Err(_) { regex.Regex { pattern: "" } }
+    };
+    print(regex.is_match(optional, "ac"));
+    print(regex.is_match(optional, "abc"));
+
+    const bad = regex.compile("a\\1");
+    const rejected = switch bad {
+        case Ok(_) { false }
+        case Err(kind) {
+            switch kind {
+                case Unsupported { true }
+                case Syntax { false }
+            }
+        }
+    };
+    print("backreference rejected: ${rejected}");
+
+    const broken = regex.compile("a[bc");
+    const syntax = switch broken {
+        case Ok(_) { false }
+        case Err(kind) {
+            switch kind {
+                case Unsupported { false }
+                case Syntax { true }
+            }
+        }
+    };
+    print("unclosed class rejected: ${syntax}");
+}

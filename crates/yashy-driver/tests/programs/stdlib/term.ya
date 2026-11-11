@@ -1,0 +1,10 @@
+import term;
+
+fn main() {
+    print("tty: ${term.is_tty()}");
+    print("color empty under pipe: ${term.color("red") == ""}");
+    print("bold empty under pipe: ${term.bold() == ""}");
+    print("reset empty under pipe: ${term.reset() == ""}");
+    print("clear empty under pipe: ${term.clear_screen() == ""}");
+    print("move empty under pipe: ${term.move_to(1, 1) == ""}");
+}

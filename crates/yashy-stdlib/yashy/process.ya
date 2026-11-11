@@ -1,11 +1,97 @@
-// Process control (M6 Task 10).
+// Process control (phase 12, Task 10).
 //
-// `exit(code)` is a builtin, not a function in this module: the name lives in
-// the one shared scope, so a wrapper would be a duplicate definition. It ends
-// the process with `code` and has type `!`, so it can stand where a value is
-// expected and the code after it is unreachable.
+// One blocking recipe rather than a live pipe: `run` starts a child, waits for
+// it to exit, and answers its code, id and captured standard output. The C
+// half is `yashy_spawn`; the record it returns carries a status, so a child
+// that could not start is `Err(Other)` and never a fabricated exit code.
 //
-// `os.exit_with(code)` is the statement-shaped wrapper for a program that does
-// not want to think about `!`.
+// The argument list is an array, not a command string: there is no shell, so a
+// value containing `;`, `|` or a quote is one argument and cannot become a
+// second command. That is the injection defence, and a program under
+// `tests/programs/stdlib/` pins it.
 //
-// Ownership: `exit` never returns and owns nothing.
+// `run_with` takes `NAME=VALUE` records for the child's environment; an empty
+// array inherits this process's environment unchanged. `run_in` sets the
+// working directory, and `run` inherits both.
+//
+// Ownership: the argv and env arrays are borrowed; `Child.stdout` is a fresh
+// string the caller owns and frees like any other.
+
+import io;
+import string;
+
+extern "C" {
+    unsafe fn yashy_spawn_record(*const u8 argv_text, *const u8 cwd, *const u8 env_text) -> string;
+}
+
+/// A child that has already exited.
+pub struct Child {
+    pub exit_code: int,
+    pub pid: int,
+    pub stdout: string,
+}
+
+/// Read the number out of a header field this module produced.
+fn header_int(string text) -> int {
+    const value = text.parse_i64();
+    return switch value {
+        case Some(number) { number }
+        case None { 0 }
+    };
+}
+
+/// Decode the `exit\npid\nstdout` body of a successful record.
+fn child_from(string body) -> Child {
+    const first = body.index_of("\n");
+    const first_cut = switch first {
+        case Some(index) { index }
+        case None { -1 }
+    };
+    if first_cut < 0 {
+        return Child { exit_code: -1, pid: -1, stdout: "" };
+    }
+    const code_text = body.slice(0, first_cut);
+    const rest = body.slice(first_cut + 1, body.len());
+    const second = rest.index_of("\n");
+    const second_cut = switch second {
+        case Some(index) { index }
+        case None { -1 }
+    };
+    if second_cut < 0 {
+        return Child { exit_code: -1, pid: -1, stdout: "" };
+    }
+    const pid_text = rest.slice(0, second_cut);
+    const output = rest.slice(second_cut + 1, rest.len());
+    return Child {
+        exit_code: header_int(code_text),
+        pid: header_int(pid_text),
+        stdout: output,
+    };
+}
+
+/// Run `argv` in this process's directory and environment.
+pub fn run([]string argv) -> Result[Child, io.Error] {
+    const no_env = []string {};
+    return run_with(argv, no_env, "");
+}
+
+/// Run `argv` in `cwd`.
+pub fn run_in([]string argv, string cwd) -> Result[Child, io.Error] {
+    const no_env = []string {};
+    return run_with(argv, no_env, cwd);
+}
+
+/// Run `argv` in `cwd` with `env` (`NAME=VALUE` records).
+pub fn run_with([]string argv, []string env, string cwd) -> Result[Child, io.Error] {
+    if argv.len() == 0 {
+        return Err(io.Error.Other);
+    }
+    const argv_text = join_list(argv, "\n");
+    const env_text = join_list(env, "\n");
+    const record = yashy_spawn_record(argv_text, cwd, env_text);
+    const status = record.byte_at(0).to_int() - 48;
+    if status != 0 {
+        return Err(io.Error.Other);
+    }
+    return Ok(child_from(record.slice(2, record.len())));
+}

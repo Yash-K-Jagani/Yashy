@@ -1,0 +1,28 @@
+import hash;
+import string;
+import text;
+
+// Every digest is pinned to a published test vector, so a wrong round
+// constant fails the program instead of printing a plausible-looking number.
+// The signed `int` spellings are the published unsigned 64-bit values read as
+// two's complement: 0xcbf29ce484222325, 0xe71fa2190541574b, 0xef46db3751d8e999.
+fn main() {
+    const digest = hash.sha256(string.to_bytes("abc"));
+    const hex = text.hex_encode(digest);
+    assert(hex == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    print("sha256 abc ok");
+
+    assert(hash.fnv1a64(string.to_bytes("")) == -3750763034362895579);
+    print("fnv1a64 empty ok");
+
+    assert(hash.fnv1a64(string.to_bytes("abc")) == -1792535898324117685);
+    print("fnv1a64 abc ok");
+
+    assert(hash.xxhash64(string.to_bytes("")) == -1205034819632174695);
+    print("xxhash64 empty ok");
+
+    // A digest is 32 bytes; hex doubles the length.
+    const empty = hash.sha256(string.to_bytes(""));
+    print("sha256 length ${empty.len()}");
+    empty.free();
+}

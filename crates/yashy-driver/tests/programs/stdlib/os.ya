@@ -1,0 +1,7 @@
+import os;
+
+fn main() {
+    print("platform ${os.platform()}");
+    print("arch ${os.arch()}");
+    print("pid positive: ${os.pid() > 0}");
+}

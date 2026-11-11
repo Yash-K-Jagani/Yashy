@@ -5,10 +5,10 @@
 // linear: the binding that holds it owns it, `move` transfers it, and `.free()`
 // is the only release. Both helpers return an owned pointer.
 //
-// `alloc(count)` counts `int` slots, not bytes; Yashy has no byte type yet.
+/// `alloc(count)` counts `int` slots, not bytes; Yashy has no byte type yet.
 
-// Ownership: the returned pointer owns `count` zeroed slots and must be
-// released with `.free()`.
+/// A pointer to `count` zeroed `int` slots. The caller owns it; release it with
+/// `.free()`.
 pub fn alloc_zeroed(int count) -> *mut int {
     assert(count >= 0);
     let buffer = alloc(count);
@@ -20,8 +20,8 @@ pub fn alloc_zeroed(int count) -> *mut int {
     return buffer;
 }
 
-// Ownership: the returned pointer owns one slot holding `value`; release it
-// with `.free()`.
+/// A pointer to one `int` slot holding `value`. The caller owns it; release it
+/// with `.free()`.
 pub fn alloc_one(int value) -> *mut int {
     let buffer = alloc(1);
     buffer[0] = value;

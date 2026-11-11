@@ -1,29 +1,85 @@
-// Random numbers (M6 Task 10).
+// Random numbers (phase 12, Task 10).
 //
-// There is no entropy source on the language surface yet: the runtime exposes
-// no clock and no operating-system random call, so a `rand()` that answered
-// something different each call cannot be written. A function that returned a
-// constant would be worse than an honest absence.
+// The source is the operating system's entropy pool (`BCryptGenRandom` on
+// Windows, `getrandom`/`urandom` elsewhere), so the values are unpredictable.
+// None of this is a password hash or a cryptographic construction: use the
+// platform's crypto library for secrets.
 //
-// What is provided is the step itself. A caller that has a seed -- a line from
-// `read_line`, or a constant for a reproducible test -- can build a sequence
-// with `next`, and a program that needs unpredictable values can mix in
-// whatever input it already has.
+// The runtime draws from the OS in blocks, so a program that asks for a
+// million numbers makes a few thousand system calls rather than a million.
 //
-// `next` is a 64-bit linear congruential step (Knuth's MMIX constants). It is
-// not cryptographic and must not be used for secrets.
+// The API is numeric because Yashy arrays cannot hold every type and `[]u8`
+// is a C spelling: `u64()` answers the 64-bit draw in an `int` (the pattern
+// is the value; it may be negative when read as signed), `fill(count)` answers
+// `[]char` bytes, and `shuffle` reorders a `[]char` in place.
+//
+// `range(lo, hi)` uses rejection sampling: it discards draws outside a
+// multiple of the span, so every value in `lo..hi` is equally likely. A span
+// of zero or less answers `lo`; the caller owns the empty interval.
+//
+// Ownership: `fill` returns a fresh array the caller frees. `shuffle` takes
+// ownership of its argument (a slice argument moves): the caller must not use
+// or free `data` after the call, and `shuffle` releases it on return.
 
-// The next state in the sequence, as a value in `0..2_147_483_647`. The
-// multiplication and addition wrap deliberately: a checked step would panic on
-// the first call for most seeds.
-//
-// Ownership: pure; the result is a number.
-pub fn next(int state) -> int {
-    let mixed = wrapping_mul(state, 6364136223846793005);
-    let stepped = wrapping_add(mixed, 1442695040888963407);
-    let positive = stepped % 2147483647;
-    if positive < 0 {
-        return 0 - positive;
+extern "C" {
+    unsafe fn yashy_random_i64() -> int;
+}
+
+/// One 64-bit draw from the OS entropy source.
+pub fn u64() -> int {
+    return yashy_random_i64();
+}
+
+/// A uniform value in `lo..hi` (lower bound included, upper excluded).
+pub fn range(int lo, int hi) -> int {
+    if hi <= lo {
+        return lo;
     }
-    return positive;
+    const span = hi - lo;
+    const largest = 9223372036854775807;
+    const limit = largest - (largest % span);
+    let draw = 0;
+    let accepted = false;
+    while !accepted {
+        const raw = yashy_random_i64();
+        draw = raw & largest;
+        if draw < limit {
+            accepted = true;
+        }
+    }
+    return lo + (draw % span);
+}
+
+/// `count` random bytes.
+pub fn fill(int count) -> []char {
+    let out = []char {};
+    let index = 0;
+    while index < count {
+        const raw = yashy_random_i64();
+        const byte = raw & 255;
+        out.push(byte.to_char());
+        index = index + 1;
+    }
+    return out;
+}
+
+/// Shuffle `data` in place with Fisher-Yates: every permutation is equally
+/// likely.
+pub fn shuffle([]char data) {
+    let index = data.len();
+    while index > 1 {
+        const other = range(0, index);
+        const last = switch data[index - 1] {
+            case Some(value) { value }
+            case None { (0).to_char() }
+        };
+        const swap = switch data[other] {
+            case Some(value) { value }
+            case None { (0).to_char() }
+        };
+        data.set(index - 1, swap);
+        data.set(other, last);
+        index = index - 1;
+    }
+    data.free();
 }

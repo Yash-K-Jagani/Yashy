@@ -1,0 +1,84 @@
+import text;
+import string;
+
+/// The bytes 0 through 255, in order: every value both codecs must carry.
+fn all_bytes() -> []char {
+    let bytes = []char {};
+    let index = 0;
+    while index < 256 {
+        bytes.push(index.to_char());
+        index = index + 1;
+    }
+    return bytes;
+}
+
+/// Whether two byte slices hold the same values. Both are consumed: slices are
+/// linear, so a comparison reads its inputs once and releases them.
+fn same_bytes([]char left, []char right) -> bool {
+    // The loop runs over the shorter slice, so a length mismatch is answered
+    // without an early return: a `free()` in a branch marks the binding moved
+    // on every later path, and both slices are released below.
+    let shorter = left.len();
+    if right.len() < shorter {
+        shorter = right.len();
+    }
+    let same = left.len() == right.len();
+    let index = 0;
+    while index < shorter {
+        const l = switch left[index] {
+            case Some(value) { value }
+            case None { '?' }
+        };
+        const r = switch right[index] {
+            case Some(value) { value }
+            case None { '?' }
+        };
+        if l != r {
+            same = false;
+        }
+        index = index + 1;
+    }
+    left.free();
+    right.free();
+    return same;
+}
+
+/// Release a decoded payload that should not have been there, and answer that
+/// decoding was not rejected.
+fn accept_ok([]char bytes) -> bool {
+    bytes.free();
+    return false;
+}
+
+/// Whether decoding answered exactly the bytes that were encoded. The expected
+/// copy is consumed on the success path; an error answer would leak it, so this
+/// helper is only for a codec the program has already proved sound, and the
+/// rejection itself is tested separately.
+fn round_trips(Result[[]char, TextError] decoded, []char expected) -> bool {
+    return switch decoded {
+        case Ok(bytes) { same_bytes(expected, bytes) }
+        case Err(_) { false }
+    };
+}
+
+fn main() {
+    const hello = string.to_bytes("hello");
+    print(text.base64_encode(hello));
+
+    print("base64 all bytes: ${round_trips(text.base64_decode(text.base64_encode(all_bytes())), all_bytes())}");
+    print("hex all bytes: ${round_trips(text.hex_decode(text.hex_encode(all_bytes())), all_bytes())}");
+
+    const bad_base64 = text.base64_decode("!!!");
+    const base64_rejected = switch bad_base64 {
+        case Ok(bytes) { accept_ok(bytes) }
+        case Err(_) { true }
+    };
+    print("bad base64 rejected: ${base64_rejected}");
+
+    const bad_hex = text.hex_decode("xyz");
+    const hex_rejected = switch bad_hex {
+        case Ok(bytes) { accept_ok(bytes) }
+        case Err(_) { true }
+    };
+    print("bad hex rejected: ${hex_rejected}");
+}

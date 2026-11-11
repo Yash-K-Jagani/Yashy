@@ -208,7 +208,7 @@ fn gen_fn_impl(module: &mut Module, f: &HirFn, entry_point: bool) {
     };
     module.push(format!(
         "define {ret_repr} @{}({}){attributes} {{",
-        f.name,
+        crate::ir::fn_symbol(&f.name),
         params.join(", ")
     ));
 

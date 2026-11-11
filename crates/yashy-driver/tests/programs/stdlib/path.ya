@@ -1,0 +1,21 @@
+import path;
+
+fn main() {
+    print(path.join("a/", "/b"));
+    print(path.basename("a/b/c.txt"));
+    print(path.dirname("a/b/c.txt"));
+    print(path.extension("a/b/c.txt"));
+    print(path.file_stem("a/b/c.txt"));
+    print(path.normalize("a/../b/./c"));
+    print(path.is_absolute("/x"));
+    const parent = path.parent("a/b");
+    const text = switch parent {
+        case Some(value) { value }
+        case None { "<none>" }
+    };
+    print(text);
+    switch path.absolute("a/b") {
+        case Ok(full) { print("absolute ${path.is_absolute(full)}") }
+        case Err(_) { print("absolute failed") }
+    }
+}

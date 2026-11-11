@@ -1,0 +1,6 @@
+import JSON;
+
+fn main() {
+    print(JSON.escape("say \"hi\""));
+    print(JSON.quote("a\tb"));
+}

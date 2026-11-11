@@ -1,29 +1,59 @@
-// Program arguments.
+// Program arguments (phase 12, Task 10).
 //
-// `args()` is a builtin, in scope in every file, so this module documents the
-// name rather than defining it. It answers the process's user arguments as a
-// fresh owned `[]string`:
+// `args()` is the builtin list of user arguments (the executable path is
+// excluded); this module names the queries over it. An invocation with no
+// arguments yields an empty list. `yashy run main.ya -- notes.txt` makes
+// `nth(0)` answer `notes.txt`.
 //
-//     let arguments = args();
-//     let path = switch arguments[0] {
-//         case Some(value) { value }
-//         case None { "" }
-//     };
-//     arguments.free();
-//
-//     if path.len() == 0 {
-//         print("usage: mytool <path>");
-//         return;
-//     }
-//     print(path);
-//
-// The executable path is excluded, so `arguments[0]` is the first argument
-// after `yashy run --`. An invocation with no arguments yields an empty slice,
-// not an error. `yashy run main.ya -- notes.txt` makes `arguments[0]` the
-// string `notes.txt`.
-//
-// Ownership: every element is an owned string and the slice owns one reference
-// to each; free the slice with `.free()` (which releases the elements too).
-// Indexing is checked and yields `Option[string]`, so read an element after
-// checking `.len()` or match the `Option`. The string bound from the `Option`
-// is retained, so it stays valid after the slice is freed.
+// A `for` loop borrows each element, so `nth` copies the element it wants
+// before releasing the list; indexing a `[]string` would move the whole
+// slice. `held` starts as `""` only because a `let` needs an initialiser --
+// `found` gates it, so an empty argument and a missing one stay distinct.
+
+/// The process's user arguments as a fresh owned `[]string`.
+pub fn all() -> []string {
+    return args();
+}
+
+/// The argument at `index`, or `None` outside `0..len()`.
+///
+/// The name is `nth`, not `get`, because every module's items share one root
+/// scope: `env.get` already owns `get`, and two modules imported together may
+/// not declare the same name.
+pub fn nth(int index) -> Option[string] {
+    if index < 0 {
+        const Option[string] missing = None;
+        return missing;
+    }
+    const arguments = args();
+    let bool found = false;
+    let string held = "";
+    let at = 0;
+    for argument in arguments {
+        if at == index {
+            held = argument.slice(0, argument.len());
+            found = true;
+        }
+        at = at + 1;
+    }
+    arguments.free();
+    if !found {
+        const Option[string] missing = None;
+        return missing;
+    }
+    return Some(held);
+}
+
+/// Whether `--name` appears in the arguments.
+pub fn flag(string name) -> bool {
+    const arguments = args();
+    const wanted = "--${name}";
+    let found = false;
+    for argument in arguments {
+        if argument == wanted {
+            found = true;
+        }
+    }
+    arguments.free();
+    return found;
+}

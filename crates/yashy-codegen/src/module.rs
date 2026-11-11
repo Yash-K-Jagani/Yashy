@@ -711,12 +711,15 @@ impl Module {
             format!("define {ret_repr} @{thunk}({signature}) {{"),
             "entry:".to_string(),
         ];
+        // The callee is a Yashy function, so its symbol carries the prefix
+        // that keeps it apart from the C library's names.
+        let callee = crate::ir::fn_symbol(name);
         if ret_repr == "void" {
-            lines.push(format!("  call void @{name}({})", params_ir.join(", ")));
+            lines.push(format!("  call void @{callee}({})", params_ir.join(", ")));
             lines.push("  ret void".to_string());
         } else {
             lines.push(format!(
-                "  %result = call {ret_repr} @{name}({})",
+                "  %result = call {ret_repr} @{callee}({})",
                 params_ir.join(", ")
             ));
             lines.push(format!("  ret {ret_repr} %result"));
@@ -919,8 +922,8 @@ impl Module {
         // answers NULL at end of input, and `parse_i64`/`parse_f64` answer 1
         // and write the number through `out`, or 0 when the text is not one.
         out.push_str("declare i8* @yashy_read_line()\n");
-    out.push_str("declare void @yashy_log_event(i8*, i8*)\n");
-    out.push_str("declare void @yashy_metrics(i8*, i8*, i64)\n");
+        out.push_str("declare void @yashy_log_event(i8*, i8*)\n");
+        out.push_str("declare void @yashy_metrics(i8*, i8*, i64)\n");
         out.push_str("declare i64 @yashy_parse_i64(i8*, ptr)\n");
         out.push_str("declare i64 @yashy_parse_f64(i8*, ptr)\n");
         // Files and the environment (M6 Task 10). `read_file`/`getenv`/`getcwd`

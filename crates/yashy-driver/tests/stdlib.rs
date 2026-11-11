@@ -94,7 +94,7 @@ fn main() {
     println_i64(max(3, 4));
     println_i64(pow(2, 10));
     println_f64(sqrt(9.0));
-    print(concat(\"a\", \"b\"));
+    print(\"a\" + \"b\");
     let padded = \"  padded \\n\";
     print(padded.trim());
     let hello = \"hello\";
@@ -278,10 +278,10 @@ fn main() {
     print(extension(\"archive.tar.gz\"));
     print(extension(\".gitignore\"));
     print(quote(\"a\\\"b\\n\"));
-    let first = next(1);
-    let second = next(1);
-    if first == second { print(\"deterministic\"); }
-    if first >= 0 { print(\"non-negative\"); }
+    let first = range(0, 10);
+    let second = range(0, 10);
+    if first < 10 { print(\"in-range\"); }
+    if second < 10 { print(\"in-range\"); }
     let argv = args();
     println_i64(argv.len());
     argv.free();
@@ -314,7 +314,7 @@ fn every_stdlib_module_imports_and_the_path_and_json_helpers_run() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     assert_eq!(
         stdout_of(&output),
-        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\ndeterministic\nnon-negative\n0\ncwd\nclock\n"
+        "a/b\na/b\nb\na\nyashy\n/\n\n/usr/local/bin\n.\ngz\n\n\"a\\\"b\\n\"\nin-range\nin-range\n0\ncwd\nclock\n"
     );
     assert!(
         stderr_of(&output).contains("yashy: leak report: 0 live allocations"),

@@ -1,0 +1,27 @@
+// A Yashy function may be named like a C library function.
+//
+// The linker binds symbols by name. Without a prefix of its own, a program
+// that defined `rename` would take the C library's `rename` away from the
+// runtime: the runtime's own call would run the program's function with the
+// C signature, and the program would fault inside the library instead of
+// failing at its own call. Every Yashy function therefore carries a prefix
+// that no C symbol has.
+
+fn rename(string old_path, string new_path) -> string {
+    print("renaming ${old_path}");
+    return new_path;
+}
+
+fn strlen(string text) -> int {
+    return text.len();
+}
+
+fn main() {
+    // The runtime's own C code measures this string with `strlen`; if the
+    // program's `strlen` had taken the library's name, the concatenation
+    // below would read the wrong length.
+    const text = "hello" + ", world";
+    print(rename("old", "new"));
+    print("len ${strlen(text)}");
+    print("text ${text}");
+}

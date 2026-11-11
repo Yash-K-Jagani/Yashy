@@ -1,0 +1,16 @@
+import datetime;
+
+fn main() {
+    const epoch = datetime.from_unix(0);
+    print(datetime.format(epoch, "%Y-%m-%d %H:%M:%S"));
+
+    // A civil time carries a fixed offset: parsing `+0230` and formatting the
+    // same specifier must give the same text back, with no timezone database.
+    const parsed = datetime.parse("2024-02-29T12:30:45+0230", "%Y-%m-%dT%H:%M:%S%z");
+    print(datetime.format(parsed, "%Y-%m-%dT%H:%M:%S%f%z"));
+    print("offset minutes ${parsed.offset_minutes}");
+    print("unix positive: ${datetime.to_unix(parsed) > 0}");
+
+    const next_day = datetime.add_seconds(epoch, 86400);
+    print(datetime.format(next_day, "%Y-%m-%d"));
+}

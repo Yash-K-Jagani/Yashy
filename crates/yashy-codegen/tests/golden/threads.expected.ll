@@ -133,7 +133,7 @@ declare void @yashy_panic_overflow(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_division(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_panic_shift(i8*, i64, i64, i8*, i64, i64)
 declare void @yashy_exit(i64)
-define void @work(i64 %arg0) {
+define void @yashy_fn_work(i64 %arg0) {
 entry:
 %slot0 = alloca i64
 store i64 %arg0, ptr %slot0
@@ -230,6 +230,6 @@ define void @yashy_thread_entry_0(i8* %raw) {
 entry:
   %arg0_p = getelementptr inbounds { i64 }, ptr %raw, i32 0, i32 0
   %arg0_v = load i64, ptr %arg0_p
-  call void @work(i64 %arg0_v)
+  call void @yashy_fn_work(i64 %arg0_v)
   ret void
 }

@@ -1,0 +1,14 @@
+import args;
+
+fn main() {
+    const arguments = args.all();
+    print("count ${arguments.len()}");
+    arguments.free();
+    const first = args.nth(0);
+    const has_first = switch first {
+        case Some(_) { true }
+        case None { false }
+    };
+    print("has first: ${has_first}");
+    print("verbose: ${args.flag("verbose")}");
+}

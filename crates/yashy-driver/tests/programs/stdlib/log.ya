@@ -1,0 +1,7 @@
+import log;
+
+fn main() {
+    log.info("started");
+    log.error("failed");
+    print("log ok");
+}

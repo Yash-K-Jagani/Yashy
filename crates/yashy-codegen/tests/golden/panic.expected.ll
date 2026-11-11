@@ -141,7 +141,7 @@ declare void @yashy_exit(i64)
 @.str.1 = private unnamed_addr constant %yashy_str { i64 -1, i64 7, i64 7, i8* @.str.1.data }
 @.str.0.data = private unnamed_addr constant [9 x i8] c"negative\00"
 @.str.0 = private unnamed_addr constant %yashy_str { i64 -1, i64 8, i64 8, i8* @.str.0.data }
-define i64 @checked(i64 %arg0) {
+define i64 @yashy_fn_checked(i64 %arg0) {
 entry:
 %slot0 = alloca i64
 store i64 %arg0, ptr %slot0
@@ -161,7 +161,7 @@ bb2_merge:
 %t2 = load i64, ptr %slot0
 ret i64 %t2
 }
-define i64 @pick({ i8, i64 } %arg0) {
+define i64 @yashy_fn_pick({ i8, i64 } %arg0) {
 entry:
 %slot0 = alloca { i8, i64 }
 %slot1 = alloca i64
@@ -193,7 +193,7 @@ bb0_result:
 %t10 = load i64, ptr %slot1
 ret i64 %t10
 }
-define i64 @always() {
+define i64 @yashy_fn_always() {
 entry:
 br label %bb0_fault
 bb0_fault:
@@ -206,13 +206,13 @@ define i32 @main(i32 %argc, i8** %argv) {
 entry:
 call void @yashy_runtime_init()
 call void @yashy_args_init(i32 %argc, i8** %argv)
-%t11 = call i64 @checked(i64 3)
+%t11 = call i64 @yashy_fn_checked(i64 3)
 %t12 = call i8* @yashy_str_from_i64(i64 %t11)
 call void @yashy_print_line_str(i8* %t12)
 call void @yashy_str_release(i8* %t12)
 %t13 = insertvalue { i8, i64 } undef, i8 1, 0
 %t14 = insertvalue { i8, i64 } %t13, i64 4, 1
-%t15 = call i64 @pick({ i8, i64 } %t14)
+%t15 = call i64 @yashy_fn_pick({ i8, i64 } %t14)
 %t16 = call i8* @yashy_str_from_i64(i64 %t15)
 call void @yashy_print_line_str(i8* %t16)
 call void @yashy_str_release(i8* %t16)

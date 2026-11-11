@@ -1,0 +1,15 @@
+import glob;
+
+fn main() {
+    print(glob.matches("*.ya", "main.ya"));
+    print(glob.matches("src/*.ya", "src/main.ya"));
+    print(glob.matches("**/*.ya", "a/b/main.ya"));
+    print(glob.matches("a/**/b", "a/x/y/b"));
+    print(glob.matches("a/**/b", "a/b"));
+    print(glob.matches("?", "a"));
+    print(glob.matches("?", "/"));
+    print(glob.matches("[a-z]", "m"));
+    print(glob.matches("[!a]", "b"));
+    print(glob.matches("*.ya", "main.txt"));
+    print(glob.matches("a?c", "a/c"));
+}

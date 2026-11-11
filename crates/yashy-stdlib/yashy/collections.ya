@@ -1,0 +1,232 @@
+// Collections (phase 12, Task 10).
+//
+// Sets, deques, and a priority queue as generic free functions over slices.
+//
+// Why functions and not structs: `impl Set[T]` cannot be written (an
+// `impl` block names one concrete type), and a struct field cannot hold a
+// `fn` value, so the priority queue's comparator is a per-call argument.
+//
+// A slice is linear: passing one to a function moves it, so every operation
+// takes the collection and answers it back. The caller binds the answer:
+// `items = set_insert(items, 3);`. A question that only reads -- does the set
+// hold this value, what is on top of the queue -- answers the collection
+// together with the answer, in `QHas` or `QPop`, so the caller keeps using the
+// collection instead of giving it up to ask. Reading one element is an index
+// (`switch items[index]`), which borrows; a helper that took the slice would
+// move it.
+//
+// An array held in a struct field is a header that points at storage the
+// struct does not own (tutorial 04). So `step.items` names the same array the
+// binding names, and the binding is what frees it.
+
+/** The collection and the element a pop or a peek found, if any. */
+pub struct QPop[T] {
+    pub items: []T,
+    pub value: Option[T],
+}
+
+/** The collection and whether it holds the value that was asked about. */
+pub struct QHas[T] {
+    pub items: []T,
+    pub found: bool,
+}
+
+/** Insert `value` if it is not already present; otherwise unchanged. */
+pub fn set_insert[T]([]T items, T value) -> []T {
+    let index = 0;
+    while index < items.len() {
+        const item = switch items[index] {
+            case Some(element) { element }
+            case None { panic("a set index is always in range") }
+        };
+        if item == value {
+            return items;
+        }
+        index = index + 1;
+    }
+    items.push(value);
+    return items;
+}
+
+/** Whether `value` is already in the collection, with the collection back. */
+pub fn set_contains[T]([]T items, T value) -> QHas[T] {
+    let index = 0;
+    while index < items.len() {
+        const item = switch items[index] {
+            case Some(element) { element }
+            case None { panic("a set index is always in range") }
+        };
+        if item == value {
+            return QHas { items: items, found: true };
+        }
+        index = index + 1;
+    }
+    return QHas { items: items, found: false };
+}
+
+/** Remove `value` if present; otherwise unchanged. */
+pub fn set_remove[T]([]T items, T value) -> []T {
+    let index = 0;
+    while index < items.len() {
+        const item = switch items[index] {
+            case Some(element) { element }
+            case None { panic("a set index is always in range") }
+        };
+        if item == value {
+            items.remove(index);
+            return items;
+        }
+        index = index + 1;
+    }
+    return items;
+}
+
+/** Push `value` at the back. */
+pub fn deque_push_back[T]([]T items, T value) -> []T {
+    items.push(value);
+    return items;
+}
+
+/** Push `value` at the front. */
+pub fn deque_push_front[T]([]T items, T value) -> []T {
+    items.insert(0, value);
+    return items;
+}
+
+/** The back element without removing it, with the collection back. */
+pub fn deque_back[T]([]T items) -> QPop[T] {
+    const value = items.last();
+    return QPop { items: items, value: value };
+}
+
+/** The front element without removing it, with the collection back. */
+pub fn deque_front[T]([]T items) -> QPop[T] {
+    const value = items.first();
+    return QPop { items: items, value: value };
+}
+
+/** Remove and return the back, or `None` when empty. */
+pub fn deque_pop_back[T]([]T items) -> QPop[T] {
+    const value = items.pop();
+    return QPop { items: items, value: value };
+}
+
+/** Remove and return the front, or `None` when empty. */
+pub fn deque_pop_front[T]([]T items) -> QPop[T] {
+    const value = items.remove(0);
+    return QPop { items: items, value: value };
+}
+
+/** Push `value`, re-heapifying upward under `cmp`. */
+pub fn queue_push[T]([]T items, T value, fn(T, T) -> int cmp) -> []T {
+    items.push(value);
+    let index = items.len() - 1;
+    while index > 0 {
+        const parent = (index - 1) / 2;
+        const parent_value = switch items[parent] {
+            case Some(element) { element }
+            case None { panic("a heap index is always in range") }
+        };
+        const index_value = switch items[index] {
+            case Some(element) { element }
+            case None { panic("a heap index is always in range") }
+        };
+        if cmp(parent_value, index_value) > 0 {
+            items.set(index, parent_value);
+            items.set(parent, index_value);
+            index = parent;
+        } else {
+            break;
+        }
+    }
+    return items;
+}
+
+/** Remove and return the smallest element under `cmp`, or `None` when empty. */
+pub fn queue_pop[T]([]T items, fn(T, T) -> int cmp) -> QPop[T] {
+    if items.len() == 0 {
+        const Option[T] missing = None;
+        return QPop { items: items, value: missing };
+    }
+    const value = items.remove(0);
+    if items.len() > 0 {
+        // The last element takes the root's place, then sifts down.
+        const last = items.pop();
+        const last_value = switch last {
+            case Some(element) { element }
+            case None { panic("a non-empty queue has a last element") }
+        };
+        items.insert(0, last_value);
+        let index = 0;
+        while true {
+            let smallest = index;
+            const left = 2 * index + 1;
+            if left >= items.len() {
+                break;
+            }
+            const left_value = switch items[left] {
+                case Some(element) { element }
+                case None { panic("a heap index is always in range") }
+            };
+            const best_value = switch items[smallest] {
+                case Some(element) { element }
+                case None { panic("a heap index is always in range") }
+            };
+            if cmp(left_value, best_value) < 0 {
+                smallest = left;
+            }
+            const right = left + 1;
+            if right < items.len() {
+                const right_value = switch items[right] {
+                    case Some(element) { element }
+                    case None { panic("a heap index is always in range") }
+                };
+                const current_best = switch items[smallest] {
+                    case Some(element) { element }
+                    case None { panic("a heap index is always in range") }
+                };
+                if cmp(right_value, current_best) < 0 {
+                    smallest = right;
+                }
+            }
+            if smallest == index {
+                break;
+            }
+            const index_value = switch items[index] {
+                case Some(element) { element }
+                case None { panic("a heap index is always in range") }
+            };
+            const smallest_value = switch items[smallest] {
+                case Some(element) { element }
+                case None { panic("a heap index is always in range") }
+            };
+            items.set(index, smallest_value);
+            items.set(smallest, index_value);
+            index = smallest;
+        }
+    }
+    return QPop { items: items, value: value };
+}
+
+/** The smallest element without removing it, with the collection back. */
+pub fn queue_peek[T]([]T items) -> QPop[T] {
+    const value = items.first();
+    return QPop { items: items, value: value };
+}
+
+/** Push `value`, and keep the slice sorted ascending. (`[]int` only.) */
+pub fn int_sort_insert([]int items, int value) -> []int {
+    let index = 0;
+    while index < items.len() {
+        const current = switch items[index] {
+            case Some(element) { element }
+            case None { 0 }
+        };
+        if current > value {
+            break;
+        }
+        index = index + 1;
+    }
+    items.insert(index, value);
+    return items;
+}

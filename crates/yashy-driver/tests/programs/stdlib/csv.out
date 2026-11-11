@@ -1,0 +1,8 @@
+"a,b","say ""hi""","line
+break"
+fields 3
+newline kept: true
+rows 2
+round trip 2
+only
+

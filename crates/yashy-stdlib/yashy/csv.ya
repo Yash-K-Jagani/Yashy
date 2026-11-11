@@ -1,0 +1,220 @@
+// CSV (phase 12, Task 10).
+//
+// RFC 4180 over strings. Slices in Yashy hold only scalars, so a document
+// cannot be an array of arrays of strings: it is a `[]string` whose elements
+// are the records, one CSV line per record, and a record round-trips
+// through `record` (fields to line) and `fields` (line to fields). The
+// reader accepts quoted fields, doubled quotes, embedded newlines, and both
+// CRLF and LF endings; the writer emits LF endings (CRLF came with
+// `write_crlf` when the caller wants it), since `parse_rows` accepts both, a
+// round trip through `write` is stable.
+//
+// A quote in the middle of an unquoted field is data, not a delimiter:
+// only a quote that opens a field starts a quoted run.
+//
+// The error type is `CsvError`, not `Error`: every module's items share one
+// root scope, so `text.Error` and `regex.Error` could not be imported beside
+// it.
+
+/** Record encoding failed: the field cannot be represented unquoted. */
+pub enum CsvError {
+    BadRecord,
+}
+
+/** Fields to their record line, quoted where a field needs it. */
+pub fn record([]string fields) -> Result[string, CsvError] {
+    let line = "";
+    let index = 0;
+    while index < fields.len() {
+        if index > 0 {
+            line = line + ",";
+        }
+        const field = switch fields[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        let needs_quoting = false;
+        let i = 0;
+        while i < field.len() {
+            const byte = field.byte_at(i).to_int();
+            if byte == 44 || byte == 34 || byte == 10 || byte == 13 {
+                needs_quoting = true;
+            }
+            i = i + 1;
+        }
+        if needs_quoting {
+            line = line + "\"" + field.replace("\"", "\"\"") + "\"";
+        } else {
+            line = line + field;
+        }
+        index = index + 1;
+    }
+    fields.free();
+    return Ok(line);
+}
+
+/**
+ * One record line to its fields. An unclosed quote at end of line reads as
+ * the run the next physical line would have finished, so the fields are read
+ * as the quoted span includes its newlines -- which is why the caller joins
+ * wrapped lines first when it feeds raw text.
+ */
+pub fn fields(string line) -> []string {
+    let out = []string {};
+    let field = "";
+    let quoted = false;
+    let length = line.len();
+    let index = 0;
+    while index < length {
+        const byte = line.byte_at(index).to_int();
+        if quoted {
+            if byte == 34 {
+                if index + 1 < length && line.byte_at(index + 1).to_int() == 34 {
+                    field = field + "\"";
+                    index = index + 2;
+                    continue;
+                }
+                quoted = false;
+                index = index + 1;
+                continue;
+            }
+            field = field + byte.to_char().to_string();
+            index = index + 1;
+            continue;
+        }
+        if byte == 34 && field.is_empty() {
+            quoted = true;
+            index = index + 1;
+            continue;
+        }
+        if byte == 44 {
+            out.push(field);
+            field = "";
+            index = index + 1;
+            continue;
+        }
+        field = field + byte.to_char().to_string();
+        index = index + 1;
+    }
+    out.push(field);
+    return out;
+}
+
+/**
+ * Every record in `text`, as the record lines `record` would write. CRLF
+ * and LF endings map to the same records, and an unterminated last record
+ * is included.
+ *
+ * The name is `parse_rows` because `datetime.parse` already owns `parse` in
+ * the shared root scope.
+ */
+pub fn parse_rows(string text) -> []string {
+    // Records are lines, so quoted runs do not finish them. `at_field_start`
+    // says the previous byte ended a field, which is the only place a quote
+    // opens a run; a doubled quote inside one is data either way.
+    let rows = []string {};
+    let length = text.len();
+    let line = "";
+    let quoted = false;
+    let at_field_start = true;
+    let line_start = 0;
+    let index = 0;
+    while index < length {
+        const byte = text.byte_at(index).to_int();
+        if quoted {
+            if byte == 34 {
+                if index + 1 < length && text.byte_at(index + 1).to_int() == 34 {
+                    line = line + "\"\"";
+                    index = index + 2;
+                    continue;
+                }
+                quoted = false;
+                line = line + "${byte.to_char()}";
+                index = index + 1;
+                continue;
+            }
+            line = line + byte.to_char().to_string();
+            index = index + 1;
+            continue;
+        }
+        if byte == 34 && at_field_start {
+            quoted = true;
+            at_field_start = false;
+            line = line + "${byte.to_char()}";
+            index = index + 1;
+            continue;
+        }
+        if byte == 44 {
+            at_field_start = true;
+            line = line + "${byte.to_char()}";
+            index = index + 1;
+            continue;
+        }
+        if byte == 10 {
+            rows.push(line);
+            line = "";
+            at_field_start = true;
+            line_start = index + 1;
+            index = index + 1;
+            continue;
+        }
+        if byte == 13 {
+            if index + 1 < length && text.byte_at(index + 1).to_int() == 10 {
+                rows.push(line);
+                line = "";
+                at_field_start = true;
+                line_start = index + 2;
+                index = index + 2;
+                continue;
+            }
+            at_field_start = false;
+            line = line + byte.to_char().to_string();
+            index = index + 1;
+            line_start = index;
+            continue;
+        }
+        at_field_start = false;
+        line = line + byte.to_char().to_string();
+        index = index + 1;
+    }
+    if line_start < length || line.len() > 0 {
+        rows.push(line);
+    }
+    return rows;
+}
+
+/**
+ * Records back to text: LF-terminated lines. `parse_rows` accepts those back, so
+ * `parse_rows(write(rows))` is `rows` when each row holds no newline outside a
+ * quoted field.
+ */
+pub fn write([]string rows) -> string {
+    let text = "";
+    let index = 0;
+    while index < rows.len() {
+        const row = switch rows[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        text = text + row + "\n";
+        index = index + 1;
+    }
+    rows.free();
+    return text;
+}
+
+/** Records back to CRLF-terminated text. */
+pub fn write_crlf([]string rows) -> string {
+    let text = "";
+    let index = 0;
+    while index < rows.len() {
+        const row = switch rows[index] {
+            case Some(value) { value }
+            case None { "" }
+        };
+        text = text + row + "\r\n";
+        index = index + 1;
+    }
+    rows.free();
+    return text;
+}
