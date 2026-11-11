@@ -287,6 +287,22 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $noClangPrefix 'yashy.exe')) 'a broken clang must not roll back the install'
     Write-Output 'ok - missing clang keeps the install and prints an actionable next step'
 
+    # 8. The tutorial's first three chapters run with the installed compiler.
+    # Git Bash is on PATH on the Windows runners, so the same script that
+    # drives the macOS install test drives this one.
+    $bash = Get-Command sh -ErrorAction SilentlyContinue
+    if ($null -ne $bash) {
+        & sh (Join-Path $root 'scripts/run-tutorial-blocks.sh') $yashy `
+            (Join-Path $root 'docs/tutorial/00-intro.md') `
+            (Join-Path $root 'docs/tutorial/01-hello.md') `
+            (Join-Path $root 'docs/tutorial/02-values.md')
+        Assert-True ($LASTEXITCODE -eq 0) "a tutorial block failed with the installed compiler`n"
+        Write-Output 'ok - the tutorial''s first three chapters run with the installed compiler'
+    }
+    else {
+        Write-Output 'skip - no sh on PATH; the tutorial check needs Git Bash'
+    }
+
     Write-Output ''
     Write-Output 'all Windows installer tests passed'
 }

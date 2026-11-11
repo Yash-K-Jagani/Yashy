@@ -41,6 +41,39 @@ jobs:
       - name: Build
         run: cargo build --release -p yashy-driver
 
+      # A missing secret fails the job with the name of the secret, never
+      # with an unsigned binary that looks like a release.
+      - name: Check the signing secrets
+        shell: pwsh
+        env:
+          CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $missing = @()
+          if (-not $env:CERT) { $missing += 'WINDOWS_CERT_PFX_BASE64' }
+          if (-not $env:CERT_PASSWORD) { $missing += 'WINDOWS_CERT_PASSWORD' }
+          if ($missing.Count -gt 0) {
+            Write-Error "missing repository secret(s): $($missing -join ', ')"
+            exit 1
+          }
+
+      # The signature has to cover the binary before it is packaged: the
+      # archive ships the signed file.
+      - name: Sign
+        shell: pwsh
+        env:
+          CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'yashy.pfx'
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT))
+          # /tr is the timestamping authority: without it the signature is
+          # only valid while the certificate is, and a release outlives it.
+          signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            /f $pfx /p $env:CERT_PASSWORD target/release/yashy.exe
+          signtool verify /pa /v target/release/yashy.exe
+          Remove-Item -Force $pfx
+
       - name: Package
         shell: pwsh
         run: |
@@ -279,24 +312,58 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changelog is the commits between the last two tags.
+          fetch-depth: 0
 
-      - name: Download both archives
+      - name: Download every archive
         uses: actions/download-artifact@v4
         with:
           pattern: yashy-*
           path: dist
           merge-multiple: true
 
-      - name: Write one checksum file for both archives
+      - name: Write one checksum file for every archive
+        env:
+          GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
         run: |
-          sh scripts/checksums.sh
+          if [ -n "$GPG_KEY" ]; then
+            printf '%s' "$GPG_KEY" | base64 --decode > "$RUNNER_TEMP/release.key"
+            if [ -n "$GPG_PASSPHRASE" ]; then
+              gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+                --import "$RUNNER_TEMP/release.key"
+            else
+              gpg --batch --yes --import "$RUNNER_TEMP/release.key"
+            fi
+            rm -f "$RUNNER_TEMP/release.key"
+            export YASHY_GPG_PASSPHRASE="$GPG_PASSPHRASE"
+          fi
+          sh scripts/checksums.sh --sign
           cp scripts/install.sh dist/install.sh
+          cp scripts/install.ps1 dist/install.ps1
 
-      - name: Publish the GitHub release
+      - name: Write the changelog
+        run: |
+          version="${VERSION#v}"
+          previous=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          {
+            printf '# Yashy %s\n\n' "$version"
+            sh scripts/changelog.sh --since "$previous" --version "$version"
+          } > dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
+      # A draft, not a published release: the release is a decision a person
+      # makes after reading the notes and the artifacts.
+      - name: Publish the draft release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          body_path: dist/RELEASE_NOTES.md
           files: |
             dist/*.zip
             dist/*.tar.gz
             dist/SHA256SUMS
+            dist/SHA256SUMS.asc
             dist/install.sh
+            dist/install.ps1

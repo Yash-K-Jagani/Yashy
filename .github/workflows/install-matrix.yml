@@ -1,0 +1,62 @@
+name: Install matrix
+
+# The installer is the one part of the release a user touches first, so it is
+# the part with the most platforms: every published release is installed on
+# every platform it ships for, and the same happens weekly so a broken
+# release is noticed before a user finds it.
+
+on:
+  release:
+    types: [published]
+  schedule:
+    # Weekly, on Monday morning.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-14]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The published artifacts, not a fresh build: the question is whether
+      # the release a user downloads works, and a build from this commit would
+      # answer a different question.
+      - name: Download the published artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download --pattern 'yashy-*' --dir dist || true
+          gh release download --pattern 'SHA256SUMS*' --dir dist || true
+          ls -l dist
+
+      - name: Install and run (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp scripts/install.sh dist/install.sh
+          archive=$(ls dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz)
+          sh scripts/test-install.sh --archive "$archive"
+
+      - name: Install and run (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = (Get-ChildItem dist/yashy-*-x86_64-pc-windows-msvc.zip | Select-Object -First 1).FullName
+          pwsh scripts/test-install.ps1 -LocalArchive $archive
+
+      - name: Install and run (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cp scripts/install.sh dist/install.sh
+          archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
+          sh scripts/test-install.sh --archive "$archive"

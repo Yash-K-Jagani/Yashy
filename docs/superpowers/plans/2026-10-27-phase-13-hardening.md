@@ -128,10 +128,10 @@ See the master index. The ones that bite here:
 - Produces: a tagged release publishes: three platforms × two architectures where applicable, `SHA256SUMS`, a signed checksum file (GPG for Linux, Authenticode for Windows, Developer ID for macOS), and a changelog section.
 - Produces: `install-matrix.yml` runs the installer on `windows-latest`, `ubuntu-22.04` and `macos-14`, from the published artifacts, on every release and weekly.
 
-- [ ] **Step 1: Write the failing workflow** — the release job produces a draft with no artifacts because the matrix is incomplete; the install matrix fails on macOS (no archive).
-- [ ] **Step 2: Implement** — one job builds, one signs, one publishes, one tests; artifacts flow through `upload-artifact`/`download-artifact` so no step rebuilds.
+- [x] **Step 1: Write the failing workflow** - the release job produces a draft with no artifacts because the matrix is incomplete; the install matrix fails on macOS (no archive).
+- [x] **Step 2: Implement** - one job builds, one signs, one publishes, one tests; artifacts flow through `upload-artifact`/`download-artifact` so no step rebuilds.
 - [ ] **Step 3: Run a dry release** from a pre-release tag → all six installs pass, checksums verify, changelog is present.
-- [ ] **Step 4: Commit** — `git commit -m "feat(release): signed artifacts, checksums and an install matrix"`
+- [x] **Step 4: Commit** - `git commit -m "feat(release): signed artifacts, checksums and an install matrix"`
 
 ---
 
