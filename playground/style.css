@@ -1,0 +1,136 @@
+/* The playground's front end: two panes, one dark, one light.
+ *
+ * The colours are the compiler's own: a dark editor beside a light output,
+ * because the output is what the reader looks at.
+ */
+
+:root {
+  --editor: #12161c;
+  --editor-text: #e6edf3;
+  --paper: #ffffff;
+  --paper-text: #1f2328;
+  --accent: #2f6feb;
+  --muted: #6b7280;
+  --border: #d0d7de;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  color: var(--paper-text);
+  background: var(--paper);
+}
+
+header {
+  padding: 1.5rem 1.5rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.tagline {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+@media (max-width: 800px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.editor,
+.output {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.editor-head,
+.output-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  background: #f6f8fa;
+  border-bottom: 1px solid var(--border);
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 22rem;
+  padding: 0.75rem;
+  border: 0;
+  resize: vertical;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--editor-text);
+  background: var(--editor);
+  tab-size: 4;
+}
+
+pre {
+  margin: 0;
+  padding: 0.75rem;
+  min-height: 10rem;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+#stdout:empty,
+#stderr:empty {
+  display: none;
+}
+
+#stderr {
+  border-top: 1px solid var(--border);
+  color: #b3261e;
+}
+
+button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: #ffffff;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+#status {
+  color: var(--muted);
+}
+
+footer {
+  padding: 0 1.5rem 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer a {
+  color: var(--accent);
+}

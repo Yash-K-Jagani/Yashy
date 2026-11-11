@@ -732,6 +732,17 @@ and adds a `cross` section saying whether the target's C toolchain can link
 for it. `null` means the question was not asked, which is different from
 `{"ok": false, ...}` — the toolchain is missing.
 
+## `yashy playground [--port <n>] [--host <address>]`
+
+Serves the playground: a static front end and a small server that compiles
+each program on the server, in a sandbox of its own. See
+[the playground's own page](../playground/README.md) for the limits and the
+API.
+
+```text
+yashy playground --port 8080
+```
+
 ## `yashy fmt [-w | --check] [--json] <files...>`
 
 Prints the canonical formatting to stdout. With `-w`, rewrites the files in

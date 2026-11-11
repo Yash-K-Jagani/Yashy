@@ -211,6 +211,7 @@ fn dispatch(args: &[String]) -> ExitCode {
         "audit" => audit_cmd(rest),
         "publish" => publish_cmd(rest),
         "fmt" => fmt(rest),
+        "playground" => playground(rest),
         other => {
             eprintln!("error: unknown command `{other}`\n{USAGE}");
             exit_code(EXIT_USAGE)
@@ -783,6 +784,56 @@ fn reproducible_entry(path: &Path) -> String {
     relative.to_string_lossy().replace('\\', "/")
 }
 
+/// `yashy playground [--port <n>] [--host <address>]`.
+///
+/// The playground compiles on the server: every run is a sandboxed
+/// `yashy run`, with a directory of its own and the default-deny capability
+/// set. The static front end is served from `playground/`.
+fn playground(args: &[String]) -> ExitCode {
+    let mut port: u16 = 8080;
+    let mut host = "127.0.0.1".to_string();
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--port" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--port` needs a number");
+                };
+                match value.parse::<u16>() {
+                    Ok(parsed) => port = parsed,
+                    Err(_) => return usage_error("`--port` needs a number"),
+                }
+            }
+            "--host" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--host` needs an address");
+                };
+                host = value.clone();
+            }
+            other => return usage_error(&format!("unknown option `{other}` for `playground`")),
+        }
+    }
+
+    let listener = match std::net::TcpListener::bind((host.as_str(), port)) {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!("error: cannot listen on {host}:{port}: {error}");
+            return exit_code(EXIT_INTERNAL);
+        }
+    };
+    let address = listener
+        .local_addr()
+        .map(|address| address.to_string())
+        .unwrap_or_else(|_| format!("{host}:{port}"));
+    println!("playground: http://{address}");
+    let mut server = yashy_driver::playground::Server::new(yashy_driver::playground::Limits::default());
+    if let Err(error) = yashy_driver::playground::serve(&mut server, listener) {
+        eprintln!("error: the playground stopped: {error}");
+        return exit_code(EXIT_INTERNAL);
+    }
+    exit_code(EXIT_OK)
+}
+
 /// The provenance stamp that sits beside an unverified binary.///
 /// `hello.exe` becomes `hello.exe.unverified`, so the pair travels together
 /// through a copy or a package without a manifest to keep in step.
@@ -854,6 +905,10 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let mut allow_write: Vec<PathBuf> = Vec::new();
     let mut sandbox_time: u64 = 5000;
     let mut sandbox_memory: u64 = 256;
+    // The output cap: how many bytes the program may print before the
+    // sandbox stops it. The playground sets it low, because a program in a
+    // browser tab has no room for a gigabyte of output.
+    let mut sandbox_output: u64 = 1024 * 1024;
     // The triple the program is built for. A program built for another
     // platform cannot be run here, so it is refused rather than started.
     let mut target: Option<&'static str> = None;
@@ -888,7 +943,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                     allow_write.push(PathBuf::from(value));
                 }
             }
-            "--time" | "--memory" => {
+            "--time" | "--memory" | "--output-cap" => {
                 let Some(value) = iter.next() else {
                     return usage_error(&format!("`{argument}` needs a value"));
                 };
@@ -896,8 +951,10 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                     Ok(parsed) => {
                         if argument == "--time" {
                             sandbox_time = parsed;
-                        } else {
+                        } else if argument == "--memory" {
                             sandbox_memory = parsed;
+                        } else {
+                            sandbox_output = parsed;
                         }
                     }
                     Err(_) => return usage_error(&format!("`{argument}` needs a whole number")),
@@ -1026,6 +1083,7 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
         let mut capabilities = yashy_driver::sandbox::CapabilitySet {
             time_ms: sandbox_time,
             memory_mb: sandbox_memory,
+            output_bytes: sandbox_output,
             ..Default::default()
         };
         for root in &allow_read {

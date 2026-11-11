@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Yashy Playground</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>The Yashy Playground</h1>
+  <p class="tagline">A small statically typed language that compiles to native binaries.</p>
+</header>
+
+<main>
+  <section class="editor">
+    <div class="editor-head">
+      <span>main.ya</span>
+      <button id="run">Run</button>
+    </div>
+    <textarea id="source" spellcheck="false" aria-label="the program">fn main() {
+    print("Hello, Yashy!");
+}</textarea>
+  </section>
+
+  <section class="output">
+    <div class="output-head">
+      <span>Output</span>
+      <span id="status"></span>
+    </div>
+    <pre id="stdout"></pre>
+    <pre id="stderr"></pre>
+  </section>
+</main>
+
+<footer>
+  <p>
+    Every run happens on the server, in a sandbox of its own: the program may
+    read and write only its own directory, and it is stopped after two seconds
+    or 128 MB, whichever comes first.
+    <a href="https://yashy.dev">yashy.dev</a>
+  </p>
+</footer>
+
+<script src="/play.js"></script>
+</body>
+</html>
