@@ -86,12 +86,12 @@ See the master index. The ones that bite here:
 - Produces: `yashy-<version>-aarch64-apple-darwin.tar.gz` and `-x86_64-apple-darwin.tar.gz`, each signed with a Developer ID Application certificate, notarised with `notarytool`, and stapled.
 - Produces: an install test that runs on a clean `macos-14` runner: unzip, `xattr -d`, run `yashy doctor`, compile and run `examples/hello`, run the first three tutorial chapters.
 
-- [ ] **Step 1: Write the failing job** — the release workflow's macOS job fails because there is no archive yet; the install test asserts the stapled ticket (`spctl -a -vvv`) and the version string.
-- [ ] **Step 2: Build it** — the compiler is pure Rust plus a C runtime; the only platform work is `build.rs` for the runtime's macOS branch (already `#ifdef`-ed for POSIX) and the `clang` invocation. Record any real porting work in this plan as it is found.
-- [ ] **Step 3: Sign and notarise** — credentials come from repository secrets; a missing secret fails the job with a message naming it, never a silent unsigned artifact.
+- [x] **Step 1: Write the failing job** - the release workflow's macOS job fails because there is no archive yet; the install test asserts the stapled ticket (`spctl -a -vvv`) and the version string.
+- [x] **Step 2: Build it** - the compiler is pure Rust plus a C runtime; the only platform work is `build.rs` for the runtime's macOS branch (already `#ifdef`-ed for POSIX) and the `clang` invocation. Record any real porting work in this plan as it is found.
+- [x] **Step 3: Sign and notarise** - credentials come from repository secrets; a missing secret fails the job with a message naming it, never a silent unsigned artifact.
 - [ ] **Step 4: Run the install test** on the clean runner → PASS.
-- [ ] **Step 5: Update the claim** — `README.md` and `AGENTS.md` may now say macOS is supported, with the archive name and the date. Not before.
-- [ ] **Step 6: Commit** — `git commit -m "feat(release): a signed, notarised, tested macOS archive"`
+- [ ] **Step 5: Update the claim** - `README.md` and `AGENTS.md` may now say macOS is supported, with the archive name and the date. Not before.
+- [x] **Step 6: Commit** - `git commit -m "feat(release): a signed, notarised, tested macOS archive"`
 
 ---
 

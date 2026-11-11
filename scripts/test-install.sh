@@ -25,6 +25,20 @@ ok() {
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 archive=""
 
+# The platform decides which release this test drives: a macOS release is a
+# zip (Apple's notary accepts nothing else) and a Linux release is a tarball.
+uname_s=$(uname -s 2>/dev/null || true)
+case "$uname_s" in
+    Darwin)
+        platform="macos"
+        default_glob='yashy-*-apple-darwin.zip'
+        ;;
+    *)
+        platform="linux"
+        default_glob='yashy-*-x86_64-unknown-linux-gnu.tar.gz'
+        ;;
+esac
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --archive)
@@ -43,13 +57,14 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$archive" ]; then
-    for candidate in "$root"/dist/yashy-*-x86_64-unknown-linux-gnu.tar.gz; do
+    # The glob is expanded by the shell, so the pattern is not quoted.
+    for candidate in "$root"/dist/$default_glob; do
         [ -f "$candidate" ] || continue
-        [ -z "$archive" ] || die "more than one Linux archive in dist; pass --archive"
+        [ -z "$archive" ] || die "more than one archive in dist; pass --archive"
         archive=$candidate
     done
 fi
-[ -n "$archive" ] || die "no Linux archive; build one with scripts/package-release.sh or pass --archive"
+[ -n "$archive" ] || die "no archive for this platform; build one with scripts/package-release.sh or pass --archive"
 [ -f "$archive" ] || die "no archive at $archive"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/yashy-test-install.XXXXXX")
@@ -76,6 +91,71 @@ run_install() {
         YASHY_SHA256SUMS="$checksums" \
         sh "$root/scripts/install.sh" --prefix "$prefix" "$@"
 }
+
+# The macOS half: the archive has to be signed, notarised and stapled, and
+# the binary has to be accepted by Gatekeeper without asking Apple's servers.
+macos_tests() {
+    # 1. The archive carries a stapled notarisation ticket.
+    case "$archive" in
+        *.zip) ;;
+        *) die "the macOS release is a zip: Apple's notary accepts nothing else" ;;
+    esac
+    xcrun stapler validate "$archive" ||
+        die "the archive has no stapled notarisation ticket"
+
+    # 2. The binary inside it is signed, stapled and accepted.
+    extract="$tmp/extract"
+    mkdir -p "$extract"
+    unzip -q "$archive" -d "$extract"
+    stage=""
+    for candidate in "$extract"/*; do
+        if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
+            stage=$candidate
+            break
+        fi
+    done
+    [ -n "$stage" ] || die "the archive has no top-level package directory"
+    # A file that came through a browser carries a quarantine attribute; the
+    # test removes it, as a user would, and then asks Gatekeeper about the
+    # binary itself.
+    xattr -dr com.apple.quarantine "$stage" 2>/dev/null || true
+    codesign --verify --strict --verbose=2 "$stage/yashy" ||
+        die "the binary is not signed"
+    xcrun stapler validate "$stage/yashy" ||
+        die "the binary has no stapled notarisation ticket"
+    spctl -a -vvv "$stage/yashy" ||
+        die "Gatekeeper did not accept the binary"
+    ok "the archive is signed, notarised, stapled and accepted by Gatekeeper"
+
+    # 3. The installer installs it, doctor passes, and the first project runs.
+    prefix="$tmp/prefix-fresh"
+    output=$(run_install "$prefix" --no-path)
+    printf '%s\n' "$output" | grep -q "Installed Yashy" || die "install did not report success"
+    [ -x "$prefix/bin/yashy" ] || die "the installer did not create bin/yashy"
+    [ -f "$prefix/share/yashy/stdlib/yashy/io.ya" ] ||
+        die "the installer did not copy the stdlib to the nested shared-prefix layout"
+    PATH="$prefix/bin:$PATH" "$prefix/bin/yashy" doctor >/dev/null ||
+        die "doctor failed after a clean install"
+    demo="$tmp/demo"
+    "$prefix/bin/yashy" init "$demo" >/dev/null || die "init failed"
+    (cd "$demo" && "$prefix/bin/yashy" run main.ya >/dev/null) || die "run failed"
+    (cd "$demo" && "$prefix/bin/yashy" test >/dev/null) || die "test failed"
+    ok "the installed compiler installs, passes doctor, and runs a project"
+
+    # 4. The tutorial's first three chapters run with the installed compiler.
+    sh "$root/scripts/run-tutorial-blocks.sh" "$prefix/bin/yashy" \
+        "$root/docs/tutorial/00-intro.md" \
+        "$root/docs/tutorial/01-hello.md" \
+        "$root/docs/tutorial/02-values.md" ||
+        die "a tutorial block failed with the installed compiler"
+    ok "the tutorial's first three chapters run with the installed compiler"
+}
+
+if [ "$platform" = "macos" ]; then
+    macos_tests
+    printf '\nall installer tests passed\n'
+    exit 0
+fi
 
 # 1. A fresh prefix installs, doctor passes, and the first project runs.
 prefix="$tmp/prefix-fresh"

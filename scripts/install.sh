@@ -118,6 +118,12 @@ sha256_file() {
 }
 
 llvm_hint() {
+    # macOS has no package manager for a compiler: the command line tools
+    # carry clang, and they are installed by one command.
+    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+        printf '%s\n' "xcode-select --install"
+        return 0
+    fi
     if [ -r /etc/os-release ]; then
         # The file is the distribution's own metadata; reading it is the
         # standard way to tell apt from dnf from pacman without guessing.
@@ -221,9 +227,31 @@ fi
 
 uname_s=$(uname -s 2>/dev/null || true)
 uname_m=$(uname -m 2>/dev/null || true)
-if [ "$uname_s" != "Linux" ] || [ "$uname_m" != "x86_64" ]; then
-    die "this release supports Linux x86-64 only; detected ${uname_s:-unknown} ${uname_m:-unknown}. macOS is a 1.0 target."
-fi
+# The platform decides the target triple and the archive format. A macOS
+# release is a zip because Apple's notary accepts a zip, a dmg or a pkg and
+# nothing else; a Linux release stays a tarball.
+case "$uname_s" in
+    Linux)
+        if [ "$uname_m" != "x86_64" ]; then
+            die "this release supports Linux x86-64 only; detected ${uname_s:-unknown} ${uname_m:-unknown}."
+        fi
+        TARGET="x86_64-unknown-linux-gnu"
+        ARCHIVE_EXT="tar.gz"
+        ;;
+    Darwin)
+        case "$uname_m" in
+            arm64|aarch64) TARGET="aarch64-apple-darwin" ;;
+            x86_64) TARGET="x86_64-apple-darwin" ;;
+            *)
+                die "this release supports macOS on Apple silicon and on Intel; detected ${uname_m:-unknown}."
+                ;;
+        esac
+        ARCHIVE_EXT="zip"
+        ;;
+    *)
+        die "this release supports Linux x86-64 and macOS; detected ${uname_s:-unknown} ${uname_m:-unknown}."
+        ;;
+esac
 
 tmp=""
 cleanup() {
@@ -276,27 +304,31 @@ if [ "$source_mode" = "download" ]; then
         [ -n "$version" ] || die "the latest release has no readable tag name"
     fi
 
-    archive="$tmp/yashy-$version-$TARGET.tar.gz"
+    archive_name="yashy-$version-$TARGET.$ARCHIVE_EXT"
+    archive="$tmp/$archive_name"
     checksums="$tmp/SHA256SUMS"
     base_url="https://github.com/$REPO/releases/download/v$version"
-    curl -fsSL "$base_url/yashy-$version-$TARGET.tar.gz" -o "$archive" ||
-        die "cannot download $base_url/yashy-$version-$TARGET.tar.gz"
+    curl -fsSL "$base_url/$archive_name" -o "$archive" ||
+        die "cannot download $base_url/$archive_name"
     curl -fsSL "$base_url/SHA256SUMS" -o "$checksums" ||
         die "cannot download $base_url/SHA256SUMS"
     expected=$(tr -d '\r' < "$checksums" |
-        awk -v name="yashy-$version-$TARGET.tar.gz" '$2 == name { print $1; exit }' |
+        awk -v name="$archive_name" '$2 == name { print $1; exit }' |
         tr 'A-F' 'a-f')
-    [ -n "$expected" ] || die "SHA256SUMS has no entry for yashy-$version-$TARGET.tar.gz"
+    [ -n "$expected" ] || die "SHA256SUMS has no entry for $archive_name"
     actual=$(sha256_file "$archive")
     [ "$expected" = "$actual" ] ||
-        die "checksum mismatch for yashy-$version-$TARGET.tar.gz: expected $expected, got $actual"
+        die "checksum mismatch for $archive_name: expected $expected, got $actual"
 fi
 
 if [ "$source_mode" = "archive" ] || [ "$source_mode" = "download" ]; then
     [ -n "$tmp" ] || tmp=$(mktemp -d "${TMPDIR:-/tmp}/yashy-install.XXXXXX")
     extract="$tmp/extract"
     mkdir -p "$extract"
-    tar -xzf "$archive" -C "$extract" || die "cannot extract $archive"
+    case "$archive" in
+        *.zip) unzip -q "$archive" -d "$extract" || die "cannot extract $archive" ;;
+        *) tar -xzf "$archive" -C "$extract" || die "cannot extract $archive" ;;
+    esac
     stage=""
     for candidate in "$extract"/*; do
         if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then

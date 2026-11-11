@@ -27,17 +27,20 @@ die() {
 
 usage() {
     cat <<'EOF'
-usage: scripts/package-release.sh --version <version> [--target <triple>] [--binary <path>]
+usage: scripts/package-release.sh --version <version> [--target <triple>] [--binary <path>] [--format tar|zip]
 
   --version <version>  release version, without a leading v (required)
   --target <triple>    target triple (default: x86_64-unknown-linux-gnu)
   --binary <path>      compiler binary (default: target/release/yashy)
+  --format tar|zip     archive format (default: zip for an apple-darwin
+                        target, tar for every other one)
 EOF
 }
 
 version=""
 target="x86_64-unknown-linux-gnu"
 binary=""
+format="auto"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -54,6 +57,11 @@ while [ "$#" -gt 0 ]; do
         --binary)
             [ "$#" -ge 2 ] || die "--binary needs a value"
             binary=$2
+            shift 2
+            ;;
+        --format)
+            [ "$#" -ge 2 ] || die "--format needs a value"
+            format=$2
             shift 2
             ;;
         -h|--help)
@@ -78,12 +86,29 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 dist="$root/dist"
 name="yashy-$version-$target"
 stage="$dist/$name"
-archive="$dist/$name.tar.gz"
 stdlib="$root/crates/yashy-stdlib/yashy"
 stdlib_manifest="$root/crates/yashy-stdlib/yashy.toml"
 installer="$root/scripts/install.sh"
 readme="$root/README.md"
 license="$root/LICENSE"
+
+# The archive format follows the platform. A macOS release is a zip because
+# Apple's notary accepts a zip, a dmg or a pkg and nothing else, and a
+# notarised ticket can only be stapled to one of those. Every other platform
+# keeps the tarball the installer and the checksum file already speak.
+case "$format" in
+    auto)
+        case "$target" in
+            *apple-darwin) format="zip" ;;
+            *) format="tar" ;;
+        esac
+        ;;
+esac
+case "$format" in
+    zip) archive="$dist/$name.zip" ;;
+    tar) archive="$dist/$name.tar.gz" ;;
+    *) die "unknown format: $format" ;;
+esac
 
 if [ -z "$binary" ]; then
     binary="$root/target/release/yashy"
@@ -110,6 +135,15 @@ cp "$license" "$stage/LICENSE"
 
 # -C makes the archive contain the top-level directory, which is the one
 # layout both installers and a human extracting by hand can rely on.
-tar -czf "$archive" -C "$dist" "$name"
+case "$format" in
+    zip)
+        # -X keeps the extra file attributes out of the archive, so two builds
+        # of the same tree produce the same bytes.
+        (cd "$dist" && zip -q -r -X "$archive" "$name")
+        ;;
+    tar)
+        tar -czf "$archive" -C "$dist" "$name"
+        ;;
+esac
 
 printf '%s\n' "$archive"
