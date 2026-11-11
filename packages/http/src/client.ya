@@ -7,6 +7,7 @@
 // names the URL of the response actually received.
 
 import http;
+
 import net;
 
 struct Url {
@@ -19,8 +20,12 @@ struct Url {
 
 fn int_option_value(Option[int] value) -> int {
     return switch value {
-        case Some(at) { at }
-        case None { -1 }
+        case Some(at) {
+            at
+        }
+        case None {
+            -1
+        }
     };
 }
 
@@ -77,8 +82,12 @@ fn parse_url(string url) -> Result[Url, HttpError] {
         const text = port_text.trim();
         const found = text.parse_i64();
         port = switch found {
-            case Some(number) { number }
-            case None { -1 }
+            case Some(number) {
+                number
+            }
+            case None {
+                -1
+            }
         };
     }
     if host.is_empty() || port <= 0 || port > 65535 {
@@ -90,7 +99,8 @@ fn parse_url(string url) -> Result[Url, HttpError] {
         target: target,
         origin: "http://${host}:${port}",
         full: url,
-    });
+    }
+    );
 }
 
 fn resolve_location(Url current, string location) -> Result[Url, HttpError] {
@@ -127,13 +137,21 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
             const rest = pending.slice(boundary, pending.len());
             const status_line = request_line(head);
             const text = switch status_line {
-                case Some(value) { value }
-                case None { "" }
+                case Some(value) {
+                    value
+                }
+                case None {
+                    ""
+                }
             };
             const first_space = text.index_of(" ");
             const first_at = switch first_space {
-                case Some(found) { found }
-                case None { -1 }
+                case Some(found) {
+                    found
+                }
+                case None {
+                    -1
+                }
             };
             if first_at < 0 {
                 return Err(HttpError.Failure);
@@ -142,15 +160,23 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
             const after_code = text.slice(code_start, text.len());
             const second_space = after_code.index_of(" ");
             const second_at = switch second_space {
-                case Some(found) { code_start + found }
-                case None { text.len() }
+                case Some(found) {
+                    code_start + found
+                }
+                case None {
+                    text.len()
+                }
             };
             const code_slice = text.slice(code_start, second_at);
             const code_text = code_slice.trim();
             const code = code_text.parse_i64();
             const status = switch code {
-                case Some(value) { value }
-                case None { -1 }
+                case Some(value) {
+                    value
+                }
+                case None {
+                    -1
+                }
             };
             if status <= 0 || status > 999 {
                 return Err(HttpError.Failure);
@@ -160,13 +186,21 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
             let index = 1;
             while index < lines.len() {
                 const raw_line = switch lines[index] {
-                    case Some(value) { value }
-                    case None { "" }
+                    case Some(value) {
+                        value
+                    }
+                    case None {
+                        ""
+                    }
                 };
                 const colon = raw_line.index_of(":");
                 const at = switch colon {
-                    case Some(found) { found }
-                    case None { -1 }
+                    case Some(found) {
+                        found
+                    }
+                    case None {
+                        -1
+                    }
                 };
                 if at >= 0 {
                     const name_slice = raw_line.slice(0, at);
@@ -185,7 +219,8 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
                         status: status,
                         headers: headers,
                         body: decoded.body,
-                    });
+                    }
+                    );
                 }
                 if !decoded.valid {
                     return Err(HttpError.Failure);
@@ -193,8 +228,12 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
             } else {
                 const length = content_length(headers);
                 const count = switch length {
-                    case Some(value) { value }
-                    case None { -1 }
+                    case Some(value) {
+                        value
+                    }
+                    case None {
+                        -1
+                    }
                 };
                 if count >= 0 {
                     if count > 10485760 {
@@ -205,7 +244,8 @@ fn receive_response(Socket peer) -> Result[RawResponse, HttpError] {
                             status: status,
                             headers: headers,
                             body: rest.slice(0, count),
-                        });
+                        }
+                        );
                     }
                 }
             }
@@ -262,18 +302,23 @@ fn one_request(string method, Url url, string body, string headers) -> Result[Re
         headers: found.headers,
         body: found.body,
         final_url: url.full,
-    });
+    }
+    );
 }
 
 fn redirect(Url current, Response found) -> Result[Url, HttpError] {
     if found.status != 301 && found.status != 302 && found.status != 303 &&
-        found.status != 307 && found.status != 308 {
+    found.status != 307 && found.status != 308 {
         return Err(HttpError.Failure);
     }
     const location = header_value(found.headers, "Location");
     const text = switch location {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     if text.is_empty() {
         return Err(HttpError.Failure);
@@ -285,7 +330,7 @@ fn request(string method, string url, string body, string headers) -> Result[Res
     const first_url = parse_url(url)?;
     const first = one_request(method, first_url, body, headers)?;
     if first.status != 301 && first.status != 302 && first.status != 303 &&
-        first.status != 307 && first.status != 308 {
+    first.status != 307 && first.status != 308 {
         return Ok(first);
     }
     const next_url = redirect(first_url, first)?;
@@ -309,8 +354,12 @@ pub fn post(string url, string body, []string headers) -> Result[Response, HttpE
     for header in headers {
         const colon = header.index_of(":");
         const at = switch colon {
-            case Some(found) { found }
-            case None { -1 }
+            case Some(found) {
+                found
+            }
+            case None {
+                -1
+            }
         };
         if at < 0 {
             return Err(HttpError.Failure);

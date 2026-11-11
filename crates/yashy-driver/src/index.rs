@@ -120,6 +120,9 @@ pub fn generic_functions(program: &yashy_parser::ast::Program) -> Vec<GenericFn>
             Item::Public { item, .. } => walk(item, true, docs, out),
             Item::Effect { item, .. } => walk(item, public, docs, out),
             Item::Documented { docs, item, .. } => walk(item, public, docs.clone(), out),
+            // A `cfg` guards the item; the index describes the source, so the
+            // guarded item is still a symbol the reader can find.
+            Item::Cfg { item, .. } => walk(item, public, docs, out),
             Item::Fn {
                 name,
                 type_params,
@@ -276,6 +279,7 @@ pub fn is_public(path: &Path, f: &HirFn) -> bool {
             Item::Public { item, .. } => find(item, true, name, span_start),
             Item::Documented { item, .. } => find(item, pubbed, name, span_start),
             Item::Effect { item, .. } => find(item, pubbed, name, span_start),
+            Item::Cfg { item, .. } => find(item, pubbed, name, span_start),
             Item::Fn {
                 name: item_name,
                 span,
@@ -340,6 +344,7 @@ fn collect_file(
             Item::Public { item, .. } => item_facts(item, true, docs, out),
             Item::Documented { docs, item, .. } => item_facts(item, pubbed, docs.clone(), out),
             Item::Effect { item, .. } => item_facts(item, pubbed, docs, out),
+            Item::Cfg { item, .. } => item_facts(item, pubbed, docs, out),
             Item::Fn { name, span, .. } => out.push((
                 name.clone(),
                 *span,

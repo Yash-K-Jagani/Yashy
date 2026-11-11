@@ -63,8 +63,12 @@ fn declaration_description(string declaration) -> string {
     // frees the field too. `slice` copies, which keeps the field alive.
     const parts = declaration.split("|");
     const text = switch parts[1] {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     const owned = text.slice(0, text.len());
     parts.free();
@@ -74,8 +78,12 @@ fn declaration_description(string declaration) -> string {
 fn declaration_kind(string declaration) -> string {
     const parts = declaration.split("|");
     const text = switch parts[2] {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     const owned = text.slice(0, text.len());
     parts.free();
@@ -85,8 +93,12 @@ fn declaration_kind(string declaration) -> string {
 fn declaration_name(string declaration) -> string {
     const parts = declaration.split("|");
     const text = switch parts[0] {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     const owned = text.slice(0, text.len());
     parts.free();
@@ -113,8 +125,12 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
     let index = 0;
     while index < arguments.len() {
         const argument = switch arguments[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         if end_of_flags {
             positionals.push(argument);
@@ -137,8 +153,12 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
             let value = "";
             const equals = body.index_of("=");
             const at = switch equals {
-                case Some(found) { found }
-                case None { -1 }
+                case Some(found) {
+                    found
+                }
+                case None {
+                    -1
+                }
             };
             if at >= 0 {
                 name = body.slice(0, at);
@@ -150,8 +170,8 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
                 fail(program, declarations, "unknown option --${name}");
             }
             const declaration_line = declarations.slice(
-                declaration_index,
-                line_end(declarations, declaration_index)
+            declaration_index,
+            line_end(declarations, declaration_index)
             );
             declaration = declaration_line;
             if declaration_kind(declaration) == "value" {
@@ -161,8 +181,12 @@ pub fn parse_arguments(string program, string declarations, []string arguments) 
                         fail(program, declarations, "--${name} needs a value");
                     }
                     value = switch arguments[next_index] {
-                        case Some(next) { next }
-                        case None { "" }
+                        case Some(next) {
+                            next
+                        }
+                        case None {
+                            ""
+                        }
                     };
                     index = next_index;
                 }

@@ -12,11 +12,11 @@
 // write does not release the socket. Close each handle exactly once.
 
 extern "C" {
-    unsafe fn yashy_tcp_listen(*const u8 host, i64 port) -> i64;
+    unsafe fn yashy_tcp_listen(* const u8 host, i64 port) -> i64;
     unsafe fn yashy_tcp_accept(i64 listener) -> i64;
-    unsafe fn yashy_tcp_connect(*const u8 host, i64 port) -> i64;
+    unsafe fn yashy_tcp_connect(* const u8 host, i64 port) -> i64;
     unsafe fn yashy_tcp_read_str(i64 fd, i64 max) -> string;
-    unsafe fn yashy_tcp_write(i64 fd, *const u8 buf, i64 len) -> i64;
+    unsafe fn yashy_tcp_write(i64 fd, * const u8 buf, i64 len) -> i64;
     unsafe fn yashy_tcp_close(i64 fd) -> void;
     unsafe fn yashy_tcp_set_timeout(i64 fd, i64 millis) -> i64;
 }
@@ -38,7 +38,10 @@ pub unsafe fn net_listen(string host, int port) -> Result[Listener, NetError] {
     if fd < 0 {
         return Err(NetError.Failure);
     }
-    return Ok(Listener { fd: fd });
+    return Ok(Listener {
+        fd: fd
+    }
+    );
 }
 
 pub unsafe fn net_accept(Listener listener) -> Result[Socket, NetError] {
@@ -46,7 +49,10 @@ pub unsafe fn net_accept(Listener listener) -> Result[Socket, NetError] {
     if fd < 0 {
         return Err(NetError.Failure);
     }
-    return Ok(Socket { fd: fd });
+    return Ok(Socket {
+        fd: fd
+    }
+    );
 }
 
 pub unsafe fn net_connect(string host, int port) -> Result[Socket, NetError] {
@@ -54,7 +60,10 @@ pub unsafe fn net_connect(string host, int port) -> Result[Socket, NetError] {
     if fd < 0 {
         return Err(NetError.Failure);
     }
-    return Ok(Socket { fd: fd });
+    return Ok(Socket {
+        fd: fd
+    }
+    );
 }
 
 pub unsafe fn net_read(Socket peer) -> Result[Option[string], NetError] {

@@ -193,6 +193,15 @@ as [E0100](docs/errors/E0100.md) with a cause, a minimal example, and the fix.
 - **`repr(C)` is a keyword form, not an attribute system.** It is one clause on
   a struct, enum or object, and it is the only thing that licenses the C
   spellings `u8`, `i32` and friends. Do not grow it into `#[...]` syntax.
+- **`cfg` is a target condition, and it is decided before anything is
+  resolved.** It guards an item, a statement block or a struct field, and the
+  filter that acts on it removes what it guards from the parsed program before
+  name resolution: a disabled branch is not resolved, checked, verified or
+  emitted, which is what makes platform-only code legal everywhere. The key set
+  is closed, so a misspelling is `E2202` and never a false condition, and `cfg`
+  anywhere it cannot apply is `E2203`. One triple is the whole build's fact:
+  the `cfg` keys, the data layout, the platform libraries and `clang --target`
+  all read it.
 - **Every feature ships with tests, docs, diagnostics, and a machine-readable
   form** where the plan requires one.
 - **Format touched files.** `cargo fmt --all --check` has pre-existing drift;

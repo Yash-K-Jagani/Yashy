@@ -12,6 +12,7 @@
 // the connection is closed; errors are responses, not panics.
 
 import http;
+
 import net;
 
 // The constants in this module are the ten-second header deadline, the
@@ -24,7 +25,9 @@ struct Buffered {
 }
 
 fn empty_request() -> Request {
-    return Request { method: "", target: "", version: "", headers: "", body: "" };
+    return Request {
+        method: "", target: "", version: "", headers: "", body: ""
+    };
 }
 
 fn server_read_or(Socket peer) -> Result[Option[string], HttpError] {
@@ -63,7 +66,9 @@ fn server_write_or(Socket peer, string text) -> Result[int, HttpError] {
 }
 
 fn empty_buffer(int status) -> Buffered {
-    return Buffered { request: empty_request(), pending: "", status: status };
+    return Buffered {
+        request: empty_request(), pending: "", status: status
+    };
 }
 
 fn wait_for_head(Socket peer, string pending, int started) -> Result[string, HttpError] {
@@ -110,8 +115,12 @@ fn read_request(Socket peer, string pending, int started) -> Result[Buffered, Ht
     const rest = pending.slice(boundary, pending.len());
     const headers_start = head.index_of("\r\n");
     const header_at = switch headers_start {
-        case Some(found) { found }
-        case None { -1 }
+        case Some(found) {
+            found
+        }
+        case None {
+            -1
+        }
     };
     let header_text = "";
     if header_at >= 0 {
@@ -132,12 +141,17 @@ fn read_request(Socket peer, string pending, int started) -> Result[Buffered, Ht
             request: request,
             pending: rest.slice(decoded.consumed, rest.len()),
             status: 0,
-        });
+        }
+        );
     }
     const length = content_length(header_text);
     const count = switch length {
-        case Some(value) { value }
-        case None { 0 }
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
     };
     if count > 10485760 {
         return Ok(empty_buffer(413));
@@ -148,7 +162,8 @@ fn read_request(Socket peer, string pending, int started) -> Result[Buffered, Ht
         request: request,
         pending: body_ready.slice(boundary + count, body_ready.len()),
         status: 0,
-    });
+    }
+    );
 }
 
 fn wants_keep_alive(Request request) -> bool {
@@ -169,7 +184,7 @@ fn failure_response(int status) -> Response {
     return response(status, "");
 }
 
-unsafe fn connection(Socket peer, fn(Request) -> Response handler) {
+unsafe fn connection(Socket peer, fn (Request) -> Response handler) {
     server_set_timeout_or(peer, 1000);
     let pending = "";
     let active = true;
@@ -211,11 +226,15 @@ unsafe fn connection(Socket peer, fn(Request) -> Response handler) {
     net_close(peer);
 }
 
-pub unsafe fn serve(string addr, fn(Request) -> Response handler) -> Result[int, HttpError] {
+pub unsafe fn serve(string addr, fn (Request) -> Response handler) -> Result[int, HttpError] {
     const colon = addr.index_of(":");
     const at = switch colon {
-        case Some(found) { found }
-        case None { -1 }
+        case Some(found) {
+            found
+        }
+        case None {
+            -1
+        }
     };
     if at < 0 {
         return Err(HttpError.Failure);
@@ -224,8 +243,12 @@ pub unsafe fn serve(string addr, fn(Request) -> Response handler) -> Result[int,
     const port_text = addr.slice(at + 1, addr.len());
     const parsed = port_text.parse_i64();
     const port = switch parsed {
-        case Some(value) { value }
-        case None { -1 }
+        case Some(value) {
+            value
+        }
+        case None {
+            -1
+        }
     };
     if host.is_empty() || port <= 0 || port > 65535 {
         return Err(HttpError.Failure);

@@ -37,32 +37,52 @@ pub fn base64_encode([]char data) -> string {
     let index = 0;
     while index + 3 <= length {
         const a = switch data[index] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         const b = switch data[index + 1] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         const c = switch data[index + 2] {
-            case Some(c2) { c2.to_int() }
-            case None { 0 }
+            case Some(c2) {
+                c2.to_int()
+            }
+            case None {
+                0
+            }
         };
         text = text + "${base64_digit(a >> 2)}${base64_digit((a & 3) * 16 + (b >> 4))}${base64_digit((b & 15) * 4 + (c >> 6))}${base64_digit(c & 63)}";
         index = index + 3;
     }
     if index < length {
         const a = switch data[index] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         if index + 1 < length {
             // Two bytes left: the third symbol carries the second byte's low
             // nibble, then one pad. The high nibble joins the first symbol's
             // tail, which is why `b` is read before the first append.
             const b = switch data[index + 1] {
-                case Some(c) { c.to_int() }
-                case None { 0 }
+                case Some(c) {
+                    c.to_int()
+                }
+                case None {
+                    0
+                }
             };
             text = text + "${base64_digit(a >> 2)}${base64_digit((a & 3) * 16 + (b >> 4))}${base64_digit((b & 15) * 4)}=";
         } else {
@@ -107,8 +127,12 @@ fn base64_valid(string text) -> bool {
     let index = 0;
     while ok && index < length {
         const byte = switch data[index] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         if byte == 61 {
             // Padding is only legal at the end, in the last two positions.
@@ -141,8 +165,12 @@ pub fn base64_decode(string text) -> Result[[]char, TextError] {
         let j = 0;
         while j < 4 {
             const byte = switch data[index + j] {
-                case Some(c) { c.to_int() }
-                case None { 0 }
+                case Some(c) {
+                    c.to_int()
+                }
+                case None {
+                    0
+                }
             };
             if byte == 61 {
                 pads = pads + 1;
@@ -181,8 +209,12 @@ pub fn hex_encode([]char data) -> string {
     let index = 0;
     while index < data.len() {
         const byte = switch data[index] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         text = text + "${hex_digit(byte >> 4)}${hex_digit(byte & 15)}";
         index = index + 1;
@@ -212,8 +244,12 @@ fn hex_valid(string text) -> bool {
     let index = 0;
     while ok && index < data.len() {
         const byte = switch data[index] {
-            case Some(c) { c }
-            case None { '0' }
+            case Some(c) {
+                c
+            }
+            case None {
+                '0'
+            }
         };
         if hex_value(byte) < 0 {
             ok = false;
@@ -234,12 +270,20 @@ pub fn hex_decode(string text) -> Result[[]char, TextError] {
     let index = 0;
     while index < data.len() {
         const hi = switch data[index] {
-            case Some(c) { hex_value(c) }
-            case None { -1 }
+            case Some(c) {
+                hex_value(c)
+            }
+            case None {
+                -1
+            }
         };
         const lo = switch data[index + 1] {
-            case Some(c) { hex_value(c) }
-            case None { -1 }
+            case Some(c) {
+                hex_value(c)
+            }
+            case None {
+                -1
+            }
         };
         out.push((hi * 16 + lo).to_char());
         index = index + 2;

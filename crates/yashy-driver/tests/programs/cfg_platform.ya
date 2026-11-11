@@ -1,0 +1,20 @@
+// The platform this program was built for, decided by `cfg`.
+//
+// One branch is chosen while the program is compiled; the other is not even
+// resolved, so the code in it may name functions that do not exist anywhere.
+// The program prints the platform it was built for, so a test can compare it
+// with what `yashy check --print-cfg` says about the same build.
+
+/// The Windows branch. Never resolved on another platform.
+cfg(windows) fn platform() -> string {
+    return "windows";
+}
+
+/// The Unix branch: Linux and macOS. Never resolved on Windows.
+cfg(unix) fn platform() -> string {
+    return "unix";
+}
+
+fn main() {
+    print(platform());
+}

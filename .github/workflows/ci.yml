@@ -61,6 +61,30 @@ jobs:
       - name: Check
         run: cargo check --workspace --all-targets
 
+      # The format gate. It runs the compiler the repository ships, so it is
+      # the same `fmt` a contributor gets, and it covers the sources the
+      # release ships: the standard library, the workspace's own packages and
+      # the examples. The gate writes nothing and compares after normalising
+      # CRLF, so a Windows checkout with `core.autocrlf=true` passes.
+      - name: Format gate (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build -p yashy-driver
+          mapfile -d '' files < <(find crates/yashy-stdlib/yashy packages examples -name '*.ya' -print0)
+          ./target/debug/yashy fmt --check "${files[@]}"
+
+      - name: Format gate (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build -p yashy-driver
+          $files = @()
+          $files += Get-ChildItem -Recurse -Filter *.ya crates/yashy-stdlib/yashy
+          $files += Get-ChildItem -Recurse -Filter *.ya packages
+          $files += Get-ChildItem -Recurse -Filter *.ya examples
+          & ./target/debug/yashy.exe fmt --check @($files.FullName)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test
         run: cargo test --workspace --no-fail-fast
 

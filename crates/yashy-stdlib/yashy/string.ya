@@ -26,8 +26,12 @@ pub fn join_list([]string parts, string sep) -> string {
             text = text + sep;
         }
         const part = switch parts[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         text = text + part;
         index = index + 1;
@@ -93,8 +97,12 @@ pub fn from_bytes([]char data) -> Result[string, StringError] {
     let valid = true;
     while index < length && valid {
         const lead = switch data[index] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         if lead < 128 {
             index = index + 1;
@@ -118,8 +126,12 @@ pub fn from_bytes([]char data) -> Result[string, StringError] {
             let j = 1;
             while j <= extra && valid {
                 const byte = switch data[index + j] {
-                    case Some(c) { c.to_int() }
-                    case None { 0 }
+                    case Some(c) {
+                        c.to_int()
+                    }
+                    case None {
+                        0
+                    }
                 };
                 if byte < 128 || byte > 191 {
                     valid = false;
@@ -137,8 +149,12 @@ pub fn from_bytes([]char data) -> Result[string, StringError] {
     let i = 0;
     while i < data.len() {
         const byte = switch data[i] {
-            case Some(c) { c.to_int() }
-            case None { 0 }
+            case Some(c) {
+                c.to_int()
+            }
+            case None {
+                0
+            }
         };
         text = text + byte.to_char().to_string();
         i = i + 1;

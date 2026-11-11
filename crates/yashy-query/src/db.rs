@@ -442,12 +442,19 @@ impl Db {
             // A doc block is not part of the signature: changing a comment
             // must not bust the cache.
             Item::Documented { item, .. } => item.as_ref(),
+            // The `cfg` filter has already dropped a disabled item and
+            // unwrapped an active one by the time a module is adopted; a
+            // wrapper that survives contributes only the item it guards.
+            Item::Cfg { item, .. } => item.as_ref(),
             item => item,
         };
         match item {
             // The wrappers were unwrapped above; a nested wrapper is not
             // legal source, so it contributes nothing.
-            Item::Public { .. } | Item::Effect { .. } | Item::Documented { .. } => {}
+            Item::Public { .. }
+            | Item::Effect { .. }
+            | Item::Documented { .. }
+            | Item::Cfg { .. } => {}
             Item::Import { path, .. } => {
                 *state = combine(*state, hash_str(&path.join(".")));
             }
@@ -1070,7 +1077,12 @@ impl Db {
         // Find the `define` line that names this function; a call inside
         // another body also mentions `@<name>(`, so the line prefix is what
         // distinguishes a definition from a use.
-        let marker = format!("@{}(", f.name);
+        //
+        // The name in the IR is the *symbol*, not the source name: the
+        // emitter prefixes every function with `yashy_fn_` so a Yashy
+        // function cannot collide with a C library symbol. Looking for the
+        // bare source name finds nothing at all.
+        let marker = format!("@{}(", yashy_codegen::ir::fn_symbol(&f.name));
         let mut start = None;
         let mut offset = 0usize;
         for line in ir.split_inclusive('\n') {

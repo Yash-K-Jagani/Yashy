@@ -202,6 +202,37 @@ fn empty_braces_collapse_to_one_pair() {
 }
 
 #[test]
+fn the_try_operator_binds_to_the_expression_it_applies_to() {
+    // `?` is postfix: it is part of the expression, not a word after it, so
+    // `read_line()?` keeps its shape. A space would read as two things.
+    let source = "fn main() {\n    const line = read_line() ?;\n}\n";
+    assert_eq!(
+        format(source),
+        "fn main() {\n    const line = read_line()?;\n}\n"
+    );
+}
+
+#[test]
+fn a_negative_literal_keeps_its_sign_attached() {
+    // `-1` is one thing, not a subtraction of nothing: the sign negates, and
+    // it binds to the number it negates. A binary minus keeps its air.
+    let source = "fn main() {\n    const a = -1;\n    const b = 2 - 1;\n    print(\"{a}\");\n}\n";
+    assert_eq!(
+        format(source),
+        "fn main() {\n    const a = -1;\n    const b = 2 - 1;\n    print(\"{a}\");\n}\n"
+    );
+}
+
+#[test]
+fn a_cfg_clause_keeps_its_parenthesis_attached() {
+    // `cfg` is one keyword and adds no syntax beyond the parenthesis, so the
+    // clause binds like `repr(C)` does.
+    let source =
+        "cfg(windows) fn platform() -> string {\n    return \"windows\";\n}\n\nfn main() {\n    cfg(unix) {\n        print(\"unix\");\n    }\n}\n";
+    assert_eq!(format(source), source);
+}
+
+#[test]
 fn a_lambda_bars_bind_to_their_parameter_list() {
     // `|x: i64|` reads as one thing: the bar opens the list, the bar closes
     // it, and neither takes air. The arrow after the closing bar does.

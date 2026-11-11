@@ -6,7 +6,7 @@
 // times; the elapsed wall-clock time is reported as `run_ms`, and the count
 // is checked afterwards so a body cannot be discarded as side-effect free.
 
-pub fn run(string name, int iterations, fn() -> int body) -> int {
+pub fn run(string name, int iterations, fn () -> int body) -> int {
     assert(iterations > 0);
     const start = now();
     let accumulator = 0;

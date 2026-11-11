@@ -171,7 +171,7 @@ fn class_holds(string body, int byte) -> bool {
 /** Is the escape at `at` d/w/s (in either case)? */
 fn escape_is_class(int code) -> bool {
     return code == 100 || code == 119 || code == 115 || code == 68 || code == 87 ||
-        code == 83;
+    code == 83;
 }
 
 /** Does the escape class match `byte`? */
@@ -179,7 +179,7 @@ fn escape_holds(int code, int byte) -> bool {
     const negated = code == 68 || code == 87 || code == 83;
     const digit = byte >= 48 && byte <= 57;
     const word = (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) ||
-        byte == 95 || (byte >= 97 && byte <= 122);
+    byte == 95 || (byte >= 97 && byte <= 122);
     const space = byte == 32 || byte == 9 || byte == 10 || byte == 13;
     const lower = code & 31;
     let holds = false;
@@ -201,7 +201,7 @@ fn escape_holds(int code, int byte) -> bool {
 /** Is `code` a meta character that starts its own piece? */
 fn is_meta(int code) -> bool {
     return code == 46 || code == 42 || code == 43 || code == 63 || code == 40 ||
-        code == 41 || code == 124 || code == 91 || code == 93 || code == 92;
+    code == 41 || code == 124 || code == 91 || code == 93 || code == 92;
 }
 
 fn atom_after(string pattern, int pos) -> int {
@@ -403,7 +403,7 @@ pub fn compile(string pattern) -> Result[Regex, RegexError] {
             continue;
         }
         if index + 1 < pattern.len() && pattern.byte_at(index + 1).to_int() == 63 &&
-            (byte == 42 || byte == 43 || byte == 63) {
+        (byte == 42 || byte == 43 || byte == 63) {
             return Err(RegexError.Unsupported);
         }
         index = index + 1;
@@ -411,7 +411,10 @@ pub fn compile(string pattern) -> Result[Regex, RegexError] {
     if escaped || in_class || depth != 0 {
         return Err(RegexError.Syntax);
     }
-    return Ok(Regex { pattern: pattern });
+    return Ok(Regex {
+        pattern: pattern
+    }
+    );
 }
 
 /** The leftmost match in `text`: tries each start from 0 upward, and at
@@ -426,8 +429,12 @@ pub fn find(Regex rx, string text) -> Option[Match] {
         let index = 0;
         while index < alternatives.len() {
             const arm = switch alternatives[index] {
-                case Some(value) { value }
-                case None { "" }
+                case Some(value) {
+                    value
+                }
+                case None {
+                    ""
+                }
             };
             const end = match_arm_end(arm, text, start, 0);
             if end >= 0 {
@@ -449,7 +456,10 @@ pub fn find(Regex rx, string text) -> Option[Match] {
     }
     alternatives.free();
     if found {
-        return Some(Match { start: answer_start, end: answer_end });
+        return Some(Match {
+            start: answer_start, end: answer_end
+        }
+        );
     }
     const Option[Match] missing = None;
     return missing;
@@ -459,8 +469,12 @@ pub fn find(Regex rx, string text) -> Option[Match] {
 pub fn is_match(Regex rx, string text) -> bool {
     const found = find(rx, text);
     const hit = switch found {
-        case Some(_) { true }
-        case None { false }
+        case Some(_) {
+            true
+        }
+        case None {
+            false
+        }
     };
     return hit;
 }
@@ -473,15 +487,25 @@ pub fn find_all(Regex rx, string text) -> []string {
         const sliced = text.slice(at, text.len());
         const found = find(rx, sliced);
         const missing = switch found {
-            case Some(_) { false }
-            case None { true }
+            case Some(_) {
+                false
+            }
+            case None {
+                true
+            }
         };
         if missing {
             break;
         }
         const span = switch found {
-            case Some(m) { m }
-            case None { Match { start: -1, end: -1 } }
+            case Some(m) {
+                m
+            }
+            case None {
+                Match {
+                    start: -1, end: -1
+                }
+            }
         };
         out.push(sliced.slice(span.start, span.end));
         at = span.end + at;
@@ -503,16 +527,26 @@ pub fn replace_all(Regex rx, string text, string replacement) -> string {
         const sliced = text.slice(at, text.len());
         const found = find(rx, sliced);
         const missing = switch found {
-            case Some(_) { false }
-            case None { true }
+            case Some(_) {
+                false
+            }
+            case None {
+                true
+            }
         };
         if missing {
             out = out + sliced;
             break;
         }
         const span = switch found {
-            case Some(m) { m }
-            case None { Match { start: -1, end: -1 } }
+            case Some(m) {
+                m
+            }
+            case None {
+                Match {
+                    start: -1, end: -1
+                }
+            }
         };
         if span.start > 0 {
             out = out + text.slice(at, at + span.start);
@@ -521,13 +555,13 @@ pub fn replace_all(Regex rx, string text, string replacement) -> string {
         let i = 0;
         while i < replacement.len() {
             if replacement.byte_at(i).to_int() == 36 && i + 1 < replacement.len() &&
-                replacement.byte_at(i + 1).to_int() == 48 {
+            replacement.byte_at(i + 1).to_int() == 48 {
                 out = out + whole;
                 i = i + 2;
                 continue;
             }
             if replacement.byte_at(i).to_int() == 36 && i + 1 < replacement.len() &&
-                replacement.byte_at(i + 1).to_int() == 36 {
+            replacement.byte_at(i + 1).to_int() == 36 {
                 out = out + "$";
                 i = i + 2;
                 continue;

@@ -97,6 +97,7 @@ impl<'src> Parser<'src> {
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Defer => self.parse_defer(),
+            TokenKind::Cfg => self.parse_cfg_block(),
             TokenKind::Ident
                 if self.identifier_is("arena") && self.peek_second() == TokenKind::LBrace =>
             {
@@ -911,6 +912,27 @@ impl<'src> Parser<'src> {
             body,
             span: cover(kw.span, body_span),
         })
+    }
+
+    /// `cfg(unix) { .. }` -- a block that exists only on some targets.
+    ///
+    /// Always braced: a `cfg` that guarded one statement would be a second way
+    /// to write a block, and the block is the form that reads without ambiguity.
+    fn parse_cfg_block(&mut self) -> Result<Stmt, ParseError> {
+        let key = self.parse_cfg_expr()?;
+        let span = key.span();
+        // A `cfg` in statement position always guards a block. A `cfg` in front
+        // of a single statement would be a second way to write a block, and the
+        // block is the form that reads without ambiguity -- so anything that
+        // is not a block is refused with the code that names the positions.
+        if !self.check(TokenKind::LBrace) {
+            return Err(crate::error::cfg_misplaced(
+                self.peek_span(),
+                "a single statement",
+            ));
+        }
+        let block = self.parse_block()?;
+        Ok(Stmt::Cfg { key, block, span })
     }
 
     fn parse_arena(&mut self) -> Result<Stmt, ParseError> {

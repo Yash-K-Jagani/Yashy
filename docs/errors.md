@@ -106,6 +106,10 @@ the declaration or import involved when that is not obvious.
 | [E2002](errors/E2002.md) | unreachable code |
 | [E2003](errors/E2003.md) | unused parameter |
 | [E2100](errors/E2100.md) | doc comment with no item |
+| [E2200](errors/E2200.md) | unsupported target |
+| [E2201](errors/E2201.md) | target C toolchain missing |
+| [E2202](errors/E2202.md) | unknown cfg key |
+| [E2203](errors/E2203.md) | cfg in the wrong place |
 
 The message tables below quote the message; a coded diagnostic prints the code
 after `error`, as in the example above.

@@ -5,7 +5,7 @@ use crate::ast::{
     BinOp, CallArg, Expr, InterpFormat, InterpPart, LambdaParam, Literal, SliceElement, StringLit,
     TypeExpr, UnOp,
 };
-use crate::error::ParseError;
+use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser, MAX_NESTING_DEPTH};
 
 impl<'src> Parser<'src> {
@@ -1015,6 +1015,10 @@ impl<'src> Parser<'src> {
                     span,
                 })
             }
+            // `cfg` is a clause, not a value. In an expression position it has
+            // nothing to remove, so it is reported with the code that names the
+            // three positions it does apply to.
+            TokenKind::Cfg => Err(error::cfg_misplaced(self.peek_span(), "an expression")),
             _ => Err(self.error(self.peek_span(), "expected an expression".to_string())),
         }
     }

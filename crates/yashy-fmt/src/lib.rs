@@ -116,6 +116,9 @@ struct Printer<'a> {
     brackets: Vec<bool>,
     /// Whether the previous token was a `]` that welds onto the current one.
     prev_bracket_welds: bool,
+    /// The previous token was a `-` that negates rather than subtracts, so the
+    /// current token takes no space after it.
+    prev_prefix_minus: bool,
 }
 
 impl<'a> Printer<'a> {
@@ -135,6 +138,7 @@ impl<'a> Printer<'a> {
             prev_is_map: false,
             brackets: Vec::new(),
             prev_bracket_welds: false,
+            prev_prefix_minus: false,
         }
     }
 
@@ -212,14 +216,10 @@ impl<'a> Printer<'a> {
                     index += 2;
                     let mut depth = 1usize;
                     while index < bytes.len() && depth > 0 {
-                        if bytes[index] == b'/'
-                            && bytes.get(index + 1) == Some(&b'*')
-                        {
+                        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
                             depth += 1;
                             index += 2;
-                        } else if bytes[index] == b'*'
-                            && bytes.get(index + 1) == Some(&b'/')
-                        {
+                        } else if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
                             depth -= 1;
                             index += 2;
                         } else {
@@ -334,6 +334,23 @@ impl<'a> Printer<'a> {
                 lambda_bar_opens = true;
             }
         }
+        // A `-` negates when the token before it cannot end an expression:
+        // `return -1` negates, `a - 1` subtracts. The token stream alone does
+        // not say which, so the printer asks what came before the sign.
+        let prefix_minus = token.kind == TokenKind::Minus
+            && !matches!(
+                self.prev,
+                Some(
+                    TokenKind::Ident
+                        | TokenKind::I64
+                        | TokenKind::F64
+                        | TokenKind::Str
+                        | TokenKind::Char
+                        | TokenKind::RParen
+                        | TokenKind::RBracket
+                        | TokenKind::Question
+                )
+            );
         // `{}` stays on one line: it is a container with nothing in it, and
         // splitting it would put the closing brace under the opening one.
         let compact = token.kind == TokenKind::RBrace && self.compact_brace;
@@ -385,6 +402,10 @@ impl<'a> Printer<'a> {
                     !lambda_bar || lambda_bar_opens
                 } else if prev == TokenKind::Pipe {
                     !(self.prev_lambda_bar && self.prev_lambda_bar_opens)
+                } else if self.prev_prefix_minus {
+                    // A sign that negates binds to the number it negates:
+                    // `-1` is one thing, not two.
+                    false
                 } else if prev == TokenKind::Eq && self.prev_prev == Some(TokenKind::DotDot) {
                     // The second half of `..=`: it binds to its upper bound.
                     false
@@ -436,6 +457,7 @@ impl<'a> Printer<'a> {
         self.prev = Some(token.kind);
         self.prev_lambda_bar = lambda_bar;
         self.prev_lambda_bar_opens = lambda_bar_opens;
+        self.prev_prefix_minus = prefix_minus;
     }
 
     /// Write the owed break: newlines up to the requested count, then the
@@ -491,11 +513,20 @@ fn top_level_or_line(indent: usize) -> Break {
 /// would be the separator rule leaking into a place where nothing separates.
 fn needs_space(prev: TokenKind, cur: TokenKind, bracket_welds: bool) -> bool {
     use TokenKind::*;
+    // `?` is postfix: it binds to the expression it applies to, so `expr?`
+    // has no space in front of it. The language has no ternary, so the token
+    // never starts an operand.
+    if cur == Question {
+        return false;
+    }
     // A spread after a comma is a separator, not a range: `, ..xs`.
     if cur == DotDot && prev == Comma {
         return true;
     }
-    if matches!(cur, Comma | Semi | RParen | RBracket | Dot | DotDot | Colon | ColonColon) {
+    if matches!(
+        cur,
+        Comma | Semi | RParen | RBracket | Dot | DotDot | Colon | ColonColon
+    ) {
         return false;
     }
     // `..=` is one operator; the `=` half binds to the `..`.
@@ -514,8 +545,10 @@ fn needs_space(prev: TokenKind, cur: TokenKind, bracket_welds: bool) -> bool {
     }
     // A call or a subscript binds to the name before it, but an opening
     // bracket after an operator is a parenthesised expression and wants air.
+    // `repr(C)` and `cfg(windows)` bind too: they are clauses, and a clause
+    // with a space in front of its parenthesis reads as two words.
     if matches!(cur, LParen | LBracket) {
-        return !matches!(prev, Ident | Repr | RParen | RBracket | Question);
+        return !matches!(prev, Ident | Repr | Cfg | RParen | RBracket | Question);
     }
     // `[]i64` and `map[K]V` print as written; every other `]` takes the
     // ordinary space before the word after it.

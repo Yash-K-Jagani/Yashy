@@ -662,7 +662,10 @@ fn ir_cache_key(
         modules::stdlib_version(),
         compiler_stamp()
     );
-    yashy_cache::program_key(&files, &flags, &version, host_target_triple())
+    // The target is part of the key as well as of the flags: the IR header and
+    // the data layout change with it, so one triple's entry can never answer
+    // another's request even if every other input matches.
+    yashy_cache::program_key(&files, &flags, &version, options.target)
 }
 
 /// The running compiler's path and modification time.
@@ -822,6 +825,13 @@ pub struct BuildOptions {
     /// miss, an unreadable cache or a failed write all fall back to emitting,
     /// because a cache is an optimization and never a requirement.
     pub ir_cache: bool,
+    /// The triple this build is for.
+    ///
+    /// The host unless `--target` says otherwise. It is the *only* input the
+    /// emitter, the `cfg` filter and the linker agree on: reading
+    /// `cfg!(target_os)` anywhere in the build would make a cross build claim
+    /// the host's layout while linking the target's runtime.
+    pub target: &'static str,
 }
 
 impl Default for BuildOptions {
@@ -838,6 +848,7 @@ impl Default for BuildOptions {
             pgo: false,
             async_: true,
             ir_cache: true,
+            target: host_target_triple(),
         }
     }
 }
@@ -872,8 +883,11 @@ pub fn link_directives(hir: &HirProgram) -> Vec<String> {
 /// runtime's socket unit needs Winsock, so `ws2_32` is named explicitly.
 /// Every flag here is deduplicated against [`link_directives`], so `link "m"`
 /// does not produce `-lm -lm`.
-pub fn platform_library_flags() -> Vec<&'static str> {
-    if cfg!(windows) {
+/// `cfg!(windows)` becomes a question about `target`: a Linux build cross
+/// compiled from Windows still needs the ELF defaults, and asking the host
+/// would link it against the wrong ones.
+pub fn platform_library_flags(target: &str) -> Vec<&'static str> {
+    if target.contains("windows") {
         // `net.c`'s Winsock calls live in `ws2_32`, and `platform.c`'s
         // `BCryptGenRandom` lives in `bcrypt`. It is always linked on
         // Windows because every Yashy program links the runtime; naming an
@@ -949,7 +963,14 @@ pub fn compile_to_binary(
         Ok(tokens) => tokens,
         Err(diagnostic) => return Err(vec![diagnostic]),
     };
-    let program = Parser::new(tokens, &sources, file).parse_program()?;
+    let mut program = Parser::new(tokens, &sources, file).parse_program()?;
+    // The one-file path filters `cfg` too, or a single-file build would be the
+    // one place a platform branch is resolved on the wrong platform.
+    let set = crate::cfg::CfgSet::for_target(options.target, options.release);
+    let cfg_diagnostics = crate::cfg::filter(&mut program, &set, file);
+    if !cfg_diagnostics.is_empty() {
+        return Err(cfg_diagnostics);
+    }
     let hir = check_program_with(
         &program,
         &sources,
@@ -992,6 +1013,7 @@ pub fn load_and_check(
         entry_path,
         entry_source,
         release,
+        host_target_triple(),
         jobs,
         &mut timings,
     )
@@ -1008,11 +1030,20 @@ pub fn load_and_check_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    target: &'static str,
     jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<HirProgram, Vec<Diagnostic>> {
-    load_and_check_exports_timed(sources, entry_path, entry_source, release, jobs, timings)
-        .map(|(hir, _exports)| hir)
+    load_and_check_exports_timed(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        target,
+        jobs,
+        timings,
+    )
+    .map(|(hir, _exports)| hir)
 }
 
 /// [`load_and_check_timed`], also returning the name-to-exports table the
@@ -1028,6 +1059,7 @@ pub fn load_and_check_exports_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    target: &'static str,
     jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, modules::Exports), Vec<Diagnostic>> {
@@ -1146,6 +1178,19 @@ pub fn load_and_check_exports_timed(
         module.program = program;
     }
 
+    // `cfg` is decided here, between parsing and resolution: a disabled item,
+    // statement or field is removed from the AST, so the checker never sees the
+    // names inside it. That is what makes `cfg(windows) { win32_call() }` legal
+    // on Linux, and it is why this runs before `exports` and the database.
+    let cfg = crate::cfg::CfgSet::for_target(target, release);
+    let mut cfg_diagnostics = Vec::new();
+    for module in modules.iter_mut() {
+        cfg_diagnostics.extend(crate::cfg::filter(&mut module.program, &cfg, module.file));
+    }
+    if !cfg_diagnostics.is_empty() {
+        return Err(cfg_diagnostics);
+    }
+
     let exports = modules::exports(&modules);
     // Every stage after the loader goes through the query database: it owns the
     // checked world, and a second caller in the same process (a test suite, a
@@ -1237,6 +1282,7 @@ pub fn check_and_verify(
         entry_path,
         entry_source,
         release,
+        host_target_triple(),
         options,
         jobs,
         &mut timings,
@@ -1249,12 +1295,20 @@ pub fn check_and_verify_timed(
     entry_path: &Path,
     entry_source: String,
     release: bool,
+    target: &'static str,
     options: &VerifyOptions,
     jobs: usize,
     timings: &mut Vec<TimingRow>,
 ) -> Result<(HirProgram, VerifyReport), Vec<Diagnostic>> {
-    let (hir, exports) =
-        load_and_check_exports_timed(sources, entry_path, entry_source, release, jobs, timings)?;
+    let (hir, exports) = load_and_check_exports_timed(
+        sources,
+        entry_path,
+        entry_source,
+        release,
+        target,
+        jobs,
+        timings,
+    )?;
     // Warnings run after the checker and before the verifier. They are
     // collected into the same diagnostic bag as the verifier's output, so
     // `yashy check` (which never reaches here) does not see them and
@@ -1368,6 +1422,7 @@ pub fn compile_hir_timed(
                         facts: options.facts,
                         intern: options.intern,
                         async_: options.async_,
+                        target: options.target,
                     },
                     facts,
                 )
@@ -1427,7 +1482,7 @@ pub fn compile_hir_timed(
     }
     write_or_report(&grapheme_path, GRAPHEME_DATA_HEADER.as_bytes(), entry_name)?;
 
-    let target = host_target_triple();
+    let target = options.target;
 
     // IR text + runtime -> executable, in **one** `clang` invocation.
     //
@@ -1642,10 +1697,10 @@ fn link_arguments(
     // to a stub for the same CRT functions, so only the MSVC target needs this.
     // The directive is kept in [`link_directives`] unchanged, so diagnostics
     // still quote it.
-    if cfg!(all(windows, target_env = "msvc")) {
+    if target.contains("windows") {
         libraries.retain(|flag| flag != "-lm");
     }
-    for flag in platform_library_flags() {
+    for flag in platform_library_flags(target) {
         let flag = flag.to_string();
         if !libraries.contains(&flag) {
             libraries.push(flag);
@@ -2251,7 +2306,7 @@ mod tests {
         // sqrt needs libm on Linux and is in the CRT on Windows; `link \"m\"`
         // is deduplicated against these, so `-lm` must be here on the platform
         // that needs it and absent on the one that does not.
-        let flags = platform_library_flags();
+        let flags = platform_library_flags(yashy_codegen::host_target_triple());
         if cfg!(windows) {
             assert!(
                 flags.contains(&"-lws2_32"),

@@ -696,6 +696,13 @@ pub enum TokenKind {
     /// the clause unreadable.
     Repr,
 
+    /// `cfg` -- the target condition that guards an item, a block or a field.
+    ///
+    /// A keyword because it is a modifier, not a function: `cfg(windows)` reads
+    /// like the clause it is, and a program that used `cfg` as a variable name
+    /// would make the clause unreadable.
+    Cfg,
+
     // Punctuation. `ColonEq`, `DotDot`, `Question`, `Bang`, `AndAnd` and `OrOr`
     // are additions to the punctuation the interface first named: `:=` is the
     // `if`-condition binding, `..` the range operator, `?` the postfix
@@ -810,11 +817,11 @@ impl TokenKind {
     /// (`crates/yashy-lsp/tests/grammar.rs` depends on this crate): adding a
     /// keyword without a grammar entry fails that test, so keep the two in
     /// step.
-    pub const KEYWORDS: [&'static str; 38] = [
+    pub const KEYWORDS: [&'static str; 39] = [
         "fn", "struct", "enum", "const", "var", "let", "import", "extern", "unsafe", "pure", "io", "async",
         "await", "defer", "return", "break", "continue", "if", "else", "for", "while", "in", "switch", "case",
         "default", "as", "move", "true", "false", "impl", "object", "trait", "macro", "pub", "requires",
-        "ensures", "invariant", "repr",
+        "ensures", "invariant", "repr", "cfg",
     ];
 
     pub fn keyword(text: &str) -> Option<TokenKind> {
@@ -857,6 +864,7 @@ impl TokenKind {
             "ensures" => TokenKind::Ensures,
             "invariant" => TokenKind::Invariant,
             "repr" => TokenKind::Repr,
+            "cfg" => TokenKind::Cfg,
             _ => return None,
         })
     }
@@ -961,6 +969,7 @@ impl TokenKind {
             TokenKind::Ensures => Naming::Fixed("ensures"),
             TokenKind::Invariant => Naming::Fixed("invariant"),
             TokenKind::Repr => Naming::Fixed("repr"),
+            TokenKind::Cfg => Naming::Fixed("cfg"),
             TokenKind::LParen => Naming::Fixed("("),
             TokenKind::RParen => Naming::Fixed(")"),
             TokenKind::LBrace => Naming::Fixed("{"),

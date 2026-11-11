@@ -293,6 +293,9 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
     // `--opt-report` prints why decisions survived and stops. `None` is "not
     // asked for"; the `bool` is whether the JSON form was requested.
     let mut opt_report_flag: Option<bool> = None;
+    // The triple this build is for. `None` means the host, which is what every
+    // build before `--target` existed meant.
+    let mut target: Option<&'static str> = None;
 
     let mut args = args.iter();
     while let Some(argument) = args.next() {
@@ -321,6 +324,13 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             },
             "-W none" => allow_warnings = true,
             "--fast-math" => fast_math = true,
+            "--target" => match args.next() {
+                Some(value) => match target_flag(value) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return stopped(code),
+                },
+                None => return stopped(usage_error("`--target` needs a triple")),
+            },
             "--offline" => offline = true,
             "--stdlib-source" => stdlib_source = true,
             "--opt-list" => opt_list = true,
@@ -350,6 +360,11 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     match value.parse::<usize>() {
                         Ok(parsed) => jobs = parsed,
                         Err(_) => return stopped(usage_error("`--jobs` needs a whole number")),
+                    }
+                } else if let Some(value) = other.strip_prefix("--target=") {
+                    match target_flag(value) {
+                        Ok(triple) => target = Some(triple),
+                        Err(code) => return stopped(code),
                     }
                 } else if let Some(pass) = other.strip_prefix("--no-opt=") {
                     disabled.push(pass.to_string());
@@ -405,15 +420,19 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         return stopped(exit_code(EXIT_OK));
     }
 
+    // One value from here on: the IR header, the data layout, the `cfg`
+    // filter, the platform libraries and the `clang --target` line all read
+    // it, so a build cannot be for two machines at once.
+    let target = target.unwrap_or_else(host_target_triple);
+
     // A feature level is an x86-64 name and nothing else. On any other target it
     // is not a conservative choice, it is a flag `clang` rejects, so the
     // mismatch is refused here where it can name the two architectures rather
     // than left for `clang` to report against a build far from the cause.
-    if cpu.requires_x86_64() && !host_target_triple().starts_with("x86_64") {
+    if cpu.requires_x86_64() && !target.starts_with("x86_64") {
         return stopped(usage_error(&format!(
-            "`{}` is an x86-64 feature level, but this compiler targets `{}`",
-            cpu.name(),
-            host_target_triple()
+            "`{}` is an x86-64 feature level, but this build is for `{target}`",
+            cpu.name()
         )));
     }
 
@@ -507,8 +526,15 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         // The checker still runs: `--no-verify` skips the proof, not the type
         // system. A program that does not type-check has no binary worth
         // stamping.
-        let hir = match load_and_check_timed(&mut sources, &input, source, release, jobs, measured)
-        {
+        let hir = match load_and_check_timed(
+            &mut sources,
+            &input,
+            source,
+            release,
+            target,
+            jobs,
+            measured,
+        ) {
             Ok(hir) => hir,
             Err(diagnostics) => {
                 return BuildOutcome {
@@ -537,6 +563,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
             &input,
             source,
             release,
+            target,
             &OPTIONS,
             jobs,
             measured,
@@ -587,6 +614,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     facts,
                     intern,
                     async_,
+                    target,
                 };
                 let (_, notes) = timed(measured, "emit", || {
                     emit_program_with_notes(&hir, &entry, options, &report.facts)
@@ -616,6 +644,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
                     facts,
                     intern,
                     async_,
+                    target,
                 };
                 let ir = timed(measured, "emit", || {
                     emit_program(&hir, &entry, options, &report.facts)
@@ -643,6 +672,21 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         }
     };
 
+    // A cross build links with the target's C toolchain, which the compiler
+    // neither ships nor can find by name. Asking once here, before the front
+    // end runs, is the difference between one line naming the missing
+    // toolchain and a link error after a full compile. `--emit-ir` returned
+    // above, so a machine without a cross compiler can still inspect the IR.
+    if target != host_target_triple() {
+        if let Err(message) = yashy_driver::target::probe_cross(&toolchain, target) {
+            let looked_for = format!("looked for `{}`", toolchain.llc.display());
+            return BuildOutcome {
+                code: coded_error(codes::TARGET_TOOLCHAIN_MISSING, &message, &[looked_for]),
+                timings,
+            };
+        }
+    }
+
     let output = output.unwrap_or_else(|| default_output(&input));
     let opt = resolve_opt(command, release, opt);
     let options = BuildOptions {
@@ -657,6 +701,7 @@ fn build_measured(command: CommandKind, args: &[String]) -> BuildOutcome {
         pgo,
         async_,
         ir_cache: !stdlib_source,
+        target,
     };
     let code = match compile_hir_timed(
         &sources,
@@ -781,6 +826,9 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let mut allow_write: Vec<PathBuf> = Vec::new();
     let mut sandbox_time: u64 = 5000;
     let mut sandbox_memory: u64 = 256;
+    // The triple the program is built for. A program built for another
+    // platform cannot be run here, so it is refused rather than started.
+    let mut target: Option<&'static str> = None;
 
     let mut iter = args.iter();
     while let Some(argument) = iter.next() {
@@ -847,7 +895,22 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
                 build_args.push(argument.clone());
                 build_args.push(value.clone());
             }
-            other if other.starts_with("--cpu=") || other.starts_with("--jobs=") => {
+            "--target" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--target` needs a triple");
+                };
+                match target_flag(value) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+                build_args.push(argument.clone());
+                build_args.push(value.clone());
+            }
+            other
+                if other.starts_with("--cpu=")
+                    || other.starts_with("--jobs=")
+                    || other.starts_with("--target=") =>
+            {
                 build_args.push(argument.clone())
             }
             other if other.starts_with("--no-opt=") => build_args.push(argument.clone()),
@@ -867,6 +930,19 @@ fn run_as(args: &[String], mode: RunMode) -> ExitCode {
     let Some(input) = input else {
         return usage_error("`run` needs a source file");
     };
+
+    // A binary built for another platform cannot run on this machine: the
+    // loader would refuse it with a message about the wrong architecture,
+    // which says nothing about the flag that caused it. `build --target` is
+    // the way to make a program for another platform.
+    if let Some(triple) = target {
+        if triple != host_target_triple() {
+            return usage_error(&format!(
+                "`run` builds a program for this machine; `--target {triple}` builds one for \
+                 another platform, which cannot be run here"
+            ));
+        }
+    }
 
     let dir = temp_run_dir();
     if let Err(error) = fs::create_dir_all(&dir) {
@@ -1161,6 +1237,7 @@ fn test(args: &[String]) -> ExitCode {
     let mut timings_flag = false;
     let mut jobs: usize = 0;
     let mut jobs_given = false;
+    let mut target: Option<&'static str> = None;
 
     let mut iter = args.iter();
     let mut sandbox = false;
@@ -1170,6 +1247,21 @@ fn test(args: &[String]) -> ExitCode {
             "--sandbox" => sandbox = true,
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--target" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--target` needs a triple");
+                };
+                match target_flag(value) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+            }
+            other if other.starts_with("--target=") => {
+                match target_flag(&other["--target=".len()..]) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+            }
             "--jobs" => {
                 let Some(value) = iter.next() else {
                     return usage_error("`--jobs` needs a value");
@@ -1234,6 +1326,16 @@ fn test(args: &[String]) -> ExitCode {
 
     let explicit_root = root.is_some();
     let root = root.unwrap_or_else(|| PathBuf::from("tests"));
+    // A test is a program that is built *and run*, so a test built for another
+    // platform could not be run here.
+    if let Some(triple) = target {
+        if triple != host_target_triple() {
+            return usage_error(&format!(
+                "`test` runs the programs it builds; `--target {triple}` builds them for \
+                 another platform, which cannot be run here"
+            ));
+        }
+    }
     if explicit_root && !root.exists() {
         eprintln!("error: no tests at {}", root.display());
         return exit_code(EXIT_USAGE);
@@ -1252,7 +1354,13 @@ fn test(args: &[String]) -> ExitCode {
     }
 
     if json {
-        return test_json(&root, &tests, timings_flag, jobs);
+        return test_json(
+            &root,
+            &tests,
+            timings_flag,
+            jobs,
+            target.unwrap_or_else(host_target_triple),
+        );
     }
 
     if list {
@@ -1303,6 +1411,10 @@ fn test(args: &[String]) -> ExitCode {
         if jobs_given {
             build_args.push("--jobs".to_string());
             build_args.push(jobs.to_string());
+        }
+        if let Some(triple) = target {
+            build_args.push("--target".to_string());
+            build_args.push(triple.to_string());
         }
         let outcome = build_measured(CommandKind::Build, &build_args);
         accumulate(&mut timings, &outcome.timings);
@@ -1355,7 +1467,13 @@ fn test(args: &[String]) -> ExitCode {
 /// Compile diagnostics are collected through the same checker and code
 /// generator the human path uses, so a fact in the JSON (code, severity, file,
 /// span) is the fact the human renderer prints.
-fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool, jobs: usize) -> ExitCode {
+fn test_json(
+    root: &Path,
+    tests: &[PathBuf],
+    timings_flag: bool,
+    jobs: usize,
+    target: &'static str,
+) -> ExitCode {
     let mut global_sources = SourceMap::new();
     let root_file = global_sources.add_file(root.display().to_string(), String::new());
     // The suite's phase totals, so `test --json --timings` answers "where did
@@ -1454,6 +1572,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool, jobs: usize) ->
             entry,
             source,
             false,
+            target,
             &OPTIONS,
             jobs,
             &mut phases,
@@ -1472,6 +1591,7 @@ fn test_json(root: &Path, tests: &[PathBuf], timings_flag: bool, jobs: usize) ->
                         &toolchain,
                         BuildOptions {
                             opt: OptLevel::None,
+                            target,
                             ..BuildOptions::default()
                         },
                         &facts,
@@ -2103,6 +2223,19 @@ struct DoctorReport {
     lsp: Option<PathBuf>,
     path: PathReport,
     next: Option<String>,
+    /// The triple this report is about: the host, or the one `--target` named.
+    target: &'static str,
+    /// Whether the C toolchain can link for `target`, when that is not the
+    /// host. `None` when no cross target was asked about.
+    cross: Option<CrossReport>,
+}
+
+/// Whether the target's C toolchain is installed.
+struct CrossReport {
+    ok: bool,
+    error: Option<String>,
+    /// The triple this report is about.
+    target: &'static str,
 }
 
 struct ClangReport {
@@ -2128,14 +2261,31 @@ struct PathReport {
 /// `yashy doctor [--json]`: the things a fresh install can get wrong.
 fn doctor(args: &[String]) -> ExitCode {
     let mut json = false;
-    for argument in args {
+    let mut target: Option<&'static str> = None;
+    let mut iter = args.iter();
+    while let Some(argument) = iter.next() {
         match argument.as_str() {
             "--json" => json = true,
+            "--target" => {
+                let Some(value) = iter.next() else {
+                    return usage_error("`--target` needs a triple");
+                };
+                match target_flag(value) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+            }
+            other if other.starts_with("--target=") => {
+                match target_flag(&other["--target=".len()..]) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+            }
             other => return usage_error(&format!("unexpected extra argument `{other}`")),
         }
     }
 
-    let report = collect_doctor_report();
+    let report = collect_doctor_report(target);
     if json {
         print_doctor_json(&report);
     } else {
@@ -2149,7 +2299,7 @@ fn doctor(args: &[String]) -> ExitCode {
     }
 }
 
-fn collect_doctor_report() -> DoctorReport {
+fn collect_doctor_report(target: Option<&'static str>) -> DoctorReport {
     let clang = check_clang();
     let stdlib = check_stdlib();
     let path = check_path();
@@ -2161,11 +2311,38 @@ fn collect_doctor_report() -> DoctorReport {
             None
         }
     };
-    let ok = clang.ok && stdlib.ok;
+    // A cross target needs its own C toolchain; the host's `clang` may well
+    // have the backend but not the target's CRT and linker. The probe asks by
+    // building, because that is the only question that has a truthful answer.
+    let target = target.unwrap_or_else(host_target_triple);
+    let cross = if target == host_target_triple() {
+        None
+    } else {
+        Some(match detect() {
+            Ok(toolchain) => match yashy_driver::target::probe_cross(&toolchain, target) {
+                Ok(()) => CrossReport {
+                    ok: true,
+                    error: None,
+                    target,
+                },
+                Err(message) => CrossReport {
+                    ok: false,
+                    error: Some(message),
+                    target,
+                },
+            },
+            Err(message) => CrossReport {
+                ok: false,
+                error: Some(message),
+                target,
+            },
+        })
+    };
+    let ok = clang.ok && stdlib.ok && cross.as_ref().map(|c| c.ok).unwrap_or(true);
     let next = if ok {
         None
     } else {
-        Some(doctor_next(&clang, &stdlib))
+        Some(doctor_next(&clang, &stdlib, cross.as_ref()))
     };
 
     DoctorReport {
@@ -2175,6 +2352,8 @@ fn collect_doctor_report() -> DoctorReport {
         lsp,
         path,
         next,
+        target,
+        cross,
     }
 }
 
@@ -2325,7 +2504,7 @@ fn canonical_or_owned(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport) -> String {
+fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport, cross: Option<&CrossReport>) -> String {
     let mut parts: Vec<String> = Vec::new();
     if !clang.ok {
         parts.push(yashy_driver::toolchain::install_hint());
@@ -2334,6 +2513,14 @@ fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport) -> String {
         parts.push(
             "Set YASHY_STDLIB to the directory containing io.ya, or reinstall Yashy.".to_string(),
         );
+    }
+    if let Some(cross) = cross {
+        if !cross.ok {
+            parts.push(format!(
+                "Install the C toolchain for `{}`; a cross build links with it.",
+                cross.target
+            ));
+        }
     }
 
     let mut next = parts.join(" ");
@@ -2345,7 +2532,7 @@ fn doctor_next(clang: &ClangReport, stdlib: &StdlibReport) -> String {
 
 fn print_doctor_human(report: &DoctorReport) {
     println!("yashy {}", env!("CARGO_PKG_VERSION"));
-    println!("target: {}", host_target_triple());
+    println!("target: {}", report.target);
 
     if report.clang.ok {
         if let Some(path) = &report.clang.path {
@@ -2378,6 +2565,19 @@ fn print_doctor_human(report: &DoctorReport) {
         }
     }
 
+    // The cross toolchain line only exists when a target was asked for, so
+    // the default doctor report stays the one it always was.
+    match &report.cross {
+        Some(cross) if cross.ok => println!("cross toolchain: ok for {}", report.target),
+        Some(cross) => {
+            eprintln!("cross toolchain: missing for {}", report.target);
+            if let Some(error) = &cross.error {
+                eprintln!("  {error}");
+            }
+        }
+        None => {}
+    }
+
     match &report.path.executable {
         Some(executable) if report.path.on_path => println!("path: {}", executable.display()),
         Some(executable) => println!(
@@ -2405,7 +2605,7 @@ fn print_doctor_json(report: &DoctorReport) {
         json_string(env!("CARGO_PKG_VERSION"))
     )
     .expect("writing to a String cannot fail");
-    writeln!(out, "  \"target\": {},", json_string(host_target_triple()))
+    writeln!(out, "  \"target\": {},", json_string(report.target))
         .expect("writing to a String cannot fail");
 
     out.push_str("  \"clang\": {\n");
@@ -2488,6 +2688,23 @@ fn print_doctor_json(report: &DoctorReport) {
     )
     .expect("writing to a String cannot fail");
     out.push_str("  },\n");
+
+    // The cross toolchain is only reported when a target was asked for, so a
+    // reader can tell "not checked" from "checked and missing".
+    match &report.cross {
+        Some(cross) => {
+            out.push_str("  \"cross\": {\n");
+            writeln!(out, "    \"ok\": {},", cross.ok).expect("writing to a String cannot fail");
+            writeln!(
+                out,
+                "    \"error\": {}",
+                json_opt_string(cross.error.as_deref())
+            )
+            .expect("writing to a String cannot fail");
+            out.push_str("  },\n");
+        }
+        None => out.push_str("  \"cross\": null,\n"),
+    }
 
     writeln!(
         out,
@@ -2695,6 +2912,8 @@ fn span_range_json(span: Span) -> Json {
 fn check(args: &[String]) -> ExitCode {
     let mut json = false;
     let mut timings_flag = false;
+    let mut print_cfg = false;
+    let mut target: Option<&'static str> = None;
     let mut deny_warnings = env::var("YASHY_DENY_WARNINGS").ok().as_deref() == Some("1");
     let mut allow_warnings = false;
     let mut jobs: usize = 0;
@@ -2704,6 +2923,24 @@ fn check(args: &[String]) -> ExitCode {
         match args[i].as_str() {
             "--json" => json = true,
             "--timings" => timings_flag = true,
+            "--print-cfg" => print_cfg = true,
+            "--target" => {
+                if i + 1 < args.len() {
+                    match target_flag(&args[i + 1]) {
+                        Ok(triple) => target = Some(triple),
+                        Err(code) => return code,
+                    }
+                    i += 1;
+                } else {
+                    return usage_error("`--target` needs a triple");
+                }
+            }
+            other if other.starts_with("--target=") => {
+                match target_flag(&other["--target=".len()..]) {
+                    Ok(triple) => target = Some(triple),
+                    Err(code) => return code,
+                }
+            }
             "--jobs" => {
                 if i + 1 < args.len() {
                     match args[i + 1].parse::<usize>() {
@@ -2760,6 +2997,34 @@ fn check(args: &[String]) -> ExitCode {
         }
         i += 1;
     }
+    let target = target.unwrap_or_else(host_target_triple);
+    // `--print-cfg` answers "what is true for this target?" and stops: it is
+    // the flag a build script reads and the one a confused user runs after
+    // `cfg(window)` did not compile, so it needs no source file.
+    if print_cfg {
+        let set = yashy_driver::cfg::CfgSet::for_target(target, false);
+        if json {
+            let mut report = Json::object();
+            report.set("schema_version", Json::number(1));
+            report.set("tool", Json::string("check"));
+            report.set("target", Json::string(target));
+            report.set(
+                "cfg",
+                Json::array(
+                    set.active_keys()
+                        .iter()
+                        .map(|key| Json::string(*key))
+                        .collect(),
+                ),
+            );
+            println!("{}", report.render());
+        } else {
+            for key in set.active_keys() {
+                println!("{key}");
+            }
+        }
+        return exit_code(EXIT_OK);
+    }
     let Some(input) = input else {
         return usage_error("`check` needs a source file");
     };
@@ -2778,7 +3043,8 @@ fn check(args: &[String]) -> ExitCode {
     } else {
         &mut scratch
     };
-    let outcome = load_and_check_exports_timed(&mut sources, &input, source, false, jobs, measured);
+    let outcome =
+        load_and_check_exports_timed(&mut sources, &input, source, false, target, jobs, measured);
     let reported = timings_flag.then_some(timings.as_slice());
     match outcome {
         Ok((hir, exports)) => {
@@ -2934,6 +3200,7 @@ fn verify(args: &[String]) -> ExitCode {
         &input,
         source,
         false,
+        host_target_triple(),
         &OPTIONS,
         jobs,
         measured,
@@ -3020,17 +3287,28 @@ fn read_source_with(input: &Path, code: i32) -> Result<String, ExitCode> {
     })
 }
 
-/// `yashy fmt [-w] <files...>`.
+/// `yashy fmt [-w | --check] [--json] <files...>`.
 ///
-/// Without `-w` the formatted text goes to standard output, so a file can be
-/// inspected before it is replaced. With `-w` a file is written in place, and
-/// only when it parsed: an unformattable file is left exactly as it was.
+/// Without a mode flag the formatted text goes to standard output, so a file
+/// can be inspected before it is replaced. With `-w` a file is written in
+/// place, and only when it parsed: an unformattable file is left exactly as it
+/// was.
+///
+/// `--check` is the CI gate: it writes nothing, names every file that is not
+/// already canonical, and exits 1 if there is at least one. The comparison
+/// normalises CRLF first, because `core.autocrlf=true` is the default on
+/// Windows and a gate that fails on a clean checkout is a gate people disable.
+/// `--json` renders the same answer as a document, so CI need not parse text.
 fn fmt(args: &[String]) -> ExitCode {
     let mut write = false;
+    let mut check = false;
+    let mut json = false;
     let mut files: Vec<PathBuf> = Vec::new();
     for argument in args {
         match argument.as_str() {
             "-w" | "--write" => write = true,
+            "--check" => check = true,
+            "--json" => json = true,
             other if other.starts_with('-') => {
                 return usage_error(&format!("unknown flag `{other}` for `fmt`"));
             }
@@ -3040,10 +3318,17 @@ fn fmt(args: &[String]) -> ExitCode {
     if files.is_empty() {
         return usage_error("`fmt` needs at least one source file");
     }
+    if write && check {
+        return usage_error("`fmt --check` writes nothing: drop `--write`");
+    }
+    if json && !check {
+        return usage_error("`fmt --json` needs `--check`: there is nothing to list otherwise");
+    }
 
     let mut failed = false;
+    let mut changed: Vec<(String, bool)> = Vec::new();
     for path in &files {
-        let source = match read_source(path) {
+        let source = match read_source_with(path, EXIT_COMPILE_ERROR) {
             Ok(source) => source,
             Err(_) => {
                 failed = true;
@@ -3052,8 +3337,16 @@ fn fmt(args: &[String]) -> ExitCode {
         };
         match yashy_fmt::format(&source) {
             Ok(formatted) => {
-                if write {
-                    if formatted != source {
+                let differs = normalise_newlines(&source) != normalise_newlines(&formatted);
+                if check {
+                    if differs {
+                        changed.push((path.display().to_string(), true));
+                        if !json {
+                            println!("{}", path.display());
+                        }
+                    }
+                } else if write {
+                    if differs {
                         if let Err(error) = std::fs::write(path, &formatted) {
                             eprintln!("error: cannot write {}: {error}", path.display());
                             failed = true;
@@ -3075,11 +3368,41 @@ fn fmt(args: &[String]) -> ExitCode {
         }
     }
 
+    if json {
+        let mut report = Json::object();
+        report.set("schema_version", Json::number(1));
+        report.set("tool", Json::string("fmt"));
+        report.set("success", Json::bool(!failed && changed.is_empty()));
+        report.set(
+            "files",
+            Json::array(
+                changed
+                    .iter()
+                    .map(|(file, differs)| {
+                        let mut entry = Json::object();
+                        entry.set("file", Json::string(file));
+                        entry.set("changed", Json::bool(*differs));
+                        entry
+                    })
+                    .collect(),
+            ),
+        );
+        println!("{}", report.render());
+    }
+
     if failed {
+        exit_code(EXIT_COMPILE_ERROR)
+    } else if !changed.is_empty() {
         exit_code(EXIT_COMPILE_ERROR)
     } else {
         exit_code(EXIT_OK)
     }
+}
+
+/// Text with every CRLF pair folded to LF, so a comparison asks "is this file
+/// canonical?" rather than "did this checkout use Windows line endings?".
+fn normalise_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
 /// Render each diagnostic with its source line and caret, to stderr.
@@ -3895,6 +4218,37 @@ fn verify_project_lock(input: &Path) -> Option<ExitCode> {
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("error: {message}\n{USAGE}");
     exit_code(EXIT_USAGE)
+}
+
+/// A command-line diagnostic with a code but no source to underline.
+///
+/// The subject is a flag, not a byte in a file, so there is no span to point
+/// at; the code and its `docs:` line are still what a reader needs, because
+/// `yashy explain <code>` is the offline page for the thing that went wrong.
+fn coded_error(code: &'static str, message: &str, notes: &[String]) -> ExitCode {
+    eprintln!("error[{code}]: {message}");
+    for note in notes {
+        eprintln!("  {note}");
+    }
+    eprintln!("  docs: {}", codes::docs_url(code));
+    exit_code(EXIT_COMPILE_ERROR)
+}
+
+/// The triple `--target <value>` names, or the coded error for one this
+/// compiler does not emit for.
+///
+/// `Ok` carries the `&'static str` spelling, so the value that reaches
+/// `BuildOptions`, the IR header and `clang --target` is one string, not four
+/// copies that could drift.
+fn target_flag(value: &str) -> Result<&'static str, ExitCode> {
+    match yashy_driver::target::supported(value) {
+        Some(triple) => Ok(triple),
+        None => Err(coded_error(
+            codes::UNSUPPORTED_TARGET,
+            &yashy_driver::target::unsupported_message(value),
+            &[],
+        )),
+    }
 }
 
 fn exit_code(code: i32) -> ExitCode {

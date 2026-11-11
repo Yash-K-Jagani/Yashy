@@ -19,7 +19,11 @@ pub trait Iterator[T] {
 /// being spelled out in every implementor.
 pub fn is_done[T](Option[T] next) -> bool {
     return switch next {
-        case Some(_) { false }
-        case None { true }
+        case Some(_) {
+            false
+        }
+        case None {
+            true
+        }
     };
 }

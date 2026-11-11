@@ -77,8 +77,12 @@ pub fn header_value(string headers, string name) -> Option[string] {
         const line = headers.slice(start, end);
         const colon = line.index_of(":");
         const at = switch colon {
-            case Some(found) { found }
-            case None { -1 }
+            case Some(found) {
+                found
+            }
+            case None {
+                -1
+            }
         };
         if at >= 0 {
             const sliced = line.slice(0, at);
@@ -98,8 +102,22 @@ pub fn header_value(string headers, string name) -> Option[string] {
 pub fn header_end(string text) -> int {
     const crlf = text.index_of("\r\n\r\n");
     const both = text.index_of("\n\n");
-    const crlf_end = switch crlf { case Some(at) { at + 4 } case None { -1 } };
-    const both_end = switch both { case Some(at) { at + 2 } case None { -1 } };
+    const crlf_end = switch crlf {
+        case Some(at) {
+            at + 4
+        }
+        case None {
+            -1
+        }
+    };
+    const both_end = switch both {
+        case Some(at) {
+            at + 2
+        }
+        case None {
+            -1
+        }
+    };
     if crlf_end >= 0 && both_end >= 0 {
         if crlf_end < both_end {
             return crlf_end;
@@ -120,8 +138,12 @@ fn parse_int(string text) -> Option[int] {
     }
     const value = trimmed.parse_i64();
     const number = switch value {
-        case Some(parsed) { parsed }
-        case None { -1 }
+        case Some(parsed) {
+            parsed
+        }
+        case None {
+            -1
+        }
     };
     if number < 0 {
         const Option[int] missing = None;
@@ -134,8 +156,12 @@ pub fn content_length(string headers) -> Option[int] {
     const found = header_value(headers, "Content-Length");
     const Option[int] missing = None;
     return switch found {
-        case Some(text) { parse_int(text) }
-        case None { missing }
+        case Some(text) {
+            parse_int(text)
+        }
+        case None {
+            missing
+        }
     };
 }
 
@@ -172,7 +198,14 @@ fn hex_value(char next) -> int {
 fn parse_chunk_size(string text) -> int {
     const value = text.trim();
     const cut = value.index_of(";");
-    const first = switch cut { case Some(at) { value.slice(0, at) } case None { value } };
+    const first = switch cut {
+        case Some(at) {
+            value.slice(0, at)
+        }
+        case None {
+            value
+        }
+    };
     const token = first.trim();
     if token.is_empty() {
         return -1;
@@ -229,7 +262,7 @@ pub fn decode_chunked(string raw) -> Chunked {
         index = end;
         if size == 0 {
             if raw.len() - index >= 2 && raw.byte_at(index).to_int() == 13 &&
-                raw.byte_at(index + 1).to_int() == 10 {
+            raw.byte_at(index + 1).to_int() == 10 {
                 return Chunked {
                     body: body,
                     consumed: index + 2,
@@ -313,8 +346,12 @@ fn first_token(string text) -> string {
 fn after_first_token(string text) -> string {
     const space = text.index_of(" ");
     const at = switch space {
-        case Some(found) { found }
-        case None { -1 }
+        case Some(found) {
+            found
+        }
+        case None {
+            -1
+        }
     };
     if at < 0 {
         return "";
@@ -365,8 +402,12 @@ pub fn parse_request(string raw) -> Result[Request, HttpError] {
     const rest = raw.slice(boundary, raw.len());
     const line = request_line(head);
     const text = switch line {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     if text.is_empty() {
         return Err(HttpError.Failure);
@@ -374,7 +415,7 @@ pub fn parse_request(string raw) -> Result[Request, HttpError] {
     const method = first_token(text);
     const upper = method.to_upper();
     if upper != "GET" && upper != "POST" && upper != "PUT" &&
-        upper != "DELETE" && upper != "HEAD" {
+    upper != "DELETE" && upper != "HEAD" {
         return Err(HttpError.Failure);
     }
     const remainder = after_first_token(text);
@@ -389,8 +430,12 @@ pub fn parse_request(string raw) -> Result[Request, HttpError] {
     let index = 1;
     while index < lines.len() {
         const raw_line = switch lines[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         const colon = raw_line.index_of(":");
         if colon_is_some(colon) {
@@ -420,12 +465,17 @@ pub fn parse_request(string raw) -> Result[Request, HttpError] {
             version: version,
             headers: headers,
             body: decoded.body,
-        });
+        }
+        );
     }
     const length = content_length(headers);
     const count = switch length {
-        case Some(value) { value }
-        case None { 0 }
+        case Some(value) {
+            value
+        }
+        case None {
+            0
+        }
     };
     if count > 10485760 || rest.len() < count {
         return Err(HttpError.Failure);
@@ -436,20 +486,29 @@ pub fn parse_request(string raw) -> Result[Request, HttpError] {
         version: version,
         headers: headers,
         body: rest.slice(0, count),
-    });
+    }
+    );
 }
 
 fn colon_is_some(Option[int] value) -> bool {
     return switch value {
-        case Some(_) { true }
-        case None { false }
+        case Some(_) {
+            true
+        }
+        case None {
+            false
+        }
     };
 }
 
 fn option_value(Option[int] value) -> int {
     return switch value {
-        case Some(at) { at }
-        case None { -1 }
+        case Some(at) {
+            at
+        }
+        case None {
+            -1
+        }
     };
 }
 

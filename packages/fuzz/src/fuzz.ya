@@ -8,7 +8,7 @@
 // string means no failure was found.
 
 extern "C" {
-    unsafe fn yashy_mkdir(*const u8 path) -> i32;
+    unsafe fn yashy_mkdir(* const u8 path) -> i32;
 }
 
 fn next_byte(int state) -> int {
@@ -33,7 +33,7 @@ fn without(string text, int cut) -> string {
     return text.slice(0, cut) + text.slice(cut + 1, text.len());
 }
 
-fn minimize(fn(string) -> bool target, string found) -> string {
+fn minimize(fn (string) -> bool target, string found) -> string {
     let current = found;
     let improved = true;
     while improved {
@@ -52,7 +52,7 @@ fn minimize(fn(string) -> bool target, string found) -> string {
     return current;
 }
 
-pub fn run(fn(string) -> bool target, int iterations, int seed) -> string {
+pub fn run(fn (string) -> bool target, int iterations, int seed) -> string {
     assert(iterations > 0);
     let state = seed;
     state = state % 4294967296;
@@ -65,8 +65,12 @@ pub fn run(fn(string) -> bool target, int iterations, int seed) -> string {
             unsafe yashy_mkdir("fuzz_corpus");
             const saved = write_file("fuzz_corpus/minimal", minimal);
             switch saved {
-                case Ok(_) { print("fuzz corpus saved"); }
-                case Err(_) { panic("could not write fuzz corpus"); }
+                case Ok(_) {
+                    print("fuzz corpus saved");
+                }
+                case Err(_) {
+                    panic("could not write fuzz corpus");
+                }
             }
             print("fuzz: ${candidate.len()} bytes -> ${minimal.len()} bytes");
             return minimal;

@@ -50,8 +50,8 @@ use yashy_common::Span;
 use yashy_lexer::TokenKind;
 
 use crate::ast::{
-    Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TraitMethod, TypeExpr, TypeParam,
-    VariantDef, VariantField,
+    CfgExpr, Contract, ExternDecl, FieldDef, Item, Param, ReprKind, TraitMethod, TypeExpr,
+    TypeParam, VariantDef, VariantField,
 };
 use crate::error::{self, ParseError};
 use crate::parser::{cover, Parser};
@@ -70,9 +70,10 @@ fn item_kind(item: &Item) -> &'static str {
         // The wrapper cases are looked through before this is asked, so these
         // are unreachable in practice; naming the wrapped shape is still more
         // useful than "an item".
-        Item::Public { item, .. } | Item::Effect { item, .. } | Item::Documented { item, .. } => {
-            item_kind(item)
-        }
+        Item::Public { item, .. }
+        | Item::Effect { item, .. }
+        | Item::Documented { item, .. }
+        | Item::Cfg { item, .. } => item_kind(item),
         Item::Struct { .. } | Item::Enum { .. } | Item::Object { .. } => "a type",
         Item::Trait { .. } => "a trait",
         Item::Macro { .. } => "a macro",
@@ -174,6 +175,9 @@ impl<'src> Parser<'src> {
             // `pub` is a modifier, not an item: it wraps whatever item
             // follows it, and the item inside keeps its own shape.
             TokenKind::Pub => self.parse_public_item(),
+            // `cfg(..)` guards the item that follows it, the same way `pub`
+            // modifies it.
+            TokenKind::Cfg => self.parse_cfg_item(),
             // Effect modifiers: `pure`, `io`, `async`, `unsafe` before `fn`.
             TokenKind::Pure => self.parse_effect_item(yashy_common::DeclaredEffect::Pure),
             TokenKind::Io => self.parse_effect_item(yashy_common::DeclaredEffect::Io),
@@ -669,8 +673,14 @@ impl<'src> Parser<'src> {
     ///
     /// A field may be marked `pub`, which is what lets another module read
     /// and write it. A field with no `pub` is private to the module that
-    /// declares it.
+    /// declares it. It may also be guarded by `cfg(..)`, in which case the
+    /// field exists only on the targets the condition names.
     fn parse_field_def(&mut self) -> Result<FieldDef, ParseError> {
+        let cfg = if self.check(TokenKind::Cfg) {
+            Some(self.parse_cfg_expr()?)
+        } else {
+            None
+        };
         let public = self.eat(TokenKind::Pub);
         let (name, name_span) = self.identifier()?;
         self.expect(TokenKind::Colon)?;
@@ -688,6 +698,69 @@ impl<'src> Parser<'src> {
             span,
             ty,
             default,
+            cfg,
+        })
+    }
+
+    /// `cfg(any(unix, macos))` -- the condition that guards an item, a block or
+    /// a field.
+    ///
+    /// The grammar is one key or one combinator nested arbitrarily; there is no
+    /// operator syntax, because `and`/`or` keywords would collide with names
+    /// and the combinators read the same at any nesting.
+    pub(crate) fn parse_cfg_expr(&mut self) -> Result<CfgExpr, ParseError> {
+        self.expect(TokenKind::Cfg)?;
+        let open = self.expect(TokenKind::LParen)?;
+        let _ = self.push_open(TokenKind::LParen, open.span)?;
+        let condition = self.parse_cfg_term()?;
+        self.expect(TokenKind::RParen)?;
+        self.close_open(TokenKind::RParen);
+        Ok(condition)
+    }
+
+    /// One term inside `cfg(..)`: a key, or a combinator with its own list.
+    fn parse_cfg_term(&mut self) -> Result<CfgExpr, ParseError> {
+        let (name, name_span) = self.identifier()?;
+        match name.as_str() {
+            "not" | "any" | "all" => {
+                let open = self.expect(TokenKind::LParen)?;
+                let _ = self.push_open(TokenKind::LParen, open.span)?;
+                let mut parts = Vec::new();
+                if !self.check(TokenKind::RParen) {
+                    loop {
+                        parts.push(self.parse_cfg_term()?);
+                        if !self.eat(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+                let close = self.expect(TokenKind::RParen)?;
+                self.close_open(TokenKind::RParen);
+                let span = cover(name_span, close.span);
+                match name.as_str() {
+                    "not" => {
+                        if parts.len() != 1 {
+                            return Err(error::cfg_arity(span, "not", parts.len()));
+                        }
+                        Ok(CfgExpr::Not(Box::new(parts.remove(0)), span))
+                    }
+                    "any" => Ok(CfgExpr::Any(parts, span)),
+                    _ => Ok(CfgExpr::All(parts, span)),
+                }
+            }
+            _ => Ok(CfgExpr::Key(name, name_span)),
+        }
+    }
+
+    /// `cfg(windows) import win;` -- an item that exists only on some targets.
+    fn parse_cfg_item(&mut self) -> Result<Item, ParseError> {
+        let key = self.parse_cfg_expr()?;
+        let span = key.span();
+        let item = self.parse_item()?;
+        Ok(Item::Cfg {
+            key,
+            item: Box::new(item),
+            span,
         })
     }
 
@@ -1000,6 +1073,11 @@ impl<'src> Parser<'src> {
     /// from. The type is written first, `int a`; the removed order `a: int` is
     /// told apart by the colon after the name and reported as `E0109`.
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
+        // `cfg` cannot guard a parameter: a parameter is part of a signature,
+        // and a signature is either present or absent.
+        if self.check(TokenKind::Cfg) {
+            return Err(error::cfg_misplaced(self.peek_span(), "a parameter"));
+        }
         // The annotated receiver `self: *mut T` and the removed name-first order
         // both put the name first and are recognised by the colon after it.
         if self.check(TokenKind::Ident) && self.peek_second() == TokenKind::Colon {

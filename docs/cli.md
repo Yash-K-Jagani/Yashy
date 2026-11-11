@@ -39,6 +39,7 @@ yashy build main.ya --emit-ir
 | `--no-verify` | Build without the verifier and stamp `<output>.unverified`. Refused for a program with a contract, or when `YASHY_REQUIRE_VERIFY` is set. See [`--no-verify`](#--no-verify). |
 | `--timings` | Print how long each pipeline phase took. See [Timings](#timings). |
 | `--jobs <n>` | Threads the front end may parse on. `0` (default) uses one per core; `1` is serial. See [`--jobs`](#--jobs-n). |
+| `--target <triple>` | Build for this platform rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
 ## `yashy run <file.ya>`
 
@@ -50,6 +51,7 @@ then run it a second time; use `build --pgo` and run the resulting binary.
 | Option | Meaning |
 |---|---|
 | `--debug` | Run the child with `YASHY_DEBUG=1`: a panic or an arithmetic fault also prints every live task (id, async function and resume index) before the process ends. See [`yashy tasks`](#yashy-tasks-fileya). |
+| `--target <triple>` | Build for this platform rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
 
 ## `yashy tasks <file.ya>`
 
@@ -203,6 +205,65 @@ missing file is a usage error (`2`). A diagnostic with a catalog code ends with
 a `docs:` line naming its page, for example
 `docs: https://yashy.dev/errors/E0100`.
 
+| Option | Meaning |
+|---|---|
+| `--print-cfg` | Print the `cfg` keys that are true for this target, one per line, sorted, and stop. Needs no source file. See [`cfg`](#cfg-and---target). |
+| `--target <triple>` | Check for this target rather than the host. See [`cfg` and `--target`](#cfg-and---target). |
+
+## `cfg` and `--target`
+
+`cfg(..)` guards an item, a statement block or a struct field, and the guarded
+code exists only on the targets the condition names:
+
+```yashy
+cfg(windows) fn platform() -> string {
+    return "windows";
+}
+
+fn main() {
+    cfg(unix) {
+        print("unix");
+    }
+}
+```
+
+A disabled branch is **not resolved, not checked, not verified and not
+emitted**. That is the whole difference between `cfg` and `if false`: the
+branch may call a function that exists nowhere, because the filter runs on the
+parsed program before name resolution.
+
+The keys are `windows`, `linux`, `macos`, `unix`, `arch_x86_64`,
+`arch_aarch64`, `debug` and `release`, combined with `not(..)`, `any(..)` and
+`all(..)`. A key the compiler does not define is [`E2202`](errors/E2202.md), not
+a condition that quietly evaluates to false, and `cfg` anywhere it cannot apply
+is [`E2203`](errors/E2203.md).
+
+```text
+yashy check --print-cfg
+arch_aarch64
+debug
+linux
+unix
+```
+
+`--target <triple>` names the platform a build is for. The supported triples
+are `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`,
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`x86_64-apple-darwin` and `aarch64-apple-darwin`; any other is
+[`E2200`](errors/E2200.md). The target decides the `cfg` keys, the data layout
+in the emitted IR, the platform libraries and the `--target` line `clang` is
+given, so one build is never for two machines at once.
+
+A cross build needs the target's C toolchain: Yashy's runtime is C and the
+program is linked by `clang`, and the compiler ships neither a linker nor a
+cross runtime. A target whose toolchain is missing is
+[`E2201`](errors/E2201.md), naming the program it looked for.
+`yashy doctor --target <triple>` answers the same question without building.
+
+`run` and `test` refuse a target other than the host: they run what they
+build, and a binary for another platform cannot start here. `build` is the way
+to make a program for another platform.
+
 ## `yashy expand <file.ya> [--json]`
 
 Prints the fully expanded program: every macro invocation is replaced by its
@@ -351,6 +412,7 @@ failure.
 | `--list` | Print the tests that would run and exit. |
 | `--json` | Print the [schema v1 report](#json-diagnostics-schema-v1) instead of the progress lines. |
 | `--timings` | Print the suite's total time per pipeline phase. See [Timings](#timings). |
+| `--target <triple>` | Build the tests for this platform rather than the host. A test is built *and* run, so a target other than the host is refused. See [`cfg` and `--target`](#cfg-and---target). |
 
 `--json` writes one envelope to stdout. Diagnostics -- check or verifier -- are
 nested under the test that produced them; top-level `diagnostics` holds setup
@@ -624,6 +686,7 @@ run or the stdlib is missing, and prints a final `next:` line with the fix. The
     "on_path": true,
     "hint": null
   },
+  "cross": null,
   "next": null
 }
 ```
@@ -632,10 +695,36 @@ In JSON mode all output goes to stdout; human diagnostics are suppressed. A
 failure has `"ok": false`, an `error` on the failing section, and a non-null
 `next`.
 
-## `yashy fmt [-w] <files...>`
+`--target <triple>` asks about another platform: the report names that target
+and adds a `cross` section saying whether the target's C toolchain can link
+for it. `null` means the question was not asked, which is different from
+`{"ok": false, ...}` — the toolchain is missing.
+
+## `yashy fmt [-w | --check] [--json] <files...>`
 
 Prints the canonical formatting to stdout. With `-w`, rewrites the files in
 place.
+
+`--check` is the CI gate: it writes nothing, prints one line per file that is
+not already canonical, and exits `1` if there is at least one. `--check` with
+`--write` is a usage error (`2`), because a gate that quietly rewrites files is
+not a gate.
+
+The comparison normalises CRLF first. `core.autocrlf=true` is the default on
+Windows, and a gate that fails on a clean checkout is a gate people disable.
+
+`--json` prints the same answer as a document, so CI need not parse text:
+
+```json
+{
+  "schema_version": 1,
+  "tool": "fmt",
+  "success": false,
+  "files": [{ "file": "main.ya", "changed": true }]
+}
+```
+
+`--json` needs `--check`: there is nothing to list otherwise.
 
 ## `yashy version`
 

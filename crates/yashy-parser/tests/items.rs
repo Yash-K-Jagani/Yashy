@@ -48,6 +48,7 @@ fn item_span(item: &Item) -> Span {
         Item::Public { item, .. } => item_span(item),
         Item::Effect { item, .. } => item_span(item),
         Item::Documented { item, .. } => item_span(item),
+        Item::Cfg { item, .. } => item_span(item),
         Item::Import { span, .. }
         | Item::Struct { span, .. }
         | Item::Enum { span, .. }

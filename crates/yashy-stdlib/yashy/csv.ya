@@ -30,8 +30,12 @@ pub fn record([]string fields) -> Result[string, CsvError] {
             line = line + ",";
         }
         const field = switch fields[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         let needs_quoting = false;
         let i = 0;
@@ -193,8 +197,12 @@ pub fn write([]string rows) -> string {
     let index = 0;
     while index < rows.len() {
         const row = switch rows[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         text = text + row + "\n";
         index = index + 1;
@@ -209,8 +217,12 @@ pub fn write_crlf([]string rows) -> string {
     let index = 0;
     while index < rows.len() {
         const row = switch rows[index] {
-            case Some(value) { value }
-            case None { "" }
+            case Some(value) {
+                value
+            }
+            case None {
+                ""
+            }
         };
         text = text + row + "\r\n";
         index = index + 1;

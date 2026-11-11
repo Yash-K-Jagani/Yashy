@@ -17,16 +17,24 @@ extern "C" {
 fn no_color_set() -> bool {
     const value = getenv("NO_COLOR");
     return switch value {
-        case Some(_) { true }
-        case None { false }
+        case Some(_) {
+            true
+        }
+        case None {
+            false
+        }
     };
 }
 
 fn term_is_dumb() -> bool {
     const value = getenv("TERM");
     return switch value {
-        case Some(text) { text == "dumb" }
-        case None { false }
+        case Some(text) {
+            text == "dumb"
+        }
+        case None {
+            false
+        }
     };
 }
 

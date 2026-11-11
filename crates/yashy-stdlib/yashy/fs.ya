@@ -12,15 +12,15 @@
 import io;
 
 extern "C" {
-    unsafe fn yashy_fs_listdir_record(*const u8 path) -> string;
-    unsafe fn yashy_fs_metadata_record(*const u8 path) -> string;
-    unsafe fn yashy_fs_stat_size(*const u8 path) -> int;
-    unsafe fn yashy_fs_stat_is_dir(*const u8 path) -> int;
-    unsafe fn yashy_mkdir(*const u8 path) -> int;
-    unsafe fn yashy_remove_file(*const u8 path) -> int;
-    unsafe fn yashy_remove_dir(*const u8 path) -> int;
-    unsafe fn yashy_rename(*const u8 old_path, *const u8 new_path) -> int;
-    unsafe fn yashy_copy(*const u8 src, *const u8 dst) -> int;
+    unsafe fn yashy_fs_listdir_record(* const u8 path) -> string;
+    unsafe fn yashy_fs_metadata_record(* const u8 path) -> string;
+    unsafe fn yashy_fs_stat_size(* const u8 path) -> int;
+    unsafe fn yashy_fs_stat_is_dir(* const u8 path) -> int;
+    unsafe fn yashy_mkdir(* const u8 path) -> int;
+    unsafe fn yashy_remove_file(* const u8 path) -> int;
+    unsafe fn yashy_remove_dir(* const u8 path) -> int;
+    unsafe fn yashy_rename(* const u8 old_path, * const u8 new_path) -> int;
+    unsafe fn yashy_copy(* const u8 src, * const u8 dst) -> int;
 }
 
 /** The `Result` for a C status word: `0` is success, anything else `Other`. */
@@ -40,8 +40,12 @@ fn record_ok(string record) -> bool {
 fn field_int(string text) -> int {
     const value = text.parse_i64();
     return switch value {
-        case Some(number) { number }
-        case None { -1 }
+        case Some(number) {
+            number
+        }
+        case None {
+            -1
+        }
     };
 }
 
@@ -75,8 +79,12 @@ pub fn metadata(string path) -> Result[Metadata, io.Error] {
     }
     const body = record.slice(2, record.len());
     const first = switch body.index_of("\n") {
-        case Some(index) { index }
-        case None { -1 }
+        case Some(index) {
+            index
+        }
+        case None {
+            -1
+        }
     };
     if first < 0 {
         return Err(io.Error.Other);
@@ -84,8 +92,12 @@ pub fn metadata(string path) -> Result[Metadata, io.Error] {
     const size_text = body.slice(0, first);
     const rest = body.slice(first + 1, body.len());
     const second = switch rest.index_of("\n") {
-        case Some(index) { index }
-        case None { -1 }
+        case Some(index) {
+            index
+        }
+        case None {
+            -1
+        }
     };
     if second < 0 {
         return Err(io.Error.Other);
@@ -93,8 +105,12 @@ pub fn metadata(string path) -> Result[Metadata, io.Error] {
     const directory_text = rest.slice(0, second);
     const rest2 = rest.slice(second + 1, rest.len());
     const third = switch rest2.index_of("\n") {
-        case Some(index) { index }
-        case None { -1 }
+        case Some(index) {
+            index
+        }
+        case None {
+            -1
+        }
     };
     if third < 0 {
         return Err(io.Error.Other);
@@ -104,7 +120,8 @@ pub fn metadata(string path) -> Result[Metadata, io.Error] {
         size: field_int(size_text),
         is_dir: field_int(directory_text) == 1,
         modified_unix: field_int(modified_text),
-    });
+    }
+    );
 }
 
 /** Create one directory, non-recursive. */

@@ -15,7 +15,9 @@
 // - `GET /slow` sleeps, proving one worker does not stall the accept loop.
 
 import http;
+
 import server;
+
 import client;
 
 fn handler(Request request) -> Response {
@@ -48,7 +50,11 @@ fn handler(Request request) -> Response {
 fn main() {
     const found = serve("127.0.0.1:19090", handler);
     switch found {
-        case Ok(count) { print(count); }
-        case Err(_) { panic("http service failed"); }
+        case Ok(count) {
+            print(count);
+        }
+        case Err(_) {
+            panic("http service failed");
+        }
     }
 }

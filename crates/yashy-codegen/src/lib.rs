@@ -37,6 +37,7 @@ pub use expr_gen::{gen_expr, gen_expr_to_slot, FnCtx, GenValue};
 pub use ffi::gen_ffi_call;
 pub use fn_gen::{fn_return_repr, gen_extern_decl, gen_fn, gen_main};
 pub use ir::{llvm_type_string, repr_type, variant_payload_index, variant_tag};
+pub use module::data_layout;
 pub use module::host_target_triple;
 pub use module::{FnOptReport, Module, OptKind, OptNote, OptReport, VariantRepr};
 pub use pass::{pipeline, Pass, PassCtx, PassStats};
@@ -99,6 +100,12 @@ pub struct CodegenOptions {
     /// drives its child inline, so the flag bisects a miscompile without
     /// changing what a program prints.
     pub async_: bool,
+    /// The triple the module header and data layout are written for.
+    ///
+    /// The host unless `--target` says otherwise. It is the one value the IR,
+    /// the `cfg` filter and the `clang --target` line share; see
+    /// [`Module::set_target`].
+    pub target: &'static str,
 }
 
 /// The shape the async pass exposes: a function poll's frame layout and the
@@ -117,6 +124,7 @@ impl Default for CodegenOptions {
             facts: true,
             intern: true,
             async_: true,
+            target: module::host_target_triple(),
         }
     }
 }
@@ -167,6 +175,7 @@ fn emit(
 ) -> (String, module::OptReport) {
     let mut module = Module::new();
     module.set_source_filename(entry);
+    module.set_target(options.target);
     module.set_fp_contract(options.fp_contract);
     module.set_report(record);
     // The registered passes, in their one order. A pass reads its switch from

@@ -78,14 +78,16 @@ fn civil_from_days(int z) -> Parts {
     if month <= 2 {
         year = year + 1;
     }
-    return Parts { year: year, month: month, day: day };
+    return Parts {
+        year: year, month: month, day: day
+    };
 }
 
 /** Convert `DateTime` to seconds since the epoch in UTC. */
 pub fn to_unix(DateTime at) -> int {
     const epoch_offset = at.offset_minutes * 60;
     return days_from_civil(at.year, at.month, at.day) * 86400 + at.hour * 3600 +
-        at.minute * 60 + at.second - epoch_offset;
+    at.minute * 60 + at.second - epoch_offset;
 }
 
 /** Convert seconds since the epoch to a UTC civil time. */
@@ -155,14 +157,18 @@ pub fn parse(string text, string format) -> DateTime {
             }
             let digits = "";
             while t < text.len() && text.byte_at(t).to_int() >= 48 &&
-                text.byte_at(t).to_int() <= 57 {
+            text.byte_at(t).to_int() <= 57 {
                 digits = digits + text.byte_at(t).to_string();
                 t = t + 1;
             }
             const number = digits.parse_i64();
             const value = switch number {
-                case Some(v) { v }
-                case None { 0 }
+                case Some(v) {
+                    v
+                }
+                case None {
+                    0
+                }
             };
             // `%z` writes `+HHMM` (or `+HH`), not a count of minutes:
             // read `0230` as 2 hours 30 minutes, so the offset is 150.
@@ -178,7 +184,7 @@ pub fn parse(string text, string format) -> DateTime {
             // the whole-second fields.
             let consumed = 0;
             while t < text.len() && text.byte_at(t).to_int() >= 48 &&
-                text.byte_at(t).to_int() <= 57 && consumed < 9 {
+            text.byte_at(t).to_int() <= 57 && consumed < 9 {
                 t = t + 1;
                 consumed = consumed + 1;
             }
@@ -194,7 +200,7 @@ pub fn parse(string text, string format) -> DateTime {
         }
         let digits = "";
         while t < text.len() && text.byte_at(t).to_int() >= 48 &&
-            text.byte_at(t).to_int() <= 57 {
+        text.byte_at(t).to_int() <= 57 {
             digits = digits + text.byte_at(t).to_string();
             t = t + 1;
             if width >= 0 && digits.len() >= width {
@@ -203,8 +209,12 @@ pub fn parse(string text, string format) -> DateTime {
         }
         const number = digits.parse_i64();
         const value = switch number {
-            case Some(v) { v }
-            case None { 0 }
+            case Some(v) {
+                v
+            }
+            case None {
+                0
+            }
         };
         if spec == 89 {
             year = value;
@@ -291,7 +301,7 @@ pub fn format(DateTime at, string format) -> string {
                     magnitude = 0 - magnitude;
                 }
                 text = text + sign + string.pad_start(str_from_i64(magnitude / 60), 2, "0") +
-                    string.pad_start(str_from_i64(magnitude % 60), 2, "0");
+                string.pad_start(str_from_i64(magnitude % 60), 2, "0");
             }
         }
         pos = pos + 2;

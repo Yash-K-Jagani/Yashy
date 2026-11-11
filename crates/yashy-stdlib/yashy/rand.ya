@@ -70,12 +70,20 @@ pub fn shuffle([]char data) {
     while index > 1 {
         const other = range(0, index);
         const last = switch data[index - 1] {
-            case Some(value) { value }
-            case None { (0).to_char() }
+            case Some(value) {
+                value
+            }
+            case None {
+                (0).to_char()
+            }
         };
         const swap = switch data[other] {
-            case Some(value) { value }
-            case None { (0).to_char() }
+            case Some(value) {
+                value
+            }
+            case None {
+                (0).to_char()
+            }
         };
         data.set(index - 1, swap);
         data.set(other, last);

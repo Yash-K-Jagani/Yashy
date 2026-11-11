@@ -8,6 +8,7 @@
 //! can call with plain values.
 
 pub mod audit;
+pub mod cfg;
 pub mod context;
 pub mod doc;
 pub mod fetch;
@@ -18,9 +19,10 @@ pub mod opt_report;
 pub mod outline;
 pub mod pipeline;
 pub mod profile;
-pub mod resolve;
 pub mod registry;
+pub mod resolve;
 pub mod sandbox;
+pub mod target;
 pub mod toolchain;
 
 pub use fetch::{default_store_root, FetchError, Store};

@@ -363,6 +363,30 @@ pub fn doc_comment_misplaced(span: Span, what: &str) -> ParseError {
     .with_code(yashy_common::codes::DOC_COMMENT_MISPLACED)
 }
 
+/// A `cfg` combinator used with the wrong number of terms: `not` takes exactly
+/// one, and writing two is a mistake rather than an implicit `any`.
+pub fn cfg_arity(span: Span, combinator: &str, count: usize) -> ParseError {
+    ParseError::new(
+        span,
+        format!(
+            "`cfg`'s `{combinator}` takes exactly one condition, not {count}: write `any(..)` or `all(..)` to combine"
+        ),
+    )
+}
+
+/// A `cfg` clause written where it cannot guard anything.
+///
+/// The three positions it does apply to are named in the message: an item, a
+/// statement block and a struct field. A condition around an expression would
+/// suggest a guarantee the compiler does not make.
+pub fn cfg_misplaced(span: Span, what: &str) -> ParseError {
+    ParseError::new(
+        span,
+        format!("`cfg` guards an item, a statement block or a struct field, not {what}"),
+    )
+    .with_code(yashy_common::codes::CFG_MISPLACED)
+}
+
 /// A token that cannot begin an item.
 pub fn item_expected(found: TokenKind, span: Span) -> ParseError {
     ParseError::new(

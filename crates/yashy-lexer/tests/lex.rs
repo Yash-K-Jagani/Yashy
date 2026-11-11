@@ -382,6 +382,18 @@ fn every_keyword_is_lexed_as_itself_and_the_table_is_complete() {
 }
 
 #[test]
+fn the_keyword_table_has_the_documented_length() {
+    // The count is pinned because the editor grammars are written against
+    // this list: a keyword added here without a grammar entry fails the
+    // language-server test instead of failing silently in an editor.
+    assert_eq!(
+        yashy_lexer::TokenKind::KEYWORDS.len(),
+        39,
+        "the keyword list changed; the editor grammars must change with it"
+    );
+}
+
+#[test]
 fn identifiers_may_contain_digits_and_underscores_after_the_first_character() {
     // `_a9 _`
     //  bytes 0..3 and 4..5 respectively. The second is an identifier that is

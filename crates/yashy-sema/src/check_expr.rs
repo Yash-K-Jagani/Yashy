@@ -2955,6 +2955,11 @@ impl<'src> Checker<'src> {
             // A doc block documents the item inside it; the item declares
             // as usual.
             Item::Documented { item, .. } => self.declare_item(item, public, declared),
+            // The `cfg` filter runs before this pass, so a guarded item should
+            // never arrive still wrapped. Looking through it keeps a caller
+            // that skipped the filter (the one-file `compile_to_binary`
+            // convenience) from silently declaring nothing.
+            Item::Cfg { item, .. } => self.declare_item(item, public, declared),
             Item::Fn {
                 name,
                 type_params,
@@ -4707,6 +4712,10 @@ impl<'src> Checker<'src> {
             Item::Documented {
                 docs: text, item, ..
             } => self.check_item_with_declared(item, declared, text),
+            // As in the declaration pass: the filter has already dropped a
+            // disabled item, so this only looks through a wrapper a caller
+            // that skipped the filter left in place.
+            Item::Cfg { item, .. } => self.check_item_with_declared(item, declared, docs),
             Item::Effect { effect, item, .. } => {
                 // Check the inner item with the wrapper's effect in hand, so
                 // an `async fn` is checked as async from the first statement.
@@ -6279,6 +6288,25 @@ impl<'src> Checker<'src> {
                         span: body.span,
                         arena: true,
                     },
+                    else_block: None,
+                    span: *span,
+                })
+            }
+            Stmt::Cfg { block, span, .. } => {
+                // The pipeline's `cfg` filter runs before this pass and
+                // splices an active block into its parent, so this arm is a
+                // defensive one for a caller that never filtered: it checks
+                // the block and keeps it, matching `Item::Cfg`'s "look through
+                // the wrapper" rule above.
+                let body = self.check_block_with_ret(block, ret)?;
+                Some(HirStmt::If {
+                    init: None,
+                    cond: HirExpr::Literal(
+                        yashy_hir::hir::Literal::Bool(true),
+                        *span,
+                        prim(TypeKind::Bool),
+                    ),
+                    then_block: body,
                     else_block: None,
                     span: *span,
                 })

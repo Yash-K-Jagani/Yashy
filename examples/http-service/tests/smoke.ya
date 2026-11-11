@@ -5,7 +5,9 @@
 // response, and fifty concurrent connections.
 
 import http;
+
 import server;
+
 import client;
 
 fn handler(Request request) -> Response {
@@ -34,8 +36,12 @@ fn handler(Request request) -> Response {
 fn server_entry() {
     const ignored = serve("127.0.0.1:19091", handler);
     switch ignored {
-        case Ok(_) { print("server stopped"); }
-        case Err(_) { print("server stopped"); }
+        case Ok(_) {
+            print("server stopped");
+        }
+        case Err(_) {
+            print("server stopped");
+        }
     }
 }
 
@@ -49,35 +55,47 @@ fn success_code(Response response) -> int {
 fn client_worker(Channel[int] done) {
     const found = client.get("http://127.0.0.1:19091/");
     const code = switch found {
-        case Ok(response) { success_code(response) }
-        case Err(_) { 0 }
+        case Ok(response) {
+            success_code(response)
+        }
+        case Err(_) {
+            0
+        }
     };
     done.send(code);
 }
 
 fn unwrap_request(Result[Request, HttpError] found) -> Request {
     return switch found {
-        case Ok(value) { value }
-        case Err(_) { panic("request failed"); }
+        case Ok(value) {
+            value
+        }
+        case Err(_) {
+            panic("request failed");
+        }
     };
 }
 
 fn run() -> Result[int, HttpError] {
     const parsed = unwrap_request(http.parse_request(
-        "GET /x HTTP/1.1\r\nHost: example.test\r\nX-Test: yes\r\nContent-Length: 0\r\n\r\n"
+    "GET /x HTTP/1.1\r\nHost: example.test\r\nX-Test: yes\r\nContent-Length: 0\r\n\r\n"
     ));
     assert(parsed.method == "GET");
     assert(parsed.target == "/x");
     assert(parsed.version == "HTTP/1.1");
     const found = http.header_value(parsed.headers, "X-Test");
     const marker = switch found {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     assert(marker == "yes");
 
     const chunked = unwrap_request(http.parse_request(
-        "POST /echo HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+    "POST /echo HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
     ));
     assert(chunked.method == "POST");
     assert(chunked.body == "hello");
@@ -120,7 +138,11 @@ fn run() -> Result[int, HttpError] {
 
 fn main() {
     switch run() {
-        case Ok(_) { print("http-ok"); }
-        case Err(_) { panic("http test failed"); }
+        case Ok(_) {
+            print("http-ok");
+        }
+        case Err(_) {
+            panic("http test failed");
+        }
     }
 }

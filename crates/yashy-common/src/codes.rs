@@ -188,6 +188,14 @@ pub const UNREACHABLE_CODE: &str = "E2002";
 pub const UNUSED_PARAMETER: &str = "E2003";
 /// A doc comment is written where no item follows.
 pub const DOC_COMMENT_MISPLACED: &str = "E2100";
+/// `--target` names a triple this compiler does not emit for.
+pub const UNSUPPORTED_TARGET: &str = "E2200";
+/// The C toolchain for a cross target is not installed.
+pub const TARGET_TOOLCHAIN_MISSING: &str = "E2201";
+/// A `cfg` condition names a key the compiler does not define.
+pub const UNKNOWN_CFG_KEY: &str = "E2202";
+/// `cfg` is written where it cannot apply.
+pub const CFG_MISPLACED: &str = "E2203";
 /// Modules import each other in a cycle.
 pub const MODULE_CYCLE: &str = "E0802";
 /// A non-`pub` item is used from another module.
@@ -680,6 +688,30 @@ pub const CODES: &[Code] = &[
         title: "grapheme index out of range",
         summary: "A `char_at` index is provably outside the string's cluster count.",
         page: include_str!("../../../docs/errors/E1200.md"),
+    },
+    Code {
+        id: UNSUPPORTED_TARGET,
+        title: "unsupported target",
+        summary: "`--target` names a triple this compiler does not emit for.",
+        page: include_str!("../../../docs/errors/E2200.md"),
+    },
+    Code {
+        id: TARGET_TOOLCHAIN_MISSING,
+        title: "target C toolchain missing",
+        summary: "The C compiler a cross target needs is not installed.",
+        page: include_str!("../../../docs/errors/E2201.md"),
+    },
+    Code {
+        id: UNKNOWN_CFG_KEY,
+        title: "unknown cfg key",
+        summary: "A `cfg` condition names a key the compiler does not define.",
+        page: include_str!("../../../docs/errors/E2202.md"),
+    },
+    Code {
+        id: CFG_MISPLACED,
+        title: "cfg in the wrong place",
+        summary: "`cfg` guards an item, a block or a struct field, and nothing else.",
+        page: include_str!("../../../docs/errors/E2203.md"),
     },
 ];
 

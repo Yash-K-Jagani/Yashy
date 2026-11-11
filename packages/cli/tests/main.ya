@@ -22,18 +22,29 @@ fn main() {
     arguments.push("out.txt");
     arguments.push("input.txt");
     const parsed = cli.parse_arguments("example", declarations(), move arguments);
-    const Parsed { flags: flag_values, values: value_values, positionals: positional_values, help: has_help } = parsed;
+    const Parsed {
+        flags: flag_values, values: value_values, positionals: positional_values, help: has_help
+    }
+    = parsed;
     assert(cli.has_flag(flag_values, "quiet"));
     const found = cli.value(value_values, "output");
     const output = switch found {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     assert(output == "out.txt");
     const positional = cli.positional(positional_values, 0);
     const input = switch positional {
-        case Some(value) { value }
-        case None { "" }
+        case Some(value) {
+            value
+        }
+        case None {
+            ""
+        }
     };
     assert(input == "input.txt");
     assert(!has_help);

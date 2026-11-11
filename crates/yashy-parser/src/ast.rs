@@ -123,6 +123,22 @@ pub enum Item {
         /// The span of the first doc line.
         span: Span,
     },
+    /// `cfg(windows) import win;` -- an item that exists only when the build's
+    /// target says so.
+    ///
+    /// The condition is evaluated on the AST before name resolution, and the
+    /// item it wraps is dropped from the program when the condition is false.
+    /// That ordering is the feature: platform-only code that does not compile
+    /// on the other platform is legal and inert here, where `if false` would
+    /// still have to resolve every name in the disabled branch.
+    Cfg {
+        /// The condition, as written.
+        key: CfgExpr,
+        /// The item the condition guards.
+        item: Box<Item>,
+        /// The span of the `cfg` keyword.
+        span: Span,
+    },
     /// `struct P { x: f64 }`
     Struct {
         name: String,
@@ -282,6 +298,85 @@ pub enum Item {
     },
 }
 
+/// A `cfg(..)` condition.
+///
+/// The grammar is one key or one combinator:
+///
+/// ```text
+/// cfg(windows)            cfg(not(windows))
+/// cfg(any(unix, macos))   cfg(all(arch_x86_64, not(debug)))
+/// ```
+///
+/// A key is *not* a name the program can invent: the set is closed, and a
+/// misspelling is `E2202` rather than a false condition. A typo that deletes a
+/// branch is the failure this rule exists for -- the program would silently do
+/// the wrong thing on one platform, and nothing else in the compiler would
+/// notice.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CfgExpr {
+    /// One platform or build key: `windows`, `unix`, `debug`, ...
+    Key(String, Span),
+    /// `not(inner)` -- true when `inner` is false.
+    Not(Box<CfgExpr>, Span),
+    /// `any(a, b, ...)` -- true when at least one is true. An empty list is
+    /// false.
+    Any(Vec<CfgExpr>, Span),
+    /// `all(a, b, ...)` -- true when every one is true. An empty list is true.
+    All(Vec<CfgExpr>, Span),
+}
+
+impl CfgExpr {
+    /// The span this condition was written at.
+    pub fn span(&self) -> Span {
+        match self {
+            CfgExpr::Key(_, span)
+            | CfgExpr::Not(_, span)
+            | CfgExpr::Any(_, span)
+            | CfgExpr::All(_, span) => *span,
+        }
+    }
+
+    /// Every key the condition mentions, in source order.
+    pub fn keys(&self) -> Vec<(&str, Span)> {
+        match self {
+            CfgExpr::Key(name, span) => vec![(name.as_str(), *span)],
+            CfgExpr::Not(inner, _) => inner.keys(),
+            CfgExpr::Any(parts, _) | CfgExpr::All(parts, _) => {
+                parts.iter().flat_map(CfgExpr::keys).collect()
+            }
+        }
+    }
+}
+
+impl fmt::Display for CfgExpr {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CfgExpr::Key(name, _) => out.write_str(name),
+            CfgExpr::Not(inner, _) => write!(out, "not({inner})"),
+            CfgExpr::Any(parts, _) => {
+                out.write_str("any(")?;
+                join_cfg(parts, out)?;
+                out.write_str(")")
+            }
+            CfgExpr::All(parts, _) => {
+                out.write_str("all(")?;
+                join_cfg(parts, out)?;
+                out.write_str(")")
+            }
+        }
+    }
+}
+
+fn join_cfg(parts: &[CfgExpr], out: &mut fmt::Formatter<'_>) -> fmt::Result {
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            out.write_str(", ")?;
+        }
+        write!(out, "{part}")?;
+    }
+    Ok(())
+}
+
 /// One field of a `struct`. Always named: a struct's fields are named in the
 /// source, and there is no positional form to confuse them with.
 #[derive(Clone, Debug, PartialEq)]
@@ -296,6 +391,10 @@ pub struct FieldDef {
     /// A field is private to the module that declares it unless it is marked
     /// `pub`, the same rule an item follows.
     pub public: bool,
+    /// `cfg(windows) handle: u64` -- the field exists only when the condition
+    /// holds. The filter removes the field from the declaration before the
+    /// checker sees the struct, so the layout and the constructor agree.
+    pub cfg: Option<CfgExpr>,
     pub span: Span,
 }
 
@@ -632,6 +731,7 @@ impl Stmt {
             | Stmt::Defer { span, .. }
             | Stmt::Arena { span, .. }
             | Stmt::Scope { span, .. } => *span,
+            Stmt::Cfg { span, .. } => *span,
             Stmt::Invariant(contract) => contract.span,
         }
     }
@@ -845,6 +945,16 @@ pub enum Stmt {
     /// inside is joined or cancelled before the scope is left, so no task can
     /// outlive the scope that started it.
     Scope { body: Block, span: Span },
+    /// `cfg(unix) { .. }` -- a block that exists only when the condition holds.
+    ///
+    /// The filter runs before name resolution, so a disabled block is dropped
+    /// rather than checked and discarded: a call to a function that exists only
+    /// on the other platform is legal inside it.
+    Cfg {
+        key: CfgExpr,
+        block: Block,
+        span: Span,
+    },
     /// `invariant n >= 0` -- a fact a loop promises at its head.
     ///
     /// It is a statement rather than a field on each loop variant because the

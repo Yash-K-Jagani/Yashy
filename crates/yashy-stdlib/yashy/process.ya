@@ -18,10 +18,11 @@
 // string the caller owns and frees like any other.
 
 import io;
+
 import string;
 
 extern "C" {
-    unsafe fn yashy_spawn_record(*const u8 argv_text, *const u8 cwd, *const u8 env_text) -> string;
+    unsafe fn yashy_spawn_record(* const u8 argv_text, * const u8 cwd, * const u8 env_text) -> string;
 }
 
 /// A child that has already exited.
@@ -35,8 +36,12 @@ pub struct Child {
 fn header_int(string text) -> int {
     const value = text.parse_i64();
     return switch value {
-        case Some(number) { number }
-        case None { 0 }
+        case Some(number) {
+            number
+        }
+        case None {
+            0
+        }
     };
 }
 
@@ -44,21 +49,33 @@ fn header_int(string text) -> int {
 fn child_from(string body) -> Child {
     const first = body.index_of("\n");
     const first_cut = switch first {
-        case Some(index) { index }
-        case None { -1 }
+        case Some(index) {
+            index
+        }
+        case None {
+            -1
+        }
     };
     if first_cut < 0 {
-        return Child { exit_code: -1, pid: -1, stdout: "" };
+        return Child {
+            exit_code: -1, pid: -1, stdout: ""
+        };
     }
     const code_text = body.slice(0, first_cut);
     const rest = body.slice(first_cut + 1, body.len());
     const second = rest.index_of("\n");
     const second_cut = switch second {
-        case Some(index) { index }
-        case None { -1 }
+        case Some(index) {
+            index
+        }
+        case None {
+            -1
+        }
     };
     if second_cut < 0 {
-        return Child { exit_code: -1, pid: -1, stdout: "" };
+        return Child {
+            exit_code: -1, pid: -1, stdout: ""
+        };
     }
     const pid_text = rest.slice(0, second_cut);
     const output = rest.slice(second_cut + 1, rest.len());
