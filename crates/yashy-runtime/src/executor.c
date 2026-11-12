@@ -833,6 +833,14 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (ex == NULL || poll == NULL || frame == NULL) {
         return -1;
     }
+    /* An awaited `spawn`ed task still carries its queue record. This call
+     * now drives the frame inline, so hand the record off first — the same
+     * hand-off `yashy_scope_join_or_cancel` does when the scope itself
+     * drove a child home. Without it, a drain nested inside this very poll
+     * (the `await` in the task being driven) dequeues the record, meets the
+     * claim this call holds, and requeues it forever: the two drivers
+     * wait on each other and the program never terminates. */
+    yax_unqueue(ex, frame);
     /* The task being driven is live too, so the dump can name it while it
      * runs or suspends. */
     yax_lock_acquire(&ex->lock);

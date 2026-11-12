@@ -31,6 +31,7 @@
 #include <bcrypt.h>
 #else
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -613,6 +614,31 @@ long long yashy_random_i64(void) {
  * injection defence, and a test pins it.
  */
 
+#if !defined(_WIN32)
+/* The fork child's verdict on a failure that happens before `exec`: write
+ * the errno through the close-on-exec pipe, then leave with the shell's
+ * "could not execute" code. The write is retried on a signal interrupt —
+ * a verdict lost to EINTR would read as success on the other end, which is
+ * the exact bug this pipe exists to close: `execvp` cannot report failure
+ * across a fork, so without the pipe a missing command exits 127 in the
+ * child and the parent records it as a successful run. `write` is
+ * async-signal-safe; nothing here allocates. */
+static void yashy_child_exec_error(int errfd, int err) {
+    size_t sent = 0;
+    while (sent < sizeof err) {
+        ssize_t wrote = write(errfd, (const char *)&err + sent, sizeof err - sent);
+        if (wrote > 0) {
+            sent += (size_t)wrote;
+        } else if (wrote < 0 && errno == EINTR) {
+            continue;
+        } else {
+            break;
+        }
+    }
+    _exit(127);
+}
+#endif
+
 #if defined(_WIN32)
 /* One argv element, quoted the way the MSVC runtime splits them. */
 static void yashy_append_quoted(char *line, size_t *at, const char *arg) {
@@ -830,17 +856,41 @@ static int yashy_run_impl(char **argv, const char *cwd, char **env, yashy_str **
     if (pipe(fds) != 0) {
         return -1;
     }
-    pid_t child = fork();
-    if (child < 0) {
+    /* The verdict pipe: `fork` cannot carry an `exec` failure back, so the
+     * child writes its errno here and `FD_CLOEXEC` closes the write end on
+     * a successful exec. The parent reads it before the child's stdout:
+     * bytes are the errno the child could not otherwise report (answer the
+     * failure the Windows path answers), and a clean EOF means the program
+     * is running. */
+    int errfd[2];
+    if (pipe(errfd) != 0) {
         close(fds[0]);
         close(fds[1]);
         return -1;
     }
+    if (fcntl(errfd[1], F_SETFD, FD_CLOEXEC) != 0) {
+        close(fds[0]);
+        close(fds[1]);
+        close(errfd[0]);
+        close(errfd[1]);
+        return -1;
+    }
+    pid_t child = fork();
+    if (child < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        close(errfd[0]);
+        close(errfd[1]);
+        return -1;
+    }
     if (child == 0) {
+        close(errfd[0]);
         if (cwd != NULL && cwd[0] != '\0' && chdir(cwd) != 0) {
-            _exit(127);
+            yashy_child_exec_error(errfd[1], errno);
         }
-        dup2(fds[1], STDOUT_FILENO);
+        if (dup2(fds[1], STDOUT_FILENO) < 0) {
+            yashy_child_exec_error(errfd[1], errno);
+        }
         close(fds[0]);
         close(fds[1]);
         if (env != NULL) {
@@ -853,10 +903,39 @@ static int yashy_run_impl(char **argv, const char *cwd, char **env, yashy_str **
             }
         }
         execvp(argv[0], argv);
-        _exit(127);
+        yashy_child_exec_error(errfd[1], errno);
     }
     *pid_out = (long long)child;
     close(fds[1]);
+    close(errfd[1]);
+    int exec_errno = 0;
+    size_t got = 0;
+    int verdict_unreadable = 0;
+    for (;;) {
+        ssize_t n = read(errfd[0], (char *)&exec_errno + got, sizeof(int) - got);
+        if (n > 0) {
+            got += (size_t)n;
+            if (got == sizeof(int)) {
+                break;
+            }
+        } else if (n == 0) {
+            break;
+        } else if (errno != EINTR) {
+            verdict_unreadable = 1;
+            break;
+        }
+    }
+    close(errfd[0]);
+    if (got > 0 || verdict_unreadable) {
+        /* The child could not prepare or exec: reap it and answer the
+         * failure. `exec_errno` carries the cause for a debugger; the value
+         * surface is the same `Err` the Windows path produces. */
+        close(fds[0]);
+        int status;
+        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+        }
+        return -1;
+    }
     size_t capacity = 8192;
     size_t length = 0;
     uint8_t *data = (uint8_t *)malloc(capacity);
