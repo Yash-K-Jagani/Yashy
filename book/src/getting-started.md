@@ -12,7 +12,7 @@ check that the toolchain is complete:
 
 ```text
 $ yashy doctor
-yashy 0.1.0
+yashy 1.0.0
 target: x86_64-unknown-linux-gnu
 clang: /usr/bin/clang
   clang version 18.1.8

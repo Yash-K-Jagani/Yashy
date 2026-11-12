@@ -54,7 +54,7 @@ cd yashy-VERSION-x86_64-unknown-linux-gnu
 Or:
 
 ```sh
-curl -fsSL https://github.com/Yash-K-Jagani/Otter/releases/download/vVERSION/install.sh | sh
+curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/download/vVERSION/install.sh | sh
 ```
 
 Then:

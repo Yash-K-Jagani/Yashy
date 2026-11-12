@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Install a prebuilt Yashy compiler on Linux x86-64.
 #
-#   curl -fsSL https://github.com/Yash-K-Jagani/Otter/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/latest/download/install.sh | sh
 #   sh install.sh --prefix "$HOME/.local"
 #   sh install.sh --uninstall
 #
@@ -26,7 +26,7 @@
 
 set -eu
 
-REPO="Yash-K-Jagani/Otter"
+REPO="Yash-K-Jagani/Yashy"
 TARGET="x86_64-unknown-linux-gnu"
 
 die() {

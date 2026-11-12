@@ -3,7 +3,7 @@ stdout:
 {
   "schema_version": 1,
   "tool": "verify",
-  "yashy_version": "0.1.0",
+  "yashy_version": "1.0.0",
   "success": true,
   "diagnostics": [],
   "summary": {

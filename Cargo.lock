@@ -26,21 +26,21 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "yashy-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-codegen",
 ]
 
 [[package]]
 name = "yashy-cache"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
 ]
 
 [[package]]
 name = "yashy-codegen"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-hir",
@@ -52,11 +52,11 @@ dependencies = [
 
 [[package]]
 name = "yashy-common"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "yashy-driver"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-cache",
  "yashy-codegen",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "yashy-expand"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-fmt",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "yashy-fmt"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-lexer",
@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "yashy-hir"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-parser",
@@ -101,14 +101,14 @@ dependencies = [
 
 [[package]]
 name = "yashy-lexer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
 ]
 
 [[package]]
 name = "yashy-lsp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-driver",
@@ -119,14 +119,14 @@ dependencies = [
 
 [[package]]
 name = "yashy-manifest"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
 ]
 
 [[package]]
 name = "yashy-parser"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-lexer",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "yashy-query"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-codegen",
  "yashy-common",
@@ -147,14 +147,14 @@ dependencies = [
 
 [[package]]
 name = "yashy-runtime"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "yashy-sema"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-hir",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "yashy-verify"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "yashy-common",
  "yashy-hir",

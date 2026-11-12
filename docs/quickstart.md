@@ -40,7 +40,7 @@ cd yashy-<version>-x86_64-unknown-linux-gnu
 Or use the published installer:
 
 ```sh
-curl -fsSL https://github.com/Yash-K-Jagani/Otter/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/latest/download/install.sh | sh
 ```
 
 The installers verify `SHA256SUMS`, install into a prefix, add it to `PATH`, and

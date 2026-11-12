@@ -166,13 +166,13 @@ try {
     }
     else {
         if ($Version -eq 'latest') {
-            $release = Invoke-RestMethod 'https://api.github.com/repos/Yash-K-Jagani/Otter/releases/latest'
+            $release = Invoke-RestMethod 'https://api.github.com/repos/Yash-K-Jagani/Yashy/releases/latest'
             $Version = $release.tag_name.TrimStart('v')
         }
         $downloadDir = New-TempDirectory
         $archive = Join-Path $downloadDir "yashy-$Version-x86_64-pc-windows-msvc.zip"
         $sums = Join-Path $downloadDir 'SHA256SUMS'
-        $base = "https://github.com/Yash-K-Jagani/Otter/releases/download/v$Version"
+        $base = "https://github.com/Yash-K-Jagani/Yashy/releases/download/v$Version"
         Invoke-WebRequest -UseBasicParsing -Uri "$base/yashy-$Version-x86_64-pc-windows-msvc.zip" -OutFile $archive
         Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $sums
         Assert-Checksum $archive $sums

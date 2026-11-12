@@ -12,7 +12,7 @@ There is no runtime library to install and no LLVM build dependency: the print
 helpers are a C source file embedded in the compiler binary, and the only
 external tool is `clang`.
 
-**Status: milestones M0–M8 and M12–M15 are complete; M9–M11 remain.** Yashy lexes,
+**Status: 1.0.0.** What this release promises, and what it explicitly does not, is written down in [docs/1.0.md](docs/1.0.md). Yashy lexes,
 parses, type-checks and compiles programs with `int`, `float`, `bool`, `char`,
 `string`, `void`, `struct` (with field access), `enum`, `Option<T>`, `Result<T, E>`,
 `if`/`while`/`for`/`switch`, `defer`, and `?` propagation. Bindings can be
@@ -131,7 +131,7 @@ cd yashy-<version>-x86_64-unknown-linux-gnu
 Or pipe the published installer:
 
 ```sh
-curl -fsSL https://github.com/Yash-K-Jagani/Otter/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/Yash-K-Jagani/Yashy/releases/latest/download/install.sh | sh
 ```
 
 The installer uses `~/.local` by default, verifies the archive, adds
@@ -151,9 +151,9 @@ yashy run main.ya
 ```
 
 The [first-CLI guide](docs/tutorial/12-first-cli.md) builds a stdin filter,
-adds a test, and produces a release binary. macOS is a 1.0 target; this release
-does not ship a macOS archive. A source build on macOS gets `brew` guidance from
-`yashy doctor`.
+adds a test, and produces a release binary. The 1.0.0 archives are Windows and
+Linux. macOS is not claimed until a signed, notarised archive has passed the
+install matrix; a source build on macOS gets `brew` guidance from `yashy doctor`.
 
 ### From a source checkout
 

@@ -844,9 +844,14 @@ fn unverified_sidecar(output: &Path) -> PathBuf {
 }
 
 /// The stamp's exact bytes. One line of JSON, so a reader can parse it without
-/// guessing at a format, and a human can read it with `cat`.
-const UNVERIFIED_SIDECAR: &str =
-    r#"{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"0.1.0"}"#;
+/// guessing at a format, and a human can read it with `cat`. The version is
+/// the compiler's, taken from the manifest so the stamp cannot drift from
+/// `yashy --version`.
+const UNVERIFIED_SIDECAR: &str = concat!(
+    r#"{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":""#,
+    env!("CARGO_PKG_VERSION"),
+    r#""}"#
+);
 
 /// True when the environment demands verification.
 ///
@@ -2251,7 +2256,7 @@ fn init(args: &[String]) -> ExitCode {
         (
             "AGENTS.md",
             format!(
-                "# {name}\n\nThis is a Yashy project. `main.ya` is the entry point; the programs under `tests/` are the test suite.\n\n## Commands\n\n```text\nyashy check main.ya\nyashy run main.ya\nyashy test\nyashy build main.ya -o {name} --release\n```\n\n## Layout\n\n- `main.ya` -- the program's entry point.\n- `tests/` -- one test program per file. A test is an ordinary Yashy program with a `main`; exit 0 is a pass.\n- `yashy.toml` -- package metadata.\n- `AGENTS.md` -- this guide.\n\n## Rules\n\n- `let` is a mutable binding; `const` is immutable.\n- A module's items are private unless they say `pub`. Import a file by its stem, and keep the file beside the importer.\n- A file under `tests/` is its own entry file. It cannot import a module from the project root by walking up; keep a test self-contained or test the built binary.\n- Errors are values: `Option[T]` for a value that may be missing, `Result[T, E]` for an operation that may fail. There are no exceptions.\n- Owned values are released explicitly: `defer` for a scope, `.free()` for arrays, maps, strings built at run time, channels, and mutexes. The checker refuses a use after `move`.\n- Run `yashy test` before calling the work done. A compile error is not a test failure; fix the diagnostic first.\n\n## Docs\n\n- [Quickstart](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/quickstart.md)\n- [Language tutorial](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/tutorial/00-intro.md)\n- [Errors](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/errors.md)\n- [First CLI](https://github.com/Yash-K-Jagani/Otter/blob/main/docs/tutorial/12-first-cli.md)\n"
+                "# {name}\n\nThis is a Yashy project. `main.ya` is the entry point; the programs under `tests/` are the test suite.\n\n## Commands\n\n```text\nyashy check main.ya\nyashy run main.ya\nyashy test\nyashy build main.ya -o {name} --release\n```\n\n## Layout\n\n- `main.ya` -- the program's entry point.\n- `tests/` -- one test program per file. A test is an ordinary Yashy program with a `main`; exit 0 is a pass.\n- `yashy.toml` -- package metadata.\n- `AGENTS.md` -- this guide.\n\n## Rules\n\n- `let` is a mutable binding; `const` is immutable.\n- A module's items are private unless they say `pub`. Import a file by its stem, and keep the file beside the importer.\n- A file under `tests/` is its own entry file. It cannot import a module from the project root by walking up; keep a test self-contained or test the built binary.\n- Errors are values: `Option[T]` for a value that may be missing, `Result[T, E]` for an operation that may fail. There are no exceptions.\n- Owned values are released explicitly: `defer` for a scope, `.free()` for arrays, maps, strings built at run time, channels, and mutexes. The checker refuses a use after `move`.\n- Run `yashy test` before calling the work done. A compile error is not a test failure; fix the diagnostic first.\n\n## Docs\n\n- [Quickstart](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/quickstart.md)\n- [Language tutorial](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/00-intro.md)\n- [Errors](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/errors.md)\n- [First CLI](https://github.com/Yash-K-Jagani/Yashy/blob/main/docs/tutorial/12-first-cli.md)\n"
             ),
         ),
         (

@@ -409,7 +409,7 @@ The stamp is the output path plus `.unverified`, so `main.exe` on Windows
 becomes `main.exe.unverified`. It contains one line of JSON:
 
 ```json
-{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"0.1.0"}
+{"schema_version":1,"verified":false,"reason":"--no-verify","yashy_version":"1.0.0"}
 ```
 
 A verified build removes a stale stamp. If the stamp cannot be written, the
@@ -470,7 +470,7 @@ schema v1 envelope carrying the same facts:
 {
   "schema_version": 1,
   "tool": "explain",
-  "yashy_version": "0.1.0",
+  "yashy_version": "1.0.0",
   "success": true,
   "code": "E0100",
   "title": "type mismatch",
@@ -581,7 +581,7 @@ stdout; `--json` implies no color and no prompt.
 {
   "schema_version": 1,
   "tool": "check",
-  "yashy_version": "0.1.0",
+  "yashy_version": "1.0.0",
   "success": false,
   "diagnostics": [
     {
@@ -654,7 +654,7 @@ stdout; `--json` implies no color and no prompt.
 {
   "schema_version": 1,
   "tool": "test",
-  "yashy_version": "0.1.0",
+  "yashy_version": "1.0.0",
   "success": false,
   "diagnostics": [],
   "tests": [
@@ -699,7 +699,7 @@ run or the stdlib is missing, and prints a final `next:` line with the fix. The
   "schema_version": 1,
   "tool": "doctor",
   "ok": true,
-  "yashy_version": "0.1.0",
+  "yashy_version": "1.0.0",
   "target": "x86_64-unknown-linux-gnu",
   "clang": {
     "ok": true,

@@ -22,5 +22,5 @@ members = [
 # `fuzz` is intentionally not a member yet; it arrives with the fuzzing task.
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
