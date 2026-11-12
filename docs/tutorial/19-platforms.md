@@ -125,9 +125,9 @@ about the tree and not about a moment.
    to be written with the keys the compiler knows — `cfg(netbsd)` is an error,
    not a branch that never runs.
 
-2. Add a `cfg(unix)` block that calls a function you have not written. It
-   must still compile on Windows, where the block is removed before the
-   compiler looks the name up.
+2. Add a `cfg(macos)` block that calls a function you have not written. It
+   must still compile on Windows and Linux, where the block is removed
+   before the compiler looks the name up.
 
 3. Build your program for another platform with `--target` and read the
    `target triple` line at the top of the emitted IR:

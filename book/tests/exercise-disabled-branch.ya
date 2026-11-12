@@ -1,12 +1,13 @@
 // The solution to the second exercise of the platforms chapter: a disabled
 // branch may call a function that exists nowhere.
 //
-// The `cfg(unix)` block is removed on Windows before the compiler resolves a
-// single name, so `a_function_that_exists_nowhere` is never looked up. The
-// program compiles on every platform, which is the whole point of `cfg`.
+// The `cfg(macos)` block is removed on Windows and Linux before the compiler
+// resolves a single name, so `a_function_that_exists_nowhere` is never
+// looked up. The program compiles on both, which is the whole point of
+// `cfg`.
 
 fn main() {
-    cfg(unix) {
+    cfg(macos) {
         a_function_that_exists_nowhere();
     }
     print("compiled");

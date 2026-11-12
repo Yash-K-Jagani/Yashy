@@ -207,9 +207,28 @@ static void yax_set_state(yashy_executor *ex, void *frame, int state) {
 /* Poll one task with its state tracked: running across the poll, pending
  * when it suspends, and out of the registry once it is ready. A task that
  * was never registered (a bare `yashy_task_poll`) passes through with only
- * the state writes finding nothing. */
+ * the state writes finding nothing.
+ *
+ * The running state is also the claim on the frame. A scope's join polls
+ * its children directly while a pool worker may hold the same frame from
+ * the queue, and two threads inside one state machine both read the resume
+ * index as live and run its body twice -- a cancelled worker's `defer`s
+ * would print twice. A frame already claimed answers NULL, which every
+ * caller reads as "still pending" and retries once the other driver is
+ * done. */
 static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
-    yax_set_state(ex, frame, 1);
+    if (ex != NULL && frame != NULL) {
+        yax_lock_acquire(&ex->lock);
+        long long index = yax_registry_index(ex, frame);
+        if (index >= 0) {
+            if (ex->registry[index].state == 1) {
+                yax_lock_release(&ex->lock);
+                return NULL;
+            }
+            ex->registry[index].state = 1;
+        }
+        yax_lock_release(&ex->lock);
+    }
     void *ready = poll == NULL ? NULL : poll(frame);
     if (ready != NULL) {
         yax_unregister(ex, frame);
@@ -741,18 +760,30 @@ void yashy_scope_join_or_cancel(yashy_scope *scope) {
         }
         /* Header word 0 is the resume index: -1 means done. A frame the
          * executor retained was driven home by an `await` even if the memory
-         * was since freed, so it is never polled again here. */
-        if (yax_is_retained(scope->ex, child.frame) || *(int *)child.frame == -1) {
-            yax_unqueue(scope->ex, child.frame);
-            continue;
-        }
+         * was since freed, so it is never polled again here. Both answers are
+         * re-read on every attempt rather than once before the loop: a pool
+         * worker may drive this very child to completion while the loop waits,
+         * and polling such a frame again would run its body a second time. */
         int ready = 0;
+        int driven_home = 0;
         for (int attempt = 0; attempt < 1000; attempt++) {
+            if (yax_is_retained(scope->ex, child.frame) ||
+                *(int *)child.frame == -1) {
+                driven_home = 1;
+                break;
+            }
             if (yax_poll_tracked(scope->ex, child.poll, child.frame) != NULL) {
                 ready = 1;
                 break;
             }
             yashy_sleep_ms(1);
+        }
+        if (driven_home) {
+            /* The executor drove this child home: dequeue it so a later drain
+             * does not touch it, and leave the frame to the driver that owns
+             * it -- the same answer as the check above the loop. */
+            yax_unqueue(scope->ex, child.frame);
+            continue;
         }
         if (!ready) {
             yashy_task_cancel(scope->ex, child.poll, child.frame);
@@ -881,6 +912,22 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
 void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (frame == NULL) {
         return;
+    }
+    /* A frame another thread is inside must not be freed under it: wait for
+     * that claim to clear. The wait is bounded because a scope has to make
+     * progress even if a driver wedges, and a claim is held only across one
+     * poll segment, which returns promptly. */
+    if (ex != NULL) {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            yax_lock_acquire(&ex->lock);
+            long long index = yax_registry_index(ex, frame);
+            int claimed = index >= 0 && ex->registry[index].state == 1;
+            yax_lock_release(&ex->lock);
+            if (!claimed) {
+                break;
+            }
+            yashy_sleep_ms(1);
+        }
     }
     yax_unregister(ex, frame);
     if (ex != NULL) {

@@ -27,7 +27,11 @@ fuzz/corpus/**             -text
 # for byte. The stdlib programs live in a subdirectory the `*.ya` pattern
 # above does not reach, and a checkout that rewrote the `.out` endings would
 # fail the comparison for a reason that has nothing to do with the program.
-**/tests/programs/**/*.out text eol=lf
+# `-text` stores the bytes verbatim instead of normalising them to LF:
+# `csv.out` ends in a deliberate CRLF (`csv.write_crlf` writes one), and
+# `text` would strip that CR out of the repository on the next add, which
+# is how the golden lost it the first time.
+**/tests/programs/**/*.out -text
 
 # `yashy doc` regenerates `docs/stdlib.md` from the stdlib sources and the
 # docs test compares the two byte for byte. Both halves have to be the same

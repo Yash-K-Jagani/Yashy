@@ -114,11 +114,23 @@ fn exactly_one_branch_is_selected() {
 fn a_disabled_branch_is_never_resolved() {
     // The function called in the disabled branch exists nowhere. If the filter
     // ran after name resolution this program would not compile.
+    //
+    // The key is chosen for the host, not hardcoded: `cfg(unix)` is *enabled*
+    // on the Linux runner, so a fixed key would leave the branch resolved and
+    // the test would fail for a reason that has nothing to do with the filter.
+    let keys = host_keys();
+    let disabled = if keys.iter().any(|key| key == "windows") {
+        "unix"
+    } else {
+        "windows"
+    };
     let dir = work_dir("cfg-disabled");
     let file = dir.join("main.ya");
     fs::write(
         &file,
-        "fn main() {\n    cfg(unix) {\n        a_function_that_exists_nowhere();\n    }\n    print(\"compiled\");\n}\n",
+        format!(
+            "fn main() {{\n    cfg({disabled}) {{\n        a_function_that_exists_nowhere();\n    }}\n    print(\"compiled\");\n}}\n"
+        ),
     )
     .expect("the test source must be writable");
 
