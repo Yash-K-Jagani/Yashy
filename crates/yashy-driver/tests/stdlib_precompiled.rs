@@ -139,6 +139,17 @@ fn a_warm_ir_cache_skips_emit_and_reproduces_the_binary() {
         "`--stdlib-source` must bypass the cache:\n{source_log}"
     );
 
+    // The IR each build handed to the linker, compared before the images are:
+    // identical `.ll` files with differing images put the difference in the
+    // link step, while a differing `.ll` puts it in the front end. The text is
+    // written beside every output as a debugging aid, so it is already there.
+    let cold_ir = fs::read(first.with_extension("ll")).expect("the cold build's IR must exist");
+    let warm_ir = fs::read(second.with_extension("ll")).expect("the warm build's IR must exist");
+    let source_ir =
+        fs::read(from_source.with_extension("ll")).expect("the from-source build's IR must exist");
+    assert_same_ir(&cold_ir, &warm_ir, "cold", "warm");
+    assert_same_ir(&cold_ir, &source_ir, "cold", "from-source");
+
     let cold_bytes = fs::read(&first).expect("the first binary must exist");
     let warm_bytes = fs::read(&second).expect("the second binary must exist");
     let source_bytes = fs::read(&from_source).expect("the from-source binary must exist");
@@ -285,11 +296,60 @@ fn without_link_timestamp(bytes: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Assert two images are identical, naming the first differing byte.
+/// Assert two IR texts are identical, naming the first line that parted.
+///
+/// The `.ll` beside each output is the exact text that build handed to the
+/// linker, which makes it the discriminator when two images differ: a
+/// mismatch here blames the front end, a match blames the link step. Printing
+/// the line from each is usually enough to see which.
+fn assert_same_ir(left: &[u8], right: &[u8], left_name: &str, right_name: &str) {
+    if left == right {
+        return;
+    }
+    let Some(offset) = left.iter().zip(right).position(|(a, b)| a != b) else {
+        panic!(
+            "the {left_name} and {right_name} IR differ in length only ({} and {} bytes)",
+            left.len(),
+            right.len()
+        );
+    };
+    let (line, column) = line_and_column(left, offset);
+    panic!(
+        "the {left_name} and {right_name} IR differ at byte {offset} of {} \
+         (line {line}, column {column})\n  {left_name}: {}\n  {right_name}: {}",
+        left.len(),
+        line_at(left, line),
+        line_at(right, line),
+    );
+}
+
+/// The one-based line and column a byte offset falls on.
+fn line_and_column(bytes: &[u8], offset: usize) -> (usize, usize) {
+    let before = &bytes[..offset];
+    let line = before.iter().filter(|&&byte| byte == b'\n').count() + 1;
+    let line_start = before
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map_or(0, |at| at + 1);
+    (line, offset - line_start + 1)
+}
+
+/// One line of IR text, by one-based line number.
+fn line_at(bytes: &[u8], line: usize) -> String {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .nth(line - 1)
+        .unwrap_or("<past the end>")
+        .to_string()
+}
+
+/// Assert two images are identical, naming where they parted.
 ///
 /// A plain `assert_eq!` on two quarter-megabyte images dumps thousands of
 /// numbers into the failure message and hides the one fact worth knowing: the
-/// offset where they parted.
+/// offset where they parted. The offset alone is still thin evidence, so the
+/// message carries the section it falls in and the bytes around it -- a
+/// timestamp, a count and a length are told apart by their neighbours.
 fn assert_same_binary(left: &[u8], right: &[u8], what: &str) {
     assert_eq!(
         left.len(),
@@ -300,12 +360,86 @@ fn assert_same_binary(left: &[u8], right: &[u8], what: &str) {
     );
     if let Some(offset) = left.iter().zip(right).position(|(a, b)| a != b) {
         panic!(
-            "{what}: images differ at byte {offset} of {} ({} and {})",
+            "{what}: images differ at byte {offset} of {} ({} and {}){}\n  left:  {}\n  right: {}",
             left.len(),
             left[offset],
-            right[offset]
+            right[offset],
+            image_site(left, offset),
+            byte_window(left, offset),
+            byte_window(right, offset),
         );
     }
+}
+
+/// The PE section an offset falls in, as a line to append to a failure.
+///
+/// "byte 235332" alone does not say whether the compiler's code or data
+/// parted; ".rdata +50500" does. A non-PE image gets nothing: this is
+/// diagnosis for the platform whose linker stamps the image.
+fn image_site(bytes: &[u8], offset: usize) -> String {
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return String::new();
+    }
+    let pe = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
+    if pe + 24 > bytes.len() || &bytes[pe..pe + 4] != b"PE\0\0" {
+        return String::new();
+    }
+    let sections = usize::from(u16::from_le_bytes([bytes[pe + 6], bytes[pe + 7]]));
+    let optional = usize::from(u16::from_le_bytes([bytes[pe + 20], bytes[pe + 21]]));
+    for index in 0..sections {
+        let entry = pe + 24 + optional + 40 * index;
+        if entry + 40 > bytes.len() {
+            break;
+        }
+        let size = u32::from_le_bytes([
+            bytes[entry + 16],
+            bytes[entry + 17],
+            bytes[entry + 18],
+            bytes[entry + 19],
+        ]) as usize;
+        let raw = u32::from_le_bytes([
+            bytes[entry + 20],
+            bytes[entry + 21],
+            bytes[entry + 22],
+            bytes[entry + 23],
+        ]) as usize;
+        if offset >= raw && offset < raw + size {
+            let name_len = bytes[entry..entry + 8]
+                .iter()
+                .position(|&byte| byte == 0)
+                .unwrap_or(8);
+            let name = String::from_utf8_lossy(&bytes[entry..entry + name_len]);
+            return format!(
+                "\n  site: {name} +{} (section raw {raw}..{})",
+                offset - raw,
+                raw + size
+            );
+        }
+    }
+    String::new()
+}
+
+/// The differing byte in context: 32 bytes either side, hex with the byte
+/// marked, and the same window as text. Enough to recognise a small field --
+/// a timestamp, a count, a length -- without dumping the image.
+fn byte_window(bytes: &[u8], offset: usize) -> String {
+    let first = offset.saturating_sub(32);
+    let last = (offset + 33).min(bytes.len());
+    let mut hex = String::new();
+    let mut text = String::new();
+    for (index, &byte) in bytes[first..last].iter().enumerate() {
+        if first + index == offset {
+            hex.push_str(&format!("[{byte:02x}]"));
+        } else {
+            hex.push_str(&format!("{byte:02x} "));
+        }
+        text.push(if (0x20..0x7f).contains(&byte) {
+            char::from(byte)
+        } else {
+            '.'
+        });
+    }
+    format!("bytes {first}..{last}: {hex}\n  ascii: {text}")
 }
 
 /// Copy a directory tree recursively, without following into a symlink.
