@@ -720,13 +720,17 @@ static int yax_is_retained(yashy_executor *ex, void *frame) {
     return found;
 }
 
-/* Remove a task's queued record without freeing its frame: used when the
- * scope itself drove the child home, so a later executor drain must not poll
- * it a second time. */
-static void yax_unqueue(yashy_executor *ex, void *frame) {
+/* Remove a task's queued record without freeing its frame: used when a
+ * driver takes the task over inline — the scope joining a child home, or
+ * `block_on` starting an `await` — so a later executor drain must not poll
+ * it a second time. Answers 1 when the record was here (the caller now owns
+ * the task's completion: it must retain the frame when it finishes, the mark
+ * the queue path leaves behind) and 0 when someone else already held it. */
+static int yax_unqueue(yashy_executor *ex, void *frame) {
     if (ex == NULL || frame == NULL) {
-        return;
+        return 0;
     }
+    int removed = 0;
     yax_lock_acquire(&ex->lock);
     for (long long i = 0; i < ex->count; i++) {
         long long index = (ex->head + i) % ex->capacity;
@@ -735,6 +739,7 @@ static void yax_unqueue(yashy_executor *ex, void *frame) {
                 ex->queue[(ex->head + ex->count - 1) % ex->capacity];
             ex->count--;
             ex->outstanding--;
+            removed = 1;
             if (ex->outstanding == 0) {
                 yax_cond_broadcast(&ex->idle);
             }
@@ -742,6 +747,7 @@ static void yax_unqueue(yashy_executor *ex, void *frame) {
         }
     }
     yax_lock_release(&ex->lock);
+    return removed;
 }
 
 /* Join or cancel every child in reverse spawn order. A child whose resume
@@ -840,7 +846,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
      * (the `await` in the task being driven) dequeues the record, meets the
      * claim this call holds, and requeues it forever: the two drivers
      * wait on each other and the program never terminates. */
-    yax_unqueue(ex, frame);
+    int took_record = yax_unqueue(ex, frame);
     /* The task being driven is live too, so the dump can name it while it
      * runs or suspends. */
     yax_lock_acquire(&ex->lock);
@@ -866,6 +872,16 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
                 yashy_tasks_dump();
             }
         }
+    }
+    if (took_record) {
+        /* The record this call took over would have completed through the
+         * queue, and the queue's completion path retains the frame: that
+         * retained mark is what `yashy_scope_join_or_cancel` reads to know
+         * a child was driven home by an `await` — its owner frees the
+         * frame as soon as this returns, and the join must never poll a
+         * freed child. Leave the same mark for the frame this call
+         * completed itself. */
+        yax_retain(ex, frame);
     }
     /* The main task completed before `block_on` returns, and so did every
      * task spawned from it: drain the queue before answering. */
