@@ -21,3 +21,8 @@ benchmarks/build/
 
 # Test artifacts
 tests/programs/**/out
+
+# Gate runner output: one log per gate, plus the nightly JSON summary.
+# Scratch, never committed.
+.gates-*.log
+.gates-nightly.json

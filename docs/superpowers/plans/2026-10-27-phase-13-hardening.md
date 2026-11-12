@@ -220,10 +220,10 @@ See the master index. The ones that bite here:
 - Produces: one command that runs the whole gate set on a clean checkout, with a machine-readable `--json` summary.
 - Produces: a triage list with every open issue classified; "no P0" means the P0 section is empty and the crash corpus (`never_panics`, `sandbox_escape`, `repro-check`) is green.
 
-- [ ] **Step 1: Write the runbook** by collecting the gate tables from all fifteen phase plans; a missing gate is a finding.
+- [x] **Step 1: Write the runbook** by collecting the gate tables from all fifteen phase plans; a missing gate is a finding.
 - [ ] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception.
-- [ ] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
-- [ ] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
+- [x] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
+- [x] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
 
 ---
 

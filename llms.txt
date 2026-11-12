@@ -26,6 +26,8 @@
 - [The optimization program](docs/optimization.md): what the verifier proves, what LLVM decides, the registered passes, and how to read `--opt-report`.
 - [Error catalog](docs/errors.md): stable codes with cause/example/fix pages and the `yashy explain` command.
 - [AGENTS.md](AGENTS.md): repository layout, commands, the diagnostic workflow, and rules for coding agents.
+- [The all-gates runbook](docs/gates.md): every gate from every phase plan with its command, budget and owner, and what "green" means.
+- [Triage](docs/triage.md): the P0/P1/P2 definitions, the empty-list criterion, and the crash corpus that "no P0" rests on.
 - [Release notes template](docs/release-notes-template.md): targets, checksums, requirements, and known gaps.
 
 ## Syntax

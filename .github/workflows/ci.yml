@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'   # nightly, 02:00 UTC
 
 env:
   CARGO_TERM_COLOR: always
@@ -191,3 +193,61 @@ jobs:
             sh /dist/install.sh --uninstall --prefix /tmp/yashy --no-path &&
             test ! -d /tmp/yashy
           '
+
+  # Nightly gate run: every phase gate on a clean checkout, on both OSes.
+  # Schedule and manual dispatch only, never on push or pull_request: a red
+  # gate here is a finding for the triage rotation, not a broken merge.
+  # --all runs every gate so a single failure does not hide the rest, and
+  # the JSON summary lands in .gates-nightly.json (scratch, gitignored).
+  gates:
+    name: gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Verify LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+          }
+          clang --version
+
+      - name: Load the MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build the compiler the gates drive
+        run: cargo build --release -p yashy-driver
+
+      - name: Run the gates (Linux)
+        if: runner.os == 'Linux'
+        # `shell: bash` is GitHub's `--noprofile --norc -e -o pipefail`: the
+        # pipeline's status is gates.sh's, not tee's, so a red gate fails the
+        # job instead of being masked by the successful `tee`.
+        shell: bash
+        run: sh scripts/gates.sh --all --json | tee .gates-nightly.json
+
+      - name: Run the gates (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh scripts/gates.ps1 -All -Json | Tee-Object -FilePath .gates-nightly.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
