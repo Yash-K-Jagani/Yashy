@@ -2373,6 +2373,8 @@ mod tests {
             "x86_64-pc-windows-gnu",
             OptLevel::Full,
             &fake_toolchain(&in_the_way.join("clang")),
+            &[],
+            None,
         );
         assert_eq!(object, None);
 
