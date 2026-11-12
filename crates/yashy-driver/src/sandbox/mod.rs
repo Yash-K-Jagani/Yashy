@@ -159,6 +159,7 @@ pub fn windows_job(capabilities: &CapabilitySet) -> std::io::Result<usize> {
     }
 }
 
+#[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawHandle;
 
 /// Windows: assign a spawned child to the job `windows_job` created.

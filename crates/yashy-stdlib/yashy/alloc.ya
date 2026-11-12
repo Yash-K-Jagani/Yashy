@@ -6,7 +6,6 @@
 // is the only release. Both helpers return an owned pointer.
 //
 /// `alloc(count)` counts `int` slots, not bytes; Yashy has no byte type yet.
-
 /// A pointer to `count` zeroed `int` slots. The caller owns it; release it with
 /// `.free()`.
 pub fn alloc_zeroed(int count) -> *mut int {

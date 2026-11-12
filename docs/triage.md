@@ -36,13 +36,17 @@ CI, a nicer `--json` shape, a benchmark row that is not regressed.
 
 ## The triage list
 
-No P0 and no P1 is open at the end of Task 9. One P2 is open: it is
-cosmetic today (the URLs resolve) and is scheduled for the Task 10
-release pass, which touches the same files anyway.
+No P0 and no P1 was open at the end of Task 9. Three P2s and one P1 are
+open now: T1 is cosmetic today (the URLs resolve) and is scheduled for the
+Task 10 release pass, which touches the same files anyway; T2 and T3 were
+found while repairing CI and measuring the release note for the 1.0.0 tag,
+and are recorded here rather than folded into the release pass.
 
 | ID | Severity | Issue | Fix | Test | Status |
 |---|---|---|---|---|---|
 | T1 | P2 | Live files still name the old repository: `REPO="Yash-K-Jagani/Otter"` in `scripts/install.sh`, two URLs in `scripts/install.ps1`, the `curl` lines in `README.md` and `docs/quickstart.md`, the installer line in `docs/release-notes-template.md`, and the four doc links in the `yashy init` AGENTS.md template (`crates/yashy-driver/src/main.rs`). They work today only through GitHub's rename redirect (`git ls-remote https://github.com/Yash-K-Jagani/Otter.git` still resolves). The rename design left the remote URL out of scope (§11) while its own risk check says the `Otter` search must come back empty outside dated records — the design is inconsistent, and the redirect is the thing being relied on. | swap every live occurrence to `Yash-K-Jagani/Yashy` (the canonical remote); Task 10, which edits the README and the release notes anyway | no test pins the spelling (`grep Otter` over `crates/**/*.rs` finds only the `main.rs` template); after the fix the installer's download URL resolves with no redirect | open |
+| T2 | P2 | Doc-block attachment is line-ending-sensitive. `skip_line_comment` (`crates/yashy-lexer/src/lexer.rs`) stops only at `\n`, so a comment token on a CRLF file swallows the trailing `\r`: the doc text carries `\r` into `yashy doc` output (the page is not byte-stable across OSes), and the blank-line test in `collect_doc_lines` (`crates/yashy-parser/src/items.rs`) never matches `\r\n\r\n`, because the gap it sees is `\n\r\n` - so `/// first` blank `/// second` attaches both blocks on a CRLF checkout and only the last on LF. Silent in this repository only because `.gitattributes` pins the stdlib sources to LF; a user's CRLF file still diverges. | stop comment scanning at `\r\n` as well, which makes the parser's existing `gap.contains("\r\n\r\n")` check work as written | a parser test that feeds the same source with LF and CRLF endings and asserts one doc block and one `yashy doc` byte stream; not yet written | open |
+| T3 | P1 | `yashy test` misses the 100-test budget (`< 2 s`) by more than 600x: 101 tests take 1235 s (measured 2026-11-12, Windows, release build), about 12 s each, serially. Per-test `--timings` attributes 0 ms to load, check, verify and emit and 2512 ms to link; the remaining ~10 s is unattributed host-side per-process cost on that machine (first launch of each freshly built test binary 4 s, second 0.05 s; `clang --version` 1.2 s), so the measurement mixes compiler time with process-scan overhead - but even with the host cost removed the budget is missed by two orders of magnitude. | measure the same fixture on a Linux runner to split host cost from compiler cost, then run test programs concurrently or reuse one launch per binary instead of one per test | a committed y100 fixture recipe and a per-OS timing record; not yet written | open |
 
 ### Closed findings
 

@@ -292,7 +292,11 @@ try {
     # drives the macOS install test drives this one.
     $bash = Get-Command sh -ErrorAction SilentlyContinue
     if ($null -ne $bash) {
-        & sh (Join-Path $root 'scripts/run-tutorial-blocks.sh') $yashy `
+        # prefix-fresh was uninstalled in step 4; the prefix installed from
+        # the extracted zip in step 6 is the one still standing, and it is the
+        # packaged install this check is about anyway.
+        $tutorialYashy = Join-Path $extractPrefix 'yashy.exe'
+        & sh (Join-Path $root 'scripts/run-tutorial-blocks.sh') $tutorialYashy `
             (Join-Path $root 'docs/tutorial/00-intro.md') `
             (Join-Path $root 'docs/tutorial/01-hello.md') `
             (Join-Path $root 'docs/tutorial/02-values.md')

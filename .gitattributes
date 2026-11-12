@@ -22,3 +22,21 @@
 # change the inputs the corpus exists to preserve -- and a corpus entry that no
 # longer reproduces its crash is worse than no corpus entry.
 fuzz/corpus/**             -text
+
+# The e2e suite compares a program's stdout with a pinned `.out` file, byte
+# for byte. The stdlib programs live in a subdirectory the `*.ya` pattern
+# above does not reach, and a checkout that rewrote the `.out` endings would
+# fail the comparison for a reason that has nothing to do with the program.
+**/tests/programs/**/*.out text eol=lf
+
+# `yashy doc` regenerates `docs/stdlib.md` from the stdlib sources and the
+# docs test compares the two byte for byte. Both halves have to be the same
+# bytes on every machine: a page from a CRLF checkout and a generation from
+# LF sources (or the reverse) disagree on every doc-block line.
+crates/yashy-stdlib/yashy/*.ya text eol=lf
+docs/stdlib.md text eol=lf
+
+# The schema goldens pin the exact stdout of `yashy check`, `verify`, `index`
+# and `context`. The payload is assembled with `\n` in Rust, so the golden has
+# to be LF no matter what the checkout would otherwise do.
+**/tests/schema_golden/* text eol=lf

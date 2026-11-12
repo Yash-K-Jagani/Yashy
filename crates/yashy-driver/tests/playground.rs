@@ -8,6 +8,7 @@
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use yashy_driver::playground::{Limits, Reply, Request, Server};
 
@@ -17,7 +18,15 @@ fn compiler() -> PathBuf {
 
 /// A server with the default limits, driving the compiler the tests built.
 fn server(limits: Limits) -> Server {
-    Server::with_paths(limits, compiler(), common::work_dir("playground-runs"))
+    // One root per test process. `work_dir` wipes the directory it returns,
+    // so every test asking for a fresh `playground-runs` would delete another
+    // test's in-flight run directory, and the spawn that follows fails with
+    // "the directory name is invalid" (os error 267).
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    let root = ROOT
+        .get_or_init(|| common::work_dir("playground-runs"))
+        .clone();
+    Server::with_paths(limits, compiler(), root)
 }
 
 /// The escape corpus: the ten attempts that must not escape.
