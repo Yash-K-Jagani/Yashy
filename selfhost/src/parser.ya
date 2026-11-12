@@ -1,0 +1,946 @@
+// The spike's parser: token records to a canonical digest.
+//
+// The digest is the spike's *whole* output. It is not a tree, because Yashy's
+// arrays hold numbers, `bool` and `string` only: an array of AST nodes cannot
+// be built, so the recursive-descent parser writes s-expressions as it goes
+// and the differential test compares that text with the text the Rust parser
+// renders from its tree. Equal text means both front ends agreed on the
+// structure, the precedence and the associativity of everything they read.
+//
+// The subset is declared in `docs/superpowers/design/2027-selfhost-spike.md`.
+// A construct outside it is an error, never a guess.
+
+import lexer;
+import ast;
+
+/// One `Kind,start,end` record at byte `at` of the token stream.
+fn token_record(string tokens, int at) -> string {
+    if at >= tokens.len() {
+        return "Eof,0,0";
+    }
+    const rest = tokens.slice(at, tokens.len());
+    const width = index_or(rest, ";");
+    return tokens.slice(at, at + width);
+}
+
+/// The byte just past the record at `at`.
+fn token_next(string tokens, int at) -> int {
+    if at >= tokens.len() {
+        return at;
+    }
+    const rest = tokens.slice(at, tokens.len());
+    return at + index_or(rest, ";") + 1;
+}
+
+/// One comma-separated field of a record: 0 is the kind, 1 the start, 2 the
+/// end.
+fn record_field(string record, int which) -> string {
+    const first = index_or(record, ",");
+    if which == 0 {
+        return record.slice(0, first);
+    }
+    const rest = record.slice(first + 1, record.len());
+    const second = index_or(rest, ",");
+    if which == 1 {
+        return rest.slice(0, second);
+    }
+    return rest.slice(second + 1, rest.len());
+}
+
+fn record_kind(string record) -> string {
+    return record_field(record, 0);
+}
+
+fn record_start(string record) -> int {
+    return parse_int(record_field(record, 1));
+}
+
+fn record_end(string record) -> int {
+    return parse_int(record_field(record, 2));
+}
+
+/// The source text a record covers.
+fn token_text(string source, string record) -> string {
+    return source.slice(record_start(record), record_end(record));
+}
+
+fn kind_at(string tokens, int at) -> string {
+    return record_kind(token_record(tokens, at));
+}
+
+fn fail(string expected, string tokens, int at) -> string {
+    const record = token_record(tokens, at);
+    return "expected " + expected + ", found " + record_kind(record) + " at byte " + record_field(record, 1);
+}
+
+/// Whether `kind` is one of the language's keywords, which may spell a type
+/// or import segment (`io.Error`, `import io;`).
+fn is_keyword_kind(string kind) -> bool {
+    if kind == "Fn" || kind == "Struct" || kind == "Enum" || kind == "Impl" {
+        return true;
+    }
+    if kind == "Object" || kind == "Trait" || kind == "Macro" || kind == "Const" {
+        return true;
+    }
+    if kind == "Var" || kind == "Let" || kind == "Import" || kind == "Extern" {
+        return true;
+    }
+    if kind == "Unsafe" || kind == "Pure" || kind == "Io" || kind == "Async" {
+        return true;
+    }
+    if kind == "Await" || kind == "Defer" || kind == "Return" || kind == "Break" {
+        return true;
+    }
+    if kind == "Continue" || kind == "If" || kind == "Else" || kind == "For" {
+        return true;
+    }
+    if kind == "While" || kind == "In" || kind == "Switch" || kind == "Case" {
+        return true;
+    }
+    if kind == "Default" || kind == "As" || kind == "Move" || kind == "True" {
+        return true;
+    }
+    if kind == "False" || kind == "Pub" || kind == "Requires" || kind == "Ensures" {
+        return true;
+    }
+    return kind == "Invariant" || kind == "Repr" || kind == "Cfg";
+}
+
+fn expect(string kind, string tokens, int at) -> Result[int, string] {
+    if kind_at(tokens, at) != kind {
+        return Err(fail("`" + kind + "`", tokens, at));
+    }
+    return Ok(token_next(tokens, at));
+}
+
+fn expect_text(string source, string tokens, int at) -> Result[string, string] {
+    const record = token_record(tokens, at);
+    if record_kind(record) != "Ident" {
+        return Err(fail("an identifier", tokens, at));
+    }
+    return Ok(token_text(source, record));
+}
+
+/// A type, rendered the way `Display for TypeExpr` renders it.
+fn parse_type(string source, string tokens, int at, int depth) -> Result[string, string] {
+    if depth > 256 {
+        return Err("type nesting is too deep");
+    }
+    const kind = kind_at(tokens, at);
+    if kind == "Star" {
+        let cursor = token_next(tokens, at);
+        let prefix = "*";
+        const word_record = token_record(tokens, cursor);
+        const word_kind = record_kind(word_record);
+        if word_kind == "Ident" {
+            const word = token_text(source, word_record);
+            if word == "mut" {
+                prefix = "*mut ";
+                cursor = token_next(tokens, cursor);
+            }
+            if word == "const" {
+                prefix = "*const ";
+                cursor = token_next(tokens, cursor);
+            }
+        }
+        if word_kind == "Const" {
+            prefix = "*const ";
+            cursor = token_next(tokens, cursor);
+        }
+        const pointee = parse_type(source, tokens, cursor, depth + 1)?;
+        return Ok(pack(packed_pos(pointee), prefix + packed_body(pointee)));
+    }
+    if kind == "LBracket" {
+        let cursor = token_next(tokens, at);
+        if kind_at(tokens, cursor) == "RBracket" {
+            const inner = parse_type(source, tokens, token_next(tokens, cursor), depth + 1)?;
+            return Ok(pack(packed_pos(inner), "[]" + packed_body(inner)));
+        }
+        const inner = parse_type(source, tokens, cursor, depth + 1)?;
+        cursor = packed_pos(inner);
+        if kind_at(tokens, cursor) == "Semi" {
+            const length_record = token_record(tokens, token_next(tokens, cursor));
+            const length = token_text(source, length_record);
+            cursor = token_next(tokens, token_next(tokens, cursor));
+            cursor = expect("RBracket", tokens, cursor)?;
+            return Ok(pack(cursor, "[" + packed_body(inner) + "; " + length + "]"));
+        }
+        cursor = expect("RBracket", tokens, cursor)?;
+        return Ok(pack(cursor, "[" + packed_body(inner) + "]"));
+    }
+    if kind == "Fn" {
+        let cursor = expect("LParen", tokens, token_next(tokens, at))?;
+    let params = "";
+        let first = true;
+        while kind_at(tokens, cursor) != "RParen" {
+            if !first {
+                cursor = expect("Comma", tokens, cursor)?;
+                params = params + ", ";
+            }
+            const param = parse_type(source, tokens, cursor, depth + 1)?;
+            params = params + packed_body(param);
+            cursor = packed_pos(param);
+            first = false;
+        }
+        cursor = expect("RParen", tokens, cursor)?;
+        cursor = expect("Arrow", tokens, cursor)?;
+        const ret = parse_type(source, tokens, cursor, depth + 1)?;
+        return Ok(pack(
+            packed_pos(ret),
+            "fn(" + params + ") -> " + packed_body(ret),
+        ));
+    }
+    if kind == "LParen" {
+        let cursor = token_next(tokens, at);
+        if kind_at(tokens, cursor) == "RParen" {
+            return Ok(pack(token_next(tokens, cursor), "void"));
+        }
+        let elements = "";
+        let first = true;
+        while kind_at(tokens, cursor) != "RParen" {
+            if !first {
+                cursor = expect("Comma", tokens, cursor)?;
+                elements = elements + ", ";
+            }
+            const element = parse_type(source, tokens, cursor, depth + 1)?;
+            elements = elements + packed_body(element);
+            cursor = packed_pos(element);
+            first = false;
+        }
+        cursor = expect("RParen", tokens, cursor)?;
+        return Ok(pack(cursor, "(" + elements + ")"));
+    }
+    if kind == "Ident" || is_keyword_kind(kind) {
+        // A dotted name is one name: `io.Error`.
+        let name = token_text(source, token_record(tokens, at));
+        let cursor = token_next(tokens, at);
+        while kind_at(tokens, cursor) == "Dot" {
+            const segment = token_record(tokens, token_next(tokens, cursor));
+            if record_kind(segment) != "Ident" && !is_keyword_kind(record_kind(segment)) {
+                return Err(fail("a name after `.`", tokens, token_next(tokens, cursor)));
+            }
+            name = name + "." + token_text(source, segment);
+            cursor = token_next(tokens, token_next(tokens, cursor));
+        }
+        if kind_at(tokens, cursor) != "LBracket" {
+            return Ok(pack(cursor, name));
+        }
+        // `map[K]V` is the one spelling whose bracket does not close the type.
+        if name == "map" {
+            const key = parse_type(source, tokens, token_next(tokens, cursor), depth + 1)?;
+            const after_key = expect("RBracket", tokens, packed_pos(key))?;
+            const value = parse_type(source, tokens, after_key, depth + 1)?;
+            return Ok(pack(
+                packed_pos(value),
+                "map[" + packed_body(key) + "]" + packed_body(value),
+            ));
+        }
+        let args = "";
+        let count = 0;
+        let arg_cursor = token_next(tokens, cursor);
+        while kind_at(tokens, arg_cursor) != "RBracket" {
+            if count > 0 {
+                arg_cursor = expect("Comma", tokens, arg_cursor)?;
+                args = args + ", ";
+            }
+            const arg = parse_type(source, tokens, arg_cursor, depth + 1)?;
+            args = args + packed_body(arg);
+            arg_cursor = packed_pos(arg);
+            count = count + 1;
+        }
+        const close = expect("RBracket", tokens, arg_cursor)?;
+        if name == "Option" {
+            return Ok(pack(close, "Option[" + args + "]"));
+        }
+        if name == "Result" {
+            return Ok(pack(close, "Result[" + args + "]"));
+        }
+        if name == "Channel" {
+            return Ok(pack(close, "Channel[" + args + "]"));
+        }
+        return Ok(pack(close, name + "[" + args + "]"));
+    }
+    return Err(fail("a type", tokens, at));
+}
+
+/// One call argument: the digest, and the cursor after it.
+fn parse_call_args(string source, string tokens, int at, int depth) -> Result[string, string] {
+    let cursor = at;
+    let args = "";
+    let count = 0;
+    while kind_at(tokens, cursor) != "RParen" {
+        if count > 0 {
+            cursor = expect("Comma", tokens, cursor)?;
+        }
+        const arg = parse_expr(source, tokens, cursor, depth + 1)?;
+        cursor = packed_pos(arg);
+        if kind_at(tokens, cursor) == "Colon" {
+            return Err("named arguments are outside the spike's subset");
+        }
+        args = args + " " + packed_body(arg);
+        count = count + 1;
+    }
+    return Ok(pack(expect("RParen", tokens, cursor)?, args));
+}
+
+/// A primary expression: a literal, a name, a parenthesised expression, or a
+/// fixed-array literal. Struct literals, lambdas, `switch`, tuples and slice
+/// literals are outside the subset.
+fn parse_primary(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const record = token_record(tokens, at);
+    const kind = record_kind(record);
+    if kind == "I64" || kind == "F64" || kind == "Str" || kind == "Char" {
+        return Ok(pack(token_next(tokens, at), "(lit " + token_text(source, record) + ")"));
+    }
+    if kind == "True" {
+        return Ok(pack(token_next(tokens, at), "(lit true)"));
+    }
+    if kind == "False" {
+        return Ok(pack(token_next(tokens, at), "(lit false)"));
+    }
+    if kind == "Ident" {
+        return Ok(pack(token_next(tokens, at), "(name " + token_text(source, record) + ")"));
+    }
+    if kind == "LParen" {
+        const inner = parse_expr(source, tokens, token_next(tokens, at), depth + 1)?;
+        const after = packed_pos(inner);
+        if kind_at(tokens, after) == "Comma" {
+            return Err("a tuple literal is outside the spike's subset");
+        }
+        const close = expect("RParen", tokens, after)?;
+        return Ok(pack(close, packed_body(inner)));
+    }
+    if kind == "LBracket" {
+        let cursor = token_next(tokens, at);
+        let elements = "";
+        let count = 0;
+        while kind_at(tokens, cursor) != "RBracket" {
+            if count > 0 {
+                cursor = expect("Comma", tokens, cursor)?;
+            }
+            const element = parse_expr(source, tokens, cursor, depth + 1)?;
+            elements = elements + " " + packed_body(element);
+            cursor = packed_pos(element);
+            count = count + 1;
+        }
+        if count == 0 {
+            return Err("an empty `[]` literal is outside the spike's subset");
+        }
+        return Ok(pack(expect("RBracket", tokens, cursor)?, "(array" + elements + ")"));
+    }
+    return Err(fail("an expression", tokens, at));
+}
+
+/// The postfix chain: calls, field access, indexing. `?`, `.await`, `::` and
+/// method calls on computed receivers are outside the subset.
+fn parse_postfix(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const primary = parse_primary(source, tokens, at, depth + 1)?;
+    let expr = packed_body(primary);
+    let cursor = packed_pos(primary);
+    // The dotted name a call may still be formed from, empty once the
+    // expression stops being a plain path.
+    let path = "";
+    if kind_at(tokens, at) == "Ident" {
+        path = token_text(source, token_record(tokens, at));
+    }
+    while true {
+        const kind = kind_at(tokens, cursor);
+        if kind == "LParen" {
+            if path == "" {
+                return Err("a method call on a computed receiver is outside the spike's subset");
+            }
+            const args = parse_call_args(source, tokens, token_next(tokens, cursor), depth + 1)?;
+            expr = "(call (" + path + ")" + packed_body(args) + ")";
+            cursor = packed_pos(args);
+            path = "";
+            continue;
+        }
+        if kind == "LBracket" {
+            const index = parse_expr(source, tokens, token_next(tokens, cursor), depth + 1)?;
+            const close = expect("RBracket", tokens, packed_pos(index))?;
+            expr = "(index " + expr + " " + packed_body(index) + ")";
+            cursor = close;
+            path = "";
+            continue;
+        }
+        if kind == "Dot" {
+            const field_record = token_record(tokens, token_next(tokens, cursor));
+            if record_kind(field_record) != "Ident" {
+                return Err(fail("a field name", tokens, token_next(tokens, cursor)));
+            }
+            const field = token_text(source, field_record);
+            expr = "(field " + expr + " " + field + ")";
+            cursor = token_next(tokens, token_next(tokens, cursor));
+            if path != "" {
+                path = path + " " + field;
+            }
+            continue;
+        }
+        if kind == "Question" {
+            return Err("`?` is outside the spike's subset");
+        }
+        if kind == "ColonColon" {
+            return Err("`::` is outside the spike's subset");
+        }
+        return Ok(pack(cursor, expr));
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_unary(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const kind = kind_at(tokens, at);
+    if kind == "Minus" || kind == "Bang" || kind == "Tilde" {
+        const symbol = token_text(source, token_record(tokens, at));
+        const operand = parse_unary(source, tokens, token_next(tokens, at), depth + 1)?;
+        return Ok(pack(
+            packed_pos(operand),
+            "(un " + symbol + " " + packed_body(operand) + ")",
+        ));
+    }
+    if kind == "Move" {
+        return Err("`move` is outside the spike's subset");
+    }
+    const postfix = parse_postfix(source, tokens, at, depth + 1)?;
+    if kind_at(tokens, packed_pos(postfix)) == "As" {
+        return Err("a cast is outside the spike's subset");
+    }
+    return Ok(postfix);
+}
+
+/// One left-associative binary level. `symbols` is the set of token kinds
+/// that combine, in the order they are spelled in the digest.
+fn binary_symbol(string kind) -> string {
+    if kind == "OrOr" { return "||"; }
+    if kind == "AndAnd" { return "&&"; }
+    if kind == "Pipe" { return "|"; }
+    if kind == "Caret" { return "^"; }
+    if kind == "Amp" { return "&"; }
+    if kind == "EqEq" { return "=="; }
+    if kind == "BangEq" { return "!="; }
+    if kind == "Lt" { return "<"; }
+    if kind == "LtEq" { return "<="; }
+    if kind == "Gt" { return ">"; }
+    if kind == "GtEq" { return ">="; }
+    if kind == "Shl" { return "<<"; }
+    if kind == "Shr" { return ">>"; }
+    if kind == "Plus" { return "+"; }
+    if kind == "Minus" { return "-"; }
+    if kind == "Star" { return "*"; }
+    if kind == "Slash" { return "/"; }
+    if kind == "Percent" { return "%"; }
+    return "";
+}
+
+/// The symbol of a *comparison* operator, or the empty string. The comparison
+/// level consumes only these: `a < b && c < d` is two comparisons joined by
+/// `&&`, not a four-operand chain.
+fn comparison_symbol(string kind) -> string {
+    if kind == "EqEq" { return "=="; }
+    if kind == "BangEq" { return "!="; }
+    if kind == "Lt" { return "<"; }
+    if kind == "LtEq" { return "<="; }
+    if kind == "Gt" { return ">"; }
+    if kind == "GtEq" { return ">="; }
+    return "";
+}
+
+/// Which precedence level a binary token belongs to: 1 is `||`, 10 is `*`.
+fn binary_level(string kind) -> int {
+    if kind == "OrOr" { return 1; }
+    if kind == "AndAnd" { return 2; }
+    if kind == "Pipe" { return 3; }
+    if kind == "Caret" { return 4; }
+    if kind == "Amp" { return 5; }
+    if kind == "EqEq" || kind == "BangEq" || kind == "Lt" || kind == "LtEq" || kind == "Gt" || kind == "GtEq" {
+        return 6;
+    }
+    if kind == "Shl" || kind == "Shr" { return 7; }
+    if kind == "Plus" || kind == "Minus" { return 8; }
+    if kind == "Star" || kind == "Slash" || kind == "Percent" { return 9; }
+    return 0;
+}
+
+/// The comparison level, which is the one level that is not left-associative:
+/// `a < b <= c` is one chain, and a chain of one is an ordinary binary node.
+fn parse_comparison(string source, string tokens, int at, int depth) -> Result[string, string] {
+    let cursor = at;
+    let chain = "";
+    const first = parse_shift(source, tokens, cursor, depth + 1)?;
+    const first_body = packed_body(first);
+    cursor = packed_pos(first);
+    chain = " " + first_body;
+    let last_body = first_body;
+    let last_symbol = "";
+    let count = 0;
+    while true {
+        const symbol = comparison_symbol(kind_at(tokens, cursor));
+        if symbol == "" {
+            break;
+        }
+        const rhs = parse_shift(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        chain = chain + " " + symbol + " " + packed_body(rhs);
+        last_body = packed_body(rhs);
+        last_symbol = symbol;
+        cursor = packed_pos(rhs);
+        count = count + 1;
+    }
+    if count == 0 {
+        return Ok(pack(cursor, first_body));
+    }
+    if count == 1 {
+        return Ok(pack(cursor, "(bin " + last_symbol + " " + first_body + " " + last_body + ")"));
+    }
+    return Ok(pack(cursor, "(chain" + chain + ")"));
+}
+
+/// The expression grammar's levels: `||`, `&&`, `|`, `^`, `&`, then the
+/// comparison chain, then shifts, `+`/`-`, `*`/`/`/`%`, and the unary and
+/// postfix forms. Each level is its own function because Yashy has no
+/// closures to pass a "parse one level tighter" function to.
+fn parse_or(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_and(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while kind_at(tokens, cursor) == "OrOr" {
+        const rhs = parse_and(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin || " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_and(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_bit_or(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while kind_at(tokens, cursor) == "AndAnd" {
+        const rhs = parse_bit_or(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin && " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_bit_or(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_bit_xor(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while kind_at(tokens, cursor) == "Pipe" {
+        const rhs = parse_bit_xor(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin | " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_bit_xor(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_bit_and(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while kind_at(tokens, cursor) == "Caret" {
+        const rhs = parse_bit_and(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin ^ " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_bit_and(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_comparison(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while kind_at(tokens, cursor) == "Amp" {
+        const rhs = parse_comparison(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin & " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_shift(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_add(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while binary_level(kind_at(tokens, cursor)) == 7 {
+        const symbol = binary_symbol(kind_at(tokens, cursor));
+        const rhs = parse_add(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin " + symbol + " " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_add(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_mul(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while binary_level(kind_at(tokens, cursor)) == 8 {
+        const symbol = binary_symbol(kind_at(tokens, cursor));
+        const rhs = parse_mul(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin " + symbol + " " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+fn parse_mul(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const first = parse_unary(source, tokens, at, depth + 1)?;
+    let expr = packed_body(first);
+    let cursor = packed_pos(first);
+    while binary_level(kind_at(tokens, cursor)) == 9 {
+        const symbol = binary_symbol(kind_at(tokens, cursor));
+        const rhs = parse_unary(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        expr = "(bin " + symbol + " " + expr + " " + packed_body(rhs) + ")";
+        cursor = packed_pos(rhs);
+    }
+    return Ok(pack(cursor, expr));
+}
+
+/// A whole expression, from `||` down to the primary.
+fn parse_expr(string source, string tokens, int at, int depth) -> Result[string, string] {
+    if depth > 400 {
+        return Err("expression nesting is too deep");
+    }
+    return parse_or(source, tokens, at, depth + 1);
+}
+
+/// The statements of a block, up to and including `close`.
+fn parse_block_contents(string source, string tokens, int at, string close, int depth) -> Result[string, string] {
+    if depth > 256 {
+        return Err("statement nesting is too deep");
+    }
+    let cursor = at;
+    let out = "";
+    while true {
+        const kind = kind_at(tokens, cursor);
+        if kind == "Eof" {
+            return Err(fail("`" + close + "`", tokens, cursor));
+        }
+        if kind == close {
+            return Ok(pack(token_next(tokens, cursor), out));
+        }
+        if kind == "DocComment" {
+            cursor = token_next(tokens, cursor);
+            continue;
+        }
+        const stmt = parse_stmt(source, tokens, cursor, depth + 1)?;
+        out = out + " " + packed_body(stmt);
+        cursor = packed_pos(stmt);
+    }
+    return Ok(pack(cursor, out));
+}
+
+fn parse_if(string source, string tokens, int at, int depth) -> Result[string, string] {
+    let cursor = token_next(tokens, at);
+    if kind_at(tokens, cursor) == "Let" {
+        return Err("`if let` is outside the spike's subset");
+    }
+    const cond = parse_expr(source, tokens, cursor, depth + 1)?;
+    cursor = packed_pos(cond);
+    cursor = expect("LBrace", tokens, cursor)?;
+    const then_block = parse_block_contents(source, tokens, cursor, "RBrace", depth + 1)?;
+    cursor = packed_pos(then_block);
+    let out = "(if " + packed_body(cond) + " (block" + packed_body(then_block) + ")";
+    if kind_at(tokens, cursor) == "Else" {
+        cursor = token_next(tokens, cursor);
+        if kind_at(tokens, cursor) != "LBrace" {
+            return Err("`else if` is not in the grammar; write `else { if .. }`");
+        }
+        const else_block = parse_block_contents(source, tokens, token_next(tokens, cursor), "RBrace", depth + 1)?;
+        out = out + " (block" + packed_body(else_block) + ")";
+        cursor = packed_pos(else_block);
+    }
+    return Ok(pack(cursor, out + ")"));
+}
+
+fn parse_while(string source, string tokens, int at, int depth) -> Result[string, string] {
+    let cursor = token_next(tokens, at);
+    if kind_at(tokens, cursor) == "Let" {
+        return Err("`while let` is outside the spike's subset");
+    }
+    const cond = parse_expr(source, tokens, cursor, depth + 1)?;
+    cursor = packed_pos(cond);
+    cursor = expect("LBrace", tokens, cursor)?;
+    const body = parse_block_contents(source, tokens, cursor, "RBrace", depth + 1)?;
+    return Ok(pack(
+        packed_pos(body),
+        "(while " + packed_body(cond) + " (block" + packed_body(body) + "))",
+    ));
+}
+
+fn parse_for(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const name = expect_text(source, tokens, token_next(tokens, at))?;
+    let cursor = expect("In", tokens, token_next(tokens, token_next(tokens, at)))?;
+    const start = parse_expr(source, tokens, cursor, depth + 1)?;
+    cursor = packed_pos(start);
+    if kind_at(tokens, cursor) != "DotDot" {
+        return Err("`for` over a slice is outside the spike's subset");
+    }
+    const end = parse_expr(source, tokens, token_next(tokens, cursor), depth + 1)?;
+    cursor = packed_pos(end);
+    cursor = expect("LBrace", tokens, cursor)?;
+    const body = parse_block_contents(source, tokens, cursor, "RBrace", depth + 1)?;
+    return Ok(pack(
+        packed_pos(body),
+        "(for " + name + " " + packed_body(start) + " " + packed_body(end) + " (block" + packed_body(body) + "))",
+    ));
+}
+
+/// A `let` or `const` statement, with or without a written type.
+fn parse_binding(string source, string tokens, int at, string keyword, int depth) -> Result[string, string] {
+    let cursor = token_next(tokens, at);
+    const head = token_record(tokens, cursor);
+    const after_head = token_next(tokens, cursor);
+    let written_type = "-";
+    if record_kind(head) == "Ident" && kind_at(tokens, after_head) == "Eq" {
+        // `let x = ..`: the name comes first only when no type is written.
+    } else {
+        const ty = parse_type(source, tokens, cursor, depth + 1)?;
+        written_type = packed_body(ty);
+        cursor = packed_pos(ty);
+    }
+    const name = expect_text(source, tokens, cursor)?;
+    cursor = expect("Eq", tokens, token_next(tokens, cursor))?;
+    const init = parse_expr(source, tokens, cursor, depth + 1)?;
+    const semi = expect("Semi", tokens, packed_pos(init))?;
+    return Ok(pack(
+        semi,
+        "(" + keyword + " " + name + " " + written_type + " " + packed_body(init) + ")",
+    ));
+}
+
+/// A compound assignment is sugar for the assignment of the binary the
+/// operator names, exactly as the Rust parser desugars it.
+fn compound_symbol(string kind) -> string {
+    if kind == "PlusEq" { return "+"; }
+    if kind == "MinusEq" { return "-"; }
+    if kind == "StarEq" { return "*"; }
+    if kind == "SlashEq" { return "/"; }
+    if kind == "PercentEq" { return "%"; }
+    if kind == "AmpEq" { return "&"; }
+    if kind == "PipeEq" { return "|"; }
+    if kind == "CaretEq" { return "^"; }
+    if kind == "ShlEq" { return "<<"; }
+    if kind == "ShrEq" { return ">>"; }
+    return "";
+}
+
+fn parse_stmt(string source, string tokens, int at, int depth) -> Result[string, string] {
+    if depth > 256 {
+        return Err("statement nesting is too deep");
+    }
+    const kind = kind_at(tokens, at);
+    if kind == "Let" {
+        return parse_binding(source, tokens, at, "let", depth + 1);
+    }
+    if kind == "Const" {
+        return parse_binding(source, tokens, at, "const", depth + 1);
+    }
+    if kind == "Return" {
+        const cursor = token_next(tokens, at);
+        if kind_at(tokens, cursor) == "Semi" {
+            return Ok(pack(token_next(tokens, cursor), "(return)"));
+        }
+        const value = parse_expr(source, tokens, cursor, depth + 1)?;
+        const semi = expect("Semi", tokens, packed_pos(value))?;
+        return Ok(pack(semi, "(return " + packed_body(value) + ")"));
+    }
+    if kind == "If" {
+        return parse_if(source, tokens, at, depth + 1);
+    }
+    if kind == "While" {
+        return parse_while(source, tokens, at, depth + 1);
+    }
+    if kind == "For" {
+        return parse_for(source, tokens, at, depth + 1);
+    }
+    if kind == "Break" {
+        return Ok(pack(expect("Semi", tokens, token_next(tokens, at))?, "(break)"));
+    }
+    if kind == "Continue" {
+        return Ok(pack(expect("Semi", tokens, token_next(tokens, at))?, "(continue)"));
+    }
+    if kind == "Defer" {
+        const cursor = expect("LBrace", tokens, token_next(tokens, at))?;
+        const body = parse_block_contents(source, tokens, cursor, "RBrace", depth + 1)?;
+        return Ok(pack(
+            packed_pos(body),
+            "(defer (block" + packed_body(body) + "))",
+        ));
+    }
+    if kind == "LBrace" {
+        return Err("a bare block is outside the spike's subset");
+    }
+    if kind == "Switch" {
+        return Err("`switch` is outside the spike's subset");
+    }
+    if kind == "Arena" || kind == "Scope" || kind == "Cfg" {
+        return Err("this block form is outside the spike's subset");
+    }
+
+    const expr = parse_expr(source, tokens, at, depth + 1)?;
+    const after = packed_pos(expr);
+    const next_kind = kind_at(tokens, after);
+    if next_kind == "Eq" {
+        const value = parse_expr(source, tokens, token_next(tokens, after), depth + 1)?;
+        const semi = expect("Semi", tokens, packed_pos(value))?;
+        return Ok(pack(
+            semi,
+            "(assign " + packed_body(expr) + " " + packed_body(value) + ")",
+        ));
+    }
+    const compound = compound_symbol(next_kind);
+    if compound != "" {
+        const value = parse_expr(source, tokens, token_next(tokens, after), depth + 1)?;
+        const semi = expect("Semi", tokens, packed_pos(value))?;
+        return Ok(pack(
+            semi,
+            "(assign " + packed_body(expr) + " (bin " + compound + " " + packed_body(expr) + " " + packed_body(value) + "))",
+        ));
+    }
+    if next_kind == "Semi" {
+        return Ok(pack(token_next(tokens, after), "(expr " + packed_body(expr) + ")"));
+    }
+    return Err(fail("`;` or `=`", tokens, after));
+}
+
+/// One top-level item: an import, a modifier wrapping an item, or a function.
+fn parse_item(string source, string tokens, int at, int depth) -> Result[string, string] {
+    if depth > 256 {
+        return Err("item nesting is too deep");
+    }
+    const kind = kind_at(tokens, at);
+    if kind == "Import" {
+        let cursor = token_next(tokens, at);
+        let path = "";
+        const first_record = token_record(tokens, cursor);
+        const first_kind = record_kind(first_record);
+        if first_kind != "Ident" && !is_keyword_kind(first_kind) {
+            return Err(fail("an import path", tokens, cursor));
+        }
+        path = token_text(source, first_record);
+        cursor = token_next(tokens, cursor);
+        while kind_at(tokens, cursor) == "Dot" {
+            const segment = token_record(tokens, token_next(tokens, cursor));
+            const segment_kind = record_kind(segment);
+            if segment_kind != "Ident" && !is_keyword_kind(segment_kind) {
+                return Err(fail("an import path", tokens, token_next(tokens, cursor)));
+            }
+            path = path + " " + token_text(source, segment);
+            cursor = token_next(tokens, token_next(tokens, cursor));
+        }
+        let alias = "";
+        if kind_at(tokens, cursor) == "As" {
+            const alias_record = token_record(tokens, token_next(tokens, cursor));
+            alias = token_text(source, alias_record);
+            cursor = token_next(tokens, token_next(tokens, cursor));
+        }
+        cursor = expect("Semi", tokens, cursor)?;
+        if alias == "" {
+            return Ok(pack(cursor, "(import (" + path + "))"));
+        }
+        return Ok(pack(cursor, "(import (" + path + ") " + alias + ")"));
+    }
+    if kind == "Pub" {
+        const inner = parse_item(source, tokens, token_next(tokens, at), depth + 1)?;
+        return Ok(pack(
+            packed_pos(inner),
+            "(pub " + packed_body(inner) + ")",
+        ));
+    }
+    if kind == "Pure" || kind == "Io" || kind == "Async" {
+        let name = "async";
+        if kind == "Pure" {
+            name = "pure";
+        }
+        if kind == "Io" {
+            name = "io";
+        }
+        const inner = parse_item(source, tokens, token_next(tokens, at), depth + 1)?;
+        return Ok(pack(
+            packed_pos(inner),
+            "(effect " + name + " " + packed_body(inner) + ")",
+        ));
+    }
+    if kind == "Fn" {
+        return parse_fn(source, tokens, at, depth + 1);
+    }
+    return Err(fail("`fn`, `import`, `pub`, `pure`, `io` or `async`", tokens, at));
+}
+
+fn parse_fn(string source, string tokens, int at, int depth) -> Result[string, string] {
+    const name = expect_text(source, tokens, token_next(tokens, at))?;
+    // `fn f[T]` declares a type parameter. The digest renders a generic
+    // function's instantiation, which is a shape this subset does not have,
+    // so the list is refused by name rather than skipped and mis-rendered.
+    if kind_at(tokens, token_next(tokens, token_next(tokens, at))) == "LBracket" {
+        return Err("a type parameter list is outside the spike's subset");
+    }
+    let cursor = expect("LParen", tokens, token_next(tokens, token_next(tokens, at)))?;
+    let params = "";
+    let count = 0;
+    while kind_at(tokens, cursor) != "RParen" {
+        if count > 0 {
+            cursor = expect("Comma", tokens, cursor)?;
+        }
+        const ty = parse_type(source, tokens, cursor, depth + 1)?;
+        cursor = packed_pos(ty);
+        const param_name = expect_text(source, tokens, cursor)?;
+        cursor = token_next(tokens, cursor);
+        if kind_at(tokens, cursor) == "Eq" {
+            return Err("a parameter default is outside the spike's subset");
+        }
+        params = params + " (param " + packed_body(ty) + " " + param_name + ")";
+        count = count + 1;
+    }
+    cursor = expect("RParen", tokens, cursor)?;
+    let ret = " (ret)";
+    if kind_at(tokens, cursor) == "Arrow" {
+        const ty = parse_type(source, tokens, token_next(tokens, cursor), depth + 1)?;
+        ret = " (ret " + packed_body(ty) + ")";
+        cursor = packed_pos(ty);
+    }
+    if kind_at(tokens, cursor) == "Requires" || kind_at(tokens, cursor) == "Ensures" {
+        return Err("a contract is outside the spike's subset");
+    }
+    cursor = expect("LBrace", tokens, cursor)?;
+    const body = parse_block_contents(source, tokens, cursor, "RBrace", depth + 1)?;
+    return Ok(pack(
+        packed_pos(body),
+        "(fn " + name + " (params" + params + ")" + ret + " (block" + packed_body(body) + "))",
+    ));
+}
+
+/// A whole file: items, with documentation attached to the item below it.
+fn parse_program(string source, string tokens, int at) -> Result[string, string] {
+    let cursor = at;
+    let out = "";
+    while true {
+        const kind = kind_at(tokens, cursor);
+        if kind == "Eof" {
+            return Ok(pack(cursor, "(program" + out + ")"));
+        }
+        if kind == "DocComment" {
+            let count = 0;
+            while kind_at(tokens, cursor) == "DocComment" {
+                count = count + 1;
+                cursor = token_next(tokens, cursor);
+            }
+            const item = parse_item(source, tokens, cursor, 0)?;
+            out = out + " (doc " + str_from_i64(count) + " " + packed_body(item) + ")";
+            cursor = packed_pos(item);
+            continue;
+        }
+        const item = parse_item(source, tokens, cursor, 0)?;
+        out = out + " " + packed_body(item);
+        cursor = packed_pos(item);
+    }
+    return Ok(pack(cursor, out));
+}
+
+/// The canonical digest of the file's program.
+pub fn parse(string source) -> Result[string, string] {
+    const tokens = lexer.lex(source)?;
+    const program = parse_program(source, tokens, 0)?;
+    return Ok(packed_body(program));
+}

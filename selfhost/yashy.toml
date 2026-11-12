@@ -1,0 +1,4 @@
+[package]
+name = "selfhost"
+version = "0.1.0"
+description = "The self-hosting spike: a Yashy lexer and parser for Yashy, measured against the Rust front end"

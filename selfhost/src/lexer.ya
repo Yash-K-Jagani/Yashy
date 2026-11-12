@@ -1,0 +1,521 @@
+// The spike's lexer: Yashy source bytes to a token stream.
+//
+// This is a *spike*, not a compiler. It reproduces `crates/yashy-lexer`'s
+// token boundaries and token kinds over the repository's own programs, so a
+// differential test can compare the two lexers token for token. It does not
+// reproduce the diagnostics: a malformed literal is an error message, not a
+// coded diagnostic with a span and a docs page.
+//
+// The output is one string of records, `Kind,start,end;`, one record per
+// token, ending with the `Eof` record. A string rather than an array of
+// tokens because Yashy arrays hold numbers, `bool` and `string` only: an
+// array of a struct is not supported yet, so a parser that wanted a token
+// array would have to encode it as text anyway.
+//
+// Byte access is `src.get(i)`, which answers `Option[int]`; `byte_at` below
+// turns the out-of-range `None` into -1 so the rest of the file reads like
+// the Rust lexer's `Option<u8>` matches.
+
+/// The byte at `at`, or -1 past the end of the source.
+fn byte_or(string source, int at) -> int {
+    if at < 0 || at >= source.len() {
+        return 0 - 1;
+    }
+    return switch source.get(at) {
+        case Some(value) { value }
+        case None { 0 - 1 }
+    };
+}
+
+/// Whether `byte` is whitespace, including the carriage return a Windows
+/// checkout leaves behind.
+fn is_space(int byte) -> bool {
+    if byte == 32 || byte == 9 || byte == 13 || byte == 10 {
+        return true;
+    }
+    return byte == 11 || byte == 12;
+}
+
+fn is_digit(int byte) -> bool {
+    return byte >= 48 && byte <= 57;
+}
+
+fn is_hex_digit(int byte) -> bool {
+    if is_digit(byte) {
+        return true;
+    }
+    if byte >= 97 && byte <= 102 {
+        return true;
+    }
+    return byte >= 65 && byte <= 70;
+}
+
+fn is_alpha(int byte) -> bool {
+    if byte >= 97 && byte <= 122 {
+        return true;
+    }
+    return byte >= 65 && byte <= 90;
+}
+
+fn is_ident_start(int byte) -> bool {
+    return is_alpha(byte) || byte == 95;
+}
+
+fn is_ident_continue(int byte) -> bool {
+    return is_ident_start(byte) || is_digit(byte);
+}
+
+/// Whether `byte` is a digit of `radix` (2, 8, 10 or 16).
+fn is_radix_digit(int byte, int radix) -> bool {
+    if radix == 2 {
+        return byte == 48 || byte == 49;
+    }
+    if radix == 8 {
+        return byte >= 48 && byte <= 55;
+    }
+    if radix == 10 {
+        return is_digit(byte);
+    }
+    return is_hex_digit(byte);
+}
+
+/// The byte that ends the line starting at `from`, or the end of the source.
+fn find_eol(string source, int from) -> int {
+    let at = from;
+    while at < source.len() {
+        if byte_or(source, at) == 10 {
+            return at;
+        }
+        at = at + 1;
+    }
+    return at;
+}
+
+/// Whether `///` at `at` opens a doc comment. A fourth slash makes it an
+/// ordinary comment, exactly as the Rust lexer decides.
+fn is_doc_comment(string source, int at) -> bool {
+    if byte_or(source, at) != 47 || byte_or(source, at + 1) != 47 || byte_or(source, at + 2) != 47 {
+        return false;
+    }
+    return byte_or(source, at + 3) != 47;
+}
+
+/// The byte a char literal stands for, when it is a plain one: -1 otherwise.
+/// The spike only needs the extent, never the value.
+fn scan_char(string source, int start) -> Result[int, string] {
+    let at = start + 1;
+    while true {
+        const byte = byte_or(source, at);
+        if byte < 0 {
+            return Err("the file ends before the closing quote");
+        }
+        if byte == 10 {
+            return Err("the line ends before the closing quote");
+        }
+        if byte == 39 {
+            return Ok(at + 1);
+        }
+        if byte == 92 {
+            const next = byte_or(source, at + 1);
+            if next < 0 || next == 10 {
+                return Err("the line ends after a backslash");
+            }
+            at = at + 2;
+            continue;
+        }
+        at = at + 1;
+    }
+    return Err("unreachable");
+}
+
+/// The index just past the `}` of the `${ ... }` that starts at `at`, where
+/// `at` points at the `$`. Braces nest, and a string or char literal inside
+/// the interpolation is skipped as a unit so its own braces do not count.
+fn skip_interpolation(string source, int at) -> Result[int, string] {
+    let depth = 1;
+    let index = at + 2;
+    while true {
+        const byte = byte_or(source, index);
+        if byte < 0 {
+            return Err("the file ends inside an interpolation");
+        }
+        if byte == 123 {
+            depth = depth + 1;
+            index = index + 1;
+            continue;
+        }
+        if byte == 125 {
+            depth = depth - 1;
+            index = index + 1;
+            if depth == 0 {
+                return Ok(index);
+            }
+            continue;
+        }
+        if byte == 34 {
+            index = scan_string(source, index)?;
+            continue;
+        }
+        if byte == 39 {
+            index = scan_char(source, index)?;
+            continue;
+        }
+        index = index + 1;
+    }
+    return Err("unreachable");
+}
+
+/// The index just past the closing quote of the string literal at `start`.
+fn scan_string(string source, int start) -> Result[int, string] {
+    let at = start + 1;
+    while true {
+        const byte = byte_or(source, at);
+        if byte < 0 {
+            return Err("the file ends before the closing quote");
+        }
+        if byte == 10 {
+            return Err("the line ends before the closing quote");
+        }
+        if byte == 34 {
+            return Ok(at + 1);
+        }
+        if byte == 92 {
+            const next = byte_or(source, at + 1);
+            if next < 0 || next == 10 {
+                return Err("the line ends after a backslash");
+            }
+            at = at + 2;
+            continue;
+        }
+        if byte == 36 && byte_or(source, at + 1) == 123 {
+            at = skip_interpolation(source, at)?;
+            continue;
+        }
+        at = at + 1;
+    }
+    return Err("unreachable");
+}
+
+/// A nested `/* ... */` comment, from its opening slash to the index just
+/// past its matching terminator.
+fn skip_block_comment(string source, int start) -> Result[int, string] {
+    let depth = 1;
+    let at = start + 2;
+    while true {
+        const byte = byte_or(source, at);
+        if byte < 0 {
+            return Err("unterminated block comment");
+        }
+        if byte == 42 && byte_or(source, at + 1) == 47 {
+            depth = depth - 1;
+            at = at + 2;
+            if depth == 0 {
+                return Ok(at);
+            }
+            continue;
+        }
+        if byte == 47 && byte_or(source, at + 1) == 42 {
+            depth = depth + 1;
+            at = at + 2;
+            continue;
+        }
+        at = at + 1;
+    }
+    return Err("unreachable");
+}
+
+/// Digits of `radix` from `at`, with `_` allowed only between two digits.
+/// Answers the index past them and how many digits were seen.
+fn skip_digits(string source, int at, int radix) -> (int, int) {
+    let index = at;
+    let digits = 0;
+    let last_was_digit = false;
+    while true {
+        const byte = byte_or(source, index);
+        if is_radix_digit(byte, radix) {
+            digits = digits + 1;
+            last_was_digit = true;
+            index = index + 1;
+            continue;
+        }
+        if byte == 95 && last_was_digit && is_radix_digit(byte_or(source, index + 1), radix) {
+            index = index + 1;
+            continue;
+        }
+        return (index, digits);
+    }
+    return (index, digits);
+}
+
+/// A number: `0x`/`0b`/`0o` integer, or a decimal integer or float. Answers
+/// the index past it and whether it was a float.
+fn scan_number(string source, int start) -> Result[(int, bool), string] {
+    const first = byte_or(source, start);
+    const second = byte_or(source, start + 1);
+    let radix = 0;
+    if first == 48 && (second == 120 || second == 88) {
+        radix = 16;
+    }
+    if first == 48 && (second == 98 || second == 66) {
+        radix = 2;
+    }
+    if first == 48 && (second == 111 || second == 79) {
+        radix = 8;
+    }
+    if radix > 0 {
+        const (after, digits) = skip_digits(source, start + 2, radix);
+        if digits == 0 || is_ident_continue(byte_or(source, after)) {
+            return Err("invalid numeric literal");
+        }
+        return Ok((after, false));
+    }
+    const (after_int, _) = skip_digits(source, start, 10);
+    let at = after_int;
+    let is_float = false;
+    if byte_or(source, at) == 46 && is_digit(byte_or(source, at + 1)) {
+        is_float = true;
+        at = at + 1;
+        const (after_frac, _) = skip_digits(source, at, 10);
+        at = after_frac;
+    }
+    if is_ident_continue(byte_or(source, at)) {
+        return Err("invalid numeric literal");
+    }
+    if is_float && byte_or(source, at) == 46 && byte_or(source, at + 1) != 46 {
+        return Err("invalid numeric literal");
+    }
+    return Ok((at, is_float));
+}
+
+/// The keyword the whole of `text` names, or the empty string for an
+/// ordinary identifier.
+fn keyword(string text) -> string {
+    if text == "fn" { return "Fn"; }
+    if text == "struct" { return "Struct"; }
+    if text == "enum" { return "Enum"; }
+    if text == "impl" { return "Impl"; }
+    if text == "object" { return "Object"; }
+    if text == "trait" { return "Trait"; }
+    if text == "macro" { return "Macro"; }
+    if text == "const" { return "Const"; }
+    if text == "var" { return "Var"; }
+    if text == "let" { return "Let"; }
+    if text == "import" { return "Import"; }
+    if text == "extern" { return "Extern"; }
+    if text == "unsafe" { return "Unsafe"; }
+    if text == "pure" { return "Pure"; }
+    if text == "io" { return "Io"; }
+    if text == "async" { return "Async"; }
+    if text == "await" { return "Await"; }
+    if text == "defer" { return "Defer"; }
+    if text == "return" { return "Return"; }
+    if text == "break" { return "Break"; }
+    if text == "continue" { return "Continue"; }
+    if text == "if" { return "If"; }
+    if text == "else" { return "Else"; }
+    if text == "for" { return "For"; }
+    if text == "while" { return "While"; }
+    if text == "in" { return "In"; }
+    if text == "switch" { return "Switch"; }
+    if text == "case" { return "Case"; }
+    if text == "default" { return "Default"; }
+    if text == "as" { return "As"; }
+    if text == "move" { return "Move"; }
+    if text == "true" { return "True"; }
+    if text == "false" { return "False"; }
+    if text == "pub" { return "Pub"; }
+    if text == "requires" { return "Requires"; }
+    if text == "ensures" { return "Ensures"; }
+    if text == "invariant" { return "Invariant"; }
+    if text == "repr" { return "Repr"; }
+    if text == "cfg" { return "Cfg"; }
+    return "";
+}
+
+/// One operator or delimiter at `at`, as `[kind, width]`; the kind is empty
+/// when the byte starts nothing Yashy has. Two-character operators are
+/// matched before one-character ones, and three before two, exactly as the
+/// Rust lexer's table does.
+fn punctuation(string source, int at) -> string {
+    const first = byte_or(source, at);
+    const second = byte_or(source, at + 1);
+    const third = byte_or(source, at + 2);
+
+    if first == 61 && second == 61 { return "EqEq,2"; }
+    if first == 33 && second == 61 { return "BangEq,2"; }
+    if first == 60 && second == 61 { return "LtEq,2"; }
+    if first == 62 && second == 61 { return "GtEq,2"; }
+    if first == 43 && second == 61 { return "PlusEq,2"; }
+    if first == 45 && second == 61 { return "MinusEq,2"; }
+    if first == 45 && second == 62 { return "Arrow,2"; }
+    if first == 61 && second == 62 { return "FatArrow,2"; }
+    if first == 42 && second == 61 { return "StarEq,2"; }
+    if first == 47 && second == 61 { return "SlashEq,2"; }
+    if first == 37 && second == 61 { return "PercentEq,2"; }
+    if first == 46 && second == 46 {
+        if third == 46 {
+            return "DotDotDot,3";
+        }
+        return "DotDot,2";
+    }
+    if first == 58 && second == 61 { return "ColonEq,2"; }
+    if first == 58 && second == 58 { return "ColonColon,2"; }
+    if first == 38 && second == 38 { return "AndAnd,2"; }
+    if first == 124 && second == 124 { return "OrOr,2"; }
+    if first == 38 && second == 61 { return "AmpEq,2"; }
+    if first == 124 && second == 61 { return "PipeEq,2"; }
+    if first == 94 && second == 61 { return "CaretEq,2"; }
+    if first == 60 && second == 60 {
+        if third == 61 {
+            return "ShlEq,3";
+        }
+        return "Shl,2";
+    }
+    if first == 62 && second == 62 {
+        if third == 61 {
+            return "ShrEq,3";
+        }
+        return "Shr,2";
+    }
+
+    if first == 38 { return "Amp,1"; }
+    if first == 94 { return "Caret,1"; }
+    if first == 126 { return "Tilde,1"; }
+    if first == 61 { return "Eq,1"; }
+    if first == 33 { return "Bang,1"; }
+    if first == 60 { return "Lt,1"; }
+    if first == 62 { return "Gt,1"; }
+    if first == 43 { return "Plus,1"; }
+    if first == 45 { return "Minus,1"; }
+    if first == 42 { return "Star,1"; }
+    if first == 47 { return "Slash,1"; }
+    if first == 37 { return "Percent,1"; }
+    if first == 46 { return "Dot,1"; }
+    if first == 58 { return "Colon,1"; }
+    if first == 40 { return "LParen,1"; }
+    if first == 41 { return "RParen,1"; }
+    if first == 123 { return "LBrace,1"; }
+    if first == 125 { return "RBrace,1"; }
+    if first == 91 { return "LBracket,1"; }
+    if first == 93 { return "RBracket,1"; }
+    if first == 44 { return "Comma,1"; }
+    if first == 59 { return "Semi,1"; }
+    if first == 64 { return "At,1"; }
+    if first == 63 { return "Question,1"; }
+    if first == 124 { return "Pipe,1"; }
+    if first == 36 { return "Dollar,1"; }
+    return ",0";
+}
+
+/// The index of `needle` in `text`, or the length of `text` when absent.
+pub fn index_or(string text, string needle) -> int {
+    return switch text.index_of(needle) {
+        case Some(value) { value }
+        case None { text.len() }
+    };
+}
+
+/// The integer `text` names, or 0 when it is not one. The spike only parses
+/// integers it wrote itself.
+pub fn parse_int(string text) -> int {
+    return switch text.parse_i64() {
+        case Some(value) { value }
+        case None { 0 }
+    };
+}
+
+/// One token record, `Kind,start,end;`.
+fn record(string kind, int start, int end) -> string {
+    return kind + "," + str_from_i64(start) + "," + str_from_i64(end) + ";";
+}
+
+/// The whole source as token records, ending with `Eof`.
+pub fn lex(string source) -> Result[string, string] {
+    let out = "";
+    let pos = 0;
+    const length = source.len();
+    if length >= 3 && byte_or(source, 0) == 239 && byte_or(source, 1) == 187 && byte_or(source, 2) == 191 {
+        pos = 3;
+    }
+    while true {
+        while true {
+            const byte = byte_or(source, pos);
+            if byte < 0 {
+                break;
+            }
+            if is_space(byte) {
+                pos = pos + 1;
+                continue;
+            }
+            if byte == 47 && byte_or(source, pos + 1) == 47 {
+                if is_doc_comment(source, pos) {
+                    break;
+                }
+                pos = find_eol(source, pos);
+                continue;
+            }
+            if byte == 47 && byte_or(source, pos + 1) == 42 {
+                pos = skip_block_comment(source, pos)?;
+                continue;
+            }
+            break;
+        }
+
+        const first = byte_or(source, pos);
+        if first < 0 {
+            out = out + record("Eof", length, length);
+            return Ok(out);
+        }
+        const start = pos;
+        if first == 34 {
+            pos = scan_string(source, pos)?;
+            out = out + record("Str", start, pos);
+            continue;
+        }
+        if first == 39 {
+            pos = scan_char(source, pos)?;
+            out = out + record("Char", start, pos);
+            continue;
+        }
+        if is_digit(first) {
+            const (after, is_float) = scan_number(source, pos)?;
+            pos = after;
+            if is_float {
+                out = out + record("F64", start, pos);
+            } else {
+                out = out + record("I64", start, pos);
+            }
+            continue;
+        }
+        if is_ident_start(first) {
+            let after = pos;
+            while is_ident_continue(byte_or(source, after)) {
+                after = after + 1;
+            }
+            const text = source.slice(pos, after);
+            const kind = keyword(text);
+            pos = after;
+            if kind == "" {
+                out = out + record("Ident", start, pos);
+            } else {
+                out = out + record(kind, start, pos);
+            }
+            continue;
+        }
+        if first == 47 && is_doc_comment(source, pos) {
+            pos = find_eol(source, pos);
+            out = out + record("DocComment", start, pos);
+            continue;
+        }
+        const found = punctuation(source, pos);
+        const comma = index_or(found, ",");
+        const kind = found.slice(0, comma);
+        if kind == "" {
+            return Err("unexpected character at byte " + str_from_i64(pos));
+        }
+        const width = parse_int(found.slice(comma + 1, found.len()));
+        pos = pos + width;
+        out = out + record(kind, start, pos);
+    }
+    return Ok(out);
+}

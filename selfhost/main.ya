@@ -1,0 +1,64 @@
+// The spike's entry point.
+//
+// `yashy run selfhost lex <file>` prints the token stream the Yashy lexer
+// produced: one `Kind,start,end;` record per token, ending with `Eof`.
+//
+// `yashy run selfhost parse <file>` prints the canonical digest of the parsed
+// program, or `ERROR: <reason>` when the spike cannot parse it. The digest is
+// compared, by `crates/yashy-driver/tests/selfhost_diff.rs`, with the digest
+// the Rust parser renders from the same file: equal text means the two
+// front ends agree on the shape of the program.
+
+import lexer;
+import parser;
+
+fn usage() {
+    print("usage: selfhost <lex|parse> <file>");
+}
+
+fn main() {
+    const arguments = args();
+    let command = "";
+    let path = "";
+    if arguments.len() > 0 {
+        command = switch arguments[0] {
+            case Some(value) { value }
+            case None { "" }
+        };
+    }
+    if arguments.len() > 1 {
+        path = switch arguments[1] {
+            case Some(value) { value }
+            case None { "" }
+        };
+    }
+    if command == "" || path == "" {
+        usage();
+        return;
+    }
+
+    const read = read_file(path);
+    let source = "";
+    if let Ok(text) = read {
+        source = text;
+    } else {
+        print("ERROR: cannot read " + path);
+        return;
+    }
+
+    if command == "lex" {
+        switch lexer.lex(source) {
+            case Ok(tokens) { print(tokens); }
+            case Err(message) { print("ERROR: " + message); }
+        }
+        return;
+    }
+    if command == "parse" {
+        switch parser.parse(source) {
+            case Ok(digest) { print(digest); }
+            case Err(message) { print("ERROR: " + message); }
+        }
+        return;
+    }
+    usage();
+}

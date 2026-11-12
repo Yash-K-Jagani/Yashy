@@ -201,10 +201,10 @@ See the master index. The ones that bite here:
 - Produces: a Yashy lexer and parser for the current grammar (no type checking, no codegen) that emits the same AST shape as the Rust parser, serialised to a canonical JSON for comparison.
 - Produces: a differential test over `crates/yashy-driver/tests/programs/*.ya` and `examples/*/main.ya`: for every file, both parsers either agree or the Rust parser's error is reproduced.
 
-- [ ] **Step 1: Write the lexer** and a differential test over 20 files; fix mismatches until they pass.
-- [ ] **Step 2: Write the parser** and extend the differential test to the full corpus; record the pass rate.
-- [ ] **Step 3: Write the design record** — what self-hosting would take (a bootstrap path, a codegen story, the performance cost of a Yashy parser, and the maintenance cost of two implementations of one grammar), and a recommendation for 2.0 with the numbers from Step 2.
-- [ ] **Step 4: Commit** — `git commit -m "feat(selfhost): a parser spike with a differential test and a design record"`
+- [x] **Step 1: Write the lexer** and a differential test over 20 files; fix mismatches until they pass.
+- [x] **Step 2: Write the parser** and extend the differential test to the full corpus; record the pass rate.
+- [x] **Step 3: Write the design record** — what self-hosting would take (a bootstrap path, a codegen story, the performance cost of a Yashy parser, and the maintenance cost of two implementations of one grammar), and a recommendation for 2.0 with the numbers from Step 2.
+- [x] **Step 4: Commit** — `git commit -m "feat(selfhost): a parser spike with a differential test and a design record"`
 
 ---
 

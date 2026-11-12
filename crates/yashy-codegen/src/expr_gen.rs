@@ -2734,10 +2734,59 @@ fn gen_try(ctx: &mut FnCtx<'_>, expr: &HirExpr, result_ty: &TypeKind) -> GenValu
         ctx.push(format!("ret i8* {}", poll.frame_slot));
     } else if ret_repr == subject_repr && ret_repr != "void" {
         ctx.push(format!("ret {ret_repr} {}", value.value));
+    } else if let TypeKind::Result(_, err) = &value.ty {
+        // The function returns a `Result` with the same error type but a
+        // different `Ok` payload: `Result[int, E]` propagated out of a
+        // function returning `Result[string, E]`. The checker allows it --
+        // only the error types have to agree -- so the failure has to be
+        // rebuilt in the return type rather than reinterpreted, and the
+        // error payload moves into it. Answering `unreachable` here compiled
+        // a wrong program silently: the run continued past a failed `?` with
+        // the other variant's payload.
+        let err_value = ctx.tmp();
+        ctx.push(format!(
+            "{err_value} = extractvalue {subject_repr} {}, 2",
+            value.value
+        ));
+        let tagged = ctx.tmp();
+        ctx.push(format!("{tagged} = insertvalue {ret_repr} undef, i8 1, 0"));
+        let mut built = ctx.tmp();
+        ctx.push(format!(
+            "{built} = insertvalue {ret_repr} {tagged}, {} {err_value}, 2",
+            field_repr(&err.kind)
+        ));
+        // The absent `Ok` payload owns nothing, so a `string` slot there is
+        // written as `null`: releasing the value must be a no-op rather than
+        // a read of an uninitialised pointer, exactly as `Err(..)` writes it.
+        let absent = string_payload_fields(&ctx.ret_type);
+        for field in absent {
+            if field == 2 {
+                continue;
+            }
+            let next = ctx.tmp();
+            ctx.push(format!(
+                "{next} = insertvalue {ret_repr} {built}, i8* null, {field}"
+            ));
+            built = next;
+        }
+        ctx.push(format!("ret {ret_repr} {built}"));
+    } else if matches!(value.ty, TypeKind::Option(_)) {
+        // `None` carries no payload, so its tag is the whole value: the
+        // `Option` shapes may differ for the same reason the `Result` ones
+        // may, and nothing has to be carried across.
+        let mut built = ctx.tmp();
+        ctx.push(format!("{built} = insertvalue {ret_repr} undef, i8 0, 0"));
+        let absent = string_payload_fields(&ctx.ret_type);
+        for field in absent {
+            let next = ctx.tmp();
+            ctx.push(format!(
+                "{next} = insertvalue {ret_repr} {built}, i8* null, {field}"
+            ));
+            built = next;
+        }
+        ctx.push(format!("ret {ret_repr} {built}"));
     } else {
-        ctx.push(
-            "; TODO: `?` in a function whose return type is not the same Result shape".to_string(),
-        );
+        ctx.push("; `?` in a function whose return type cannot carry the failure".to_string());
         ctx.push("unreachable".to_string());
     }
 

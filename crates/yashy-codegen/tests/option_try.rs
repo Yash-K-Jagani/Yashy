@@ -75,3 +75,50 @@ fn a_result_question_mark_continues_on_ok() {
         "`Ok` is tag 0, so `?` must continue on 0: {comparison}"
     );
 }
+
+/// The failure path when the return type is a *different* `Result` shape.
+///
+/// Only the error types have to agree, so `Result[int, string]` may be
+/// propagated out of a function returning `Result[string, string]`. The two
+/// aggregates have different LLVM reprs, so the failure has to be rebuilt as
+/// the return type's `Err`; the earlier lowering answered `unreachable` here
+/// and the run continued past the failed `?` with the wrong payload.
+#[test]
+fn a_result_question_mark_rebuilds_a_different_ok_payload() {
+    let ir = ir_of(
+        "fn g() -> Result[int, string] { return Ok(7); }\n\
+         fn f() -> Result[string, string] { const v = g()?; return Ok(\"x\" + str_from_i64(v)); }\n\
+         fn main() {}\n",
+    );
+    assert!(
+        !ir.contains("TODO: `?`"),
+        "the failure path must build a value, not give up:\n{ir}"
+    );
+    assert!(
+        ir.contains("insertvalue { i8, i8*, i8* } undef, i8 1, 0"),
+        "the failure must be tag 1 (`Err`) in the return type:\n{ir}"
+    );
+    assert!(
+        ir.contains("extractvalue { i8, i64, i8* }") && ir.contains("insertvalue { i8, i8*, i8* }"),
+        "the error payload must be carried from the subject's shape into the \
+         return shape:\n{ir}"
+    );
+}
+
+/// The same rule for `Option`, whose failure carries no payload at all.
+#[test]
+fn an_option_question_mark_rebuilds_a_different_payload() {
+    let ir = ir_of(
+        "fn g() -> Option[int] { return Some(7); }\n\
+         fn f() -> Option[string] { const v = g()?; return Some(str_from_i64(v)); }\n\
+         fn main() {}\n",
+    );
+    assert!(
+        !ir.contains("TODO: `?`"),
+        "the failure path must build a value, not give up:\n{ir}"
+    );
+    assert!(
+        ir.contains("insertvalue { i8, i8* } undef, i8 0, 0"),
+        "`None` is tag 0 with no payload:\n{ir}"
+    );
+}

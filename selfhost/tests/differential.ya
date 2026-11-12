@@ -1,0 +1,71 @@
+// The spike checks itself, from Yashy.
+//
+// `crates/yashy-driver/tests/selfhost_diff.rs` is the differential test: it
+// runs this package over the repository's whole corpus and compares the
+// result with the Rust front end. That test needs Rust and 30 seconds. This
+// one needs neither, so `yashy test selfhost` answers the cheaper question --
+// does the lexer still tokenise the vocabulary, and does the parser still
+// produce the digest it produced when it was written -- in under a second.
+//
+// The expected strings below are literal on purpose. A test that recomputed
+// the digest from the parser would agree with any bug the parser had.
+
+import lexer;
+import parser;
+
+/// A program small enough to read, and covering a call, a string literal and
+/// the statement/expression split.
+fn greeting() -> string {
+    return "fn main() {\n    print(\"hi\");\n}\n";
+}
+
+/// Two operator levels, so the digest pins precedence rather than just shape.
+fn precedence() -> string {
+    return "fn add(int a, int b) -> int {\n    return a + b * 2;\n}\n";
+}
+
+/// The token stream is the Rust lexer's, record for record: `Kind,start,end;`.
+fn the_lexer_names_every_token_and_its_span() {
+    const tokens = switch lexer.lex(greeting()) {
+        case Ok(text) { text }
+        case Err(message) { message }
+    };
+    assert(tokens == "Fn,0,2;Ident,3,7;LParen,7,8;RParen,8,9;LBrace,10,11;Ident,16,21;LParen,21,22;Str,22,26;RParen,26,27;Semi,27,28;RBrace,29,30;Eof,31,31;");
+}
+
+/// The digest is the shape the Rust renderer produces from its own tree.
+fn the_parser_renders_the_canonical_digest() {
+    const digest = switch parser.parse(greeting()) {
+        case Ok(text) { text }
+        case Err(message) { message }
+    };
+    assert(digest == "(program (fn main (params) (ret) (block (expr (call (print) (lit \"hi\"))))))");
+}
+
+/// `a + b * 2` is `a + (b * 2)`, and the digest says so.
+fn the_parser_respects_precedence() {
+    const digest = switch parser.parse(precedence()) {
+        case Ok(text) { text }
+        case Err(message) { message }
+    };
+    assert(digest == "(program (fn add (params (param int a) (param int b)) (ret int) (block (return (bin + (name a) (bin * (name b) (lit 2)))))))");
+}
+
+/// A construct outside the declared subset is an error, never a guess: this is
+/// what makes the differential test's "unsupported" classification honest.
+fn a_construct_outside_the_subset_is_refused() {
+    const source = "fn main() {\n    let xs = []int {};\n}\n";
+    const result = parser.parse(source);
+    let refused = true;
+    if let Ok(_) = result {
+        refused = false;
+    }
+    assert(refused);
+}
+
+fn main() {
+    the_lexer_names_every_token_and_its_span();
+    the_parser_renders_the_canonical_digest();
+    the_parser_respects_precedence();
+    a_construct_outside_the_subset_is_refused();
+}

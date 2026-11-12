@@ -1,0 +1,37 @@
+// The spike's AST: the canonical digest, and the cursor that travels with it.
+//
+// There is no tree here, and that is the spike's most important finding. A
+// Yashy array holds numbers, `bool` and `string` only -- an array of structs
+// or enums is refused by the checker -- so a recursive-descent parser cannot
+// build a `[]Item` and hand it to the next stage. It writes each node's
+// s-expression as text instead, in the order it reads them, and the digest is
+// the tree.
+//
+// A parser step therefore answers two things: where the cursor is now, and
+// what it read. Neither a tuple nor a struct can carry that pair back (a tuple
+// cannot hold a `string`), so `pack` joins them with `;` and the two accessors
+// take them apart. Everything else in `parser.ya` is bookkeeping around these
+// three functions.
+//
+// The digest's shape is fixed by `crates/yashy-driver/tests/selfhost_diff.rs`,
+// which renders the same shape from the Rust parser's real tree: `(program
+// (fn main (params) (ret) (block ...)))`. Equal text is the agreement the
+// differential test measures.
+
+import lexer;
+
+/// A cursor and a digest in one string: `<cursor>;<digest>`.
+pub fn pack(int pos, string digest) -> string {
+    return str_from_i64(pos) + ";" + digest;
+}
+
+/// The cursor `pack` was given.
+pub fn packed_pos(string packed) -> int {
+    return lexer.parse_int(packed.slice(0, lexer.index_or(packed, ";")));
+}
+
+/// The digest `pack` was given.
+pub fn packed_body(string packed) -> string {
+    const split = lexer.index_or(packed, ";");
+    return packed.slice(split + 1, packed.len());
+}
