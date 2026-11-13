@@ -29,7 +29,7 @@ yashy build main.ya --emit-ir
 | `--release` | Compile out `debug_assert`; default optimization becomes `-O3` unless `-O` is given, and link with ThinLTO. |
 | `--no-lto` | Link without ThinLTO. Only for attributing a suspected LTO-only miscompile; see [ThinLTO and `--pgo`](#thinlto-and---pgo). |
 | `--pgo` | Build instrumented, train by running the program once, then rebuild with the profile. See [ThinLTO and `--pgo`](#thinlto-and---pgo). |
-| `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native`. |
+| `--cpu <tier>` | `portable` (default), `x86-64-v2`, `x86-64-v3`, `x86-64-v4`, `native` (`-march=native`, or `-mcpu=native` on aarch64). The x86-64 tiers are refused for a target of another architecture. |
 | `--fast-math` | Allow fused multiply-add; results may differ. |
 | `--no-opt=<pass>` | Disable one registered optimization pass for bisecting. See [Optimization passes](#optimization-passes). |
 | `--opt-list` | List the passes in order with the bench row each is held to; needs no input. |

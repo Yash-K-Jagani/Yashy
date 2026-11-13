@@ -461,7 +461,8 @@ pub enum CpuTarget {
     X86_64V3,
     /// `-march=x86-64-v4`: AVX-512.
     X86_64V4,
-    /// `-march=native`: the CPU this compiler is running on.
+    /// `-march=native` (`-mcpu=native` on aarch64): the CPU this compiler is
+    /// running on.
     Native,
 }
 
@@ -475,16 +476,24 @@ impl CpuTarget {
         CpuTarget::Native,
     ];
 
-    /// The extra `clang` arguments that select this target.
+    /// The extra `clang` arguments that select this target, for a build whose
+    /// triple is `target`.
     ///
     /// Empty for the baseline, so a portable build passes nothing and behaves
     /// exactly as it did before this choice existed.
-    pub fn flags(self) -> &'static [&'static str] {
+    ///
+    /// The flag takes its spelling from the target architecture, not from the
+    /// host: `-march=native` is x86-only in `clang`. On Apple silicon (and any
+    /// other aarch64 target) the same request is `-mcpu=native`, and passing
+    /// `-march=native` there is a hard error — `the clang compiler does not
+    /// support '-march=native'` — not a fallback to the baseline.
+    pub fn flags_for(self, target: &str) -> &'static [&'static str] {
         match self {
             CpuTarget::Portable => &[],
             CpuTarget::X86_64V2 => &["-march=x86-64-v2"],
             CpuTarget::X86_64V3 => &["-march=x86-64-v3"],
             CpuTarget::X86_64V4 => &["-march=x86-64-v4"],
+            CpuTarget::Native if target.starts_with("aarch64") => &["-mcpu=native"],
             CpuTarget::Native => &["-march=native"],
         }
     }
@@ -919,12 +928,17 @@ pub fn platform_library_flags(target: &str) -> Vec<&'static str> {
 /// The library named by a linker's "cannot find" message, if this output
 /// contains one.
 ///
-/// The two spellings are GNU `ld` (`cannot find -lfoo`) and LLD/Clang
-/// (`unable to find library -lfoo`), which are the two linkers a Yashy build
-/// can reach on a supported host. Naming the library turns "linking failed"
-/// into a message that says which `link` directive to fix or install.
+/// The three spellings are GNU `ld` (`cannot find -lfoo`), LLD/Clang
+/// (`unable to find library -lfoo`) and Apple's `ld`
+/// (`library not found for -lfoo`), which are the linkers a Yashy build can
+/// reach on a supported host. Naming the library turns "linking failed" into a
+/// message that says which `link` directive to fix or install.
 fn missing_library(stderr: &str) -> Option<String> {
-    const MARKERS: [&str; 2] = ["unable to find library -l", "cannot find -l"];
+    const MARKERS: [&str; 3] = [
+        "unable to find library -l",
+        "cannot find -l",
+        "library not found for -l",
+    ];
     for line in stderr.lines() {
         for marker in MARKERS {
             let Some(index) = line.find(marker) else {
@@ -1689,7 +1703,13 @@ fn link_arguments(
     extra: &[String],
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
-    args.extend(options.cpu.flags().iter().map(|flag| flag.to_string()));
+    args.extend(
+        options
+            .cpu
+            .flags_for(target)
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
     args.extend(reproducibility_flags(&options, target));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
     // asks the toolchain its version and supplies the one flag LLVM 14 needs;
@@ -2096,13 +2116,18 @@ fn toolchain_diagnostic(entry_name: &str, message: String) -> Diagnostic {
     }
 }
 
-/// The first non-empty, non-`warning:` line of tool output.
+/// The line of tool output worth quoting.
 ///
 /// `clang` prints its warnings and then its error, and the error is the line
-/// worth showing. Falls back to the first non-empty line so a tool that prints
-/// something unusual is still quoted rather than swallowed.
+/// worth showing. A *failing compile* often opens with an include chain —
+/// `In file included from runtime.c:1:` — which names neither the failure nor
+/// its cause, so a line that contains `error:` wins over it (`fatal error:`
+/// and `/path:12:3: error:` both do). A linker message (`ld: library not
+/// found for -ldl`) contains no `error:`, so the last non-empty line is the
+/// fallback: a tool ends its output with the failure.
 fn first_meaningful_line(stderr: &str) -> Option<&str> {
     let mut first = None;
+    let mut last = None;
     for line in stderr.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -2111,11 +2136,12 @@ fn first_meaningful_line(stderr: &str) -> Option<&str> {
         if first.is_none() {
             first = Some(trimmed);
         }
-        if trimmed.starts_with("error") {
+        if trimmed.contains("error:") {
             return Some(trimmed);
         }
+        last = Some(trimmed);
     }
-    first
+    last.or(first)
 }
 
 /// `out` with `extension` replaced, e.g. `hello.exe` -> `hello.ll`.
@@ -2148,8 +2174,8 @@ fn write_or_report(path: &Path, bytes: &[u8], entry_name: &str) -> Result<(), Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        cached_runtime_object, clear_profiles, fnv1a, instrumented_output, merge_profiles,
-        missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
+        cached_runtime_object, clear_profiles, first_meaningful_line, fnv1a, instrumented_output,
+        merge_profiles, missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
         platform_library_flags, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
         FNV_OFFSET_BASIS,
     };
@@ -2227,10 +2253,17 @@ mod tests {
         // value of the baseline is that the binary runs on a machine the
         // compiler has never seen.
         assert_eq!(CpuTarget::default(), CpuTarget::Portable);
-        assert!(
-            CpuTarget::default().flags().is_empty(),
-            "a portable build must pass no machine flag at all"
-        );
+        for triple in [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+        ] {
+            assert!(
+                CpuTarget::default().flags_for(triple).is_empty(),
+                "a portable build must pass no machine flag at all on {triple}"
+            );
+        }
     }
 
     #[test]
@@ -2241,11 +2274,14 @@ mod tests {
     }
 
     #[test]
-    fn every_non_portable_target_names_exactly_one_march_flag() {
+    fn every_non_portable_target_names_exactly_one_flag() {
         // The name a user types and the flag `clang` receives are the same
-        // string, so a tier cannot be added to `ALL` and forgotten in `flags`.
+        // string, so a tier cannot be added to `ALL` and forgotten in
+        // `flags_for`. `native` is the one tier whose spelling depends on the
+        // target architecture.
+        let x86 = "x86_64-unknown-linux-gnu";
         for target in CpuTarget::ALL {
-            let flags = target.flags();
+            let flags = target.flags_for(x86);
             if target == CpuTarget::Portable {
                 assert!(flags.is_empty(), "the baseline passes no flag");
                 continue;
@@ -2254,6 +2290,31 @@ mod tests {
             let expected = format!("-march={}", target.name());
             assert_eq!(flags[0], expected, "{target:?} must pass `{expected}`");
         }
+    }
+
+    #[test]
+    fn native_takes_its_flag_from_the_target_architecture() {
+        // `-march=native` is x86-only in `clang`, and Apple silicon is the host
+        // the macOS CI job runs on: there `-march=native` is refused outright,
+        // so `--native` has to become `-mcpu=native`.
+        assert_eq!(
+            CpuTarget::Native.flags_for("x86_64-apple-darwin"),
+            &["-march=native"]
+        );
+        assert_eq!(
+            CpuTarget::Native.flags_for("aarch64-apple-darwin"),
+            &["-mcpu=native"]
+        );
+        assert_eq!(
+            CpuTarget::Native.flags_for("aarch64-unknown-linux-gnu"),
+            &["-mcpu=native"]
+        );
+        // The feature levels are refused on a non-x86 target before a build
+        // starts, so their spelling never has to change.
+        assert_eq!(
+            CpuTarget::X86_64V3.flags_for("aarch64-apple-darwin"),
+            &["-march=x86-64-v3"]
+        );
     }
 
     #[test]
@@ -2402,6 +2463,36 @@ mod tests {
             missing_library("ld: cannot find -l\n"),
             None,
             "a truncated message must not claim an empty library"
+        );
+        // Apple's `ld` spells the same failure differently, and a macOS build
+        // reaches it for real.
+        assert_eq!(
+            missing_library("ld: library not found for -ldl"),
+            Some("dl".to_string())
+        );
+    }
+
+    #[test]
+    fn the_error_line_wins_over_the_include_chain() {
+        // The macOS runtime build failed with only this chain line quoted: the
+        // include context comes first and the error follows it, and the old
+        // helper returned the first non-empty line.
+        let stderr = "In file included from runtime.c:1:\n\
+                      runtime.c:26:10: fatal error: 'stddef.h' file not found\n\
+                      #include <stddef.h>\n\
+                               ^~~~~~~~~~\n\
+                      1 error generated.";
+        assert_eq!(
+            first_meaningful_line(stderr),
+            Some("runtime.c:26:10: fatal error: 'stddef.h' file not found")
+        );
+        // A linker's own failure has no `error:` at all; the last line is the
+        // one that names it.
+        assert_eq!(
+            first_meaningful_line(
+                "clang: warning: argument unused\nld: library not found for -ldl"
+            ),
+            Some("ld: library not found for -ldl")
         );
     }
 

@@ -124,9 +124,9 @@ current steady-state number is 256 ms, not the 282.8 ms measured here.)
 ### 3. Offer `--native` as an opt-in, never a default — done
 
 The only change so far that makes a *program* run faster rather than making the
-compiler compile faster. `--native` adds `-march=native` when the user's IR is
-compiled, so the backend may use the CPU it is actually running on instead of
-the x86-64 baseline.
+compiler compile faster. `--native` adds `-march=native` (`-mcpu=native` on an
+aarch64 target) when the user's IR is compiled, so the backend may use the CPU
+it is actually running on instead of the baseline.
 
 **Measured effect.** The same IR, the flag the only difference, from the
 benchmark suite's own run:

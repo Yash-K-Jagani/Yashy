@@ -7,7 +7,7 @@
 //! - the runtime's file entry points consult the allowlist (canonical paths,
 //!   resolved at launch) before opening anything;
 //! - Windows enforces memory, process count and kill-on-close with a Job
-//!   Object; Linux sets rlimits for the child;
+//!   Object; the POSIX hosts set rlimits for the child;
 //! - time and output are measured by the driver that launches the child.
 //!
 //! A denied capability is `E1900` naming the capability; a breached limit is
@@ -72,7 +72,10 @@ pub fn sandbox_env(capabilities: &CapabilitySet) -> Vec<(String, String)> {
     };
     vec![
         ("YASHY_SANDBOX".to_string(), "1".to_string()),
-        ("YASHY_SANDBOX_READ".to_string(), join(&capabilities.fs_read)),
+        (
+            "YASHY_SANDBOX_READ".to_string(),
+            join(&capabilities.fs_read),
+        ),
         (
             "YASHY_SANDBOX_WRITE".to_string(),
             join(&capabilities.fs_write),
@@ -198,7 +201,7 @@ pub fn apply_limits(
     }
 }
 
-/// Linux: rlimits in the child before exec.
+/// POSIX (Linux and Darwin): rlimits in the child before exec.
 #[cfg(not(target_os = "windows"))]
 pub fn linux_apply(
     command: &mut std::process::Command,
@@ -213,8 +216,19 @@ pub fn linux_apply(
     unsafe extern "C" {
         fn setrlimit(resource: i32, new_limit: *const Rlimit) -> i32;
     }
-    const RLIMIT_AS: i32 = 9;
+    // The `RLIMIT_*` values are ABI, not portable: Darwin inserts `RLIMIT_AS`
+    // at 5 and puts `RLIMIT_NPROC` at 7, where Linux puts them at 9 and 6.
+    // Handing Darwin Linux's 9 names a resource outside its enum, `setrlimit`
+    // answers `EINVAL`, the pre-exec hook fails and *every* sandboxed program
+    // refuses to start. `RLIMIT_CPU` happens to be 0 on both.
     const RLIMIT_CPU: i32 = 0;
+    #[cfg(target_os = "macos")]
+    const RLIMIT_AS: i32 = 5;
+    #[cfg(not(target_os = "macos"))]
+    const RLIMIT_AS: i32 = 9;
+    #[cfg(target_os = "macos")]
+    const RLIMIT_NPROC: i32 = 7;
+    #[cfg(not(target_os = "macos"))]
     const RLIMIT_NPROC: i32 = 6;
     let memory = capabilities.memory_mb * 1024 * 1024;
     let cpu = capabilities.time_ms / 1000 + 1;
@@ -231,7 +245,13 @@ pub fn linux_apply(
                     Ok(())
                 }
             };
-            apply(RLIMIT_AS, memory)?;
+            // The address-space limit is best effort. Darwin accepts
+            // `RLIMIT_AS` but does not enforce it the way Linux does, and a
+            // limit the platform ignores must not refuse to start the
+            // program. The bound that holds on every OS is the runtime's
+            // live-allocation cap (`YASHY_SANDBOX_MEMORY_MB`), which is what
+            // `alloc_bytes` past the cap trips.
+            let _ = apply(RLIMIT_AS, memory);
             apply(RLIMIT_CPU, cpu)?;
             apply(RLIMIT_NPROC, 64)?;
             Ok(())

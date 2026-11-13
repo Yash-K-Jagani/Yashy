@@ -1408,6 +1408,11 @@ fn every_cpu_tier_builds() {
     let source = programs_dir().join("hello.ya");
 
     // Both spellings are covered: `--cpu=<tier>` and `--cpu <tier>`.
+    //
+    // The x86-64 tiers are x86-64 names: the CLI refuses them for any other
+    // target (see `an_x86_feature_level_is_refused_for_a_non_x86_target`), and
+    // an Apple silicon runner is such a host. `portable` and `native` are the
+    // two tiers every architecture has.
     let invocations: [&[&str]; 5] = [
         &["--cpu=portable"],
         &["--cpu", "x86-64-v2"],
@@ -1416,6 +1421,10 @@ fn every_cpu_tier_builds() {
         &["--cpu=native"],
     ];
     for (index, extra) in invocations.iter().enumerate() {
+        let x86_feature_level = extra.iter().any(|argument| argument.contains("x86-64-v"));
+        if x86_feature_level && !cfg!(target_arch = "x86_64") {
+            continue;
+        }
         let exe = dir.join(format!("hello-{index}{}", std::env::consts::EXE_SUFFIX));
         let mut command = Command::new(yashy());
         command.arg("build").arg(&source).arg("-o").arg(&exe);
@@ -1462,6 +1471,12 @@ fn a_cpu_tier_is_a_backend_choice_not_an_ir_change() {
             .arg("build")
             .arg(&source)
             .arg("--emit-ir")
+            // Pin the triple so a host whose architecture has no feature
+            // levels (Apple silicon) can still ask for one. `--emit-ir` runs
+            // no C compiler, so naming a target the host cannot link for is
+            // free.
+            .arg("--target")
+            .arg("x86_64-unknown-linux-gnu")
             .args(extra);
         let output = command.output().expect("run the yashy CLI");
         assert!(
@@ -1513,6 +1528,60 @@ fn an_unrecognised_cpu_target_is_a_usage_error() {
         .expect("run the yashy CLI");
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr_of(&output).contains("needs a value"));
+}
+
+#[test]
+fn an_x86_feature_level_is_refused_for_a_non_x86_target() {
+    // `-march=x86-64-v3` is an x86-64 name and `clang` rejects it for any other
+    // architecture, so the CLI refuses the pair before a build starts rather
+    // than reporting a backend error far from the cause. The target is pinned
+    // so this behaves the same on every host, and no `clang` runs: the refusal
+    // happens while the arguments are read.
+    let dir = work_dir("cpu-target-mismatch");
+    let source = dir.join("hello.ya");
+    fs::copy(programs_dir().join("hello.ya"), &source).expect("copy hello.ya");
+
+    for tier in ["x86-64-v2", "x86-64-v3", "x86-64-v4"] {
+        let output = Command::new(yashy())
+            .arg("build")
+            .arg(&source)
+            .arg("--target")
+            .arg("aarch64-apple-darwin")
+            .arg(format!("--cpu={tier}"))
+            .output()
+            .expect("run the yashy CLI");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "`{tier}` on an aarch64 target must be a usage error"
+        );
+        let stderr = stderr_of(&output);
+        assert!(
+            stderr.contains(tier),
+            "the message must name `{tier}`: {stderr}"
+        );
+        assert!(
+            stderr.contains("aarch64-apple-darwin"),
+            "the message must name the target: {stderr}"
+        );
+    }
+
+    // The x86-64 triple keeps accepting them, so the check is about the
+    // architecture and not a blanket refusal.
+    let output = Command::new(yashy())
+        .arg("build")
+        .arg(&source)
+        .arg("--target")
+        .arg("x86_64-unknown-linux-gnu")
+        .arg("--cpu=x86-64-v3")
+        .arg("--emit-ir")
+        .output()
+        .expect("run the yashy CLI");
+    assert!(
+        output.status.success(),
+        "an x86-64 target must accept an x86-64 tier:\n{}",
+        stderr_of(&output)
+    );
 }
 
 #[test]
