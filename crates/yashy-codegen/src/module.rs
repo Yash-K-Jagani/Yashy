@@ -1052,15 +1052,77 @@ impl Default for Module {
 /// because the two need different CRTs and `clang` would link the wrong one —
 /// or, on a machine with no Visual Studio at all, fail to link at all.
 ///
+/// Every *other* host is not Linux. Before the macOS job existed this function
+/// answered `x86_64-unknown-linux-gnu` for anything that was not Windows, so a
+/// macOS build asked `/usr/bin/clang` for a Linux target and died on the first
+/// system header. The architecture matters for the same reason: an Apple
+/// silicon host is `aarch64-apple-darwin`, not the Intel triple.
+///
 /// The driver reads this same function so the triple baked into the IR and the
 /// `--target` it passes to `clang` can never disagree.
 pub fn host_target_triple() -> &'static str {
-    if cfg!(target_env = "msvc") {
-        "x86_64-pc-windows-msvc"
-    } else if cfg!(target_os = "windows") {
-        "x86_64-pc-windows-gnu"
-    } else {
-        "x86_64-unknown-linux-gnu"
+    host_triple(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if cfg!(target_env = "msvc") {
+            "msvc"
+        } else {
+            "gnu"
+        },
+    )
+}
+
+/// The triple for one `(os, arch, env)` combination.
+///
+/// Split out so a host this build is not running on can still be pinned by a
+/// test: the macOS answer is exactly the one no Windows or Linux machine would
+/// otherwise exercise.
+fn host_triple(os: &str, arch: &str, env: &str) -> &'static str {
+    let apple_silicon = matches!(arch, "aarch64" | "arm64");
+    match os {
+        "windows" if env == "msvc" && apple_silicon => "aarch64-pc-windows-msvc",
+        "windows" if env == "msvc" => "x86_64-pc-windows-msvc",
+        // The GNU environment has no aarch64 release in the supported set, so
+        // it keeps claiming the x86-64 triple every Windows GNU build uses.
+        "windows" => "x86_64-pc-windows-gnu",
+        "macos" if apple_silicon => "aarch64-apple-darwin",
+        "macos" => "x86_64-apple-darwin",
+        _ if apple_silicon => "aarch64-unknown-linux-gnu",
+        _ => "x86_64-unknown-linux-gnu",
+    }
+}
+
+#[cfg(test)]
+mod host_triple_tests {
+    use super::host_triple;
+
+    #[test]
+    fn every_host_gets_its_own_triple() {
+        assert_eq!(
+            host_triple("windows", "x86_64", "msvc"),
+            "x86_64-pc-windows-msvc"
+        );
+        assert_eq!(
+            host_triple("windows", "aarch64", "msvc"),
+            "aarch64-pc-windows-msvc"
+        );
+        assert_eq!(
+            host_triple("windows", "x86_64", "gnu"),
+            "x86_64-pc-windows-gnu"
+        );
+        assert_eq!(
+            host_triple("macos", "aarch64", "gnu"),
+            "aarch64-apple-darwin"
+        );
+        assert_eq!(host_triple("macos", "x86_64", "gnu"), "x86_64-apple-darwin");
+        assert_eq!(
+            host_triple("linux", "x86_64", "gnu"),
+            "x86_64-unknown-linux-gnu"
+        );
+        assert_eq!(
+            host_triple("linux", "aarch64", "gnu"),
+            "aarch64-unknown-linux-gnu"
+        );
     }
 }
 
