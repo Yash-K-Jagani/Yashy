@@ -231,25 +231,36 @@ fn both_linker_clock_fields_are_cleared_from_a_pe_image() {
 }
 
 #[test]
-fn the_random_macho_uuid_is_cleared_from_a_mach_o_image() {
-    // A 64-bit Mach-O header with two load commands: an `LC_UUID` whose
-    // 16-byte value is the linker's own identity, and a command whose
-    // payload is not an identity and must survive untouched.
-    let mut image = vec![0u8; 0x80];
+fn the_linker_identity_is_cleared_from_a_mach_o_image() {
+    // A 64-bit Mach-O header with three load commands: an `LC_UUID` whose
+    // 16-byte value is the linker's identity, an `LC_CODE_SIGNATURE` naming
+    // the embedded signature that hashes it, and a command whose payload is
+    // not an identity and must survive untouched.
+    let mut image = vec![0u8; 0x90];
     image[0..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
-    image[16..20].copy_from_slice(&2u32.to_le_bytes()); // ncmds
+    image[16..20].copy_from_slice(&3u32.to_le_bytes()); // ncmds
     image[32..36].copy_from_slice(&0x1bu32.to_le_bytes()); // LC_UUID
     image[36..40].copy_from_slice(&24u32.to_le_bytes());
     image[40..56].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-    image[56..60].copy_from_slice(&0x0eu32.to_le_bytes()); // LC_LOAD_DYLINKER
-    image[60..64].copy_from_slice(&32u32.to_le_bytes());
-    image[64..80].fill(0x5a);
+    image[56..60].copy_from_slice(&0x1du32.to_le_bytes()); // LC_CODE_SIGNATURE
+    image[60..64].copy_from_slice(&16u32.to_le_bytes());
+    image[64..68].copy_from_slice(&0x78u32.to_le_bytes()); // dataoff
+    image[68..72].copy_from_slice(&16u32.to_le_bytes()); // datasize
+    image[72..76].copy_from_slice(&0x0eu32.to_le_bytes()); // LC_LOAD_DYLINKER
+    image[76..80].copy_from_slice(&32u32.to_le_bytes());
+    image[80..104].fill(0x5a);
+    image[0x78..0x88].fill(0x77);
 
     let cleared = without_link_identity(&image);
     assert_eq!(&cleared[40..56], &[0u8; 16], "the UUID must be zeroed");
-    assert_eq!(&cleared[64..80], &image[64..80], "other commands survive");
     assert_eq!(
-        without_macho_uuid(b"not a Mach-O image").as_slice(),
+        &cleared[0x78..0x88],
+        &[0u8; 16],
+        "the signature must be zeroed"
+    );
+    assert_eq!(&cleared[80..104], &image[80..104], "other commands survive");
+    assert_eq!(
+        without_macho_identity(b"not a Mach-O image").as_slice(),
         b"not a Mach-O image",
         "a non-Mach-O image is compared as it is"
     );
@@ -356,24 +367,32 @@ fn pe_offset(bytes: &[u8]) -> Option<usize> {
 /// Normalise the link step's own identity so two images can be compared for
 /// the bytes the compiler contributed.
 ///
-/// A PE image carries a clock, and a Mach-O image carries an `LC_UUID` that
-/// Apple's `ld` derives from its own inputs; neither is something the
-/// compiler decided. `--reproducible` removes both; this helper ignores them
-/// for the ordinary build the warm-cache test makes.
+/// A PE image carries a clock, and a Mach-O image carries an `LC_UUID` plus a
+/// code signature that hashes it; neither is something the compiler decided.
+/// `--reproducible` removes them; this helper ignores them for the ordinary
+/// build the warm-cache test makes.
 fn without_link_identity(bytes: &[u8]) -> Vec<u8> {
-    let bytes = without_macho_uuid(bytes);
+    let bytes = without_macho_identity(bytes);
     without_link_timestamp(&bytes)
 }
 
-/// Zero every `LC_UUID` payload in a single-architecture Mach-O image.
+/// Zero the parts of a single-architecture Mach-O image that Apple's linker
+/// derives from its own inputs.
 ///
 /// The load commands are a chain: a 32-byte header (28 for a 32-bit image)
-/// followed by `ncmds` records of `cmd` and `cmdsize`. `LC_UUID` is `0x1b` and
-/// its 16-byte payload follows the 8-byte command header. A universal image
-/// names its slices through a fat header instead; this leaves one alone, so
-/// the comparison then fails on the UUID rather than quietly calling unequal
-/// images equal.
-fn without_macho_uuid(bytes: &[u8]) -> Vec<u8> {
+/// followed by `ncmds` records of `cmd` and `cmdsize`. Two of them carry an
+/// identity rather than a decision the compiler made:
+///
+/// - `LC_UUID` (`0x1b`) carries 16 bytes derived from the linker's inputs,
+///   the output path among them.
+/// - `LC_CODE_SIGNATURE` (`0x1d`) names an embedded signature whose page
+///   hashes cover the `LC_UUID` bytes, so a different UUID means a different
+///   signature even after the UUID itself is zeroed.
+///
+/// A universal image names its slices through a fat header instead; this
+/// leaves one alone, so the comparison then fails on the identity rather than
+/// quietly calling unequal images equal.
+fn without_macho_identity(bytes: &[u8]) -> Vec<u8> {
     let mut bytes = bytes.to_vec();
     if bytes.len() < 28 {
         return bytes;
@@ -401,6 +420,20 @@ fn without_macho_uuid(bytes: &[u8]) -> Vec<u8> {
         }
         if command == 0x1b && size >= 24 {
             bytes[at + 8..at + 24].fill(0);
+        }
+        if command == 0x1d && size >= 16 {
+            let data =
+                u32::from_le_bytes([bytes[at + 8], bytes[at + 9], bytes[at + 10], bytes[at + 11]])
+                    as usize;
+            let length = u32::from_le_bytes([
+                bytes[at + 12],
+                bytes[at + 13],
+                bytes[at + 14],
+                bytes[at + 15],
+            ]) as usize;
+            if data <= bytes.len() && length <= bytes.len() - data {
+                bytes[data..data + length].fill(0);
+            }
         }
         at += size;
     }
