@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-15]
 
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest, macos-14]
+        os: [ubuntu-22.04, windows-latest, macos-15]
 
     steps:
       - uses: actions/checkout@v4
@@ -159,6 +159,10 @@ jobs:
       # secrets the release workflow reads. Until those exist, this job proves
       # macOS works and the release gate stays a recorded, dated exception --
       # the two are not the same claim, so neither is relabelled.
+      #
+      # `macos-15` is the current GA arm64 image; GitHub retired the macOS 14
+      # images on 2026-11-02, and a job on a retired label is cancelled before
+      # it starts.
       - name: Package and run the clean-install acceptance (macOS, unsigned)
         if: runner.os == 'macOS'
         run: |

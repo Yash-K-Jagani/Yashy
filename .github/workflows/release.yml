@@ -161,7 +161,7 @@ jobs:
   # accepts the binary without asking Apple's servers.
   macos:
     name: macos (${{ matrix.target }})
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
@@ -284,7 +284,7 @@ jobs:
   # not a release.
   macos-install:
     needs: macos
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
