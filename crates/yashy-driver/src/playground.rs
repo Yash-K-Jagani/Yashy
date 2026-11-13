@@ -29,6 +29,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use yashy_common::Json;
@@ -52,6 +53,13 @@ pub struct Limits {
     pub queue_depth: usize,
     /// How many requests one caller may make a minute.
     pub requests_per_minute: u32,
+    /// The window those requests are counted over.
+    ///
+    /// A minute in production. It is a field because a test that compiles
+    /// real programs can easily take longer than a minute to place the
+    /// requests that must be refused, and a rate limit whose window slides
+    /// under real work is not being tested -- it is being raced.
+    pub rate_window: Duration,
 }
 
 impl Default for Limits {
@@ -63,6 +71,7 @@ impl Default for Limits {
             output_bytes: 64 * 1024,
             queue_depth: 8,
             requests_per_minute: 100,
+            rate_window: Duration::from_secs(60),
         }
     }
 }
@@ -205,16 +214,17 @@ impl Server {
         self.run(request)
     }
 
-    /// Whether `ip` has asked for more than its share this minute.
+    /// Whether `ip` has asked for more than its share this window.
     fn over_rate(&mut self, ip: &str) -> Option<String> {
         let now = Instant::now();
-        let window = Duration::from_secs(60);
+        let window = self.limits.rate_window;
         let times = self.callers.entry(ip.to_string()).or_default();
         times.retain(|at| now.duration_since(*at) < window);
         if times.len() as u32 >= self.limits.requests_per_minute {
             return Some(format!(
-                "too many requests: the limit is {} a minute",
-                self.limits.requests_per_minute
+                "too many requests: the limit is {} in {} seconds",
+                self.limits.requests_per_minute,
+                window.as_secs()
             ));
         }
         times.push(now);
@@ -285,12 +295,22 @@ impl Server {
     }
 
     /// A directory name for one run.
+    ///
+    /// The clock alone is not enough. Two servers in one process -- the
+    /// integration suite makes one per test, and a deployment that shards
+    /// requests over threads behaves the same way -- can ask within one
+    /// clock tick, and the second would then write its source over the
+    /// first's and delete the directory when it finished. The serial makes
+    /// the name unique without depending on the clock's resolution; the
+    /// process id keeps two processes sharing a root apart.
     fn next_id(&self) -> String {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos())
             .unwrap_or(0);
-        format!("run-{stamp}-{}", std::process::id())
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        format!("run-{stamp}-{}-{serial}", std::process::id())
     }
 }
 
@@ -714,5 +734,28 @@ mod tests {
     fn the_frontend_never_leaves_its_directory() {
         assert!(frontend_file("../../etc/passwd").is_none());
         assert!(frontend_file("/index.html").is_some());
+    }
+
+    #[test]
+    fn two_servers_in_one_process_never_share_a_run_directory() {
+        // The clock can hand two servers the same tick. A shared directory
+        // means one run overwrites the other's source and deletes it when it
+        // finishes, which is an empty answer with a zero exit -- the failure
+        // this test pins does not need a compiler to happen.
+        let one = Server::with_paths(
+            Limits::default(),
+            PathBuf::from("yashy"),
+            PathBuf::from("root"),
+        );
+        let two = Server::with_paths(
+            Limits::default(),
+            PathBuf::from("yashy"),
+            PathBuf::from("root"),
+        );
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            assert!(ids.insert(one.next_id()), "an id was reused");
+            assert!(ids.insert(two.next_id()), "an id was reused");
+        }
     }
 }

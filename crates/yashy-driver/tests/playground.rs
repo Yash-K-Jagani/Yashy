@@ -125,8 +125,13 @@ fn a_source_over_the_cap_is_refused() {
 
 #[test]
 fn a_caller_over_its_rate_is_refused() {
+    // The window is an hour: these requests compile real programs, and three
+    // compiles can take longer than a minute on a loaded machine. A rolling
+    // minute would then let the fourth request through and fail a limit that
+    // is working exactly as designed.
     let mut server = server(Limits {
         requests_per_minute: 3,
+        rate_window: std::time::Duration::from_secs(3600),
         ..Limits::default()
     });
     for index in 0..3 {
@@ -209,7 +214,14 @@ fn a_program_that_prints_is_answered() {
             exit,
         } => {
             assert_eq!(exit, 0, "the program must exit zero: {stderr}");
-            assert_eq!(stdout, "hello\n");
+            // The stdout assertion carries the run's whole reply: an empty
+            // stdout with a zero exit is either a program that printed
+            // somewhere else or a build that was never run, and the stderr
+            // is what tells those apart.
+            assert_eq!(
+                stdout, "hello\n",
+                "the program printed nothing: exit {exit}, stderr {stderr:?}"
+            );
         }
         other => panic!("the program must run, got {other:?}"),
     }
