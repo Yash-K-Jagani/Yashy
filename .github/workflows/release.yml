@@ -448,7 +448,12 @@ jobs:
           GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
         run: |
           banner="$RUNNER_TEMP/unsigned.md"
-          : > "$banner"
+          {
+            echo "## This build is unsigned"
+            echo
+            echo "Every artifact below is built and tested; some signatures are missing. Each one is a check you cannot make, not a reason the compiler will not run:"
+            echo
+          } > "$banner"
           if [ -z "$WINDOWS_CERT" ]; then
             printf '%s\n' '- **Windows:** there is no Authenticode signature, so SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.' >> "$banner"
           fi
@@ -458,20 +463,26 @@ jobs:
           if [ -z "$GPG_KEY" ]; then
             printf '%s\n' '- **Checksums:** `SHA256SUMS` is not GPG-signed, so there is no `SHA256SUMS.asc` to verify.' >> "$banner"
           fi
-          if [ ! -s "$banner" ]; then
+          if [ "$(wc -l < "$banner")" -le 4 ]; then
             echo "every artifact in this release is signed"
             exit 0
           fi
           {
             echo
-            echo "## This build is unsigned"
-            echo
-            echo "Every artifact below is built and tested; some signatures are missing. Each one is a check you cannot make, not a reason the compiler will not run:"
-            echo
-            cat "$banner"
-            echo
             echo "These warnings go away once the release manager adds a Developer ID certificate, an Authenticode certificate and a GPG key to the repository secrets."
-          } >> dist/RELEASE_NOTES.md
+            echo
+            echo "---"
+            echo
+          } >> "$banner"
+          # The banner sits under the title and above the changelog: a reader
+          # has to know what the download does not prove before reading what
+          # changed.
+          {
+            head -n 2 dist/RELEASE_NOTES.md
+            cat "$banner"
+            tail -n +3 dist/RELEASE_NOTES.md
+          } > "$RUNNER_TEMP/notes.md"
+          mv "$RUNNER_TEMP/notes.md" dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
       # A tag publishes. The notes say exactly which signatures are missing,
