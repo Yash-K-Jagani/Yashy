@@ -99,6 +99,10 @@ typedef struct yax_task_record {
     void *frame;
     long long id;
     int state;
+    /* Set for a task that came from `yashy_task_spawn`: it is counted in
+     * `outstanding`, and whoever completes or cancels it settles that count
+     * exactly once (the registry entry is retired at the same time). */
+    int spawned;
 } yax_task_record;
 
 /* A structured-concurrency scope: children spawned while it is the executor's
@@ -107,6 +111,10 @@ typedef struct yax_task_record {
 typedef struct yax_scope_child {
     yashy_poll_fn poll;
     void *frame;
+    /* Set when the child's `await` handed its frame back: the caller read
+     * the result and freed the frame, so this slot's `frame` is a dead
+     * pointer and the join must skip it without reading anything. */
+    int done;
 } yax_scope_child;
 
 typedef struct yashy_scope {
@@ -117,6 +125,17 @@ typedef struct yashy_scope {
     struct yashy_scope *parent;
 } yashy_scope;
 
+/* A completed task frame the executor holds until its owner reads the
+ * result. A `spawn`ed task belongs to the scope that spawned it, so the
+ * scope's join is its last owner and frees it; a frame an `await` has
+ * finished is handed back by `yashy_task_release`, which retires the mark and
+ * frees the frame. Every mark therefore names a live frame, and only a live
+ * frame is ever compared against it -- the scope slot's `done` flag, not a
+ * mark, is what tells the join that a child's memory is gone. */
+typedef struct yax_retained_frame {
+    void *frame;
+} yax_retained_frame;
+
 struct yashy_executor {
     yax_os_lock lock;
     yax_os_cond has_work;
@@ -125,7 +144,7 @@ struct yashy_executor {
     long long head;
     long long count;
     long long capacity;
-    void **retained; /* completed frames awaiting their owner */
+    yax_retained_frame *retained; /* completed frames awaiting their owner */
     long long retained_count;
     long long retained_capacity;
     long long outstanding; /* spawned, not yet completed or cancelled */
@@ -204,6 +223,23 @@ static void yax_set_state(yashy_executor *ex, void *frame, int state) {
     yax_lock_release(&ex->lock);
 }
 
+/* A task reached ready and the executor now holds its frame until its owner
+ * reads the result; see [`yax_retain`]. Declared here because a poll
+ * publishes the mark as part of completing the task. */
+static void yax_retain(yashy_executor *ex, void *frame);
+
+/* Retire a frame's retained mark; see [`yax_forget`]. Declared here because
+ * the join and the cancel path both retire a mark before freeing a frame. */
+static void yax_forget(yashy_executor *ex, void *frame);
+
+/* True when a completion mark is standing for this frame; see [`yax_retain`].
+ * A retained frame has already reached done, so no driver may poll it again. */
+static int yax_is_retained(yashy_executor *ex, void *frame);
+
+/* Wait, briefly, until this frame can be taken exclusively: see
+ * `yax_acquire_frame`. */
+static int yax_acquire_frame(yashy_executor *ex, void *frame);
+
 /* Poll one task with its state tracked: running across the poll, pending
  * when it suspends, and out of the registry once it is ready. A task that
  * was never registered (a bare `yashy_task_poll`) passes through with only
@@ -215,13 +251,40 @@ static void yax_set_state(yashy_executor *ex, void *frame, int state) {
  * index as live and run its body twice -- a cancelled worker's `defer`s
  * would print twice. A frame already claimed answers NULL, which every
  * caller reads as "still pending" and retries once the other driver is
- * done. */
-static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
+ * done.
+ *
+ * `from_queue` says the caller dequeued this task's record, so it owns the
+ * next poll: the registry holds state 2 ("checked out") from the dequeue
+ * until the claim is taken here. That is the window a free path must not
+ * cross -- without it a record could be checked out by a worker and the
+ * frame freed before the worker's first poll.
+ *
+ * `retain_on_ready` publishes the completion mark *before* the claim is
+ * released, so no other driver can see a finished frame and conclude that
+ * nobody has marked it yet. Callers that own the frame and free it
+ * themselves (the join, `yashy_task_poll`) pass 0. */
+static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *frame,
+                              int retain_on_ready, int from_queue) {
+    if (ex != NULL && frame != NULL && yax_is_retained(ex, frame)) {
+        /* Another driver completed this task and published its mark. Polling
+         * it again would run the body a second time: the generated poll
+         * returns at once on a done resume index, but the executor must not
+         * depend on that, and a hand-made frame (the C suite) does not do it.
+         * Answer "ready" instead of polling. */
+        return frame;
+    }
     if (ex != NULL && frame != NULL) {
         yax_lock_acquire(&ex->lock);
         long long index = yax_registry_index(ex, frame);
         if (index >= 0) {
-            if (ex->registry[index].state == 1) {
+            int state = ex->registry[index].state;
+            if (from_queue) {
+                if (state == 1) {
+                    /* Another driver is inside; this record is stale. */
+                    yax_lock_release(&ex->lock);
+                    return NULL;
+                }
+            } else if (state != 0) {
                 yax_lock_release(&ex->lock);
                 return NULL;
             }
@@ -231,8 +294,16 @@ static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *fram
     }
     void *ready = poll == NULL ? NULL : poll(frame);
     if (ready != NULL) {
+        if (retain_on_ready) {
+            yax_retain(ex, frame);
+        }
         yax_unregister(ex, frame);
-    } else {
+    } else if (!from_queue) {
+        /* A queue poller keeps its claim until it has requeued the record:
+         * `yax_requeue` clears it in the same lock section that publishes the
+         * record, so a free path never sees an unclaimed frame between the
+         * two. A driver that will not requeue (the join, `task_poll`) frees
+         * the claim here. */
         yax_set_state(ex, frame, 0);
     }
     return ready;
@@ -278,6 +349,13 @@ static int yax_requeue(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     ex->queue[tail].id = 0;
     ex->queue[tail].state = 0;
     ex->count++;
+    /* The record is back and the frame is claimable in one step: clearing the
+     * claim first would open a window in which a free path takes the frame
+     * for good while this thread is about to enqueue it. */
+    long long index = yax_registry_index(ex, frame);
+    if (index >= 0) {
+        ex->registry[index].state = 0;
+    }
     yax_cond_signal(&ex->has_work);
     yax_lock_release(&ex->lock);
     return 0;
@@ -305,16 +383,30 @@ static int yax_enqueue(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     return 0;
 }
 
-/* Dequeue one task, or return 0 when the queue is empty. */
+/* Dequeue one task and check its frame out of the executor: answers 1 with
+ * the record filled, 0 when the queue is empty, and 2 when the head record
+ * names a frame another driver has claimed (the caller should retry later --
+ * the record stays at the head so it is not lost). Checking the frame out
+ * here, under the same lock as the dequeue, is what stops a free path from
+ * taking a frame between a worker's dequeue and its first poll. */
 static int yax_dequeue(yashy_executor *ex, yax_task_record *task_out) {
     yax_lock_acquire(&ex->lock);
     if (ex->count == 0) {
         yax_lock_release(&ex->lock);
         return 0;
     }
+    void *frame = ex->queue[ex->head].frame;
+    long long index = yax_registry_index(ex, frame);
+    if (index >= 0 && ex->registry[index].state != 0) {
+        yax_lock_release(&ex->lock);
+        return 2;
+    }
     *task_out = ex->queue[ex->head];
     ex->head = (ex->head + 1) % ex->capacity;
     ex->count--;
+    if (index >= 0) {
+        ex->registry[index].state = 2;
+    }
     yax_lock_release(&ex->lock);
     return 1;
 }
@@ -328,15 +420,27 @@ static void yax_finish_one(yashy_executor *ex) {
     yax_lock_release(&ex->lock);
 }
 
-/* A spawned task reached ready. The executor does not free its frame: the
- * owner (usually the task that awaits it) frees it after reading the
- * result. Until then the frame is retained here and freed by
- * `yashy_executor_free` when the executor itself goes away. */
+/* A task reached ready. The executor does not free its frame: whoever owns
+ * the task does, after reading the result -- an `await` hands it back
+ * (`yashy_task_release`) and, when nobody awaits the task, the scope's join
+ * frees it. Until then the frame is retained here and freed by
+ * `yashy_executor_free` when the executor itself goes away. A frame that is
+ * already retained keeps its single mark: completion happens once. */
 static void yax_retain(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
     yax_lock_acquire(&ex->lock);
+    for (long long i = 0; i < ex->retained_count; i++) {
+        if (ex->retained[i].frame == frame) {
+            yax_lock_release(&ex->lock);
+            return;
+        }
+    }
     if (ex->retained_count == ex->retained_capacity) {
         long long grown = ex->retained_capacity == 0 ? 64 : ex->retained_capacity * 2;
-        void **next = (void **)realloc(ex->retained, (size_t)grown * sizeof *next);
+        yax_retained_frame *next = (yax_retained_frame *)realloc(
+            ex->retained, (size_t)grown * sizeof *next);
         if (next != NULL) {
             ex->retained = next;
             ex->retained_capacity = grown;
@@ -348,7 +452,8 @@ static void yax_retain(yashy_executor *ex, void *frame) {
             return;
         }
     }
-    ex->retained[ex->retained_count++] = frame;
+    ex->retained[ex->retained_count].frame = frame;
+    ex->retained_count++;
     yax_lock_release(&ex->lock);
 }
 
@@ -361,32 +466,31 @@ static void *yax_worker_loop(void *raw)
     yashy_executor *ex = (yashy_executor *)raw;
     for (;;) {
         yax_task_record task;
-        int got = 0;
         yax_lock_acquire(&ex->lock);
         while (ex->count == 0 && !ex->shutdown) {
             yax_cond_wait(&ex->has_work, &ex->lock);
         }
-        if (ex->count > 0) {
-            task = ex->queue[ex->head];
-            ex->head = (ex->head + 1) % ex->capacity;
-            ex->count--;
-            got = 1;
-        }
         int stopping = ex->shutdown && ex->count == 0;
         yax_lock_release(&ex->lock);
-        if (!got) {
-            if (stopping) {
+        if (stopping) {
 #if defined(_WIN32)
-                return 0;
+            return 0;
 #else
-                return NULL;
+            return NULL;
 #endif
-            }
+        }
+        int got = yax_dequeue(ex, &task);
+        if (got == 2) {
+            /* The head record names a frame some other driver has claimed;
+             * it stays queued until that driver finishes. */
+            yashy_sleep_ms(1);
             continue;
         }
-        void *ready = yax_poll_tracked(ex, task.poll, task.frame);
+        if (got == 0) {
+            continue;
+        }
+        void *ready = yax_poll_tracked(ex, task.poll, task.frame, 1, 1);
         if (ready != NULL) {
-            yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
             ex->completed++;
             yax_lock_release(&ex->lock);
@@ -520,7 +624,11 @@ void yashy_executor_free(yashy_executor *ex) {
         yashy_free(task.frame);
     }
     for (long long i = 0; i < ex->retained_count; i++) {
-        yashy_free(ex->retained[i]);
+        /* A retained frame has no owner left: whoever drove the task home
+         * either retires the mark and frees the frame (`yashy_task_release`,
+         * the scope's join) or never does. Every mark names a live frame, so
+         * freeing it here cannot double-free. */
+        yashy_free(ex->retained[i].frame);
     }
     yax_lock_release(&ex->lock);
     free(ex->workers);
@@ -647,6 +755,15 @@ int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
             return -1;
         }
     }
+    /* A frame's mark is retired by the scope's join (or by cancel/drop), so
+     * an entry still standing for this address would belong to a frame that
+     * has been freed without a join ever reaching it. Nothing can tell such
+     * an entry from a live one -- the marks are compared by pointer only --
+     * so the spawn path leaves them alone: retiring one here would strip the
+     * only protection a freed child slot has against being read again. The
+     * one case this cannot cover (a frame reallocated at a freed child's
+     * address before that child's join retires its mark) is recorded in the
+     * phase-13 ledger as an open finding. */
     int rc = yax_enqueue(ex, poll, frame);
     /* A spawn while a scope is active belongs to that scope: register it so
      * leaving the scope joins or cancels it in reverse spawn order. */
@@ -664,6 +781,7 @@ int yashy_task_spawn(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
         if (scope->count < scope->capacity) {
             scope->children[scope->count].poll = poll;
             scope->children[scope->count].frame = frame;
+            scope->children[scope->count].done = 0;
             scope->count++;
         }
     }
@@ -702,16 +820,17 @@ void yashy_scope_free(yashy_scope *scope) {
     free(scope);
 }
 
-/* True when the executor already retained this frame: it reached ready
- * through a drain or an `await` drive, and must not be polled again. */
+/* True when a completion mark is standing for this frame. A retained frame
+ * has already reached done, so no driver may poll it again; see
+ * `yax_poll_tracked`. */
 static int yax_is_retained(yashy_executor *ex, void *frame) {
     if (ex == NULL || frame == NULL) {
         return 0;
     }
-    yax_lock_acquire(&ex->lock);
     int found = 0;
+    yax_lock_acquire(&ex->lock);
     for (long long i = 0; i < ex->retained_count; i++) {
-        if (ex->retained[i] == frame) {
+        if (ex->retained[i].frame == frame) {
             found = 1;
             break;
         }
@@ -720,12 +839,30 @@ static int yax_is_retained(yashy_executor *ex, void *frame) {
     return found;
 }
 
+/* Retire every completion mark for a frame: the caller is now its owner and
+ * is about to free it. The marks are a set, so every entry for the frame
+ * goes. */
+static void yax_forget(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
+    yax_lock_acquire(&ex->lock);
+    for (long long i = 0; i < ex->retained_count; i++) {
+        if (ex->retained[i].frame == frame) {
+            ex->retained[i] = ex->retained[ex->retained_count - 1];
+            ex->retained_count--;
+            i--;
+        }
+    }
+    yax_lock_release(&ex->lock);
+}
+
 /* Remove a task's queued record without freeing its frame: used when a
  * driver takes the task over inline — the scope joining a child home, or
  * `block_on` starting an `await` — so a later executor drain must not poll
- * it a second time. Answers 1 when the record was here (the caller now owns
- * the task's completion: it must retain the frame when it finishes, the mark
- * the queue path leaves behind) and 0 when someone else already held it. */
+ * it a second time. Answers 1 when the record was here and 0 when someone
+ * else already held it (the frame stays live either way; the caller that
+ * ends up owning it frees it and retires any mark). */
 static int yax_unqueue(yashy_executor *ex, void *frame) {
     if (ex == NULL || frame == NULL) {
         return 0;
@@ -750,11 +887,20 @@ static int yax_unqueue(yashy_executor *ex, void *frame) {
     return removed;
 }
 
-/* Join or cancel every child in reverse spawn order. A child whose resume
- * index already reads done (an `await` drove it home) is skipped. Every other
- * child is polled until it is ready; a child that stays pending is cancelled
- * (its frame is freed, which is also the cancel path a `defer` observes
- * through the one final poll that runs its pending segment). */
+/* Join or cancel every child in reverse spawn order. A child that reached
+ * ready through another driver is not polled again. Every other child is
+ * polled until it is ready; a child that stays pending is cancelled (its
+ * frame is freed, which is also the cancel path a `defer` observes through
+ * the one final poll that runs its pending segment).
+ *
+ * Two answers are possible for a child that another driver finished first:
+ * this loop drove it home, or a queue driver / an `await` did. Both leave a
+ * live frame (an `await` marks the slot done instead, so its frame is freed
+ * there and this loop skips it), so the join frees it either way. That is the
+ * fix for the leak this gate found: a discarded `spawn` handle completed by a
+ * pool worker stayed in the retained list forever, because the join read
+ * "retained" as "awaited" and nothing else could free it.
+ */
 void yashy_scope_join_or_cancel(yashy_scope *scope) {
     if (scope == NULL) {
         return;
@@ -764,41 +910,39 @@ void yashy_scope_join_or_cancel(yashy_scope *scope) {
         if (child.poll == NULL || child.frame == NULL) {
             continue;
         }
-        /* Header word 0 is the resume index: -1 means done. A frame the
-         * executor retained was driven home by an `await` even if the memory
-         * was since freed, so it is never polled again here. Both answers are
-         * re-read on every attempt rather than once before the loop: a pool
-         * worker may drive this very child to completion while the loop waits,
-         * and polling such a frame again would run its body a second time. */
+        if (child.done) {
+            /* The child's `await` read the result and handed the frame back;
+             * it was freed there, so this slot holds a dead pointer. */
+            continue;
+        }
+        /* Header word 0 is the resume index: -1 means done. A child another
+         * driver finished is not polled again -- it is only read, which is
+         * safe because a scope child's frame is live until this loop frees
+         * it. The index is re-read on every attempt: a pool worker may drive
+         * this very child to completion while the loop waits. */
         int ready = 0;
-        int driven_home = 0;
-        for (int attempt = 0; attempt < 1000; attempt++) {
-            if (yax_is_retained(scope->ex, child.frame) ||
-                *(int *)child.frame == -1) {
-                driven_home = 1;
-                break;
-            }
-            if (yax_poll_tracked(scope->ex, child.poll, child.frame) != NULL) {
+        for (int attempt = 0; attempt < 1000 && *(int *)child.frame != -1; attempt++) {
+            if (yax_poll_tracked(scope->ex, child.poll, child.frame, 0, 0) != NULL) {
                 ready = 1;
                 break;
             }
             yashy_sleep_ms(1);
         }
-        if (driven_home) {
-            /* The executor drove this child home: dequeue it so a later drain
-             * does not touch it, and leave the frame to the driver that owns
-             * it -- the same answer as the check above the loop. */
-            yax_unqueue(scope->ex, child.frame);
+        if (!ready && *(int *)child.frame != -1) {
+            /* Still pending after the bounded wait: cancel it. That path runs
+             * the task's pendings `defer`s once, takes its mark back, and
+             * frees the frame. */
+            yashy_task_cancel(scope->ex, child.poll, child.frame);
             continue;
         }
-        if (!ready) {
-            yashy_task_cancel(scope->ex, child.poll, child.frame);
-        } else {
-            /* The scope drove this child home: dequeue it so the executor's
-             * own drain does not run it a second time, and free its frame —
-             * a discarded handle has no owner left to free it, and a handle
-             * awaited inside the scope took the retained branch above. */
+        /* This loop drove the child home, or another driver did. Either way
+         * the frame is ours now: wait out any claim, remove the queue record
+         * so no driver can dequeue it after the free, retire its mark and
+         * free it. */
+        if (yax_acquire_frame(scope->ex, child.frame)) {
             yax_unqueue(scope->ex, child.frame);
+            yax_unregister(scope->ex, child.frame);
+            yax_forget(scope->ex, child.frame);
             yashy_free(child.frame);
         }
     }
@@ -809,21 +953,21 @@ int yashy_task_poll(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (poll == NULL || frame == NULL) {
         return -1;
     }
-    return yax_poll_tracked(ex, poll, frame) != NULL ? 1 : 0;
+    return yax_poll_tracked(ex, poll, frame, 0, 0) != NULL ? 1 : 0;
 }
 
 /* Poll one task; on a pending answer, drive the spawned queue once so
  * `spawn`ed children make progress even while the main task waits. */
 static int yax_drive_once(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
-    int ready = poll != NULL && frame != NULL && yax_poll_tracked(ex, poll, frame) != NULL;
+    int ready =
+        poll != NULL && frame != NULL && yax_poll_tracked(ex, poll, frame, 0, 0) != NULL;
     if (ready) {
         return 1;
     }
     yax_task_record task;
-    if (yax_dequeue(ex, &task)) {
-        void *child_ready = yax_poll_tracked(ex, task.poll, task.frame);
+    if (yax_dequeue(ex, &task) == 1) {
+        void *child_ready = yax_poll_tracked(ex, task.poll, task.frame, 1, 1);
         if (child_ready != NULL) {
-            yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
             ex->completed++;
             yax_lock_release(&ex->lock);
@@ -846,7 +990,7 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
      * (the `await` in the task being driven) dequeues the record, meets the
      * claim this call holds, and requeues it forever: the two drivers
      * wait on each other and the program never terminates. */
-    int took_record = yax_unqueue(ex, frame);
+    yax_unqueue(ex, frame);
     /* The task being driven is live too, so the dump can name it while it
      * runs or suspends. */
     yax_lock_acquire(&ex->lock);
@@ -873,48 +1017,44 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
             }
         }
     }
-    if (took_record) {
-        /* The record this call took over would have completed through the
-         * queue, and the queue's completion path retains the frame: that
-         * retained mark is what `yashy_scope_join_or_cancel` reads to know
-         * a child was driven home by an `await` — its owner frees the
-         * frame as soon as this returns, and the join must never poll a
-         * freed child. Leave the same mark for the frame this call
-         * completed itself. */
-        yax_retain(ex, frame);
-    }
+    /* No completion mark is published for the frame this call drove: the
+     * caller receives it and hands it back through `yashy_task_release`,
+     * which retires the mark and frees the frame. A mark would be redundant
+     * here, and a mark that outlives its frame is the one thing this design
+     * cannot represent -- the marks are compared by pointer only. */
     /* The main task completed before `block_on` returns, and so did every
-     * task spawned from it: drain the queue before answering. */
+     * task spawned from it: drain what is still queued. Every ready task is
+     * completed here (the loop is unbounded for ready tasks). A task that is
+     * still pending is requeued once and the drain stops -- only a worker or
+     * a later `block_on` can complete it, so spinning cannot help. */
+    long long claimed_spins = 0;
     for (;;) {
         yax_task_record task;
-        if (!yax_dequeue(ex, &task)) {
-            break;
+        int got = yax_dequeue(ex, &task);
+        if (got == 0) {
+            break; /* queue empty */
         }
-        void *ready = yax_poll_tracked(ex, task.poll, task.frame);
+        if (got == 2) {
+            /* Another driver has the head record's frame checked out; it
+             * will either finish or requeue it. Let it, but do not spin
+             * forever on a driver that never lets go. */
+            if (++claimed_spins > 1000) {
+                break;
+            }
+            yashy_sleep_ms(1);
+            continue;
+        }
+        void *ready = yax_poll_tracked(ex, task.poll, task.frame, 1, 1);
         if (ready != NULL) {
-            yax_retain(ex, task.frame);
             yax_lock_acquire(&ex->lock);
             ex->completed++;
             yax_lock_release(&ex->lock);
-        } else {
-            yax_requeue(ex, task.poll, task.frame);
-            /* A still-pending child after the main task is done can only
-             * mean progress stopped; avoid an infinite drain loop. */
-            yashy_sleep_ms(1);
-            if (!yax_dequeue(ex, &task)) {
-                continue;
-            }
-            ready = yax_poll_tracked(ex, task.poll, task.frame);
-            if (ready != NULL) {
-                yax_retain(ex, task.frame);
-                yax_lock_acquire(&ex->lock);
-                ex->completed++;
-                yax_lock_release(&ex->lock);
-            } else {
-                yax_requeue(ex, task.poll, task.frame);
-            }
+            yax_finish_one(ex);
+            continue;
         }
-        yax_finish_one(ex);
+        /* Still pending: put it back and stop draining. */
+        yax_requeue(ex, task.poll, task.frame);
+        break;
     }
     yax_lock_acquire(&ex->lock);
     long long outstanding = ex->outstanding;
@@ -933,26 +1073,92 @@ int yashy_block_on(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     return 0;
 }
 
+/* Wait, briefly, until no driver holds this frame. A poll holds the claim for
+ * one segment, and a queue poller holds it from its dequeue from the queue
+ * until it either completes the task or requeues it -- state 2 is that
+ * checkout. A frame freed under a worker would be read after the claim is
+ * released. The wait is bounded because a scope has to make progress even if
+ * a driver wedges. Returns 1 when the frame is unclaimed. */
+static int yax_wait_unclaimed(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return 1;
+    }
+    for (int attempt = 0; attempt < 100; attempt++) {
+        yax_lock_acquire(&ex->lock);
+        long long index = yax_registry_index(ex, frame);
+        int claimed = index >= 0 && ex->registry[index].state != 0;
+        yax_lock_release(&ex->lock);
+        if (!claimed) {
+            return 1;
+        }
+        yashy_sleep_ms(1);
+    }
+    return 0;
+}
+
+/* Take exclusive ownership of a frame: wait until no driver is inside it,
+ * then answer 1 so the caller may unregister, retire the mark and free it. */
+static int yax_acquire_frame(yashy_executor *ex, void *frame) {
+    return yax_wait_unclaimed(ex, frame);
+}
+
+/* Note that a finished child's frame has been handed back. Whether a frame
+ * belongs to a scope is answered by walking the active scope and its parents
+ * -- an `await` can sit inside a nested scope and wait on a child of an outer
+ * one -- and the slot it belongs to is marked done there, so the join skips
+ * the slot instead of reading a frame the allocator has already taken back.
+ * Returns 1 when a live scope owned the frame. */
+static int yax_scope_note_released(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return 0;
+    }
+    yax_lock_acquire(&ex->lock);
+    yashy_scope *scope = ex->active_scope;
+    yax_lock_release(&ex->lock);
+    for (; scope != NULL; scope = scope->parent) {
+        for (long long i = 0; i < scope->count; i++) {
+            if (scope->children[i].frame == frame && !scope->children[i].done) {
+                scope->children[i].done = 1;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Hand a finished child frame back after its result has been read. A spawned
+ * task's frame belongs to the scope that spawned it: that scope's join is
+ * told the frame is gone (so it never reads it) and the frame is freed here,
+ * which keeps a loop of awaits from holding every completed frame until the
+ * scope ends. A frame of a directly called `async fn` has no slot to mark and
+ * is freed the same way.
+ *
+ * This is what lets the join read its children safely: a slot is either
+ * marked done (and never touched) or still holds a live frame. Nothing keys
+ * on the frame's address outliving the frame. */
+void yashy_task_release(yashy_executor *ex, void *frame) {
+    if (frame == NULL) {
+        return;
+    }
+    yax_scope_note_released(ex, frame);
+    /* A worker may have requeued the record after this `await` unqueued it
+     * (it dequeued first, saw the task pending, and put it back), and it may
+     * be inside one segment right now. Drop the record and wait the claim
+     * out before the frame goes away, or the queue would hand a freed frame
+     * to the next driver. */
+    yax_wait_unclaimed(ex, frame);
+    yax_unqueue(ex, frame);
+    yax_unregister(ex, frame);
+    yax_forget(ex, frame);
+    yashy_free(frame);
+}
+
 void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (frame == NULL) {
         return;
     }
-    /* A frame another thread is inside must not be freed under it: wait for
-     * that claim to clear. The wait is bounded because a scope has to make
-     * progress even if a driver wedges, and a claim is held only across one
-     * poll segment, which returns promptly. */
-    if (ex != NULL) {
-        for (int attempt = 0; attempt < 100; attempt++) {
-            yax_lock_acquire(&ex->lock);
-            long long index = yax_registry_index(ex, frame);
-            int claimed = index >= 0 && ex->registry[index].state == 1;
-            yax_lock_release(&ex->lock);
-            if (!claimed) {
-                break;
-            }
-            yashy_sleep_ms(1);
-        }
-    }
+    /* A frame another thread is inside must not be freed under it. */
+    yax_wait_unclaimed(ex, frame);
     yax_unregister(ex, frame);
     if (ex != NULL) {
         yax_lock_acquire(&ex->lock);
@@ -968,6 +1174,7 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
                     yax_cond_broadcast(&ex->idle);
                 }
                 yax_lock_release(&ex->lock);
+                yax_forget(ex, frame);
                 yashy_free(frame);
                 return;
             }
@@ -975,6 +1182,7 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
         yax_lock_release(&ex->lock);
     }
     (void)poll;
+    yax_forget(ex, frame);
     yashy_free(frame);
 }
 
@@ -983,11 +1191,13 @@ void yashy_task_drop(void *frame) {
         return;
     }
     /* A dropped frame is no longer live; take it out of the default
-     * executor's registry without creating the executor just to do so. */
+     * executor's registry and its retained marks without creating the
+     * executor just to do so. */
     yax_lock_acquire(&yax_default_lock);
     yashy_executor *ex = yax_default;
     yax_lock_release(&yax_default_lock);
     yax_unregister(ex, frame);
+    yax_forget(ex, frame);
     yashy_free(frame);
 }
 

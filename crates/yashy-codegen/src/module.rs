@@ -876,6 +876,9 @@ impl Module {
         out.push_str("declare i32 @yashy_block_on(i8*, i8*, i8*)\n");
         out.push_str("declare void @yashy_task_cancel(i8*, i8*, i8*)\n");
         out.push_str("declare void @yashy_task_drop(i8*)\n");
+        // Hands a finished child frame back: the owning scope's join frees a
+        // spawned task's frame, this call frees a directly called one.
+        out.push_str("declare void @yashy_task_release(i8*, i8*)\n");
         // Structured concurrency (Phase 10, Task 5): the scope registry.
         out.push_str("declare i8* @yashy_scope_create(i8*)\n");
         out.push_str("declare void @yashy_scope_join_or_cancel(i8*)\n");

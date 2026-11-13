@@ -594,8 +594,13 @@ unsafe extern "C" {
 
 unsafe extern "C" {
     /// Frees a task frame (`yashy_free`). Tolerates null. Also removes the
-    /// frame from the default executor's live-task registry.
+    /// frame from the default executor's live-task registry and from the
+    /// list of completed frames waiting for an owner.
     pub fn yashy_task_drop(frame: *mut c_void);
+    /// Hands a finished child frame back after its result has been read.
+    /// Marks the owning scope's child slot done (so the scope's join never
+    /// reads the frame again) and frees the frame.
+    pub fn yashy_task_release(executor: *mut c_void, frame: *mut c_void);
 }
 
 unsafe extern "C" {

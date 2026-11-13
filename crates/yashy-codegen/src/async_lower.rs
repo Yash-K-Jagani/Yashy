@@ -579,8 +579,23 @@ fn field_slot(ctx: &mut FnCtx<'_>, layout: &FrameLayout, index: i32) -> String {
     slot
 }
 
+/// Hand a finished child frame back once its result has been read. A spawned
+/// task's frame belongs to the scope that spawned it: the runtime marks that
+/// scope's child slot done (so the join skips it) and frees the frame; a
+/// frame of a directly called `async fn` has no slot and is simply freed.
+/// `yashy_task_release` answers from the live scope chain, which keeps the
+/// code generator free of an ownership fact it does not have (it cannot tell
+/// a spawned task from a direct call: both are `Task[T]`).
+fn release_child(ctx: &mut FnCtx<'_>, child: &str) {
+    let executor = ctx.tmp();
+    ctx.push(format!("{executor} = call i8* @yashy_executor_default()"));
+    ctx.push(format!(
+        "call void @yashy_task_release(i8* {executor}, i8* {child})"
+    ));
+}
+
 /// Bind the result of the child task that just became ready to the awaited
-/// value, then free the child frame.
+/// value, then hand the child frame back.
 fn bind_result(ctx: &mut FnCtx<'_>, layout: &FrameLayout, site: &AwaitSite, result_ty: TypeKind) {
     let child_slot = field_slot(ctx, layout, 2);
     let child = ctx.tmp();
@@ -632,14 +647,14 @@ fn bind_result(ctx: &mut FnCtx<'_>, layout: &FrameLayout, site: &AwaitSite, resu
                 ctx.push(format!("store {repr} {value}, ptr {result}"));
                 let resume = field_slot(ctx, layout, 0);
                 ctx.push(format!("store i32 -1, ptr {resume}"));
-                ctx.push(format!("call void @yashy_free(i8* {child})"));
+                release_child(ctx, &child);
                 ctx.push("ret i8* %task.frame".to_string());
                 return;
             }
             AwaitSite::Discard => {}
         }
     }
-    ctx.push(format!("call void @yashy_free(i8* {child})"));
+    release_child(ctx, &child);
 }
 
 fn gen_poll(module: &mut crate::module::Module, f: &HirFn, layout: &FrameLayout) {
@@ -864,7 +879,7 @@ pub fn drive_inline(ctx: &mut FnCtx<'_>, child: &GenValue, result_ty: &TypeKind)
         ctx.push(format!("{value} = load {repr}, ptr {result_slot}"));
         value
     };
-    ctx.push(format!("call void @yashy_free(i8* {})", child.value));
+    release_child(ctx, &child.value);
     GenValue {
         value,
         ty: result_ty.clone(),

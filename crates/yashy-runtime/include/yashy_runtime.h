@@ -738,9 +738,12 @@ void yashy_chan_free(yashy_chan *chan);
  *
  * A task is a frame pointer plus a poll function `void *(*)(void *)`. The
  * poll function returns the frame when the task is ready and NULL while it
- * is pending. Frames are `yashy_alloc` blocks: the executor frees a spawned
- * frame with `yashy_free` when it completes, and the caller of `await` or
- * `block_on` frees the frame it drove after reading the result.
+ * is pending. Frames are `yashy_alloc` blocks. A spawned task's frame belongs
+ * to the scope it was spawned into: the generated `await` reads the result
+ * and hands the frame back with `yashy_task_release`, which marks the scope's
+ * slot done and frees the frame, so the scope's join skips it. A frame of a
+ * directly called `async fn` has no slot and is freed the same way. A child
+ * nobody awaits stays live until the join frees it.
  */
 typedef struct yashy_executor yashy_executor;
 typedef struct yashy_scope yashy_scope;
@@ -754,6 +757,7 @@ int yashy_task_poll(yashy_executor *executor, yashy_poll_fn poll, void *frame);
 int yashy_block_on(yashy_executor *executor, yashy_poll_fn poll, void *frame);
 void yashy_task_cancel(yashy_executor *executor, yashy_poll_fn poll, void *frame);
 void yashy_task_drop(void *frame);
+void yashy_task_release(yashy_executor *executor, void *frame);
 long long yashy_executor_completed(yashy_executor *executor);
 
 /* Task-aware debugging (phase 10 task 7).

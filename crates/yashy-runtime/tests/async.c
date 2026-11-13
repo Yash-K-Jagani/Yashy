@@ -1,7 +1,9 @@
 /* The executor, exercised as a real C program: 10 000 tasks complete in
  * both modes, a task spawned from a task completes before `block_on`
- * returns, and every frame the test allocates comes back (the
- * `yashy_live_allocations_now` counter returns to its baseline).
+ * returns, a scope frees the frame of a discarded `spawn` handle while
+ * leaving an awaited child's freed frame alone, and every frame the test
+ * allocates comes back (the `yashy_live_allocations_now` counter returns to
+ * its baseline).
  *
  * Frames are `yashy_alloc` blocks with the generated code's header layout:
  *   [0] unsigned resume, [1] padding, [2] poll fn pointer, [3] child frame
@@ -154,12 +156,57 @@ static void run_mode(int threads) {
     CHECK(child_done == 1);
     yashy_task_drop(parent);
 
+    /* The queue's completed frames are held until the executor goes away, so
+     * the reference here is not the baseline: it is what the sections below
+     * must leave unchanged. */
+    long long held = yashy_live_allocations_now();
+
+    /* An awaited child of a scope: the `await` reads the frame and hands it
+     * back, which marks the scope's slot done and frees the frame. Leaving
+     * the scope must therefore skip that slot without reading anything --
+     * the frame is gone and the allocator may already have reused it. */
+    yashy_scope *awaited_scope = yashy_scope_create(executor);
+    CHECK(awaited_scope != NULL);
+    void *awaited = yashy_alloc((long long)FRAME_SIZE, 8);
+    CHECK(awaited != NULL);
+    frame_init(awaited, counter_poll);
+    CHECK(yashy_task_spawn(executor, counter_poll, awaited) == 0);
+    CHECK(yashy_block_on(executor, counter_poll, awaited) == 0);
+    CHECK(((counter_frame *)awaited)->value == 1);
+    /* The same block is usually handed straight back; a fresh frame there
+     * must not be mistaken for the awaited one. */
+    yashy_task_release(executor, awaited); /* what the generated `await` emits */
+    void *reused = yashy_alloc((long long)FRAME_SIZE, 8);
+    CHECK(reused != NULL);
+    frame_init(reused, counter_poll);
+    yashy_scope_join_or_cancel(awaited_scope);
+    yashy_scope_free(awaited_scope);
+    CHECK(((counter_frame *)reused)->value == 0);
+    yashy_free(reused);
+    CHECK(yashy_live_allocations_now() == held); /* the awaited slot leaked */
+
+    /* A discarded `spawn` handle: nobody awaits the task, so leaving the
+     * scope is the only thing that can free its frame. A pool worker
+     * completing it is the path that leaked one allocation per handle. */
+    yashy_scope *discard_scope = yashy_scope_create(executor);
+    CHECK(discard_scope != NULL);
+    for (int i = 0; i < 8; i++) {
+        void *frame = yashy_alloc((long long)FRAME_SIZE, 8);
+        CHECK(frame != NULL);
+        frame_init(frame, counter_poll);
+        CHECK(yashy_task_spawn(executor, counter_poll, frame) == 0);
+    }
+    yashy_scope_join_or_cancel(discard_scope);
+    yashy_scope_free(discard_scope);
+    CHECK(yashy_live_allocations_now() == held); /* a discarded handle leaked */
+
     /* Cancel frees the frame: the cancelled task was never spawned, so no
      * worker can race the free. */
     void *cancelled = yashy_alloc((long long)FRAME_SIZE, 8);
     CHECK(cancelled != NULL);
     frame_init(cancelled, counter_poll);
     yashy_task_cancel(executor, counter_poll, cancelled);
+    CHECK(yashy_live_allocations_now() == held); /* cancel leaked */
 
     yashy_executor_free(executor);
     CHECK(yashy_live_allocations_now() == baseline);
