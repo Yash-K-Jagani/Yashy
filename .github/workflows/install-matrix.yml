@@ -12,9 +12,25 @@ on:
     # Weekly, on Monday morning.
     - cron: '17 6 * * 1'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Where the artifacts come from'
+        type: choice
+        options:
+          - release
+          - run
+        default: release
+      run_id:
+        description: 'Run id holding a yashy-dry-release bundle (mode: run)'
+        required: false
+      unsigned:
+        description: 'Skip signature, notarisation and Gatekeeper assertions'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   install:
@@ -30,14 +46,26 @@ jobs:
 
       # The published artifacts, not a fresh build: the question is whether
       # the release a user downloads works, and a build from this commit would
-      # answer a different question.
+      # answer a different question. A `run` dispatch answers the same question
+      # earlier, for a dry release's bundle that was never published.
       - name: Download the published artifacts
+        if: inputs.mode != 'run'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p dist
           gh release download --pattern 'yashy-*' --dir dist || true
           gh release download --pattern 'SHA256SUMS*' --dir dist || true
+          ls -l dist
+
+      - name: Download a dry-release bundle
+        if: inputs.mode == 'run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh run download "${{ inputs.run_id }}" --repo "${{ github.repository }}" \
+            -n yashy-dry-release -D dist
           ls -l dist
 
       - name: Install and run (Linux)
@@ -56,7 +84,13 @@ jobs:
 
       - name: Install and run (macOS)
         if: runner.os == 'macOS'
+        env:
+          UNSIGNED: ${{ inputs.unsigned }}
         run: |
           cp scripts/install.sh dist/install.sh
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
-          sh scripts/test-install.sh --archive "$archive"
+          if [ "$UNSIGNED" = "true" ]; then
+            sh scripts/test-install.sh --archive "$archive" --unsigned
+          else
+            sh scripts/test-install.sh --archive "$archive"
+          fi

@@ -27,12 +27,37 @@ release stays a tarball.
 | Secret | Used for |
 |---|---|
 | `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD` | the Developer ID certificate |
-| `MACOS_NOTARY_PROFILE_BASE64` | the `notarytool` credentials |
+| `MACOS_NOTARY_KEY_BASE64`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER` | the App Store Connect API key `notarytool` submits with (the issuer is needed for a team key) |
+| `MACOS_APPLE_ID`, `MACOS_APPLE_PASSWORD`, `MACOS_TEAM_ID` | the alternative: an Apple ID with an app-specific password, stored as a `notarytool` keychain profile |
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | the Authenticode certificate |
 | `RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE` | the signature over `SHA256SUMS` |
 
+The notary takes either the API key or the Apple ID; the API key is the one
+that works unattended in CI, so it is tried first. Every value is base64 of
+the file or text, because a workflow secret is a string.
+
 A job whose secret is missing fails with the name of the secret. It never
-produces an unsigned artifact that looks like a release.
+produces an unsigned artifact that looks like a release. The one exception is
+a `dry` dispatch, which says in the log which signature it skipped and
+publishes nothing.
+
+### Creating the GPG key
+
+The checksum signature is only worth something if the key is the release
+manager's, so generate it locally and upload only the private key to the
+repository's secrets:
+
+```text
+gpg --quick-generate-key 'Yashy Release <releases@example.org>' rsa4096 sign 2y
+gpg --armor --export 'Yashy Release' > release.asc          # publish this
+gpg --armor --export-secret-keys 'Yashy Release' \
+  | base64 > release-key.b64                                 # keep this out of git
+```
+
+Then set `RELEASE_GPG_PRIVATE_KEY` to the contents of `release-key.b64` and
+`RELEASE_GPG_PASSPHRASE` to its passphrase, delete the file, and publish
+`release.asc` beside the release so a user can import it before running
+`gpg --verify SHA256SUMS.asc SHA256SUMS`.
 
 ## The changelog
 
@@ -91,6 +116,18 @@ The workflow behaves the same way and writes the same draft; the difference is
 the tag, and the draft's title. A dry release is the only way to see the
 artifacts before they are public, so do one before every first release of a
 kind -- the first macOS archive, the first signed checksum file.
+
+Before there are credentials, the same path can be run without them. A
+`workflow_dispatch` of `release.yml` with `dry` ticked builds every archive,
+skips the signatures it cannot make, runs the Linux `package-smoke`, installs
+the macOS archive with `--unsigned`, and uploads one `yashy-dry-release`
+artifact. It creates no release and touches no tag.
+
+The install matrix then installs that bundle on all three platforms: run
+`install-matrix.yml` by hand with `mode: run`, the release run's id, and
+`unsigned` ticked. That executes the same install checks a published release
+gets, minus the signature, notarisation and Gatekeeper assertions -- which are
+exactly what the missing credentials would let it assert.
 
 ## Reproducible builds
 

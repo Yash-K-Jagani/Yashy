@@ -12,6 +12,10 @@ on:
       version:
         description: 'Version to package (without v)'
         required: true
+      dry:
+        description: 'Allow missing signing secrets; no draft release is created'
+        type: boolean
+        default: false
 
 env:
   VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
@@ -42,13 +46,20 @@ jobs:
         run: cargo build --release -p yashy-driver
 
       # A missing secret fails the job with the name of the secret, never
-      # with an unsigned binary that looks like a release.
+      # with an unsigned binary that looks like a release. A `dry` dispatch is
+      # the one exception: it says so in the log and the run is not a release.
       - name: Check the signing secrets
         shell: pwsh
         env:
           CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          DRY: ${{ inputs.dry }}
         run: |
+          if ($env:DRY -eq 'true') {
+            "SIGN=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host 'dry release: no Authenticode certificate; the archive is unsigned'
+            exit 0
+          }
           $missing = @()
           if (-not $env:CERT) { $missing += 'WINDOWS_CERT_PFX_BASE64' }
           if (-not $env:CERT_PASSWORD) { $missing += 'WINDOWS_CERT_PASSWORD' }
@@ -56,10 +67,12 @@ jobs:
             Write-Error "missing repository secret(s): $($missing -join ', ')"
             exit 1
           }
+          "SIGN=1" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # The signature has to cover the binary before it is packaged: the
       # archive ships the signed file.
       - name: Sign
+        if: env.SIGN == '1'
         shell: pwsh
         env:
           CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
@@ -181,25 +194,50 @@ jobs:
           xcode-select -p
 
       # A missing secret fails the job with the name of the secret, never with
-      # an unsigned artifact that looks like a release.
+      # an unsigned artifact that looks like a release. The notary accepts
+      # either an App Store Connect API key or an Apple ID with an
+      # app-specific password; the key is the one that works in CI without a
+      # human, so it is the preferred method.
       - name: Check the signing secrets
         env:
           CERT: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE_BASE64 }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_APPLE_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          DRY: ${{ inputs.dry }}
         run: |
+          set -eu
+          if [ "$DRY" = "true" ]; then
+            printf 'SIGN=0\nNOTARY=0\n' >> "$GITHUB_ENV"
+            echo "dry release: no Developer ID identity; the archive is unsigned"
+            exit 0
+          fi
           missing=""
           [ -n "$CERT" ] || missing="$missing MACOS_CERT_P12_BASE64"
           [ -n "$CERT_PASSWORD" ] || missing="$missing MACOS_CERT_PASSWORD"
-          [ -n "$NOTARY_PROFILE" ] || missing="$missing MACOS_NOTARY_PROFILE_BASE64"
+          if [ -n "$NOTARY_KEY" ] || [ -n "$NOTARY_KEY_ID" ]; then
+            [ -n "$NOTARY_KEY" ] || missing="$missing MACOS_NOTARY_KEY_BASE64"
+            [ -n "$NOTARY_KEY_ID" ] || missing="$missing MACOS_NOTARY_KEY_ID"
+            notary="key"
+          else
+            [ -n "$APPLE_ID" ] || missing="$missing MACOS_APPLE_ID"
+            [ -n "$APPLE_PASSWORD" ] || missing="$missing MACOS_APPLE_PASSWORD"
+            [ -n "$TEAM_ID" ] || missing="$missing MACOS_TEAM_ID"
+            notary="apple-id"
+          fi
           if [ -n "$missing" ]; then
             echo "error: missing repository secret(s):$missing" >&2
             exit 1
           fi
+          printf 'SIGN=1\nNOTARY=%s\n' "$notary" >> "$GITHUB_ENV"
 
       # The certificate lives in a throwaway keychain: the runner is
       # disposable, and the keychain dies with the job.
       - name: Import the signing certificate
+        if: env.SIGN == '1'
         env:
           CERT: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -217,16 +255,36 @@ jobs:
           security list-keychains -d user -s build.keychain login.keychain-db
           security find-identity -v -p codesigning
 
-      # Apple's notary profile is a file in a fixed place; storing it here
-      # keeps the job free of a keychain lookup for the notary.
+      # `notarytool submit` takes its credentials as flags (`--key`,
+      # `--key-id`, `--issuer`) or as a keychain profile. A file on disk is
+      # neither, so the API key is written here and its flags recorded; the
+      # Apple ID route stores a real keychain profile instead.
       - name: Store the notary credentials
+        if: env.NOTARY == 'key' || env.NOTARY == 'apple-id'
         env:
-          NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE_BASE64 }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+          APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_APPLE_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
         run: |
           set -eu
-          mkdir -p "$HOME/.private_keys/notarytool"
-          printf '%s' "$NOTARY_PROFILE" | base64 --decode \
-            > "$HOME/.private_keys/notarytool/yashy-notary.json"
+          if [ "$NOTARY" = "key" ]; then
+            key="$RUNNER_TEMP/notary-key.p8"
+            printf '%s' "$NOTARY_KEY" | base64 --decode > "$key"
+            chmod 600 "$key"
+            args="--key $key --key-id $NOTARY_KEY_ID"
+            if [ -n "$NOTARY_ISSUER" ]; then
+              args="$args --issuer $NOTARY_ISSUER"
+            fi
+            printf 'NOTARY_ARGS=%s\n' "$args" >> "$GITHUB_ENV"
+          else
+            xcrun notarytool store-credentials yashy-notary \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+              --team-id "$TEAM_ID"
+            printf 'NOTARY_ARGS=--keychain-profile yashy-notary\n' >> "$GITHUB_ENV"
+          fi
 
       - name: Build
         run: cargo build --release -p yashy-driver --target "${{ matrix.target }}"
@@ -234,6 +292,7 @@ jobs:
       # The runtime is C and the compiler links it, so the sign has to cover
       # the one binary the archive ships.
       - name: Sign
+        if: env.SIGN == '1'
         run: |
           set -eu
           binary="target/${{ matrix.target }}/release/yashy"
@@ -256,6 +315,7 @@ jobs:
       # stapled as well. A stapled ticket is what makes the download work
       # with no network.
       - name: Notarise and staple
+        if: env.NOTARY != '0'
         env:
           TARGET: ${{ matrix.target }}
         run: |
@@ -263,13 +323,15 @@ jobs:
           version="${VERSION#v}"
           binary="target/$TARGET/release/yashy"
           archive="dist/yashy-$version-$TARGET.zip"
-          xcrun notarytool submit "$binary" --keychain-profile yashy-notary --wait
+          # shellcheck disable=SC2086
+          xcrun notarytool submit "$binary" $NOTARY_ARGS --wait
           xcrun stapler staple "$binary"
           xcrun stapler validate "$binary"
           # The archive now holds the stapled binary; rebuild it and submit
           # that, so the archive itself is notarised.
           sh scripts/package-release.sh --version "$version" --target "$TARGET" --binary "$binary"
-          xcrun notarytool submit "$archive" --keychain-profile yashy-notary --wait
+          # shellcheck disable=SC2086
+          xcrun notarytool submit "$archive" $NOTARY_ARGS --wait
           xcrun stapler staple "$archive"
           xcrun stapler validate "$archive"
 
@@ -301,13 +363,19 @@ jobs:
           cp scripts/install.sh dist/install.sh
 
       - name: Install and run on a clean runner
+        env:
+          DRY: ${{ inputs.dry }}
         run: |
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
-          sh scripts/test-install.sh --archive "$archive"
+          if [ "$DRY" = "true" ]; then
+            sh scripts/test-install.sh --archive "$archive" --unsigned
+          else
+            sh scripts/test-install.sh --archive "$archive"
+          fi
 
   publish:
     needs: [windows, linux, macos, macos-install, package-smoke]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.dry == true
     runs-on: ubuntu-22.04
 
     steps:
@@ -327,6 +395,7 @@ jobs:
         env:
           GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          DRY: ${{ inputs.dry }}
         run: |
           if [ -n "$GPG_KEY" ]; then
             printf '%s' "$GPG_KEY" | base64 --decode > "$RUNNER_TEMP/release.key"
@@ -338,8 +407,14 @@ jobs:
             fi
             rm -f "$RUNNER_TEMP/release.key"
             export YASHY_GPG_PASSPHRASE="$GPG_PASSPHRASE"
+            sh scripts/checksums.sh --sign
+          elif [ "$DRY" = "true" ]; then
+            echo "dry release: no GPG key; SHA256SUMS is unsigned" >&2
+            sh scripts/checksums.sh
+          else
+            echo "error: missing repository secret RELEASE_GPG_PRIVATE_KEY" >&2
+            exit 1
           fi
-          sh scripts/checksums.sh --sign
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
 
@@ -356,6 +431,7 @@ jobs:
       # A draft, not a published release: the release is a decision a person
       # makes after reading the notes and the artifacts.
       - name: Publish the draft release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
@@ -367,3 +443,12 @@ jobs:
             dist/SHA256SUMS.asc
             dist/install.sh
             dist/install.ps1
+
+      # A dry run publishes nothing, but its bundle is what the install
+      # matrix installs: one artifact with every file a release would carry.
+      - name: Upload the dry release bundle
+        if: inputs.dry == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: yashy-dry-release
+          path: dist/*

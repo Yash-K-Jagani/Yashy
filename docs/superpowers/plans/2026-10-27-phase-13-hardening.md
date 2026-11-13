@@ -336,9 +336,9 @@ same three rows are in [`docs/gates.md`](../../gates.md), which is where
 
 | Gate | Reason (2026-11-13) | Owner | Re-run when |
 |---|---|---|---|
-| Task 2 step 4b — signed macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary profile (`MACOS_NOTARY_PROFILE_BASE64`); the job stops at "Check the signing secrets" | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs on `macos-15` |
-| Task 4 step 3 — dry release from a pre-release tag | Windows Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and the GPG key (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are missing; `release.yml` stops at "Check the signing secrets", naming one | release manager | The signing secrets exist |
-| Task 10 steps 2–3 — tag and verify published artifacts | Depends on the two gates above; the only tags (`v1.0.0-rc1`, `v1.0.0`) produced cancelled runs because the signature check failed | release manager | A signed release publishes, then `install-matrix.yml` runs from it |
+| Task 2 step 4b — signed macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary credentials (`MACOS_NOTARY_KEY_BASE64`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER` or `MACOS_APPLE_ID`, `MACOS_APPLE_PASSWORD`, `MACOS_TEAM_ID`); a tag stops at "Check the signing secrets" | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs on `macos-15` |
+| Task 4 step 3 — dry release from a pre-release tag | Windows Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and the GPG key (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are missing, so a tag stops at "Check the signing secrets"; a `dry` dispatch runs the same path unsigned and proves everything except the signature | release manager | The signing secrets exist |
+| Task 10 steps 2–3 — tag and verify published artifacts | Depends on the two gates above; the tags' runs stopped at the signature check | release manager | A signed release publishes, then `install-matrix.yml` runs from it |
 
 Consequences, stated plainly: the phase's code, tests and CI work is done, but
 **phase 13 is not marked complete** while these three rows are open, macOS
