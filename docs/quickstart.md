@@ -15,8 +15,9 @@ Yashy compiles through `clang`, so it needs LLVM:
 | Windows | `winget install LLVM.LLVM` |
 | macOS | `brew install llvm` |
 
-macOS is a 1.0 target: this release does not ship a macOS archive, so build
-Yashy from source there.
+macOS is a 1.0 target rather than a claimed platform: releases do ship macOS
+archives, but without a Developer ID signature they need a one-time Gatekeeper
+override, described in step 2.
 
 ## 2. Install Yashy
 
@@ -47,6 +48,13 @@ The installers verify `SHA256SUMS`, install into a prefix, add it to `PATH`, and
 run `yashy doctor`. Use `--prefix` / `-Prefix` for a different location,
 `--no-path` / `-NoPath` to manage `PATH` yourself, and `--uninstall` /
 `-Uninstall` to remove the install.
+
+**macOS.** Download the zip for your Mac (`aarch64` for Apple silicon, `x86_64`
+for Intel), unpack it, and run `./install.sh`. The archive is not signed or
+notarised, so Gatekeeper quarantines it: allow it under **System Settings,
+Privacy & Security, Open Anyway**, or run
+`xattr -dr com.apple.quarantine yashy-<version>-<target>` on the unpacked
+directory.
 
 ## 3. Check it
 

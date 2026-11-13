@@ -102,11 +102,21 @@ cannot drift out of date.)
 
 ### Installing a release
 
-A release is a prebuilt compiler plus its bundled standard library. You do not
+A release is a prebuilt compiler plus its bundled standard library, published on
+the [releases page](https://github.com/Yash-K-Jagani/Yashy/releases). You do not
 need Rust; you do need `clang` and LLVM.
 
-**Windows.** Download `yashy-<version>-x86_64-pc-windows-msvc.zip`, extract it,
-and run:
+| Platform | Download | Toolchain |
+|---|---|---|
+| Windows x86-64 | `yashy-<version>-x86_64-pc-windows-msvc.zip` | `winget install LLVM.LLVM` |
+| Linux x86-64 | `yashy-<version>-x86_64-unknown-linux-gnu.tar.gz` | `sudo apt install clang llvm`, or your distribution's equivalent |
+| macOS, Apple silicon | `yashy-<version>-aarch64-apple-darwin.zip` | `xcode-select --install`, then `brew install llvm` |
+| macOS, Intel | `yashy-<version>-x86_64-apple-darwin.zip` | the same |
+
+Each archive contains the `yashy` binary, its standard library, an installer,
+and a `README`. `SHA256SUMS` covers every archive in the release.
+
+**Windows.** Download the zip, extract it, and run:
 
 ```powershell
 .\install.ps1
@@ -119,6 +129,10 @@ The installer verifies `SHA256SUMS`, copies Yashy into
 `%LOCALAPPDATA%\Yashy`, adds that directory to your user `PATH`, and runs
 `yashy doctor`. If LLVM is missing, install it with
 `winget install LLVM.LLVM` and run `yashy doctor` again.
+
+The archives are not Authenticode-signed yet, so the first launch may show
+SmartScreen's "Windows protected your PC". Choose **More info**, then
+**Run anyway**; the checksum in `SHA256SUMS` is the check that matters.
 
 **Linux.** Download the tarball, unpack it, and run:
 
@@ -141,6 +155,23 @@ yourself, and `--uninstall` to remove the install and its marked `PATH` block.
 On Debian or Ubuntu, `sudo apt install clang llvm` provides the toolchain; the
 installer prints the right command for the distribution it detects.
 
+**macOS.** Download the zip for your Mac, unpack it, and run `./install.sh`.
+It installs to `~/.local` exactly as on Linux.
+
+The archives are not signed with a Developer ID certificate and are not
+notarised, so Gatekeeper quarantines the download. On first run, allow it under
+**System Settings, Privacy & Security, Open Anyway**, or clear the quarantine
+flag on the unpacked directory:
+
+```sh
+xattr -dr com.apple.quarantine yashy-<version>-aarch64-apple-darwin
+```
+
+macOS is a 1.0 target, not yet a claimed platform: the archives are built and
+install-tested on `macos-15` by every release, and they run, but the claim waits
+for a signed and notarised archive, which needs an Apple Developer Program
+membership.
+
 After installing, the five-minute path is:
 
 ```text
@@ -151,9 +182,7 @@ yashy run main.ya
 ```
 
 The [first-CLI guide](docs/tutorial/12-first-cli.md) builds a stdin filter,
-adds a test, and produces a release binary. The 1.0.0 archives are Windows and
-Linux. macOS is not claimed until a signed, notarised archive has passed the
-install matrix; a source build on macOS gets `brew` guidance from `yashy doctor`.
+adds a test, and produces a release binary.
 
 ### From a source checkout
 

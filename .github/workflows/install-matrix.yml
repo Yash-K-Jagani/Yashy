@@ -50,6 +50,7 @@ jobs:
       # earlier, for a dry release's bundle that was never published.
       - name: Download the published artifacts
         if: inputs.mode != 'run'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -60,6 +61,7 @@ jobs:
 
       - name: Download a dry-release bundle
         if: inputs.mode == 'run'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -89,7 +91,16 @@ jobs:
         run: |
           cp scripts/install.sh dist/install.sh
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
-          if [ "$UNSIGNED" = "true" ]; then
+          # An unsigned archive is a supported state while no Developer ID
+          # certificate exists, so ask the archive rather than assume: a
+          # signature that verifies gets the full Gatekeeper test, and a
+          # missing one is named in a warning instead of failing the run.
+          probe="$RUNNER_TEMP/probe"
+          rm -rf "$probe"
+          mkdir -p "$probe"
+          unzip -q "$archive" -d "$probe"
+          if [ "$UNSIGNED" = "true" ] || ! codesign --verify --strict "$probe"/*/yashy 2>/dev/null; then
+            echo "::warning::unsigned archive: signature, notarisation and Gatekeeper assertions are skipped"
             sh scripts/test-install.sh --archive "$archive" --unsigned
           else
             sh scripts/test-install.sh --archive "$archive"

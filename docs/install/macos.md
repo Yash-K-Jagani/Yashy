@@ -7,9 +7,11 @@ yashy-<version>-aarch64-apple-darwin.zip
 yashy-<version>-x86_64-apple-darwin.zip
 ```
 
-Both are signed with a Developer ID Application certificate, submitted to
-Apple's notary service and stapled, so Gatekeeper accepts them without asking
-Apple's servers — including on a machine with no network.
+Both are built with a Developer ID Application certificate and submitted to
+Apple's notary service once the release secrets have one, and then stapled, so
+Gatekeeper accepts them without asking Apple's servers — including on a machine
+with no network. While the Developer ID certificate is absent, the archives are
+published unsigned, and the release notes say so.
 
 ## Which archive
 
@@ -37,9 +39,10 @@ the standard library into the prefix, adds the prefix to your shell profile,
 and runs `yashy doctor` to tell you whether the toolchain is complete.
 
 A file that came through a browser carries a quarantine attribute, and
-Gatekeeper asks before it opens a program for the first time. The notarised
-archive has nothing to ask about; if macOS still refuses, remove the
-attribute yourself:
+Gatekeeper asks before it opens a program for the first time. A notarised
+archive has nothing to ask about. An unsigned archive does: allow it under
+**System Settings, Privacy & Security, Open Anyway**, or remove the attribute
+yourself:
 
 ```text
 xattr -dr com.apple.quarantine yashy-<version>-aarch64-apple-darwin

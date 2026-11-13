@@ -13,7 +13,7 @@ on:
         description: 'Version to package (without v)'
         required: true
       dry:
-        description: 'Allow missing signing secrets; no draft release is created'
+        description: 'Build and smoke-test every archive without publishing anything'
         type: boolean
         default: false
 
@@ -45,9 +45,10 @@ jobs:
       - name: Build
         run: cargo build --release -p yashy-driver
 
-      # A missing secret fails the job with the name of the secret, never
-      # with an unsigned binary that looks like a release. A `dry` dispatch is
-      # the one exception: it says so in the log and the run is not a release.
+      # A tag publishes, so an unsigned artifact must never look signed: when a
+      # secret is missing the job continues, says which signature it skipped,
+      # and the release notes carry an UNSIGNED banner. A `dry` dispatch skips
+      # the same signatures and publishes nothing at all.
       - name: Check the signing secrets
         shell: pwsh
         env:
@@ -64,8 +65,9 @@ jobs:
           if (-not $env:CERT) { $missing += 'WINDOWS_CERT_PFX_BASE64' }
           if (-not $env:CERT_PASSWORD) { $missing += 'WINDOWS_CERT_PASSWORD' }
           if ($missing.Count -gt 0) {
-            Write-Error "missing repository secret(s): $($missing -join ', ')"
-            exit 1
+            "SIGN=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Warning "unsigned release: missing $($missing -join ', '); the Windows zip carries no Authenticode signature"
+            exit 0
           }
           "SIGN=1" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -193,11 +195,11 @@ jobs:
           clang --version
           xcode-select -p
 
-      # A missing secret fails the job with the name of the secret, never with
-      # an unsigned artifact that looks like a release. The notary accepts
-      # either an App Store Connect API key or an Apple ID with an
-      # app-specific password; the key is the one that works in CI without a
-      # human, so it is the preferred method.
+      # A tag publishes, so an unsigned archive must say so everywhere a user
+      # can see it: the log here, the release notes, and the install test. The
+      # notary accepts either an App Store Connect API key or an Apple ID with
+      # an app-specific password; the key is the one that works in CI without
+      # a human, so it is the preferred method.
       - name: Check the signing secrets
         env:
           CERT: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -229,8 +231,9 @@ jobs:
             notary="apple-id"
           fi
           if [ -n "$missing" ]; then
-            echo "error: missing repository secret(s):$missing" >&2
-            exit 1
+            printf 'SIGN=0\nNOTARY=0\n' >> "$GITHUB_ENV"
+            printf '::warning::unsigned release: missing%s; the macOS zips carry no signature or notarisation ticket\n' "$missing" >&2
+            exit 0
           fi
           printf 'SIGN=1\nNOTARY=%s\n' "$notary" >> "$GITHUB_ENV"
 
@@ -362,15 +365,23 @@ jobs:
           sh scripts/checksums.sh
           cp scripts/install.sh dist/install.sh
 
+      # An unsigned archive is a supported outcome while the Developer ID is
+      # unavailable, so the test asks the archive what it is instead of
+      # assuming: a signature that verifies gets the full Gatekeeper test, an
+      # unsigned one gets the install test with the signature assertions
+      # skipped and a warning that says which ones.
       - name: Install and run on a clean runner
-        env:
-          DRY: ${{ inputs.dry }}
         run: |
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
-          if [ "$DRY" = "true" ]; then
-            sh scripts/test-install.sh --archive "$archive" --unsigned
-          else
+          probe="$RUNNER_TEMP/probe"
+          rm -rf "$probe"
+          mkdir -p "$probe"
+          unzip -q "$archive" -d "$probe"
+          if codesign --verify --strict "$probe"/*/yashy 2>/dev/null; then
             sh scripts/test-install.sh --archive "$archive"
+          else
+            echo "::warning::the macOS archive is unsigned; signature, notarisation and Gatekeeper assertions are skipped"
+            sh scripts/test-install.sh --archive "$archive" --unsigned
           fi
 
   publish:
@@ -391,11 +402,13 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # An unsigned checksum file is a weaker release, not a broken one, so it
+      # is shipped and named in the notes rather than failing the tag. A
+      # `dry` dispatch has already said it skips signatures.
       - name: Write one checksum file for every archive
         env:
           GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
-          DRY: ${{ inputs.dry }}
         run: |
           if [ -n "$GPG_KEY" ]; then
             printf '%s' "$GPG_KEY" | base64 --decode > "$RUNNER_TEMP/release.key"
@@ -408,12 +421,9 @@ jobs:
             rm -f "$RUNNER_TEMP/release.key"
             export YASHY_GPG_PASSPHRASE="$GPG_PASSPHRASE"
             sh scripts/checksums.sh --sign
-          elif [ "$DRY" = "true" ]; then
-            echo "dry release: no GPG key; SHA256SUMS is unsigned" >&2
-            sh scripts/checksums.sh
           else
-            echo "error: missing repository secret RELEASE_GPG_PRIVATE_KEY" >&2
-            exit 1
+            echo "::warning::unsigned release: missing RELEASE_GPG_PRIVATE_KEY; SHA256SUMS is not GPG-signed"
+            sh scripts/checksums.sh
           fi
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
@@ -428,13 +438,50 @@ jobs:
           } > dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
-      # A draft, not a published release: the release is a decision a person
-      # makes after reading the notes and the artifacts.
-      - name: Publish the draft release
+      # A reader has to know what the download does not prove, so the missing
+      # signature is written into the notes rather than left in the log: the
+      # notes are what a user reads before installing.
+      - name: Mark an unsigned release in the notes
+        env:
+          WINDOWS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          MACOS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+        run: |
+          banner="$RUNNER_TEMP/unsigned.md"
+          : > "$banner"
+          if [ -z "$WINDOWS_CERT" ]; then
+            printf '%s\n' '- **Windows:** there is no Authenticode signature, so SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.' >> "$banner"
+          fi
+          if [ -z "$MACOS_CERT" ]; then
+            printf '%s\n' '- **macOS:** there is no Developer ID signature and no notarisation ticket, so Gatekeeper blocks the first run. Allow it under **System Settings, Privacy & Security, Open Anyway**, or unpack the zip and run `xattr -dr com.apple.quarantine yashy-*`.' >> "$banner"
+          fi
+          if [ -z "$GPG_KEY" ]; then
+            printf '%s\n' '- **Checksums:** `SHA256SUMS` is not GPG-signed, so there is no `SHA256SUMS.asc` to verify.' >> "$banner"
+          fi
+          if [ ! -s "$banner" ]; then
+            echo "every artifact in this release is signed"
+            exit 0
+          fi
+          {
+            echo
+            echo "## This build is unsigned"
+            echo
+            echo "Every artifact below is built and tested; some signatures are missing. Each one is a check you cannot make, not a reason the compiler will not run:"
+            echo
+            cat "$banner"
+            echo
+            echo "These warnings go away once the release manager adds a Developer ID certificate, an Authenticode certificate and a GPG key to the repository secrets."
+          } >> dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
+      # A tag publishes. The notes say exactly which signatures are missing,
+      # so a release cannot be mistaken for a signed one.
+      - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
+          fail_on_unmatched_files: false
           body_path: dist/RELEASE_NOTES.md
           files: |
             dist/*.zip

@@ -1,10 +1,15 @@
 # Releasing Yashy
 
-A release is a tag. The tag starts a workflow that builds every platform,
-signs what it can, and writes a **draft** release; a person then reads the
-notes and publishes it. Nothing is published automatically, because the one
-thing a release cannot undo is a broken artifact that thousands of people
-install.
+A release is a tag. The tag starts a workflow that builds every platform, signs
+what it can, runs the install tests, and publishes the release with the
+changelog. Nothing is published from a working tree: the only way to publish is
+to tag a commit, so the artifacts and the source that produced them always
+share one tree.
+
+Publishing is the one act a release cannot undo, so the workflow decides what
+the release *is* before it publishes, and says so in the notes. A missing
+signature is an unsigned build, not a failure and not a silent one: the notes
+open with a section naming every signature the download does not carry.
 
 ## What a release ships
 
@@ -36,10 +41,13 @@ The notary takes either the API key or the Apple ID; the API key is the one
 that works unattended in CI, so it is tried first. Every value is base64 of
 the file or text, because a workflow secret is a string.
 
-A job whose secret is missing fails with the name of the secret. It never
-produces an unsigned artifact that looks like a release. The one exception is
-a `dry` dispatch, which says in the log which signature it skipped and
-publishes nothing.
+A missing secret never fails a tag and never produces an artifact that claims a
+signature it does not have. The job continues with an `::warning::` naming the
+secret, and the publish job prepends "This build is unsigned" to the notes with
+one bullet per skipped signature: SmartScreen for Windows, the Gatekeeper
+override for macOS, the absent `SHA256SUMS.asc` for the checksums. The install
+test does the same: it probes the macOS archive with `codesign --verify` and
+runs the full Gatekeeper assertions only when a signature is there.
 
 ### Creating the GPG key
 
@@ -74,8 +82,8 @@ A commit that breaks a working program is listed first, under **Breaking
 changes**. A commit that changes nothing a user can see — `chore`, `ci`,
 `test` — is not in the changelog at all.
 
-The release workflow writes the same section into the draft release's notes, so
-the page and the file cannot disagree.
+The release workflow writes the same section into the release notes, so the
+page and the file cannot disagree.
 
 ## Making a release
 
@@ -93,11 +101,14 @@ the page and the file cannot disagree.
    ```
 
 3. **Wait for the workflow.** It builds Linux, Windows and macOS, signs what
-   it can, notarises the macOS archives, runs the install tests, and writes a
-   draft release with the changelog.
+   the secrets allow, notarises the macOS archives when it can, runs the
+   install tests, and publishes the release with the changelog. The notes say
+   which signatures the build carries.
 
-4. **Read the draft and publish it.** The draft is not the release until a
-   person publishes it.
+4. **Read the published notes.** If the build is unsigned, the notes open with
+   "This build is unsigned" and the exact one-time override a user needs per
+   platform. If a signature is missing that should be there, add the secret
+   and re-tag; do not edit the release by hand.
 
 5. **Watch the install matrix.** It runs on every published release and
    weekly, installing the published artifacts on Linux, Windows and macOS. A
@@ -105,29 +116,21 @@ the page and the file cannot disagree.
 
 ## A dry release
 
-A pre-release tag exercises the whole path without publishing anything:
+A `workflow_dispatch` of `release.yml` with `dry` ticked is the rehearsal: it
+builds every archive, skips the signatures it cannot make, runs the Linux
+`package-smoke`, installs the macOS archive with `--unsigned`, and uploads one
+`yashy-dry-release` artifact. It creates no release and touches no tag.
 
-```text
-git tag -a v0.1.0-rc1 -m "Yashy 0.1.0 release candidate"
-git push origin v0.1.0-rc1
-```
+Tagging a release candidate (`v0.1.0-rc1`) also publishes, so a tag is not a
+rehearsal any more. Use `dry` for that; a pre-release tag is a public release
+that happens to be a candidate, and GitHub shows it as such only if
+`prerelease` is set, which the workflow does not set.
 
-The workflow behaves the same way and writes the same draft; the difference is
-the tag, and the draft's title. A dry release is the only way to see the
-artifacts before they are public, so do one before every first release of a
-kind -- the first macOS archive, the first signed checksum file.
-
-Before there are credentials, the same path can be run without them. A
-`workflow_dispatch` of `release.yml` with `dry` ticked builds every archive,
-skips the signatures it cannot make, runs the Linux `package-smoke`, installs
-the macOS archive with `--unsigned`, and uploads one `yashy-dry-release`
-artifact. It creates no release and touches no tag.
-
-The install matrix then installs that bundle on all three platforms: run
-`install-matrix.yml` by hand with `mode: run`, the release run's id, and
-`unsigned` ticked. That executes the same install checks a published release
-gets, minus the signature, notarisation and Gatekeeper assertions -- which are
-exactly what the missing credentials would let it assert.
+The install matrix installs a dry bundle on all three platforms: run
+`install-matrix.yml` by hand with `mode: run` and the release run's id. It
+detects an unsigned archive on its own and skips the signature, notarisation
+and Gatekeeper assertions with a warning, so the run is meaningful before the
+certificates exist instead of permanently red.
 
 ## Reproducible builds
 
