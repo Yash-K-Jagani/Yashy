@@ -1,4 +1,8 @@
-[build]
+# `-fuse-ld=lld` is a GNU-host hint. On Windows the MSVC linker only warns
+# about it (`LNK4044`), but on Mach-O the clang driver treats an unknown
+# linker name as a hard error (`invalid linker name in argument
+# '-fuse-ld=lld'`), so an Apple target must not receive it at all.
+[target.'cfg(not(target_vendor = "apple"))']
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [profile.dev]
