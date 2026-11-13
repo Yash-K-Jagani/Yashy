@@ -281,7 +281,7 @@ answers all three:
 |---|---|
 | The clock | The timestamp is fixed: `SOURCE_DATE_EPOCH` if the environment sets it, otherwise the commit time of the tree, otherwise zero. |
 | The build directory | The source is named relative to the working directory, and `clang` is told `-ffile-prefix-map` so the debug info and the `__FILE__` macros do not carry the path either. |
-| The linker's own idea of an identity | A PE image carries the time it was made in its header; the linker is asked for a reproducible image, so that stamp comes from the content. |
+| The linker's own idea of an identity | A PE image carries the time it was made in its header; the linker is asked for a reproducible image, so that stamp comes from the content. A Mach-O image carries an `LC_UUID` derived from the linker's inputs, the output path among them; `-no_uuid` leaves it out. An ELF image's build id is already a hash of the output. |
 
 Two builds of the same source in two different directories then produce the
 same bytes, which is what lets a stranger recompute the hash of a release.

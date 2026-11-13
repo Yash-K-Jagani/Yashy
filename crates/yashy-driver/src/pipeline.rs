@@ -1711,6 +1711,7 @@ fn link_arguments(
             .map(|flag| flag.to_string()),
     );
     args.extend(reproducibility_flags(&options, target));
+    args.extend(reproducible_linker_flags(&options, target));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
     // asks the toolchain its version and supplies the one flag LLVM 14 needs;
     // newer clang releases get nothing because the mode is already the default
@@ -1920,7 +1921,8 @@ fn merge_profiles(
     Ok(merged)
 }
 
-/// `llvm-profdata` from the same installation as the C compiler, else `PATH`.
+/// `llvm-profdata` from the same installation as the C compiler, else `PATH`,
+/// else whatever `xcrun` reports.
 fn profdata_tool(toolchain: &Toolchain) -> PathBuf {
     let name = format!("llvm-profdata{}", std::env::consts::EXE_SUFFIX);
     if let Some(dir) = toolchain.llc.parent() {
@@ -1929,7 +1931,42 @@ fn profdata_tool(toolchain: &Toolchain) -> PathBuf {
             return candidate;
         }
     }
+    if let Some(candidate) = on_path(&name) {
+        return candidate;
+    }
+    // Xcode keeps its LLVM tools inside the selected toolchain rather than on
+    // `PATH`: a macOS host finds `clang` at `/usr/bin/clang` and
+    // `llvm-profdata` nowhere. `xcrun` is the supported way to ask for it.
+    // On a host without `xcrun` the spawn simply fails and the fallback below
+    // names the command for the diagnostic.
+    if let Some(candidate) = xcrun_find("llvm-profdata") {
+        return candidate;
+    }
     PathBuf::from("llvm-profdata")
+}
+
+/// The first `name` on `PATH`, the file `Command::new` would find.
+fn on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// The path `xcrun --find <tool>` prints, or `None` when `xcrun` is absent or
+/// does not know the tool.
+fn xcrun_find(tool: &str) -> Option<PathBuf> {
+    let output = Command::new("xcrun").args(["--find", tool]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let answer = String::from_utf8_lossy(&output.stdout);
+    let path = answer.trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    }
 }
 
 /// The clang arguments that enable opaque pointers, or an empty list when the
@@ -1999,8 +2036,13 @@ fn parse_clang_major(version: &str) -> Option<u32> {
 /// the debug info, the `__FILE__` macros and the compilation directory in one
 /// flag. The timestamp is the linker's: a PE image carries one in its header,
 /// and `/Brepro` makes the linker derive it from the content instead of the
-/// clock. An ELF image's build id is already a hash of the output, and a
-/// Mach-O image's UUID is a hash too, so neither needs a flag.
+/// clock. An ELF image's build id is already a hash of the output.
+///
+/// A Mach-O image is the exception: its `LC_UUID` load command is derived
+/// from the linker's own inputs, not from the final bytes, so two links whose
+/// images are otherwise identical can still differ there. That one is a
+/// link-only flag, [`reproducible_linker_flags`], because `clang -c` has no
+/// linker to give it to.
 fn reproducibility_flags(options: &BuildOptions, target: &str) -> Vec<String> {
     if !options.reproducible {
         return Vec::new();
@@ -2016,6 +2058,22 @@ fn reproducibility_flags(options: &BuildOptions, target: &str) -> Vec<String> {
         flags.push("-Wl,/Brepro".to_string());
     }
     flags
+}
+
+/// The reproducible-build flags that only a link can take.
+///
+/// Apple's `ld` derives the 16-byte `LC_UUID` load command from its own
+/// inputs (the output path among them), so two links whose images are
+/// otherwise byte-identical still differ at that command. That makes the
+/// image depend on where it was written, which is exactly what the flag
+/// promises not to. `-no_uuid` leaves the command out; the image's symbols,
+/// code and data are unaffected, and an ordinary build keeps its UUID for
+/// crash symbolication.
+fn reproducible_linker_flags(options: &BuildOptions, target: &str) -> Vec<String> {
+    if !options.reproducible || !target.contains("apple") {
+        return Vec::new();
+    }
+    vec!["-Wl,-no_uuid".to_string()]
 }
 
 /// The epoch a reproducible build stamps its output with.
@@ -2176,8 +2234,8 @@ mod tests {
     use super::{
         cached_runtime_object, clear_profiles, first_meaningful_line, fnv1a, instrumented_output,
         merge_profiles, missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
-        platform_library_flags, runtime_cache_dir, runtime_cache_key, CpuTarget, OptLevel,
-        FNV_OFFSET_BASIS,
+        platform_library_flags, reproducible_linker_flags, runtime_cache_dir, runtime_cache_key,
+        BuildOptions, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
     use std::fs;
@@ -2264,6 +2322,42 @@ mod tests {
                 "a portable build must pass no machine flag at all on {triple}"
             );
         }
+    }
+
+    #[test]
+    fn a_reproducible_macho_link_leaves_out_the_random_uuid() {
+        // Two links of one object differ in exactly one place on macOS: the
+        // `LC_UUID` command Apple's `ld` derives from its own inputs, the
+        // output path among them. The flag belongs to the link only, because
+        // `clang -c` has no linker to hand it to and would warn about an
+        // unused argument.
+        let repro = BuildOptions {
+            reproducible: true,
+            ..BuildOptions::default()
+        };
+        assert_eq!(
+            reproducible_linker_flags(&repro, "aarch64-apple-darwin"),
+            vec!["-Wl,-no_uuid".to_string()]
+        );
+        assert_eq!(
+            reproducible_linker_flags(&repro, "x86_64-apple-darwin"),
+            vec!["-Wl,-no_uuid".to_string()]
+        );
+        // An ELF build id and a PE image are answered elsewhere: the first is
+        // a hash of the output, the second `/Brepro`.
+        assert!(
+            reproducible_linker_flags(&repro, "x86_64-unknown-linux-gnu").is_empty(),
+            "an ELF image needs no UUID flag"
+        );
+        assert!(
+            reproducible_linker_flags(&repro, "x86_64-pc-windows-msvc").is_empty(),
+            "a PE image needs no UUID flag"
+        );
+        // Without `--reproducible` the linker is left alone.
+        assert!(
+            reproducible_linker_flags(&BuildOptions::default(), "aarch64-apple-darwin").is_empty(),
+            "an ordinary build must not lose its UUID"
+        );
     }
 
     #[test]

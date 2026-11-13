@@ -1,0 +1,3 @@
+platform MacOs
+arch Aarch64
+pid positive: true

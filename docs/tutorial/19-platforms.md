@@ -45,9 +45,13 @@ cfg(any(windows, linux)) fn desktop() -> string {
 }
 
 fn main() {
-    const name = desktop();
-    // `name` is "desktop" on Windows and Linux, and the function does not
-    // exist at all on macOS.
+    // The call is guarded too: on macOS `desktop` does not exist, so an
+    // unguarded call would name a function the compiler rightly cannot find.
+    cfg(any(windows, linux)) {
+        const name = desktop();
+        // `name` is "desktop" on Windows and Linux, and the block does not
+        // exist at all on macOS.
+    }
 }
 ```
 

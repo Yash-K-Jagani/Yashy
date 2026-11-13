@@ -164,13 +164,13 @@ fn a_warm_ir_cache_skips_emit_and_reproduces_the_binary() {
         "a from-source build must produce the same image size"
     );
     assert_same_binary(
-        &without_link_timestamp(&cold_bytes),
-        &without_link_timestamp(&warm_bytes),
+        &without_link_identity(&cold_bytes),
+        &without_link_identity(&warm_bytes),
         "a cache hit must reproduce the binary",
     );
     assert_same_binary(
-        &without_link_timestamp(&cold_bytes),
-        &without_link_timestamp(&source_bytes),
+        &without_link_identity(&cold_bytes),
+        &without_link_identity(&source_bytes),
         "a from-source build must reproduce the cached binary",
     );
 
@@ -227,6 +227,31 @@ fn both_linker_clock_fields_are_cleared_from_a_pe_image() {
         without_link_timestamp(b"not a PE image").as_slice(),
         b"not a PE image",
         "a non-PE image is compared as it is"
+    );
+}
+
+#[test]
+fn the_random_macho_uuid_is_cleared_from_a_mach_o_image() {
+    // A 64-bit Mach-O header with two load commands: an `LC_UUID` whose
+    // 16-byte value is the linker's own identity, and a command whose
+    // payload is not an identity and must survive untouched.
+    let mut image = vec![0u8; 0x80];
+    image[0..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
+    image[16..20].copy_from_slice(&2u32.to_le_bytes()); // ncmds
+    image[32..36].copy_from_slice(&0x1bu32.to_le_bytes()); // LC_UUID
+    image[36..40].copy_from_slice(&24u32.to_le_bytes());
+    image[40..56].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    image[56..60].copy_from_slice(&0x0eu32.to_le_bytes()); // LC_LOAD_DYLINKER
+    image[60..64].copy_from_slice(&32u32.to_le_bytes());
+    image[64..80].fill(0x5a);
+
+    let cleared = without_link_identity(&image);
+    assert_eq!(&cleared[40..56], &[0u8; 16], "the UUID must be zeroed");
+    assert_eq!(&cleared[64..80], &image[64..80], "other commands survive");
+    assert_eq!(
+        without_macho_uuid(b"not a Mach-O image").as_slice(),
+        b"not a Mach-O image",
+        "a non-Mach-O image is compared as it is"
     );
 }
 
@@ -326,6 +351,60 @@ fn pe_offset(bytes: &[u8]) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Normalise the link step's own identity so two images can be compared for
+/// the bytes the compiler contributed.
+///
+/// A PE image carries a clock, and a Mach-O image carries an `LC_UUID` that
+/// Apple's `ld` derives from its own inputs; neither is something the
+/// compiler decided. `--reproducible` removes both; this helper ignores them
+/// for the ordinary build the warm-cache test makes.
+fn without_link_identity(bytes: &[u8]) -> Vec<u8> {
+    let bytes = without_macho_uuid(bytes);
+    without_link_timestamp(&bytes)
+}
+
+/// Zero every `LC_UUID` payload in a single-architecture Mach-O image.
+///
+/// The load commands are a chain: a 32-byte header (28 for a 32-bit image)
+/// followed by `ncmds` records of `cmd` and `cmdsize`. `LC_UUID` is `0x1b` and
+/// its 16-byte payload follows the 8-byte command header. A universal image
+/// names its slices through a fat header instead; this leaves one alone, so
+/// the comparison then fails on the UUID rather than quietly calling unequal
+/// images equal.
+fn without_macho_uuid(bytes: &[u8]) -> Vec<u8> {
+    let mut bytes = bytes.to_vec();
+    if bytes.len() < 28 {
+        return bytes;
+    }
+    let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let header = match magic {
+        0xfeed_facf => 32,
+        0xfeed_face => 28,
+        _ => return bytes,
+    };
+    if bytes.len() < header {
+        return bytes;
+    }
+    let commands = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as usize;
+    let mut at = header;
+    for _ in 0..commands {
+        if at + 8 > bytes.len() {
+            return bytes;
+        }
+        let command = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+        let size = u32::from_le_bytes([bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]])
+            as usize;
+        if size < 8 || at + size > bytes.len() {
+            return bytes;
+        }
+        if command == 0x1b && size >= 24 {
+            bytes[at + 8..at + 24].fill(0);
+        }
+        at += size;
+    }
+    bytes
 }
 
 /// A binary with the fields the linker fills in from the clock cleared.

@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn runtime_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -13,12 +14,22 @@ fn runtime_dir() -> PathBuf {
 
 /// A fresh directory per run: `cl` writes `.obj` files beside its working
 /// directory, and two concurrent runs must not share them.
+///
+/// The counter matters as much as the clock: this file has two tests, the
+/// harness runs them in parallel, and the host's clock may not advance between
+/// two calls. Two tests that land on one directory can have one delete it
+/// while the other is still running its hundredth child.
 fn output_dir() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("yashy-async-{}-{stamp}", std::process::id()))
+    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "yashy-async-{}-{stamp}-{serial}",
+        std::process::id()
+    ))
 }
 
 fn build_async_program() -> PathBuf {
