@@ -288,6 +288,36 @@ cannot find the file specified". The helper clears a name once per process now
 (`297ce24`). Both are build and test plumbing; no language, runtime or
 diagnostic behaviour changed.
 
+**The five macOS failures the first macOS run left, and the green head
+(`31e9983`, `a004a2d`, 2026-11-13).** Run 43433851205 was the first to reach
+the tests on an Apple-silicon host, and it left five failures, each a place
+where a test or a tool still assumed x86-64 Linux. The stdlib `os` golden had
+no macOS file, so `os.macos.out` (`MacOs`, `Aarch64`) was added. The tutorial's
+`cfg` example called `desktop()` unguarded while the function is deliberately
+absent on macOS; the call now sits inside the same `cfg(any(windows, linux))`
+block. `--pgo` looked for `llvm-profdata` beside `clang` or on `PATH`, but
+Xcode keeps it inside the selected toolchain; the lookup now also asks
+`xcrun --find llvm-profdata`. A `--reproducible` Mach-O link passes
+`-Wl,-no_uuid`, because Apple's `ld` derives `LC_UUID` from its own inputs (the
+output path among them); an ordinary build keeps its UUID. The warm-IR-cache
+test already cleared the PE clock before comparing images; on Mach-O it now
+clears the linker's identity too — the `LC_UUID` and the ad-hoc
+`LC_CODE_SIGNATURE` that hashes it — rather than expecting the linker's bytes
+to be the compiler's (`a004a2d` added the signature after run 43438502834
+moved the first difference from byte 1608 to byte 113895). Finally, the
+runtime's two async tests could land on one temp directory because macOS's
+clock need not advance between two calls, so one test's cleanup deleted the
+other's executable; the directory name now carries a process-wide counter.
+
+Run **43440748916** on **`a004a2d`** is green on all three platforms:
+`test (ubuntu-latest)`, `test (windows-latest)`, `test (macos-15)`,
+`install-smoke (ubuntu-22.04)`, `install-smoke (windows-latest)`,
+`install-smoke (macos-15)` and `container-smoke (ubuntu:22.04)`. The `gates`
+job is schedule-only and stays skipped on a push. The release tags `v1.0.0`
+and `v1.0.0-rc1` now point at `a004a2d` rather than the known-red
+`c304ce8`; the tag's release run still stops at the signing-secrets check,
+which is the dated exception below, not a regression.
+
 **Exceptions (2026-11-13).** Three release gates in this phase cannot be met
 from the repository as it stands, and they are recorded rather than
 relabelled. The repository has **zero Actions secrets** (`actions/secrets` →
@@ -306,9 +336,9 @@ same three rows are in [`docs/gates.md`](../../gates.md), which is where
 Consequences, stated plainly: the phase's code, tests and CI work is done, but
 **phase 13 is not marked complete** while these three rows are open, macOS
 stays unclaimed in `README.md` and `AGENTS.md` (an unsigned archive is tested,
-not shipped), and the tag that carries the release is only re-pointed after
-the three-platform CI on the fixed head is green. Task 2 step 5 (the claim)
-stays unticked for the same reason.
+not shipped), and the release tags now point at `a004a2d`, the head whose
+three-platform CI (run 43440748916) is green. Task 2 step 5 (the claim) stays
+unticked for the same reason.
 
 ---
 

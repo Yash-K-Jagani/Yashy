@@ -279,6 +279,18 @@ not an exception: CI runs the same commands on `ubuntu-latest`,
 `windows-latest` and `macos-15` (see below), and the phase's Windows evidence
 is also observed on the development host.
 
+**Green three-platform evidence (2026-11-13).** Run **43440748916** on
+**`a004a2d`** passed every job: `test (ubuntu-latest)`, `test
+(windows-latest)`, `test (macos-15)` (the full workspace suite, `cargo
+check --workspace --all-targets`, the formatter gate and every end-to-end
+program), `install-smoke (ubuntu-22.04)`, `install-smoke (windows-latest)`,
+`install-smoke (macos-15)` (the packaged archive installs, `doctor` passes, the
+first project runs, chapters 00-02 pass through `test-install.sh --unsigned`)
+and `container-smoke (ubuntu:22.04)`. The `gates` job is schedule-only, so it
+is skipped on a push rather than missing. The macOS half of the tier-one gate
+therefore has evidence on an Apple-silicon host; the signed-archive rows above
+remain exceptions.
+
 ## Running the runner
 
 ```sh
