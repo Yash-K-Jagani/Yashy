@@ -7,9 +7,16 @@
 # doctor-failure case installs a fake clang that refuses to run.
 #
 # Usage:
-#   sh scripts/test-install.sh [--archive <tarball>]
+#   sh scripts/test-install.sh [--archive <tarball>] [--unsigned]
 #
 # Without --archive, the script takes the single *.tar.gz in dist/.
+#
+# --unsigned is the macOS CI smoke: it runs the installer, `doctor`, the first
+# project and the first three tutorial chapters, but skips the signature,
+# notarisation and Gatekeeper assertions. A signed macOS release is still
+# gated by the default mode; the unsigned mode exists because a hosted macOS
+# runner can compile and install the compiler without the Developer ID
+# credentials, and that half of the acceptance is worth running on every push.
 
 set -eu
 
@@ -24,6 +31,7 @@ ok() {
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 archive=""
+unsigned=0
 
 # The platform decides which release this test drives: a macOS release is a
 # zip (Apple's notary accepts nothing else) and a Linux release is a tarball.
@@ -46,8 +54,12 @@ while [ "$#" -gt 0 ]; do
             archive=$2
             shift 2
             ;;
+        --unsigned)
+            unsigned=1
+            shift
+            ;;
         -h|--help)
-            printf '%s\n' "usage: sh scripts/test-install.sh [--archive <tarball>]"
+            printf '%s\n' "usage: sh scripts/test-install.sh [--archive <tarball>] [--unsigned]"
             exit 0
             ;;
         *)
@@ -55,6 +67,10 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+if [ "$unsigned" -eq 1 ] && [ "$platform" != "macos" ]; then
+    die "--unsigned is the macOS CI smoke; this host is $platform"
+fi
 
 if [ -z "$archive" ]; then
     # The glob is expanded by the shell, so the pattern is not quoted.
@@ -94,40 +110,47 @@ run_install() {
 
 # The macOS half: the archive has to be signed, notarised and stapled, and
 # the binary has to be accepted by Gatekeeper without asking Apple's servers.
+# The unsigned mode runs the same install checks on a runner without those
+# credentials and says in the log that the signing half was skipped.
 macos_tests() {
-    # 1. The archive carries a stapled notarisation ticket.
+    # 1. The archive carries the format Apple's notary accepts.
     case "$archive" in
         *.zip) ;;
         *) die "the macOS release is a zip: Apple's notary accepts nothing else" ;;
     esac
-    xcrun stapler validate "$archive" ||
-        die "the archive has no stapled notarisation ticket"
+    if [ "$unsigned" -eq 1 ]; then
+        ok "unsigned CI smoke: signature, notarisation and Gatekeeper checks skipped"
+    else
+        # 2. The archive carries a stapled notarisation ticket.
+        xcrun stapler validate "$archive" ||
+            die "the archive has no stapled notarisation ticket"
 
-    # 2. The binary inside it is signed, stapled and accepted.
-    extract="$tmp/extract"
-    mkdir -p "$extract"
-    unzip -q "$archive" -d "$extract"
-    stage=""
-    for candidate in "$extract"/*; do
-        if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
-            stage=$candidate
-            break
-        fi
-    done
-    [ -n "$stage" ] || die "the archive has no top-level package directory"
-    # A file that came through a browser carries a quarantine attribute; the
-    # test removes it, as a user would, and then asks Gatekeeper about the
-    # binary itself.
-    xattr -dr com.apple.quarantine "$stage" 2>/dev/null || true
-    codesign --verify --strict --verbose=2 "$stage/yashy" ||
-        die "the binary is not signed"
-    xcrun stapler validate "$stage/yashy" ||
-        die "the binary has no stapled notarisation ticket"
-    spctl -a -vvv "$stage/yashy" ||
-        die "Gatekeeper did not accept the binary"
-    ok "the archive is signed, notarised, stapled and accepted by Gatekeeper"
+        # 3. The binary inside it is signed, stapled and accepted.
+        extract="$tmp/extract"
+        mkdir -p "$extract"
+        unzip -q "$archive" -d "$extract"
+        stage=""
+        for candidate in "$extract"/*; do
+            if [ -d "$candidate" ] && [ -f "$candidate/yashy" ]; then
+                stage=$candidate
+                break
+            fi
+        done
+        [ -n "$stage" ] || die "the archive has no top-level package directory"
+        # A file that came through a browser carries a quarantine attribute; the
+        # test removes it, as a user would, and then asks Gatekeeper about the
+        # binary itself.
+        xattr -dr com.apple.quarantine "$stage" 2>/dev/null || true
+        codesign --verify --strict --verbose=2 "$stage/yashy" ||
+            die "the binary is not signed"
+        xcrun stapler validate "$stage/yashy" ||
+            die "the binary has no stapled notarisation ticket"
+        spctl -a -vvv "$stage/yashy" ||
+            die "Gatekeeper did not accept the binary"
+        ok "the archive is signed, notarised, stapled and accepted by Gatekeeper"
+    fi
 
-    # 3. The installer installs it, doctor passes, and the first project runs.
+    # 4. The installer installs it, doctor passes, and the first project runs.
     prefix="$tmp/prefix-fresh"
     output=$(run_install "$prefix" --no-path)
     printf '%s\n' "$output" | grep -q "Installed Yashy" || die "install did not report success"
@@ -142,7 +165,7 @@ macos_tests() {
     (cd "$demo" && "$prefix/bin/yashy" test >/dev/null) || die "test failed"
     ok "the installed compiler installs, passes doctor, and runs a project"
 
-    # 4. The tutorial's first three chapters run with the installed compiler.
+    # 5. The tutorial's first three chapters run with the installed compiler.
     sh "$root/scripts/run-tutorial-blocks.sh" "$prefix/bin/yashy" \
         "$root/docs/tutorial/00-intro.md" \
         "$root/docs/tutorial/01-hello.md" \

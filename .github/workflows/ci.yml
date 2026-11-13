@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-14]
 
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        os: [ubuntu-22.04, windows-latest, macos-14]
 
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +150,21 @@ jobs:
           pwsh scripts/package-release.ps1 -Version 0.0.0-ci
           $archive = Get-ChildItem dist/yashy-*-x86_64-pc-windows-msvc.zip | Select-Object -First 1
           pwsh scripts/test-install.ps1 -LocalArchive $archive.FullName
+
+      # The macOS half of the clean-install acceptance, on a hosted macOS
+      # runner. This is the phase-13 macOS evidence: the same installer, the
+      # same `doctor`, `init`, `run`, `test` and tutorial checks the release
+      # job runs. It is deliberately *unsigned*: signing and notarising need
+      # the Developer ID certificate and notary profile, which are repository
+      # secrets the release workflow reads. Until those exist, this job proves
+      # macOS works and the release gate stays a recorded, dated exception --
+      # the two are not the same claim, so neither is relabelled.
+      - name: Package and run the clean-install acceptance (macOS, unsigned)
+        if: runner.os == 'macOS'
+        run: |
+          sh scripts/package-release.sh --version 0.0.0-ci --target aarch64-apple-darwin
+          sh scripts/checksums.sh
+          sh scripts/test-install.sh --unsigned
 
   # The packaged Linux binary must work on the oldest glibc we promise. The
   # container has no Rust toolchain, which is the point: the release is a
