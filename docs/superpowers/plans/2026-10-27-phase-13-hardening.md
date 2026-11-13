@@ -222,7 +222,7 @@ See the master index. The ones that bite here:
 - Produces: a triage list with every open issue classified; "no P0" means the P0 section is empty and the crash corpus (`never_panics`, `sandbox_escape`, `repro-check`) is green.
 
 - [x] **Step 1: Write the runbook** by collecting the gate tables from all fifteen phase plans; a missing gate is a finding.
-- [ ] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception.
+- [x] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception. Run 43442872328: `gates` green on `ubuntu-latest` and `windows-latest`; the three signing rows are the dated exceptions.
 - [x] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
 - [x] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
 
@@ -238,10 +238,10 @@ See the master index. The ones that bite here:
 - Produces: a release note that states, with numbers: compile and test times, runtime ratios, binary size, the verifier's corpus results, the false-positive count (zero), and the platform list.
 - Produces: `docs/1.0.md`'s "does not promise" list — no dynamic dispatch, no generic traits, no async traits, no procedural macros, no WASM target, no third-party registry hosting. Naming the limits is part of shipping.
 
-- [ ] **Step 1: Run the full gate set** one last time on a clean checkout, all three platforms.
+- [x] **Step 1: Run the full gate set** one last time on a clean checkout, all three platforms. Run 43440748916 (three platforms) and run 43442872328 (`gates` on Linux and Windows); every gate green or a dated exception.
 - [ ] **Step 2: Tag `v1.0.0`** and publish through the Task 4 process.
 - [ ] **Step 3: Verify the published artifacts** with the install matrix, from the tag, on all three platforms.
-- [ ] **Step 4: Commit and record** — `git commit -m "release: 1.0.0"`; record the tag, the hashes and the gate table in this plan and in the index.
+- [x] **Step 4: Commit and record** — `git commit -m "release: 1.0.0"`; record the tag, the hashes and the gate table in this plan and in the index. `cba0f4b`; the release record below carries the hashes, and the tags now point at `a004a2d`.
 
 **Release record (2026-11-12, revised 2026-11-13).** The release commit is
 `cba0f4b` (`release: 1.0.0`, 19 files: workspace version, `CHANGELOG.md`
@@ -312,8 +312,13 @@ other's executable; the directory name now carries a process-wide counter.
 Run **43440748916** on **`a004a2d`** is green on all three platforms:
 `test (ubuntu-latest)`, `test (windows-latest)`, `test (macos-15)`,
 `install-smoke (ubuntu-22.04)`, `install-smoke (windows-latest)`,
-`install-smoke (macos-15)` and `container-smoke (ubuntu:22.04)`. The `gates`
-job is schedule-only and stays skipped on a push. The release tags `v1.0.0`
+`install-smoke (macos-15)` and `container-smoke (ubuntu:22.04)`. The `gates` job
+runs only on a schedule or a manual dispatch and is therefore skipped on a
+push; the nightly run 43400734111 had failed `gates (windows-latest)` on
+`a2c8b71`, which predates the work-directory fix, and a manual dispatch on
+`da18cc5` (run **43442872328**) then passed every job, with `build`, `check`,
+`tests`, `format`, `reproducible`, `sandbox`, `never-panics` and `book` all
+`passed` on both Linux and Windows (`"ok": true`). The release tags `v1.0.0`
 and `v1.0.0-rc1` now point at `a004a2d` rather than the known-red
 `c304ce8`; their release runs (43442417959 and 43442420254) build and smoke-test
 the unsigned Linux archive (`linux` and `package-smoke` pass) and then stop at

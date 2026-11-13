@@ -286,10 +286,19 @@ check --workspace --all-targets`, the formatter gate and every end-to-end
 program), `install-smoke (ubuntu-22.04)`, `install-smoke (windows-latest)`,
 `install-smoke (macos-15)` (the packaged archive installs, `doctor` passes, the
 first project runs, chapters 00-02 pass through `test-install.sh --unsigned`)
-and `container-smoke (ubuntu:22.04)`. The `gates` job is schedule-only, so it
-is skipped on a push rather than missing. The macOS half of the tier-one gate
+and `container-smoke (ubuntu:22.04)`. The macOS half of the tier-one gate
 therefore has evidence on an Apple-silicon host; the signed-archive rows above
 remain exceptions.
+
+**The runner on that head (2026-11-13).** The `gates` job runs only on a
+schedule or a manual dispatch, so it is skipped on a push. The nightly run
+43400734111 failed its `gates (windows-latest)` job on `a2c8b71`, a commit that
+predates the Windows work-directory fix (`297ce24`); a manual dispatch of
+`ci.yml` on `da18cc5` (run **43442872328**) passed every job, including
+`gates (ubuntu-latest)` and `gates (windows-latest)`, where `build`, `check`,
+`tests`, `format`, `reproducible`, `sandbox`, `never-panics` and `book` all
+reported `passed` and the JSON summary reported `"ok": true`. That is the
+`scripts/gates` row with evidence on the head the tags point at.
 
 The re-pointed tags carry that evidence into `release.yml`: run 43442417959
 (`v1.0.0`) and run 43442420254 (`v1.0.0-rc1`) each build the Linux archive and
