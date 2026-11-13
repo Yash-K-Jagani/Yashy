@@ -315,8 +315,10 @@ Run **43440748916** on **`a004a2d`** is green on all three platforms:
 `install-smoke (macos-15)` and `container-smoke (ubuntu:22.04)`. The `gates`
 job is schedule-only and stays skipped on a push. The release tags `v1.0.0`
 and `v1.0.0-rc1` now point at `a004a2d` rather than the known-red
-`c304ce8`; the tag's release run still stops at the signing-secrets check,
-which is the dated exception below, not a regression.
+`c304ce8`; their release runs (43442417959 and 43442420254) build and smoke-test
+the unsigned Linux archive (`linux` and `package-smoke` pass) and then stop at
+"Check the signing secrets" in the `windows` and both `macos` jobs, which is the
+dated exception below, not a regression.
 
 **Exceptions (2026-11-13).** Three release gates in this phase cannot be met
 from the repository as it stands, and they are recorded rather than

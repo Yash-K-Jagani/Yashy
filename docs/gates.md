@@ -291,6 +291,13 @@ is skipped on a push rather than missing. The macOS half of the tier-one gate
 therefore has evidence on an Apple-silicon host; the signed-archive rows above
 remain exceptions.
 
+The re-pointed tags carry that evidence into `release.yml`: run 43442417959
+(`v1.0.0`) and run 43442420254 (`v1.0.0-rc1`) each build the Linux archive and
+pass `package-smoke` (install into `ubuntu:22.04`, `doctor`, `init`, `test`,
+uninstall) before the `windows` and both `macos` jobs stop at "Check the signing
+secrets". The unsigned build path is therefore proven end to end; what is
+missing is the certificate, the notary profile and the GPG key, not the code.
+
 ## Running the runner
 
 ```sh
