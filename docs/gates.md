@@ -253,26 +253,26 @@ loosen one.
 | Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |
 
-**Open exceptions (2026-11-13).** Three release gates cannot be met from this
+**Open exceptions (2026-11-13).** Two release gates cannot be met from this
 checkout: the repository has **zero Actions secrets**
 (`GET /repos/Yash-K-Jagani/Yashy/actions/secrets` → `total_count: 0`), and it
-has never had a Developer ID identity or a notary profile. macOS *testing* is
-no longer one of them: `ci.yml` runs the workspace suite on `macos-15`, and
-its install smoke packages the arm64 archive, writes `SHA256SUMS` and drives
-`install.sh`, `doctor`, the first project and tutorial chapters 00-02 through
-`test-install.sh --unsigned`. The runner label is `macos-15` because GitHub
-retired the macOS 14 images on 2026-11-02 — a job on a retired label is
-cancelled before its first step. Each open gate is recorded with the date, the
-reason, the owner and the condition that closes it. **Until they close, phase
-13 is not marked complete** — and macOS stays unclaimed in `README.md` and
-`AGENTS.md`, as the phase's global constraint requires: an unsigned archive is
-tested, not shipped.
+has never had a Developer ID identity, notary credentials or a signing key.
+macOS *testing* and the *install matrix* are no longer on this list: `ci.yml`
+runs the workspace suite on `macos-15`, its install smoke packages the arm64
+archive and drives `install.sh`, `doctor`, the first project and tutorial
+chapters 00-02 through `test-install.sh --unsigned`, and the matrix installs
+the published `v1.0.0` artifacts on all three platforms. The runner label is
+`macos-15` because GitHub retired the macOS 14 images on 2026-11-02 — a job on
+a retired label is cancelled before its first step. Each open gate is recorded
+with the date, the reason, the owner and the condition that closes it. **Until
+they close, phase 13 is not marked complete** — and macOS stays unclaimed in
+`README.md` and `AGENTS.md`, as the phase's global constraint requires: the
+unsigned archive ships and is install-tested, which is not the support claim.
 
 | Gate | Reason it cannot run (2026-11-13) | Owner | Closes when | Re-run |
 |---|---|---|---|---|
 | macOS supported with a signed archive (`release.yml`'s `macos-install`) | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary credentials (`MACOS_NOTARY_KEY_BASE64`/`MACOS_NOTARY_KEY_ID`/`MACOS_NOTARY_ISSUER`, or `MACOS_APPLE_ID`/`MACOS_APPLE_PASSWORD`/`MACOS_TEAM_ID`). The archives publish unsigned, so `macos-install` installs and runs them with `test-install.sh --unsigned` and skips the signature, notarisation and Gatekeeper assertions | release manager | The macOS secrets exist and `release.yml`'s `macos-install` job runs on `macos-15` | on the next tagged release |
-| Signed releases (`release.yml` dry run) | Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and GPG (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are both missing. A tag publishes with a "This build is unsigned" section in the notes, no `SHA256SUMS.asc`, and SmartScreen warnings on Windows; a `dry` dispatch proves the same path without publishing | release manager | The Windows, macOS and GPG secrets exist | `v1.0.0-rc2` or a `dry` dispatch today |
-| Install matrix from published artifacts | Depends on a published release; the only tagged release (`v1.0.0`) never published because its draft was cancelled after the signature check failed. A `dry` run's bundle can be installed today (`mode: run`), which is the same check minus the signature assertions | release manager | A signed release is published, then `install-matrix.yml` runs from it | weekly, and on the next release |
+| Signed releases (`release.yml` dry run) | Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and GPG (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are both missing. A tag publishes with a "This build is unsigned" section in the notes, no `SHA256SUMS.asc`, and SmartScreen warnings on Windows; a `dry` dispatch proves the same path without publishing | release manager | The Windows and GPG secrets exist | `v1.0.1` |
 
 The Linux, Windows and macOS halves of every other gate are a **delegation**,
 not an exception: CI runs the same commands on `ubuntu-latest`,
@@ -323,6 +323,25 @@ stronger one.
 
 The unsigned build path is therefore proven end to end; what is missing is the
 Developer ID certificate, the notary credentials and the GPG key, not the code.
+
+**The published release (2026-11-13).** `v1.0.0` at `c2abc55` published through
+release run **43457657712**
+(<https://github.com/Yash-K-Jagani/Yashy/releases/tag/v1.0.0>): four archives,
+`SHA256SUMS` and both installers, with the notes opening with "This build is
+unsigned". The `macos-install` job detected the ad-hoc signature, warned, and
+passed with `--unsigned`. The install matrix then installed those published
+assets on `ubuntu-22.04`, `windows-latest` and `macos-15` in run
+**43458629125**, all three green — the row that used to depend on a signed
+release no longer needs one. The published Windows zip was also downloaded and
+installed on the development host: its hash matches the published
+`SHA256SUMS`, and the fresh install, `doctor`, `init`, `run`, `test`, bad and
+missing checksum, offline install and uninstall all pass.
+
+The first tag run (43456215147) found two things that had never executed: the
+macOS probe accepted an ad-hoc signature as a release signature, and both the
+workflow and the install test expected a zip or a bare Mach-O to carry a
+stapled ticket, which `stapler` refuses by design. Both are fixed in `c2abc55`;
+the probe now asks for `Authority=Developer ID Application`.
 
 ## Running the runner
 
