@@ -187,6 +187,50 @@ fn a_warm_ir_cache_skips_emit_and_reproduces_the_binary() {
 }
 
 #[test]
+fn both_linker_clock_fields_are_cleared_from_a_pe_image() {
+    // A synthetic PE32 image with one section whose raw data holds a
+    // two-entry debug directory. The two clock readings are the COFF header's
+    // and one per debug entry; every other byte must survive untouched, which
+    // is what makes the comparison in the test above about the compiler rather
+    // than about the linker's clock.
+    let mut image = vec![0u8; 0x600];
+    image[0..2].copy_from_slice(b"MZ");
+    image[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+    image[0x40..0x44].copy_from_slice(b"PE\0\0");
+    image[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section
+    image[0x48..0x4c].copy_from_slice(&0x6af6_c98du32.to_le_bytes()); // header stamp
+    image[0x54..0x56].copy_from_slice(&0xe0u16.to_le_bytes()); // PE32 optional header
+    image[0x58..0x5a].copy_from_slice(&0x010bu16.to_le_bytes()); // PE32 magic
+    image[0xe8..0xec].copy_from_slice(&0x1000u32.to_le_bytes()); // debug directory RVA
+    image[0xec..0xf0].copy_from_slice(&56u32.to_le_bytes()); // two 28-byte entries
+    image[0x144..0x148].copy_from_slice(&0x1000u32.to_le_bytes()); // section address
+    image[0x148..0x14c].copy_from_slice(&0x400u32.to_le_bytes()); // section raw size
+    image[0x14c..0x150].copy_from_slice(&0x200u32.to_le_bytes()); // section raw offset
+    image[0x200..0x238].fill(0xaa);
+    image[0x204..0x208].copy_from_slice(&0x6af6_c98du32.to_le_bytes());
+    image[0x220..0x224].copy_from_slice(&0x6af6_ffffu32.to_le_bytes());
+
+    let cleared = without_link_timestamp(&image);
+    assert_eq!(&cleared[0x48..0x4c], &[0, 0, 0, 0], "the header stamp");
+    assert_eq!(&cleared[0x204..0x208], &[0, 0, 0, 0], "the first entry");
+    assert_eq!(&cleared[0x220..0x224], &[0, 0, 0, 0], "the second entry");
+    for (offset, (&before, &after)) in image.iter().zip(&cleared).enumerate() {
+        let clock = (0x48..0x4c).contains(&offset)
+            || (0x204..0x208).contains(&offset)
+            || (0x220..0x224).contains(&offset);
+        assert!(
+            clock || before == after,
+            "byte {offset} must be untouched ({before} became {after})"
+        );
+    }
+    assert_eq!(
+        without_link_timestamp(b"not a PE image").as_slice(),
+        b"not a PE image",
+        "a non-PE image is compared as it is"
+    );
+}
+
+#[test]
 fn a_stdlib_version_change_invalidates_the_ir_cache() {
     // A private copy of the stdlib, so the manifest can be edited without
     // touching the repository.
@@ -271,29 +315,115 @@ fn a_stdlib_version_change_invalidates_the_ir_cache() {
     );
 }
 
-/// A binary with the one field the linker fills in from the clock cleared.
+/// The file offset of the `PE\0\0` signature, or `None` for a non-PE image.
+fn pe_offset(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return None;
+    }
+    let offset = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
+    if offset + 4 <= bytes.len() && &bytes[offset..offset + 4] == b"PE\0\0" {
+        Some(offset)
+    } else {
+        None
+    }
+}
+
+/// A binary with the fields the linker fills in from the clock cleared.
 ///
-/// A PE image carries `TimeDateStamp` in its COFF header, which the linker sets
-/// to the current time, so two identical builds made a second apart differ in
-/// exactly that four-byte field. Everything the compiler controls is still
+/// A PE image carries two readings of the link step's clock: `TimeDateStamp`
+/// in the COFF header, and one in every debug directory entry. Some links
+/// also stamp a POGO record, whose entry lives in `.rdata`, so clearing only
+/// the header leaves two identical builds made a second apart differing in
+/// the middle of the image. Everything the compiler controls is still
 /// compared byte-for-byte. A non-PE image is returned unchanged: ELF embeds no
 /// timestamp, and a GNU build-id is a hash of the image contents, so identical
 /// builds are identical files there.
 fn without_link_timestamp(bytes: &[u8]) -> Vec<u8> {
     let mut bytes = bytes.to_vec();
-    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+    let Some(pe) = pe_offset(&bytes) else {
+        return bytes;
+    };
+    // The COFF header starts just past the four-byte signature, and its
+    // `TimeDateStamp` is the third field.
+    let stamp = pe + 8;
+    if stamp + 4 <= bytes.len() {
+        bytes[stamp..stamp + 4].fill(0);
+    }
+    // The debug directory is data directory 6, which starts after 96 bytes of
+    // PE32 optional header or 112 bytes of PE32+; each 28-byte entry carries
+    // the same clock reading at offset 4.
+    let optional = pe + 24;
+    if optional + 2 > bytes.len() {
         return bytes;
     }
-    let offset = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
-    if offset + 4 <= bytes.len() && &bytes[offset..offset + 4] == b"PE\0\0" {
-        // The COFF header starts just past the four-byte signature, and its
-        // `TimeDateStamp` is the third field.
-        let stamp = offset + 8;
-        if stamp + 4 <= bytes.len() {
-            bytes[stamp..stamp + 4].fill(0);
+    let directories = match u16::from_le_bytes([bytes[optional], bytes[optional + 1]]) {
+        0x010b => optional + 96,
+        0x020b => optional + 112,
+        _ => return bytes,
+    };
+    let directory = directories + 6 * 8;
+    if directory + 8 > bytes.len() {
+        return bytes;
+    }
+    let start = u32::from_le_bytes([
+        bytes[directory],
+        bytes[directory + 1],
+        bytes[directory + 2],
+        bytes[directory + 3],
+    ]) as usize;
+    let size = u32::from_le_bytes([
+        bytes[directory + 4],
+        bytes[directory + 5],
+        bytes[directory + 6],
+        bytes[directory + 7],
+    ]) as usize;
+    let Some(start) = rva_to_file_offset(&bytes, pe, start) else {
+        return bytes;
+    };
+    for entry in (start..start + size).step_by(28) {
+        if entry + 28 > bytes.len() {
+            break;
         }
+        bytes[entry + 4..entry + 8].fill(0);
     }
     bytes
+}
+
+/// Map a virtual address to a file offset through the section table.
+///
+/// The debug directory is named by an address in the optional header, not by a
+/// file offset, so the section that backs it has to be found first.
+fn rva_to_file_offset(bytes: &[u8], pe: usize, rva: usize) -> Option<usize> {
+    let sections = usize::from(u16::from_le_bytes([bytes[pe + 6], bytes[pe + 7]]));
+    let optional = usize::from(u16::from_le_bytes([bytes[pe + 20], bytes[pe + 21]]));
+    for index in 0..sections {
+        let entry = pe + 24 + optional + 40 * index;
+        if entry + 40 > bytes.len() {
+            return None;
+        }
+        let raw = u32::from_le_bytes([
+            bytes[entry + 20],
+            bytes[entry + 21],
+            bytes[entry + 22],
+            bytes[entry + 23],
+        ]) as usize;
+        let size = u32::from_le_bytes([
+            bytes[entry + 16],
+            bytes[entry + 17],
+            bytes[entry + 18],
+            bytes[entry + 19],
+        ]) as usize;
+        let address = u32::from_le_bytes([
+            bytes[entry + 12],
+            bytes[entry + 13],
+            bytes[entry + 14],
+            bytes[entry + 15],
+        ]) as usize;
+        if rva >= address && rva < address + size {
+            return Some(raw + (rva - address));
+        }
+    }
+    None
 }
 
 /// Assert two IR texts are identical, naming the first line that parted.
@@ -377,11 +507,10 @@ fn assert_same_binary(left: &[u8], right: &[u8], what: &str) {
 /// parted; ".rdata +50500" does. A non-PE image gets nothing: this is
 /// diagnosis for the platform whose linker stamps the image.
 fn image_site(bytes: &[u8], offset: usize) -> String {
-    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+    let Some(pe) = pe_offset(bytes) else {
         return String::new();
-    }
-    let pe = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
-    if pe + 24 > bytes.len() || &bytes[pe..pe + 4] != b"PE\0\0" {
+    };
+    if pe + 24 > bytes.len() {
         return String::new();
     }
     let sections = usize::from(u16::from_le_bytes([bytes[pe + 6], bytes[pe + 7]]));
