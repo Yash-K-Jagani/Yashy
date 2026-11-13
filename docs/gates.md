@@ -252,6 +252,24 @@ loosen one.
 | Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |
 
+**Open exceptions (2026-11-13).** Three phase-13 gates cannot be met from
+this checkout: the repository has **zero Actions secrets**
+(`GET /repos/Yash-K-Jagani/Yashy/actions/secrets` → `total_count: 0`) and no
+macOS machine is available to the slice. Each is recorded with the date, the
+reason, the owner and the condition that closes it. **Until they close, phase
+13 is not complete** — and macOS stays unclaimed in `README.md` and
+`AGENTS.md`, as the phase's global constraint requires.
+
+| Gate | Reason it cannot run (2026-11-13) | Owner | Closes when | Re-run |
+|---|---|---|---|---|
+| macOS supported (`install-matrix` on `macos-14`) | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`), no notary profile (`MACOS_NOTARY_PROFILE_BASE64`), and no macOS runner reachable from this slice | release manager | The macOS secrets exist and `release.yml`'s `macos-install` job runs on a clean `macos-14` runner | on the next tagged release |
+| Signed releases (`release.yml` dry run) | Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and GPG (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are both missing; the workflow stops at "Check the signing secrets", naming the missing one | release manager | The Windows, macOS and GPG secrets exist | `v1.0.0-rc2` |
+| Install matrix from published artifacts | Depends on a published release; the only tagged release (`v1.0.0`) never published because its draft was cancelled after the signature check failed | release manager | A signed release is published, then `install-matrix.yml` runs from it | weekly, and on the next release |
+
+The Linux half of every other gate is a **delegation**, not an exception: CI
+runs the same commands on `ubuntu-latest` and `windows-latest` (see below), and
+the phase's Windows evidence is observed on the development host.
+
 ## Running the runner
 
 ```sh

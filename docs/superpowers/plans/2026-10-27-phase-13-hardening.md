@@ -184,9 +184,9 @@ See the master index. The ones that bite here:
 - Produces: `yashy add http --registry https://…` reads `index.json` and a tarball over HTTPS; the hash in the lockfile is the integrity check.
 - Produces: publishing stays `file://`; a pull request to the registry repo is how a package is added, reviewed by a human.
 
-- [ ] **Step 1: Write the failing test** — a local HTTP server serving `registry/` is added as a registry; `yashy add` fetches, verifies the hash and builds; a tampered tarball fails the hash check.
-- [ ] **Step 2: Implement** — the HTTPS path reuses `net` from phase 12 and requires TLS; if TLS is unavailable on a platform, the command fails with a clear message rather than falling back to plaintext.
-- [ ] **Step 3: Commit** — `git commit -m "feat(registry): a read-only hosted index with hash-verified fetches"`
+- [x] **Step 1: Write the failing test** — a local HTTP server serving `registry/` is added as a registry; `yashy add` fetches, verifies the hash and builds; a tampered tarball fails the hash check.
+- [x] **Step 2: Implement** — the HTTPS path reuses `net` from phase 12 and requires TLS; if TLS is unavailable on a platform, the command fails with a clear message rather than falling back to plaintext.
+- [x] **Step 3: Commit** — `git commit -m "feat(registry): a read-only hosted index with hash-verified fetches"`
 
 ---
 
@@ -241,6 +241,36 @@ See the master index. The ones that bite here:
 - [ ] **Step 2: Tag `v1.0.0`** and publish through the Task 4 process.
 - [ ] **Step 3: Verify the published artifacts** with the install matrix, from the tag, on all three platforms.
 - [ ] **Step 4: Commit and record** — `git commit -m "release: 1.0.0"`; record the tag, the hashes and the gate table in this plan and in the index.
+
+**Release record (2026-11-12, revised 2026-11-13).** The release commit is
+`cba0f4b` (`release: 1.0.0`, 19 files: workspace version, `CHANGELOG.md`
+with the `## [1.0.0] - 2026-11-12` section, `README.md`, `docs/1.0.md`).
+Both tags originally pointed at `c304ce8`, whose CI was red: the frame
+ownership handed over by `b67138e` still leaked a discarded `spawn` on Linux
+and double-freed on Windows. That contract is rewritten and committed as
+`fc6e9af`, with the playground's run-directory collision fixed in `8f8fd99`.
+Nothing was ever published (the release drafts were cancelled at the
+signature check), so the tags are re-pointed to the head whose Windows and
+Linux CI is green rather than left on a known-red commit.
+
+**Exceptions (2026-11-13).** Three gates in this phase cannot be met from
+the repository as it stands, and they are recorded rather than relabelled.
+The repository has **zero Actions secrets** (`actions/secrets` →
+`total_count: 0`) and no macOS machine is reachable; both are prerequisites,
+not work that can be done in this checkout. The same three rows are in
+[`docs/gates.md`](../../gates.md), which is where "green" is defined.
+
+| Gate | Reason (2026-11-13) | Owner | Re-run when |
+|---|---|---|---|
+| Task 2 step 4 — macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`), no notary profile (`MACOS_NOTARY_PROFILE_BASE64`), no `macos-14` runner reachable from this slice | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs |
+| Task 4 step 3 — dry release from a pre-release tag | Windows Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and the GPG key (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are missing; `release.yml` stops at "Check the signing secrets", naming one | release manager | The signing secrets exist |
+| Task 10 steps 2–3 — tag and verify published artifacts | Depends on the two gates above; the only tags (`v1.0.0-rc1`, `v1.0.0`) produced cancelled runs because the signature check failed | release manager | A signed release publishes, then `install-matrix.yml` runs from it |
+
+Consequences, stated plainly: **phase 13 is not complete**, macOS stays a
+1.0 target that is not claimed in `README.md` or `AGENTS.md`, and the tag
+that carries the release is only re-pointed after the Windows and Linux CI
+on the fixed head is green. Task 2 step 5 (the claim) stays unticked for the
+same reason.
 
 ---
 
