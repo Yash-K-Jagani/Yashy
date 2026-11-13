@@ -198,16 +198,21 @@ static long long yax_register_locked(yashy_executor *ex, yashy_poll_fn poll, voi
     return entry->id;
 }
 
-static void yax_unregister(yashy_executor *ex, void *frame) {
-    if (ex == NULL || frame == NULL) {
-        return;
-    }
-    yax_lock_acquire(&ex->lock);
+/* Remove `frame` from the live registry while the caller holds `ex->lock`. */
+static void yax_unregister_locked(yashy_executor *ex, void *frame) {
     long long index = yax_registry_index(ex, frame);
     if (index >= 0) {
         ex->registry[index] = ex->registry[ex->registry_count - 1];
         ex->registry_count--;
     }
+}
+
+static void yax_unregister(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return;
+    }
+    yax_lock_acquire(&ex->lock);
+    yax_unregister_locked(ex, frame);
     yax_lock_release(&ex->lock);
 }
 
@@ -240,6 +245,60 @@ static int yax_is_retained(yashy_executor *ex, void *frame);
  * `yax_acquire_frame`. */
 static int yax_acquire_frame(yashy_executor *ex, void *frame);
 
+/* Remove a task's queued record while the caller holds `ex->lock`, and answer
+ * 1 when one was there. A record names a frame that is still pending under
+ * the queue's care; whichever driver takes the frame over removes it in the
+ * same lock section as the claim, so no driver can dequeue a record for a
+ * frame another driver already owns. */
+static int yax_unqueue_locked(yashy_executor *ex, void *frame) {
+    for (long long i = 0; i < ex->count; i++) {
+        long long index = (ex->head + i) % ex->capacity;
+        if (ex->queue[index].frame == frame) {
+            ex->queue[index] = ex->queue[(ex->head + ex->count - 1) % ex->capacity];
+            ex->count--;
+            ex->outstanding--;
+            if (ex->outstanding == 0) {
+                yax_cond_broadcast(&ex->idle);
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Take a frame out of the queue and the registry in one lock section, so the
+ * caller may free it. Answers 1 when the frame is retired and 0 when a driver
+ * stayed inside it for the whole bounded wait, in which case the caller must
+ * leave the frame alone (a leak is recoverable; a free under a live driver is
+ * not).
+ *
+ * The state check is what makes this safe: `yax_dequeue` sets state 2 and
+ * `yax_poll_tracked` sets state 1 under this same lock, so a state-0 answer
+ * means no worker has checked the frame out and none can while the record and
+ * the entry are removed together. Unregistering first would leave a window in
+ * which a record is still queued but nothing marks the frame as taken, and a
+ * worker could dequeue it after the free. */
+static int yax_retire_frame(yashy_executor *ex, void *frame) {
+    if (ex == NULL || frame == NULL) {
+        return 1;
+    }
+    for (int attempt = 0; attempt < 1000; attempt++) {
+        yax_lock_acquire(&ex->lock);
+        long long index = yax_registry_index(ex, frame);
+        if (index >= 0 && ex->registry[index].state != 0) {
+            /* A driver is inside the frame; its segment ends on its own. */
+            yax_lock_release(&ex->lock);
+            yashy_sleep_ms(1);
+            continue;
+        }
+        (void)yax_unqueue_locked(ex, frame);
+        yax_unregister_locked(ex, frame);
+        yax_lock_release(&ex->lock);
+        return 1;
+    }
+    return 0;
+}
+
 /* Poll one task with its state tracked: running across the poll, pending
  * when it suspends, and out of the registry once it is ready. A task that
  * was never registered (a bare `yashy_task_poll`) passes through with only
@@ -258,6 +317,13 @@ static int yax_acquire_frame(yashy_executor *ex, void *frame);
  * until the claim is taken here. That is the window a free path must not
  * cross -- without it a record could be checked out by a worker and the
  * frame freed before the worker's first poll.
+ *
+ * An inline driver (`from_queue == 0`) takes the queued record with its
+ * claim. Completing a frame unregisters it, and an unregistered frame has no
+ * state a later dequeue could notice: leaving its record behind would let a
+ * worker check the frame out after the inline driver considered it done and
+ * freed it. Removing the record under the same lock as the claim makes the
+ * queue and the registry agree that this driver now owns the frame.
  *
  * `retain_on_ready` publishes the completion mark *before* the claim is
  * released, so no other driver can see a finished frame and conclude that
@@ -289,6 +355,9 @@ static void *yax_poll_tracked(yashy_executor *ex, yashy_poll_fn poll, void *fram
                 return NULL;
             }
             ex->registry[index].state = 1;
+        }
+        if (!from_queue) {
+            yax_unqueue_locked(ex, frame);
         }
         yax_lock_release(&ex->lock);
     }
@@ -867,22 +936,8 @@ static int yax_unqueue(yashy_executor *ex, void *frame) {
     if (ex == NULL || frame == NULL) {
         return 0;
     }
-    int removed = 0;
     yax_lock_acquire(&ex->lock);
-    for (long long i = 0; i < ex->count; i++) {
-        long long index = (ex->head + i) % ex->capacity;
-        if (ex->queue[index].frame == frame) {
-            ex->queue[index] =
-                ex->queue[(ex->head + ex->count - 1) % ex->capacity];
-            ex->count--;
-            ex->outstanding--;
-            removed = 1;
-            if (ex->outstanding == 0) {
-                yax_cond_broadcast(&ex->idle);
-            }
-            break;
-        }
-    }
+    int removed = yax_unqueue_locked(ex, frame);
     yax_lock_release(&ex->lock);
     return removed;
 }
@@ -1157,29 +1212,12 @@ void yashy_task_cancel(yashy_executor *ex, yashy_poll_fn poll, void *frame) {
     if (frame == NULL) {
         return;
     }
-    /* A frame another thread is inside must not be freed under it. */
-    yax_wait_unclaimed(ex, frame);
-    yax_unregister(ex, frame);
-    if (ex != NULL) {
-        yax_lock_acquire(&ex->lock);
-        for (long long i = 0; i < ex->count; i++) {
-            long long index = (ex->head + i) % ex->capacity;
-            if (ex->queue[index].frame == frame) {
-                /* Remove by swapping with the last queued record. Frames are
-                 * unique pointers, so a second match is a second task. */
-                ex->queue[index] = ex->queue[(ex->head + ex->count - 1) % ex->capacity];
-                ex->count--;
-                ex->outstanding--;
-                if (ex->outstanding == 0) {
-                    yax_cond_broadcast(&ex->idle);
-                }
-                yax_lock_release(&ex->lock);
-                yax_forget(ex, frame);
-                yashy_free(frame);
-                return;
-            }
-        }
-        yax_lock_release(&ex->lock);
+    /* Retire the frame -- queue record and registry entry together -- before
+     * freeing it. A frame whose driver will not let go is left live: the
+     * cancel path must not read a `defer` into a double run or free a frame
+     * another thread is inside, and a wedged executor is already a leak. */
+    if (!yax_retire_frame(ex, frame)) {
+        return;
     }
     (void)poll;
     yax_forget(ex, frame);
