@@ -237,7 +237,8 @@ loosen one.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| macOS supported | `install-matrix` on `macos-14` | signed, notarised, stapled; `doctor` and the first three chapters pass |
+| macOS tested | `ci.yml`'s `test` and `install-smoke` on `macos-15` | the workspace suite passes; the packaged archive installs, `doctor` passes, the first project runs and chapters 00-02 pass |
+| macOS supported (signed) | `release.yml`'s `macos-install`, then `install-matrix` on `macos-15` | signed, notarised, stapled; Gatekeeper accepts it; `doctor` and the first three chapters pass |
 | Reproducible | `scripts/repro-check` | two independent builds, identical SHA-256, all three OSes |
 | Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
@@ -252,23 +253,31 @@ loosen one.
 | Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |
 
-**Open exceptions (2026-11-13).** Three phase-13 gates cannot be met from
-this checkout: the repository has **zero Actions secrets**
-(`GET /repos/Yash-K-Jagani/Yashy/actions/secrets` → `total_count: 0`) and no
-macOS machine is available to the slice. Each is recorded with the date, the
+**Open exceptions (2026-11-13).** Three release gates cannot be met from this
+checkout: the repository has **zero Actions secrets**
+(`GET /repos/Yash-K-Jagani/Yashy/actions/secrets` → `total_count: 0`), and it
+has never had a Developer ID identity or a notary profile. macOS *testing* is
+no longer one of them: `ci.yml` runs the workspace suite on `macos-15`, and
+its install smoke packages the arm64 archive, writes `SHA256SUMS` and drives
+`install.sh`, `doctor`, the first project and tutorial chapters 00-02 through
+`test-install.sh --unsigned`. The runner label is `macos-15` because GitHub
+retired the macOS 14 images on 2026-11-02 — a job on a retired label is
+cancelled before its first step. Each open gate is recorded with the date, the
 reason, the owner and the condition that closes it. **Until they close, phase
-13 is not complete** — and macOS stays unclaimed in `README.md` and
-`AGENTS.md`, as the phase's global constraint requires.
+13 is not marked complete** — and macOS stays unclaimed in `README.md` and
+`AGENTS.md`, as the phase's global constraint requires: an unsigned archive is
+tested, not shipped.
 
 | Gate | Reason it cannot run (2026-11-13) | Owner | Closes when | Re-run |
 |---|---|---|---|---|
-| macOS supported (`install-matrix` on `macos-14`) | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`), no notary profile (`MACOS_NOTARY_PROFILE_BASE64`), and no macOS runner reachable from this slice | release manager | The macOS secrets exist and `release.yml`'s `macos-install` job runs on a clean `macos-14` runner | on the next tagged release |
+| macOS supported with a signed archive (`release.yml`'s `macos-install`) | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary profile (`MACOS_NOTARY_PROFILE_BASE64`); the workflow stops at "Check the signing secrets" | release manager | The macOS secrets exist and `release.yml`'s `macos-install` job runs on `macos-15` | on the next tagged release |
 | Signed releases (`release.yml` dry run) | Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and GPG (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are both missing; the workflow stops at "Check the signing secrets", naming the missing one | release manager | The Windows, macOS and GPG secrets exist | `v1.0.0-rc2` |
 | Install matrix from published artifacts | Depends on a published release; the only tagged release (`v1.0.0`) never published because its draft was cancelled after the signature check failed | release manager | A signed release is published, then `install-matrix.yml` runs from it | weekly, and on the next release |
 
-The Linux half of every other gate is a **delegation**, not an exception: CI
-runs the same commands on `ubuntu-latest` and `windows-latest` (see below), and
-the phase's Windows evidence is observed on the development host.
+The Linux, Windows and macOS halves of every other gate are a **delegation**,
+not an exception: CI runs the same commands on `ubuntu-latest`,
+`windows-latest` and `macos-15` (see below), and the phase's Windows evidence
+is also observed on the development host.
 
 ## Running the runner
 
@@ -295,5 +304,6 @@ an exception with the date, the reason, and the owner; the phase cannot be
 marked complete while an exception is open.
 
 "On Windows and Linux" is observed where the development host allows it;
-CI runs the same commands on `ubuntu-latest` and `windows-latest`, which is
-a delegation, not an exception.
+CI runs the same commands on `ubuntu-latest` and `windows-latest`, and on
+`macos-15` for the workspace suite and the unsigned clean-install acceptance,
+which is a delegation, not an exception.

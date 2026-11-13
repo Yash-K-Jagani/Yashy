@@ -77,19 +77,20 @@ See the master index. The ones that bite here:
 ### Task 2: macOS build, sign and notarise
 
 **Files:**
-- Modify: `.github/workflows/release.yml` (a `macos-14` job: arm64 and x86_64 universal or two archives)
+- Modify: `.github/workflows/release.yml` (a `macos-15` job: arm64 and x86_64 universal or two archives)
 - Modify: `scripts/package-release.sh`, `scripts/test-install.sh`
 - Create: `docs/install/macos.md`
 - Modify: `README.md`, `AGENTS.md` (the "do not claim macOS" rule is satisfied here, with the date)
 
 **Interfaces:**
 - Produces: `yashy-<version>-aarch64-apple-darwin.tar.gz` and `-x86_64-apple-darwin.tar.gz`, each signed with a Developer ID Application certificate, notarised with `notarytool`, and stapled.
-- Produces: an install test that runs on a clean `macos-14` runner: unzip, `xattr -d`, run `yashy doctor`, compile and run `examples/hello`, run the first three tutorial chapters.
+- Produces: an install test that runs on a clean `macos-15` runner: unzip, `xattr -d`, run `yashy doctor`, compile and run `examples/hello`, run the first three tutorial chapters.
 
 - [x] **Step 1: Write the failing job** - the release workflow's macOS job fails because there is no archive yet; the install test asserts the stapled ticket (`spctl -a -vvv`) and the version string.
 - [x] **Step 2: Build it** - the compiler is pure Rust plus a C runtime; the only platform work is `build.rs` for the runtime's macOS branch (already `#ifdef`-ed for POSIX) and the `clang` invocation. Record any real porting work in this plan as it is found.
 - [x] **Step 3: Sign and notarise** - credentials come from repository secrets; a missing secret fails the job with a message naming it, never a silent unsigned artifact.
-- [ ] **Step 4: Run the install test** on the clean runner → PASS.
+- [x] **Step 4a: Run the archive on a clean CI runner, unsigned** - `ci.yml`'s `test` matrix runs the whole workspace suite on `macos-15`, and `install-smoke` packages `aarch64-apple-darwin`, writes `SHA256SUMS` and drives `install.sh`, `doctor`, the first project and chapters 00-02 through `test-install.sh --unsigned`. The runner label moved from `macos-14` to `macos-15` on 2026-11-13 because GitHub retired the macOS 14 images on 2026-11-02 and cancels a job on a retired label before its first step.
+- [ ] **Step 4b: Run the install test** on a signed, notarised archive on the clean runner → PASS. Credential-gated; the exception table below records it.
 - [ ] **Step 5: Update the claim** - `README.md` and `AGENTS.md` may now say macOS is supported, with the archive name and the date. Not before.
 - [x] **Step 6: Commit** - `git commit -m "feat(release): a signed, notarised, tested macOS archive"`
 
@@ -126,7 +127,7 @@ See the master index. The ones that bite here:
 
 **Interfaces:**
 - Produces: a tagged release publishes: three platforms × two architectures where applicable, `SHA256SUMS`, a signed checksum file (GPG for Linux, Authenticode for Windows, Developer ID for macOS), and a changelog section.
-- Produces: `install-matrix.yml` runs the installer on `windows-latest`, `ubuntu-22.04` and `macos-14`, from the published artifacts, on every release and weekly.
+- Produces: `install-matrix.yml` runs the installer on `windows-latest`, `ubuntu-22.04` and `macos-15`, from the published artifacts, on every release and weekly.
 
 - [x] **Step 1: Write the failing workflow** - the release job produces a draft with no artifacts because the matrix is incomplete; the install matrix fails on macOS (no archive).
 - [x] **Step 2: Implement** - one job builds, one signs, one publishes, one tests; artifacts flow through `upload-artifact`/`download-artifact` so no step rebuilds.
@@ -250,27 +251,64 @@ ownership handed over by `b67138e` still leaked a discarded `spawn` on Linux
 and double-freed on Windows. That contract is rewritten and committed as
 `fc6e9af`, with the playground's run-directory collision fixed in `8f8fd99`.
 Nothing was ever published (the release drafts were cancelled at the
-signature check), so the tags are re-pointed to the head whose Windows and
-Linux CI is green rather than left on a known-red commit.
+signature check), so the tags are re-pointed to the head whose CI is green
+rather than left on a known-red commit.
 
-**Exceptions (2026-11-13).** Three gates in this phase cannot be met from
-the repository as it stands, and they are recorded rather than relabelled.
-The repository has **zero Actions secrets** (`actions/secrets` →
-`total_count: 0`) and no macOS machine is reachable; both are prerequisites,
-not work that can be done in this checkout. The same three rows are in
-[`docs/gates.md`](../../gates.md), which is where "green" is defined.
+**Frame ownership, third pass (`da74a1e`, 2026-11-13).** The Linux `test` job
+found the remaining window: a scope's join completes a child inline, the
+completion unregisters the frame, the join frees it — and the child's queued
+record was still in the executor, with no registry state left for a worker's
+dequeue to check. The cancel path had the same hole from the other end
+(unregister first, remove the record second). `yax_poll_tracked` now takes the
+queued record with its inline claim, and `yax_retire_frame` removes the record
+and the registry entry under one lock section for the cancel path. Reproduced
+before the fix (Windows ASan fails at run 0, Linux ASan at run 54, both
+`heap-use-after-free` under `counter_poll`); after it, 300 Windows ASan runs,
+300 Linux ASan runs and 1000 plain Linux runs pass, as does
+`cargo test -p yashy-runtime --test async` (2 passed, 100 pool runs).
+
+**macOS moves to `macos-15` (`de03bfd`, 2026-11-13).** GitHub retired the
+macOS 14 runner images on 2026-11-02, so `macos-14` jobs are cancelled before
+their first step; the CI, release and install-matrix workflows use the current
+GA arm64 image. The phase-13 macOS evidence is `test (macos-15)` (workspace
+suite) and `install-smoke (macos-15)` (packaged archive, unsigned, `doctor`,
+first project, chapters 00-02).
+
+**Two defects the first `macos-15` run exposed (2026-11-13).** Both macOS jobs
+died linking `yashy-runtime`'s build script: `clang: error: invalid linker name
+in argument '-fuse-ld=lld'`. The flag sat in `.cargo/config.toml`'s
+`[build] rustflags`, which reaches host units too, and the flag is a GNU-host
+hint — the MSVC linker only warns about it — so it moved to
+`[target.'cfg(not(target_vendor = "apple"))']` (`d1b64ab`). The same run's
+Windows job failed two tests that pass alone, `audit`'s git-dependency case and
+the sandbox's environment-path case, because `common::work_dir` deleted a
+shared directory on every call: parallel tests in one binary removed each
+other's package store and allow-read root, and the CLI answered "the system
+cannot find the file specified". The helper clears a name once per process now
+(`297ce24`). Both are build and test plumbing; no language, runtime or
+diagnostic behaviour changed.
+
+**Exceptions (2026-11-13).** Three release gates in this phase cannot be met
+from the repository as it stands, and they are recorded rather than
+relabelled. The repository has **zero Actions secrets** (`actions/secrets` →
+`total_count: 0`) and has never had a Developer ID identity or a notary
+profile; both are prerequisites, not work that can be done in this checkout.
+macOS testing is no longer on this list: it is delegated to CI, unsigned. The
+same three rows are in [`docs/gates.md`](../../gates.md), which is where
+"green" is defined.
 
 | Gate | Reason (2026-11-13) | Owner | Re-run when |
 |---|---|---|---|
-| Task 2 step 4 — macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`), no notary profile (`MACOS_NOTARY_PROFILE_BASE64`), no `macos-14` runner reachable from this slice | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs |
+| Task 2 step 4b — signed macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary profile (`MACOS_NOTARY_PROFILE_BASE64`); the job stops at "Check the signing secrets" | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs on `macos-15` |
 | Task 4 step 3 — dry release from a pre-release tag | Windows Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and the GPG key (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are missing; `release.yml` stops at "Check the signing secrets", naming one | release manager | The signing secrets exist |
 | Task 10 steps 2–3 — tag and verify published artifacts | Depends on the two gates above; the only tags (`v1.0.0-rc1`, `v1.0.0`) produced cancelled runs because the signature check failed | release manager | A signed release publishes, then `install-matrix.yml` runs from it |
 
-Consequences, stated plainly: **phase 13 is not complete**, macOS stays a
-1.0 target that is not claimed in `README.md` or `AGENTS.md`, and the tag
-that carries the release is only re-pointed after the Windows and Linux CI
-on the fixed head is green. Task 2 step 5 (the claim) stays unticked for the
-same reason.
+Consequences, stated plainly: the phase's code, tests and CI work is done, but
+**phase 13 is not marked complete** while these three rows are open, macOS
+stays unclaimed in `README.md` and `AGENTS.md` (an unsigned archive is tested,
+not shipped), and the tag that carries the release is only re-pointed after
+the three-platform CI on the fixed head is green. Task 2 step 5 (the claim)
+stays unticked for the same reason.
 
 ---
 
@@ -278,7 +316,8 @@ same reason.
 
 | Gate | Command | Passes when |
 |---|---|---|
-| macOS supported | `install-matrix` on `macos-14` | signed, notarised, stapled; `doctor` and the first three chapters pass |
+| macOS tested | `ci.yml`'s `test` and `install-smoke` on `macos-15` | workspace suite passes; the archive installs, `doctor` passes, chapters 00-02 pass |
+| macOS supported | `install-matrix` on `macos-15` | signed, notarised, stapled; `doctor` and the first three chapters pass |
 | Reproducible | `scripts/repro-check` | two independent builds, identical SHA-256, all three OSes |
 | Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
