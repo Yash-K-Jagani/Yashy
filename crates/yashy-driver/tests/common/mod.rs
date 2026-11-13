@@ -49,10 +49,29 @@ fn runnable_cli() -> String {
     );
 }
 
-/// A fresh, empty directory for one test, unique per test name and process.
+/// A directory for one test, unique per test name and process.
+///
+/// Tests in a binary run on parallel threads, and several of them share a
+/// directory name on purpose — `audit`'s `cli()` hands every call the same
+/// package store, and the sandbox corpus hands every test the same
+/// allow-read root. Clearing the directory on *every* call therefore deletes
+/// a sibling test's files while its CLI process is still using them, and the
+/// CLI then reports "the system cannot find the file specified" (exit 2).
+/// The first call for a name clears it; every later call only makes sure it
+/// exists.
 pub fn work_dir(name: &str) -> PathBuf {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    static CLEARED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let dir = std::env::temp_dir().join(format!("yashy-cli-test-{}-{name}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
+    let mut cleared = CLEARED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cleared.insert(name.to_owned()) {
+        let _ = fs::remove_dir_all(&dir);
+    }
     fs::create_dir_all(&dir).expect("the test work directory must be creatable");
     dir
 }
