@@ -108,10 +108,12 @@ run_install() {
         sh "$root/scripts/install.sh" --prefix "$prefix" "$@"
 }
 
-# The macOS half: the archive has to be signed, notarised and stapled, and
-# the binary has to be accepted by Gatekeeper without asking Apple's servers.
-# The unsigned mode runs the same install checks on a runner without those
-# credentials and says in the log that the signing half was skipped.
+# The macOS half: the binary has to carry a Developer ID signature and be
+# accepted by Gatekeeper. A zip and a bare Mach-O cannot hold a stapled
+# notarisation ticket, so the notary's verdict is fetched online on the first
+# run; the test says that rather than asking stapler for a ticket that cannot
+# exist. The unsigned mode runs the same install checks on a runner without
+# those credentials and says in the log that the signing half was skipped.
 macos_tests() {
     # 1. The archive carries the format Apple's notary accepts.
     case "$archive" in
@@ -121,11 +123,7 @@ macos_tests() {
     if [ "$unsigned" -eq 1 ]; then
         ok "unsigned CI smoke: signature, notarisation and Gatekeeper checks skipped"
     else
-        # 2. The archive carries a stapled notarisation ticket.
-        xcrun stapler validate "$archive" ||
-            die "the archive has no stapled notarisation ticket"
-
-        # 3. The binary inside it is signed, stapled and accepted.
+        # 2. The binary inside it is signed by a Developer ID and accepted.
         extract="$tmp/extract"
         mkdir -p "$extract"
         unzip -q "$archive" -d "$extract"
@@ -141,16 +139,17 @@ macos_tests() {
         # test removes it, as a user would, and then asks Gatekeeper about the
         # binary itself.
         xattr -dr com.apple.quarantine "$stage" 2>/dev/null || true
+        codesign -dv --verbose=4 "$stage/yashy" 2>&1 |
+            grep -q '^Authority=Developer ID Application' ||
+            die "the binary is not signed with a Developer ID (an ad-hoc signature is not a release signature)"
         codesign --verify --strict --verbose=2 "$stage/yashy" ||
-            die "the binary is not signed"
-        xcrun stapler validate "$stage/yashy" ||
-            die "the binary has no stapled notarisation ticket"
-        spctl -a -vvv "$stage/yashy" ||
+            die "the binary's signature does not verify"
+        spctl -a -t exec -vvv "$stage/yashy" ||
             die "Gatekeeper did not accept the binary"
-        ok "the archive is signed, notarised, stapled and accepted by Gatekeeper"
+        ok "the archive is signed with a Developer ID and accepted by Gatekeeper"
     fi
 
-    # 4. The installer installs it, doctor passes, and the first project runs.
+    # 3. The installer installs it, doctor passes, and the first project runs.
     prefix="$tmp/prefix-fresh"
     output=$(run_install "$prefix" --no-path)
     printf '%s\n' "$output" | grep -q "Installed Yashy" || die "install did not report success"
@@ -165,7 +164,7 @@ macos_tests() {
     (cd "$demo" && "$prefix/bin/yashy" test >/dev/null) || die "test failed"
     ok "the installed compiler installs, passes doctor, and runs a project"
 
-    # 5. The tutorial's first three chapters run with the installed compiler.
+    # 4. The tutorial's first three chapters run with the installed compiler.
     sh "$root/scripts/run-tutorial-blocks.sh" "$prefix/bin/yashy" \
         "$root/docs/tutorial/00-intro.md" \
         "$root/docs/tutorial/01-hello.md" \

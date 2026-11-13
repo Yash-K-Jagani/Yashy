@@ -92,15 +92,19 @@ jobs:
           cp scripts/install.sh dist/install.sh
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
           # An unsigned archive is a supported state while no Developer ID
-          # certificate exists, so ask the archive rather than assume: a
-          # signature that verifies gets the full Gatekeeper test, and a
-          # missing one is named in a warning instead of failing the run.
+          # certificate exists, so ask the archive rather than assume. The
+          # linker ad-hoc signs every arm64 Mach-O, so only a Developer ID
+          # authority means the archive went through the notary; anything else
+          # gets the install test with the signature assertions skipped and a
+          # warning that names them.
           probe="$RUNNER_TEMP/probe"
           rm -rf "$probe"
           mkdir -p "$probe"
           unzip -q "$archive" -d "$probe"
-          if [ "$UNSIGNED" = "true" ] || ! codesign --verify --strict "$probe"/*/yashy 2>/dev/null; then
-            echo "::warning::unsigned archive: signature, notarisation and Gatekeeper assertions are skipped"
+          if [ "$UNSIGNED" = "true" ] ||
+            ! codesign -dv --verbose=4 "$probe"/*/yashy 2>&1 |
+              grep -q '^Authority=Developer ID Application'; then
+            echo "::warning::the archive is signed ad hoc, not with a Developer ID: signature, notarisation and Gatekeeper assertions are skipped"
             sh scripts/test-install.sh --archive "$archive" --unsigned
           else
             sh scripts/test-install.sh --archive "$archive"

@@ -313,30 +313,23 @@ jobs:
             --target "${{ matrix.target }}" \
             --binary "target/${{ matrix.target }}/release/yashy"
 
-      # The binary is notarised on its own first, so the copy inside the
-      # archive carries its own ticket; the archive is then notarised and
-      # stapled as well. A stapled ticket is what makes the download work
-      # with no network.
-      - name: Notarise and staple
+      # `stapler` supports an app bundle, a disk image and a flat installer
+      # package, and nothing else: a zip and a bare Mach-O cannot carry a
+      # ticket ("Stapler is incapable of working with ZIP archive files"). The
+      # notary publishes the ticket against the binary's cdhash instead, and
+      # Gatekeeper fetches it on the first run, so the archive is notarised
+      # here and left otherwise untouched. A download therefore needs a network
+      # connection once; a future .dmg or .pkg is what would make it offline.
+      - name: Notarise
         if: env.NOTARY != '0'
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
           version="${VERSION#v}"
-          binary="target/$TARGET/release/yashy"
           archive="dist/yashy-$version-$TARGET.zip"
           # shellcheck disable=SC2086
-          xcrun notarytool submit "$binary" $NOTARY_ARGS --wait
-          xcrun stapler staple "$binary"
-          xcrun stapler validate "$binary"
-          # The archive now holds the stapled binary; rebuild it and submit
-          # that, so the archive itself is notarised.
-          sh scripts/package-release.sh --version "$version" --target "$TARGET" --binary "$binary"
-          # shellcheck disable=SC2086
           xcrun notarytool submit "$archive" $NOTARY_ARGS --wait
-          xcrun stapler staple "$archive"
-          xcrun stapler validate "$archive"
 
       - name: Upload the macOS archive
         uses: actions/upload-artifact@v4
@@ -367,9 +360,9 @@ jobs:
 
       # An unsigned archive is a supported outcome while the Developer ID is
       # unavailable, so the test asks the archive what it is instead of
-      # assuming: a signature that verifies gets the full Gatekeeper test, an
-      # unsigned one gets the install test with the signature assertions
-      # skipped and a warning that says which ones.
+      # assuming. The linker ad-hoc signs every arm64 Mach-O, so "a signature
+      # that verifies" is not the question: only a Developer ID authority means
+      # the archive went through the notary.
       - name: Install and run on a clean runner
         run: |
           archive=$(ls dist/yashy-*-aarch64-apple-darwin.zip)
@@ -377,10 +370,11 @@ jobs:
           rm -rf "$probe"
           mkdir -p "$probe"
           unzip -q "$archive" -d "$probe"
-          if codesign --verify --strict "$probe"/*/yashy 2>/dev/null; then
+          if codesign -dv --verbose=4 "$probe"/*/yashy 2>&1 |
+            grep -q '^Authority=Developer ID Application'; then
             sh scripts/test-install.sh --archive "$archive"
           else
-            echo "::warning::the macOS archive is unsigned; signature, notarisation and Gatekeeper assertions are skipped"
+            echo "::warning::the macOS archive is signed ad hoc, not with a Developer ID; signature, notarisation and Gatekeeper assertions are skipped"
             sh scripts/test-install.sh --archive "$archive" --unsigned
           fi
 

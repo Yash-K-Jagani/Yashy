@@ -8,10 +8,11 @@ yashy-<version>-x86_64-apple-darwin.zip
 ```
 
 Both are built with a Developer ID Application certificate and submitted to
-Apple's notary service once the release secrets have one, and then stapled, so
-Gatekeeper accepts them without asking Apple's servers — including on a machine
-with no network. While the Developer ID certificate is absent, the archives are
-published unsigned, and the release notes say so.
+Apple's notary service once the release secrets have one, so Gatekeeper accepts
+them. A zip and a bare executable cannot carry a stapled ticket, so Gatekeeper
+asks Apple once, on the first run, and needs a network connection then. While
+the Developer ID certificate is absent, the archives are published unsigned,
+and the release notes say so.
 
 ## Which archive
 

@@ -238,7 +238,7 @@ loosen one.
 | Gate | Command | Passes when |
 |---|---|---|
 | macOS tested | `ci.yml`'s `test` and `install-smoke` on `macos-15` | the workspace suite passes; the packaged archive installs, `doctor` passes, the first project runs and chapters 00-02 pass |
-| macOS supported (signed) | `release.yml`'s `macos-install`, then `install-matrix` on `macos-15` | signed, notarised, stapled; Gatekeeper accepts it; `doctor` and the first three chapters pass |
+| macOS supported (signed) | `release.yml`'s `macos-install`, then `install-matrix` on `macos-15` | signed with a Developer ID, notarised, and accepted by Gatekeeper; `doctor` and the first three chapters pass |
 | Reproducible | `scripts/repro-check` | two independent builds, identical SHA-256, all three OSes |
 | Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
@@ -300,12 +300,29 @@ predates the Windows work-directory fix (`297ce24`); a manual dispatch of
 reported `passed` and the JSON summary reported `"ok": true`. That is the
 `scripts/gates` row with evidence on the head the tags point at.
 
-The re-pointed tags carry that evidence into `release.yml`: run 43442417959
-(`v1.0.0`) and run 43442420254 (`v1.0.0-rc1`) each build the Linux archive and
-pass `package-smoke` (install into `ubuntu:22.04`, `doctor`, `init`, `test`,
-uninstall) before the `windows` and both `macos` jobs stop at "Check the signing
-secrets". The unsigned build path is therefore proven end to end; what is
-missing is the certificate, the notary profile and the GPG key, not the code.
+**The unsigned release path (2026-11-13).** A tag no longer stops at the
+signing check; it publishes, and says what it does not carry. Run
+**43450855448** on `5ba8b96` (a `workflow_dispatch` of `release.yml` with
+`dry=true`, version `1.0.0-dry.1`) built Windows, Linux and both macOS targets,
+passed `package-smoke` and the unsigned `macos-install`, and uploaded one
+`yashy-dry-release` bundle without creating a release. The install matrix then
+installed that bundle on all three platforms: run **43453099839** passed
+`ubuntu-22.04` and `macos-15` and failed `windows-latest` at its download step,
+because a step without `shell:` runs under PowerShell on Windows, where
+`mkdir -p` and `|| true` are not commands; run **43454794605**, after both
+download steps named `shell: bash`, passed all three. Those runs execute the
+installer, `doctor`, `init`, `test` and `uninstall` from published-style
+artifacts -- everything a signed release does except the signature,
+notarisation and Gatekeeper assertions, which a Developer ID probe in both
+workflows now skips with a warning instead of failing. The probe asks for a
+Developer ID authority, not merely a signature that verifies, because the
+linker ad-hoc signs every arm64 Mach-O; the first probe did ask the weaker
+question and run 43456215147's `macos-install` took the signed path by mistake
+and failed on the notarisation ticket, which is why the question is now the
+stronger one.
+
+The unsigned build path is therefore proven end to end; what is missing is the
+Developer ID certificate, the notary credentials and the GPG key, not the code.
 
 ## Running the runner
 

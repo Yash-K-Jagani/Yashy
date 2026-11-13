@@ -16,15 +16,19 @@ open with a section naming every signature the download does not carry.
 | Platform | Artifact | Signed how |
 |---|---|---|
 | Linux x86-64 | `yashy-<version>-x86_64-unknown-linux-gnu.tar.gz` | the checksum file is GPG-signed: `SHA256SUMS.asc` |
-| macOS (Apple silicon) | `yashy-<version>-aarch64-apple-darwin.zip` | Developer ID Application certificate, notarised and stapled |
-| macOS (Intel) | `yashy-<version>-x86_64-apple-darwin.zip` | Developer ID Application certificate, notarised and stapled |
+| macOS (Apple silicon) | `yashy-<version>-aarch64-apple-darwin.zip` | Developer ID Application certificate and notarised; Gatekeeper fetches the ticket on the first run |
+| macOS (Intel) | `yashy-<version>-x86_64-apple-darwin.zip` | Developer ID Application certificate and notarised; Gatekeeper fetches the ticket on the first run |
 | Windows x86-64 | `yashy-<version>-x86_64-pc-windows-msvc.zip` | Authenticode on the compiler binary, with a timestamping authority |
 
 Every release also ships `SHA256SUMS`, one line per archive, and the two
 installers (`install.sh`, `install.ps1`).
 
 A macOS release is a zip because Apple's notary accepts a zip, a dmg or a pkg
-and nothing else, and a ticket can only be stapled to one of those. The Linux
+and nothing else. The ticket cannot be stapled to a zip or to a bare
+executable — `stapler` supports an app bundle, a disk image and a flat
+installer package — so the notary's verdict is published against the binary and
+Gatekeeper fetches it on the first run. A first run therefore needs a network
+connection; a `.dmg` or `.pkg` is what would make it work offline. The Linux
 release stays a tarball.
 
 ## The secrets
