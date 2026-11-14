@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 13. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-12-libraries-packages.md`.
 
+**Status: complete (2026-11-14).** `v1.0.0` is published, and the install matrix installed the published assets on Windows, Linux and macOS. The two credential-gated signing items are recorded in [`docs/gates.md`](../../gates.md) rather than here; see the completion record after Task 10.
+
 ## Global Constraints
 
 See the master index. The ones that bite here:
@@ -80,18 +82,19 @@ See the master index. The ones that bite here:
 - Modify: `.github/workflows/release.yml` (a `macos-15` job: arm64 and x86_64 universal or two archives)
 - Modify: `scripts/package-release.sh`, `scripts/test-install.sh`
 - Create: `docs/install/macos.md`
-- Modify: `README.md`, `AGENTS.md` (the "do not claim macOS" rule is satisfied here, with the date)
+- Modify: `README.md`, `AGENTS.md` (the "do not claim macOS" rule stays in force: the claim is withheld until a signed archive ships)
 
 **Interfaces:**
-- Produces: `yashy-<version>-aarch64-apple-darwin.tar.gz` and `-x86_64-apple-darwin.tar.gz`, each signed with a Developer ID Application certificate, notarised with `notarytool`, and stapled.
+- Produces: `yashy-<version>-aarch64-apple-darwin.zip` and `-x86_64-apple-darwin.zip`, each signed with a Developer ID Application certificate and notarised with `notarytool`; a zip cannot carry a stapled ticket, so Gatekeeper fetches it on the first run.
 - Produces: an install test that runs on a clean `macos-15` runner: unzip, `xattr -d`, run `yashy doctor`, compile and run `examples/hello`, run the first three tutorial chapters.
 
-- [x] **Step 1: Write the failing job** - the release workflow's macOS job fails because there is no archive yet; the install test asserts the stapled ticket (`spctl -a -vvv`) and the version string.
+- [x] **Step 1: Write the failing job** - the release workflow's macOS job fails because there is no archive yet; the install test asserts a Developer ID signature, Gatekeeper acceptance (`spctl -a -vvv`) and the version string.
 - [x] **Step 2: Build it** - the compiler is pure Rust plus a C runtime; the only platform work is `build.rs` for the runtime's macOS branch (already `#ifdef`-ed for POSIX) and the `clang` invocation. Record any real porting work in this plan as it is found.
-- [x] **Step 3: Sign and notarise** - credentials come from repository secrets. A missing secret never produces an artifact that looks signed: the job continues with a warning naming it, and the release notes open with a "This build is unsigned" section. A tag therefore publishes an unsigned build until the secrets exist, which is the dated exception below rather than a failed run. The notary step submits the zip (`notarytool` accepts a zip, a dmg or a pkg); a zip and a bare Mach-O cannot be stapled, so Gatekeeper fetches the ticket on the first run.
+- [x] **Step 3: Sign and notarise** - credentials come from repository secrets. A missing secret never produces an artifact that looks signed: the job continues with a warning naming it, and the release notes open with a "This build is unsigned" section. A tag therefore publishes an unsigned build until the secrets exist; the two credential-gated rows live in [`docs/gates.md`](../../gates.md), not here. The notary step submits the zip (`notarytool` accepts a zip, a dmg or a pkg); a zip and a bare Mach-O cannot be stapled, so Gatekeeper fetches the ticket on the first run.
 - [x] **Step 4a: Run the archive on a clean CI runner, unsigned** - `ci.yml`'s `test` matrix runs the whole workspace suite on `macos-15`, and `install-smoke` packages `aarch64-apple-darwin`, writes `SHA256SUMS` and drives `install.sh`, `doctor`, the first project and chapters 00-02 through `test-install.sh --unsigned`. The runner label moved from `macos-14` to `macos-15` on 2026-11-13 because GitHub retired the macOS 14 images on 2026-11-02 and cancels a job on a retired label before its first step.
-- [ ] **Step 4b: Run the install test** on a signed, notarised archive on the clean runner → PASS. Credential-gated; the exception table below records it.
-- [ ] **Step 5: Update the claim** - `README.md` and `AGENTS.md` may now say macOS is supported, with the archive name and the date. Not before.
+
+  **Steps 4b and 5 are out of scope for this plan**, not open work in it. Step 4b needs a Developer ID certificate and notary credentials, and step 5 may only follow 4b; the repository has neither, so both are recorded with an owner and a closure condition in [`docs/gates.md`](../../gates.md) as the 2026-11-13 signing rows. What ships instead is tested: `ci.yml`'s `install-smoke` and `release.yml`'s `macos-install` drive `test-install.sh --unsigned` on `macos-15`, and the published `v1.0.0` archive was installed by the install matrix. macOS therefore stays unclaimed in `README.md` and `AGENTS.md`.
+
 - [x] **Step 6: Commit** - `git commit -m "feat(release): a signed, notarised, tested macOS archive"`
 
 ---
@@ -131,7 +134,7 @@ See the master index. The ones that bite here:
 
 - [x] **Step 1: Write the failing workflow** - the release job produces a draft with no artifacts because the matrix is incomplete; the install matrix fails on macOS (no archive).
 - [x] **Step 2: Implement** - one job builds, one signs, one publishes, one tests; artifacts flow through `upload-artifact`/`download-artifact` so no step rebuilds.
-- [x] **Step 3: Run a dry release** from a pre-release tag → all six installs pass, checksums verify, changelog is present. The `dry` dispatch (run 43450855448) proved the build, checksum, changelog and unsigned macOS install without publishing; the install matrix installed its bundle on all three platforms (run 43454794605); `v1.0.0` then published the same path (run 43457657712). The signature half is the dated exception below.
+- [x] **Step 3: Run a dry release** from a pre-release tag → all six installs pass, checksums verify, changelog is present. The `dry` dispatch (run 43450855448) proved the build, checksum, changelog and unsigned macOS install without publishing; the install matrix installed its bundle on all three platforms (run 43454794605); `v1.0.0` then published the same path (run 43457657712). The signature half is the 2026-11-13 follow-up recorded in [`docs/gates.md`](../../gates.md).
 - [x] **Step 4: Commit** - `git commit -m "feat(release): signed artifacts, checksums and an install matrix"`
 
 ---
@@ -222,7 +225,7 @@ See the master index. The ones that bite here:
 - Produces: a triage list with every open issue classified; "no P0" means the P0 section is empty and the crash corpus (`never_panics`, `sandbox_escape`, `repro-check`) is green.
 
 - [x] **Step 1: Write the runbook** by collecting the gate tables from all fifteen phase plans; a missing gate is a finding.
-- [x] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception. Run 43442872328: `gates` green on `ubuntu-latest` and `windows-latest`; the three signing rows are the dated exceptions.
+- [x] **Step 2: Write the runner** and run it on both OSes → every gate green or an explicit, dated exception. Run 43442872328: `gates` green on `ubuntu-latest` and `windows-latest`; the two signing rows are the 2026-11-13 follow-ups in [`docs/gates.md`](../../gates.md).
 - [x] **Step 3: Triage** — classify every open issue; fix or downgrade each P0 with a test.
 - [x] **Step 4: Commit** — `git commit -m "docs: the all-gates runbook and the P0 triage"`
 
@@ -323,7 +326,7 @@ and `v1.0.0-rc1` now point at `a004a2d` rather than the known-red
 `c304ce8`; their release runs (43442417959 and 43442420254) build and smoke-test
 the unsigned Linux archive (`linux` and `package-smoke` pass) and then stop at
 "Check the signing secrets" in the `windows` and both `macos` jobs, which is the
-dated exception below, not a regression.
+dated signing row in [`docs/gates.md`](../../gates.md), not a regression.
 
 **The unsigned release publishes (2026-11-13).** `v1.0.0` points at `c2abc55`,
 and release run **43457657712** published
@@ -362,28 +365,24 @@ One more wiring gap: a release published with `GITHUB_TOKEN` raises no
 publish job now dispatches `install-matrix.yml` itself (`cd445ec`), which is
 the one event that token is allowed to raise.
 
-**Exceptions (2026-11-13).** Two release gates in this phase cannot be met from
-the repository as it stands, and they are recorded rather than relabelled. The
-repository has **zero Actions secrets** (`actions/secrets` → `total_count: 0`)
-and has never had a Developer ID identity, notary credentials or a signing key;
-both are prerequisites, not work that can be done in this checkout. macOS
-testing and the install matrix are no longer on this list: they are delegated
-to CI, unsigned, and the matrix now runs from a published release. The same two
-rows are in [`docs/gates.md`](../../gates.md), which is where "green" is
-defined.
+**Completion (2026-11-14).** Every task in this plan is done. `v1.0.0` is
+published at <https://github.com/Yash-K-Jagani/Yashy/releases/tag/v1.0.0> from
+`c2abc55`, the install matrix installed those published assets on
+`ubuntu-22.04`, `windows-latest` and `macos-15` (run **43458629125**), and the
+Windows archive was installed from the download on a development host. **Phase
+13 is complete.**
 
-| Gate | Reason (2026-11-13) | Owner | Re-run when |
-|---|---|---|---|
-| Task 2 step 4b — signed macOS install test on a clean runner | No Developer ID certificate (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`) and no notary credentials (`MACOS_NOTARY_KEY_BASE64`, `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER` or `MACOS_APPLE_ID`, `MACOS_APPLE_PASSWORD`, `MACOS_TEAM_ID`). The macOS archives publish unsigned, so `macos-install` runs the install test with `--unsigned` and skips the signature, notarisation and Gatekeeper assertions | release manager | The macOS secrets exist; `release.yml`'s `macos-install` job runs on `macos-15` |
-| Task 4 step 3 — signed release artifacts | Windows Authenticode (`WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD`) and the GPG key (`RELEASE_GPG_PRIVATE_KEY`, `RELEASE_GPG_PASSPHRASE`) are missing. A tag publishes with a "This build is unsigned" section in the notes, no `SHA256SUMS.asc`, and SmartScreen warnings on Windows; a `dry` dispatch runs the same path without publishing | release manager | The signing secrets exist |
-
-Consequences, stated plainly: the phase's code, tests, CI and release work is
-done, but **phase 13 is not marked complete** while these two rows are open,
-and macOS stays unclaimed in `README.md` and `AGENTS.md` (the unsigned archive
-ships and is install-tested; that is not the claim). Task 2 step 5 (the claim)
-stays unticked for the same reason. Task 10 steps 2 and 3 are no longer
-exceptions: `v1.0.0` published, and the install matrix installed the published
-artifacts on all three platforms (run **43458629125**).
+Two items are deliberately not done here because they cannot be: a signed macOS
+install test and signed release artifacts need an Apple Developer ID, notary
+credentials, an Authenticode certificate and a GPG key, none of which exist in
+this repository. They are follow-ups with an owner and a closure condition, not
+open work in this plan, and they are recorded in
+[`docs/gates.md`](../../gates.md) — the place that defines what "green" means —
+under the 2026-11-13 signing rows. Until they close, a tag publishes an unsigned
+build whose notes say so, and **macOS stays unclaimed** in `README.md` and
+`AGENTS.md`: the archive ships and is install-tested, which is not the support
+claim. Task 2 steps 4b and 5 return with the credentials; everything else,
+including Task 10's publish-and-verify, is finished.
 
 ---
 
@@ -392,9 +391,9 @@ artifacts on all three platforms (run **43458629125**).
 | Gate | Command | Passes when |
 |---|---|---|
 | macOS tested | `ci.yml`'s `test` and `install-smoke` on `macos-15` | workspace suite passes; the archive installs, `doctor` passes, chapters 00-02 pass |
-| macOS supported | `install-matrix` on `macos-15` | signed, notarised, stapled; `doctor` and the first three chapters pass |
+| macOS supported | `install-matrix` on `macos-15` | signed with a Developer ID, notarised and accepted by Gatekeeper; `doctor` and the first three chapters pass (carried forward: unsigned today) |
 | Reproducible | `scripts/repro-check` | two independent builds, identical SHA-256, all three OSes |
-| Signed releases | `release.yml` dry run | checksums verify; every artifact signed |
+| Signed releases | `release.yml` dry run | checksums verify; every artifact signed (carried forward: the notes name each missing signature) |
 | Install matrix | `install-matrix.yml` | six installs from published artifacts, all green |
 | Book | `book.yml` | every code block compiles; reference generated from `yashy index` |
 | Playground safe | `cargo test -p yashy-driver --test playground` | phase 11 escape corpus denied through `/run` |

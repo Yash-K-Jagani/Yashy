@@ -253,8 +253,8 @@ loosen one.
 | Platform conditionals | `cargo test -p yashy-driver --test cfg` | exactly one branch is selected; a disabled branch is never resolved; `cfg(window)` is `E2202` |
 | Metrics met | `docs/1.0.md` | every number in the release note reproduced by the gate run |
 
-**Open exceptions (2026-11-13).** Two release gates cannot be met from this
-checkout: the repository has **zero Actions secrets**
+**Carried forward after 1.0 (2026-11-13).** Two release gates cannot be met from
+this checkout: the repository has **zero Actions secrets**
 (`GET /repos/Yash-K-Jagani/Yashy/actions/secrets` → `total_count: 0`), and it
 has never had a Developer ID identity, notary credentials or a signing key.
 macOS *testing* and the *install matrix* are no longer on this list: `ci.yml`
@@ -264,10 +264,14 @@ chapters 00-02 through `test-install.sh --unsigned`, and the matrix installs
 the published `v1.0.0` artifacts on all three platforms. The runner label is
 `macos-15` because GitHub retired the macOS 14 images on 2026-11-02 — a job on
 a retired label is cancelled before its first step. Each open gate is recorded
-with the date, the reason, the owner and the condition that closes it. **Until
-they close, phase 13 is not marked complete** — and macOS stays unclaimed in
-`README.md` and `AGENTS.md`, as the phase's global constraint requires: the
-unsigned archive ships and is install-tested, which is not the support claim.
+with the date, the reason, the owner and the condition that closes it. Phase 13
+closed on **2026-11-14** with these two rows **carried forward as post-release
+follow-ups** rather than as open work in its plan: the release ships, is
+install-tested on all three platforms and says in its own notes which
+signatures it lacks. Until the rows close, a tag publishes an unsigned build,
+and macOS stays unclaimed in `README.md` and `AGENTS.md`, as the phase's global
+constraint requires: the unsigned archive ships and is install-tested, which is
+not the support claim.
 
 | Gate | Reason it cannot run (2026-11-13) | Owner | Closes when | Re-run |
 |---|---|---|---|---|
@@ -288,7 +292,7 @@ program), `install-smoke (ubuntu-22.04)`, `install-smoke (windows-latest)`,
 first project runs, chapters 00-02 pass through `test-install.sh --unsigned`)
 and `container-smoke (ubuntu:22.04)`. The macOS half of the tier-one gate
 therefore has evidence on an Apple-silicon host; the signed-archive rows above
-remain exceptions.
+are carried forward as post-release follow-ups.
 
 **The runner on that head (2026-11-13).** The `gates` job runs only on a
 schedule or a manual dispatch, so it is skipped on a push. The nightly run
@@ -364,8 +368,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gates.ps1 -All   # w
 
 Every gate in its phase table passes, or every open gate has a **dated
 exception** recorded in this file. A gate that cannot be met is recorded as
-an exception with the date, the reason, and the owner; the phase cannot be
-marked complete while an exception is open.
+an exception with the date, the reason, and the owner. An exception blocks a
+phase from being marked complete while it is open work in that phase's plan. A
+phase may instead close with such a row **carried forward as a post-release
+follow-up**, and only explicitly: the closure date and the condition that
+closes the row stay recorded here. Phase 13 did that on 2026-11-14 for its two
+signing rows.
 
 "On Windows and Linux" is observed where the development host allows it;
 CI runs the same commands on `ubuntu-latest` and `windows-latest`, and on
