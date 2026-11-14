@@ -613,7 +613,7 @@ git add -A
 git commit -m "feat: parse requires, ensures and loop invariants into the HIR"
 ```
 
-Committed as `12bc350`.
+Committed as `6dd86d6`.
 
 ---
 
@@ -707,7 +707,7 @@ git add -A
 git commit -m "feat(verify): discharge contracts in an interval domain, warn in 1a (E1100)"
 ```
 
-Committed as `e4fb4a3`.
+Committed as `3f961c8`.
 
 ---
 
@@ -786,7 +786,7 @@ git add -A
 git commit -m "feat(driver): add --timings so phase budgets are measurable"
 ```
 
-Committed as `1d7ff25`.
+Committed as `de727c7`.
 
 ---
 
@@ -886,7 +886,7 @@ git add -A
 git commit -m "feat(driver): make --no-verify narrow, loud and traceable"
 ```
 
-Committed as `df3a4ac`. The commit stages the four touched paths explicitly
+Committed as `5a4e8b9`. The commit stages the four touched paths explicitly
 rather than `-A`, so an unrelated untracked file in the tree cannot ride along.
 
 
@@ -979,7 +979,8 @@ The gate itself is not waived: `.github/workflows/ci.yml` runs
 `cargo test --workspace --no-fail-fast` on `windows-latest`, a host with no such
 policy, for every push to `main`.
 
-**Observed on Windows (CI).** Run `40826808688` on commit `00bb31c`, job
+**Observed on Windows (CI).** Run `40826808688` (on the pre-rewrite tree; the
+close-out commit is `98c5949`), job
 `test (windows-latest)`: the `Test` step reported **1277 passed, 0 failed**, and
 the separate `Tooling tests` step (which re-runs `yashy-fmt` and `yashy-lsp`)
 reported 29 passed -- 1306 in total, **zero failures anywhere**. Windows reports
@@ -1026,7 +1027,7 @@ git add -A
 git commit -m "test: seed the verifier corpus and close the phase 1a gate"
 ```
 
-Committed as `00bb31c`, staging the nine touched paths explicitly rather than
+Committed as `98c5949`, staging the nine touched paths explicitly rather than
 `-A` so the unrelated untracked file in the tree could not ride along. CI run
 `40826808688` on that commit was green on both operating systems, so the master
 index row is set to `complete` and the ledger records the run; that follow-up is
@@ -1056,7 +1057,7 @@ A gate that cannot be met is recorded as a dated exception in this file; the pha
 refuses to start freshly linked binaries, and in the gate session it refused
 `clang.exe` as well, so Windows is executed by `.github/workflows/ci.yml` on
 `windows-latest` -- the same commands, the same source, a host without that
-policy. Run `40826808688` on `00bb31c` was green on both operating systems:
+policy. Run `40826808688` (pre-rewrite tree, close-out `98c5949`) was green on both operating systems:
 Linux 1276 passed, Windows 1277 passed (the extra one is `#[cfg(windows)]`), no
 failures. This is a delegation, not an exception: the gate has no open
 exception.

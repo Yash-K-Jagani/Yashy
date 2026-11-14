@@ -210,7 +210,7 @@ Status: landed.
 
 ### Commit
 
-- `ad6d842` `perf(codegen): promote non-escaping allocations to stack and arena`
+- `ac555a3` `perf(codegen): promote non-escaping allocations to stack and arena`
 
 ---
 
@@ -243,7 +243,7 @@ Status: landed.
   into a stack buffer with no allocator or `printf`. Aggregate `insertvalue` chains were already in place
   from earlier phases (tuple, fixed-array, and struct literals), so no change was needed there.
 - [x] **Step 4: Run** `cargo test -p yashy-driver --test e2e interning` and `cargo test -p yashy-runtime` → PASS.
-- [x] **Step 5: Commit** — `2c8c8cf` `perf: intern literals and print integers without allocating`
+- [x] **Step 5: Commit** - `3a0bbee` `perf: intern literals and print integers without allocating`
 
 ---
 
@@ -264,7 +264,7 @@ Status: landed.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — move the hot half of each function into the header as `static inline`, keep the cold half in the `.c`, and mark the fast path `__attribute__((always_inline))` (guarded for MSVC with `__forceinline`). The C shim is compiled into every program already, so this costs nothing at link time.
 - [x] **Step 4: Run** `cargo test -p yashy-runtime` and the bench rows on both OSes → PASS on Windows; the Linux rows are CI's, recorded in the ledger.
-- [x] **Step 5: Commit** — `cccbe17` `perf(runtime): inline the hot paths, keep the checks that are unproven`
+- [x] **Step 5: Commit** - `b8eb58b` `perf(runtime): inline the hot paths, keep the checks that are unproven`
 
 ---
 
@@ -286,7 +286,7 @@ Status: landed.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — the driver already shells out to `clang`; this is flags plus a two-pass orchestration in one function. Profile data is per-OS by construction (`%p.profraw` on Windows, `default.profraw` elsewhere), so the script does not normalise it — it names it per platform and the cache key includes it.
 - [x] **Step 4: Run** the bench on both OSes, medians of 5 → Windows measured here; the Linux rows are CI's, recorded in the ledger.
-- [x] **Step 5: Commit** — `0d1ff24` `perf(build): ThinLTO by default, PGO from a checked-in corpus`
+- [x] **Step 5: Commit** - `08db5da` `perf(build): ThinLTO by default, PGO from a checked-in corpus`
 
 ---
 
@@ -312,7 +312,7 @@ Status: landed.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — the pass manager is a `Vec<Pass>` and a loop; the cost model is the bench table, not a heuristic inside the compiler. Later phases register their lowering here: phase 5's `arena` block, phase 8's monomorphised trait bodies, phase 10's async state-machine lowering. A construct that emits IR without registering a pass is caught by the test that every `HirExpr` variant has an owner.
 - [x] **Step 4: Run** `cargo test -p yashy-codegen --test pass_order` and `yashy-bench --per-pass` → PASS (5 pass-order tests; the per-pass table and both exit codes verified on synthetic measurement files — ledger Task 8).
-- [x] **Step 5: Commit** — `241b910` `feat(codegen): a pass manager with a per-pass regression gate`
+- [x] **Step 5: Commit** - `b27fa06` `feat(codegen): a pass manager with a per-pass regression gate`
 
 ---
 
@@ -340,7 +340,7 @@ Status: landed.
 - [x] **Step 2: Watch them fail.**
 - [x] **Step 3: Implement** — the decision points already exist (phase 3 deletes checks; Task 4 classifies placements); this task adds a `Vec<OptNote>` to the emission context and renders it. No analysis is duplicated to produce a report — a report that runs its own analysis can disagree with the compiler, which is worse than no report.
 - [x] **Step 4: Run** `cargo test -p yashy-driver --test opt_report` → PASS.
-- [x] **Step 5: Commit** — `5184b11` `feat(driver): --opt-report explains every check and allocation that survived`
+- [x] **Step 5: Commit** - `386881c` `feat(driver): --opt-report explains every check and allocation that survived`
 
 ---
 
@@ -350,7 +350,7 @@ Status: landed.
 
 - [x] **Step 1: Write the doc** with a worked example: a slow function, its `--opt-report`, the contract added, and the report afterwards. The tutorial harness compiles every block. — The worked example was compiled and run by hand: the tutorial harness scans `docs/tutorial/`, not `docs/`. See the Task 10 ledger entry.
 - [x] **Step 2: Run the gate table on both OSes, medians of 5.** — The Windows gates and rows were measured here; the Linux half, the `yashy-bench` five-run medians and the PGO row are CI's (this host is Windows-only, its GNU toolchain has no profile runtime, and Application Control blocks the linker) — Task 10 ledger entry.
-- [x] **Step 3: Commit and record** — `ad0dc2f` `docs: the optimization program, and close phase 4`; the index status and the ledger are updated.
+- [x] **Step 3: Commit and record** - `3ed7cd8` `docs: the optimization program, and close phase 4`; the index status and the ledger are updated.
 
 ---
 
