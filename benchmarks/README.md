@@ -125,13 +125,16 @@ expected outputs as the plain run:
 
 ```sh
 YASHY_SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 \
-  UBSAN_OPTIONS=halt_on_error=1 cargo test -p yashy-driver --test e2e
+  UBSAN_OPTIONS=halt_on_error=1 cargo test -p yashy-driver --test e2e -- --test-threads=1
 ```
 
-`ci.yml` runs the plain suite; the Bench workflow runs the sanitized one. A
-sanitizer report is a **FALSE POSITIVE** in the verifier's terms — the program
-was accepted and the sanitizer disagreed — and it fails the run rather than
-being recorded.
+The test binary is serialised because a parallel run put several instrumented
+links on the runner at once and two `clang` subprocesses crashed at the same
+instant; the corpus tests semantics, not concurrency in the build. `ci.yml` runs
+the plain suite unsanitised; the Bench workflow runs this one. A sanitizer
+report is a **FALSE POSITIVE** in the verifier's terms — the program was
+accepted and the sanitizer disagreed — and it fails the run rather than being
+recorded.
 
 The **PGO row** builds every member of [`pgo/`](pgo) twice, once with the
 ThinLTO release link and once with `--pgo`, checks that both answer correctly,

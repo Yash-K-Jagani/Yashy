@@ -66,6 +66,12 @@ jobs:
       # linking them under ASan and UBSan (YASHY_SANITIZE=1); the plain run and
       # this one are the differential pair. A sanitizer report is a FALSE
       # POSITIVE in the verifier's terms, so it fails the step.
+      #
+      # Serial on purpose. The first run of this step had 174 pass and two clang
+      # subprocesses segfault at the same instant, at the end of a parallel run;
+      # the corpus is about the generated program's semantics, not about how
+      # many instrumented links the runner can hold at once. One test binary at
+      # a time keeps the failures attributable to a program.
       - name: Differential sanitizer corpus (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -75,7 +81,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -o pipefail
-          cargo test -p yashy-driver --test e2e 2>&1 | tee sanitizer-output.txt
+          cargo test -p yashy-driver --test e2e -- --test-threads=1 2>&1 | tee sanitizer-output.txt
 
       # The release row the plan calls "PGO": the checked-in corpus built with
       # ThinLTO and with --pgo, correctness first, then the size and median
