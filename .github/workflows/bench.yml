@@ -61,6 +61,32 @@ jobs:
       - name: Build the release compiler
         run: cargo build --release -p yashy-driver
 
+      # Phase 4's gate calls the sanitizer corpus the proof that a pass keeps
+      # semantics. It is a second run of the e2e programs, with the compiler
+      # linking them under ASan and UBSan (YASHY_SANITIZE=1); the plain run and
+      # this one are the differential pair. A sanitizer report is a FALSE
+      # POSITIVE in the verifier's terms, so it fails the step.
+      - name: Differential sanitizer corpus (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          YASHY_SANITIZE: '1'
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          cargo test -p yashy-driver --test e2e 2>&1 | tee sanitizer-output.txt
+
+      # The release row the plan calls "PGO": the checked-in corpus built with
+      # ThinLTO and with --pgo, correctness first, then the size and median
+      # columns. `scripts/pgo.sh` is the runner the CLI reference names.
+      - name: PGO report (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          BENCH_RUNS=5 sh scripts/pgo.sh benchmarks/build/pgo-linux.txt 2>&1 | tee pgo-output.txt
+
       - name: Measure (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -115,4 +141,7 @@ jobs:
           path: |
             ${{ matrix.output }}
             bench-output.txt
+            sanitizer-output.txt
+            pgo-output.txt
+            benchmarks/build/pgo-linux.txt
           if-no-files-found: warn

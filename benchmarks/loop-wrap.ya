@@ -22,5 +22,4 @@ fn work(int n) -> int {
 
 fn main() {
     print(work(200000000));
-    print("");
 }

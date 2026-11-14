@@ -1684,6 +1684,22 @@ pub fn compile_hir_timed(
     Ok(())
 }
 
+/// The link flags `YASHY_SANITIZE=1` adds.
+///
+/// `-fsanitize=address,undefined` instruments the generated IR in the same
+/// link that produces the program, and `-fno-omit-frame-pointer` is what makes
+/// a report readable. The runtime objects are prebuilt without
+/// instrumentation on purpose: the promotion bugs this corpus hunts live in
+/// the generated code, and ASan's allocator interposition still covers the
+/// runtime's heap.
+fn sanitizer_flags(value: Option<&str>) -> &'static [&'static str] {
+    const FLAGS: [&str; 2] = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"];
+    match value {
+        Some(value) if !value.is_empty() && value != "0" => &FLAGS,
+        _ => &[],
+    }
+}
+
 /// The `clang` command line for one link, without the timing wrapper.
 ///
 /// The caller supplies `extra` for a profile flag, which is the only part that
@@ -1703,6 +1719,17 @@ fn link_arguments(
     extra: &[String],
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![options.opt.flag().to_string(), format!("--target={target}")];
+    // The differential sanitizer corpus is the one caller that wants
+    // instrumentation, and it says so in the environment rather than in the
+    // language's CLI: `YASHY_SANITIZE=1` links the generated program with ASan
+    // and UBSan so `cargo test --test e2e` can be run twice and compared. A
+    // user-facing flag would be a promise the release does not keep.
+    let sanitize = std::env::var("YASHY_SANITIZE").ok();
+    args.extend(
+        sanitizer_flags(sanitize.as_deref())
+            .iter()
+            .map(|flag| flag.to_string()),
+    );
     args.extend(
         options
             .cpu
@@ -2235,7 +2262,7 @@ mod tests {
         cached_runtime_object, clear_profiles, first_meaningful_line, fnv1a, instrumented_output,
         merge_profiles, missing_library, opaque_pointers_args_for, parse_clang_major, pgo_dir,
         platform_library_flags, reproducible_linker_flags, runtime_cache_dir, runtime_cache_key,
-        BuildOptions, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
+        sanitizer_flags, BuildOptions, CpuTarget, OptLevel, FNV_OFFSET_BASIS,
     };
     use crate::toolchain::Toolchain;
     use std::fs;
@@ -2273,6 +2300,27 @@ mod tests {
         assert!(
             opaque_pointers_args_for("clang", None).is_empty(),
             "an unreadable version gets no flag"
+        );
+    }
+
+    #[test]
+    fn the_sanitizer_is_environment_only_and_off_by_default() {
+        assert!(
+            sanitizer_flags(None).is_empty(),
+            "a build without the variable is not instrumented"
+        );
+        assert!(
+            sanitizer_flags(Some("")).is_empty(),
+            "an empty value means off, not on"
+        );
+        assert!(
+            sanitizer_flags(Some("0")).is_empty(),
+            "`0` is the documented off switch"
+        );
+        assert_eq!(
+            sanitizer_flags(Some("1")),
+            ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+            "the differential corpus asks for ASan and UBSan together"
         );
     }
 

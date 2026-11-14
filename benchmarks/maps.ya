@@ -26,6 +26,5 @@ fn main() {
     }
 
     print(total);
-    print("");
     m.free();
 }

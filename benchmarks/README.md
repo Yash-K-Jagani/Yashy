@@ -116,6 +116,35 @@ To see *why* a given row still carries a check or an allocation, run
 `yashy build <file.ya> --opt-report`; [docs/optimization.md](../docs/optimization.md)
 explains every entry and the contract that removes it.
 
+### The sanitizer and PGO rows
+
+Two phase 4 gate rows are not timings. The **differential corpus** runs the
+whole e2e program suite a second time, with the compiler linking each program
+under AddressSanitizer and UndefinedBehaviorSanitizer, and relies on the same
+expected outputs as the plain run:
+
+```sh
+YASHY_SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 \
+  UBSAN_OPTIONS=halt_on_error=1 cargo test -p yashy-driver --test e2e
+```
+
+`ci.yml` runs the plain suite; the Bench workflow runs the sanitized one. A
+sanitizer report is a **FALSE POSITIVE** in the verifier's terms — the program
+was accepted and the sanitizer disagreed — and it fails the run rather than
+being recorded.
+
+The **PGO row** builds every member of [`pgo/`](pgo) twice, once with the
+ThinLTO release link and once with `--pgo`, checks that both answer correctly,
+then reports the medians and sizes:
+
+```sh
+BENCH_RUNS=5 sh scripts/pgo.sh benchmarks/build/pgo-linux.txt
+```
+
+The report is the row, not a timer gate: a profile build that prints a
+different answer fails before it is timed. `scripts/pgo.ps1` is the Windows
+form.
+
 ## The programs
 
 | Program | Source | Measures |
