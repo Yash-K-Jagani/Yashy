@@ -83,6 +83,48 @@ jobs:
           set -o pipefail
           cargo test -p yashy-driver --test e2e -- --test-threads=1 2>&1 | tee sanitizer-output.txt
 
+      # Temporary: the two failing programs crash clang, and the driver's line
+      # does not say whether cc1 or the linker died or which sanitizer is
+      # responsible. Emit the IR, compile it with each flag combination, and
+      # capture the exact link command. Removed once the cause is known.
+      - name: Sanitizer crash forensics (Linux)
+        if: failure() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p forensics
+          clang --version > forensics/clang-version.txt 2>&1
+          cat > forensics/debug-release.ya <<'EOF'
+          fn main() {
+              print("start");
+              let n = 0;
+              debug_assert(n > 0);
+              print("checked");
+              assert(n == 0);
+              print("done");
+          }
+          EOF
+          for name in buffer debug-release; do
+            if [ "$name" = buffer ]; then
+              src=crates/yashy-driver/tests/programs/buffer.ya
+            else
+              src=forensics/debug-release.ya
+            fi
+            ./target/release/yashy build "$src" --emit-ir > "forensics/$name.ll" 2> "forensics/$name-emit.err"
+            echo "emit $name => $?" >> forensics/log.txt
+            for flags in "-O2 -fsanitize=address,undefined" "-O1 -fsanitize=address,undefined" "-O2 -fsanitize=address" "-O2 -fsanitize=undefined" "-O0 -fsanitize=address,undefined"; do
+              tag=$(echo "$flags" | tr -cd '[:alnum:]')
+              clang $flags -fno-omit-frame-pointer -c "forensics/$name.ll" -o "forensics/$name-$tag.o" > "forensics/$name-$tag.log" 2>&1
+              echo "cc $name $flags => $?" >> forensics/log.txt
+            done
+          done
+          YASHY_SANITIZE=1 ./target/release/yashy build crates/yashy-driver/tests/programs/buffer.ya -o /tmp/buffer-asan > forensics/buffer-link.log 2>&1
+          echo "link buffer => $?" >> forensics/log.txt
+          if command -v strace >/dev/null; then
+            YASHY_SANITIZE=1 strace -f -e trace=execve -s 20000 -o forensics/trace.txt ./target/release/yashy build crates/yashy-driver/tests/programs/buffer.ya -o /tmp/buffer-asan2 >/dev/null 2>&1
+          fi
+          cat forensics/log.txt
+
       # The release row the plan calls "PGO": the checked-in corpus built with
       # ThinLTO and with --pgo, correctness first, then the size and median
       # columns. `scripts/pgo.sh` is the runner the CLI reference names.
@@ -150,4 +192,5 @@ jobs:
             sanitizer-output.txt
             pgo-output.txt
             benchmarks/build/pgo-linux.txt
+            forensics/
           if-no-files-found: warn
