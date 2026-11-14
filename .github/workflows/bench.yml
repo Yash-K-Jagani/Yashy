@@ -40,9 +40,24 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify clang (Linux)
+      # The image ships clang 13 through clang 18 and points `clang` at 14.
+      # Yashy emits opaque-pointer IR; LLVM 14 accepts it only behind
+      # `-mllvm -opaque-pointers`, and with that flag plus
+      # `-fsanitize=address,undefined` cc1 crashes on two of the 176 corpus
+      # programs. This gate runs on 18, the version the committed baseline
+      # names, which compiles both of them at every sanitizer and -O level.
+      - name: Select clang 18 (Linux)
         if: runner.os == 'Linux'
-        run: clang --version
+        shell: bash
+        run: |
+          dir=$(ls -d /usr/lib/llvm-18/bin 2>/dev/null | head -n 1)
+          if [ -z "$dir" ]; then
+            echo "clang-18 is not installed on this runner" >&2
+            ls -d /usr/lib/llvm-*/bin 2>/dev/null >&2 || true
+            exit 1
+          fi
+          echo "$dir" >> "$GITHUB_PATH"
+          "$dir/clang" --version
 
       - name: Verify clang (Windows)
         if: runner.os == 'Windows'
@@ -61,17 +76,36 @@ jobs:
       - name: Build the release compiler
         run: cargo build --release -p yashy-driver
 
+      # The measurement runs before the sanitizer corpus on purpose. The corpus
+      # is a gate on the generated program's semantics, and a failure there must
+      # not also throw away the numbers the baseline comparison needs: the run
+      # that first caught the crash uploaded no `current-<os>.bench` at all, so
+      # the regression gate went blind at the moment it was most needed.
+      - name: Measure (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          BENCH_RUNS=5 sh benchmarks/ci.sh "${{ matrix.output }}" 2>&1 | tee bench-output.txt
+
+      - name: Measure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh benchmarks/ci.ps1 -Output '${{ matrix.output }}' -Runs 5 2>&1 | Tee-Object -FilePath bench-output.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Phase 4's gate calls the sanitizer corpus the proof that a pass keeps
       # semantics. It is a second run of the e2e programs, with the compiler
       # linking them under ASan and UBSan (YASHY_SANITIZE=1); the plain run and
       # this one are the differential pair. A sanitizer report is a FALSE
       # POSITIVE in the verifier's terms, so it fails the step.
       #
-      # Serial on purpose. The first run of this step had 174 pass and two clang
-      # subprocesses segfault at the same instant, at the end of a parallel run;
-      # the corpus is about the generated program's semantics, not about how
-      # many instrumented links the runner can hold at once. One test binary at
-      # a time keeps the failures attributable to a program.
+      # Serial on purpose. The corpus is about one program's semantics, and a
+      # failure has to name the program: when this step first ran, the log named
+      # 174 passes and two programs whose `clang` died, and the recap was the
+      # only place the two names appeared. One test at a time keeps the blame
+      # on a line.
       - name: Differential sanitizer corpus (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -135,18 +169,15 @@ jobs:
           set -o pipefail
           BENCH_RUNS=5 sh scripts/pgo.sh benchmarks/build/pgo-linux.txt 2>&1 | tee pgo-output.txt
 
-      - name: Measure (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -o pipefail
-          BENCH_RUNS=5 sh benchmarks/ci.sh "${{ matrix.output }}" 2>&1 | tee bench-output.txt
-
-      - name: Measure (Windows)
+      # The phase's constraint is "both operating systems or it is not done —
+      # including PGO, where the profile file format differs". The Linux script
+      # proves the ELF half; this one proves the PE half, on the same checked-in
+      # corpus and with the same expected outputs.
+      - name: PGO report (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pwsh benchmarks/ci.ps1 -Output '${{ matrix.output }}' -Runs 5 2>&1 | Tee-Object -FilePath bench-output.txt
+          pwsh scripts/pgo.ps1 -Runs 5 -Output benchmarks/build/pgo-windows.txt 2>&1 | Tee-Object -FilePath pgo-output-windows.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Git Bash puts its own `link.exe` ahead of the MSVC linker, so the
@@ -191,6 +222,8 @@ jobs:
             bench-output.txt
             sanitizer-output.txt
             pgo-output.txt
+            pgo-output-windows.txt
             benchmarks/build/pgo-linux.txt
+            benchmarks/build/pgo-windows.txt
             forensics/
           if-no-files-found: warn

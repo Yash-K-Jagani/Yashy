@@ -128,13 +128,18 @@ YASHY_SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 \
   UBSAN_OPTIONS=halt_on_error=1 cargo test -p yashy-driver --test e2e -- --test-threads=1
 ```
 
-The test binary is serialised because a parallel run put several instrumented
-links on the runner at once and two `clang` subprocesses crashed at the same
-instant; the corpus tests semantics, not concurrency in the build. `ci.yml` runs
-the plain suite unsanitised; the Bench workflow runs this one. A sanitizer
-report is a **FALSE POSITIVE** in the verifier's terms — the program was
-accepted and the sanitizer disagreed — and it fails the run rather than being
-recorded.
+The test binary is serialised so a failure names one program; the corpus tests
+semantics, not concurrency in the build. `ci.yml` runs the plain suite
+unsanitised; the Bench workflow runs this one. **The corpus needs clang 15 or
+newer.** The Linux runner's default `clang` is 14, which parses Yashy's
+opaque-pointer IR only behind `-mllvm -opaque-pointers`; under that flag plus
+`-fsanitize=address,undefined` its `cc1` segfaults on `buffer.ya` and on the
+`debug-release` program, while clang 18 compiles both at `-O0`, `-O1` and `-O2`
+with ASan, UBSan and both. The workflow therefore selects `/usr/lib/llvm-18/bin`
+before it measures, which is also the version the committed baseline names. A
+sanitizer report is a **FALSE POSITIVE** in the verifier's terms - the program
+was accepted and the sanitizer disagreed - and it fails the run rather than
+being recorded.
 
 The **PGO row** builds every member of [`pgo/`](pgo) twice, once with the
 ThinLTO release link and once with `--pgo`, checks that both answer correctly,
@@ -142,11 +147,13 @@ then reports the medians and sizes:
 
 ```sh
 BENCH_RUNS=5 sh scripts/pgo.sh benchmarks/build/pgo-linux.txt
+pwsh scripts/pgo.ps1 -Runs 5 -Output benchmarks/build/pgo-windows.txt
 ```
 
 The report is the row, not a timer gate: a profile build that prints a
-different answer fails before it is timed. `scripts/pgo.ps1` is the Windows
-form.
+different answer fails before it is timed. Both forms run in the Bench workflow,
+one per OS, because the profile file format differs and "both operating systems
+or it is not done" is the phase's constraint.
 
 ## The programs
 
