@@ -127,7 +127,9 @@ for file in "$corpus"/*.ya; do
     "$yashy" build "$file" -o "$pgo" --release --pgo >/dev/null 2>&1 \
         || fail "yashy build $stem (PGO) failed"
 
-    profile="$build/.yashy/pgo/$stem.profdata"
+    # The driver names the merged profile after the output it was asked for
+    # (`$stem-pgo`), not after the corpus file (`$stem`). Check for that name.
+    profile="$build/.yashy/pgo/${stem}-pgo.profdata"
     [ -f "$profile" ] || fail "the PGO build of $stem wrote no profile at $profile"
 
     assert_output "$lto" "$want" "$stem (ThinLTO)"

@@ -40,24 +40,34 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # The image ships clang 13 through clang 18 and points `clang` at 14.
-      # Yashy emits opaque-pointer IR; LLVM 14 accepts it only behind
-      # `-mllvm -opaque-pointers`, and with that flag plus
-      # `-fsanitize=address,undefined` cc1 crashes on two of the 176 corpus
-      # programs. This gate runs on 18, the version the committed baseline
-      # names, which compiles both of them at every sanitizer and -O level.
-      - name: Select clang 18 (Linux)
+      # Yashy emits opaque-pointer IR (LLVM 15+ `ptr`), and the sanitizer
+      # corpus links each program under ASan/UBSan. The runner's default
+      # `clang` is 14, whose cc1 segfaults on opaque-pointer IR with
+      # `-fsanitize=address,undefined` (two corpus programs: `buffer.ya` and
+      # the `debug-release` program). clang 15+ compiles both at -O0/-O1/-O2
+      # with ASan, UBSan and both, so pick one. `YASHY_LLC` overrides the
+      # driver's toolchain lookup, so setting it here makes every sanitized
+      # build use the chosen clang.
+      - name: Select clang >= 15 (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          dir=$(ls -d /usr/lib/llvm-18/bin 2>/dev/null | head -n 1)
-          if [ -z "$dir" ]; then
-            echo "clang-18 is not installed on this runner" >&2
-            ls -d /usr/lib/llvm-*/bin 2>/dev/null >&2 || true
-            exit 1
+          chosen=''
+          for c in clang-18 clang-17 clang-16 clang-15; do
+            if command -v "$c" >/dev/null 2>&1; then
+              chosen="$c"; break
+            fi
+          done
+          if [ -z "$chosen" ]; then
+            echo "No clang >= 15 on PATH; installing clang-15" >&2
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends clang-15
+            chosen=clang-15
           fi
-          echo "$dir" >> "$GITHUB_PATH"
-          "$dir/clang" --version
+          chosen=$(command -v "$chosen")
+          echo "YASHY_LLC=$chosen" >> "$GITHUB_ENV"
+          echo "using $chosen"
+          "$chosen" --version
 
       - name: Verify clang (Windows)
         if: runner.os == 'Windows'

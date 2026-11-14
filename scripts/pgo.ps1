@@ -100,7 +100,7 @@ foreach ($file in Get-ChildItem $corpus -Filter *.ya | Sort-Object Name) {
     Invoke-Tool $yashy @('build', $file.FullName, '-o', $lto, '--release') "yashy build $stem (ThinLTO)" | Out-Null
     Invoke-Tool $yashy @('build', $file.FullName, '-o', $pgo, '--release', '--pgo') "yashy build $stem (PGO)" | Out-Null
 
-    $profile = Join-Path $build ".yashy\pgo\$stem.profdata"
+    $profile = Join-Path $build ".yashy\pgo\$stem-pgo.profdata"
     if (-not (Test-Path $profile)) {
         throw "the PGO build of $stem wrote no profile at $profile"
     }
