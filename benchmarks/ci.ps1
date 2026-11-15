@@ -210,14 +210,14 @@ $fibWrapRatio = Format-Ratio $fibWrapRun $cRun
 
 # The promotion row. `--timings` writes the pass counts to stderr; the build is
 # counted, then the program is run once so a promotion that changed an answer
-# is caught by the same row. --NoOpt turns promotion off, and then the counts
-# are not printed at all: a per-pass run records no promotion row rather than a
-# fake zero.
+# is caught by the same row. --NoOpt escape turns promotion off, and then the
+# counts are not printed at all: that per-pass run records no promotion row
+# rather than a fake zero.
 $promotedStack = ''
 $promotedArena = ''
 $promotedSites = ''
-if (-not $NoOpt) {
-    $timings = (& $yashy 'build' "$bench\promote.ya" '-o' $promoteYashy '--timings' 2>&1 | Out-String).Trim()
+if ($NoOpt -ne 'escape') {
+    $timings = (& $yashy 'build' "$bench\promote.ya" '-o' $promoteYashy '--timings' @noOptArgs 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
         throw "yashy build promote failed (exit $LASTEXITCODE):`n$timings"
     }
@@ -293,10 +293,10 @@ Write-Output ("hello run ms: {0} (the executable's fixed cost)" -f $helloRunText
 Write-Output ("fib-wrap run ms: {0}" -f $fibWrapRunText)
 Write-Output ("fib vs C: {0} x (checked arithmetic; not a gate)" -f $fibCheckedRatio)
 Write-Output ("fib-wrap vs C: {0} x (limit 1.20; 1.10 is the owned follow-up)" -f $fibWrapRatio)
-if ($NoOpt) {
-    Write-Output "promotion: not measured (-NoOpt $NoOpt)"
-} else {
+if ($promotedSites -ne '') {
     Write-Output ("promoted sites: {0} (stack {1}, arena {2}; expected 1)" -f $promotedSites, $promotedStack, $promotedArena)
+} else {
+    Write-Output "promotion: not measured (-NoOpt $NoOpt turns promotion off)"
 }
 
 if ($Output) {

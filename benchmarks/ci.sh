@@ -210,8 +210,7 @@ hello_run=$(measure_run 'yashy hello' "$hello_out" "$hello_yashy")
 fib_wrap_run=$(measure_run 'yashy fib-wrap' "$fib_wrap_out" "$fib_wrap_yashy")
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
-# one. The C row is context and may be unavailable on a machine whose clang
-# cannot find the C headers.
+# one.
 if [ "$(cat "$fib_out")" != '9227465' ]; then
     say "yashy fib printed '$(cat "$fib_out")', expected 9227465"
     exit 1
@@ -260,14 +259,14 @@ fib_wrap_ratio=$(ratio_of "$fib_wrap_run" "$c_run")
 # The promotion row. `--timings` writes the pass counts to stderr; the build is
 # counted, then the program is run once so a promotion that changed an answer
 # is caught by the same row. `--no-opt=escape` turns promotion off, and then
-# the counts are not printed at all: a per-pass run records no promotion row
+# the counts are not printed at all: that per-pass run records no promotion row
 # rather than a fake zero.
 promoted_stack=''
 promoted_arena=''
 promoted_sites=''
-if [ -z "$no_opt" ]; then
+if [ "$no_opt" != 'escape' ]; then
     status=0
-    "$yashy" build "$bench/promote.ya" -o "$promote_yashy" --timings >"$promote_log" 2>&1 || status=$?
+    "$yashy" build "$bench/promote.ya" -o "$promote_yashy" --timings ${no_opt_arg:+"$no_opt_arg"} >"$promote_log" 2>&1 || status=$?
     if [ "$status" -ne 0 ]; then
         say "yashy build promote failed (exit $status)"
         cat "$promote_log" >&2
@@ -309,10 +308,10 @@ say "hello run ms: $hello_run (the executable's fixed cost)"
 say "fib-wrap run ms: $fib_wrap_run"
 say "fib vs C: $fib_checked_ratio x (checked arithmetic; not a gate)"
 say "fib-wrap vs C: $fib_wrap_ratio x (limit 1.20; 1.10 is the owned follow-up)"
-if [ -n "$no_opt" ]; then
-    say "promotion: not measured (--no-opt=$no_opt)"
-else
+if [ -n "$promoted_sites" ]; then
     say "promoted sites: $promoted_sites (stack $promoted_stack, arena $promoted_arena; expected 1)"
+else
+    say "promotion: not measured (--no-opt=$no_opt turns promotion off)"
 fi
 
 emit_block() {

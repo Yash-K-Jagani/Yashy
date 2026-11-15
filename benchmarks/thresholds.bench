@@ -17,3 +17,10 @@ large_compile_ms=25
 # same machine the Yashy rows are measured on, so drift is already visible
 # there). The claim it feeds is asserted in ci.sh/ci.ps1.
 fib_c_run_ms=100
+
+# The same for two rows the ratio gate already owns. `hello_run_ms` is a few
+# milliseconds, where 20% is less than the timer's own noise, and
+# `fib_wrap_run_ms` is half of `fib_wrap_ratio`: the assertion there is the
+# tighter instrument (1.20 including both rows), so this one gets room.
+hello_run_ms=50
+fib_wrap_run_ms=50

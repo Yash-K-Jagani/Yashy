@@ -61,11 +61,13 @@ regression allowance, so the script asserts them itself after writing the file
   so it is a stronger program, and `fib_checked_ratio` records what that costs.
   The C row is therefore required, not context — a run without it cannot
   answer the claim. The development host measures 1.00-1.06 and reproduces
-  clang's own row inside 6%; the Windows runner measures **1.17**, and
-  `hello_run_ms` shows how much of that is the executable's fixed cost rather
-  than the arithmetic. 1.20 is the bound both runners hold today; 1.10 is
-  carried as the owned follow-up in `docs/gates.md` rather than quietly
-  replaced.
+  clang's own row inside 6%. The Windows runner measured **1.17** and then
+  **1.05** on the same commit, with `hello_run_ms` at 4.4 ms — the fixed cost
+  every whole-process row carries, and the same order as the spread between
+  those two runs. 1.20 is the bound both runners hold today; 1.10 is carried as
+  the owned follow-up in `docs/gates.md` rather than quietly replaced, and the
+  follow-up names the two ways to close it (shrink the fixed cost, or measure
+  the row startup-adjusted and say so).
 - **`promoted_sites == 1`.** `promote.ya` has one allocation that never leaves
   its function and one that is returned; exactly one may be promoted. A
   different count is a real change in escape analysis, and the program's
@@ -114,6 +116,15 @@ The Linux baseline was measured on an ext4 workspace; the Windows baseline was
 measured on a clean local run. Replace either with a runner measurement through
 step 1 if the first CI run lands outside the thresholds for an environmental
 reason rather than a code change.
+
+**Both baselines are now a Bench runner measurement (2026-11-15, `6ee9d40`).**
+`fib_compile_ms` moves the most: the measurement builds with `--release`, and
+since phase 4 the release link is ThinLTO, so the row is 1.2-1.4 s where the
+older baselines recorded 0.2 s. It is a compile-time budget for the release
+build, not a regression; compare it with the row in the file, not with the
+number in an older commit. `benchmarks/thresholds.bench` gives the C row and
+the two smallest rows room for their own noise, and the ratio claims are
+asserted in the scripts.
 
 ### The per-pass gate
 
