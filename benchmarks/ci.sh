@@ -7,12 +7,28 @@
 # wordcount and maps add the runtime rows that phase 4's inline paths are
 # measured against, and large's run row is the release link's end-to-end time.
 #
+# Two rows here are assertions, not just numbers, because the phase 4 plan
+# states them as claims and a claim with no gate cannot be corrected:
+#
+#   fib_wrap_ratio  `fib-wrap.ya` against `fib.c`, both medians, must be
+#                   <= 1.10. This is the row the claim `fib <= 1.1x C` is
+#                   about: `fib-wrap.ya` spells the same wrapping arithmetic
+#                   C does, where `fib.ya`'s `+` is checked. `fib_c_run_ms`
+#                   is therefore required, not context.
+#   promotion       `promote.ya` has one allocation that never leaves its
+#                   function and one that is returned; `--timings` must
+#                   report exactly one promoted site. This is the row the
+#                   allocation claim is measured on (see promote.ya).
+#
 # Usage:
 #   sh benchmarks/ci.sh [output.bench]
 #
 # The gate rows go to the output file (or stdout when no file is named); the
-# human report goes to stderr. The C rows stay in the human report only:
-# clang's time is context, not a Yashy regression.
+# human report goes to stderr. clang and the C standard headers are required
+# now that the C row is the denominator of `fib_wrap_ratio`.
+#
+# The output file is written before the claim assertions run, so a failed
+# claim still uploads the measurement that explains it.
 #
 # BENCH_RUNS sets the sample count; the median is reported. One untimed warm-up
 # runs first. BENCH_NO_OPT=<pass> disables one registered optimization pass in
@@ -63,6 +79,21 @@ median_of() {
 
 file_bytes() {
     wc -c < "$1" | tr -d ' '
+}
+
+# Two medians as one ratio, two decimals. Division is in awk so the script
+# needs no floating-point arithmetic of its own (POSIX sh has none).
+ratio_of() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        if (b <= 0) { print "0.00"; exit }
+        printf "%.2f\n", a / b
+    }'
+}
+
+# `ratio <= bound`, answered by awk's exit status so the comparison is the same
+# on both operating systems.
+ratio_within() {
+    awk -v r="$1" -v bound="$2" 'BEGIN { exit !(r <= bound) }'
 }
 
 # Runs one build, and on failure prints what the build said.
@@ -133,12 +164,16 @@ measure_run() {
 }
 
 fib_yashy="$build/fib-yashy"
+fib_wrap_yashy="$build/fib-wrap-yashy"
 fib_c="$build/fib-c"
 hello_yashy="$build/hello-yashy"
 large_yashy="$build/large-yashy"
 wordcount_yashy="$build/wordcount-yashy"
 maps_yashy="$build/maps-yashy"
+promote_yashy="$build/promote-yashy"
+promote_log="$build/promote-timings.txt"
 fib_out="$build/fib-yashy.out"
+fib_wrap_out="$build/fib-wrap-yashy.out"
 c_out="$build/fib-c.out"
 
 fib_compile=$(measure_compile 'yashy build fib' "$yashy" build "$bench/fib.ya" -o "$fib_yashy" --release ${no_opt_arg:+"$no_opt_arg"})
@@ -150,6 +185,10 @@ large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large
 run_checked 'yashy build wordcount' "$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
 run_checked 'yashy build maps' "$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
 
+# The comparable-integer program: its compile row is not claimed, so the build
+# is untimed, but its run row is (see fib_wrap_ratio in the header).
+run_checked 'yashy build fib-wrap' "$yashy" build "$bench/fib-wrap.ya" -o "$fib_wrap_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+
 fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
 wordcount_out="$build/wordcount-yashy.out"
 maps_out="$build/maps-yashy.out"
@@ -159,12 +198,18 @@ maps_run=$(measure_run 'yashy maps' "$maps_out" "$maps_yashy")
 # large is already built for its compile row; its run row is the release
 # link's end-to-end time.
 large_run=$(measure_run 'yashy large' "$large_out" "$large_yashy")
+# The numerator of fib_wrap_ratio.
+fib_wrap_run=$(measure_run 'yashy fib-wrap' "$fib_wrap_out" "$fib_wrap_yashy")
 
 # The answer is fixed, so a wrong program is a failed run rather than a fast
 # one. The C row is context and may be unavailable on a machine whose clang
 # cannot find the C headers.
 if [ "$(cat "$fib_out")" != '9227465' ]; then
     say "yashy fib printed '$(cat "$fib_out")', expected 9227465"
+    exit 1
+fi
+if [ "$(cat "$fib_wrap_out")" != '9227465' ]; then
+    say "yashy fib-wrap printed '$(cat "$fib_wrap_out")', expected 9227465"
     exit 1
 fi
 if [ "$(cat "$wordcount_out")" != "900000
@@ -187,17 +232,53 @@ hello_bytes=$(file_bytes "$hello_yashy")
 c_compile=''
 c_run=''
 c_bytes=''
-if c_compile=$(measure_compile 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c" 2>/dev/null); then
-    if c_run=$(measure_run 'clang fib' "$c_out" "$fib_c" 2>/dev/null); then
-        c_bytes=$(file_bytes "$fib_c")
-        say "C comparison (not a gate): clang compile $c_compile ms, run $c_run ms, $c_bytes bytes"
-    else
-        c_compile=''
+c_compile=$(measure_compile 'clang build fib' clang -O2 "$bench/fib.c" -o "$fib_c") || {
+    say 'the C row is required: it is the denominator of fib_wrap_ratio'
+    exit 1
+}
+c_run=$(measure_run 'clang fib' "$c_out" "$fib_c") || {
+    say 'the C row is required: it is the denominator of fib_wrap_ratio'
+    exit 1
+}
+c_bytes=$(file_bytes "$fib_c")
+
+fib_checked_ratio=$(ratio_of "$fib_run" "$c_run")
+fib_wrap_ratio=$(ratio_of "$fib_wrap_run" "$c_run")
+
+# The promotion row. `--timings` writes the pass counts to stderr; the build is
+# counted, then the program is run once so a promotion that changed an answer
+# is caught by the same row. `--no-opt=escape` turns promotion off, and then
+# the counts are not printed at all: a per-pass run records no promotion row
+# rather than a fake zero.
+promoted_stack=''
+promoted_arena=''
+promoted_sites=''
+if [ -z "$no_opt" ]; then
+    status=0
+    "$yashy" build "$bench/promote.ya" -o "$promote_yashy" --timings >"$promote_log" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        say "yashy build promote failed (exit $status)"
+        cat "$promote_log" >&2
+        exit 1
+    fi
+    promoted_stack=$(sed -n 's/.*promoted_stack=\([0-9][0-9]*\).*/\1/p' "$promote_log" | tail -n 1)
+    promoted_arena=$(sed -n 's/.*promoted_arena=\([0-9][0-9]*\).*/\1/p' "$promote_log" | tail -n 1)
+    if [ -z "$promoted_stack" ] || [ -z "$promoted_arena" ]; then
+        say 'the promotion counts are missing from `yashy build --timings`'
+        cat "$promote_log" >&2
+        exit 1
+    fi
+    promoted_sites=$((promoted_stack + promoted_arena))
+    promote_out="$build/promote-yashy.out"
+    status=0
+    "$promote_yashy" >"$promote_out" 2>&1 || status=$?
+    if [ "$status" -ne 0 ] || [ "$(cat "$promote_out")" != '43' ]; then
+        say "yashy promote printed '$(cat "$promote_out")' (exit $status), expected 43"
+        exit 1
     fi
 fi
-if [ -z "$c_compile" ]; then
-    say 'C comparison unavailable (clang could not build fib.c)'
-fi
+
+say "C comparison (fib_wrap_ratio denominator): clang compile $c_compile ms, run $c_run ms, $c_bytes bytes"
 
 say "fib output: $(cat "$fib_out")"
 if [ -n "$no_opt" ]; then
@@ -212,6 +293,14 @@ say "maps run ms: $maps_run"
 say "release run ms: $large_run"
 say "fib binary bytes: $fib_bytes"
 say "hello binary bytes: $hello_bytes"
+say "fib-wrap run ms: $fib_wrap_run"
+say "fib vs C: $fib_checked_ratio x (checked arithmetic; not a gate)"
+say "fib-wrap vs C: $fib_wrap_ratio x (limit 1.10)"
+if [ -n "$no_opt" ]; then
+    say "promotion: not measured (--no-opt=$no_opt)"
+else
+    say "promoted sites: $promoted_sites (stack $promoted_stack, arena $promoted_arena; expected 1)"
+fi
 
 emit_block() {
     printf '%s\n' '# generated by benchmarks/ci.sh; update deliberately'
@@ -224,12 +313,21 @@ emit_block() {
     printf 'fib_compile_ms=%s\n' "$fib_compile"
     printf 'fib_binary_bytes=%s\n' "$fib_bytes"
     printf 'fib_run_ms=%s\n' "$fib_run"
+    printf 'fib_c_run_ms=%s\n' "$c_run"
+    printf 'fib_wrap_run_ms=%s\n' "$fib_wrap_run"
+    printf 'fib_checked_ratio=%s\n' "$fib_checked_ratio"
+    printf 'fib_wrap_ratio=%s\n' "$fib_wrap_ratio"
     printf 'hello_compile_ms=%s\n' "$hello_compile"
     printf 'hello_binary_bytes=%s\n' "$hello_bytes"
     printf 'large_compile_ms=%s\n' "$large_compile"
     printf 'wordcount_run_ms=%s\n' "$wordcount_run"
     printf 'maps_run_ms=%s\n' "$maps_run"
     printf 'release_run_ms=%s\n' "$large_run"
+    if [ -n "$promoted_sites" ]; then
+        printf 'promoted_stack=%s\n' "$promoted_stack"
+        printf 'promoted_arena=%s\n' "$promoted_arena"
+        printf 'promoted_sites=%s\n' "$promoted_sites"
+    fi
     if [ -n "$no_opt" ]; then
         printf 'no_opt=%s\n' "$no_opt"
     fi
@@ -241,4 +339,19 @@ if [ -n "$output" ]; then
     say "wrote $output"
 else
     emit_block
+fi
+
+# The claim assertions run last, on purpose: the file above is the evidence, and
+# a run that fails a claim must still upload the numbers that failed it.
+
+if ! ratio_within "$fib_wrap_ratio" 1.10; then
+    say "fib_wrap_ratio is $fib_wrap_ratio ($fib_wrap_run ms vs C $c_run ms), limit 1.10"
+    say 'fix the arithmetic path or correct the claim in docs/gates.md and the phase 4 plan'
+    exit 1
+fi
+
+if [ -n "$promoted_sites" ] && [ "$promoted_sites" -ne 1 ]; then
+    say "promote.ya promoted $promoted_sites sites (stack $promoted_stack, arena $promoted_arena), expected exactly 1"
+    say 'one allocation stays in its function and one escapes; a different count is a real change in the pass'
+    exit 1
 fi

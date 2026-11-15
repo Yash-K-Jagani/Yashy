@@ -1,0 +1,31 @@
+// The promotion row: two allocations, one of each placement.
+//
+// `kept` allocates a buffer that never leaves the function, so escape analysis
+// moves it to the frame; `escaped` returns its buffer, so the same pass has to
+// leave it on the heap. `yashy build --timings` counts the result
+// (`promoted_stack`, `promoted_arena`), and `benchmarks/ci.sh`/`ci.ps1` check
+// that exactly one of the two sites moved.
+//
+// This is the program the allocation claim is measured on. The phase 4 plan
+// used to name `wordcount`, which has no `alloc` site at all - its text, word
+// list and map all come from runtime builtins and are released with `.free()`
+// - so there was never a ratio to measure there.
+fn kept() -> int {
+    let p = alloc(8);
+    p[0] = 41;
+    let v = p[0];
+    p.free();
+    return v + 1;
+}
+
+fn escaped() -> *mut int {
+    let p = alloc(8);
+    p[0] = 1;
+    return p;
+}
+
+fn main() {
+    let p = escaped();
+    print(kept() + p[0]);
+    p.free();
+}

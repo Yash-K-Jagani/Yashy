@@ -11,3 +11,9 @@ runtime=20
 # The 1,000-line program is a slower build; give it a little more room than a
 # small program, but still catch a real regression.
 large_compile_ms=25
+
+# The C row is the denominator of `fib_wrap_ratio`, not a Yashy row: clang's own
+# run time moving is not a regression in this compiler (and the runner is the
+# same machine the Yashy rows are measured on, so drift is already visible
+# there). The claim it feeds is asserted in ci.sh/ci.ps1.
+fib_c_run_ms=100

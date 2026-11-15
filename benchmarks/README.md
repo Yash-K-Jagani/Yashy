@@ -21,27 +21,49 @@ pwsh benchmarks/run-features.ps1   # the feature suite
 
 A third, small suite runs in CI: `benchmarks/ci.ps1` on Windows and
 `benchmarks/ci.sh` on Linux. It builds `fib`, `hello` and a ~1,000-line program,
-checks their fixed output, and writes the nine gate rows as `key=value`:
+checks their fixed output, and writes the gate rows as `key=value`:
 
 | Row | Measures |
 |---|---|
 | `fib_compile_ms` | build time of the recursive-fibonacci program |
 | `fib_binary_bytes` | size of that executable |
-| `fib_run_ms` | wall-clock run of that executable |
+| `fib_run_ms` | wall-clock run of that executable (`+` is checked) |
+| `fib_c_run_ms` | the same program in C: the denominator of both ratio rows |
+| `fib_wrap_run_ms` | wall-clock run of `fib-wrap.ya`, the same arithmetic wrapping as C |
+| `fib_checked_ratio` | `fib_run_ms / fib_c_run_ms`: what the overflow check costs |
+| `fib_wrap_ratio` | `fib_wrap_run_ms / fib_c_run_ms`: the `fib ≤ 1.1× C` claim |
 | `hello_compile_ms` | build time of a hello-world program |
 | `hello_binary_bytes` | size of the hello-world executable |
 | `large_compile_ms` | build time of a ~1,000-line program |
 | `wordcount_run_ms` | strings-and-map workload: split, count, deduplicate |
 | `maps_run_ms` | integer-map workload: fill, then probe every key |
 | `release_run_ms` | wall-clock run of the ~1,000-line program through the release link |
+| `promoted_stack` | `alloc` sites escape analysis moved to the frame in `promote.ya` |
+| `promoted_arena` | `alloc` sites moved to the block arena in `promote.ya` |
+| `promoted_sites` | the two above, summed: must be exactly 1 |
 
 Each row is the median of 3 runs locally (5 in CI) after one untimed warm-up.
 `crates/yashy-bench` compares a fresh measurement with
 `benchmarks/baselines/<os>.bench`; a row fails when it grows past the percent in
 `benchmarks/thresholds.bench` (`compile=20`, `binary=10`, `runtime=20`, with
 `large_compile_ms=25`). A baseline row that the measurement lost fails; a new
-row is reported and not gated. The C comparison is printed in the text log as
-context and is never a gate row.
+row is reported and not gated.
+
+The comparison only gates the `*_compile_ms`, `*_binary_bytes`, `*_run_ms` and
+`instantiation_count` rows; anything else in the file is metadata. Two of those
+metadata rows carry a *claim*, which is an absolute bound rather than a
+regression allowance, so the script asserts them itself after writing the file
+(a failed claim still uploads the numbers that failed it):
+
+- **`fib_wrap_ratio ≤ 1.10`.** The phase 4 plan's `fib ≤ 1.1× C` row is about
+  `fib-wrap.ya`, not `fib.ya`: `fib.ya`'s `+` stops on overflow where C wraps,
+  so it is a stronger program, and `fib_checked_ratio` records what that costs.
+  The C row is therefore required, not context — a run without it cannot
+  answer the claim.
+- **`promoted_sites == 1`.** `promote.ya` has one allocation that never leaves
+  its function and one that is returned; exactly one may be promoted. A
+  different count is a real change in escape analysis, and the program's
+  output (`43`) is checked so a promotion that changed an answer fails too.
 
 `.github/workflows/bench.yml` runs the gate:
 
@@ -110,7 +132,9 @@ skip. A pass fails when disabling it makes its own row *better* by more than 2%:
 that means the pass costs the row it claims to win. The `-NoOpt` and
 `BENCH_NO_OPT` inputs append `--no-opt=<pass>` to every build and record
 `no_opt=<pass>` in the measurement, so the two files are distinguishable after
-the fact.
+the fact. The promotion rows are the exception: `--no-opt=escape` turns
+promotion off, so the counts are not printed and a per-pass file carries no
+`promoted_*` row rather than a fake zero.
 
 To see *why* a given row still carries a check or an allocation, run
 `yashy build <file.ya> --opt-report`; [docs/optimization.md](../docs/optimization.md)
@@ -164,6 +188,7 @@ or it is not done" is the phase's constraint.
 | `loop` | 200,000,000 iterations of an integer loop with a data-dependent branch | loop code, integer arithmetic, branch handling |
 | `float` | 100,000,000 iterations of `x = x * a + b` | `float` arithmetic on a serial dependency chain |
 | `fib-wrap`, `loop-wrap` | the two integer programs again, with `wrapping_*` in place of bare `+`, `-`, `*` | what Yashy's checked arithmetic costs, and the row that is strictly comparable with C, Rust, Go, Node and Python — all of whose arithmetic wraps |
+| `promote` | two `alloc` sites: one kept in its function, one returned | escape analysis, counted from `yashy build --timings`; the row the allocation claim is measured on |
 
 Yashy's arithmetic is checked, so `fib.ya` is not quite the same program as
 `fib.c`: it stops with a message if an addition overflows, where C carries on
