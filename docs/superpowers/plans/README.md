@@ -10,7 +10,7 @@ acceptance commands pass. The ledger for a slice lives at
 
 The sixteen plans dated **2026-10-27** — the master plan and phases 1a through
 13 — are complete and archived under [`history/`](history). `history/` also
-holds the earlier Otter-era milestones and the 2026-10-23 rename record. Nothing
+holds the earlier pre-rename milestones and the 2026-10-23 rename record. Nothing
 in `history/` is authoritative: read it for provenance, not for instructions.
 
 The master plan remains the index of what 1.0 shipped:
