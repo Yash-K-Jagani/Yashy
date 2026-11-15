@@ -24,3 +24,9 @@ fib_c_run_ms=100
 # tighter instrument (1.20 including both rows), so this one gets room.
 hello_run_ms=50
 fib_wrap_run_ms=50
+
+# `release_run_ms` is 1.5-6.5 ms: process start-up plus a program with no work
+# in it. 20% of a 5 ms row is under one timer tick, so the row is a tripwire for
+# a doubled cost, not a percentage gate. What the release link is actually held
+# to is the PGO table (`scripts/pgo.sh`), which measures programs that do work.
+release_run_ms=100

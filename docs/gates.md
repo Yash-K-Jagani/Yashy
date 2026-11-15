@@ -116,9 +116,9 @@ loosen one.
 | Attributes only where proven | `cargo test -p yashy-codegen --test attributes` | every attribute traced to a fact; no facts ⇒ no attributes |
 | Escape promotion sound | `cargo test -p yashy-codegen --test escape` + ASan/UBSan corpus | no promoted value is reachable after its scope; corpus clean |
 | Allocation and size | `benchmarks/ci.sh` / `ci.ps1` promotion row + `yashy-bench` | `promote.ya` reports exactly one promoted site (`promoted_sites == 1`): the allocation that stays in its function moves, the returned one does not, and the program still answers `43`; `hello_binary_bytes` stays inside the phase 3 budget |
-| Runtime, like for like | `benchmarks/ci.sh` / `ci.ps1` on both OSes | `fib_wrap_ratio ≤ 1.20` — the `wrapping_*` row is the row the `fib ≤ 1.1× C` claim is about, because `fib.ya`'s `+` is checked and C's wraps. `fib_checked_ratio` records what the check costs (1.8× on the development host, 1.7× on the CI runner) and is not gated. The development host measures 1.00-1.06; the Windows runner 1.17, of which `hello_run_ms` is the executable's fixed cost. 1.10 stays open as the **`fib` ratio on Windows** follow-up below |
+| Runtime, like for like | `benchmarks/ci.sh` / `ci.ps1` on both OSes | `fib_wrap_ratio ≤ 1.20` — the `wrapping_*` row is the row the `fib ≤ 1.1× C` claim is about, because `fib.ya`'s `+` is checked and C's wraps. `fib_checked_ratio` records what the check costs (1.8× on the development host, 1.6-1.7× on the CI runners) and is not gated. The development host measures 1.00-1.06; the Windows runner measured 1.17, 1.05 and 1.09 on one compiler, of which 4.4-7.8 ms is the executable's fixed cost (`hello_run_ms`). 1.10 stays open as the **`fib` ratio on Windows** follow-up below |
 | PGO | `scripts/pgo.sh` / `pgo.ps1` on both OSes | every program answers correctly with `--pgo`, and the per-program size and speed table is published in `benchmarks/build/pgo-<os>.txt`. 2026-11-15: Linux is 7.3-14.6% smaller and four of six rows ≥5% faster (`hello` flat, `fib` 5.3% slower); Windows is 3.0-4.4% smaller and mixed, two rows slower. PGO is not a blanket win, and the table is the row rather than a threshold that would have to be walked back |
-| Per-pass gate | `yashy-bench --per-pass` | no pass regresses its own row by more than 2% |
+| Per-pass gate | `yashy-bench --per-pass` on a quiet machine | no pass regresses its own row by more than 2%. The comparator and both exit codes are unit-tested on synthetic measurement files (`crates/yashy-bench`), and `yashy build --opt-list` names the row each pass is held to. A real run needs one measurement per registered pass, and the suite produces no `async_run_ms` row yet; on the CI runners the same row moves ~25% run to run, so a 2% threshold on sequential measurements is noise. Carried as the **per-pass run** follow-up below |
 | Explained | `cargo test -p yashy-driver --test opt_report` | every surviving check and allocation has a reason |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
 
@@ -127,19 +127,36 @@ loosen one.
 The plan's runtime gate was `fib ≤ 1.1× C`. Making it a row changed what it
 says. The like-for-like row is `fib-wrap.ya` (`fib.ya`'s `+` is checked, C's
 wraps), and on the development host it is inside the promise: 82.2 ms against
-clang's 82.0 ms, 1.00×. On the Windows CI runner the same pair measures 30.6 ms
-against 26.1 ms — **1.17×** — while the checked row is 1.70×. The gap is not in
-the arithmetic: `hello_run_ms` is the executable's whole fixed cost, and
-`fib-wrap` exceeds the C row by roughly that amount. The runner is also slower
-than the host for both compilers, so the ratio, not the milliseconds, is the
-fact.
+clang's 82.0 ms, 1.00×. On the Windows CI runner the same pair measured 30.6 ms
+against 26.1 ms (**1.17×**) and 22.4 against 21.4 ms (**1.05×**), with a third
+run at 32.5 against 29.9 ms (1.09×) while the checked row moved 1.53-1.70× over
+the same three runs. The gap is not in the arithmetic: `hello_run_ms` is the
+executable's whole fixed cost, and `fib-wrap` exceeds the C row by roughly that
+amount. The runner is also slower than the host for both compilers, so the
+ratio, not the milliseconds, is the fact — and the ratio itself moves by 0.12
+across runs of one compiler.
 
 The gate therefore asserts **1.20** today, and the original 1.10 is carried here
 with an owner rather than deleted:
 
 | Row | Measured (2026-11-15) | Why it is where it is | Owner | Closes when | Re-run |
 |---|---|---|---|---|---|
-| `fib_wrap_ratio ≤ 1.10` on the Windows runner | 1.17 (30.6 vs 26.1 ms); 1.70 checked | the arithmetic is comparable; the excess is the executable's fixed cost (`hello_run_ms`), paid before `fib` starts | runtime owner | `fib_wrap_ratio` is ≤ 1.10 on the Windows runner — either the fixed cost shrinks by the ~4 ms gap or the row is measured startup-adjusted, with the adjustment stated in the row | `benchmarks/ci.ps1` in the Bench job |
+| `fib_wrap_ratio ≤ 1.10` on the Windows runner | 1.05-1.17 across three runs of one compiler; 1.53-1.70 checked | the arithmetic is comparable; the excess is the executable's fixed cost (`hello_run_ms`, 4.4-7.8 ms), paid before `fib` starts | runtime owner | `fib_wrap_ratio` is ≤ 1.10 on the Windows runner in **every** run, not just the fast ones — either the fixed cost shrinks by the gap or the row is measured startup-adjusted, with the adjustment stated in the row | `benchmarks/ci.ps1` in the Bench job |
+
+#### The per-pass run — carried forward after 1.0 (2026-11-15)
+
+`--per-pass` compares the all-passes measurement with one taken per registered
+pass disabled. The comparator is real — `per_pass` and both exit codes are
+unit-tested against synthetic files — but it has never been run end to end,
+because two things are missing rather than wrong: the suite has no
+`async_run_ms` row, and sequential measurements on the CI runners move by more
+than the 2% the gate allows (Windows `fib_run_ms` measured 34.8 and 44.2 ms on
+the same compiler). Running it there would fail on noise, which is a worse
+signal than a recorded gap.
+
+| Row | State (2026-11-15) | Why | Owner | Closes when | Re-run |
+|---|---|---|---|---|---|
+| `--per-pass` on both operating systems | comparator tested, never run end to end | no `async_run_ms` row; sequential runner variance (~25% on Windows) is an order of magnitude above the 2% threshold | benchmark owner | an `async` workload row exists **and** the harness interleaves on/off measurements (A/B, n of m) so the 2% threshold is measured against noise, then the table is recorded for both OSes | `yashy-bench --per-pass` |
 
 #### Feature-row budget — carried forward after 1.0 (2026-11-15)
 

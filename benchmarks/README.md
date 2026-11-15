@@ -61,13 +61,13 @@ regression allowance, so the script asserts them itself after writing the file
   so it is a stronger program, and `fib_checked_ratio` records what that costs.
   The C row is therefore required, not context — a run without it cannot
   answer the claim. The development host measures 1.00-1.06 and reproduces
-  clang's own row inside 6%. The Windows runner measured **1.17** and then
-  **1.05** on the same commit, with `hello_run_ms` at 4.4 ms — the fixed cost
-  every whole-process row carries, and the same order as the spread between
-  those two runs. 1.20 is the bound both runners hold today; 1.10 is carried as
-  the owned follow-up in `docs/gates.md` rather than quietly replaced, and the
-  follow-up names the two ways to close it (shrink the fixed cost, or measure
-  the row startup-adjusted and say so).
+  clang's own row inside 6%. The Windows runner measured **1.17**, **1.05** and
+  **1.09** on the same compiler, with `hello_run_ms` between 4.4 and 7.8 ms —
+  the fixed cost every whole-process row carries. 1.20 is the bound both
+  runners hold today; 1.10 is carried as the owned follow-up in
+  `docs/gates.md` rather than quietly replaced, and the follow-up names the two
+  ways to close it (shrink the fixed cost, or measure the row
+  startup-adjusted and say so).
 - **`promoted_sites == 1`.** `promote.ya` has one allocation that never leaves
   its function and one that is returned; exactly one may be promoted. A
   different count is a real change in escape analysis, and the program's
@@ -117,14 +117,33 @@ measured on a clean local run. Replace either with a runner measurement through
 step 1 if the first CI run lands outside the thresholds for an environmental
 reason rather than a code change.
 
-**Both baselines are now a Bench runner measurement (2026-11-15, `6ee9d40`).**
+**Both baselines are now Bench runner measurements (2026-11-15, `6e8ea75`).**
 `fib_compile_ms` moves the most: the measurement builds with `--release`, and
-since phase 4 the release link is ThinLTO, so the row is 1.2-1.4 s where the
+since phase 4 the release link is ThinLTO, so the row is 1.2-2.2 s where the
 older baselines recorded 0.2 s. It is a compile-time budget for the release
 build, not a regression; compare it with the row in the file, not with the
-number in an older commit. `benchmarks/thresholds.bench` gives the C row and
-the two smallest rows room for their own noise, and the ratio claims are
-asserted in the scripts.
+number in an older commit.
+
+**The rule for a row that moved for an environmental reason: adopt the slowest
+measurement of the same compiler, not the newest one.** Two runs of `6ee9d40` /
+`6e8ea75` — which differ only in docs and in this directory, no `crates/` change
+— measured the Linux runner 20-32% apart on every gate row and the Windows
+runner 20-85% apart (`maps_run_ms` 24.9 → 46.0 ms). Adopting the newer (slower)
+number alone would leave the gate one fast run away from failing again, so each
+gate row in both files is now the **per-row maximum** of runs 43677701573 and
+43678163058, whichever direction the noise went, and the file's second header
+line says so. A row that measures faster than its baseline is not a failure
+(nothing regresses by being quick), so what the baseline states is: *no run of
+this compiler has been slower than this.*
+
+That is deliberately a coarse instrument, and `benchmarks/thresholds.bench` says
+why the alternative was worse: an absolute millisecond row on a shared runner
+has 25% of noise in it, so the rows that carry a *claim* are the ratios
+(`fib_wrap_ratio`, `fib_checked_ratio`), which cancel the machine's speed
+because numerator and denominator are measured on it. The absolute rows are a
+tripwire for a doubled cost; the ratio assertions in `ci.sh`/`ci.ps1` are the
+claim. The two smallest rows (`hello_run_ms`, `release_run_ms`) and the C row
+get percentage room in `thresholds.bench` for the same reason.
 
 ### The per-pass gate
 
