@@ -133,7 +133,7 @@ program that behaves differently with one pass off is a bug in that pass.
 | Pass | What it decides | Held to |
 |---|---|---|
 | `facts` | Rely on the verifier's facts: delete proved checks, emit `noalias`, `nonnull`, `readonly` and `align`. Off means an empty fact set and attribute-free IR. | `fib_run_ms` |
-| `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. | `maps_run_ms` |
+| `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. Off means every `alloc` is an allocator call. | `maps_run_ms` (no regression) and `promoted_sites` (the promotion row) |
 | `intern` | Identical string literals share one global. Off emits one global per literal. | `hello_binary_bytes` |
 | `async` | Generate the poll function (the explicit-frame state machine) for each `async fn`. Off drives every `await` inline, without suspending. | `async_run_ms` |
 

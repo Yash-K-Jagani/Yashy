@@ -32,13 +32,15 @@ async    async_run_ms
 | Pass | What it decides | Held to |
 |------|-----------------|---------|
 | `facts` | Rely on the verifier's facts: delete proved checks, emit `noalias`, `nonnull`, `readonly`, `align`. Off means an empty fact set and attribute-free IR. | `fib_run_ms` |
-| `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. | `maps_run_ms` |
+| `escape` | Non-escaping allocations become frame slots or block-arena slots instead of allocator calls. Off means every `alloc` is an allocator call. | `maps_run_ms` (no regression) and `promoted_sites` (the promotion row) |
 | `intern` | Identical string literals share one global. Off emits one global per literal. | `hello_binary_bytes` |
 | `async` | Generate poll functions for `async fn`s: the frame holds every local live across an `await` and the poll dispatches on its resume index. Off drives every `await` inline without suspending. | `async_run_ms` |
 
 Anything not in the table is mandatory lowering, not a pass: there is no switch that turns an expression into a call or a field into an offset, because there would be no program left to measure. `yashy_codegen::pass::owner` names the owner of each expression form, and its exhaustive match is the check that every construct has an owner — a new form fails to compile until that is decided.
 
 The per-pass gate (`yashy-bench --per-pass`) compares the all-passes measurement with one taken with each pass disabled and fails when disabling a pass *improves* its own row by more than 2%. See [benchmarks/README.md](../benchmarks/README.md#the-per-pass-gate) for the command that produces the table.
+
+`escape` is the one pass whose named row cannot move: `maps.ya` inserts and probes a builtin `Map`, so the source has no `alloc` site and disabling the pass changes nothing in that program. Its positive row is the promotion count instead. [`benchmarks/promote.ya`](../benchmarks/promote.ya) holds one allocation that stays in its function and one that is returned, and `benchmarks/ci.sh`/`ci.ps1` require `yashy build --timings` to report exactly one promoted site while the program still answers `43` — a pass that stops promoting, or that promotes the returned pointer, fails that row rather than passing vacuously.
 
 ## The optimization report
 
