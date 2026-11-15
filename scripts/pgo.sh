@@ -134,7 +134,10 @@ if command -v clang >/dev/null 2>&1; then
     printf 'clang: %s\n' "$(clang --version | head -n 1)"
 fi
 if command -v llvm-profdata >/dev/null 2>&1; then
-    printf 'llvm-profdata: %s\n' "$(llvm-profdata --version | head -n 1)"
+    # `llvm-profdata` grew `--version` after LLVM 15; name the path otherwise.
+    profdata_version=$(llvm-profdata --version 2>/dev/null | head -n 1 || true)
+    [ -n "$profdata_version" ] || profdata_version=$(command -v llvm-profdata)
+    printf 'llvm-profdata: %s\n' "$profdata_version"
 fi
 
 rows=$(mktemp)

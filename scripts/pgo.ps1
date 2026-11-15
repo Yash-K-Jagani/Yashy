@@ -60,12 +60,15 @@ function Format-Ms {
 }
 
 # `--pgo` is the one row whose answer depends on the compiler *and* the profile
-# merger, so the report names both before it starts.
+# merger, so the report names both before it starts. `llvm-profdata` grew
+# `--version` after LLVM 15, so fall back to the path it resolved to.
 if (Get-Command clang -ErrorAction SilentlyContinue) {
     Write-Output "clang: $((& clang --version | Select-Object -First 1))"
 }
 if (Get-Command llvm-profdata -ErrorAction SilentlyContinue) {
-    Write-Output "llvm-profdata: $((& llvm-profdata --version | Select-Object -First 1))"
+    $profdataVersion = (& llvm-profdata --version 2>$null | Select-Object -First 1)
+    if (-not $profdataVersion) { $profdataVersion = (Get-Command llvm-profdata).Source }
+    Write-Output "llvm-profdata: $profdataVersion"
 }
 
 # One untimed warm-up, then the median of $Samples timed runs. The output is

@@ -100,7 +100,8 @@ jobs:
           echo "using $clang_bin as $shim/clang"
           echo "using $profdata_bin as $shim/llvm-profdata"
           "$shim/clang" --version
-          "$shim/llvm-profdata" --version
+          # `llvm-profdata` grew `--version` after 15; the path is the evidence.
+          echo "llvm-profdata: $(readlink -f "$shim/llvm-profdata")"
 
       - name: Verify clang (Windows)
         if: runner.os == 'Windows'
