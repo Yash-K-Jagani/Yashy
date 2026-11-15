@@ -40,23 +40,27 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Yashy emits opaque-pointer IR (LLVM 15+ `ptr`), and the sanitizer
-      # corpus links each program under ASan/UBSan. The runner's default
-      # `clang` is 14, whose cc1 segfaults on opaque-pointer IR with
-      # `-fsanitize=address,undefined` (two corpus programs: `buffer.ya` and
-      # the `debug-release` program). clang 15+ compiles both at -O0/-O1/-O2
-      # with ASan, UBSan and both, so pick one.
+      # Yashy emits opaque-pointer IR (`ptr`). The runner's default `clang` is
+      # 14, which parses `ptr` only behind `-mllvm -opaque-pointers`; under that
+      # flag *plus* ASan/UBSan its `cc1` segfaults on the corpus, and under the
+      # flag's absence it refuses with `expected type`. The driver passes the
+      # flag for clang 14 and 15 (`opaque_pointers_args`), so this step only has
+      # to make a newer clang the one named `clang`.
       #
       # The shim is the point. A previous version exported `YASHY_LLC` and
       # expected the driver to follow it, but that variable only overrides the
       # `llc` lookup: `clang` comes first from `PATH` (`toolchain.rs`, and
       # `yashy_llc_must_not_hijack_the_clang_lookup` pins it). So this step
       # puts the chosen compiler *on `PATH` under the name `clang`* — the
-      # driver, `benchmarks/ci.sh`'s C row, and the forensics step all see it.
+      # driver, `benchmarks/ci.sh`'s C row and the sanitizer corpus all see it.
       - name: Select clang >= 15 (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # The image ships several LLVM versions; name them in the log so the
+          # next run can pick a higher one without guessing.
+          ls -d /usr/lib/llvm-* 2>/dev/null || true
+          ls /usr/bin/clang* 2>/dev/null || true
           chosen=''
           for c in clang-18 clang-17 clang-16 clang-15; do
             if command -v "$c" >/dev/null 2>&1; then
@@ -134,48 +138,6 @@ jobs:
           set -o pipefail
           cargo test -p yashy-driver --test e2e -- --test-threads=1 2>&1 | tee sanitizer-output.txt
 
-      # Temporary: the two failing programs crash clang, and the driver's line
-      # does not say whether cc1 or the linker died or which sanitizer is
-      # responsible. Emit the IR, compile it with each flag combination, and
-      # capture the exact link command. Removed once the cause is known.
-      - name: Sanitizer crash forensics (Linux)
-        if: failure() && runner.os == 'Linux'
-        shell: bash
-        run: |
-          set +e
-          mkdir -p forensics
-          clang --version > forensics/clang-version.txt 2>&1
-          cat > forensics/debug-release.ya <<'EOF'
-          fn main() {
-              print("start");
-              let n = 0;
-              debug_assert(n > 0);
-              print("checked");
-              assert(n == 0);
-              print("done");
-          }
-          EOF
-          for name in buffer debug-release; do
-            if [ "$name" = buffer ]; then
-              src=crates/yashy-driver/tests/programs/buffer.ya
-            else
-              src=forensics/debug-release.ya
-            fi
-            ./target/release/yashy build "$src" --emit-ir > "forensics/$name.ll" 2> "forensics/$name-emit.err"
-            echo "emit $name => $?" >> forensics/log.txt
-            for flags in "-O2 -fsanitize=address,undefined" "-O1 -fsanitize=address,undefined" "-O2 -fsanitize=address" "-O2 -fsanitize=undefined" "-O0 -fsanitize=address,undefined"; do
-              tag=$(echo "$flags" | tr -cd '[:alnum:]')
-              clang $flags -fno-omit-frame-pointer -c "forensics/$name.ll" -o "forensics/$name-$tag.o" > "forensics/$name-$tag.log" 2>&1
-              echo "cc $name $flags => $?" >> forensics/log.txt
-            done
-          done
-          YASHY_SANITIZE=1 ./target/release/yashy build crates/yashy-driver/tests/programs/buffer.ya -o /tmp/buffer-asan > forensics/buffer-link.log 2>&1
-          echo "link buffer => $?" >> forensics/log.txt
-          if command -v strace >/dev/null; then
-            YASHY_SANITIZE=1 strace -f -e trace=execve -s 20000 -o forensics/trace.txt ./target/release/yashy build crates/yashy-driver/tests/programs/buffer.ya -o /tmp/buffer-asan2 >/dev/null 2>&1
-          fi
-          cat forensics/log.txt
-
       # The release row the plan calls "PGO": the checked-in corpus built with
       # ThinLTO and with --pgo, correctness first, then the size and median
       # columns. `scripts/pgo.sh` is the runner the CLI reference names.
@@ -242,5 +204,4 @@ jobs:
             pgo-output-windows.txt
             benchmarks/build/pgo-linux.txt
             benchmarks/build/pgo-windows.txt
-            forensics/
           if-no-files-found: warn

@@ -130,16 +130,17 @@ YASHY_SANITIZE=1 ASAN_OPTIONS=detect_leaks=0 \
 
 The test binary is serialised so a failure names one program; the corpus tests
 semantics, not concurrency in the build. `ci.yml` runs the plain suite
-unsanitised; the Bench workflow runs this one. **The corpus needs clang 15 or
-newer.** The Linux runner's default `clang` is 14, which parses Yashy's
-opaque-pointer IR only behind `-mllvm -opaque-pointers`; under that flag plus
-`-fsanitize=address,undefined` its `cc1` segfaults on `buffer.ya` and on the
-`debug-release` program, while clang 18 compiles both at `-O0`, `-O1` and `-O2`
-with ASan, UBSan and both. The workflow therefore selects `/usr/lib/llvm-18/bin`
-before it measures, which is also the version the committed baseline names. A
-sanitizer report is a **FALSE POSITIVE** in the verifier's terms - the program
-was accepted and the sanitizer disagreed - and it fails the run rather than
-being recorded.
+unsanitised; the Bench workflow runs this one. **The corpus needs a clang newer
+than the Linux runner's default 14.** Yashy emits opaque-pointer IR, so on
+clang 14 and 15 the driver passes `-mllvm -opaque-pointers` (`LLVM 16` made the
+mode the default); on clang 14 that flag plus `-fsanitize=address,undefined`
+makes `cc1` segfault on `buffer.ya` and on the `debug-release` program, and
+without it clang 15 refuses the IR with `expected type`. The workflow therefore
+puts an installed clang 15 on `PATH` under the name `clang` before it measures:
+`YASHY_LLC` would not do, because it only overrides the `llc` lookup and
+`clang` is found on `PATH` first. A sanitizer report is a **FALSE POSITIVE** in
+the verifier's terms - the program was accepted and the sanitizer disagreed -
+and it fails the run rather than being recorded.
 
 The **PGO row** builds every member of [`pgo/`](pgo) twice, once with the
 ThinLTO release link and once with `--pgo`, checks that both answer correctly,

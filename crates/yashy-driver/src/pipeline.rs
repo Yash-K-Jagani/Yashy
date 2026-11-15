@@ -1740,10 +1740,9 @@ fn link_arguments(
     args.extend(reproducibility_flags(&options, target));
     args.extend(reproducible_linker_flags(&options, target));
     // The generated IR uses the opaque-pointer spelling (`ptr`). The helper
-    // asks the toolchain its version and supplies the one flag LLVM 14 needs;
-    // newer clang releases get nothing because the mode is already the default
-    // and the old switch was removed. `llc` is not a C driver and never sees
-    // this.
+    // asks the toolchain its version and supplies the one flag clang 14 and 15
+    // need; clang 16 made the mode the default and clang 17 removed the switch.
+    // `llc` is not a C driver and never sees this.
     args.extend(
         opaque_pointers_args(toolchain)
             .iter()
@@ -2002,7 +2001,9 @@ fn xcrun_find(tool: &str) -> Option<PathBuf> {
 /// The generated IR uses the opaque-pointer spelling (`ptr`). LLVM 14 -- the
 /// clang in Ubuntu 22.04, the Linux release target -- still defaults to typed
 /// pointers, and its switch is an LLVM option rather than a clang driver flag,
-/// so it has to travel through `-mllvm`. LLVM 15 made opaque pointers the
+/// so it has to travel through `-mllvm`. LLVM 15 is the same: it can parse
+/// `ptr`, but only when the mode is on, and the default is off (`clang 15` on
+/// the Bench runner otherwise says `expected type`). LLVM 16 made the mode the
 /// default, and LLVM 17 removed the switch entirely: passing it there is an
 /// error, not a no-op. The version therefore decides the argument list.
 ///
@@ -2018,7 +2019,7 @@ fn opaque_pointers_args_for(found: &str, major: Option<u32>) -> Vec<&'static str
         return Vec::new();
     }
     match major {
-        Some(version) if version < 15 => vec!["-mllvm", "-opaque-pointers"],
+        Some(version) if version < 16 => vec!["-mllvm", "-opaque-pointers"],
         _ => Vec::new(),
     }
 }
@@ -2279,15 +2280,21 @@ mod tests {
     }
 
     #[test]
-    fn clang_14_gets_the_mllvm_opaque_pointer_flag_and_newer_clang_does_not() {
+    fn every_clang_before_16_gets_the_mllvm_opaque_pointer_flag_and_16_does_not() {
         assert_eq!(
             opaque_pointers_args_for("clang", Some(14)),
             vec!["-mllvm", "-opaque-pointers"],
             "LLVM 14 needs the switch, and it is an LLVM option"
         );
+        assert_eq!(
+            opaque_pointers_args_for("clang", Some(15)),
+            vec!["-mllvm", "-opaque-pointers"],
+            "LLVM 15 parses `ptr` only in opaque mode, and the mode is off by \
+             default: without the switch clang 15 says `expected type`"
+        );
         assert!(
-            opaque_pointers_args_for("clang", Some(15)).is_empty(),
-            "LLVM 15 made opaque pointers the default"
+            opaque_pointers_args_for("clang", Some(16)).is_empty(),
+            "LLVM 16 made opaque pointers the default"
         );
         assert!(
             opaque_pointers_args_for("clang", Some(18)).is_empty(),
