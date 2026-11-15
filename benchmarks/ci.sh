@@ -65,16 +65,34 @@ file_bytes() {
     wc -c < "$1" | tr -d ' '
 }
 
+# Runs one build, and on failure prints what the build said.
+#
+# A gate that reports only "failed" leaves the CI log with no cause: the run
+# that first tripped this on `ubuntu-22.04` named `yashy build fib` and nothing
+# else, because both call sites below discarded the child's output. The output
+# is small and this path runs once, so keep it and show it.
+run_checked() {
+    desc=$1
+    shift
+    status=0
+    "$@" >"$build/failure.out" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        say "$desc failed (exit $status)"
+        cat "$build/failure.out" >&2
+        exit 1
+    fi
+}
+
 # One untimed warm-up, then the median of $runs timed builds.
 measure_compile() {
     desc=$1
     shift
-    "$@" >/dev/null 2>&1 || { say "$desc failed (exit $?)"; exit 1; }
+    run_checked "$desc" "$@"
     samples=$(mktemp)
     i=0
     while [ "$i" -lt "$runs" ]; do
         start=$(now_ns)
-        "$@" >/dev/null 2>&1 || { say "$desc failed (exit $?)"; exit 1; }
+        run_checked "$desc" "$@"
         end=$(now_ns)
         elapsed_ms $((end - start)) >> "$samples"
         i=$((i + 1))
@@ -86,12 +104,19 @@ measure_compile() {
 
 # The same, for a program that must print something: a run that produced no
 # output is not a run (a refused binary would otherwise time as suspiciously
-# fast).
+# fast). The program's own stderr is kept in `$outfile`, so a refusal that
+# killed it is quoted rather than summarised.
 measure_run() {
     desc=$1
     outfile=$2
     shift 2
-    "$@" >"$outfile" 2>&1 || { say "$desc failed (exit $?)"; exit 1; }
+    status=0
+    "$@" >"$outfile" 2>&1 || status=$?
+    if [ "$status" -ne 0 ]; then
+        say "$desc failed (exit $status)"
+        cat "$outfile" >&2
+        exit 1
+    fi
     [ -s "$outfile" ] || { say "$desc produced no output"; exit 1; }
     samples=$(mktemp)
     i=0
@@ -122,10 +147,8 @@ large_compile=$(measure_compile 'yashy build large' "$yashy" build "$bench/large
 
 # The container workloads are the runtime rows. Built once, untimed: their
 # compile cost is the compiler's, not the runtime's.
-"$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"} >/dev/null 2>&1 \
-    || { say 'yashy build wordcount failed'; exit 1; }
-"$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"} >/dev/null 2>&1 \
-    || { say 'yashy build maps failed'; exit 1; }
+run_checked 'yashy build wordcount' "$yashy" build "$bench/wordcount.ya" -o "$wordcount_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
+run_checked 'yashy build maps' "$yashy" build "$bench/maps.ya" -o "$maps_yashy" --release ${no_opt_arg:+"$no_opt_arg"}
 
 fib_run=$(measure_run 'yashy fib' "$fib_out" "$fib_yashy")
 wordcount_out="$build/wordcount-yashy.out"
