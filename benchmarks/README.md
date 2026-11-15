@@ -172,6 +172,14 @@ program answers are asserted in `ci.sh`/`ci.ps1`; the two smallest rows
 (`hello_run_ms`, `release_run_ms`) and the C row get extra room in
 `thresholds.bench` because they are milliseconds.
 
+**The closing run is 43711532592 (`e9bc432`): both Bench jobs green, 12/12 gate
+rows inside their bounds.** Linux measured every row at or below baseline
+(`maps_run_ms` −27.0%); Windows measured every row at or below baseline
+(`maps_run_ms` −28.9%); `fib_wrap_ratio` was 0.95 Linux and 1.18 Windows;
+`promoted_sites` 1/1; the sanitizer corpus passed 176/176. That is the first run
+where the ratio assertions, the promotion count and the `yashy-bench` table all
+agree on both operating systems, so the row set is what the gate keeps.
+
 ### The per-pass gate
 
 A whole-suite comparison cannot tell you *which* optimization paid for a row.

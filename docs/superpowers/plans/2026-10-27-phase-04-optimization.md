@@ -369,7 +369,7 @@ evidence is in the Task 7, Task 8 and Task 10 ledger entries.
 |---|---|---|---|---|
 | Linux bench medians (`yashy-bench`, five runs) | **closed 2026-11-15** | No Linux host here; the table must come from CI | CI (`bench.yml`, `ubuntu-22.04`) | **Filled** by run 43677701573 (`6ee9d40`): `fib_compile_ms` 1196.4, `fib_run_ms` 42.1, `wordcount_run_ms` 117.8, `maps_run_ms` 47.3, `release_run_ms` 1.5, `hello_run_ms` 1.5; gate rows in `current-linux.bench` |
 | `cargo test --workspace` on Windows and Linux | **closed 2026-11-15** | Windows suites pass locally; the Linux run has no host here | CI (`ci.yml` matrix) | **Filled** by the `ci.yml` matrix on the closing commit: `test (ubuntu-latest)`, `test (windows-latest)` and `test (macos-15)` green |
-| PGO release size and speed row | **closed 2026-11-15** | No profile runtime and no working linker on this host | CI (`bench.yml`) | **Filled** by run 43677701573: Linux 7.3-14.6% smaller, and `json_text` +53.4%, `strings` +35.6%, `maps` +24.1%, `wordcount` +11.1%, `hello` 0.0%, `fib` -5.3%. Windows table from run 43605065930 (clang 20.1.8): 3.0-4.4% smaller, mixed speed |
+| PGO release size and speed row | **closed 2026-11-15** | No profile runtime and no working linker on this host | CI (`bench.yml`) | **Filled** by run 43711532592: Linux 7.3-14.6% smaller, and `json_text` +54.2%, `strings` +35.5%, `maps` +25.0%, `wordcount` +16.7%, `hello` 0.0%, `fib` 0.0%. Windows table from the same run (clang 20.1.8): 3.0-4.4% smaller, `json_text` +12.4%, `maps` +10.2%, `fib` -1.3% |
 | ASan/UBSan differential corpus | **closed 2026-11-15** | Application Control blocks `clang.exe` | CI (`bench.yml`) | **Filled** by run 43677701573: 176 passed, 0 failed, no `FALSE POSITIVE` |
 
 This is a written exception, not a silent slip: the phase's Windows gates and
@@ -389,9 +389,12 @@ behind it cannot be corrected — only deleted:
   `benchmarks/ci.sh`/`ci.ps1` require `promoted_sites == 1` and the answer `43`.
   Both runners report 1 (stack 1, arena 0).
 - `fib` ≤ 1.1× C became `fib_wrap_ratio`, measured on `fib-wrap.ya` — the row
-  whose arithmetic wraps like C's. Linux measures 0.96; Windows measured 1.05-1.17 across three runs of one compiler, so the gate is 1.20 and 1.10 on Windows is carried as a dated follow-up in `docs/gates.md`. follow-up in `docs/gates.md`.
+  whose arithmetic wraps like C's. Linux measures 0.95-0.96; Windows measured
+  1.05-1.18 across four runs of one compiler, so the gate is 1.20 and 1.10 on
+  Windows is carried as a dated follow-up in `docs/gates.md`.
 - `release ≥ 5% faster with PGO` became the PGO table, because it is not a
-  blanket win: `fib` is 5.3% slower under PGO on Linux.
+  blanket win: `fib` and `hello` are flat under PGO on Linux, and Windows
+  measures `fib` 1.3% slower.
 - feature rows ≤ 1.8× are recorded as measured ratios with a dated follow-up
   per row (`map_array` 3.8×, `debug_format` 3.4×, `map_scan` 1.9×).
 - the per-pass gate's comparator is unit-tested but has never been run end to
@@ -413,8 +416,8 @@ file existed before, although Task 10's commit cites one.
 | Attributes only where proven | `cargo test -p yashy-codegen --test attributes` | every attribute traced to a fact; no facts ⇒ no attributes |
 | Escape promotion sound | `cargo test -p yashy-codegen --test escape` + ASan/UBSan corpus | no promoted value is reachable after its scope; corpus clean |
 | Allocation and size | `benchmarks/ci.sh` / `ci.ps1` promotion row + `yashy-bench` | `promote.ya` reports exactly one promoted site (`promoted_sites == 1`) and still prints `43`; `hello` binary within the phase 3 budget |
-| Runtime | `benchmarks/ci.sh` / `ci.ps1` on both OSes | `fib_wrap_ratio ≤ 1.20`, measured on `fib-wrap.ya` — the row whose arithmetic wraps like C's. The development host is 1.00-1.06; the Windows runner is 1.05-1.17 across three runs, and `hello_run_ms` shows the excess is the executable's fixed cost, so 1.10 is carried by `docs/gates.md`'s **`fib` ratio on Windows** follow-up instead of being asserted. `fib_checked_ratio` records the checked default's cost without gating it. The feature-row ratios are recorded in `benchmarks/README.md`, with the three over budget owned by the **feature-row budget** follow-up |
-| PGO | `scripts/pgo.sh` / `pgo.ps1` on both OSes | every program answers correctly under `--pgo`, and the per-program size and speed table is published per OS. The table is the row; 2026-11-15 Linux is 7.3-14.6% smaller and four of six rows ≥5% faster (`hello` flat, `fib` 5.3% slower), Windows is mixed |
+| Runtime | `benchmarks/ci.sh` / `ci.ps1` on both OSes | `fib_wrap_ratio ≤ 1.20`, measured on `fib-wrap.ya` — the row whose arithmetic wraps like C's. The development host is 1.00-1.06; the Windows runner is 1.05-1.18 across four runs, and `hello_run_ms` shows the excess is the executable's fixed cost, so 1.10 is carried by `docs/gates.md`'s **`fib` ratio on Windows** follow-up instead of being asserted. `fib_checked_ratio` records the checked default's cost without gating it. The feature-row ratios are recorded in `benchmarks/README.md`, with the three over budget owned by the **feature-row budget** follow-up |
+| PGO | `scripts/pgo.sh` / `pgo.ps1` on both OSes | every program answers correctly under `--pgo`, and the per-program size and speed table is published per OS. The table is the row; 2026-11-15 (run 43711532592) Linux is 7.3-14.6% smaller and four of six rows ≥5% faster (`hello` and `fib` flat), Windows is 3.0-4.4% smaller and mixed (`fib` 1.3% slower) |
 | Per-pass gate | `yashy-bench --per-pass` on a quiet machine | no pass regresses its own row by more than 2%; the comparator is unit-tested on synthetic files, and a real run is the **per-pass run** follow-up in `docs/gates.md` (no `async_run_ms` row yet, and runner variance is far above 2%) |
 | Explained | `cargo test -p yashy-driver --test opt_report` | every surviving check and allocation has a reason |
 | No regression | `cargo test --workspace` | green on Windows and Linux |
