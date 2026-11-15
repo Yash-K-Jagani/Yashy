@@ -10,7 +10,7 @@
 
 **Tech Stack:** `yashy-driver` (commands), `yashy-hir`, `yashy-verify` (`ProofFacts`, effects, typestate), `yashy-lsp/src/json.rs` (JSON-RPC framing to reuse), `yashy-runtime` (log/trace/metrics, deterministic clock and RNG), and OS primitives: Windows Job Objects + restricted token, Linux rlimits + path allowlist. No new Rust dependencies — which is also why `yashy doc` emits Markdown rather than HTML, and why `yashy lsp` launches the sibling binary rather than duplicating the server.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-10-async.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §6. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-10-async.md`.
 
 ## Global Constraints
 

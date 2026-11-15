@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-lexer` (`TokenKind`, no new keywords at all), `yashy-parser/src/{exprs.rs,stmts.rs,items.rs,ast.rs}`, `yashy-sema/src/{check_expr.rs,check_pat.rs,scope.rs}` (lowering, typing and the partial-move rules), `yashy-hir/src/{hir.rs,escape.rs}` (the arena boundary; `escape.rs` moves here in Task 8 so the verifier and codegen share one analysis), `yashy-codegen/src/{expr_gen.rs,stmt_gen.rs,memory.rs,arena.rs}` (only for `?` on `Option`'s existing tag lookup and arena placement), `yashy-verify/src/pass/arena.rs`, `yashy-fmt`, `yashy-lsp`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 5. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-04-optimization.md` (its CI-owned rows are recorded under the dated exception in that plan).
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 5. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-04-optimization.md` (its CI-owned rows are recorded under the dated exception in that plan).
 
 ## Revision note (2026-11-04)
 

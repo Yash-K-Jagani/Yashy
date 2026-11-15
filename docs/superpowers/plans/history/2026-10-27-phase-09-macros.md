@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-lexer` (token trees over the existing `TokenKind`), `yashy-parser` (fragment re-parsing per metavariable kind), a new `crates/yashy-expand` crate (no dependencies), `yashy-common` (`Span` gains an expansion frame), `yashy-verify` (unchanged by design — that is the point).
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 9. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-08-traits-oop-iterators.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 9. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-08-traits-oop-iterators.md`.
 
 ## Global Constraints
 

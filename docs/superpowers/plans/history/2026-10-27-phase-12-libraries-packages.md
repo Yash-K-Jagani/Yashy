@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-manifest` (new, zero deps), `yashy-driver/src/{resolve.rs,fetch.rs,audit.rs}`, the phase 3 `yashy-cache`, `yashy-runtime` (Winsock/POSIX sockets, OS entropy, process control, directory iteration, file metadata), `crates/yashy-stdlib/` as a versioned package with the modules from Task 10, and new `packages/{http,cli,net,test,bench,fuzz}`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-11-ai-native-observability.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §7. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-11-ai-native-observability.md`.
 
 ## Global Constraints
 

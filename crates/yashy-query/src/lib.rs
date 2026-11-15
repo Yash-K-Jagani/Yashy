@@ -9,7 +9,7 @@
 //! `&mut self` is the only interior mutability; task 2 shards per file and
 //! therefore per instance.
 //!
-//! See `docs/superpowers/plans/2026-10-27-phase-04-optimization.md` Task 1.
+//! See `docs/superpowers/plans/history/2026-10-27-phase-04-optimization.md` Task 1.
 
 #![forbid(unsafe_code)]
 

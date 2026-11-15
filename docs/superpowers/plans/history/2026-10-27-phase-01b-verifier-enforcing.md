@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-verify` (no external deps), the 1a interval domain, `yashy-hir::exhaustive`, the existing corpus harness in `crates/yashy-driver/tests/verify.rs`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4, §8 row 1b. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-01a-verifier-core.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4, §8 row 1b. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-01a-verifier-core.md`.
 
 ## Global Constraints
 

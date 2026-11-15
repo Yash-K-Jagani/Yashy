@@ -8,7 +8,7 @@
 
 **Tech Stack:** `.github/workflows/{release,ci,bench}.yml`, `scripts/{package-release,install,test-install,checksums}.*`, `crates/yashy-driver` (`--reproducible`, `fmt --check`, `--target`), `crates/yashy-lexer`/`yashy-parser`/`yashy-driver` (the `cfg` keyword and the pre-resolution filter), `crates/yashy-codegen` (one `target_triple` threaded through), the phase 11 sandbox (playground), the phase 12 registry format (hosted index), and a new `selfhost/` directory for the spike.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 13. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-12-libraries-packages.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §9.2, §8 row 13. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-12-libraries-packages.md`.
 
 **Status: complete (2026-11-14).** `v1.0.0` is published, and the install matrix installed the published assets on Windows, Linux and macOS. The two credential-gated signing items are recorded in [`docs/gates.md`](../../gates.md) rather than here; see the completion record after Task 10.
 

@@ -115,6 +115,6 @@ When a phase runs long, cut in this order: playground → profiler → coverage/
 
 1. Read the spec §8 row for the phase and the previous phase's plan's "Outcome" section.
 2. Read the current code the phase touches; the revision is written from today's code, not from the spec's memory of it.
-3. Revise `docs/superpowers/plans/2026-10-27-phase-<id>-<name>.md` in place, keeping its header, outcome and gate.
+3. Revise `docs/superpowers/plans/history/2026-10-27-phase-<id>-<name>.md` in place, keeping its header, outcome and gate.
 4. Run its self-review against the spec: every spec requirement in that phase maps to a task.
 5. Set this table's Status to `in progress`, then execute with `superpowers:executing-plans` or `superpowers:subagent-driven-development`.

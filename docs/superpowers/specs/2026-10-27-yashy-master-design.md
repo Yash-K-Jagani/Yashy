@@ -537,7 +537,9 @@ All nine files that were in `docs/superpowers/plans/` have moved to
 every old plan is explicitly non-authoritative.
 
 **The plan is an index plus one file per phase, all written up front.**
-`docs/superpowers/plans/` holds:
+`docs/superpowers/plans/` holds the active plan; the completed 1.0 index and its
+phase files are archived under `docs/superpowers/plans/history/` (see
+`docs/superpowers/plans/README.md`). The 1.0 set was:
 
 - `2026-10-27-yashy-master-plan.md` — the index: the phase spine, the invariants,
   the gates, the cut list, and the status of each phase;
@@ -545,22 +547,22 @@ every old plan is explicitly non-authoritative.
   be reviewed and costed as one artefact:
 
   ```text
-  2026-10-27-yashy-master-plan.md                    <- the index
-  2026-10-27-phase-01a-verifier-core.md
-  2026-10-27-phase-01b-verifier-enforcing.md
-  2026-10-27-phase-02-effects-typestate.md
-  2026-10-27-phase-03-speed-foundation.md
-  2026-10-27-phase-03b-native-foundation.md
-  2026-10-27-phase-04-optimization.md
-  2026-10-27-phase-05-syntax-ergonomics.md
-  2026-10-27-phase-06-modules-unicode.md
-  2026-10-27-phase-07-patterns-named-args.md
-  2026-10-27-phase-08-traits-oop-iterators.md
-  2026-10-27-phase-09-macros.md
-  2026-10-27-phase-10-async.md
-  2026-10-27-phase-11-ai-native-observability.md
-  2026-10-27-phase-12-libraries-packages.md
-  2026-10-27-phase-13-hardening.md
+  history/2026-10-27-yashy-master-plan.md            <- the index
+  history/2026-10-27-phase-01a-verifier-core.md
+  history/2026-10-27-phase-01b-verifier-enforcing.md
+  history/2026-10-27-phase-02-effects-typestate.md
+  history/2026-10-27-phase-03-speed-foundation.md
+  history/2026-10-27-phase-03b-native-foundation.md
+  history/2026-10-27-phase-04-optimization.md
+  history/2026-10-27-phase-05-syntax-ergonomics.md
+  history/2026-10-27-phase-06-modules-unicode.md
+  history/2026-10-27-phase-07-patterns-named-args.md
+  history/2026-10-27-phase-08-traits-oop-iterators.md
+  history/2026-10-27-phase-09-macros.md
+  history/2026-10-27-phase-10-async.md
+  history/2026-10-27-phase-11-ai-native-observability.md
+  history/2026-10-27-phase-12-libraries-packages.md
+  history/2026-10-27-phase-13-hardening.md
   ```
 
 A single 166-week file would be wrong by phase 3 and then stop being read, which

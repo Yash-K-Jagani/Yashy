@@ -8,7 +8,7 @@
 
 **Tech Stack:** `crates/yashy-driver/src/modules.rs`, `crates/yashy-sema/src/check_expr.rs` (resolution), `crates/yashy-runtime` (C string functions), `crates/yashy-stdlib/yashy/string.ya`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 6. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-05-syntax-ergonomics.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 6. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-05-syntax-ergonomics.md`.
 
 ## Revision note (2026-11-06)
 

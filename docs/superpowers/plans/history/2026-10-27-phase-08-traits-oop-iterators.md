@@ -10,7 +10,7 @@ This phase also completes the **object model written in spec §3.1** — `object
 
 **Tech Stack:** `yashy-parser` (`Item::Fn.type_params`, `Item::Struct`/`Item::Enum` type parameters, `Item::Impl`), `yashy-sema/src/check_expr.rs` (`GenericFn`, `mangled_generic_name`, `TypeScheme` for generic types, method resolution), `yashy-hir` (`HirStmt::ForIn`), `yashy-codegen` (`stmt_gen.rs`), `yashy-verify`, `yashy-lsp`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.1 (the object model), §8 row 8. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-07-patterns-named-args.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.1 (the object model), §8 row 8. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-07-patterns-named-args.md`.
 
 ## Revision note (2026-11-07)
 

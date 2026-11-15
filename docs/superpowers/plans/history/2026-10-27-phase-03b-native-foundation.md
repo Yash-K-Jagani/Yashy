@@ -8,7 +8,7 @@
 
 **Tech Stack:** `crates/yashy-lexer` (five new operator tokens, one `DotDotDot`), `crates/yashy-parser` (`ast::{BinOp,UnOp,ExternDecl,Item}`), `crates/yashy-sema` (`check_expr.rs` builtin table and operator typing, `ty.rs` for `io.Error`), `crates/yashy-verify` (shift-range fact), `crates/yashy-codegen` (`expr_gen.rs`, `ir.rs` layout), `crates/yashy-runtime` (C: byte reads, result tags), `crates/yashy-driver` (CLI surface unchanged).
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.2 (the native foundation), §2 rows 20–21. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-03-speed-foundation.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §3.2 (the native foundation), §2 rows 20–21. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-03-speed-foundation.md`.
 
 ## Global Constraints
 

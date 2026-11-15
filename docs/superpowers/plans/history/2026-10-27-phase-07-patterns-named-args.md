@@ -8,7 +8,7 @@
 
 **Tech Stack:** `yashy-parser` (`ast::Pattern`, `Stmt::Destructure`), `yashy-hir::exhaustive` (the module phase 1b moved out of sema), `yashy-sema/src/check_expr.rs` (pattern typing, call resolution), `yashy-verify` (partial-move rule), `yashy-fmt`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 7. Index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-06-modules-unicode.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §8 row 7. Index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`. Predecessor: `2026-10-27-phase-06-modules-unicode.md`.
 
 ## Global Constraints
 

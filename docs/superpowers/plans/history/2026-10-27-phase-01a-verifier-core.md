@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust (workspace crate, no external dependencies), `yashy-common` diagnostics, the existing `clap`-free argument parsing in `crates/yashy-driver/src/main.rs`, and the existing schema-v1 JSON writer in `crates/yashy-common/src/json.rs`.
 
-**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4 (verification), §6.1 (compiler observability), §8 row 1a. Master index: `docs/superpowers/plans/2026-10-27-yashy-master-plan.md`.
+**Spec:** `docs/superpowers/specs/2026-10-27-yashy-master-design.md` §4 (verification), §6.1 (compiler observability), §8 row 1a. Master index: `docs/superpowers/plans/history/2026-10-27-yashy-master-plan.md`.
 
 ## Global Constraints
 
